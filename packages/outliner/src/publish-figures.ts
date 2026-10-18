@@ -224,6 +224,23 @@ const KINDS: Record<string, (p: Props, href: RowHref) => string> = {
     }).join("")}</ul>`;
   },
 
+  // A key sheet: each key as keycaps (`ctrl+k` is ctrl and k), the joining words (then, or) as words.
+  keys: (p, href) => `<table class="fig-keys"><tbody>${records(p.keys).map(k =>
+    `<tr class="${k.learn ? "learn" : ""}"><th>${String(k.keys ?? "").trim().split(/\s+/).map(w => (/^(then|or|and|,)$/.test(w) ? `<span class="dim">${esc(w)}</span>`
+      : (w.length > 1 ? w.split(/\+(?!$)/) : [w]).map(c => `<kbd>${esc(c)}</kbd>`).join(""))).join(" ")}</th><td>${rowText(k.action, k.block, href)}</td></tr>`).join("")}</tbody></table>`,
+
+  // A properties table (PIE-1032): name, where, values, default (or needed), what it means under them.
+  props: (p) => {
+    const rows = records(p.props), where = rows.some(r => r.where);
+    return `<div class="fig-scroll"><table class="fig-props"><thead><tr><th>name</th>${where ? `<th>${esc(p.where ?? "where")}</th>` : ""}<th>values</th><th>default</th></tr></thead><tbody>${rows.map(r =>
+      `<tr class="${r.needed ? "needed" : ""}"><th><code>${esc(r.name ?? r.key)}</code></th>${where ? `<td>${esc(r.where ?? "")}</td>` : ""}<td>${words(r.values)}</td><td>${r.needed ? "needed" : esc(r.default ?? "")}</td></tr>` +
+      (r.meaning ? `<tr class="meaning"><td colspan="${where ? 4 : 3}">${words(r.meaning)}</td></tr>` : "")).join("")}</tbody></table></div>`;
+  },
+
+  // Commands and what each does (PIE-1032): the command as code, `→` what happens, `safe` on one an agent may run.
+  example: (p) => `<ul class="fig-list fig-example">${records(p.examples).map(x =>
+    `<li><code>${p.prompt ? `<span class="dim">${esc(p.prompt)}</span> ` : ""}${esc(x.act)}</code>${x.safe ? ` <span class="safe">safe</span>` : ""}${x.does ? `<p>→ ${words(x.does)}</p>` : ""}</li>`).join("")}</ul>`,
+
   compare: (p, href) => {
     const entries = records(p.entries);
     const named: string[] = Array.isArray(p.columns) && p.columns.length ? p.columns.map(String).slice(0, 3) : [];
@@ -255,6 +272,8 @@ export const HTML_FIGURE_KINDS: readonly string[] = Object.keys(KINDS);
 export function figureBodyHtml(kind: string, props: Props, href: RowHref, rows: FigureRows = {}): string | null {
   const draw = KINDS[kind];
   if (!draw) return null;
+  // A key sheet read from the door's action registry (`actions:`) has no rows here: its source, as a kind not drawn.
+  if (kind === "keys" && !records(props.keys).length) return null;
   const before = activeRows;
   activeRows = rows;
   try { return draw(props, href); }
@@ -380,6 +399,13 @@ ${Array.from({ length: MAX_TABS }, (_, i) => `.fig-tab-input:nth-of-type(${i + 1
 .fig-decision .g{display:inline-block;width:1.1em;color:var(--fg)}
 .fig-decision li.chosen .g{color:var(--link)}.fig-decision li.chosen .t{font-weight:600}
 .fig-decision li.rejected{color:var(--dim)}.fig-decision li.rejected a{color:var(--dim)}
+.fig-keys th{text-align:left;font-weight:400;white-space:nowrap;padding:.2rem .8rem .2rem 0}
+.fig-keys kbd{font:13px/1.3 ui-monospace,Menlo,monospace;border:1px solid var(--rule);border-radius:.25rem;padding:0 .3rem;margin-right:2px}
+.fig-keys tr.learn td{font-weight:600}
+.fig-props th code{color:var(--link)}.fig-props tr.needed td:last-child{color:var(--link)}
+.fig-props tr.meaning td{color:var(--dim);padding-top:0;border-top:0}
+.fig-example code{font:14px/1.4 ui-monospace,Menlo,monospace}.fig-example p{margin:.2rem 0 0 1rem;color:var(--fg)}
+.fig-example .safe{font-size:12px;color:var(--link)}
 .fig-uptime{display:flex;flex-wrap:wrap;gap:2px}
 .fig-uptime .u{display:block;width:.55rem;height:1.4rem;border-radius:1px;background:#2a2a28}
 .fig-uptime .u.ok{background:var(--link)}.fig-uptime .u.degraded{background:#d9b46a}.fig-uptime .u.down{background:#dd8a80}

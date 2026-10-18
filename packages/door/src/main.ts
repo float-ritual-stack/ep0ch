@@ -332,6 +332,11 @@ if (screenAt >= 0 && args[screenAt + 2]?.startsWith("ep0ch://")) {
     process.exit(2);
   }
 }
+// `actions --doc <name>`: an action's page (PIE-1032), from the running door when there is one, else the registry.
+if (args[0] === "actions" && args.includes("--doc")) {
+  const { actionsDoc } = await import("./actions-doc");
+  process.exit(await actionsDoc(args.slice(1)));
+}
 if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) {
   // Which door, when EP0CH_CONTROL names none: the one on the outline this folder names, else the only one running.
   if (!process.env.EP0CH_CONTROL) {

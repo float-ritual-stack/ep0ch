@@ -184,6 +184,10 @@ export const WAITING_ACTIONS = actionSet<KindHost>()("waiting", {
     summary: "show a waiting item in the reader: n (1 is the longest wait, as describe lists them) or id; refused to an agent while the person is typing here", keys: "j k ↑ ↓ click",
     touches: "screen", replay: "safe", says: r => `showed what ${r.who} owes (${r.n} of ${r.of})`,
     args: { n: { type: "number", about: "its place in the list, from 1", optional: true }, id: { type: "string", about: "the item's block id", optional: true } },
+    examples: [
+      { act: "waiting.pick n=1", does: "shows the item that has waited longest in the reader" },
+      { act: "waiting.pick id=9a3f6d12-4b7e-4c80-b5a1-7e2c0d9f3b46", does: "shows that waiting item in the reader" },
+    ],
     run(a, { pane, desk }, actor) {
       if ((a.n === undefined) === (a.id === undefined)) throw new ActionRefused("waiting.pick takes n or id, one of them");
       return pick(pane as WaitingPane, desk, a, actor);

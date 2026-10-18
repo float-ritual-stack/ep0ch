@@ -573,7 +573,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(links()).toHaveLength(2);
       const [a, b] = links();
       expect(await act("tile.tune", {}, a!.name)).toBeTruthy();
-      await act("tune.aim", { tile: a!.name });
+      await act("tune.aim", { target: a!.name });
       await act("tune.set", { row: "list.gap", value: "2", level: "instance" });
       d.lines();
       const gapOf = (x: { p: unknown }) => desk.lookOf(x.p).values["list.gap"];
@@ -592,7 +592,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(again.filter(x => x.p.instanceLook?.["list.gap"] === "2")).toHaveLength(1);
       // This list: the reader's ( ) on the Ground list; the inspector offers this list and saves onto its heading.
       const reader = () => [...desk.panes.values()].find((p: any) => p.surface && p.kind !== "backlinks") as any;
-      await act("tune.aim", { tile: "detail" }).catch(() => {});
+      await act("tune.aim", { target: "detail" }).catch(() => {});
       desk.run("tile.focus", {}, "detail");
       d.lines();
       for (let i = 0; i < 40 && reader().surface.listAt()?.first !== 6; i++) { d.key({ kind: "char", ch: ")" }); await Bun.sleep(5); d.lines(); }

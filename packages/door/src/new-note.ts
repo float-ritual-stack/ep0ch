@@ -61,6 +61,10 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       inbox: { type: "boolean", optional: true, about: "make it at the top of the Inbox, whatever note the person is in" },
       opens: { type: "string", optional: true, about: "where it opens: float (over the screen), tab (a tab on the focused tile), drawer (your drawer) or lands (where the screen's opens land); left out, what the screen says, else the person's choice (note.opens), else float" },
     },
+    examples: [
+      { act: "note.new text=\"Shed roof repair [status::open]\"", does: "makes a note titled Shed roof repair, attributed to you, under the note in front" },
+      { act: "note.new inbox=true opens=tab", does: "makes a note at the top of the Inbox, shown as a tab on the focused tile" },
+    ],
     async run({ text, near, inbox, opens: asked }, { ctx, here }, actor) {
       if (here?.noDrawer) throw new ActionRefused("not here: log on first (the logon and the logoff make no notes)");
       if (ctx.home) throw new ActionRefused("there's no outline open yet: open or make one here first (the home base), then ctrl+n makes a note in it");
@@ -122,6 +126,10 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
     touches: "nothing", replay: "safe", person: "it's the person's own setting: an agent asks note.new opens= for one note",
     says: out => (out?.changed ? `new notes open: ${out.opens}` : null),
     args: { opens: { type: "string", optional: true, about: "float, tab, drawer or lands" } },
+    examples: [
+      { act: "note.opens", does: "says where new notes open now" },
+      { act: "note.opens opens=tab", does: "makes new notes open as a tab on the tile the person is in", safe: false },
+    ],
     run({ opens }) {
       const want = opensArg(opens);
       if (!want) return { opens: personOpens(), ...(process.env.EP0CH_NEW_NOTE ? { from: "EP0CH_NEW_NOTE" } : {}) };

@@ -289,6 +289,10 @@ export const MOUNT_ACTIONS = actionSet<KindHost>()("mount", {
     touches: "screen", replay: "safe", person: "going into a mount moves the person's keys; an agent names a tile in it instead: tile=<mount>/<tile>",
     menu: { label: "go in (its keys)", group: "Mount", key: "ctrl+w e", now: ({ pane }) => ((pane as ScreenTile).inside ? { label: "come out", args: { on: false } } : null) },
     args: { on: { type: "boolean", optional: true, about: "true goes in, false comes out; default toggles" } },
+    examples: [
+      { act: "mount.enter tile=board on=true", does: "goes into the mounted board: every key is its own until ctrl+]" },
+      { act: "mount.enter tile=board on=false", does: "comes back out to the screen holding it" },
+    ],
     run({ on }, { pane }) { const t = pane as ScreenTile; t.goIn(on ?? !t.inside); return { tile: undefined, in: t.inside }; },
   }),
 });

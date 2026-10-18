@@ -19,6 +19,7 @@ import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind } from "../desk/tile-kinds";
 import { drawingWaits, drawVariation } from "./draw";
+import { drawProps } from "../figures/props";
 
 /** The page's parts, each a digit. */
 export const PARTS = [
@@ -184,12 +185,9 @@ export class LibraryPane implements Pane {
       shown.push(v);
       body.push(...this.block(v, 0, Object.entries(v.values).map(([k, x]) => `${k}: ${x}`).join(" · ") || "as written", W, src, cut));
       heading("Properties");
-      const kw = Math.min(24, Math.max(...s.props.map(p => width(p.token ?? p.key)))), ww = 22, vw = Math.max(10, Math.min(36, W - kw - ww - 14));
-      body.push({ text: fg(C.dark) + pad("key", kw) + "  " + pad("where", ww) + "  " + pad("values", vw) + "  default" + RESET });
-      for (const p of s.props) {
-        body.push({ text: fg(C.lcyan) + pad(p.token ?? p.key, kw) + "  " + fg(C.grey) + pad(PLACE[p.where], ww) + "  " + fg(C.white) + pad(valuesWords(p), vw) + "  " + fg(C.brown) + (p.default ?? "") + RESET });
-        wrap(p.meaning, Math.max(8, W - kw - 4)).forEach(l => body.push({ text: " ".repeat(kw + 2) + fg(C.dark) + l + RESET }));
-      }
+      // The one properties table (::graph-props, PIE-1032): an action's page draws its arguments with it too.
+      drawProps({ props: s.props.map(p => ({ name: p.token ?? p.key, where: PLACE[p.where], values: valuesWords(p), ...(p.default !== undefined ? { default: p.default } : {}), meaning: p.meaning })) }, Math.max(20, W - 1))
+        .forEach(l => body.push({ text: l }));
     } else if (this.part === "property") {
       const axis = s.sweep[Math.min(this.axis, s.sweep.length - 1)];
       head.push(...chipRows(s.sweep.map((k, i) => ({ label: k, on: k === axis, hit: { action: "library.axis", args: { key: k } } })), W));
@@ -380,6 +378,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: "show a component's page: name=<its id> (heading-style, callout, rule, graph-stat, box, an extension's: library --brief lists them), or by=1/-1 for the next or previous",
     keys: ", . or a click on its tab", touches: "screen", replay: "safe", says: r => `showed the ${r.title} page`,
     args: { name: { type: "string", optional: true, about: "the component's id" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
+    examples: [
+      { act: "library.component name=callout tile=library", does: "shows the callout component's page" },
+      { act: "library.component by=1 tile=library", does: "shows the next component's page" },
+    ],
     run({ name, by }, { pane }) {
       whole("by", by);
       const p = libraryOf(pane), all = p.schemas();
@@ -393,6 +395,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: `show a part of the page: part=${PARTS.map(x => x.part).join(", ")} (the overview, each property's values, the grids, the whole space behind a filter)`,
     keys: "1 2 3 4, or a click on a part", touches: "screen", replay: "safe",
     args: { part: { type: "string", about: PARTS.map(x => x.part).join(", ") } },
+    examples: [
+      { act: "library.part part=overview tile=library", does: "shows the page's overview" },
+      { act: "library.part part=space tile=library", does: "shows every combination of the component's picked values" },
+    ],
     run({ part }, { pane }) {
       const p = libraryOf(pane), to = PARTS.find(x => x.part === part || x.key === part);
       if (!to) throw new ActionRefused(`part is ${PARTS.map(x => x.part).join(", ")}`);
@@ -404,6 +410,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: "one property at a time: show key=<a property> (one the component sweeps), or by=1/-1 for the next or previous; shows that part",
     keys: "← → h l in one property at a time, or a click on a property", touches: "screen", replay: "safe",
     args: { key: { type: "string", optional: true, about: "the property" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
+    examples: [
+      { act: "library.axis key=fold tile=library", does: "shows the fold property and its values on the callout page" },
+      { act: "library.axis by=1 tile=library", does: "shows the next property the component sweeps" },
+    ],
     run({ key, by }, { pane }) {
       whole("by", by);
       const p = libraryOf(pane), s = p.schema();
@@ -417,6 +427,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: "show a two-axis grid the component marks: n=<from 1>, or by=1/-1; shows that part",
     keys: "← → h l in grids, or a click on a grid", touches: "screen", replay: "safe",
     args: { n: { type: "number", optional: true, about: "the grid, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
+    examples: [
+      { act: "library.grid n=1 tile=library", does: "shows the component's first two-axis grid" },
+      { act: "library.grid by=-1 tile=library", does: "shows the previous grid" },
+    ],
     run({ n, by }, { pane }) {
       whole("n", n); whole("by", by);
       const p = libraryOf(pane), s = p.schema();
@@ -431,6 +445,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: "move the cursor among the whole space's chips: rows=±1 to the axis above or below, by=±1 to the value beside (the person's keys; an agent picks with library.pick)",
     keys: "[ ] ← → h l in every combination", touches: "screen", replay: "safe",
     args: { rows: { type: "number", optional: true, about: "1 down an axis, -1 up" }, by: { type: "number", optional: true, about: "1 right a value, -1 left" } },
+    examples: [
+      { act: "library.cursor rows=1 tile=library", does: "moves the cursor to the axis below" },
+      { act: "library.cursor by=1 tile=library", does: "moves the cursor to the value on its right" },
+    ],
     run({ rows, by }, { pane }) {
       whole("rows", rows); whole("by", by);
       const p = libraryOf(pane), axes = p.spaceAxes();
@@ -445,6 +463,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: "every combination: pick or unpick value=<v> of axis=<key> (on=true or false, else it toggles; without them, the value at the cursor); the matching variations are drawn, a page at a time",
     keys: "space or ⏎ in every combination, or a click on a value", touches: "screen", replay: "safe", says: r => `${r.on ? "picked" : "unpicked"} ${r.axis} ${r.value} · ${r.matching} match`,
     args: { axis: { type: "string", optional: true, about: "the axis (a property of the space)" }, value: { type: "string", optional: true, about: "its value" }, on: { type: "boolean", optional: true, about: "true picks, false unpicks; else it toggles" } },
+    examples: [
+      { act: "library.pick axis=callout value=tip on=true tile=library", does: "picks tip on the callout axis and draws the matching variations" },
+      { act: "library.pick axis=fold value=- tile=library", does: "toggles the folded value of fold in the picked set" },
+    ],
     run({ axis, value, on }, { pane }) {
       const p = libraryOf(pane), axes = p.spaceAxes();
       const row = axis === undefined ? p.cursor.row : axes.findIndex(a => a.key === axis);
@@ -465,6 +487,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: "every combination: clear what's picked (axis=<key> clears that axis only)",
     keys: "x in every combination, or a click on x clear", touches: "screen", replay: "safe",
     args: { axis: { type: "string", optional: true, about: "only this axis" } },
+    examples: [
+      { act: "library.clear tile=library", does: "clears every picked value" },
+      { act: "library.clear axis=fold tile=library", does: "clears the picks on the fold axis only" },
+    ],
     run({ axis }, { pane }) {
       const p = libraryOf(pane);
       if (axis !== undefined) { const f = { ...p.filter }; delete f[axis]; p.filter = f; } else p.filter = {};
@@ -476,6 +502,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: `every combination: the next (by=1) or previous (by=-1) page of the matching variations, ${SPACE_PAGE} at a time, or n=<from 1>`,
     keys: "n p in every combination, or a click on n next or p previous", touches: "screen", replay: "safe",
     args: { by: { type: "number", optional: true, about: "1 the next page, -1 the previous" }, n: { type: "number", optional: true, about: "the page, from 1" } },
+    examples: [
+      { act: "library.page by=1 tile=library", does: "draws the next page of matching variations" },
+      { act: "library.page n=1 tile=library", does: "returns to the first page of variations" },
+    ],
     run({ by, n }, { pane }) {
       whole("by", by); whole("n", n);
       const p = libraryOf(pane), pages = Math.max(1, Math.ceil(spaceSize(p.schema(), p.filter).matching / SPACE_PAGE));
@@ -489,6 +519,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: "select a variation: n=<from 1> or by=1/-1; text= returns matching drawn words without changing the person's selection or clipboard",
     keys: "j k ↓ ↑, or a click on a variation; drag, double/triple click selects text", touches: "screen", touchesWith: args => args.text !== undefined ? "nothing" : "screen", replay: "safe",
     args: { text: { type: "string", optional: true, about: "words as drawn; returns them without changing the person's selection or clipboard" }, n: { type: "number", optional: true, about: "the variation, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
+    examples: [
+      { act: "library.select n=3 tile=library", does: "selects the third variation drawn and brings it into view" },
+      { act: "library.select by=1 tile=library", does: "selects the next variation" },
+    ],
     run({ n, by, text }, { pane }) {
       whole("n", n); whole("by", by);
       const p = libraryOf(pane);
@@ -504,6 +538,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: "copy a variation's source (n=<from 1>, else the selected one): the declaring note and the text that uses it (part=use or part=note for one); the person's goes to their clipboard, an agent's comes back as the answer",
     keys: "y or a click on copy for whole source; drag release or cmd+c for selected text", touches: "nothing", replay: "safe", says: r => "text" in r ? `copied ${r.text.length} chars` : `copied the source of variation ${r.n}`,
     args: { n: { type: "number", optional: true, about: "the variation, from 1" }, part: { type: "string", optional: true, about: "all (default), use, note or selection" } },
+    examples: [
+      { act: "library.copy n=2 tile=library", does: "gives back the declaring note and text of the second variation" },
+      { act: "library.copy part=use tile=library", does: "gives back only the text that uses the selected variation" },
+    ],
     run({ n, part }, { pane, desk }, actor) {
       whole("n", n);
       const p = libraryOf(pane);
@@ -527,6 +565,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     summary: `draw the variations at cols=${WIDTHS.join(", ")} columns, or all=true at every one of them one under another (without either, the next of these): the narrow fallback, a reader, a wide screen; wider than the tile is cut at its edge`,
     keys: "w, or a click on a width", touches: "screen", replay: "safe",
     args: { cols: { type: "number", optional: true, about: WIDTHS.join(", ") }, all: { type: "boolean", optional: true, about: "draw at every width" } },
+    examples: [
+      { act: "library.width cols=40 tile=library", does: "draws the variations at 40 columns" },
+      { act: "library.width all=true tile=library", does: "draws the variations at every width, one under another" },
+    ],
     run({ cols, all }, { pane }) {
       const p = libraryOf(pane);
       if (cols !== undefined && all) throw new ActionRefused("give cols or all, not both");
@@ -543,6 +585,10 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   "library.scroll": def({
     summary: "scroll the page by=<rows> (negative up)", keys: "the wheel, pgup pgdn", touches: "screen", replay: "safe",
     args: { by: { type: "number", about: "rows, negative up" } },
+    examples: [
+      { act: "library.scroll by=15 tile=library", does: "scrolls the page down fifteen rows" },
+      { act: "library.scroll by=-15 tile=library", does: "scrolls the page up fifteen rows" },
+    ],
     run({ by }, { pane }) { whole("by", by); const p = libraryOf(pane); p.scrollBy(by); return { by }; },
   }),
 });

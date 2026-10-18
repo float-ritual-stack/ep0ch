@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { readDemo, rewriteDemoReferences } from "../src/extension-demo";
-import { inertDocument, unwrapParagraphs } from "../src/extension-pages";
+import { actionArgTables, inertDocument, unwrapParagraphs } from "../src/extension-pages";
+import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
@@ -189,4 +190,17 @@ test("removing the outline's copy while the user folder has another: still insta
   const after = await list();
   expect(after.extensions.find((entry) => entry.id === "notify")?.state).toBe("active");
   expect(after.pages.notify).toBe(listed.pages.notify);
+});
+
+test("an action's arguments on its extension's page are the one properties table, as the door draws it (PIE-1032)", () => {
+  const [table] = actionArgTables({ id: "seeds", name: "Seeds", version: "1.0.0", actions: [{ id: "sow", label: "Sow", args: [
+    { name: "bed", type: "text", required: true, description: "the bed it goes in" },
+    { name: "depth", type: "number", default: "2", description: "how deep — in cm" },
+  ] }] } as never);
+  const lines = table!.split("\n");
+  const read = figureProps("props", figureSource(lines.slice(1, -1)));
+  expect("props" in read && read.props.props).toEqual([
+    { name: "bed", values: "text", meaning: "the bed it goes in", needed: true, block: undefined },
+    { name: "depth", values: "number", default: "2", meaning: "how deep, in cm", needed: false, block: undefined },
+  ]);
 });

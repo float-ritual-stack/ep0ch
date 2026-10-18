@@ -801,6 +801,10 @@ export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi }>
     keys: "j k ↑ ↓ click wheel, ⏎ (open)",
     touches: "nothing", replay: "safe", says: r => (r.opened ? `opened ${String(r.title).slice(0, 40)}` : null),
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, open: { type: "boolean", optional: true, about: "make its note the current one, as ⏎ does" } },
+    examples: [
+      { act: "activity.pick tile=activity n=1", does: "answers the newest caller's row: who, which note, when" },
+      { act: "activity.pick tile=activity n=2 open=true", does: "makes the note on row 2 the current one, as enter does" },
+    ],
     run({ n, open }, { pane, desk }, actor) {
       const rows = pane.list(), i = rowN(n, pane.selected, rows.length, "activity");
       const r = rows[i]!;
@@ -837,6 +841,10 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     touches: "tile", replay: "safe", way: "an agent sets what a reader follows when the person isn't in it", says: r => (r.asked ? null : r.source === "current" ? "let the reader follow the current note" : r.source === "none" ? "held the reader on its note" : `let the reader follow ${r.source}`),
     menu: { label: "follow…", group: "Reader", key: "P", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : null) },
     args: { source: { type: "string", optional: true, about: "current, none, or a tile's name (a tree, a links tile, a reader); left out, a picker (the person's)" } },
+    examples: [
+      { act: "reader.follow tile=reader source=tree", does: "the reader shows whatever the tree's selection is on" },
+      { act: "reader.follow tile=reader source=none", does: "holds the reader on the note it shows now" },
+    ],
     async run({ source }, { pane, desk }, actor) {
       if (!pane.follows) throw new ActionRefused("this reader keeps its own way of showing a note; it follows nothing");
       if (source === undefined) {
@@ -867,6 +875,10 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       mode: { type: "string", optional: true, about: "follows, held or pinned; left out, the other of follows and held" },
       page: { type: "string", optional: true, about: "mode=pinned: the page's name (`[[name]]`); left out, the shown note's own page" },
     },
+    examples: [
+      { act: "reader.mode tile=replies mode=held", does: "keeps the replies tile on its note when the current note moves" },
+      { act: "reader.mode tile=reader mode=pinned page=garden", does: "pins the reader to [[garden]], shown again each time it starts" },
+    ],
     run({ mode, page }, { pane, desk }) {
       if (mode !== undefined && !(FOLLOW_MODES as readonly string[]).includes(mode)) throw new ActionRefused(`reader.mode: mode is follows, held or pinned, not ${mode}`);
       return pane.setMode(mode as FollowMode | undefined, desk, page);

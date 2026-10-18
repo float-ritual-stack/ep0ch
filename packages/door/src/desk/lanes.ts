@@ -1400,6 +1400,11 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
       lanes: { type: "number", optional: true, about: "lanes to move right (negative: left)" },
       focus: { type: "boolean", optional: true, about: "false: move that lane's cursor only, the current lane and the keys staying (the wheel over a lane); default true" },
     },
+    examples: [
+      { act: "card.select id=7d9a1f40 lane=Queued", does: "selects that card in the Queued lane and the preview follows" },
+      { act: "card.select by=1", does: "steps the selection one card down its lane" },
+      { act: "card.select lanes=-1", does: "steps the selection to the lane on the left" },
+    ],
     // An agent's selection is its own (what its card actions default to): the person's lane cursor,
     // preview and keys stay where they are. The person's own card.select, through the socket as `you`, moves them.
     run(args, { model }, actor) { return lanesOf({ model }).selectBy(args, actor); },
@@ -1410,6 +1415,10 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     touches: "screen", touchesWith: a => (a.id !== undefined ? "screen" : "nothing"), replay: "safe", says: r => (r.hub ? `showed the board ${r.title}` : null),
     menu: { label: "another board", group: BOARD, key: "g" },
     args: { id: { type: "string", optional: true, about: "the hub's block id (or its first 8+ characters)" }, close: { type: "boolean", optional: true, about: "put the picker away (the person's own)" }, leave: { type: "boolean", optional: true, about: "with close and no board shown yet, leave the screen too (the picker's q)" } },
+    examples: [
+      { act: "board.hub", does: "lists the hubs this outline can show as boards", safe: true },
+      { act: "board.hub id=2b7f5e90", does: "shows the board whose hub block starts with 2b7f5e90" },
+    ],
     run({ id, close, leave }, { model }, actor) {
       // Putting the picker away is the person's own (only their g opens it).
       if (close && actor.kind === "agent") throw new ActionRefused("the hub picker is the person's; an agent shows a board with board.hub id=<hub>");
@@ -1430,12 +1439,20 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     // The lane the menu is for: the one in its tile, by the lane's own name.
     menu: { label: "collapse this lane", group: BOARD, key: "c", now: (on, t) => { const l = on.model instanceof Lanes ? on.model.laneInTile(t.name) : undefined; return l ? { args: { lane: l.name } } : { hide: true }; } },
     args: { lane: { type: "string", optional: true, about: "the lane's name; default the lane the cursor is in" }, on: { type: "boolean", optional: true, about: "true collapses, false opens; default toggles" } },
+    examples: [
+      { act: "lane.collapse lane=Done on=true", does: "folds the Done lane to a spine, its cards staying where they are" },
+      { act: "lane.collapse lane=Done on=false", does: "opens the Done lane again" },
+    ],
     run: ({ lane, on }, { model }, actor) => lanesOf({ model }).collapseLane(lane, on, actor),
   }),
   "card.move": def({
     summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m then ⏎, drag a card to a lane",
     touches: "draft", draft: "write", replay: "ask",
     args: { lane: { type: "string", about: "the lane's name" }, card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
+    examples: [
+      { act: "card.move lane=Doing", does: "moves the selected card into the Doing lane, patching what its query names" },
+      { act: "card.move lane=Done card=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "moves that card into the Done lane" },
+    ],
     run: ({ lane, card }, { model }, actor) => lanesOf({ model }).moveCard(lane, card, actor),
   }),
   "card.reorder": def({
@@ -1450,6 +1467,10 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
       before: { type: "string", optional: true, about: "the card to put it just above" },
       after: { type: "string", optional: true, about: "the card to put it just below" },
     },
+    examples: [
+      { act: "card.reorder by=-1", does: "moves the selected card one place up in its lane's order" },
+      { act: "card.reorder card=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 before=a41c6e08-9b27-4d53-8e1f-5c0d7a2b9e36", does: "puts that card just above the other in its lane" },
+    ],
     run: (args, { model }, actor) => lanesOf({ model }).reorderCard(args, actor),
   }),
   "composer.leave": def({
@@ -1464,6 +1485,10 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     keys: "ctrl+t, a click on [insert] in its title row",
     touches: "draft", draft: "type", replay: "ask", person: "an agent doesn't hand the person's terminal to a picker; card.create and note.create write their own text",
     args: { channel: { type: "string", optional: true, about: "the picker's argument (a television channel: ep0ch, ep0ch-files …); empty for none" } },
+    examples: [
+      { act: "composer.pick", does: "opens the picker on the default channel and inserts what the person chooses" },
+      { act: "composer.pick channel=ep0ch-files", does: "opens the picker on the ep0ch-files channel" },
+    ],
     run({ channel }, { model }) {
       return lanesOf({ model }).pickComposer(channel);
     },
@@ -1480,6 +1505,10 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     keys: "esc (twice with typed text)",
     touches: "draft", draft: "leave", replay: "ask", person: "the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)",
     args: { discard: { type: "boolean", optional: true, about: "put typed text aside as unsent and close" } },
+    examples: [
+      { act: "composer.close", does: "closes the new card composer when nothing is typed" },
+      { act: "composer.close discard=true", does: "puts typed text aside as unsent and closes the composer" },
+    ],
     run: ({ discard }, { model }) => lanesOf({ model }).closeComposer(!!discard),
   }),
   "card.new": def({
@@ -1488,6 +1517,9 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     touches: "draft", draft: "type", replay: "ask", person: "the composer takes the person's keys; an agent creates a card with card.create lane= text=",
     menu: { label: "new card in this lane", group: BOARD, key: "n", now: (on, t) => { const l = on.model instanceof Lanes ? on.model.laneInTile(t.name) : undefined; return l ? { args: { lane: l.name } } : { hide: true }; } },
     args: { lane: { type: "string", optional: true, about: "the lane's name; default the lane the person is in" } },
+    examples: [
+      { act: "card.new lane=Queued", does: "opens a composer for a new card that will land in the Queued lane" },
+    ],
     run: ({ lane }, { model }) => lanesOf({ model }).newCard(lane),
   }),
   "card.create": def({
@@ -1498,12 +1530,20 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
       text: { type: "string", about: "title line and body; [key::value] tokens are properties (they must meet an OR group the lane has)" },
       parent: { type: "string", optional: true, about: "the block to create it under, instead of the lane's default" },
     },
+    examples: [
+      { act: "card.create lane=Queued text=\"Order seed trays [priority::2]\"", does: "creates a card in the Queued lane with the lane's properties and priority 2" },
+      { act: "card.create lane=Queued text=\"Fix shed door\" parent=2b7f5e90-1c34-4a86-8d5e-9f0a3c7b1d62", does: "creates the card under that block instead of the lane's default" },
+    ],
     run: ({ lane, text, parent }, { model }, actor) => lanesOf({ model }).createCard(lanesOf({ model }).laneFor(lane), text, actor, parent),
   }),
   "note.create": def({
     summary: "add a note under the selected card (or parent=<id>)", keys: "N, typing, ctrl+s",
     touches: "nothing", replay: "ask",
     args: { text: { type: "string", about: "the note's text" }, parent: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
+    examples: [
+      { act: "note.create text=\"Swap is on the second Saturday\"", does: "adds that note under the selected card" },
+      { act: "note.create text=\"Bring spare twine\" parent=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "adds the note under that card" },
+    ],
     run: ({ text, parent }, { model }, actor) => lanesOf({ model }).createNote(parent ?? lanesOf({ model }).selectedCardId(actor), text, actor),
   }),
   "steps": def({
@@ -1511,6 +1551,10 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     touches: "nothing", replay: "safe",
     menu: { label: "the selected card's steps", group: BOARD, key: "s", now: cardRow },
     args: { card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
+    examples: [
+      { act: "steps", does: "lists the selected card's checklist steps, numbered from 1" },
+      { act: "steps card=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "lists that card's checklist steps" },
+    ],
     run: ({ card }, { model }, actor) => lanesOf({ model }).listSteps(card, actor),
   }),
   "step.set": def({
@@ -1521,6 +1565,10 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
       status: { type: "string", optional: true, about: `${CHECKLIST_STATUSES.join(", ")}; default toggles done (an approved or rejected step reopens to todo)` },
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
     },
+    examples: [
+      { act: "step.set step=2", does: "toggles step 2 of the selected card between done and to do" },
+      { act: "step.set step=3 status=doing card=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "marks step 3 of that card as doing" },
+    ],
     run({ step, status, card }, { model, shown }, actor) {
       if (status !== undefined && !isChecklistStatus(status)) throw new ActionRefused(`status is ${CHECKLIST_STATUSES.join(", ")}, not ${status}`);
       const n = /^\d+$/.test(step) ? Number(step) - 1 : step;
@@ -1535,6 +1583,9 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
       confirm: { type: "string", optional: true, about: "the card's id (or its first 8+ characters): the same card, said twice" },
       card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
     },
+    examples: [
+      { act: "card.trash card=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 confirm=7d9a1f40", does: "moves that card and the notes under it to Trash" },
+    ],
     run({ confirm, card }, { model }, actor) {
       if (confirm === undefined) {
         if (actor.kind === "agent") throw new ActionRefused("card.trash needs confirm=<the card's id>: the same card, said twice");
@@ -1548,6 +1599,10 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     touches: "nothing", replay: "ask",
     menu: { label: "restore the card trashed last", group: BOARD, key: "u", now: on => (on.model instanceof Lanes && on.model.trashed ? null : { hide: true }) },
     args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the card trashed last here" } },
+    examples: [
+      { act: "card.restore", does: "brings back the card trashed last from this board, where it was" },
+      { act: "card.restore id=4c1e9a73-8d20-4f65-b3a9-6e7d2c0f1b84", does: "brings back the Trash root with that block id" },
+    ],
     run: ({ id }, { model }, actor) => lanesOf({ model }).restoreCard(id, actor),
   }),
 });

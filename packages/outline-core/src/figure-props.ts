@@ -289,6 +289,19 @@ function sparkOf(md: Markdown): Props {
 
 const PATH = /\s*(?:→|->)\s*/;
 
+/**
+ * An example row (`::graph-example`, PIE-1032): a command in a code span, then what it does after `→` (or `:`), and
+ * `(safe)` at its end when an agent may run it as it is. Null when the row doesn't start with a code span.
+ */
+export function exampleRow(text: string): { act: string; does: string; safe: boolean } | null {
+  const m = /^(`+)(.+?)\1(?!`)\s*(?:→|->|:|—)?\s*(.*)$/s.exec(text.trim());
+  if (!m || !m[2]!.trim()) return null;
+  let does = m[3]!.trim();
+  const safe = /\s*\(safe\)$/.test(does);
+  if (safe) does = does.replace(/\s*\(safe\)$/, "");
+  return { act: m[2]!.trim(), does, safe };
+}
+
 /** What each kind makes of a figure's Markdown rows: props under its YAML's. */
 export const FIGURE_MARKDOWN: Record<string, (md: Markdown, p: Props) => Props> = {
   // - 2026-03: label   **now**   *next*   — a muted note
@@ -333,9 +346,26 @@ export const FIGURE_MARKDOWN: Record<string, (md: Markdown, p: Props) => Props> 
     };
   },
   // `- ctrl+k: what it does`; bold learns first.
+  // `- e then ⏎:` alone is a key with nothing said after it (an action's page lists each way to press it).
   keys: md => {
-    const rows = md.rows.filter(r => r.label !== null);
-    return rows.length ? { keys: rows.map(r => ({ keys: r.label, action: r.value, learn: r.emphasis === "strong", block: r.block })) } : {};
+    const rows = md.rows.flatMap(r => (r.label !== null ? [{ r, keys: r.label, action: r.value }] : /\S:$/.test(r.text) ? [{ r, keys: r.text.slice(0, -1), action: "" }] : []));
+    return rows.length ? { keys: rows.map(({ r, keys, action }) => ({ keys, action, learn: r.emphasis === "strong", block: r.block })) } : {};
+  },
+  // `- name: values · default — what it means` (PIE-1032); a bold name is one that's needed.
+  props: md => {
+    const rows = md.rows.filter(r => r.label !== null && r.depth === 0);
+    return rows.length ? { props: rows.map(r => {
+      const [values, dflt] = r.value.split(/\s+·\s+/);
+      return { name: r.label, values: values ?? "", ...(dflt ? { default: dflt } : {}), meaning: r.note ?? "", needed: r.emphasis === "strong", block: r.block };
+    }) } : {};
+  },
+  // `- \`act line\` → what it does`, `(safe)` at the end when an agent may run it as it is (PIE-1032).
+  example: md => {
+    const examples = md.rows.flatMap(r => {
+      const m = exampleRow(r.text + (r.note ? ` — ${r.note}` : ""));
+      return m ? [{ ...m, block: r.block }] : [];
+    });
+    return examples.length ? { examples } : {};
   },
   // Every value of the rows and paragraphs (`ok*20 degraded down`), in order; `- 2026-09-01: …` dates the first.
   uptime: md => {

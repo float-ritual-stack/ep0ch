@@ -16,6 +16,7 @@ import { authorName, USER } from "../socket";
 import { ago } from "../text";
 import { filtered } from "./filter";
 import { hyperKeysOf, hyperOn } from "../hyper";
+import { actionPage } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
@@ -216,8 +217,9 @@ const ACTIONS: BarSource = {
   preview(row, host) {
     const d = row.data as { action: string; summary?: string; keys?: string };
     const info = host.dispatch.list().actions.find(a => a.name === d.action);
-    const args = Object.entries(info?.args ?? {});
-    return { markdown: [`**${row.label}** \`${d.action}\``, "", info?.summary ?? d.summary ?? "", "", ...(info?.keys ?? d.keys ? [`Keys: ${info?.keys ?? d.keys}${hyperOn() && hyperKeysOf(d.action).length ? `, ${hyperKeysOf(d.action).join(" ")} (hyper)` : ""}`] : []), ...(args.length ? ["", "Arguments:", ...args.map(([n, s]) => `- \`${n}\`${s.optional ? "" : " (needed)"}: ${s.about ?? s.type}`)] : []), ...(row.refused ? ["", `Not now: ${row.refused}`] : [])].join("\n") };
+    // Its page (PIE-1032): the lead, its keys as keycaps, its arguments as a properties table, its examples.
+    const page: ActionInfo = info ?? { name: d.action, summary: d.summary ?? "", ...(d.keys ? { keys: d.keys } : {}), args: {}, scope: "", touches: "nothing", replay: "ask" };
+    return { markdown: actionPage(page, { title: row.label, ...(row.refused ? { refused: row.refused } : {}), ...(hyperOn() ? { hyper: hyperKeysOf(d.action) } : {}) }) };
   },
   async pick(row, host, how) {
     if (row.refused) throw new ActionRefused(row.refused);

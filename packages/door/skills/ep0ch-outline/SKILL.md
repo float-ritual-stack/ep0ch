@@ -565,7 +565,7 @@ dimmed: the door is dark-first, so write `[dim::0]` only when the person asks fo
 component as a resource: `ep0ch://<outline>@<machine>/components/<id>`). Per component: its purpose, where it goes,
 each property as `key: values (default) — meaning`, and one minimal example. They cover every component a note can hold: the heading styles, callouts, rules, each `::graph-*` figure
 (`graph-stat`, `graph-table`, `graph-tabs`, `graph-rank`, `graph-meter`, `graph-timeline`, `graph-check`, `graph-decision`,
-`graph-chat`, `graph-keys`, `graph-matrix`, `graph-quadrant`, `graph-compare`, `graph-flow`, `graph-uptime`,
+`graph-chat`, `graph-keys`, `graph-props` (a properties table: name, values, default or needed, meaning), `graph-example` (commands and what each does), `graph-matrix`, `graph-quadrant`, `graph-compare`, `graph-flow`, `graph-uptime`,
 `graph-activity`, `graph-calendar`, …), `links`, `outlinks`, `resources`, `backlinks`, `box`, `image`, `hero-image`,
 `embed`, `code-fence` and `table`, the outline's own styles and types among the values, and any an extension ships.
 A component the readers draw can't lack an entry: a test fails when one does. Read them before writing a component's properties instead of guessing a value.

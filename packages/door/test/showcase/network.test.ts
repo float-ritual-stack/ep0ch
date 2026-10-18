@@ -82,6 +82,10 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     const at = S().stageRect, t = (S().stage(SECTIONS.findIndex(s => s.key === "actions")).top.describe().panes as any[]).find(x => x.name === "registry");
     press({ kind: "mouse", action: "wheel-down", button: 0, x: at.col + t.rect.col + 3, y: at.row + t.rect.row + 3 });
     await until(() => list().picked === before + 1, "the wheel's pick", 3000);
+    // Under the list, the picked action's page (PIE-1032): its name and lead, its keys as keycaps when it has some.
+    const shown = list().pick(list().picked, false);
+    await until(() => screen().includes(`${shown.name} · `), "the picked action's page under the list", 3000);
+    if (shown.keys) expect(screen()).toMatch(/\[[^\]\s]+\]/);
     expect(S().focus).toBe("index");
   }, 20_000);
 

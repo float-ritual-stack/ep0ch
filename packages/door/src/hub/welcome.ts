@@ -544,6 +544,10 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
       id: { type: "string", optional: true, about: "the welcome note's block id" },
       read: { type: "boolean", optional: true, about: "give the detail the keys (the person's pick)" },
     },
+    examples: [
+      { act: "welcome.select n=2", does: "puts the second welcome note in the detail" },
+      { act: "welcome.select id=2d7b5e90-1a43-4f68-9c0e-8b3a6f4d1e27", does: "puts that welcome note in the detail" },
+    ],
     run({ n, id, read }, { pane, desk }, actor) {
       const w = pane as WelcomeList;
       if ((n === undefined) === (id === undefined)) throw new ActionRefused("welcome.select takes n or id, one of them");
@@ -557,6 +561,9 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
     keys: "alt+⏎, ctrl-click, alt-click on a link or a backlink",
     touches: "screen", replay: "safe", says: r => `put ${r.title.slice(0, 40)} in the detail`,
     args: { id: { type: "string", about: "the block id" } },
+    examples: [
+      { act: "welcome.read id=6c1e4a85-7d92-4b03-8f5a-3e9b2d0c7a16", does: "puts that note in the welcome detail, with back returning to the last one" },
+    ],
     async run({ id }, { pane, desk }, actor) {
       const m = await desk.ctx.board.get(id);
       if (!m) throw new ActionRefused(`no block ${id}`);
@@ -573,6 +580,10 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
       by: { type: "number", optional: true, about: "places to move down (negative: up)" },
       to: { type: "number", optional: true, about: "its place, from 1" },
     },
+    examples: [
+      { act: "welcome.move by=-1", does: "moves the note in the detail one place up the welcome order" },
+      { act: "welcome.move id=2d7b5e90-1a43-4f68-9c0e-8b3a6f4d1e27 to=1", does: "makes that note the first welcome note" },
+    ],
     async run({ id, by, to }, { pane, desk }, actor) {
       const w = pane as WelcomeList, items = w.items ?? [];
       if ((by === undefined) === (to === undefined)) throw new ActionRefused("welcome.move takes by=<±places> or to=<place from 1>, one of them");
@@ -587,6 +598,10 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
     keys: "L, a click on the logo",
     touches: "screen", replay: "safe", says: () => "changed the logo",
     args: { by: { type: "number", optional: true, about: "1 (the default) or -1" } },
+    examples: [
+      { act: "welcome.logo", does: "draws the next ep0ch logo in the band" },
+      { act: "welcome.logo by=-1", does: "draws the logo before the current one" },
+    ],
     run({ by }, { pane, desk }) { return (pane as WelcomeList).nextLogo(by ?? 1, desk); },
   }),
   "welcome.reload": def({

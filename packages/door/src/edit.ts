@@ -1240,30 +1240,50 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     summary: "a line break at the cursor; on a list item the next item at the same level (an empty item goes up a level or ends the list); plain=true just breaks", keys: "enter (alt+enter or shift+enter plain)",
     touches: "draft", draft: "type", replay: "ask",
     args: { plain: { type: "boolean", optional: true, about: "no list continuation" } },
+    examples: [
+      { act: "draft.newline", does: "breaks the line, and on a list item starts the next item at the same level" },
+      { act: "draft.newline plain=true", does: "breaks the line with no list marker or indent carried over" },
+    ],
     run({ plain }, d, actor) { const t = d.text; d.newline(!!plain); if (d.text !== t) d.wrote(actor); return { line: d.row + 1, col: d.col }; },
   }),
   "draft.indent": def({
     summary: "indent the cursor's line (or the selection's lines, or from..to) one level: a list item goes under the item above", keys: "tab",
     touches: "draft", draft: "type", replay: "ask",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
+    examples: [
+      { act: "draft.indent", does: "indents the cursor's line, or the selected lines, one level" },
+      { act: "draft.indent from=3 to=5", does: "indents lines 3 to 5 one level" },
+    ],
     run({ from, to }, d, actor) { const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.indent(1); if (n) d.wrote(actor); return { lines: n }; },
   }),
   "draft.outdent": def({
     summary: "outdent the cursor's line (or the selection's lines, or from..to) one level: a list item back to its parent's", keys: "shift+tab",
     touches: "draft", draft: "type", replay: "ask",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
+    examples: [
+      { act: "draft.outdent", does: "outdents the cursor's line, or the selected lines, one level" },
+      { act: "draft.outdent from=3 to=5", does: "outdents lines 3 to 5 one level" },
+    ],
     run({ from, to }, d, actor) { const n = from ? d.indent(-1, from - 1, (to ?? from) - 1) : d.indent(-1); if (n) d.wrote(actor); return { lines: n }; },
   }),
   "draft.place": def({
     summary: "put the draft's cursor at a line and column; extend=true selects from where it was", keys: "click, drag",
     touches: "draft", draft: "type", replay: "safe",
     args: { line: { type: "number", about: "line, from 1" }, col: { type: "number", optional: true, about: "column, from 1 (default the end)" }, extend: { type: "boolean", optional: true, about: "select from the cursor to here" } },
+    examples: [
+      { act: "draft.place line=4 col=1", does: "puts the cursor at the start of line 4" },
+      { act: "draft.place line=9 extend=true", does: "selects from the cursor to the end of line 9" },
+    ],
     run({ line, col, extend }, d, actor) { d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
   }),
   "draft.scroll": def({
     summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view). preview=true scrolls its preview instead (PIE-846), until the text changes", keys: "wheel over the text, or over the preview",
     touches: "draft", draft: "type", replay: "safe",
     args: { by: { type: "number", about: "rows, negative up" }, preview: { type: "boolean", optional: true, about: "scroll the preview under the text (ctrl+p shows it)" } },
+    examples: [
+      { act: "draft.scroll by=10", does: "scrolls the draft's view down ten rows, the cursor staying put" },
+      { act: "draft.scroll by=-5 preview=true", does: "scrolls the preview up five rows" },
+    ],
     run({ by, preview }, d, actor) {
       if (!preview) { d.scrollBy(by); return { following: d.follow }; }
       const p = d.frame?.preview;
@@ -1281,6 +1301,9 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     summary: "put text in at the cursor as it came, as a paste does (over the selection, if any): no list continuation or indenting, and one undo step however big; a paste over 20 lines or 2 KB says so on the status line", keys: "a paste (bracketed paste: cmd+v, ctrl+shift+v)",
     touches: "draft", draft: "type", replay: "ask",
     args: { text: { type: "string", about: "the text" } },
+    examples: [
+      { act: "draft.paste text=\"- seed swap on Saturday\"", does: "puts that line in at the cursor as it came, as one undo step" },
+    ],
     run({ text }, d, actor) { d.pasteText(text, actor); return { line: d.row + 1, col: d.col + 1, note: d.note || null }; },
   }),
   "draft.undo": def({
@@ -1299,7 +1322,11 @@ export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
     summary: "show or hide the draft's Markdown preview under it, drawn by the reader's renderer", keys: "ctrl+p, a click on ◧ preview",
     touches: "draft", draft: "type", replay: "safe",
     args: { on: { type: "boolean", optional: true, about: "default: toggle" } },
-    run({ on }, d, actor) { d.preview = on ?? !d.preview; return { preview: d.preview }; },
+    examples: [
+      { act: "draft.preview on=true", does: "shows the Markdown preview under the draft" },
+      { act: "draft.preview", does: "shows the preview if hidden, hides it if shown" },
+    ],
+    run({ on }, d, actor) { d.preview =on ?? !d.preview; return { preview: d.preview }; },
   }),
   "draft.copy": def({
     summary: "the draft's selected text, returned. The host puts the person's on their clipboard (OSC 52; an agent's never) and says \"copied N chars\". A selection made with the mouse copies when the button comes up, as in a reader (EP0CH_COPY_ON_SELECT=0 turns it off); one made by keys (shift+arrows) is copied by cmd+c, alt+c or the frame's [copy]", keys: "cmd+c, alt+c, the frame's [copy], the release of a drag",

@@ -316,7 +316,8 @@ CHANGELOG or demo changed.
 - **A page** (`<name> [ext.page::<id>] [page::ext-<id>]`, under the hub) holds the description, the version and state,
   the README as the note's body (its first `# ` heading is the page's title, its hard-wrapped paragraphs joined), **What
   it adds** from the manifest (handlers, actions with their keys, schedules, tiles, rules, agents, bar sources,
-  component schemas, secrets by group, settings), and the newest section of `CHANGELOG.md`. The README stays words: a
+  component schemas, secrets by group, settings), each action's `args` as a `::graph-props` table (the properties table
+  the door's action pages and the library draw, PIE-1032), and the newest section of `CHANGELOG.md`. The README stays words: a
   `key::` line or an `@name` in it is drawn, never run (a code fence is as you wrote it). The page's text is the
   service's, written again when what it's made from changes: change the README, not the page.
 - **Demo notes** are the page's children: the notes in the manifest's `demo` folder, written once, as the extension

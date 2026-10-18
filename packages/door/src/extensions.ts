@@ -282,6 +282,9 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
     touches: "nothing", replay: "ask",
     says: (r: ExtensionInstalled) => `installed ${nameOf(r.id)}${r.page ? `: its page is ${r.page}` : ""}`,
     args: { id: { type: "string", about: "the extension's id, such as moon (extensions.list's available)" } },
+    examples: [
+      { act: "extensions.install id=moon", does: "installs the moon extension and writes its page under the Extensions hub" },
+    ],
     async run({ id }, on, actor) {
       const say = asActor(on.ctx, actor);
       say.flash(`installing ${nameOf(id)}…`);
@@ -304,6 +307,10 @@ export const EXTENSION_INSTALL_ACTIONS = actionSet<ExtOn>()("extension-install",
       id: { type: "string", about: "the installed extension's id" },
       demo: { type: "string", about: "keep (its demo notes stay under its page) or remove (to Trash, except what someone changed)" },
     },
+    examples: [
+      { act: "extensions.uninstall id=moon demo=keep", does: "removes the moon extension and leaves its demo notes in place" },
+      { act: "extensions.uninstall id=moon demo=remove", does: "removes the moon extension and trashes the demo notes nobody changed" },
+    ],
     async run({ id, demo }, on, actor) {
       if (demo !== "keep" && demo !== "remove") throw new ActionRefused("say what becomes of its demo notes: demo=keep or demo=remove");
       const say = asActor(on.ctx, actor);

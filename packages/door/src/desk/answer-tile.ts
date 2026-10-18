@@ -72,11 +72,18 @@ const ANSWER_ACTIONS = actionSet<KindHost>()("answer", {
   "answer.scroll": def({
     summary: "scroll the answer beside its note", keys: "↑ ↓ wheel", touches: "tile", replay: "safe",
     args: { by: { type: "number", about: "rows to scroll" } },
+    examples: [
+      { act: "answer.scroll tile=answer by=5", does: "scrolls the answer down five rows" },
+      { act: "answer.scroll tile=answer by=-5", does: "scrolls it back up five" },
+    ],
     run({ by }, { pane, desk }) { pane.top = Math.max(0, Math.min(pane.total - pane.room, pane.top + by)); desk.redraw(); return { top: pane.top }; },
   }),
   "answer.follow": def({
     summary: "follow a link in the answer beside its note", keys: "1–9, click", touches: "tile", replay: "safe",
     args: { n: { type: "number", about: "link number, from one" } },
+    examples: [
+      { act: "answer.follow tile=answer n=1", does: "follows the answer's first link, as its reader would" },
+    ],
     async run({ n }, { pane, desk }, actor) {
       const reader = desk.paneNamed?.(pane.source), link = pane.links[n - 1], ref = link && refOfLink(link);
       if (!(reader instanceof ReaderPane) || !ref) throw new ActionRefused("choose a link in the answer");

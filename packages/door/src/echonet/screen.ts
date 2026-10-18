@@ -656,6 +656,10 @@ export const ECHO_AREA_ACTIONS = actionSet<KindHost>()("echo", {
       tag: { type: "string", optional: true, about: "its echo tag (any case)" },
       open: { type: "boolean", optional: true, about: "go to its messages, as ⏎ does" },
     },
+    examples: [
+      { act: "echo.area n=2 tile=areas", does: "picks the second message area and lists its messages beside" },
+      { act: "echo.area tag=garden.swap open=true tile=areas", does: "picks the GARDEN.SWAP area and moves the person's keys to its messages" },
+    ],
     async run({ n, tag, open }, { pane, desk }, actor) {
       const net = areasOf(pane);
       if ((n === undefined) === (tag === undefined)) throw new ActionRefused("echo.area takes n or tag, one of them");
@@ -684,6 +688,10 @@ export const ECHO_MESSAGE_ACTIONS = actionSet<KindHost>()("echo", {
       id: { type: "string", optional: true, about: "its block id" },
       read: { type: "boolean", optional: true, about: "read it in the reader, as ⏎ does" },
     },
+    examples: [
+      { act: "echo.message n=1", does: "lights the oldest message of the area listed" },
+      { act: "echo.message id=8c4d1e92-6a3b-4f07-b2e5-1d9a7c0f3b58 read=true", does: "reads that message in the reader, marked read" },
+    ],
     run({ n, id, read }, { pane, desk }, actor) {
       const ms = pane as EchoMessages, items = ms.items;
       if (!ms.area || !items) throw new ActionRefused("no area's messages are listed yet · pick an area");
@@ -707,6 +715,10 @@ export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
     summary: "read the next (by=1) or previous (by=-1) message of the area the reader was opened on, marked read as it's shown", keys: "} {",
     touches: "screen", replay: "safe", says: r => `read message ${r.n} of ${r.of}: ${r.subject.slice(0, 40)}`,
     args: { by: { type: "number", about: "1 the next, -1 the previous" } },
+    examples: [
+      { act: "echo.step by=1", does: "reads the next message of the area, marked read" },
+      { act: "echo.step by=-1", does: "reads the previous message of the area" },
+    ],
     run({ by }, { pane, desk }, actor) {
       if (by !== 1 && by !== -1) throw new ActionRefused("echo.step: by is 1 or -1");
       return (pane as EchoReader).step(by, desk, actor);
@@ -717,6 +729,9 @@ export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
     keys: "r",
     touches: "draft", draft: "type", replay: "ask",
     args: { body: { type: "string", optional: true, about: "the reply, sent at once (an agent's; the person's opens the composer)" } },
+    examples: [
+      { act: "echo.reply body=\"Happy to bring the tomato seedlings.\"", does: "sends a reply to the message read, carried back as netmail" },
+    ],
     async run({ body }, { pane, desk }, actor) {
       const r = pane as EchoReader, m = r.message;
       if (!m) throw new ActionRefused("no message is open to reply to");
@@ -735,6 +750,9 @@ export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
       quote: { type: "string", optional: true, about: "the exact words to quote, as stored (default: the person's selection, else the message's body)" },
       body: { type: "string", optional: true, about: "the reply under the quote, sent at once (an agent's)" },
     },
+    examples: [
+      { act: "echo.quote quote=\"Saturday at the shed\" body=\"I can come at ten.\"", does: "sends a reply that quotes those words with > and adds the body under them" },
+    ],
     async run({ quote, body }, { pane, desk }, actor) {
       const r = pane as EchoReader;
       if (!r.message) throw new ActionRefused("no message is open to quote");

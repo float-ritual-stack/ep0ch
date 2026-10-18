@@ -398,6 +398,10 @@ export const MENU_ACTIONS = actionSet<{ menu: MainMenu; ctx: Ctx }>()("menu", {
     keys: "↑ ↓ ← → tab, the wheel, click on an item (lit as it is pressed)",
     touches: "screen", replay: "safe", says: out => `· lit ${out.label} on the menu · ⏎ opens it`,
     args: { name: { type: "string", optional: true, about: "the item's key (S) or label (Stats)" }, by: { type: "number", optional: true, about: "steps from the lit item: 1 down, -1 up, 4 a column right" } },
+    examples: [
+      { act: "menu.select name=Stats", does: "lights the Stats item on the main menu" },
+      { act: "menu.select by=1", does: "lights the item one below the lit one" },
+    ],
     run({ name, by }, { menu, ctx }) {
       if ((name === undefined) === (by === undefined)) throw new ActionRefused("menu.select takes name=<item> or by=<steps>, one of them");
       const at = name !== undefined ? ITEMS.indexOf(itemNamed(name)!) : menu.selected + by!;
@@ -475,6 +479,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     keys: "> agents.yolo in the power bar (ctrl+k); a click on the status bar's YOLO turns it off",
     touches: "nothing", replay: "ask",
     args: { on: { type: "boolean", optional: true, about: "true hands the door to agents, false takes it back; default: toggle" } },
+    examples: [
+      { act: "agents.yolo on=true", does: "hands the door to agents, with YOLO on the status bar (the person's to turn on)" },
+      { act: "agents.yolo on=false", does: "puts agents back under the person's guards" },
+    ],
     run({ on }, { ctx }, actor) {
       const want = on ?? !ctx.agentsYolo;
       if (want && actor.kind === "agent") throw new ActionRefused("yolo is the person's to hand over: they turn it on (ctrl+k > agents.yolo); ask them to");
@@ -490,6 +498,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     touches: "screen", replay: "safe",
     person: "what the person's \"what changed\" shows is theirs; an agent reads changes itself (changes.since, activity.recent, both take machinery)",
     args: { include: { type: "boolean", optional: true, about: "true to include machinery, false to leave it out; default: toggle" } },
+    examples: [
+      { act: "changes.machinery include=true", does: "counts tosses, file touches and deliveries in what changed" },
+      { act: "changes.machinery include=false", does: "leaves machinery out of what changed again" },
+    ],
     run({ include }, { ctx }) {
       ctx.machineryChanges = include ?? !ctx.machineryChanges;
       if (ctx.whatChanged) ctx.whatChanged.showMachinery = !!ctx.machineryChanges;
@@ -514,6 +526,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     keys: "> outline.snapshot in the power bar",
     touches: "nothing", replay: "ask", says: out => `· snapshot link created · ${out.bytes} bytes · expires ${out.expiresAt}`,
     args: { ttl: { type: "string", optional: true, about: "15m by default, up to 24h" } },
+    examples: [
+      { act: "outline.snapshot", does: "makes a snapshot link good for 15 minutes" },
+      { act: "outline.snapshot ttl=2h", does: "makes a snapshot link good for two hours" },
+    ],
     async run({ ttl }, { ctx }, actor) {
       const snapshot = await ctx.board.request<import("@ep0ch/outline-core/protocol").OutlineSnapshot>("outline.snapshot", { ...(ttl ? { ttl } : {}), mutation: actor.kind === "user" ? { author: "user" } : { author: "agent", actorId: actor.id } }, 120_000);
       if (actor.kind === "user") {
@@ -535,6 +551,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       via: { type: "string", optional: true, about: "edge (the default: the outline's public host) or cloudflare (a tunnel of its own, for sharing with someone else)" },
       allowMail: { type: "string", optional: true, about: "via cloudflare: emails or @domains (comma-separated) that may sign in by one-time PIN; left out, the tunnel is public" },
     },
+    examples: [
+      { act: "share.start ref=garden ttl=2h", does: "shares the garden page for two hours and puts the link on the clipboard" },
+      { act: "share.start only=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 comments=false", does: "shares one note as a reading copy for an hour" },
+    ],
     async run({ ref, only, ttl, comments, via, allowMail }, { ctx }, actor) {
       const started = await startShare(ctx.board, {
         ...(ref ? { ref } : {}), ...(only ? { only } : {}), ...(ttl ? { ttl } : {}), ...(comments !== undefined ? { comments } : {}),
@@ -567,6 +587,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       id: { type: "string", optional: true, about: "the share's id (share.list)" },
       all: { type: "boolean", optional: true, about: "true: end every open share" },
     },
+    examples: [
+      { act: "share.revoke id=3b8e1c52", does: "ends that share, so its link answers 410 from now on" },
+      { act: "share.revoke all=true", does: "ends every open share" },
+    ],
     async run({ id, all }, { ctx }) {
       if (!all && !id) throw new ActionRefused("name the share (id= from share.list) or all=true");
       const { revoked } = await revokeShares(ctx.board, all ? { all: true } : { id: id! });
@@ -582,6 +606,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       target: { type: "string", optional: true, about: "what the screen opens on, where it takes one: detail's block (an id, ((ref)) or ep0ch:// URI), the board's hub" },
       note: { type: "string", optional: true, about: "detail's block: target= by its old name" },
     },
+    examples: [
+      { act: "screen.open name=Stats", does: "opens the board stats over the current screen; q comes back" },
+      { act: "screen.open name=detail target=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "opens the detail screen on that note" },
+    ],
     async run({ name, note, target }, { ctx, here, again }, actor): Promise<unknown> {
       const given = target ?? note;
       // A registered screen with a target opens on it; else the menu's item by that name comes first (its lit item,
@@ -652,6 +680,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     touches: "screen", replay: "ask",
     person: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
     args: { force: { type: "boolean", optional: true, about: "end it even with programs running or a draft unsaved (the drafts are copied to disk and put aside); else it says what's running, and again within 3s ends it" } },
+    examples: [
+      { act: "session.end", does: "asks first when programs run or a draft is unsaved; again within 3s ends the session" },
+      { act: "session.end force=true", does: "ends the session at once, drafts copied to disk and put aside" },
+    ],
     run({ force }, { ctx }) {
       if (!ctx.detaches || !ctx.end) throw new ActionRefused("this door runs in its own terminal, not as a session: G logs off and ends it");
       const why = ctx.end(!!force);
@@ -664,6 +696,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     touches: "screen", replay: "ask",
     person: "an agent doesn't restart the person's session; `ep0ch install --apply` and `ep0ch session upgrade` are the person's commands",
     args: { clients: { type: "boolean", optional: true, about: "only restart the attached terminals on the new code; the daemon goes on" } },
+    examples: [
+      { act: "session.upgrade", does: "hands the session to a daemon on the checkout's code; terminals reattach" },
+      { act: "session.upgrade clients=true", does: "restarts only the attached terminals on the new code" },
+    ],
     async run({ clients }, { ctx }) {
       if (!ctx.upgradeSession) throw new ActionRefused("this door runs in its own terminal, not as a session");
       const r = await ctx.upgradeSession(!!clients);
@@ -695,6 +731,9 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     // Kept for the next start: a restarted door asks before running it again.
     touches: "screen", replay: "ask", says: out => `· switched the theme to ${out.theme}`,
     args: { name: { type: "string", about: `the theme: ${THEME_NAMES.join(", ")}` } },
+    examples: [
+      { act: "theme.set name=night", does: "switches every screen to the night theme and keeps it for the next start" },
+    ],
     run({ name }, { ctx }) {
       const want = themeNamed(name);
       if (!want) throw new ActionRefused(`no theme ${JSON.stringify(name)}; the themes: ${THEME_NAMES.join(", ")}`);
@@ -711,6 +750,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       on: { type: "boolean", about: "true: e arms the edit and ⏎ opens it; false: e opens it at once" },
       ms: { type: "number", optional: true, about: `how long an armed edit waits, in milliseconds (default ${ARM_MS})` },
     },
+    examples: [
+      { act: "edit.arm.set on=true ms=3000", does: "makes e arm the edit first, waiting three seconds for ⏎" },
+      { act: "edit.arm.set on=false", does: "makes e open an edit at once" },
+    ],
     run({ on, ms }, { ctx }) {
       if (ms !== undefined && !(Number.isFinite(ms) && ms > 0)) throw new ActionRefused(`ms is a window in milliseconds above 0, not ${ms}`);
       const keep = on ? Math.max(1, Math.round(ms ?? ARM_MS)) : 0;
@@ -729,6 +772,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     touches: "screen", replay: "safe", person: "the probe takes the person's next keys; an agent's `act` would swallow them",
     says: out => (out.probing ? null : "· key probe ended"),
     args: { on: { type: "boolean", optional: true, about: "true starts it, false ends it; default toggles" } },
+    examples: [
+      { act: "keys.probe on=true", does: "starts showing the bytes and modifiers of the person's next keys, running none" },
+      { act: "keys.probe on=false", does: "ends the key probe" },
+    ],
     run({ on }, { ctx }) {
       if (!ctx.probeKeys) throw new ActionRefused("this screen can't probe keys: it is the door's own terminal that reads them");
       return { probing: ctx.probeKeys(on) };
@@ -739,6 +786,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     keys: "`ep0ch act hyper.set on=true`, the power bar's actions scope (>)",
     touches: "screen", replay: "ask", says: out => `· hyper layer ${out.on ? "on" : "off"}`,
     args: { on: { type: "boolean", about: "true turns the layer on, false off" } },
+    examples: [
+      { act: "hyper.set on=true", does: "turns the hyper layer on, so ⌃⌥⇧⌘ and a key reach the door from anywhere" },
+      { act: "hyper.set on=false", does: "turns the hyper layer off" },
+    ],
     run({ on }, { ctx }) {
       useHyper(on);
       writeState("hyper.json", { on });
@@ -756,6 +807,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       on: { type: "boolean", optional: true, about: "true: the header takes the picture as it scrolls under; false: headers stay plain; left out, it stays as it was" },
       mode: { type: "string", optional: true, about: "first (the hero only, the default) or follow (each picture in turn); left out, it stays as it was" },
     },
+    examples: [
+      { act: "reader.hero on=true mode=follow", does: "lets a reader's header take each picture in turn as it scrolls under" },
+      { act: "reader.hero on=false", does: "keeps readers' headers plain" },
+    ],
     run({ on, mode }, { ctx }) {
       if (mode !== undefined && !(HERO_MODES as readonly string[]).includes(mode)) throw new ActionRefused(`mode is first or follow, not ${JSON.stringify(mode)}`);
       const keep = { on: on ?? heroHeaderOn(), mode: (mode ?? heroHeaderMode()) as HeroMode };
@@ -770,6 +825,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     summary: "show the reading line as a calm block highlight, on by default; kept for the next start",
     keys: "power bar: reader.ruler", touches: "screen", replay: "ask",
     args: { on: { type: "boolean", optional: true, about: "show the reading line; omitted toggles it" } },
+    examples: [
+      { act: "reader.ruler on=false", does: "hides the reading line's block highlight" },
+      { act: "reader.ruler", does: "toggles the reading line's block highlight" },
+    ],
     run({ on }, { ctx }) {
       useReadingRuler(on ?? !readingRuler());
       writeState("reader-ruler.json", { on: readingRuler() });
@@ -782,6 +841,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     keys: "`ep0ch act reader.overscroll rows=none`, `ep0ch act reader.overscroll rows=half`, `ep0ch act reader.overscroll rows=5`",
     touches: "screen", replay: "ask", says: out => `· readers scroll ${out.rows === "none" ? "to their last line" : out.rows === "half" ? "past their end to the middle" : `${out.rows} rows past their end`}`,
     args: { rows: { type: "string", about: "half, none, or a number of rows (0 to 200)" } },
+    examples: [
+      { act: "reader.overscroll rows=none", does: "stops readers and drafts on their last line" },
+      { act: "reader.overscroll rows=5", does: "lets readers and drafts scroll five rows past their last line" },
+    ],
     run({ rows }, { ctx }) {
       const want = overscrollOf(rows);
       if (want === null) throw new ActionRefused(`rows is half, none or a number of rows from 0 to 200, not ${JSON.stringify(rows)}`);
@@ -797,6 +860,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     keys: "`ep0ch act motion.set mode=calm`, the power bar's actions scope (>)",
     touches: "screen", replay: "ask", says: out => `· motion is ${out.mode}`,
     args: { mode: { type: "string", about: MOTION_MODES.join(", ") } },
+    examples: [
+      { act: "motion.set mode=calm", does: "makes layout changes glide for a short 200 ms" },
+      { act: "motion.set mode=off", does: "makes layout changes snap" },
+    ],
     run({ mode }, { ctx }, actor) {
       const want = motionOf(mode);
       if (!want) throw new ActionRefused(`mode is ${MOTION_MODES.join(", ")}, not ${JSON.stringify(mode)}`);
@@ -815,6 +882,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     keys: "`ep0ch act composer.place place=floating`, the power bar's actions scope (>)",
     touches: "screen", replay: "ask", says: out => `· comments are written ${out.place === "inline" ? "at their passage" : out.place}`,
     args: { place: { type: "string", about: COMPOSER_PLACES.join(", ") } },
+    examples: [
+      { act: "composer.place place=floating", does: "writes comments in a box floating beside their passage" },
+      { act: "composer.place place=tile", does: "writes comments in a tile of their own beside the reader" },
+    ],
     run({ place }, { ctx }) {
       const want = composerPlaceOf(place);
       if (!want) throw new ActionRefused(`place is ${COMPOSER_PLACES.join(", ")}, not ${JSON.stringify(place)}`);
@@ -839,6 +910,9 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     summary: "put a note in front of the person (`ep0ch open <id>` is this). A screen with an open of its own (the desk, the board, the river, the views) runs that instead; elsewhere a message reader opens over the screen (a message reader's opens another). An agent's waits until the person is idle, never takes their keys, never lands over what they're typing, and is said on the status bar",
     touches: "screen", replay: "safe",
     args: { id: { type: "string", about: "the block id" } },
+    examples: [
+      { act: "open id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "puts that note in front of the person, in a reader" },
+    ],
     async run({ id }, { ctx, here }) {
       const m = await ctx.board.get(id);
       if (!m) throw new ActionRefused(`no block ${id}`);
@@ -876,6 +950,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       value: { type: "string", about: "its value" },
       from: { type: "string", optional: true, about: "a value taken away: the note it's taken from" },
     },
+    examples: [
+      { act: "look.nudge target=global field=measure value=56", does: "holds a measure of 56 for every screen in memory, unsaved" },
+      { act: "look.nudge target=screen:detail field=pad.x value=4", does: "holds a horizontal padding of 4 for the detail screen, unsaved" },
+    ],
     run({ target, field, value, from }, { ctx }, actor) {
       const f = parseFieldKey(field);
       if (!f) throw new ActionRefused(`field is a look token (measure, pad.x, …) or <width>.<token>, not ${JSON.stringify(field)}`);
@@ -958,6 +1036,10 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
       position: { type: "number", optional: true, about: "position under to, from 1" },
       revision: { type: "number", optional: true, about: "revision read" },
     },
+    examples: [
+      { act: "note.move id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 to=inbox", does: "moves that note to the inbox" },
+      { act: "note.move step=down", does: "moves the selected note one place down" },
+    ],
     async run(args: MoveArgs & { id?: string; undo?: boolean }, { list, ctx }, actor) {
       if (!(list instanceof MessageList)) throw new ActionRefused("this list has no notes to move");
       return list.move(args, ctx, actor);
@@ -967,6 +1049,9 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
     summary: "light row n of the list (an agent's waits until the person is idle and is said on the status bar)", keys: "j k ↑↓ PgUp PgDn Home End, a click, the wheel",
     touches: "screen", replay: "safe", says: out => `· lit row ${out.selected}: ${out.row.title.slice(0, 50)}`,
     args: { n: { type: "number", about: "the row, from 1 (list.read numbers them)" } },
+    examples: [
+      { act: "list.select n=3", does: "lights the third row of the list" },
+    ],
     run({ n }, { list, ctx }) {
       const row = rowAt(list, n);
       list.sel = n - 1;
@@ -978,6 +1063,10 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
     summary: "open a row as ⏎ does (read, join, browse): the lit one, or row n", keys: "⏎, a click on the lit row",
     touches: "screen", replay: "safe", says: out => ({ text: `· opened row ${out.n}: ${out.row.title.slice(0, 50)} · q goes back`, ms: 6000 }),
     args: { n: { type: "number", optional: true, about: "the row, from 1; the lit one when left out" } },
+    examples: [
+      { act: "list.open", does: "opens the lit row as ⏎ does; q comes back" },
+      { act: "list.open n=2", does: "lights the second row and opens it" },
+    ],
     run({ n }, { list, ctx }) {
       const at = n ?? list.sel + 1;
       const row = rowAt(list, at);
@@ -993,6 +1082,10 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
     summary: "list a row's replies (its children) as messages over this list, as t does on a message list: the lit row, or row n (q comes back)", keys: "t, T, click on T thread",
     touches: "screen", replay: "safe", says: out => ({ text: `· opened the replies of row ${out.n}: ${out.row.title.slice(0, 50)} · q goes back`, ms: 6000 }),
     args: { n: { type: "number", optional: true, about: "the row, from 1; the lit one when left out" } },
+    examples: [
+      { act: "list.thread", does: "lists the lit row's replies as messages over the list" },
+      { act: "list.thread n=4", does: "lists the fourth row's replies as messages over the list" },
+    ],
     run({ n }, { list, ctx }) {
       if (!list.threadRow) throw new ActionRefused(`the ${list.title}'s rows have no threads; list.open opens a row`);
       const at = n ?? list.sel + 1;
@@ -1005,6 +1098,10 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
     summary: "the list's rows (numbered from 1) and which one is lit; moves nothing",
     touches: "nothing", replay: "safe",
     args: { from: { type: "number", optional: true, about: "the first row, from 1 (default 1)" }, limit: { type: "number", optional: true, about: "how many rows (default 100)" } },
+    examples: [
+      { act: "list.read", does: "gives the list's numbered rows and which one is lit" },
+      { act: "list.read from=11 limit=10", does: "gives rows 11 to 20 of the list" },
+    ],
     run({ from, limit }, { list }) {
       const rows = rowsOf(list);
       const start = Math.max(1, from ?? 1);

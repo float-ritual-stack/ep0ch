@@ -218,6 +218,10 @@ export const BRIEF_ACTIONS = actionSet<KindHost>()("brief", {
     summary: "show the previous (by=-1) or next (by=1) day's brief; refused to an agent while the person is typing here", keys: ", .",
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: { by: { type: "number", about: "-1 for the day before, 1 for the day after" } },
+    examples: [
+      { act: "brief.step by=-1", does: "shows the brief for the day before" },
+      { act: "brief.step by=1", does: "shows the brief for the day after" },
+    ],
     run({ by }, { pane, desk }) { if (by !== 1 && by !== -1) throw new ActionRefused("brief.step: by is -1 or 1"); return (pane as BriefReader).step(by, desk); },
   }),
   "brief.newest": def({
@@ -230,6 +234,9 @@ export const BRIEF_ACTIONS = actionSet<KindHost>()("brief", {
     summary: "show the brief for a day (date=YYYY-MM-DD)",
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: { date: { type: "string", about: "the day, YYYY-MM-DD" } },
+    examples: [
+      { act: "brief.date date=2026-03-14", does: "shows the brief for March 14, 2026" },
+    ],
     run({ date }, { pane, desk }) { return (pane as BriefReader).dated(date.trim(), desk); },
   }),
   "brief.show": def({
@@ -237,6 +244,9 @@ export const BRIEF_ACTIONS = actionSet<KindHost>()("brief", {
     keys: "⏎ or a click on a link to another brief, an \"Earlier briefs\" row",
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: { id: { type: "string", about: "the brief's block id" } },
+    examples: [
+      { act: "brief.show id=4e8a1c73-9b20-4d5f-a7c6-2f1d0e3b8a95", does: "shows that day's brief" },
+    ],
     run({ id }, { pane, desk }) {
       const b = pane as BriefReader, i = (b.briefs ?? []).findIndex(m => m.id === id || (id.length >= 8 && m.id.startsWith(id)));
       if (i < 0) throw new ActionRefused(`${id} isn't a daily brief`);

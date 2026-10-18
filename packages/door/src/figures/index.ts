@@ -10,6 +10,8 @@ import { drawFlow } from "./flow";
 import { drawMatrix } from "./matrix";
 import { drawQuadrant } from "./quadrant";
 import { drawKeys, keysFromRegistry } from "./keys";
+import { drawProps } from "./props";
+import { drawExample } from "./example";
 import type { Draw } from "./palette";
 
 export const FIGURES: Record<string, Draw> = {
@@ -24,6 +26,8 @@ export const FIGURES: Record<string, Draw> = {
   matrix: drawMatrix,
   compare: drawCompare,
   flow: drawFlow,
+  props: drawProps,
+  example: drawExample,
 };
 
 /** What each kind makes of a figure's Markdown rows: outline-core's, shared with the publisher. */

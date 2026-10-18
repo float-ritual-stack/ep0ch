@@ -866,6 +866,10 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
       by: { type: "number", optional: true, about: "rows from the selected one: 1 next, -1 previous" },
       scroll: { type: "boolean", optional: true, about: "false leaves the column's scroll as it is (a click on a card in view)" },
     },
+    examples: [
+      { act: "column.select n=3 tile=library", does: "selects the third note the library lists" },
+      { act: "column.select id=7d9a1f40 tile=card", does: "selects the note with that id in the card column" },
+    ],
     run: ({ id, n, by, scroll }, { pane, desk, tile }, actor) => ({ tile, ...columnOf(pane).pick({ id, n, by, scroll }, desk, actor) }),
   }),
   "column.links": def({
@@ -873,6 +877,10 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     keys: "b, a click on the ── links header",
     touches: "tile", replay: "safe", way: "an agent doesn't change what they're reading · peek reads the column's links, or act on another column",
     args: { on: { type: "boolean", optional: true, about: "true shows, false hides; default toggles" } },
+    examples: [
+      { act: "column.links on=true tile=card", does: "shows the note's outlinks, resources and backlinks under its replies" },
+      { act: "column.links tile=card", does: "toggles the links under the replies" },
+    ],
     run: ({ on }, { pane, desk, tile }) => ({ tile, ...columnOf(pane).toggleLinks(on, desk) }),
   }),
   "column.link": def({
@@ -880,12 +888,20 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     keys: "⏎ alt+⏎ space on a links row, a double click or an alt-, ctrl- or middle-click on one",
     touches: "nothing", replay: "ask", says: () => "opened a link",
     args: { n: { type: "number", about: "the links row, from 1" }, fresh: { type: "boolean", optional: true, about: "a new column, as alt+⏎" } },
+    examples: [
+      { act: "column.link n=2 tile=card", does: "opens the second links row in the next column" },
+      { act: "column.link n=1 fresh=true tile=card", does: "opens the first links row in a new column" },
+    ],
     run: async ({ n, fresh }, { pane, desk, tile }, actor) => ({ tile, ...(await columnOf(pane).openLink(n - 1, !!fresh, desk, actor)) }),
   }),
   "column.replies": def({
     summary: "show or hide a listed note's replies in place in a river column (the selected one, or id=; open= true or false, default toggles)", keys: "space, a click on » replies",
     touches: "tile", replay: "safe", way: "an agent doesn't change what they're reading · peek reads the column, or act on another column",
     args: { id: { type: "string", optional: true, about: "which listed note; default the selected one" }, open: { type: "boolean", optional: true, about: "true shows, false hides; default toggles" } },
+    examples: [
+      { act: "column.replies open=true tile=library", does: "shows the selected note's replies in place" },
+      { act: "column.replies id=3b8e2c71 open=false tile=library", does: "hides that note's replies" },
+    ],
     run: ({ id, open }, { pane, desk, tile }) => ({ tile, ...columnOf(pane).replies(id, open, desk) }),
   }),
   "column.complete": def({
@@ -893,6 +909,10 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     keys: "typing in /: ↑↓ choose, ⏎ or tab insert, esc dismiss, a click on a candidate, ctrl+space asks again",
     touches: "nothing", replay: "safe",
     args: { text: { type: "string", about: "the filter text ending in the word to complete" } },
+    examples: [
+      { act: "column.complete text=ty tile=library", does: "lists the property keys that start with ty, most used first" },
+      { act: "column.complete text=\"-status:do\" tile=library", does: "lists the values of status that start with do" },
+    ],
     async run({ text }, { desk, tile }) {
       const t = filterTargetAtCursor(text, text.length);
       if (!t) throw new ActionRefused(`nothing to complete: the text should end in a property key or a key: with its value begun (it ends ${JSON.stringify(text.slice(-20))})`);
@@ -904,6 +924,10 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     summary: "scroll a river column by= rows (a page is its height less two); what it lists, its selection and the keys stay", keys: "PgUp PgDn, the wheel",
     touches: "tile", replay: "safe", way: "an agent doesn't scroll what they're reading · peek reads the column whole, or act on another column", says: r => `scrolled ${r.tile}`,
     args: { by: { type: "number", about: "rows: positive down, negative up" } },
+    examples: [
+      { act: "column.scroll by=20 tile=library", does: "scrolls the library down twenty rows" },
+      { act: "column.scroll by=-5 tile=card", does: "scrolls the card column up five rows" },
+    ],
     run: ({ by }, { pane, desk, tile }) => ({ tile, ...columnOf(pane).scroll(by, desk) }),
   }),
   "column.filter": def({
@@ -911,6 +935,10 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     keys: "/ then typing, ⏎ or alt+⏎ (esc cancels)",
     touches: "tile", replay: "safe", way: "an agent doesn't change what it lists under them (a filter goes back to the top) · search finds notes; open or column.tag puts a column of your own beside, or act on another column", says: r => `filtered ${r.tile}${r.filter ? ` by ${r.filter}` : " (cleared)"}`,
     args: { query: { type: "string", about: "clauses: key:value, -key:value, author:x, or words" } },
+    examples: [
+      { act: "column.filter query=\"type:hub -status:done garden\" tile=library", does: "lists only unfinished hubs that mention garden" },
+      { act: "column.filter query=\"\" tile=library", does: "clears the filter and lists everything again" },
+    ],
     run: async ({ query }, { pane, desk, tile }) => ({ tile, ...(await columnOf(pane).setFilter(query, desk)) }),
   }),
   "column.tag": def({
@@ -918,6 +946,10 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     keys: "# then 1-9",
     touches: "shape", replay: "safe", says: r => `opened #${r.value} beside ${r.from}`,
     args: { key: { type: "string", about: "the property key" }, value: { type: "string", optional: true, about: "its value; default the selected note's" } },
+    examples: [
+      { act: "column.tag key=project value=seed-swap tile=library", does: "opens a column of every note with project seed-swap beside the library" },
+      { act: "column.tag key=type tile=card", does: "opens a column of notes sharing the selected note's type" },
+    ],
     async run({ key, value }, { pane, desk, tile }, actor) {
       const c = columnOf(pane), m = c.flat()[c.sel]?.m ?? c.noteOf();
       const v = value ?? prop(m, key);
@@ -957,6 +989,10 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
       revision: { type: "number", optional: true, about: "the note's revision as you read it" },
       undo: { type: "boolean", optional: true, about: "put its last move back" },
     },
+    examples: [
+      { act: "column.move id=5c2e9a10 to=[[garden]] tile=library", does: "moves that note under the garden page" },
+      { act: "column.move step=down tile=library", does: "moves the selected card one place down among its siblings" },
+    ],
     async run({ id, undo, ...where }, { pane, desk }, actor) {
       const c = columnOf(pane), m = id !== undefined ? c.flat().find(r => r.m.id.startsWith(id))?.m : c.flat()[c.sel]?.m;
       const target = m?.id ?? id;
@@ -978,6 +1014,9 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     keys: "y or cmd+c with [ ] on the block (or anything in it), a click on its ⧉",
     touches: "nothing", replay: "safe",
     args: { n: { type: "number", optional: true, about: "which block, from 1, in reading order; default the one the person's current element is in" } },
+    examples: [
+      { act: "column.block n=1 tile=card", does: "gives back the first code block, quote or callout of the note as written" },
+    ],
     run: ({ n }, { pane, desk }, actor) => columnOf(pane).copyBlock(n, actor, desk),
   }),
   "column.note": def({

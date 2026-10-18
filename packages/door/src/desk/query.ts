@@ -292,6 +292,10 @@ export const QUERY_ACTIONS = actionSet<QueryOn>()("query", {
       open: { type: "boolean", optional: true, about: "open it, as ⏎ does" },
       fresh: { type: "boolean", optional: true, about: "open it in a new detail beside its home, as alt+⏎ does" },
     },
+    examples: [
+      { act: "query.pick tile=query n=3", does: "selects the third card; a preview following the lane shows it" },
+      { act: "query.pick tile=query id=7d9a1f40 fresh=true", does: "opens that card in a new detail beside the lane's home" },
+    ],
     run({ n, id, by, open, fresh }, { pane, desk }, actor) {
       if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("query.pick takes one of n, id or by");
       const items = pane.items ?? [];

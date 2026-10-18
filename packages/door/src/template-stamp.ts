@@ -52,6 +52,10 @@ export const TEMPLATE_ACTIONS = actionSet<TemplateOn>()("template", {
       freeze: { type: "string", optional: true, about: "all: write the values of this.x, parent.x, bare keys and references too" },
       with: { type: "string", optional: true, about: "the template's props, as JSON: names to text" },
     },
+    examples: [
+      { act: "template.stamp of=[[seed-swap-signup]] title=\"Seed swap, {{now.date}}\"", does: "writes the seed-swap-signup template out as a new note with that title" },
+      { act: "template.stamp of=type:meeting parent=[[garden]] with={\"who\":\"Ana\"}", does: "stamps the meeting template under the garden page with who filled in" },
+    ],
     async run({ of, as, into, parent, title, for: forQuery, freeze, with: w }, { ctx }, actor: Actor) {
       const given = propsOf(w);
       const request = (template: string, props: Record<string, string>) => ({

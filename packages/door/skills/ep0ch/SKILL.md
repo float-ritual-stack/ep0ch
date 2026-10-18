@@ -38,6 +38,7 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
                                      notes as files: the header line's chips in YAML front matter, the body verbatim
     ep0ch peek                       the screen as text plus structured state
     ep0ch actions                    what the current screen can do, with arguments and keys
+    ep0ch actions --doc <action>     one action's page: its keys, one or two real act lines, its arguments
     ep0ch act <action> [key=value…] [--as <agent-id>]
     ep0ch open <block-id> [from=<tile>] [--as <agent-id>]
                                      put a block in front of the person: the same as act open id=<block-id>
@@ -52,7 +53,9 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
 `bun src/main.ts …` in packages/door of the ep0ch checkout is the same command. The action table is the
 door's README, "Letting an agent see what you see, and do what you do", and the rules per path are its
 `docs/AGENT-INTERFACE.md` (`ep0ch --skill ep0ch` shows this file's path; the package is two directories up);
-`ep0ch actions` on a running door lists what its current screen takes.
+`ep0ch actions` on a running door lists what its current screen takes; `ep0ch actions --doc <action>` draws one
+action's page (its keys, examples you can copy, its arguments; `--source` for its Blockdown), from the door when one
+runs, else the registry.
 
 ## Checking and updating the stack
 

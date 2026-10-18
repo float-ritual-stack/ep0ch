@@ -156,6 +156,9 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     keys: "j k ↑ ↓, the wheel",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (peek lists the rows)",
     args: which,
+    examples: [
+      { act: "status.pick n=1", does: "selects the first terminal waiting on you in the list" },
+    ],
     run(a, { pane, desk }) {
       const w = pane as WaitingYouPane, terminals = w.rows().length;
       if (a.tile === undefined && a.n !== undefined && a.n > terminals && a.n <= terminals + w.held().length) { w.at = a.n - 1; desk.redraw(); return { n: a.n, held: true }; }
@@ -168,6 +171,9 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     touches: "screen", replay: "ask",
     person: "going to a tile takes the person's keys; an agent reads the rows (peek) and types with tile.type",
     args: which,
+    examples: [
+      { act: "status.go n=1", does: "takes the person to the first waiting terminal, keys in it" },
+    ],
     run(a, { pane, desk }, actor) {
       const { row, n } = rowOf(pane as WaitingYouPane, a);
       // The host layer knows the drawer's desk and the screen's: it goes there (src/drawer.ts goTo).
@@ -182,6 +188,10 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     keys: "⏎, a click on a held row",
     touches: "screen", replay: "safe", says: r => `opened ${r.title}`,
     args: { n: { type: "number", optional: true, about: "its row in the list, from 1, as peek lists them" }, id: { type: "string", optional: true, about: "the note's id, instead of n" } },
+    examples: [
+      { act: "held.open n=2", does: "opens the note the second held request is in, where the list's opens go" },
+      { act: "held.open id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "opens that note, the request still held" },
+    ],
     async run(a, { pane, desk }, actor) {
       const w = pane as WaitingYouPane, ask = heldOf(w, a);
       await desk.perform?.("open", { id: ask.blockId }, actor);
@@ -194,6 +204,9 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     touches: "nothing", replay: "ask", says: r => `asked @${r.agent} (${r.title})`,
     person: "a request an agent or an extension wrote waits for a person's r: an agent's is refused, as the line's own r is",
     args: { n: { type: "number", optional: true, about: "its row in the list, from 1, as peek lists them" }, id: { type: "string", optional: true, about: "the note's id, instead of n" } },
+    examples: [
+      { act: "held.send n=1", does: "sends the first held request: its agent is asked now" },
+    ],
     async run(a, { pane, desk }, actor) {
       if (actor.kind === "agent") throw new ActionRefused("a held request waits for a person's r: an agent can't send it");
       const ask = heldOf(pane as WaitingYouPane, a);
@@ -208,6 +221,9 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     // Seen is the person's: an agent reading or acting on a tile never clears what they haven't seen (peek and subscribe don't either).
     person: "seen is the person's: an agent never clears a done they haven't seen (it reads the rows with status.list or peek)",
     args: which,
+    examples: [
+      { act: "status.seen n=1", does: "clears the first terminal's done and failed records from the list" },
+    ],
     run(a, { pane, desk }) {
       const { row } = rowOf(pane as WaitingYouPane, a);
       const gone = row.holder.status.seen();

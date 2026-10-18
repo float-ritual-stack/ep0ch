@@ -1451,6 +1451,10 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     touches: "screen", replay: "safe",
     person: "going into the drawer takes the person's keys; an agent pulls it up with host.toggle and leaves their keys where they are",
     args: { send: { type: "string", optional: true, about: "bytes to give the agent first (a literal ctrl+])" }, restart: { type: "boolean", optional: true, about: "run an agent that exited again, as ⏎ on it does" } },
+    examples: [
+      { act: "host.enter", does: "sends the person's keys to the drawer's tab until ctrl+]" },
+      { act: "host.enter restart=true", does: "runs the exited agent in the drawer again and goes into it" },
+    ],
     run({ send, restart }, { drawer }) { return drawer.enter(send, restart); },
   }),
   "host.leave": def({
@@ -1459,6 +1463,10 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     touches: "screen", replay: "safe",
     person: "the person's keys are theirs: an agent doesn't take them out of the drawer",
     args: { quiet: { type: "boolean", optional: true, about: "say nothing on the status bar (a click away)" } },
+    examples: [
+      { act: "host.leave", does: "gives the person's keys back to the screen, the drawer staying up" },
+      { act: "host.leave quiet=true", does: "gives the keys back without a word on the status bar" },
+    ],
     run({ quiet }, { drawer, here }) { return drawer.leave(here, !quiet); },
   }),
   "host.toggle": def({
@@ -1467,6 +1475,10 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     touches: "screen", host: true, replay: "safe",
     says: out => ({ text: `· ${out.open ? "pulled up" : "put away"} the drawer`, ms: 6000 }),
     args: { open: { type: "boolean", optional: true, about: "true pulls it up, false puts it away; left out, it toggles" } },
+    examples: [
+      { act: "host.toggle open=true", does: "pulls the drawer up over or beside the screen" },
+      { act: "host.toggle open=false", does: "puts the drawer away" },
+    ],
     run({ open }, { drawer }, actor) {
       const want = open ?? !drawer.open;
       if (want !== drawer.open || want) drawer.set(want, actor);
@@ -1537,6 +1549,10 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     touches: "screen", replay: "ask",
     says: (out: { agent?: string }) => (out.agent ? `· chose ${out.agent} for the drawer` : null),
     args: { name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, herdr: { type: "boolean", optional: true, about: "run it in this session's own Herdr pane (it outlives the door)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" }, in: { type: "string", optional: true, about: "the folder it starts in (~ is your home); left out: the project's .ep0ch folder, else the outline's own" } },
+    examples: [
+      { act: "host.agent name=codex", does: "chooses codex as the drawer's agent for this outline's session" },
+      { act: "host.agent name=claude herdr=true in=~/sheds", does: "runs claude in Herdr, in ~/sheds, where it outlives the door" },
+    ],
     run({ name, herdr, default: dflt, in: folder }, { drawer }, actor) {
       if (!name) {
         if (actor.kind === "agent") return { agents: drawer.agents().map(a => ({ name: a.name, cmd: a.cmd, ...(a.herdr ? { herdr: true } : {}) })), now: drawer.runs.name, from: drawer.runs.from };
@@ -1572,6 +1588,10 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       args: { type: "string", optional: true, about: "more arguments for the program" },
       fresh: { type: "boolean", optional: true, about: "start another even when one runs in that folder" },
     },
+    examples: [
+      { act: "agent.start program=claude in=~/garden", does: "starts claude in ~/garden as a tab in the drawer, or attaches the one running" },
+      { act: "agent.start program=codex in=~/bikes fresh=true", does: "starts another codex in ~/bikes even if one runs there" },
+    ],
     run(a, { drawer }, actor) { return drawer.startSession(a, actor); },
   }),
   "agents.new": def({
@@ -1579,6 +1599,10 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     keys: "n in the agent panel",
     touches: "shape", replay: "ask",
     args: { program: { type: "string", optional: true, about: "as agent.start's" }, in: { type: "string", optional: true, about: "as agent.start's" } },
+    examples: [
+      { act: "agents.new", does: "asks the person for the program, then the folder, and starts it" },
+      { act: "agents.new program=pi in=~/sheds", does: "starts pi in ~/sheds as a tab in the drawer" },
+    ],
     run({ program, in: folder }, { drawer }, actor) {
       if (actor.kind === "agent" || program) return drawer.startSession({ ...(program ? { program } : {}), ...(folder ? { in: folder } : {}) }, actor);
       return drawer.newSessionPicker();
@@ -1590,6 +1614,10 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     touches: "screen", replay: "ask",
     person: "going to a session takes the person's keys; an agent reads it (agents.list) and types with tile.type",
     args: { session: { type: "string", about: "the session: its id (agents.list), program:folder, the tile it's in, or n from 1" } },
+    examples: [
+      { act: "agents.go session=2", does: "jumps to the second agent session, the person's keys in it" },
+      { act: "agents.go session=claude:garden", does: "jumps to the claude session in the garden folder" },
+    ],
     run({ session }, { drawer }, actor) { return drawer.goSession(session, actor); },
   }),
   "agents.drawer": def({
@@ -1598,6 +1626,9 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     touches: "shape", replay: "ask",
     says: (out: { session?: string }) => `· pulled ${out?.session ?? "a session"} into your drawer`,
     args: { session: { type: "string", about: "as agents.go's" } },
+    examples: [
+      { act: "agents.drawer session=claude:garden", does: "pulls that session from its screen into the drawer, still running" },
+    ],
     run({ session }, { drawer }, actor) { return drawer.pullSession(session, actor); },
   }),
   "agents.dock": def({
@@ -1606,6 +1637,9 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     touches: "shape", replay: "ask",
     says: (out: { session?: string; into?: string }) => `· docked ${out?.session ?? "a session"} on the ${out?.into ?? "screen"}`,
     args: { session: { type: "string", about: "as agents.go's" } },
+    examples: [
+      { act: "agents.dock session=claude:garden", does: "docks that session as a tile on the screen shown, still running" },
+    ],
     run({ session }, { drawer }, actor) { return drawer.dockSession(session, actor); },
   }),
   "host.size": def({
@@ -1613,6 +1647,10 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     keys: "drag the drawer's top edge; alt+A steps 40%, 50%, 60%, 75%",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't resize it under them",
     args: { share: { type: "number", about: "0.2 to 0.9 (0.5: half the screen)" } },
+    examples: [
+      { act: "host.size share=0.5", does: "sets the drawer to half the rows above the status bar" },
+      { act: "host.size share=0.75", does: "sets the drawer to three quarters of the screen" },
+    ],
     run({ share }, { drawer }, actor) {
       if (!(share > 0 && share <= 1)) throw new ActionRefused(`share is a fraction of the screen, 0.2 to 0.9, not ${share}`);
       drawer.height(share, actor);
@@ -1652,6 +1690,9 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there",
     says: (out: { tile?: string }) => `· typed to ${out?.tile ?? "the drawer"}`,
     args: { text: { type: "string", about: "what to type (\\n ⏎, \\e Esc)" } },
+    examples: [
+      { act: "agent.type text=\"check the seed-swap note\\n\"", does: "types that line into the drawer's own program and presses ⏎" },
+    ],
     run({ text }, { drawer }) {
       const p = drawer.tile;
       if (!p?.running) throw new ActionRefused(`${drawer.name} isn't running · alt+a pulls it up and starts it`);
@@ -1680,6 +1721,10 @@ export const HOST_TILE_ACTIONS = actionSet<{ drawer: AgentDrawer }>()("host", {
     summary: "the drawer's own program (tile=drawer.agent) lives in Herdr pane pane=<label> (on=false: it no longer does): quitting the door then ends only the attach",
     touches: "nothing", replay: "ask",
     args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-<outline>)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: it no longer shows a Herdr agent" } },
+    examples: [
+      { act: "tile.herdr tile=drawer.agent pane=door-garden", does: "records that the drawer's program lives in the Herdr pane door-garden" },
+      { act: "tile.herdr tile=drawer.agent on=false", does: "records that the drawer's program no longer lives in Herdr" },
+    ],
     run({ pane, name, on }, { drawer }) {
       const p = drawer.tile;
       if (!p) throw new ActionRefused("your drawer's own program hasn't started");

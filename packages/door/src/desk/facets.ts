@@ -351,6 +351,10 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     keys: "j k ↑ ↓ PgUp PgDn, the wheel",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's cursor (facets.list reads the rows, facets.set picks a value by name)",
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, by: { type: "number", optional: true, about: "rows on from the cursor (negative: up)" } },
+    examples: [
+      { act: "facets.pick n=4 tile=facets", does: "moves the cursor to the fourth row of the facets tile" },
+      { act: "facets.pick by=-2 tile=facets", does: "moves the cursor up two rows" },
+    ],
     run({ n, by }, { pane, desk }) {
       const p = pane as FacetsPane, rows = p.rows();
       if (!rows.length) throw new ActionRefused("the facets tile lists nothing yet");
@@ -372,6 +376,10 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       n: { type: "number", optional: true, about: "the value's row, from 1" },
       mode: { type: "string", optional: true, about: "include, exclude or off; left out: the next step" },
     },
+    examples: [
+      { act: "facets.set key=tag value=garden tile=facets", does: "includes the #garden tag, so the notes left must carry it" },
+      { act: "facets.set key=project value=seed-swap mode=exclude tile=facets", does: "leaves out the notes whose project is seed-swap" },
+    ],
     run({ key, value, n, mode }, { pane, desk }, actor) {
       const p = pane as FacetsPane;
       if (mode !== undefined && !["include", "exclude", "off"].includes(mode)) throw new ActionRefused(`mode is include, exclude or off, not ${mode}`);
@@ -402,6 +410,9 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     summary: "open a facet to its values or fold it: key= (a tag is `tag`), n (its row), or the row the cursor is on",
     keys: "⏎ or a click on a facet", touches: "tile", while: "typing", replay: "safe", way: "an agent folds by key=",
     args: { key: { type: "string", optional: true, about: "the property" }, n: { type: "number", optional: true, about: "its row, from 1" } },
+    examples: [
+      { act: "facets.fold key=project tile=facets", does: "opens the project facet to its values, or folds it if open" },
+    ],
     run({ key, n }, { pane, desk }) {
       const p = pane as FacetsPane, rows = p.rows();
       const row = key !== undefined ? rows.find(r => r.kind === "facet" && r.key === bare(key).toLowerCase()) : n !== undefined ? rows[n - 1] : p.current();
@@ -420,6 +431,10 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       id: { type: "string", optional: true, about: "a block id (or its first 8+ characters)" },
       fresh: { type: "boolean", optional: true, about: "in a new detail beside, as alt+⏎ does" },
     },
+    examples: [
+      { act: "facets.open id=7d9a1f40 tile=facets", does: "opens that note where the facets tile's opens land" },
+      { act: "facets.open n=9 fresh=true tile=facets", does: "opens the note on row 9 in a new detail beside" },
+    ],
     run({ n, id, fresh }, { pane, desk }, actor) {
       const p = pane as FacetsPane, rows = p.rows();
       const row = id !== undefined ? rows.find(r => r.kind === "note" && (r.note.id === id || (id.length >= 8 && r.note.id.startsWith(id)))) : n !== undefined ? rows[n - 1] : p.current();
@@ -433,6 +448,10 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     summary: "set the selection as text in the views' grammar (`project=x/* type=meeting #yomama NOT week=3`): it replaces the picks; the service evaluates it and the facets and notes follow. Empty clears. The person types it with e",
     keys: "e, then typing, ⏎ applies, esc undoes", touches: "tile", while: "typing", replay: "safe", way: "an agent passes text=<query>: the person's selection moves with it",
     args: { text: { type: "string", about: "the query; empty clears the selection" } },
+    examples: [
+      { act: "facets.query text=\"#garden NOT type=meeting\" tile=facets", does: "selects notes tagged #garden that are not meetings, replacing the picks" },
+      { act: "facets.query text=\"\" tile=facets", does: "clears the selection so every note is left" },
+    ],
     run({ text }, { pane, desk }) {
       const p = pane as FacetsPane;
       return p.serial(async () => {
@@ -448,6 +467,10 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     summary: "save the selection as a view: a block `[type::virtual-branch] [query::<the query>]` under a hub (parent=<block id>; left out, the newest board hub, else the top level), named name= (left out, the query)",
     keys: "v", touches: "nothing", replay: "ask", says: r => `saved view "${String(r.name).slice(0, 40)}"`,
     args: { name: { type: "string", optional: true, about: "the view's name" }, parent: { type: "string", optional: true, about: "the hub's block id" } },
+    examples: [
+      { act: "facets.save name=\"Garden beds\" tile=facets", does: "saves the selection as a view named Garden beds under the newest board hub" },
+      { act: "facets.save name=\"Shed to-do\" parent=2b7f5e90-1c34-4a86-8d5e-9f0a3c7b1d62 tile=facets", does: "saves the selection as a view under that hub block" },
+    ],
     async run({ name, parent }, { pane, desk }, actor) {
       const p = pane as FacetsPane, q = p.query();
       if (!q) throw new ActionRefused("nothing is selected: pick a value or type a query first, then save it as a view");
@@ -463,6 +486,10 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     summary: "sort the values by uses (most first), name or last use (newest first): by=<one>, or the next in turn",
     keys: "s, a click on a header word", touches: "tile", while: "typing", replay: "safe", way: "an agent sorts the person's tile only with by=<sort>",
     args: { by: { type: "string", optional: true, about: "uses, name or last" } },
+    examples: [
+      { act: "facets.sort by=name tile=facets", does: "sorts the values by name" },
+      { act: "facets.sort by=last tile=facets", does: "sorts the values by last use, newest first" },
+    ],
     run({ by }, { pane, desk }) {
       const p = pane as FacetsPane;
       if (by !== undefined && !(FACET_SORTS as readonly string[]).includes(by)) throw new ActionRefused(`sort by ${FACET_SORTS.join(", ")}, not ${by}`);
@@ -475,6 +502,10 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     summary: "list the values (and facets) no note the selection leaves carries, dimmed at 0, or hide them again: on=<true|false>, or the other way round",
     keys: "z", touches: "tile", while: "typing", replay: "safe", way: "an agent says on=<true|false>",
     args: { on: { type: "boolean", optional: true, about: "show them (true) or hide them (false)" } },
+    examples: [
+      { act: "facets.zero on=true tile=facets", does: "lists the values no remaining note carries, dimmed at 0" },
+      { act: "facets.zero on=false tile=facets", does: "hides the zero-count values again" },
+    ],
     async run({ on }, { pane, desk }) { const p = pane as FacetsPane; p.keeping(() => { p.zero = on ?? !p.zero; }); await p.refresh(desk); desk.keepLayout?.(); desk.redraw(); return { zero: p.zero }; },
   }),
   "facets.clear": def({

@@ -28,18 +28,30 @@ export const ART_ACTIONS = actionSet<ArtOn>()("art", {
     summary: "show the next (by=1) or previous (by=-1) piece (the viewer's pack, the art tile's pieces), from its top; an agent's is said on the status bar", keys: ". > →, , < ←, click on , or .",
     touches: "tile", replay: "safe", way, says: out => `· showed ${out.piece}`,
     args: { by: { type: "number", about: "pieces to step: 1 next, -1 previous" } },
+    examples: [
+      { act: "art.step by=1", does: "shows the next piece from its top" },
+      { act: "art.step by=-1", does: "shows the previous piece" },
+    ],
     run({ by }, on) { return done(on, on.pane.step(Math.trunc(by) || 1)); },
   }),
   "art.scroll": def({
     summary: "scroll the piece by rows (negative: up); an agent's is said on the status bar", keys: "↑ ↓ j k PgUp PgDn, the wheel, click on ↑ or ↓",
     touches: "tile", replay: "safe", way, says: out => `· scrolled the art to row ${out.scroll}`,
     args: { by: { type: "number", about: "rows; negative scrolls up" } },
+    examples: [
+      { act: "art.scroll by=10", does: "scrolls the piece down ten rows" },
+      { act: "art.scroll by=-5", does: "scrolls the piece up five rows" },
+    ],
     run({ by }, on) { return done(on, on.pane.scrollBy(Math.trunc(by))); },
   }),
   "art.ice": def({
     summary: "iCE colours (blink as bright backgrounds): on=true or false, else toggled. The art viewer's", keys: "i, click on i iCE",
     touches: "tile", replay: "safe", way, says: out => `· turned iCE ${out.ice ? "on" : "off"}`,
     args: { on: { type: "boolean", optional: true, about: "true or false; default toggles" } },
+    examples: [
+      { act: "art.ice on=true", does: "turns iCE colours on, so blink bits draw as bright backgrounds" },
+      { act: "art.ice", does: "toggles iCE colours" },
+    ],
     run({ on: want }, on) {
       if (!on.pane.setIce) throw new ActionRefused("this art has no iCE switch; the art viewer (B on the menu) has");
       return done(on, on.pane.setIce(want ?? !on.pane.iceOn));
