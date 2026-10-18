@@ -307,7 +307,7 @@ if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? 
   // Which door, when EP0CH_CONTROL names none: the one on the outline this folder names, else the only one running.
   if (!process.env.EP0CH_CONTROL) {
     const { controlFor } = await import("./session/place");
-    const at = await controlFor();
+    const at = await controlFor(process.env, process.cwd(), args[0] === "peek" ? args : []);
     if (typeof at === "object") {
       if (args[0] === "open" && args.includes("--json")) console.log(JSON.stringify({ opened: false, reason: at.error }));
       else console.error(`ep0ch: ${at.error}`);
@@ -319,8 +319,12 @@ if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? 
     // alone (a handover or restart moves the door to a new process; PIE-604). `ep0ch where` says when that happened.
     // An EP0CH_CONTROL with no door (a stale one, PIE-715) falls through to the folder's outline's door, then the only one.
     const { resolveDoor } = await import("./door-resolve");
-    const reached = await resolveDoor();
+    const reached = await resolveDoor(process.env, process.cwd(), args[0] === "peek" ? args : []);
     if (reached.path) process.env.EP0CH_CONTROL = reached.path;
+    else if (args[0] === "peek") {
+      console.error(`ep0ch: ${reached.text}`);
+      process.exit(1);
+    }
   }
   process.exit(await controlClient(args));
 }

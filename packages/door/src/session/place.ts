@@ -16,6 +16,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { hostSocketOf, resolveTarget } from "../discover";
 import { listening } from "../jsonl";
+import { readMissing } from "../outlines";
 import { homeState, stateDir } from "../state";
 import type { SessionInfo } from "./protocol";
 
@@ -139,14 +140,21 @@ export async function pickSession(args: readonly string[], verb: string, env: En
 
 /**
  * The control socket `ep0ch peek|act|snap|open|actions|subscribe` reaches when EP0CH_CONTROL names none: the door on the
- * outline this folder names (EP0CH_WS, the .ep0ch), else the only door serving on this state dir (a session's or one
+ * outline the arguments or folder name (--ws, EP0CH_WS, the .ep0ch), else the only door serving on this state dir (a session's or one
  * opened with --no-daemon). Several and none named: which to name, as commands.
  */
-export async function controlFor(env: Env = process.env, cwd = process.cwd()): Promise<string | { error: string }> {
-  const named = placeFor([], env, cwd);
+export async function controlFor(env: Env = process.env, cwd = process.cwd(), args: readonly string[] = []): Promise<string | { error: string }> {
+  const named = placeFor(args, env, cwd);
   if (named && "error" in named) return named;
   if (named) {
     if (await listening(join(named.dir, "door.sock"))) return join(named.dir, "door.sock");
+    if (args[0] === "peek") {
+      const target = resolveTarget(args, env, cwd);
+      if ("outline" in target) {
+        const missing = await readMissing({ ...target, command: args });
+        if (missing) return { error: missing };
+      }
+    }
     return { error: `no door runs on ${placeLabel(named)} · \`${ep0ch(env, named)}${sessionFlags({ place: named })}\` starts one, \`${ep0ch(env)}session list\` says what runs` };
   }
   // Each outline's door, and the home base (on no outline yet: its socket is in its own folder, homeState()).
