@@ -41,6 +41,11 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     const d = S().stages.get(index).top as any;
     const act = (action: string, args: Record<string, unknown> = {}, tile = "tree") => d.dispatch.act({ action, args, tile }, { kind: "user" });
     await until(() => !!d.pane("tree-preview") && d.layoutGet().tiles.find((t: any) => t.name === "tree")?.link === "detail", "the default preview and open wire");
+    await act("tile.link", { verb: "select" });
+    await act("tile.link", { ask: true, verb: "select" });
+    screen();
+    const preview = d.layoutGet().tiles.find((t: any) => t.name === "tree-preview").rect;
+    d.key({ kind: "mouse", action: "down", button: 0, x: preview.col + 3, y: preview.row + 3 }, d.ctx);
     const before = d.pane("detail").msg.id;
     await act("tree.pick", { id: seeded.notes.root.id });
     await until(() => d.pane("tree-preview").msg?.id === seeded.notes.root.id, "the tree selection in its preview");

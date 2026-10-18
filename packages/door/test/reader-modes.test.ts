@@ -114,16 +114,16 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     expect(pane("keeps").msg?.id).toBe(notes.plan.id);
     D().setCurrent(notes.shed, {});
     expect(pane("keeps").msg?.id).toBe(notes.plan.id);
-    expect(pane("keeps").hint()).toContain("p follow");
+    expect(pane("keeps").hint()).toContain("p current note");
   });
 
   test("reader.mode works on every reader, a former detail too, and the 'for readers' refusal is gone", async () => {
     const held = await act("reader.mode", { mode: "held" }, "follower") as any;
     expect(held).toMatchObject({ tile: "follower", mode: "held", held: true });
-    expect(message()).toContain("held the reader on its note");
+    expect(message()).toContain("stays put");
     const back = await act("reader.mode", { mode: "follows" }, "keeps") as any;
     expect(back).toMatchObject({ tile: "keeps", mode: "follows", held: false });
-    expect(message()).toContain("let the reader follow the current note");
+    expect(message()).toContain("shows the current note");
     // Left out, it is p's toggle.
     expect(await act("reader.mode", {}, "keeps")).toMatchObject({ mode: "held" });
     expect(await act("reader.mode", {}, "keeps")).toMatchObject({ mode: "follows" });
@@ -149,7 +149,7 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     await mine("tile.focus", {}, "keeps");
     key(char("p"));
     await until(() => tile("keeps").mode === "follows", "p lets a pinned reader follow");
-    expect(pane("keeps").hint()).toContain("p hold");
+    expect(pane("keeps").hint()).toContain("p stays put");
     await act("reader.mode", { mode: "held" }, "keeps");
   });
 
@@ -233,7 +233,7 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     await mine("tile.close", {}, made().name);
   });
 
-  test("the mode chip is on the frame, says the mode, and a click on it picks the mode (PIE-814: a picker of what it follows)", async () => {
+  test("the mode chip is on the frame, says the mode, and a click on it opens the Shows and page-lock controls", async () => {
     await act("reader.mode", { mode: "follows" }, "follower");
     D().setCurrent(notes.plan, {});
     expect(pane("follower").msg?.id).toBe(notes.plan.id);
@@ -251,19 +251,20 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
       expect(at).toBeGreaterThanOrEqual(0);
       for (let i = 0; i < at; i++) key({ kind: "down" });
       key({ kind: "enter" });
+      key({ kind: "esc" });
     };
     expect(chipOf("follower")).toBeDefined();
-    pick(/^nothing/);
+    pick(/^Shows:/);
     await until(() => tile("follower").mode === "held", "picking nothing holds it");
     expect(pane("follower").msg?.id).toBe(notes.plan.id);
     D().setCurrent(notes.shed, {});                          // the current note moves on while it's held
-    pick(/^the current note/);
+    pick(/^Shows:/);
     await until(() => tile("follower").mode === "follows", "picking the current note follows it");
     expect(pane("follower").msg?.id).toBe(notes.plan.id);  // it keeps its note, now the current one: nothing jumps
     expect(D().current?.id).toBe(notes.plan.id);
     // A note with a page: the picker offers pinning to it.
     await act("open", { id: notes.now.id }, "follower");
-    pick(/^pinned to \[\[garden-now\]\]/);
+    pick(/^▣ Lock stays put on \[\[garden-now\]\]/);
     await until(() => tile("follower").mode === "pinned", "picking the page pins it");
     expect(tile("follower").page).toBe("garden-now");
     await act("reader.mode", { mode: "follows" }, "follower");

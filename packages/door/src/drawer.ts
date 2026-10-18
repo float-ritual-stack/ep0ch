@@ -1202,7 +1202,7 @@ export class AgentDrawer {
     const hint = watching
       ? `${fg(C.lcyan)}${this.entered ? "⏎ takes it over from the other door · q stops watching" : "click in it, then ⏎ takes it over from the other door"} · ${this.entered ? ESCAPE_CHORD : "alt+a"} ${this.entered ? `back to the ${screen}` : "puts it away"}`
       : this.entered && d?.linkingFrom()
-      ? `${fg(C.lmagenta)}alt+l · click the tile of the ${screen} above where ${d.nameOfPane(d.linkingFrom()!)}'s opens land (or its number) · click it again to unlink · esc cancels`
+      ? `${fg(C.lmagenta)}${d.linkHint()}`
       : this.entered && d?.overlaid()
       ? `${fg(C.yellow)}the picker has the keys · ↑↓ ⏎ chooses · esc leaves it as it is`
       : this.entered && d?.waitsOnExit()
@@ -1335,13 +1335,11 @@ export class AgentDrawer {
     // screen above or a screen tile to one in the drawer; the keys stay where they are.
     if (k.action === "down" && screen && this.d && screen !== this.d) {
       if (this.d.linkingFrom() && !inDrawer && !onChip) {
-        const target = screen.paneAtCell(k.x, k.y);
-        if (target) this.d.linkToPane(target); else this.d.cancelLinking();
+        this.d.linkAt(screen, k.x, k.y);
         return true;
       }
       if (screen.linkingFrom() && inDrawer) {
-        const target = this.d.paneAtCell(k.x, k.y - this.deskRow());
-        if (target) screen.linkToPane(target); else screen.cancelLinking();
+        screen.linkAt(this.d, k.x, k.y - this.deskRow());
         return true;
       }
     }

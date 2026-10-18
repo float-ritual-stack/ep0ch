@@ -248,10 +248,11 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.link": def({
-    summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there. Select may have several targets. No to= removes that verb's wires; remove=true removes just the named target.",
-    keys: "alt+l then click the tile, h j k l or 1-9 (the tile itself unlinks)",
-    touches: "shape", replay: "safe", says: (r, a) => a.to ? `${r.tile}: ${a.verb ?? "open"} → ${a.to}` : `unlinked ${r.tile}'s ${a.verb ?? "open"}`,
+    summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there. Select may have several targets. No to= removes that verb's wires; remove=true removes just the named target. ask=true picks on screen; ask=false dismisses the controls without changing wires.",
+    keys: "alt+l then s select, o open, a alt; click the tile, h j k l or 1-9 (the tile itself unlinks); ^W P then enter or space picks, x clears a wire; esc or q cancels",
+    touches: "shape", touchesWith: a => a.ask !== undefined ? "screen" : "shape", replay: "safe", says: (r, a) => r.picking !== undefined ? null : a.to ? `${r.tile}: ${a.verb ?? "open"} → ${a.to}` : `unlinked ${r.tile}'s ${a.verb ?? "open"}`,
     args: {
+      ask: { type: "boolean", optional: true, about: "true picks the target on screen; false dismisses link controls without changing wires" },
       to: { type: "string", optional: true, kind: "tile", about: "target tile; absent removes this verb's wires" },
       verb: { type: "string", optional: true, choices: ["select", "open", "alt"], about: "select, open (default), alt" },
       rule: { type: "string", optional: true, choices: ALT_RULES, about: "verb=alt: beside, tab, tile, first-unheld; to= names the target" },
@@ -263,10 +264,11 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "tile.link tile=tree to=preview verb=select", does: "makes the preview show the tree's selection as it moves" },
       { act: "tile.link tile=tree verb=open", does: "takes the tree's open wires away, so its opens land where they did before" },
     ],
-    run({ to, verb, role, remove, rule }, { d, reader }, actor) {
+    run({ to, verb, role, remove, rule, ask }, { d, reader }, actor) {
       if (verb !== undefined && !(WIRE_VERBS as readonly string[]).includes(verb)) throw new ActionRefused(`tile.link: verb is select, open or alt, not ${verb}`);
       if (rule !== undefined && (verb !== "alt" || !ALT_RULES.includes(rule as AltRule))) throw new ActionRefused("tile.link: rule needs verb=alt and beside, tab, tile or first-unheld");
       if (rule && rule !== "first-unheld" && !to) throw new ActionRefused("tile.link: this alt rule needs to=<tile>");
+      if (ask !== undefined) return d.startLink(reader, (verb ?? "open") as WireVerb, ask);
       return d.linkTile(reader, to, actor, (verb ?? (role === "preview" ? "select" : "open")) as WireVerb, remove, rule as AltRule | undefined);
     },
   }),
@@ -426,7 +428,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "layout.lock": def({
     summary: "lock the screen (on=true): its shape is fixed (no moves, drops, opens of new tiles, closes, resizes, docks in or out, links or layout loads) and its contents stay live (reading, editing, typing in terminals, docks sliding, tabs shown, zoom); on=false unlocks; default toggles. Saved with the layout",
-    keys: "alt+k; a click on the hint row's □ lock / ▣ locked chip",
+    keys: "alt+k; a click on the hint row's □ lock / ▣ locked chip; ^W P then enter or space on locked",
     touches: "shape", replay: "safe", confirms: true, says: r => (r.changed ? (r.locked ? "locked the screen (alt+k unlocks)" : "unlocked the screen") : null),
     args: { on: { type: "boolean", optional: true, about: "true locks, false unlocks; default toggles" } },
     examples: [
@@ -439,7 +441,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "layout.policy": def({
     summary: "a container's policy, saved with the layout: node=<id> (s<n> a split, g<n> a tab set, d<n> a dock, from layout.get) or node=screen; left out, the innermost container holding tile=<tile>, else the screen. Sets draggable (its tiles move out), droppable (it takes tiles), accepts=<kind,kind> (only those kinds; any clears), resizable, min/max/fixed=<cells> along its parent's axis (-1 clears), collapsible, overlay and stays (a dock), locked, opensInto=<tile> (where its tiles' opens land when they have no link), opens=current|next (the open rule; a flow's is next), readable=<cells> (growth by room: past it, earlier readers in a row fold to spines as new ones open), host=over|beside|none (node=screen: where the host layer may appear over it); clear=<field,field> takes fields away. With nothing to set, it reads: each layer's policy over the tile and what applies. On a locked container only locked changes",
-    keys: "^W P (⏎ or a click on a row changes it; alt+k locks the screen)",
+    keys: "^W P (enter, space or a click on a row changes it; alt+k locks the screen)",
     touches: "shape", replay: "safe", confirms: true,
     says: (r, a) => { if (!r || !("node" in r) || !("policy" in r) || "layers" in r) return null; const { set, gone } = policyChange(a); return `set ${r.node}'s policy: ${[...Object.entries(set).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(",") : v}`), ...gone.map(k => `${k} cleared`)].join(" ") || "unchanged"}`; },
     args: POLICY_ARGS,
