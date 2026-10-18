@@ -25,7 +25,7 @@ when you touch a file under `packages/outliner/`; other tools read it before cha
   apply before you change runtime behaviour or call it complete.
 - **Scripts have one reference page,** `docs/scripts.md`. Change `host-api.ts`, `script-runtime.ts`, `script-runs.ts`, the agent
   tool list or the view primitives and `test/scripts-docs.test.ts` tells you what to update: `bun scripts/scripts-doc.ts`
-  rewrites the generated tables, and a moved `path:line` pointer is fixed by hand (the test names it).
+  rewrites the generated tables and every `path:line` pointer from its symbol (a moved line never fails the test; a symbol that is gone does, and it names it).
 - **Tests** start the outliner's in-process servers or `test/scratch-outline.ts`, never a real outline.
 - **The schema** is the CREATE statements in `src/schema.ts` for the current version only; a change follows the
   root `AGENTS.md`, "Schema and protocol: one version" (a one-off script in `scripts/migrations/`).

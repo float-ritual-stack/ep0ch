@@ -3,11 +3,11 @@
 A script is a note with `[script::name]` and a code fence. It runs in the outline host, in a sandbox, and sees the
 note it is about, a few functions, the agent tools and a set of view builders. This page is the whole surface, written
 from the code on main: every entry ends in a pointer (`path:line`) to the source, and `test/scripts-docs.test.ts` fails
-when a pointer, the tool list or a view's fields drift. Read the source when a detail here isn't enough; the pointer
+when the tool list or a view's fields drift, or when a pointer's symbol is gone (a line that only moved is not drift). Read the source when a detail here isn't enough; the pointer
 is where to start.
 
 Everything below was checked against a scratch outline. Where this page and the code disagree, the code wins: fix the
-page (`bun packages/outliner/scripts/scripts-doc.ts` rewrites the generated tables; the pointers you move by hand).
+page (`bun packages/outliner/scripts/scripts-doc.ts` rewrites the generated tables and every pointer's line from the symbol it sits beside).
 
 - [A script in one minute](#a-script-in-one-minute)
 - [The script note](#the-script-note) · [Globals](#globals) · [Functions](#functions) · [tools.*](#tools) · [view.*](#view)

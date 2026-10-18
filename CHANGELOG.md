@@ -10,6 +10,11 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The scripts page's code pointers follow their symbols (PIE-1040)
+
+`bun packages/outliner/scripts/scripts-doc.ts` now writes each `path:line` pointer from the symbol it sits beside, so a moved
+line is regenerated and never a red build; `test/scripts-docs.test.ts` fails only when a symbol or file is gone, and names it.
+
 ### An action's arguments are a form in the power bar (PIE-1031)
 
 In the power bar (`ctrl+k`), ⏎ on an action that takes arguments opens its form, as charmbracelet's gum does: a field
