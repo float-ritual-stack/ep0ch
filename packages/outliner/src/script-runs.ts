@@ -121,6 +121,7 @@ export class ScriptRuns {
     const reads = new Map<string, number | null>();
     const queries: ScriptRendered["queries"] = [];
     let untracked = false;
+    let hiddenQueryRoot = false;
     const onRead = (ids: readonly string[]) => { for (const id of ids) if (!reads.has(id)) reads.set(id, this.store.get(id)?.revision ?? null); };
     const props = slotProps(input.argument);
     // The script's note supplies self as well as code, so it follows the same visibility cut as an embed.
@@ -150,6 +151,11 @@ export class ScriptRuns {
       const client: AgentToolsClient = bound ? {
         requireCompatibleService: () => this.client.requireCompatibleService(),
         request: async <T>(request: Parameters<AgentToolsClient["request"]>[0]): Promise<T> => {
+          const root = request.action === "blocks.query" ? request.query.subtreeRootId : request.action === "views.read" ? request.viewId : undefined;
+          if (root && visibleId!(root) === null) {
+            hiddenQueryRoot = true;
+            throw new Error("not shared");
+          }
           if (request.action === "blocks.query") return this.store.queryBlocks({ ...request.query, machinery: request.query.machinery ?? DEFAULT_MACHINERY }, undefined, select) as T;
           if (request.action === "views.read") return this.store.readSavedView(request.viewId, request, "full", select) as T;
           return this.client.request<T>(request);
@@ -159,6 +165,7 @@ export class ScriptRuns {
         effects: "read", cutQueries: !!bound, visibleId, onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
+      if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
       if (!result.ok) throw new Error(result.error.message);
       const drew = result.value === undefined ? null : scriptView(result.value);
       return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}) };

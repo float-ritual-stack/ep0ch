@@ -83,7 +83,7 @@ The code is the body of an async function: `await` and `return` work at the top.
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. A render line keeps repeats (`tag=a tag=b` is two values); every action run path gives one value per key. | `packages/outliner/src/script-runtime.ts:27` |
 | `view` | The builders of [view.*](#view). | `packages/outliner/src/script-runtime.ts:49` |
 | `tools` | The agent tools, `await tools.outline_read({ ref })`. See [tools.*](#tools). | `packages/outliner/src/script-runtime.ts:38` |
-| `text(value)`, `console.log(...)` | Add a line to the run note's output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:280` |
+| `text(value)`, `console.log(...)` | Add a line to the run note's output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:287` |
 | `exit()` | Ends the script successfully, keeping its output (the sandbox's own). | |
 
 `text`, `console`, `exit`, `store`/`load` and `ALL_TOOLS` come from the QuickJS sandbox
@@ -218,7 +218,7 @@ The returned value becomes text, the same way in a run note and a drawn line:
 |---|---|---|
 | `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:33` |
 | `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:27` |
-| `undefined` | nothing (a run note ends at the output lines) | `packages/outliner/src/script-runs.ts:281` |
+| `undefined` | nothing (a run note ends at the output lines) | `packages/outliner/src/script-runs.ts:288` |
 | `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:37` |
 
 ## Record shapes
@@ -251,7 +251,7 @@ examples lean on:
 
 | Mode | Written | Runs | Draws or writes | Source |
 |---|---|---|---|---|
-| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:177` |
+| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:184` |
 | render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:119` |
 | `pipelineCalls` (the `::=` line) | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:150` |
 
@@ -299,13 +299,13 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:178` |
+| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:185` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:714` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1928` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4185` |
 | `viaYolo` | `packages/outliner/src/server.ts:4208` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:296` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:303` |
 
 ## Lifecycle
 
@@ -323,10 +323,10 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:175` |
-| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:187` |
-| `stopRun` | `packages/outliner/src/script-runs.ts:168` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:237` |
+| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:182` |
+| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:194` |
+| `stopRun` | `packages/outliner/src/script-runs.ts:175` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:244` |
 | `scripts.stop` | `packages/outliner/src/server.ts:1919` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2459` |
 

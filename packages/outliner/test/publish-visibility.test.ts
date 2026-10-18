@@ -278,6 +278,32 @@ test("a limited script search counts visible matches before applying its limit",
   expect(await tailnet("all")).toContain("ALL_COUNT=2");
 });
 
+for (const scope of ["under", "view"] as const) test(`a published script cannot count through a hidden ${scope} note`, async () => {
+  const { store, client, draw, publicly, tailnet } = await setup();
+  const root = store.create(scope === "view"
+    ? "Private seed view [type::virtual-branch] [query::type=seed]"
+    : "Private seed shelf");
+  store.create("Visible seed [type::seed] [publish::public]", scope === "under" ? root.id : null);
+  const query = scope === "under"
+    ? `q("type=seed", { under: "${root.id}" })`
+    : `tools.outline_find({ view: "${root.id}" })`;
+  store.create(`Counter [script::scope-count] [mode::render] [publish::public]\n\`\`\`js\nconst found = await ${query};\nreturn "SCOPE_COUNT=" + ${scope === "under" ? "found.blocks.length" : "found.total"};\n\`\`\``);
+  const page = store.create("Scoped count [publish::public:scoped-count]\nscope-count::");
+  await draw(page.id);
+  await until("scoped counter drawn", () => store.extensionOutputs(page.id).some(row => row.result));
+  expect(await tailnet("scoped-count")).toContain("SCOPE_COUNT=1");
+  const outside = await publicly("scoped-count");
+  expect(outside).not.toContain("SCOPE_COUNT=1");
+  expect(outside).toContain("not shared");
+  const answer = await client.request<{ deps: string[]; script: { markdown: string } }>({
+    action: "site.answer", blockId: page.id, scriptLine: 1, hidden: [root.id],
+  });
+  expect(answer.deps).toContain(root.id);
+  expect(answer.script.markdown).toBe("not shared");
+  store.update(root.id, `${root.text} [publish::public]`, root.revision, { author: "user" });
+  expect(await publicly("scoped-count")).toContain("SCOPE_COUNT=1");
+});
+
 test("the Site counts a limited figure's groups before taking its first row", async () => {
   const { store, client } = await setup();
   const page = store.create("Bed totals [publish::public]");
