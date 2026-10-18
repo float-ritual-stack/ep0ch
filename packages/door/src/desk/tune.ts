@@ -194,7 +194,7 @@ export class TunePane implements Pane {
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.controls = []; this.rowAt.clear();
     const t = this.info(desk);
-    if (!t) return { lines: [fg(C.dark) + pad(`tile ${this.source} isn't on this screen · tune.aim tile=<name>, or alt+y in the tile to tune`, w) + RESET] };
+    if (!t) return { lines: [fg(C.dark) + pad(`tile ${this.source} isn't on this screen · tune.aim target=<name>, or alt+y in the tile to tune`, w) + RESET] };
     const tuning = tuningOf(desk.ctx.board), unsaved = tuning.unsavedCount();
     const lines: string[] = [];
     const put = (parts: { text: string; sgr: string; action?: string; args?: Record<string, unknown> }[]) => {
@@ -444,6 +444,9 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     keys: "j k ↑ ↓, a click on a row, the wheel off the values",
     touches: "tile", replay: "safe",
     args: { n: { type: "number", about: "the row, from 1" } },
+    examples: [
+      { act: "tune.pick n=3 tile=tune", does: "picks the third row of the tune inspector and answers its name" },
+    ],
     run({ n }, { pane, desk }) {
       if (!Number.isInteger(n) || n < 1 || n > TUNE_ROWS.length) throw new ActionRefused(`n is 1-${TUNE_ROWS.length}`);
       pane.sel = n - 1;
@@ -462,6 +465,10 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       width: { type: "string", optional: true, about: "all, or this (the tile's breakpoint now); default the inspector's" },
       shadow: { type: "string", optional: true, about: "where something nearer wins: anyway, instead or clear" },
     },
+    examples: [
+      { act: "tune.nudge by=1 row=measure tile=tune", does: "widens the tuned tile's text measure by one step, in memory until saved" },
+      { act: "tune.nudge by=-1 row=list.gap level=screen width=this tile=tune", does: "tightens the list gap for this screen's current width only" },
+    ],
     async run({ by, row, level, width, shadow }, { pane, desk }, actor) {
       const r = row === undefined ? TUNE_ROWS[pane.sel]! : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
@@ -524,6 +531,10 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       level: { type: "string", optional: true, about: "global, tile, screen, page, instance (this tile) or list (this list); default the inspector's" },
       width: { type: "string", optional: true, about: "all, or this; default the inspector's" },
     },
+    examples: [
+      { act: "tune.set row=measure value=72 tile=tune", does: "sets the text measure to 72 cells at the inspector's level, until saved" },
+      { act: "tune.set row=list.zebra value=on level=global tile=tune", does: "turns zebra stripes on in every list, until saved" },
+    ],
     run({ row, value, level, width }, { pane, desk }, actor) {
       const r = rowNamed(row);
       if (!r || r.tokens.length !== 1) throw new ActionRefused(`row is one token: ${TUNE_ROWS.filter(x => x.tokens.length === 1).map(x => x.name).join(", ")}`);
@@ -546,6 +557,9 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     keys: "x, a click on a row's × or on [reset value]",
     touches: "nothing", replay: "ask", says: out => `· ${out.row} ${out.value} (${out.from}) · s saves`,
     args: { row: { type: "string", optional: true, about: "the row (measure, pad, bg, list.divider, …); default the picked one" } },
+    examples: [
+      { act: "tune.unset row=measure tile=tune", does: "takes away what sets the measure here, so it falls back to what it inherits" },
+    ],
     async run({ row }, { pane, desk }, actor) {
       const r = row === undefined ? TUNE_ROWS[pane.sel]! : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
@@ -567,6 +581,10 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     keys: "v, a click on a level",
     touches: "tile", replay: "safe",
     args: { level: { type: "string", about: "auto, global, tile, screen, page, instance (this tile) or list (this list)" } },
+    examples: [
+      { act: "tune.level level=screen tile=tune", does: "sends the inspector's nudges to this screen's style note" },
+      { act: "tune.level level=auto tile=tune", does: "sends each nudge to where its value comes from" },
+    ],
     run({ level }, { pane, desk }) {
       if (!TUNE_LEVELS.includes(level as TuneLevel)) throw new ActionRefused(`level is ${TUNE_LEVELS.join(", ")}`);
       pane.level = level as TuneLevel;
@@ -580,6 +598,10 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     keys: "w, a click on the width chip",
     touches: "tile", replay: "safe",
     args: { scope: { type: "string", about: "all or this" } },
+    examples: [
+      { act: "tune.width scope=this tile=tune", does: "makes nudges apply only to the width variant the tile is in now" },
+      { act: "tune.width scope=all tile=tune", does: "makes nudges apply at every width" },
+    ],
     run({ scope }, { pane, desk }) {
       if (scope !== "all" && scope !== "this") throw new ActionRefused("scope is all or this");
       pane.scope = scope;
@@ -595,6 +617,10 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     keys: "s, a click on [save]",
     touches: "nothing", replay: "ask", says: out => (out.saved ? `· saved ${out.fields} to ${out.at}` : "· nothing to save there"),
     args: { level: { type: "string", optional: true, about: "auto, global, tile, screen, page, instance or list; default the inspector's" } },
+    examples: [
+      { act: "tune.save tile=tune", does: "writes the tuned tile's nudges to the style notes they belong to" },
+      { act: "tune.save level=page tile=tune", does: "writes the page-level nudges onto the note the tile shows" },
+    ],
     async run({ level }, { pane, desk }, actor) {
       const lv = (level ?? pane.level) as TuneLevel;
       if (!TUNE_LEVELS.includes(lv)) throw new ActionRefused(`level is ${TUNE_LEVELS.join(", ")}`);
@@ -667,6 +693,9 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     keys: "X then X, a click on [reset level] then [confirm]",
     touches: "nothing", replay: "ask", says: out => (out.armed ? `· ${out.words}: confirm` : `· reset ${out.reset}`),
     args: { confirm: { type: "boolean", optional: true, about: "do it (without: it asks)" } },
+    examples: [
+      { act: "tune.resetlevel confirm=true tile=tune", does: "takes every value the picked level sets for this tile off its style notes" },
+    ],
     async run({ confirm }, { pane, desk }, actor) {
       const t = pane.info(desk);
       if (!t) throw new ActionRefused(`tile ${pane.source} isn't on this screen`);
@@ -715,6 +744,9 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     keys: "R then R, a click on [revert all] then [confirm]",
     touches: "nothing", replay: "ask", says: out => (out.armed ? `· ${out.words}: confirm` : `· reverted ${out.notes.length} notes`),
     args: { confirm: { type: "boolean", optional: true, about: "do it (without: it asks)" } },
+    examples: [
+      { act: "tune.revert confirm=true tile=tune", does: "puts every style note this session wrote back as it was and lets nudges go" },
+    ],
     async run({ confirm }, { pane, desk }, actor) {
       const tuning = tuningOf(desk.ctx.board), notes = tuning.baseline.size, nudges = tuning.unsavedCount();
       if (!notes && !nudges) throw new ActionRefused("nothing changed this session: no style note written, no nudge");
@@ -738,8 +770,12 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
   "tune.aim": def({
     summary: "point the tune inspector at another tile on this screen",
     touches: "tile", replay: "safe",
-    args: { tile: { type: "string", about: "the tile's name" } },
-    run({ tile }, { pane, desk }) {
+    // `target`, not `tile`: an act line's tile= names the tile the action runs in, so it would never arrive (PIE-1032).
+    args: { target: { type: "string", about: "the tile's name" } },
+    examples: [
+      { act: "tune.aim target=activity", does: "points the tune inspector at the activity tile" },
+    ],
+    run({ target: tile }, { pane, desk }) {
       if (!desk.tileLook?.(tile)) throw new ActionRefused(`no tile ${tile} drawn on this screen`);
       pane.source = tile;
       pane.offer = null; pane.armed = null;

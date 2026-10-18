@@ -427,6 +427,9 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     summary: "move the home base's cursor to choice n (as describe numbers them, from 1)", keys: "j k ↑ ↓ wheel click",
     touches: "screen", replay: "safe",
     args: { n: { type: "number", about: "the choice's place, from 1" } },
+    examples: [
+      { act: "home.pick n=2", does: "moves the home base's cursor to its second choice" },
+    ],
     run({ n }, { pane }) {
       const p = pane as HomePane, c = p.choices();
       if (!(n >= 1 && n <= c.length)) throw new ActionRefused(`pick 1 to ${c.length}`);
@@ -439,30 +442,47 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     touches: "screen", replay: "ask",
     says: r => (r?.opened ? `opened ${r.opened}${on(r.machine)}${r.wrote ? ` · wrote ${r.wrote}` : ""}` : null),
     args: { outline: { type: "string", about: "the outline's name" }, machine: { type: "string", about: "the machine it is on (an ssh config name); left out, this one", optional: true }, write: WRITE },
+    examples: [
+      { act: "home.open outline=garden", does: "opens the garden outline on this machine and carries the door on to it" },
+      { act: "home.open outline=bikes machine=workshop write=true", does: "opens bikes on workshop and writes .ep0ch in the folder" },
+    ],
     run({ outline, machine, write }, { pane, desk }, actor) { return open(pane as HomePane, desk, outline, machine, write, actor); },
   }),
   "home.new": def({
     summary: "make an outline and open it: name=, on machine= (left out, this one), write= as home.open. The person's without a name types one", keys: "n, ⏎ or a click on its row",
     touches: "screen", replay: "ask",
     args: { name: { type: "string", about: "the new outline's name", optional: true }, machine: { type: "string", about: "an ssh config name", optional: true }, write: WRITE },
+    examples: [
+      { act: "home.new name=seed-swap", does: "makes the outline seed-swap on this machine and opens it" },
+      { act: "home.new name=sheds machine=workshop write=true", does: "makes sheds on workshop, opens it and writes .ep0ch" },
+    ],
     run({ name, machine, write }, { pane, desk }, actor) { return make(pane as HomePane, desk, name, machine, write, actor); },
   }),
   "home.import": def({
     summary: "import a database (.sqlite on this machine) as a new outline and open it: path=, name=, write= as home.open. The person's types them", keys: "i, ⏎ or a click on its row",
     touches: "screen", replay: "ask",
     args: { path: { type: "string", about: "the database file", optional: true }, name: { type: "string", about: "the new outline's name", optional: true }, write: WRITE },
+    examples: [
+      { act: "home.import path=/tmp/garden.sqlite name=garden", does: "imports that database as the outline garden and opens it" },
+    ],
     run({ path, name, write }, { pane, desk }, actor) { return importDb(pane as HomePane, desk, path, name, write, actor); },
   }),
   "home.connect": def({
     summary: "start a machine's forward when it isn't up, and list its outlines", keys: "⏎ click",
     touches: "nothing", replay: "ask",
     args: { machine: { type: "string", about: "an ssh config name" } },
+    examples: [
+      { act: "home.connect machine=workshop", does: "starts workshop's forward if it isn't up and lists its outlines" },
+    ],
     run({ machine }, { pane, desk }) { return connect(pane as HomePane, desk, machine); },
   }),
   "home.add": def({
     summary: "add a machine to the home base (and connect to it): machine=. The person's picks one from ~/.ssh/config", keys: "a, ⏎ or a click on its row",
     touches: "nothing", replay: "ask",
     args: { machine: { type: "string", about: "an ssh config name", optional: true } },
+    examples: [
+      { act: "home.add machine=workshop", does: "adds workshop to the home base and connects to it" },
+    ],
     async run({ machine }, { pane, desk }, actor) {
       homeOf(desk);
       if (machine === undefined) {
@@ -477,6 +497,9 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     summary: "take a machine off the home base (its forward, if one runs, is left as it is)", keys: "x",
     touches: "nothing", replay: "safe",
     args: { machine: { type: "string", about: "an ssh config name" } },
+    examples: [
+      { act: "home.forget machine=workshop", does: "takes workshop off the home base, leaving its forward as it is" },
+    ],
     run({ machine }, { pane, desk }) {
       homeOf(desk);
       const p = pane as HomePane;

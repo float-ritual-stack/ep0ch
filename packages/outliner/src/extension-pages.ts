@@ -176,6 +176,22 @@ export function whatItAdds(manifest: ExtensionManifest): string[] {
   return out;
 }
 
+/**
+ * Each action's arguments as a properties table (`::graph-props`, PIE-1032), the one drawing an action's page and the
+ * library's component pages use: name, its type and default, what it means; a needed one bold.
+ */
+export function actionArgTables(manifest: ExtensionManifest): string[] {
+  return (manifest.actions ?? []).filter((action) => action.args?.length).map((action) => [
+    "::graph-props", "---", `title: ext.${manifest.id}.${action.id} arguments`, "---",
+    ...action.args!.map((arg) => {
+      const values = arg.options?.length ? arg.options.join(", ") : arg.type;
+      const meaning = words(arg.description ?? arg.label ?? "").replace(/ — /g, ", ");
+      return `- ${arg.required ? `**${arg.name}**` : arg.name}: ${words(values)}${arg.default !== undefined ? ` · ${words(arg.default)}` : ""}${meaning ? ` — ${meaning}` : ""}`;
+    }),
+    "::",
+  ].join("\n"));
+}
+
 const STATE_WORDS = (entry: ExtensionEntry): string =>
   entry.state === "active" ? "installed"
   : entry.state === "disabled" ? "installed, turned off (config.json has enabled: false)"
@@ -468,6 +484,7 @@ export class ExtensionPages {
     if (loaded) {
       const adds = whatItAdds(loaded.manifest);
       if (adds.length) lines.push("", "## What it adds", "", ...adds);
+      for (const table of actionArgTables(loaded.manifest)) lines.push("", table);
     }
     // Its keys (PIE-887): each named secret present or missing, by name and place; never a value.
     const keys = loaded ? extensionKeyLines(loaded, this.options.outline?.()) : [];

@@ -17,7 +17,15 @@ export type ArgType = "string" | "number" | "boolean";
  * One argument: its type, whether it may be left out, and what it means. `tile`: it names a tile (`to=`), and the
  * dispatcher reads it with `tile=`'s one grammar, so the action is given that tile's name.
  */
-export interface ArgSpec { type: ArgType; optional?: boolean; about: string; tile?: true }
+export interface ArgSpec { type: ArgType; optional?: boolean; about: string; tile?: true; /** What a left-out optional one means, when it means one thing (`focused`, `1`): its page's default column. */ default?: string }
+
+/**
+ * A real call of an action and what it does (PIE-1032): its page shows one or two, as `act` lines. `act` is the line
+ * after `ep0ch act`, the action's name first (`layout.move tile=notes to=right`); `does` says what happens, in a few
+ * words. `safe`: an agent may run it without asking (it only reads or changes the door's own view); left out, it is
+ * read from the action's declarations (`touches: "nothing"`, `replay: "safe"`, not the person's), and `false` unmarks one.
+ */
+export interface ActionExample { act: string; does: string; safe?: boolean }
 
 /**
  * What an action touches of the person's (PIE-514). The dispatcher (src/surface/dispatch.ts) checks it once, against
@@ -90,6 +98,8 @@ export interface ActionDef<A, H> {
   /** Words `tile=` may give instead of a tile: where something new goes (the board's open: new-detail, float). */
   places?: readonly string[];
   args: { [K in keyof A]-?: ArgSpec };
+  /** One or two real calls and what each does (ActionExample): its page's examples. An action with arguments has them (test/action-pages.test.ts). */
+  examples?: readonly ActionExample[];
   /** Its rows in a tile's menu (`tile.menu`, PIE-492): absent, it isn't in one. */
   menu?: MenuEntry<A, H> | readonly MenuEntry<A, H>[];
   run(args: A, host: H, actor: Actor): Promise<unknown> | unknown;
@@ -135,7 +145,7 @@ export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: 
  * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
  * of the person's, whether a restarted door may run it again, the person's only).
  */
-export interface ActionInfo { name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true }
+export interface ActionInfo { name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
 
 /**
  * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
@@ -174,7 +184,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   list(): ActionInfo[] {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
-      return { name, summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}) };
+      return { name, summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.examples?.length ? { examples: d.examples } : {}) };
     });
   }
 
@@ -330,6 +340,9 @@ function wordKeys(w: string): string[] | null {
   if (w === "←→") return ["left", "right"];
   return null;
 }
+
+/** Whether a word names keys (`ctrl+k`, `^W`, `j`, `1-9`, `⏎/e`, `↑↓`): a key sheet draws it as keycaps. */
+export const isKeyWord = (w: string): boolean => wordKeys(w) !== null;
 
 /**
  * Every key an action's `keys` names, anywhere in it ("h l j k, click" → h l j k click). A chord is the

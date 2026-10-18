@@ -10,7 +10,7 @@
 //   - g then d: the desk                  limit: 12
 //   - ctrl+k: the command palette         ---
 //   ::                                    ::
-import { allActionSets } from "../surface/actions";
+import { allActionSets, isKeyWord } from "../surface/actions";
 import { BOLD, ellipsize, fg, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
 import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./palette";
@@ -71,4 +71,57 @@ export function registryKeys(scopes: readonly string[], learn: readonly string[]
 export function keysFromRegistry(p: Props): Props {
   if (!p.actions || p.keys) return p;
   return { ...p, keys: registryKeys([p.actions].flat().map(String), [p.learn ?? []].flat().map(String), Number(p.limit) || 40) };
+}
+
+/** A mouse gesture leading an alternative (`a double click on …`, `drag a header`): the gesture its keycap shows. */
+const GESTURE = /^(?:or\s+)?(?:an?\s+)?((?:double[ -]|second[ -]|alt-|ctrl-|right-|shift-)?(?:click|drag|wheel|paste|swipe))(?:es|s)?\b\s*(.*)$/i;
+/** English that starts like a key (`a click`, `a paste`): one letter is a key only when what follows isn't prose. */
+const ARTICLE = /^(a|an|the|or|and|on|in|of|to|by)$/;
+/** An alternative that only qualifies the one before it (`on every screen (not while typing)`). */
+const QUALIFIER = /^(on|in|while|not|with|everywhere|anywhere|also)\b/;
+/** A key word, a hyper chord (`✦p`) among them. */
+const keyWord = (w: string) => /^✦\S$/u.test(w) || isKeyWord(w);
+
+/** `text` split at its commas, semicolons and ` · ` outside brackets: one alternative each. */
+function alternatives(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0, at = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === "(" || c === "[") depth++;
+    else if ((c === ")" || c === "]") && depth) depth--;
+    else if (!depth && (((c === "," || c === ";") && text[i + 1] === " " && i > at) || (c === "·" && text[i - 1] === " " && text[i + 1] === " "))) {
+      out.push(text.slice(at, i)); at = i + 1;
+    }
+  }
+  out.push(text.slice(at));
+  return out.map(a => a.trim().replace(/^(?:or|and)\s+/, "")).filter(Boolean);
+}
+
+/**
+ * Every way an action's `keys` says to do it (PIE-1032), as a key sheet's rows: each alternative's keys (`^W m then h j
+ * k l`) drawn as keycaps and what it says after them (`beside`), a mouse alternative under its gesture (`click`,
+ * `drag`), and one that names no key (`the tile menu's …`) after a dim `or`. `registryKeys` takes the first key only;
+ * an action's page lists them all.
+ */
+export function keyAlternatives(text: string | undefined): { keys: string; action: string }[] {
+  const rows: { keys: string; action: string }[] = [];
+  const said = (t: string) => t.trim().replace(/^\((.*)\)$/s, "$1").replace(/ — /g, ", ").trim();
+  for (const alt of alternatives(text ?? "")) {
+    const words = alt.split(/\s+/);
+    let n = 0;
+    while (n < words.length) {
+      const w = words[n]!.replace(/[:]$/, ""), next = words[n + 1];
+      if ((w === "then" || w === "or" || w === "and") && n > 0 && next && keyWord(next) && !ARTICLE.test(next)) { n++; continue; }
+      // One letter followed by prose that isn't a key (`a click outside it`) is English.
+      if (ARTICLE.test(w) || !keyWord(w)) break;
+      n++;
+    }
+    const gesture = !n ? GESTURE.exec(alt) : null;
+    if (n) rows.push({ keys: words.slice(0, n).join(" "), action: said(words.slice(n).join(" ")) });
+    else if (QUALIFIER.test(alt) && rows.length) { const last = rows.at(-1)!; last.action = [last.action, said(alt)].filter(Boolean).join(", "); }
+    else if (gesture) rows.push({ keys: gesture[1]!.replace(/\s+/g, "-").toLowerCase(), action: said(gesture[2]!) });
+    else rows.push({ keys: "or", action: said(alt) });
+  }
+  return rows.filter((r, i) => rows.findIndex(x => x.keys === r.keys && x.action === r.action) === i);
 }

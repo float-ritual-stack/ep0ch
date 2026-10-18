@@ -354,6 +354,9 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
     keys: "j k ↑ ↓, the wheel, a click",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (peek lists the rows)",
     args: which,
+    examples: [
+      { act: "changes.pick n=1", does: "selects the newest change in the list" },
+    ],
     run(a, { pane, desk }) { const w = pane as WhatChangedPane, { row, n } = rowOf(w, a); w.at = n - 1; desk.redraw(); return { n, id: row.blockId }; },
   }),
   "changes.go": def({
@@ -361,6 +364,10 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
     keys: "⏎, a double click · alt+⏎, an alt-click",
     touches: "nothing", replay: "safe", says: r => `opened ${r.title ?? r.id}`,
     args: { ...which, fresh: { type: "boolean", optional: true, about: "open it in a new detail, as alt+⏎ does" } },
+    examples: [
+      { act: "changes.go n=1", does: "opens the note the newest change is about, where opens land" },
+      { act: "changes.go id=7d9a1f40 fresh=true", does: "opens that note in a new detail, as alt+enter does" },
+    ],
     async run({ fresh, ...a }, { pane, desk }, actor: Actor) {
       const w = pane as WhatChangedPane, { row, n } = rowOf(w, a);
       const m = await desk.ctx.board.get(row.blockId);
@@ -379,6 +386,9 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
     keys: "d",
     touches: "tile", while: "typing", replay: "safe", way: "an agent reads the diff from the answer; the person's rows stay as they are",
     args: which,
+    examples: [
+      { act: "changes.diff n=2", does: "shows the note's earlier text against what it became, under row 2" },
+    ],
     async run(a, { pane, desk }, actor: Actor) {
       const w = pane as WhatChangedPane, { row, n } = rowOf(w, a);
       if (actor.kind === "agent") return { n, id: row.blockId, diff: await changeDiff(desk.ctx.board, row) };

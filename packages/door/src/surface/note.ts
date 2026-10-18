@@ -7517,6 +7517,7 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
     summary: `${info.summary} (in this reader's edit or comment)`, keys: info.keys,
     touches: def.touches, ...(def.draft ? { draft: def.draft } : {}), replay: def.replay,
     args: info.args as ActionDef<DraftActionArgs[K], On>["args"],
+    ...(def.examples ? { examples: def.examples } : {}),
     async run(args, { surface, host }, actor) {
       const w = surface.drafting ?? (surface.session?.mode === "compose" ? surface.session.writing : null);
       if (!w) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
@@ -7864,6 +7865,10 @@ const PROPOSAL_DEFS = {
     summary: "apply anyway (PIE-501): the edit an agent's draft.patch proposed when it couldn't apply, as an ordinary edit by whoever runs this; on the proposal whose embed or control is the current element, the proposal shown, or id. Refused, with why, on one whose passage was already gone when it was proposed ([proposal-applies::no]: only dismiss is offered)", keys: "A, a click on [apply]",
     touches: "nothing", replay: "ask",
     args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
+    examples: [
+      { act: "proposal.apply id=5c2e8b17-4a90-4d3f-b6e1-9f07a3d2c845", does: "applies that proposed edit anyway, as an ordinary edit by whoever runs it" },
+      { act: "proposal.apply", does: "applies the proposal whose control is current, else the one shown" },
+    ],
     async run({ id }, { surface, host }, actor) {
       const target = proposalTarget(id, surface);
       const p = await host.ctx.board.get(target);
@@ -7884,6 +7889,10 @@ const PROPOSAL_DEFS = {
     summary: "dismiss a proposal (PIE-501) without applying it: the service (draft.proposal.dismiss) marks it dismissed and puts it in Trash, all recorded as whoever runs this, and the note it sits beside stops showing it (an older proposal's embed line comes out of the note, or the draft of it being written). Anyone may dismiss any proposal, an agent another agent's too, attributed", keys: "X, a click on [dismiss]",
     touches: "nothing", replay: "ask",
     args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
+    examples: [
+      { act: "proposal.dismiss id=b83d4e60-2f17-4c9a-8e05-6a1c7d9f3b52", does: "dismisses that proposal without applying it, and puts it in Trash" },
+      { act: "proposal.dismiss", does: "dismisses the proposal whose control is current, else the one shown" },
+    ],
     async run({ id }, { surface, host }, actor) {
       const target = proposalTarget(id, surface);
       try {
@@ -7913,6 +7922,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "show this ask's answer beside the note, keeping the person's keys in the note",
     touches: "shape", replay: "safe",
     args: { ask: { type: "string", about: "the ask line as written" }, fold: { type: "string", optional: true, about: "the selected answer's fold identity" } },
+    examples: [
+      { act: 'ask.beside ask="@margin which beds need mulch?"', does: "shows that ask's answer in a tile beside the note, keys staying in the note" },
+    ],
     async run({ ask, fold }, { host }, actor) { return host.answerTile?.(ask, actor, fold) ?? null; },
   }),
   "rich.toggle": def({
@@ -7920,6 +7932,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "ctrl+o while editing, esc in rich edit", touches: "draft", draft: "type", replay: "safe",
     menu: noteRow("rich edit", "", {}),
     args: { on: { type: "boolean", optional: true, about: "rich view on or off" } },
+    examples: [
+      { act: "rich.toggle on=true", does: "turns rich edit on, opening the note's draft with its tables drawn as cells" },
+      { act: "rich.toggle on=false", does: "turns rich edit off, back to the draft's raw text" },
+    ],
     async run({ on }, { surface, host }, actor) {
       const { draft: d } = await surface.ensureDraft(host);
       const v = elementEdit(d);
@@ -7932,6 +7948,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "move between cells; up/down leave a table at its edges",
     keys: "tab, shift+tab, up, down, enter in rich edit", touches: "draft", draft: "type", replay: "ask",
     args: { direction: { type: "string", about: "next, previous, up, down, left or right" } },
+    examples: [
+      { act: "rich.move direction=next", does: "moves the cursor to the next cell of the table" },
+      { act: "rich.move direction=down", does: "moves the cursor one row down, leaving the table below its last row" },
+    ],
     run({ direction }, { surface, host }) {
       if (!surface.draft) throw new ActionRefused("open rich.toggle first");
       if (!["next", "previous", "up", "down", "left", "right"].includes(direction)) throw new ActionRefused("direction must be next, previous, up, down, left or right");
@@ -7942,6 +7962,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "erase a cell character; keep its delimiters",
     keys: "backspace, delete in rich edit", touches: "draft", draft: "type", replay: "ask",
     args: { backward: { type: "boolean", about: "delete before the cursor" } },
+    examples: [
+      { act: "rich.erase backward=true", does: "erases the character before the cursor in the cell, keeping the table's bars" },
+      { act: "rich.erase backward=false", does: "erases the character after the cursor in the cell" },
+    ],
     run({ backward }, { surface, host }, actor) {
       if (!surface.draft) throw new ActionRefused("open rich.toggle first");
       elementEdit(surface.draft).erase(backward, actor); host.redraw();
@@ -7951,6 +7975,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "scroll the rendered draft without moving its cell cursor",
     keys: "wheel, pgup, pgdn in rich edit", touches: "draft", draft: "type", replay: "safe",
     args: { by: { type: "number", about: "rows to scroll" } },
+    examples: [
+      { act: "rich.scroll by=5", does: "scrolls the rendered draft down five rows, the cell cursor staying put" },
+      { act: "rich.scroll by=-5", does: "scrolls the rendered draft up five rows" },
+    ],
     run({ by }, { surface, host }) {
       if (!surface.draft) throw new ActionRefused("open rich.toggle first");
       elementEdit(surface.draft).scroll(by); host.redraw();
@@ -7960,6 +7988,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "type or paste into a component field without changing its delimiters",
     keys: "typing, paste, ctrl+k in rich edit", touches: "draft", draft: "type", replay: "ask",
     args: { text: { type: "string", about: "text to insert" }, cut: { type: "boolean", optional: true, about: "cut to the field's end" } },
+    examples: [
+      { act: 'rich.input text="3 trays"', does: "types 3 trays into the current table cell at the cursor" },
+    ],
     run({ text, cut }, { surface, host }, actor) {
       if (!surface.draft) throw new ActionRefused("open rich.toggle first");
       elementEdit(surface.draft).input(text, actor, cut); host.redraw();
@@ -7969,6 +8000,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "replace the current component field, in the draft's undo history; ctrl+s saves",
     touches: "draft", draft: "type", replay: "ask",
     args: { value: { type: "string", about: "the cell's value" } },
+    examples: [
+      { act: 'rich.set value="12 packets"', does: "replaces the current cell's text with 12 packets, as one undo step" },
+    ],
     run({ value }, { surface, host }, actor) {
       if (!surface.draft) throw new ActionRefused("open rich.toggle first");
       elementEdit(surface.draft).set(value, actor); surface.noteAgent(actor, "edited a cell", surface.draft); host.redraw();
@@ -7978,6 +8012,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "add, remove or move a row or column in the current table, as one draft undo step",
     keys: "alt+r/d row, alt+v/x column in rich edit", touches: "draft", draft: "type", replay: "ask",
     args: { op: { type: "string", about: "row.add, row.remove, column.add, column.remove, row.move, column.move" }, to: { type: "number", optional: true, about: "destination row or column, from zero" } },
+    examples: [
+      { act: "rich.change op=row.add", does: "adds an empty row under the current row of the table" },
+      { act: "rich.change op=column.move to=0", does: "moves the current column to the first place in the table" },
+    ],
     run({ op, to }, { surface, host }, actor) {
       if (!surface.draft) throw new ActionRefused("open rich.toggle first");
       if (!["row.add", "row.remove", "column.add", "column.remove", "row.move", "column.move"].includes(op)) throw new ActionRefused("unknown table operation");
@@ -8011,6 +8049,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       expect: { type: "string", optional: true, about: "with insert=: the nth candidate's insertion as listed; refused when the list has changed since (a pause can have Jev re-order it)" },
       invitation: { type: "string", optional: true, about: "insert= in the person's draft: the invitation their @name line gave this agent (one step, used up only when it lands); not for a draft of the agent's own" },
     },
+    examples: [
+      { act: 'complete text="[[seed-sw"', does: "lists the pages whose names match seed-sw, as typing [[seed-sw would" },
+      { act: "complete insert=2", does: "puts the second candidate into the draft at the cursor" },
+    ],
     async run({ text, key, insert, invitation, expect, refine }, { surface, host }, actor) {
       const board = host.ctx.board as unknown as CompletionBoard;
       if (typeof board?.completePages !== "function") throw new ActionRefused("this connection can't look references up");
@@ -8071,6 +8113,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "draft", draft: "write", replay: "ask",
     menu: noteRow("edit", "e", { now: ({ surface }) => (surface.draft ? { hide: true } : null) }),
     args: { external: { type: "boolean", optional: true, about: "hand the draft to $EDITOR (the person's keys only)" } },
+    examples: [
+      { act: "edit", does: "opens the note's whole text for editing, at the revision the service has now" },
+      { act: "edit external=true", does: "opens the note in $EDITOR in a terminal tile beside the reader" },
+    ],
     async run({ external }, { surface, host }, actor) {
       if (external && actor.kind === "agent") throw new ActionRefused("the $EDITOR handoff takes over the person's terminal; send the text with edit.text");
       // Already writing here: that draft, or the comment or reply, goes to $EDITOR (edit.external's).
@@ -8088,6 +8134,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "draft", draft: "replace", replay: "ask",
     menu: noteRow("an earlier revision", "", { now: ({ surface }) => (surface.session ? { hide: true } : null) }),
     args: { revision: { type: "number", optional: true, about: "the revision (`ep0ch revisions <note>` lists them); default the one before what the edit holds" } },
+    examples: [
+      { act: "revision.restore", does: "puts the revision before the edit's text into the edit, unsaved, as one undo step" },
+      { act: "revision.restore revision=3", does: "puts revision 3's text into the edit, unsaved, as one undo step" },
+    ],
     async run({ revision }, { surface, host }, actor) {
       surface.requireNote();
       const { draft: d } = await surface.ensureDraft(host);
@@ -8115,6 +8165,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "e, ctrl+e", touches: "nothing", replay: "ask",
     person: "arming is the person's e key, so a stray key never opens an edit; an agent opens one with edit (edit.text puts text in it)",
     args: { external: { type: "boolean", optional: true, about: "arm ctrl+e's $EDITOR handoff instead" } },
+    examples: [
+      { act: "edit.arm", does: "asks in the status bar whether to edit the note; enter or e again opens it" },
+      { act: "edit.arm external=true", does: "asks whether to edit the note in $EDITOR; ctrl+e again opens it" },
+    ],
     run({ external }, { surface, host }) {
       const m = surface.requireNote();
       const kind: SessionKind = external ? "external" : "edit";
@@ -8153,6 +8207,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "draft", draft: "type", replay: "ask",
     person: "an agent doesn't hand the person's terminal to a picker; put text in their draft with draft.patch, or in an edit it opened with edit.text",
     args: { channel: { type: "string", optional: true, about: "the picker's argument (a television channel: ep0ch, ep0ch-files …); empty for none" } },
+    examples: [
+      { act: "draft.pick", does: "opens the picker on the default channel; its choice goes in at the cursor" },
+      { act: "draft.pick channel=ep0ch-files", does: "opens the picker on the ep0ch-files channel; its choice goes in at the cursor" },
+    ],
     async run({ channel }, { surface, host }) {
       return await surface.pick(host, channel);
     },
@@ -8162,6 +8220,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "ctrl+v in an edit or a comment (on a dropped file's path: that file), a paste of nothing but a picture",
     touches: "draft", draft: "type", replay: "ask",
     args: { path: { type: "string", optional: true, about: "an image file on the door's machine to put in, instead of the clipboard's" } },
+    examples: [
+      { act: "draft.image", does: "puts the clipboard's picture in at the cursor as an [img::] line" },
+      { act: "draft.image path=/tmp/shed-roof.png", does: "copies that picture into the outline and adds its [img::] line at the cursor" },
+    ],
     async run({ path }, { surface, host }, actor) {
       const d = surface.writingDraft;
       if (!d) throw new ActionRefused("nothing is being written here; open an edit (e) or a comment first");
@@ -8190,6 +8252,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "ctrl+l in an edit or a comment, an alt- or ctrl-click on a link in its text, a click on a link in its preview (ctrl+p)",
     touches: "tile", replay: "ask", way: "an agent opens a note beside the person's edit with open id= naming no tile",
     args: { ref: { type: "string", optional: true, about: "the link to open: ((id)) or ((id^fragment)), [[page]], a URL or #tag; default the one at the cursor" } },
+    examples: [
+      { act: "edit.follow", does: "opens the link under the cursor beside the edit, which stays open" },
+      { act: 'edit.follow ref="[[garden]]"', does: "opens the garden page beside the edit, which stays open" },
+    ],
     async run({ ref }, { surface, host }) {
       const d = surface.writingDraft;
       if (!d) throw new ActionRefused("nothing is being written here; link.follow opens a link in what a reader shows");
@@ -8211,6 +8277,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.thread.pick": def({
     summary: "move through the thread, or select one row (n)", keys: "j k up down, wheel, a click in the thread", touches: "tile", replay: "safe", person: "the person's selection", args: { by: { type: "number", optional: true, about: "rows to move" }, n: { type: "number", optional: true, about: "row number to select (starts at one): a click" } },
+    examples: [
+      { act: "note.thread.pick by=1", does: "moves the thread's selection down one row" },
+      { act: "note.thread.pick n=3", does: "selects the third row of the thread" },
+    ],
     run({ by, n }, { surface, host }, actor) {
       const m = surface.replyLinks;
       // Only the person's own pick arms the second click (an agent's never takes their first selection).
@@ -8224,6 +8294,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.thread.open": def({
     summary: "read the selected post of the thread (a fold row opens its posts, the note you are on closes the panel)", keys: "enter, a second click on the selected row or a double click in the thread", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
+    examples: [
+      { act: "note.thread.open", does: "opens the selected post of the thread in the reader" },
+      { act: "note.thread.open n=2", does: "opens the second row's post of the thread in the reader" },
+    ],
     async run({ n }, { surface, host }) { const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1];
       if (row?.kind === "fold") throw new ActionRefused("that row is a fold, not a post: note.thread.unfold shows what it hides");
       if (m && row?.kind === "child" && row.thread?.here) { surface.closeReplyLinks(); host.redraw(); return { opened: null }; }
@@ -8231,6 +8305,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.thread.unfold": def({
     summary: "show the posts a fold row of the thread hides", keys: "enter, a second click or a double click on a fold row", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
+    examples: [
+      { act: "note.thread.unfold n=4", does: "shows the posts the fourth row of the thread, a fold, hides" },
+    ],
     run({ n }, { surface, host }) {
       const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1];
       if (!m || row?.kind !== "fold") throw new ActionRefused("that row isn't a fold");
@@ -8252,6 +8329,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: '\"', touches: "draft", draft: "type", replay: "ask",
     menu: { label: "quote into a reply", group: "note", key: '\"' },
     args: { quote: { type: "string", optional: true, about: "exact source words; otherwise your selection" } },
+    examples: [
+      { act: "note.quote", does: "puts the selected words into a reply to this note as a quote" },
+      { act: 'note.quote quote="mulch the beds in March"', does: "puts those exact words into a reply to this note as a quote" },
+    ],
     async run({ quote }, { surface, host }, actor): Promise<unknown> {
       const parent = surface.requireNote();
       const text = await surface.quoteSelection(host, actor, quote);
@@ -8269,6 +8350,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "R", touches: "nothing", replay: "ask",
     menu: { label: "reply to this note", group: "note", key: "R" },
     args: { text: { type: "string", optional: true, about: "reply text; an agent supplies this and creates the note without opening an editor" } },
+    examples: [
+      { act: "note.reply", does: "opens a reply beside this note for the person to write" },
+      { act: 'note.reply text="Peas went in on Saturday"', does: "posts that as a reply to this note (the person's opens the reply with it)" },
+    ],
     async run({ text }, { surface, host }, actor) {
       const parent = surface.requireNote();
       if (actor.kind === "agent") {
@@ -8291,6 +8376,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "replace the draft's whole text (opens the edit first if needed); like text coming back from $EDITOR. An agent's replaces only an edit it opened, never while the person types in that reader (draft.patch lands in theirs)",
     touches: "draft", draft: "replace", replay: "ask",
     args: { text: { type: "string", about: "subject line, body and [key::value] properties" } },
+    examples: [
+      { act: 'edit.text text="Seed swap list, bring envelopes"', does: "replaces the draft's whole text with that line, opening the edit first" },
+    ],
     async run({ text }, { surface, host }, actor) {
       const s = await surface.ensureDraft(host);
       if (s.busy) throw new ActionRefused("the save is still landing");
@@ -8321,6 +8409,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "close the edit; unsaved changes need discard=true (and are put aside as unsent, with a copy on disk: e brings the person's back)", keys: "esc (twice when unsaved)",
     touches: "draft", draft: "leave", replay: "ask",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsaved changes" } },
+    examples: [
+      { act: "edit.close", does: "closes the edit when nothing is unsaved" },
+      { act: "edit.close discard=true", does: "closes the edit even with unsaved changes, putting them aside as unsent" },
+    ],
     run({ discard }, { surface, host }, actor) {
       const r = surface.closeDraftAction(!!discard);
       // Put aside (or dropped, when it was brought back and left unchanged): said where, and how it comes back.
@@ -8342,6 +8434,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "nothing", replay: "ask",
     says: out => (out?.said ? `· ${out.said}` : null),
     args: { address: { type: "string", optional: true, about: "the page's address (its name); default: the selected link's" } },
+    examples: [
+      { act: "page.create address=seed-swap", does: "makes the page seed-swap where new notes go, then opens it" },
+      { act: "page.create", does: "makes the page the selected [[link]] names, then opens it" },
+    ],
     async run({ address }, { surface, host }, actor) {
       const page = address ?? surface.selectedPage();
       if (!page) throw new ActionRefused("name the page: address=<its name>, or select a [[page]] link first");
@@ -8352,6 +8448,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "select the note's nth link (1 is the first); element.select picks any element a reader draws", keys: "[ ] (on a link)",
     touches: "tile", replay: "safe", way: "an agent selects a link in a reader the person isn't in, or follows one by number (link.follow n=)",
     args: { n: { type: "number", about: "which link, from 1" } },
+    examples: [
+      { act: "link.select n=2", does: "selects the note's second link, as the [ ] keys would" },
+    ],
     run({ n }, { surface, host }) { surface.requireNote(); surface.selectLink(n - 1); host.redraw(); return surface.describe().links[n - 1]; },
   }),
   "link.follow": def({
@@ -8362,6 +8461,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       n: { type: "number", optional: true, about: "which link, from 1; default the selected one" },
       fresh: { type: "boolean", optional: true, about: "open it in a new reader (a new detail on the board), as alt+enter does" },
     },
+    examples: [
+      { act: "link.follow n=1", does: "opens the note's first link where the view opens links" },
+      { act: "link.follow n=2 fresh=true", does: "opens the note's second link in a new reader" },
+    ],
     async run({ n, fresh, ref }, { surface, host }, actor) {
       surface.requireNote();
       // While the person's comment is unsent here, they're asked first (PIE-785).
@@ -8405,6 +8508,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       n: { type: "number", optional: true, about: "which element, from 1, as elements lists them; 0 lets go" },
       by: { type: "number", optional: true, about: "1 the next element, -1 the previous one" },
     },
+    examples: [
+      { act: "element.select n=3", does: "puts the [ ] position on the note's third element" },
+      { act: "element.select by=1", does: "steps the [ ] position to the next element" },
+    ],
     async run({ n, by }, { surface, host }, actor) {
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (an element, 0 lets go) or by=1 / by=-1");
       if (n === 0) { surface.letGo(); host.redraw(); return { current: null }; }
@@ -8429,6 +8536,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
       note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters); the button's script acts on that note" },
     },
+    examples: [
+      { act: "button.press label=Water", does: "presses the Water button of this note, as whoever asks" },
+      { act: 'button.press note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 label="Water beds"', does: "presses that button of a note open nowhere, moving no focus" },
+    ],
     async run({ label, n, note }, { surface, host }, actor) {
       if (note !== undefined) {
         if (label === undefined) throw new ActionRefused("note= needs label= (the button's words); open the note in a reader and use elements for n=");
@@ -8470,6 +8581,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them); default the current one (the person's own only)" },
       fresh: { type: "boolean", optional: true, about: "open it in a new reader (a new detail on the board), as alt+enter does" },
     },
+    examples: [
+      { act: "element.open n=2", does: "opens the note's second element, as enter does on it" },
+      { act: "element.open n=2 fresh=true", does: "opens the second element, a link, row or embed, in a new reader" },
+    ],
     async run({ n, fresh }, on, actor) {
       const { surface, host } = on;
       // The person's key or click is on what's drawn now: no wait for the whole note.
@@ -8549,6 +8664,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "tint a block in this reader (PIE-423's focus mark): a block (this note, or one it embeds or links), note lines, or an exact passage, tinted like the reading ruler with who set it named, and scrolled into view. The person's [ ] position, selection and keys aren't moved",
     touches: "nothing", replay: "safe",
     args: TINT_ARGS,
+    examples: [
+      { act: "block.tint line=3 to=5", does: "tints lines 3 to 5 of the note and scrolls them into view" },
+      { act: 'block.tint quote="mulch the beds"', does: "tints those exact words, naming who marked them" },
+    ],
     async run(spec, { surface, host }, actor) {
       await surface.whole();
       const r = surface.setFocus(spec, actor);
@@ -8576,6 +8695,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       block: { type: "string", optional: true, about: "the block whose tickets and lines to fetch or run (a page or a ticket block); default: the reader's" },
       line: { type: "number", optional: true, about: "only that line (its index in the note's text, 0 the first), of block= or else the reader's note" },
     },
+    examples: [
+      { act: "projection.refresh", does: "fetches the tickets the note shows now and repaints them" },
+      { act: "projection.refresh block=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 line=4", does: "runs line 4 of that note again, counting from 0" },
+    ],
     async run(a, { surface, host }, actor) {
       const m = surface.msg;
       const t = typeof a.block === "string" && a.block ? { block: a.block, ...(a.line !== undefined ? { line: a.line } : {}) }
@@ -8635,6 +8758,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       quote: { type: "string", optional: true, about: "the exact words to quote, as stored" },
       near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
     },
+    examples: [
+      { act: 'passage.select quote="mulch the beds"', does: "picks those words of the note to write a comment on" },
+      { act: "passage.select quote=beds near=120", does: "picks the occurrence of beds nearest offset 120 to comment on" },
+    ],
     async run({ quote, near }, { surface, host }, actor) {
       // The person's C starts from their selected text (the quote) and their put-aside comment; an agent's never.
       const s = actor.kind === "user" && !surface.session && !surface.draft ? await personComments(surface, host, "select") : await surface.ensureSession(host, "select", actor);
@@ -8657,6 +8784,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       invitation: { type: "string", optional: true, about: "the invitation the person's @name line gave this agent: body replaces the text above that line (one reply)" },
       base: { type: "string", optional: true, about: "with invitation=: the hash of the text the reply was written on, as the invitation gave it" },
     },
+    examples: [
+      { act: 'comment.write body="Which beds get it?"', does: "writes that as the comment on the picked passage, unsent" },
+    ],
     async run({ body, invitation, base }, { surface, host }, actor) {
       const s = surface.session;
       if (!s) throw new ActionRefused("no comment is being written here; passage.select or reply first");
@@ -8704,6 +8834,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       body: { type: "string", about: "the comment's text" },
       near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
     },
+    examples: [
+      { act: 'comment quote="mulch the beds" body="Which beds get it?"', does: "comments on those words of the note and sends the comment" },
+      { act: 'comment quote=beds near=120 body="Not the front one"', does: "comments on the occurrence of beds nearest offset 120 and sends it" },
+    ],
     async run({ quote, body, near }, on, actor): Promise<unknown> {
       await NOTE_ACTIONS.run("passage.select", { quote, near }, on, actor);
       await NOTE_ACTIONS.run("comment.write", { body }, on, actor);
@@ -8716,6 +8850,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "draft", draft: "type", replay: "ask",
     menu: noteRow("comment on the whole note", "C", { busy: true }),
     args: { body: { type: "string", optional: true, about: "the comment's text, sent at once (left out, the person writes it)" } },
+    examples: [
+      { act: 'comment.note body="Please add dates to the plan"', does: "comments on the whole note and sends it at once" },
+      { act: "comment.note", does: "opens the comment box at the top of the note for the person to write" },
+    ],
     async run({ body }, { surface, host }, actor) {
       const m = surface.requireNote();
       if (!isOutlineNote(m) && !m.resource) throw new ActionRefused("this isn't a note or a Resource's text: nothing to comment on");
@@ -8750,6 +8888,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       question: { type: "string", optional: true, about: "ask: the question, sent at once (left out, the person writes it after @name)" },
       color: { type: "string", optional: true, about: "a theme tone the extension may use (highlight's colour): default, good, warn, bad, dim, accent" },
     },
+    examples: [
+      { act: 'passage.act action=comment quote="mulch the beds" body="Which beds get it?"', does: "comments on those words and sends the comment at once" },
+      { act: 'passage.act action=ask quote="mulch the beds" question="Why mulch in March?"', does: "asks the thread agent about those words; its answer lands in the margin" },
+    ],
     async run({ action, quote, near, body, question, color, text: start }, { surface, host }, actor) {
       const m = surface.requireNote();
       if (!isOutlineNote(m) && !m.resource) throw new ActionRefused("this isn't a note or a Resource's text: nothing to act on a passage of");
@@ -8818,6 +8960,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "M cycles trim, full, off (marks only); a click on the byline's comment count",
     touches: "shape", replay: "safe",
     args: { mode: { type: "string", optional: true, about: "trim, full or off; left out, the next one" } },
+    examples: [
+      { act: "margin", does: "cycles the margin's cards to the next of trim, full and off" },
+      { act: "margin mode=full", does: "shows each margin card whole, with its replies" },
+    ],
     run({ mode }, { surface, host }, actor) {
       const next = mode === undefined ? MARGIN_MODES[(MARGIN_MODES.indexOf(surface.marginMode) + 1) % MARGIN_MODES.length]! : (MARGIN_MODES as readonly string[]).includes(mode) ? mode as MarginMode : null;
       if (!next) throw new ActionRefused("mode is trim, full or off");
@@ -8834,6 +8980,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "close the comment session; unsent text needs discard=true (and is put aside as unsent, with a copy on disk)", keys: "esc",
     touches: "draft", draft: "leave", replay: "ask",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsent text" } },
+    examples: [
+      { act: "comment.close", does: "closes the comment session when no text is unsent" },
+      { act: "comment.close discard=true", does: "closes it even with unsent text, putting that aside as unsent" },
+    ],
     run({ discard }, { surface, host }) {
       const s = surface.session;
       if (!s) return { closed: false };
@@ -8851,6 +9001,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       place: { type: "string", optional: true, about: `${COMPOSER_PLACES.join(", ")}; left out, the next one (with side=, tile)` },
       side: { type: "string", optional: true, about: "left, right, up or down: which side of its note the comment's tile is on (PIE-846); kept for the next" },
     },
+    examples: [
+      { act: "comment.place place=split", does: "shares the reader: the note beside the comment being written" },
+      { act: "comment.place place=tile side=right", does: "gives the comment a tile of its own to the right of the note" },
+    ],
     async run({ place, side }, { surface, host }) {
       const s = surface.session;
       if (!s) throw new ActionRefused("no comment is being written here; C on selected words (or passage.act action=comment) opens one");
@@ -8892,6 +9046,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       cols: { type: "number", optional: true, about: "its width" }, rows: { type: "number", optional: true, about: "its height" },
       reset: { type: "boolean", optional: true, about: "back to its usual place and size" },
     },
+    examples: [
+      { act: "comment.move dx=4 dy=-2", does: "moves the floating comment four columns right and two rows up" },
+      { act: "comment.move cols=60 rows=12", does: "sizes the floating comment to 60 columns by 12 rows" },
+      { act: "comment.move reset=true", does: "puts the floating comment back in its usual place and size" },
+    ],
     run(args, { surface, host }) {
       return { float: surface.moveComposer(args, host) };
     },
@@ -8901,6 +9060,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "the power bar's rows (⏎ or a click), esc keeps writing",
     touches: "draft", draft: "leave", replay: "ask", person: "leaving the person's unsent comment is their choice",
     args: { choice: { type: "string", about: "save, keep or discard" } },
+    examples: [
+      { act: "comment.leaving choice=save", does: "keeps the unsent comment where it was written and goes on" },
+      { act: "comment.leaving choice=keep", does: "goes back to writing the comment instead of leaving" },
+      { act: "comment.leaving choice=discard", does: "lets the unsent comment go, a copy staying on disk, and goes on" },
+    ],
     run({ choice }, { surface, host }) {
       if (choice !== "save" && choice !== "keep" && choice !== "discard") throw new ActionRefused(`choice is save, keep or discard, not ${JSON.stringify(choice)}`);
       return surface.answerLeave(choice, host);
@@ -8925,6 +9089,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       thread: { type: "string", about: "the thread's id (or its first 6+ characters)" },
       expand: { type: "boolean", optional: true, about: "true expands, false collapses; left out, it toggles" },
     },
+    examples: [
+      { act: "thread.toggle thread=5b2e8d", does: "opens that comment card, or folds it to its gutter mark if open" },
+      { act: "thread.toggle thread=5b2e8d expand=false", does: "folds that comment card to its gutter mark" },
+    ],
     async run({ thread, expand }, { surface, host }, actor) {
       await surface.whole();
       const id = surface.threadId(thread);
@@ -8939,6 +9107,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "reply to a comment thread and send it. Left out body=, the person's reply opens on the thread to be written (a reply put aside there comes back); an agent's is sent at once", keys: "m, j k, r, typing, ctrl+s; [Reply] on an expanded thread",
     touches: "draft", draft: "type", replay: "ask",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the reply's text, sent at once; left out, the person writes it" } },
+    examples: [
+      { act: 'reply thread=5b2e8d body="Yes, the front bed too"', does: "sends that reply on the comment thread at once" },
+      { act: "reply thread=5b2e8d", does: "opens the person's reply on that thread, ready to write" },
+    ],
     async run({ thread, body }, on, actor) {
       if (body === undefined && actor.kind === "agent") throw new ActionRefused("say body=: an agent's reply is sent at once");
       const s = await on.surface.ensureSession(on.host, "threads");
@@ -8960,6 +9132,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       body: { type: "string", optional: true, about: "the new words, saved at once; left out, the person's editor opens on the words as they are" },
       observed: { type: "string", optional: true, about: "with body=: the words as you read them (threads lists them); an agent's edit needs it, so an edit made meanwhile is refused, never overwritten" },
     },
+    examples: [
+      { act: 'comment.edit thread=5b2e8d body="Which beds get mulch?" observed="Which beds?"', does: "saves new words for the comment, refused if it changed since they were read" },
+      { act: "comment.edit thread=5b2e8d", does: "opens the person's editor on that comment's words" },
+    ],
     async run({ thread, reply, body, observed }, on, actor) {
       if (body === undefined && actor.kind === "agent") throw new ActionRefused("say body=: an agent's edit is saved at once (the words it read are in threads)");
       if (body !== undefined && observed === undefined && actor.kind === "agent") throw new ActionRefused("say observed=: the comment's words as you read them (threads lists them), so an edit made since isn't overwritten");
@@ -8982,6 +9158,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "resolve a comment thread that's a ticket (a request done), or reopen it with open=true. A thread that only needed reading is seen (thread.seen), not resolved. It opens the thread list in the reader: an agent's is refused on the reader the person has", keys: "none: m then s marks one seen",
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent resolves it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, open: { type: "boolean", optional: true, about: "reopen instead of resolving" } },
+    examples: [
+      { act: "resolve thread=5b2e8d", does: "marks that comment thread resolved, a request done" },
+      { act: "resolve thread=5b2e8d open=true", does: "reopens that resolved comment thread" },
+    ],
     async run({ thread, open }, on, actor) {
       return attention(on, actor, thread, open ? "open" : "resolved", open ? "reopened a comment" : "resolved a comment");
     },
@@ -8991,6 +9171,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "s in the thread list (m); [Seen] on an expanded thread",
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent marks it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, back: { type: "boolean", optional: true, about: "bring an earlier thread back instead" } },
+    examples: [
+      { act: "thread.seen thread=5b2e8d", does: "marks that thread seen, moving it off the margin to the earlier shelf" },
+      { act: "thread.seen thread=5b2e8d back=true", does: "brings that earlier thread back into the margin" },
+    ],
     async run({ thread, back }, on, actor) {
       const s = await on.surface.ensureSession(on.host, "threads");
       const t = s.threads[findThread(s, thread)]!;
@@ -9003,6 +9187,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "p in the thread list (m); [Keep] on an expanded thread",
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent keeps it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, keep: { type: "boolean", optional: true, about: "true keeps, false unkeeps; left out, it toggles" } },
+    examples: [
+      { act: "thread.keep thread=5b2e8d", does: "keeps that thread in the margin, or unkeeps it if kept" },
+      { act: "thread.keep thread=5b2e8d keep=false", does: "unkeeps that thread so it can be put away" },
+    ],
     async run({ thread, keep }, on, actor) {
       const s = await on.surface.ensureSession(on.host, "threads");
       const t = s.threads[findThread(s, thread)]!;
@@ -9015,6 +9203,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "t in the thread list (m), T takes it away; [TL;DR] on an expanded thread, [TL;DR again], [No TL;DR]",
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent asks in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", optional: true, about: "the TL;DR itself; left out, @margin writes it" }, remove: { type: "boolean", optional: true, about: "take its TL;DR away" } },
+    examples: [
+      { act: "thread.tldr thread=5b2e8d", does: "asks @margin to write a short TL;DR as that thread's face" },
+      { act: 'thread.tldr thread=5b2e8d body="Mulch the front bed in March"', does: "sets that thread's TL;DR to those words" },
+      { act: "thread.tldr thread=5b2e8d remove=true", does: "takes the TL;DR away so the discussion is the face again" },
+    ],
     async run({ thread, body, remove }, { surface, host }, actor) {
       // Taken away from an expanded thread or the list: the thread changes, the person's view doesn't (no list opens).
       if (remove) {
@@ -9062,6 +9255,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       step: { type: "string", optional: true, about: "up or down one place among its siblings, in (last under the sibling above) or out (right after its parent)" },
       revision: { type: "number", optional: true, about: "the note's revision as you read it; a note changed since is refused" },
     },
+    examples: [
+      { act: "note.move tile=reader to=inbox", does: "moves the note the reader shows under the inbox, first among its children" },
+      { act: "note.move id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 after=3e8b2c71-9d40-4f6a-b1e5-2a7c9f0d4b18", does: "moves that note to just below the other, its sibling" },
+    ],
     async run(args, { surface, host }, actor) {
       const id = args.id ?? surface.requireNote().id;
       const revision = args.revision ?? (surface.msg?.id === id ? surface.msg.revision : undefined);
@@ -9094,6 +9291,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       id: { type: "string", optional: true, about: "the note to route (default: the one shown)" },
       dry: { type: "boolean", optional: true, about: "say what would move where and why, moving nothing" },
     },
+    examples: [
+      { act: "note.route dry=true", does: "says where the note shown would move and which rule, moving nothing" },
+      { act: "note.route", does: "moves the note shown by the first routing rule that holds for it" },
+    ],
     async run({ id, dry }, { surface, host }, actor) {
       const target = id ?? surface.requireNote().id;
       const done = await routeNote(host.ctx.board, target, actor, { dryRun: dry === true });
@@ -9114,6 +9315,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "note.move.undo": def({
     summary: "put the note shown back where the last move made here (by you) took it from",
     keys: "ctrl+z (when a move was the last change made here)", touches: "nothing", replay: "ask", args: { id: { type: "string", optional: true, about: "the moved note; default the one shown" } },
+    examples: [
+      { act: "note.move.undo", does: "puts the note shown back where your last move took it from" },
+      { act: "note.move.undo id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "puts that note back where your last move took it from" },
+    ],
     async run({ id }, { surface, host }, actor) {
       const m = surface.requireNote();
       const target = id ?? m.id;
@@ -9135,6 +9340,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       where: { type: "string", optional: true, about: "inbox (the top of the Inbox), note (under this note) or a block id or ((ref)) to put it under; an agent's default is inbox" },
       text: { type: "string", optional: true, about: "the new block's own words, above the quotes (its first line is its title); left out, Quoting “…”" },
     },
+    examples: [
+      { act: "quote threads=5b2e8d", does: "quotes that mark into a new block at the top of the Inbox" },
+      { act: 'quote threads=5b2e8d,9c41af where=note text="Mulch notes"', does: "quotes both marks into a block titled Mulch notes under this note" },
+    ],
     async run({ threads, where, text }, { surface, host }, actor) {
       surface.requireNote();
       await surface.loadComments(host);
@@ -9156,6 +9365,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "space in the thread list (m)",
     touches: "tile", replay: "safe", person: "the thread list's picks are the person's; an agent names its marks with quote threads=",
     args: { thread: { type: "string", optional: true, about: "the thread's id (or its first 6+ characters); left out, the current one" } },
+    examples: [
+      { act: "thread.pick thread=5b2e8d", does: "picks that thread in the list for a quote of several, or unpicks it" },
+      { act: "thread.pick", does: "picks the thread the list is on, or unpicks it" },
+    ],
     run({ thread }, { surface, host }) {
       const s = surface.session;
       if (!s || s.mode !== "threads") throw new ActionRefused("the thread list isn't open · m opens it");
@@ -9171,6 +9384,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "nothing", replay: "safe",
     menu: noteRow("properties", "i", { busy: true }),
     args: { full: { type: "boolean", optional: true, about: "fill the reader instead of sitting above the note" } },
+    examples: [
+      { act: "props", does: "lists every property of the note; the person's panel opens above it" },
+      { act: "props full=true", does: "lists every property of the note; the person's panel fills the reader" },
+    ],
     async run({ full }, { surface, host }, actor) {
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
       // The panel holds the reader's keys: an agent reads the rows in its reply and leaves the panel be.
@@ -9185,6 +9402,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "a property's value, returned (the person's own y copies it to their clipboard; an agent's never does)", keys: "i, tab, y",
     touches: "nothing", replay: "safe",
     args: ROW_ARGS,
+    examples: [
+      { act: "props.copy key=sun", does: "returns the sun property's value; the person's clipboard gets it too" },
+      { act: "props.copy n=2", does: "returns the second property's value, as props lists them" },
+    ],
     async run({ n, key }, { surface, host }, actor) {
       // The person's y in their open panel copies the row they're on, as drawn now (no wait).
       const now = surface.msg;
@@ -9203,6 +9424,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "open what a block, page or Work-ID value names; where it opens is the view's call. An agent's is refused on the reader the person has", keys: "i, tab, o",
     touches: "tile", replay: "ask", way: "following it there would move what they're reading · an agent follows it in another reader (tile=), or opens the note with open id=",
     args: ROW_ARGS,
+    examples: [
+      { act: "props.follow key=seed-list", does: "opens the note the seed-list property's value names" },
+      { act: "props.follow n=3", does: "opens what the third property's value names, as props lists them" },
+    ],
     async run({ n, key }, { surface, host }, actor) {
       const { row } = await propRow(surface, n, key);
       if (!row.target) throw new ActionRefused(`${row.key} holds plain text (${row.value}); there is nothing to follow`);
@@ -9220,6 +9445,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       value: { type: "string", about: "the new value (one line, no ])" },
       revision: { type: "number", optional: true, about: "the revision you read the properties at; refused if the note is past it" },
     },
+    examples: [
+      { act: "props.edit key=status value=planted", does: "sets the note's status property to planted, as an attributed edit" },
+      { act: "props.edit n=2 value=2026-03-14 revision=7", does: "sets the second property, refused if the note is past revision 7" },
+    ],
     async run({ n, key, value, revision }, { surface, host }, actor) {
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
       const f = surface.panel?.field;
@@ -9265,6 +9494,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       toggle: { type: "string", optional: true, about: "show or hide one key" },
       reset: { type: "boolean", optional: true, about: "forget your choice (back to OUTLINER_PROPERTY_SUMMARY_KEYS or the default)" },
     },
+    examples: [
+      { act: "props.summary keys=status,due", does: "shows status and due in the summary line, in that order" },
+      { act: "props.summary toggle=owner", does: "shows the owner key in the summary line, or hides it if it is shown" },
+    ],
     run({ keys, toggle, reset }, { surface, host }) {
       if ([keys, toggle, reset].filter(x => x !== undefined).length !== 1) throw new ActionRefused("pass one of keys=a,b toggle=key reset=true");
       if (toggle) surface.toggleSummary(toggle, host);
@@ -9309,6 +9542,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       key: { type: "string", about: "the field's key (settings lists them)" },
       value: { type: "string", optional: true, about: "its new value; left out, the person is asked in the power bar" },
     },
+    examples: [
+      { act: "settings.set key=group value=status", does: "sets the group field of a configurable note to status" },
+      { act: "settings.set key=limit value=20", does: "sets the limit field to 20, refused if the value does not fit its type" },
+    ],
     async run({ key, value }, { surface, host }, actor) {
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
       const m = await surface.whole();
@@ -9352,6 +9589,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: ", then x or delete on a field",
     touches: "draft", draft: "write", replay: "ask",
     args: { key: { type: "string", about: "the field's key (settings lists them)" } },
+    examples: [
+      { act: "settings.clear key=sort", does: "takes the sort property out of the note, so its default holds" },
+    ],
     async run({ key }, { surface, host }, actor) {
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
       const m = await surface.whole();
@@ -9381,6 +9621,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "~",
     touches: "tile", replay: "safe", way: "peek's decorations say what is drawn; open the note in a reader of your own to see it raw",
     args: { on: { type: "boolean", optional: true, about: "true: raw; false: decorated; absent: the other one" } },
+    examples: [
+      { act: "decor.raw on=true", does: "shows the note as written, without what the rules draw on it" },
+      { act: "decor.raw", does: "switches between the note as written and the decorated note" },
+    ],
     run({ on }, { surface, host }) {
       const m = surface.requireNote();
       surface.raw = on ?? !surface.raw;
@@ -9393,6 +9637,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "put the person's ( ) fold selection on the next (by=1) or previous (by=-1) heading, list item or callout drawn; f or enter then folds it. The person's reading state: an agent's is refused (fold, unfold and fold.toggle name a fold point)", keys: "( )",
     touches: "tile", replay: "safe", person: "the ( ) selection is the person's; fold, unfold and fold.toggle name a fold point (folds lists them)",
     args: { by: { type: "number", about: "1 the next fold point, -1 the previous one" } },
+    examples: [
+      { act: "fold.select by=1", does: "puts the ( ) selection on the next heading, list item or callout" },
+      { act: "fold.select by=-1", does: "puts the ( ) selection on the previous one" },
+    ],
     run({ by }, { surface, host }, actor) {
       const m = surface.requireNote();
       if (m.partial || !surface.stepFold(by < 0 ? -1 : 1)) throw new ActionRefused("this note has no headings, nested lists or callouts to fold");
@@ -9404,6 +9652,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "move the reading line to the next or previous logical block; a tall block advances a screen before leaving it",
     touches: "tile", replay: "safe", person: "the reading position belongs to the person", keys: "↑ ↓ j k",
     args: { by: { type: "number", about: "1 next block, -1 previous block" } },
+    examples: [
+      { act: "reading.step by=1", does: "moves the reading line to the next block of the note" },
+      { act: "reading.step by=-1", does: "moves the reading line back to the previous block" },
+    ],
     run({ by }, { surface, host }) {
       surface.requireNote();
       if (by !== 1 && by !== -1) throw new ActionRefused("by is 1 or -1");
@@ -9415,6 +9667,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "put the reading position on a source line; the next edit starts there without scrolling the page",
     touches: "tile", replay: "safe", person: "the reading position belongs to the person", keys: "click note text",
     args: { line: { type: "number", about: "source line, from 1" } },
+    examples: [
+      { act: "reading.place line=12", does: "puts the reading position on note line 12, without scrolling the page" },
+    ],
     run({ line }, { surface }) {
       const m = surface.requireNote();
       if (!Number.isInteger(line) || line < 1 || line > m.text.split("\n").length) throw new ActionRefused("line must name a source line in this note");
@@ -9431,6 +9686,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       by: { type: "number", optional: true, about: "rows to scroll; negative scrolls up" },
       to: { type: "string", optional: true, about: "top or end" },
     },
+    examples: [
+      { act: "scroll by=10", does: "scrolls the note down ten rows" },
+      { act: "scroll to=end", does: "scrolls until the last line is at the bottom edge" },
+    ],
     run({ by, to }, { surface, host }, actor) {
       if (to !== undefined && to !== "top" && to !== "end") throw new ActionRefused(`to is top or end, not ${to}`);
       if ((by === undefined) === (to === undefined)) throw new ActionRefused("say by= (rows) or to=top|end");
@@ -9448,6 +9707,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "tile", replay: "safe", person: "whether callouts are open is the person's reading state; an agent reads the note's text (peek, elements)",
     menu: noteRow("open or fold callouts", "z", { now: ({ surface }) => (surface.msg && surface.calloutsIn(surface.msg).length ? null : { hide: true }) }),
     args: { show: { type: "boolean", optional: true, about: "true shows the bodies, false folds them; left out, it toggles" } },
+    examples: [
+      { act: "callouts show=true", does: "opens every callout in the note" },
+      { act: "callouts show=false", does: "puts the callouts back as written, the [!type]- ones folded" },
+    ],
     run({ show }, { surface, host }) {
       surface.unfold = show ?? !surface.unfold;
       surface.showCallouts(surface.unfold);
@@ -9482,18 +9745,30 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "fold a heading (hiding through the next heading of its level or higher) , a list item (hiding its nested items and continuation lines) or a callout (to its title); all=true folds every outermost one (F when nothing is folded). Reading state only: the note's text never changes", keys: "( ) then f or enter, click, F",
     touches: "tile", while: "typing", replay: "safe", way: "an agent folds a reader the person isn't typing in",
     args: { ...FOLD_ARGS, all: { type: "boolean", optional: true, about: "fold every outermost heading and list item" } },
+    examples: [
+      { act: "fold text=\"Planting dates\"", does: "folds the Planting dates heading, hiding its section" },
+      { act: "fold all=true", does: "folds every outermost heading and list item" },
+    ],
     run: (args, on, actor) => runFold(true, args, on, actor),
   }),
   "unfold": def({
     summary: "unfold a heading, list item or callout; all=true unfolds everything (F when something is folded)", keys: "( ) then f or enter, click, F",
     touches: "tile", while: "typing", replay: "safe", way: "an agent unfolds a reader the person isn't typing in",
     args: { ...FOLD_ARGS, all: { type: "boolean", optional: true, about: "unfold everything in this reader" } },
+    examples: [
+      { act: "unfold line=14", does: "unfolds the heading or list item on note line 14" },
+      { act: "unfold all=true", does: "unfolds every heading, list item and callout in this reader" },
+    ],
     run: (args, on, actor) => runFold(false, args, on, actor),
   }),
   "fold.toggle": def({
     summary: "fold a heading, list item or callout, or unfold it if it's folded; with none named, the person's: the one ( ) selected, else the section being read", keys: "f, enter, click",
     touches: "tile", while: "typing", replay: "safe", way: "an agent folds a reader the person isn't typing in",
     args: FOLD_ARGS,
+    examples: [
+      { act: "fold.toggle text=\"Seed list\"", does: "folds the Seed list heading, or unfolds it if it is folded" },
+      { act: "fold.toggle n=2", does: "toggles the second fold point, as folds lists them" },
+    ],
     async run(args, { surface, host }, actor) {
       const none = args.text === undefined && args.line === undefined && args.n === undefined;
       const draft = surface.draft;
@@ -9536,6 +9811,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       by: { type: "number", optional: true, about: "1 the next tab, -1 the previous one" },
       figure: { type: "string", optional: true, about: "which tabs figure: its number among the note's figures (figures lists them), or its title" },
     },
+    examples: [
+      { act: "figure.tab n=2", does: "shows the second tab of the note's tabs figure" },
+      { act: "figure.tab by=1 figure=\"Beds by stage\"", does: "shows the next tab of the figure titled Beds by stage" },
+    ],
     run({ n, by, tab, figure }, { surface, host }, actor) {
       surface.requireNote();
       if ([n, by, tab].filter(x => x !== undefined).length !== 1) throw new ActionRefused("say one of n= (a tab's number or value), tab= (its value) or by=1|-1");
@@ -9561,6 +9840,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       to: { type: "string", optional: true, about: "compact, cozy or comfortable; left out, the next one round" },
       figure: { type: "string", optional: true, about: "which table or tabs figure: its number among the note's figures (figures lists them), or its title" },
     },
+    examples: [
+      { act: "figure.density to=compact", does: "draws the figure's rows one line a title, cut with …" },
+      { act: "figure.density figure=2", does: "moves the second figure to the next density round" },
+    ],
     run({ to, figure }, { surface, host }, actor) {
       surface.requireNote();
       if (to !== undefined && !isDensity(to)) throw new ActionRefused(`to is ${DENSITIES.join(", ")}, not ${to}`);
@@ -9589,6 +9872,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       id: { type: "string", optional: true, about: "the block the row stands for, or its first characters" },
       by: { type: "number", optional: true, about: "1 the next row, -1 the one before" },
     },
+    examples: [
+      { act: "links.pick n=3", does: "picks row 3 of a ::links list; an agent's call only reads the row" },
+      { act: "links.pick by=1 block=\"Garden notes\"", does: "picks the row after the selected one in the Garden notes list" },
+    ],
     run({ block, n, id, by }, { surface, host }, actor) {
       surface.requireNote();
       if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("say one of n= (a row from 1), id= (the block it stands for) or by=1|-1");
@@ -9613,6 +9900,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       id: { type: "string", optional: true, about: "the block the row stands for, or its first characters" },
       where: { type: "string", optional: true, about: "home (default): where the reader's opens land; new: a new detail beside it" },
     },
+    examples: [
+      { act: "links.open n=2", does: "opens row 2 of a ::links list where the reader's opens land" },
+      { act: "links.open id=7d9a1f40 where=new", does: "opens the row for block 7d9a1f40 in a new detail beside the reader" },
+    ],
     async run({ block, n, id, where }, on, actor): Promise<unknown> {
       const { surface } = on;
       surface.requireNote();
@@ -9635,6 +9926,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       block: { type: "string", optional: true, about: "which ::links component: its number (links.blocks), or its title" },
       on: { type: "boolean", optional: true, about: "true goes in (the default), false comes out" },
     },
+    examples: [
+      { act: "links.enter on=true", does: "goes into the ::links list, so j and k move its selection" },
+      { act: "links.enter on=false", does: "comes out of the list, back to the reader's keys" },
+    ],
     run({ block, on }, { surface, host }) {
       surface.requireNote();
       const b = surface.linkBlockNamed(block);
@@ -9653,6 +9948,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       to: { type: "number", optional: true, about: "with line: the last note line" },
       n: { type: "number", optional: true, about: "with text: which time it's drawn, from 1" },
     },
+    examples: [
+      { act: "select text=\"seed packets\"", does: "selects the words seed packets as the note draws them" },
+      { act: "select line=3 to=5", does: "selects note lines 3 to 5" },
+    ],
     async run(args, { surface, host }, actor) {
       await surface.whole();
       const s = surface.selectBy(args);
@@ -9683,6 +9982,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       n: { type: "number", optional: true, about: "which block, from 1, as blocks lists them; default the block the person's current element is in" },
       element: { type: "number", optional: true, about: "or the block the nth element (elements lists them) is, or is in: an inline code span is one" },
     },
+    examples: [
+      { act: "block.copy n=1", does: "copies the first code block, quote or callout's content, as written" },
+      { act: "block.copy element=4", does: "copies the block the fourth element is, or is in" },
+    ],
     async run({ n, element }, { surface, host }, actor) {
       if (actor.kind === "agent") await surface.whole();
       if (n !== undefined && element !== undefined) throw new ActionRefused("say n or element, not both");
@@ -9707,6 +10010,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "copy the selection: what's drawn, or source=true for its markup. The person's goes to their clipboard (OSC 52), and a selection they make with the mouse is copied when the button comes up (copy on select; EP0CH_COPY_ON_SELECT=0 turns it off); an agent's is returned to it and never touches the person's clipboard", keys: "y, Y, cmd+c, the [y copy] control, the release of a drag (or a double or triple click)",
     touches: "nothing", replay: "safe",
     args: { source: { type: "boolean", optional: true, about: "the note's own text (markup) instead of what's drawn" } },
+    examples: [
+      { act: "select.copy", does: "copies the selected words as the note draws them" },
+      { act: "select.copy source=true", does: "copies the selection's markup instead of what is drawn" },
+    ],
     run({ source }, { surface, host }, actor) {
       if (actor.kind === "user") {
         if (!surface.selection) throw new ActionRefused("nothing is selected");
@@ -9741,6 +10048,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "[ ] to a step, then ⏎ or a click on its box and x o + - w !; space toggles done / to do. With no step named, the person's: the status choice open, else the step that is the current element",
     touches: "draft", draft: "write", replay: "ask",
     args: { ...STEP_ARGS, to: { type: "string", about: "done, todo, waiting, problem, approved or rejected (or a box's mark: x, space, ~, !, ✓ or +, ✗ or -)" } },
+    examples: [
+      { act: "task.status n=2 to=done", does: "marks the second checklist step done" },
+      { act: "task.status id=t-8a6d7f to=waiting", does: "sets the step with that id to waiting" },
+    ],
     async run({ to, ...which }, { surface, host }, actor) {
       const status = parseStatus(to);
       if (!status) throw new ActionRefused(`to is done, todo, waiting, problem, approved or rejected, not ${JSON.stringify(to)}`);
@@ -9766,6 +10077,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "⏎ or a click on a callout's icon or type",
     touches: "tile", replay: "safe", person: "the type choice is the person's; an agent changes a callout with callout.type or callout.start",
     args: CALLOUT_ARGS,
+    examples: [
+      { act: "callout.menu n=1", does: "opens the type choice under the first callout's top edge" },
+    ],
     async run(which, { surface, host }, actor) {
       const c = await surface.calloutNamed(which, actor);
       surface.requireDrawn();
@@ -9781,6 +10095,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "the type choice's ⏎ (open it with ⏎ or a click on a callout's icon or type)",
     touches: "draft", draft: "write", replay: "ask",
     args: { ...CALLOUT_ARGS, to: { type: "string", about: "the type to write: a name or alias the outline has (callout.list), or a new name" } },
+    examples: [
+      { act: "callout.type n=1 to=warning", does: "rewrites the first callout's header to [!warning]" },
+      { act: "callout.type line=12 to=tip", does: "changes the callout whose header is on line 12 to a tip" },
+    ],
     async run({ to, ...which }, { surface, host }, actor) {
       const name = to.trim().toLowerCase();
       if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)) throw new ActionRefused(`to is a type's name (letters, digits, - and _), not ${JSON.stringify(to)}`);
@@ -9793,6 +10111,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "the type choice's - and +",
     touches: "draft", draft: "write", replay: "ask",
     args: { ...CALLOUT_ARGS, folded: { type: "boolean", about: "true: it starts folded (-); false: it starts open (+)" } },
+    examples: [
+      { act: "callout.start n=2 folded=true", does: "makes the second callout start folded, writing [!type]-" },
+      { act: "callout.start n=2 folded=false", does: "makes the second callout start open, writing [!type]+" },
+    ],
     async run({ folded, ...which }, { surface, host }, actor) {
       const c = await surface.calloutNamed(which, actor);
       return surface.changeCallout(c, { fold: folded ? "-" : "+" }, host, actor);
@@ -9827,6 +10149,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "⏎ while an artifact's card is the [ ] position, a click on its card or its [open ↗]",
     touches: "nothing", replay: "safe",
     args: { ...IMAGE_ARGS },
+    examples: [
+      { act: "artifact.open n=1", does: "opens the first artifact on its web page; an agent is given the address" },
+    ],
     async run(which, { surface, host }, actor) {
       const ref = await surface.imageNamed(which, actor);
       if (ref.spec.kind !== "artifact") throw new ActionRefused("that's an image, not an artifact: element.open opens it in the system viewer");
@@ -9843,6 +10168,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       height: { type: "string", optional: true, about: "its height in rows (12), or none" },
       by: { type: "number", optional: true, about: "1 a step bigger, -1 a step smaller" },
     },
+    examples: [
+      { act: "image.size n=1 to=50%", does: "sizes the first image to half the reader's width" },
+      { act: "image.size line=8 by=1", does: "makes the image on line 8 one step bigger" },
+    ],
     async run({ to, height, by, ...which }, { surface, host }, actor) {
       return surface.inTurn(async () => {
         if (to === undefined && height === undefined && by === undefined) throw new ActionRefused("say to= (a width: 40, 50% or full), height= (rows) or by=1|-1");
@@ -9879,6 +10208,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "← → while an image is the [ ] position, a click on its caption's ◂ or ▸",
     touches: "draft", draft: "write", replay: "ask",
     args: { ...IMAGE_ARGS, to: { type: "string", optional: true, about: "left, center or right" }, by: { type: "number", optional: true, about: "1 one place right, -1 one place left" } },
+    examples: [
+      { act: "image.align n=1 to=center", does: "centres the first image in the reader" },
+      { act: "image.align n=2 by=1", does: "moves the second image one place right" },
+    ],
     async run({ to, by, ...which }, { surface, host }, actor) {
       return surface.inTurn(async () => {
         if ((to === undefined) === (by === undefined)) throw new ActionRefused("say to=left|center|right or by=1|-1");
@@ -9897,6 +10230,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "H while an image is the [ ] position, a click on its caption's ▀ header",
     touches: "draft", draft: "write", replay: "ask",
     args: { ...IMAGE_ARGS, on: { type: "boolean", optional: true, about: "true: it's the header; false: it isn't; left out, it toggles" } },
+    examples: [
+      { act: "image.hero n=1 on=true", does: "makes the first image the note's header, above the title" },
+      { act: "image.hero n=1 on=false", does: "turns the header image back into an image in the text" },
+    ],
     async run({ on, ...which }, { surface, host }, actor) {
       return surface.inTurn(async () => {
         const ref = notArtifact(await surface.imageNamed(which, actor));
@@ -9912,6 +10249,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "= while the header image is the [ ] position, a click on its caption's [whole] or [fill]",
     touches: "draft", draft: "write", replay: "ask",
     args: { ...IMAGE_ARGS, to: { type: "string", optional: true, about: "cover or contain; left out, the other one" } },
+    examples: [
+      { act: "image.fit n=1 to=contain", does: "shows the header image whole, centred" },
+      { act: "image.fit n=1", does: "switches the header image between cropped to fill and shown whole" },
+    ],
     async run({ to, ...which }, { surface, host }, actor) {
       return surface.inTurn(async () => {
         const ref = notArtifact(await surface.imageNamed(which, actor));
@@ -9925,6 +10266,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "how much an image is dimmed (PIE-532): to= a number from 0 (as it is) to 1 (black), or auto (the default: a bright image's mean luminance held at 0.3). Written as [dim::…] on its line through the note's save like image.size. No key brightens an image: the door is dark-first",
     touches: "draft", draft: "write", replay: "ask",
     args: { ...IMAGE_ARGS, to: { type: "string", about: "0 to 1, or auto" } },
+    examples: [
+      { act: "image.dim n=1 to=0.4", does: "dims the first image by 0.4, writing [dim::0.4] on its line" },
+      { act: "image.dim n=1 to=auto", does: "dims the first image only as far as a bright one needs" },
+    ],
     async run({ to, ...which }, { surface, host }, actor) {
       return surface.inTurn(async () => {
         const v = to.trim().toLowerCase();
@@ -9947,6 +10292,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "none: act, or the power bar",
     touches: "nothing", replay: "ask",
     args: { run: { type: "string", about: "the run's id (its undo)" } },
+    examples: [
+      { act: "script.stop run=4f7c2a19-8b3e-4d60-9a15-c2e7d08b6f31", does: "stops that running script; its remaining calls are refused" },
+    ],
     async run({ run }, { host }, actor) {
       if (!run?.trim()) throw new ActionRefused("script.stop needs run=<the run's id>: the undo a script run answered with");
       const r = await host.ctx.board.stopScript(run.trim(), actor);
@@ -9974,6 +10322,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "the status choice's y (Copy step link) and a (Make addressable)",
     touches: "draft", draft: "write", replay: "ask",
     args: { ...STEP_ARGS, copy: { type: "boolean", optional: true, about: "false: only give the step a stable id, copying nothing" } },
+    examples: [
+      { act: "task.link n=2", does: "gives the second step an id if it has none and returns its link" },
+      { act: "task.link n=2 copy=false", does: "only gives the second step a stable id, copying nothing" },
+    ],
     async run({ copy, ...which }, { surface, host }, actor) {
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, copy === false ? "address" : "copy-link", host, actor);
@@ -9988,6 +10340,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       line: { type: "number", optional: true, about: "the line of the ::use, from 1 (default: the only one the note has)" },
       with: { type: "string", optional: true, about: "the props to write, as JSON: names to text (an agent's; the person is asked for the rest)" },
     },
+    examples: [
+      { act: "use.fill line=9 with='{\"owner\":\"ada\"}'", does: "writes owner=ada onto the ::use on line 9, which needs it" },
+    ],
     async run({ block, line, with: w }, { surface, host }, actor) {
       let given: Record<string, string> = {};
       if (w !== undefined) {
@@ -10012,6 +10367,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "select words in a generated region, then a w (or a click on [Where from])",
     touches: "shape", replay: "safe", way: "the inspector opens beside their note · an agent reads the source in the answer",
     args: { line: { type: "number", optional: true, about: "the note line, from 1 (default: the selection's, else the [ ] position's, else the reading line)" } },
+    examples: [
+      { act: "sources.at line=14", does: "opens the Sources inspector on the generated region that holds line 14" },
+    ],
     run({ line }, { surface, host }, actor) {
       const at = line !== undefined ? { line: line - 1 } : actor.kind === "user" ? surface.regionHere() : null;
       if (!at || ("line" in at && at.line < 0)) throw new ActionRefused("say which line: line=<from 1>, or select words (or put [ ] on a line) in a generated region first");
@@ -10030,41 +10388,66 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "move in the inspector: the next or previous source in the list (by=), or the nth (n=); inside one source, its next row (a fold, a parameter, a copy)", keys: "j k, ↑ ↓, tab, a click on a row",
     touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads sources.open",
     args: { by: { type: "number", optional: true, about: "rows to move; negative is up" }, n: { type: "number", optional: true, about: "the row, from 1" } },
+    examples: [
+      { act: "sources.pick by=1", does: "moves to the next source in the inspector's list" },
+      { act: "sources.pick n=3", does: "moves to the third source in the list" },
+    ],
     run: ({ by, n }, { surface, host }) => surface.pickSource(host, by, n),
   }),
   "sources.enter": def({
     summary: "⏎ in the inspector: open the selected source; on a row of one, fold or unfold it, edit the parameter (the person is asked), jump to the transform's note, or copy", keys: "⏎, a click on a row",
     touches: "draft", replay: "ask", draft: "write", person: "the inspector is the person's view; an agent reads sources.open and writes with sources.set source= param= value=",
     args: { n: { type: "number", optional: true, about: "the row, from 1 (default: the selected one)" } },
+    examples: [
+      { act: "sources.enter n=2", does: "does what enter does on row 2 of the inspector, such as opening that source" },
+    ],
     run: ({ n }, { surface, host }, actor) => surface.enterSource(host, actor, n),
   }),
   "sources.item": def({
     summary: "a click on a row of an open source: it is the focused row, and does what ⏎ does there", keys: "a click on a row", touches: "draft", replay: "ask", draft: "write", person: "the inspector is the person's view; an agent reads sources.open and writes with sources.set source= param= value=",
     args: { n: { type: "number", about: "the row, from 1" } },
+    examples: [
+      { act: "sources.item n=2", does: "focuses row 2 of the open source and does what enter does there" },
+    ],
     run: ({ n }, { surface, host }, actor) => surface.enterSource(host, actor, n),
   }),
   "sources.fold": def({
     summary: "fold or unfold one of the open source's three parts: query (its parameters), transform (the code or template that shaped it) or result (its rows)", keys: "1 2 3, a click on a fold",
     touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads sources.open",
     args: { fold: { type: "string", about: `${FOLDS.join(", ")}` } },
+    examples: [
+      { act: "sources.fold fold=transform", does: "folds or unfolds the open source's transform part" },
+      { act: "sources.fold fold=result", does: "folds or unfolds the open source's result rows" },
+    ],
     run: ({ fold }, { surface, host }) => { if (!(FOLDS as readonly string[]).includes(fold)) throw new ActionRefused(`fold is ${FOLDS.join(", ")}, not ${JSON.stringify(fold)}`); return surface.foldSource(fold as SourcesFold, host); },
   }),
   "sources.refresh": def({
     summary: "read the sources again (\"Updated … ⟳\"): in the list with all=true (r), every line that runs on the note is run again first, as the person asks for it; on one source, only that line. Never run by a bare key outside the inspector",
     keys: "r, a click on ⟳", touches: "nothing", replay: "ask", person: "the inspector is the person's view; an agent runs lines again with projection.refresh line=",
     args: { all: { type: "boolean", optional: true, about: "run every line that runs on the note again, then read (default: from the list)" } },
+    examples: [
+      { act: "sources.refresh all=true", does: "runs every line that runs on the note again, then reads the sources" },
+      { act: "sources.refresh", does: "runs the open source's line again and reads its rows" },
+    ],
     run: ({ all }, { surface, host }, actor) => surface.refreshSources(host, actor, all === true),
   }),
   "sources.set": def({
     summary: "write one parameter of the open source back onto the note's line (a handler line's slot, a ::use's prop): the person is asked for the value in the power bar, an agent passes value=; saved through the note's save, checked against the line as read, recorded as whoever asks; ctrl+z (sources.undo) takes it back. Other kinds are written in the note",
     keys: "e, ⏎ on a parameter", touches: "draft", draft: "write", replay: "ask",
     args: { source: { type: "string", optional: true, about: "which source: its number in sources.open's list, or its key (default: the one open in the inspector)" }, param: { type: "string", optional: true, about: "the parameter (default: the focused row's)" }, value: { type: "string", optional: true, about: "the new value (the person is asked when it is left out)" } },
+    examples: [
+      { act: "sources.set source=2 param=limit value=20", does: "writes 20 into the limit parameter of source 2's line in the note" },
+    ],
     run: ({ source, param, value }, { surface, host }, actor) => surface.setSourceParam(source, param, value, host, actor),
   }),
   "sources.copy": def({
     summary: "copy a part of the open source: query (its line), transform (its code) or result (every row, tab separated); the person's goes to the clipboard, an agent's is returned", keys: "y, a click on [y copy]",
     touches: "nothing", replay: "safe",
     args: { part: { type: "string", optional: true, about: "query, transform or result (default: the focused copy row's, else result)" }, source: { type: "string", optional: true, about: "which source: its number in sources.open's list, or its key (default: the one open in the inspector)" } },
+    examples: [
+      { act: "sources.copy part=query", does: "returns the open source's query line" },
+      { act: "sources.copy part=result source=2", does: "copies every row of source 2, tab separated" },
+    ],
     run({ part, source }, { surface, host }, actor) {
       const P = surface.sourcesMode?.panel, s = P?.answer?.sources[P.open ?? -1];
       const at = P && s ? itemsOf(s, P.folds)[P.item] : undefined;
@@ -10077,6 +10460,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "save the source's raw rows as CSV or JSON; returns the file path", keys: "c for CSV, J for JSON in Sources, or a click on download",
     touches: "nothing", replay: "ask",
     args: { format: { type: "string", about: "csv or json" }, source: { type: "string", optional: true, about: "source number or key; default the open source" }, path: { type: "string", optional: true, about: "new file path; default the door's downloads folder" } },
+    examples: [
+      { act: "sources.download format=csv", does: "saves the open source's rows as CSV and returns the file path" },
+      { act: "sources.download format=json source=2", does: "saves source 2's rows as JSON and returns the file path" },
+    ],
     run({ format, source, path }, { surface, host }) {
       if (format !== "csv" && format !== "json") throw new ActionRefused("format is csv or json");
       return surface.downloadSource(format, host, source, path);
@@ -10091,6 +10478,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "scroll the Sources inspector's rows (a tall result or transform), by rows; moving the focus scrolls it into view too", keys: "PgUp PgDn space, the wheel over it",
     touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads the rows in sources.open's answer",
     args: { by: { type: "number", about: "rows; negative is up" } },
+    examples: [
+      { act: "sources.scroll by=8", does: "scrolls the inspector's rows down eight rows" },
+      { act: "sources.scroll by=-8", does: "scrolls the inspector's rows up eight rows" },
+    ],
     run: ({ by }, { surface, host }) => surface.scrollSources(host, by),
   }),
   "sources.undo": def({
@@ -10113,6 +10504,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       key: { type: "string", optional: true, about: "which ::fields: its key (default the only one the note draws)" },
       n: { type: "number", optional: true, about: "the row, from 1 (default 1)" },
     },
+    examples: [
+      { act: "fields.anchor n=2", does: "anchors the line of the second ::fields row and returns its link" },
+      { act: "fields.anchor key=beds n=1", does: "anchors the first row of the ::fields keyed beds" },
+    ],
     async run({ key, n }, { surface, host }, actor) {
       return surface.anchorField(key, n ?? 1, host, actor);
     },
@@ -10122,6 +10517,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "⏎ or a click (or right-click) on a step's box",
     touches: "tile", replay: "safe", person: "the status choice is the person's; an agent sets a step with task.status",
     args: STEP_ARGS,
+    examples: [
+      { act: "task.menu n=3", does: "opens the status choice under the third step's box" },
+    ],
     async run(which, { surface, host }, actor) {
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       surface.openPicker(e);
@@ -10137,6 +10535,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "nothing", replay: "safe",
     menu: unsentRow("kept edit: compare with the note now", "edit"),
     args: UNSENT_ARGS,
+    examples: [
+      { act: "unsent.diff kind=edit", does: "compares the kept edit with the note now, marking each change" },
+    ],
     async run({ kind }, { surface, host }, actor) {
       const { of, u, now } = await unsentHere(surface, host, kind ?? "edit", true);
       const base = await baseTextOf(u, of, now!, host.ctx.board);
@@ -10153,6 +10554,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "nothing", replay: "safe",
     menu: unsentRow("kept edit: open its copy"),
     args: UNSENT_ARGS,
+    examples: [
+      { act: "unsent.copy kind=comment", does: "shows the comment kept unsent on this note, as it was written" },
+      { act: "unsent.copy", does: "shows the first text kept on this note (edit, comment, child or card)" },
+    ],
     async run({ kind }, { surface, host }, actor) {
       const k = kind ?? firstUnsent(surface) ?? "edit";
       const { of, u, now } = await unsentHere(surface, host, k, false);
@@ -10170,6 +10575,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     person: "the kept text is the person's to keep or let go; an agent reads it with unsent.diff or unsent.copy",
     menu: unsentRow("kept edit: let it go (its copy stays)"),
     args: UNSENT_ARGS,
+    examples: [
+      { act: "unsent.dismiss kind=edit", does: "lets go of the kept edit; a copy of its text stays on disk" },
+    ],
     async run({ kind }, { surface, host }) {
       const k = kind ?? firstUnsent(surface) ?? "edit";
       const { of, u } = await unsentHere(surface, host, k, false);
@@ -10187,6 +10595,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     person: "adding a kept edit opens an edit with the person's keys; an agent proposes text with draft.patch",
     menu: unsentRow("kept edit: add its new lines into an edit", "edit"),
     args: UNSENT_ARGS,
+    examples: [
+      { act: "unsent.add", does: "opens an edit with the kept edit's still-new lines in it; ctrl+s saves" },
+    ],
     async run(_, { surface, host }) {
       const { of, u, now } = await unsentHere(surface, host, "edit", true);
       // In the comparison view: this reader shows the note itself again, to edit it.
@@ -10220,6 +10631,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     person: "the kept text is the person's to keep or let go; an agent writes notes with note.create",
     menu: unsentRow("kept edit: keep it as a note under this one", "edit"),
     args: UNSENT_ARGS,
+    examples: [
+      { act: "unsent.keep", does: "keeps the kept edit as a new note under this one; its copy stays on disk" },
+    ],
     async run(_, { surface, host }) {
       const { of, u, now } = await unsentHere(surface, host, "edit", true);
       const copy = copyOf(u, of.slice(0, 8));
@@ -10235,6 +10649,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "⏎ or a click on [show] on the \"1 old edit\" chip",
     touches: "nothing", replay: "safe",
     args: UNSENT_ARGS,
+    examples: [
+      { act: "unsent.show", does: "unfolds the old edits folded into one dim chip on this note" },
+    ],
     run(_, { surface, host }) {
       const of = unsentOf(surface);
       surface.showOldUnsent(of);

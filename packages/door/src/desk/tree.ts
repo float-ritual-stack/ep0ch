@@ -746,6 +746,10 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
       open: { type: "boolean", optional: true, about: "true opens, false folds; left out, the other way" },
     },
+    examples: [
+      { act: "tree.fold tile=tree n=3 open=true", does: "opens row 3 of the outline tree, showing its children" },
+      { act: "tree.fold tile=tree id=7d9a1f40 open=false", does: "folds the row for that note, hiding its children" },
+    ],
     run({ n, id, open }, { pane, desk }, actor) {
       const i = rowOf(pane, n, id);
       return pane.foldRow(i, open, desk, actor.kind === "agent");
@@ -760,6 +764,10 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
       depth: { type: "string", optional: true, about: "0 to 8, or authored; left out, the next step" },
     },
+    examples: [
+      { act: "tree.depth tile=tree n=2 depth=1", does: "shows one level of children under each match of the view on row 2" },
+      { act: "tree.depth tile=tree n=2 depth=authored", does: "goes back to the depth the view itself sets (its child-depth)" },
+    ],
     run({ n, id, depth }, { pane, desk }, actor) {
       const d = depth === undefined || depth === "" ? undefined : depth === "authored" ? "authored" as const : Number(depth);
       if (typeof d === "number" && Number.isNaN(d)) throw new ActionRefused("depth is 0 to 8, or authored");
@@ -775,6 +783,9 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
       show: { type: "boolean", optional: true, about: "true shows, false hides; left out, the other way" },
     },
+    examples: [
+      { act: "tree.links tile=tree n=4 show=true", does: "lists the links, resources and backlinks under row 4" },
+    ],
     run({ n, id, show }, { pane, desk }, actor) {
       const i = rowOf(pane, n, id);
       return { row: i + 1, shown: pane.toggleLinks(i, desk, show, actor.kind === "agent") };
@@ -802,6 +813,10 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       revision: { type: "number", optional: true, about: "the note's revision as you read it; one changed since is refused" },
       undo: { type: "boolean", optional: true, about: "put its last move back" },
     },
+    examples: [
+      { act: "tree.move tile=tree id=7d9a1f40 step=up", does: "moves that note one place up among its siblings" },
+      { act: "tree.move tile=tree n=5 to=inbox", does: "moves the note on row 5 under the inbox, first among its children" },
+    ],
     run({ n, id, undo, ...where }, { pane, desk }, actor) {
       const i = n === undefined && id !== undefined ? pane.list().findIndex(r => rowBlock(r)?.startsWith(id)) : rowOf(pane, n, id);
       return pane.moveRow(i >= 0 ? i : id!, { ...where, ...(undo ? { undo } : {}) }, desk, actor);
@@ -817,6 +832,10 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
       open: { type: "boolean", optional: true, about: "open it, as ⏎ does" },
     },
+    examples: [
+      { act: "tree.pick tile=tree n=2", does: "picks row 2: the person's selection moves there; an agent's shows its note" },
+      { act: "tree.pick tile=tree id=7d9a1f40 open=true", does: "opens that note where the tree's opens go" },
+    ],
     async run({ n, id, open }, { pane, desk }, actor) {
       const i = rowOf(pane, n, id);
       if (!pane.list()[i]) throw new ActionRefused(`no row ${i + 1}; the tree has ${pane.list().length}`);

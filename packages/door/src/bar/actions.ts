@@ -35,6 +35,10 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       query: { type: "string", optional: true, about: "what's typed in it" },
       scope: { type: "string", optional: true, about: "one source: tiles, notes, actions, recent, screens, extensions, an extension's (ext.<id>.<source>), or its prefix; all (the default) lists every one" },
     },
+    examples: [
+      { act: "bar.open scope=notes query=garden", does: "answers the notes that match garden, numbered for bar.pick; nothing opens" },
+      { act: "bar.open query=zoom", does: "answers every source's rows for zoom: tiles, notes, actions, screens" },
+    ],
     async run({ query, scope }, { on }, actor: Actor) {
       const s = scopeArg(scope);
       if (actor.kind === "agent") { const b = await on.unseen({ query, scope: s }); try { return { ...b.describe(), scopes: scopes() }; } finally { b.close(); } }
@@ -54,6 +58,10 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       query: { type: "string", optional: true, about: "an agent's: what to list before picking" },
       scope: { type: "string", optional: true, about: "an agent's: the scope to list" },
     },
+    examples: [
+      { act: "bar.pick scope=notes query=garden n=1", does: "opens the first note matching garden where an agent's opens land" },
+      { act: "bar.pick source=notes key=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 alt=true", does: "opens that note (a row bar.open answered) in a new detail" },
+    ],
     async run({ n, alt, query, scope, source, key }, { on }, actor: Actor) {
       if (actor.kind === "agent") {
         const b = await on.unseen({ query, scope: scopeArg(scope) });
@@ -82,6 +90,10 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       query: { type: "string", optional: true, about: "an agent's own line" },
       scope: { type: "string", optional: true, about: "an agent's own scope" },
     },
+    examples: [
+      { act: "bar.edit op=clear", does: "clears the power bar's line" },
+      { act: "bar.edit op=complete", does: "fills the next part of the lit row into the line, selected" },
+    ],
     async run({ op, text, from, to, query, scope }, { on }, actor: Actor) {
       if (!["clear", "complete", "paste", "select", "cut", "delete-word", "undo"].includes(op)) throw new ActionRefused("choose clear, complete, paste, select, cut, delete-word or undo");
       const b = actor.kind === "agent" ? await on.unseen({ query, scope: scopeArg(scope) }) : on.bar();

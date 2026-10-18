@@ -126,6 +126,18 @@ const FIGURES: Kind[] = [
     example: { title: "the reader" }, sweep: [],
   },
   {
+    kind: "props", title: "Properties", intro: "A properties table: what a component, an action or an extension takes, one row each, its name, the values it takes, its default (or *needed*), and what it means under it. The library's component pages and an action's page draw theirs with it. Rows are `- name: values · default — what it means`; a bold name is one that's needed.",
+    props: [TITLE, yaml("where", "text", "a heading for a column of where each is written (a component's: on the line, in the YAML)", { samples: ["where"] }), yaml("props", "list", "the rows, each { name, values, default, meaning, needed, where } (the YAML form of the rows)", { samples: ["[{ name: to, values: text, meaning: the tile it goes beside }]"] })],
+    rows: "- **to**: a tile — the tile it goes beside\n- where: left, right, up, down, tabs · right — which side of it\n- index: a number — with where=tabs, its place among the tabs (0 first)",
+    example: { title: "layout.move" }, sweep: [],
+  },
+  {
+    kind: "example", title: "Example", intro: "Real commands and what each does: an action line (or any command) drawn as code, what happens under it, and a quiet *safe* mark on one an agent may run as it is. An action's page shows its examples with it; an extension's page shows its actions'. Rows are `` - `layout.move tile=notes to=right` → moves the notes tile to the right of it ``, `(safe)` at the end marks one safe.",
+    props: [TITLE, yaml("prompt", "text", "what each command starts with (none when left out)", { samples: ["ep0ch act", "$"] }), yaml("examples", "list", "the rows, each { act, does, safe } (the YAML form of the rows)", { samples: ["[{ act: bar.open query=garden, does: lists what matches garden, safe: true }]"] })],
+    rows: "- `layout.move tile=notes to=right` → puts the notes tile to the right of it\n- `bar.open scope=actions query=move` → lists the actions about moving (safe)",
+    example: { title: "try it", prompt: "ep0ch act" }, sweep: ["prompt"],
+  },
+  {
     kind: "uptime", title: "Uptime", intro: "A glyph a day: ok, degraded, down or nothing recorded. Rows are runs of states, `ok*20 degraded ok*9 down`, from `from:`. Live, each result is a day by its `date` property and `status`; `last: 30` is the thirty days to today, and `source: backups` reads the backup runs." + LIVE_WORDS,
     props: [TITLE, yaml("from", "text", "the first day, YYYY-MM-DD", { samples: ["2026-09-01"] }), yaml("to", "text", "the last day, YYYY-MM-DD (today when left out)", { samples: ["2026-09-30"] }), yaml("last", "int", "a live figure's window: this many days to today (or `to:`)", { min: 1, max: 365, samples: ["14", "30"] }),
       yaml("wrap", "int", "days to a line", { min: 5, max: 90, default: "30" }), ...LIVE, yaml("date", "text", "a live figure's property with each result's day", { default: "date", samples: ["date"] }), yaml("state", "text", "a live figure's property with each result's state", { default: "status", samples: ["status"] }), yaml("source", "enum", "a known source of runs", { values: enumOf({ backups: "the backup-run notes a timer writes" }) })],

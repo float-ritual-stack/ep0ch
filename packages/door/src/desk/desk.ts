@@ -6611,6 +6611,9 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     summary: "take your keys to an agent's explicit pointer", keys: "click an agent pointer",
     touches: "screen", replay: "safe", person: "only the person follows a pointer; agent.focus sets your own",
     args: { agent: { type: "string", about: "the agent whose pointer to visit" } },
+    examples: [
+      { act: "agent.visit agent=kitty", does: "takes the person's keys to the pointer agent kitty set" },
+    ],
     run({ agent }, { d }) { return d.visitAgent(agent); },
   }),
   "screen.spec": def({
@@ -6631,6 +6634,10 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     keys: "/; river column: g",
     touches: "nothing", replay: "safe",
     args: { query: { type: "string", optional: true, about: "the text to find (at least 2 characters)" }, limit: { type: "number", optional: true, about: "how many hits (default 30, at most 100)" } },
+    examples: [
+      { act: "search query=\"seed swap\"", does: "answers the notes that match seed swap, numbered, with ids; nothing moves" },
+      { act: "search query=compost limit=5", does: "answers the five best hits for compost" },
+    ],
     run({ query, limit }, { d }, actor) { return d.searchNotes(query, limit, actor); },
   }),
   "open": def({
@@ -6644,6 +6651,10 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
       diff: { type: "boolean", optional: true, about: "with file=: its changes (git's diff against its last commit, else against=)" },
       against: { type: "string", optional: true, about: "with file= diff=true: a copy of the file from before the change, for a file outside git" },
       resource: { type: "string", optional: true, about: "a Resource in place of id (PIE-754): file:/path, web:https://… or resource:<id>, registered first when it isn't yet, its stored text shown as a note (as the links tile opens one)" } },
+    examples: [
+      { act: "open id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=reader", does: "makes that note the desk's current one and shows it in the reader" },
+      { act: "open file=/tmp/garden-plan.md", does: "shows the Markdown file as a preview draws it, where opens land" },
+    ],
     async run({ id, from, fresh, fragment, file, diff, against, resource }, ctx, actor) {
       // A Resource an extension named (a bar row, a view's link, an action's open): registered if it must be, then shown.
       if (resource !== undefined) {

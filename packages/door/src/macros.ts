@@ -62,6 +62,10 @@ export const MACRO_ACTIONS = actionSet<{ ctx: Ctx; recording: MacroRecording }>(
     keys: "alt+Q (when not recording), or ^K then macro.record; a click on the status bar's ⇧⌥Q or its power bar row",
     touches: "nothing", replay: "ask", person: "A recording belongs to the person; an agent writes a [script::] block instead",
     args: { name: { type: "string", optional: true, about: "script name; default: a timestamped recording, editable after saving" } },
+    examples: [
+      { act: "macro.record", does: "starts recording your actions under a timestamped name" },
+      { act: "macro.record name=seed-swap-setup", does: "starts recording your actions into a script named seed-swap-setup" },
+    ],
     run({ name }, { ctx, recording }) {
       const result = recording.start(name ?? `recording-${Date.now()}`, ctx.noteInFront?.() ?? undefined);
       ctx.flash(`Recording ${result.recording} · alt+Q or macro.stop saves it`);

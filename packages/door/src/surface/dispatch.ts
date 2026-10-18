@@ -718,6 +718,10 @@ export const POINTER_ACTIONS = actionSet<{ dispatcher: Dispatcher; at: Target }>
       line: { type: "number", optional: true, about: "source line, from 1" },
       clear: { type: "boolean", optional: true, about: "drop your explicit pointer" },
     },
+    examples: [
+      { act: "agent.focus tile=reader note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 line=12", does: "points your marker at line 12 of that note in the reader" },
+      { act: "agent.focus tile=reader clear=true", does: "drops your pointer in the reader" },
+    ],
     run(args, { dispatcher, at }, actor) { return dispatcher.focusAgent(at, args, actor); },
   }),
 });

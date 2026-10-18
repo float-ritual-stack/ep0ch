@@ -19,7 +19,8 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ActionRefused, actionSet, def, type ActionInfo, type ActRequest } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { screenKeys } from "../whereabouts";
-import { NOTE_ACTIONS } from "../surface/note";
+import { draftPreview, NOTE_ACTIONS } from "../surface/note";
+import { actionPage } from "../surface/action-page";
 import { DRAFT_ACTIONS } from "../edit";
 import { keepUnsent, unsent } from "../draft-session";
 import { Desk, DESK_ACTIONS } from "../desk/desk";
@@ -1411,6 +1412,10 @@ export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
+    examples: [
+      { act: "section.try", does: "puts the person's keys in the shown section's stage" },
+      { act: "section.try name=note", does: "shows the note section and puts the person's keys in its stage" },
+    ],
     run({ name }, s) {
       const i = name === undefined ? s.shown : s.sectionOf(name);
       s.pick(i, true);
@@ -1431,6 +1436,10 @@ export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
     summary: `show a section (name=<1-${SECTIONS.length}> or its key: ${SECTIONS.map(x => x.key).join(", ")}); refused to an agent while the person is in one`, keys: "↑↓ j k, 1-9 0, click, wheel",
     touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
+    examples: [
+      { act: "section name=3", does: "shows the third section in the stage" },
+      { act: "section name=note", does: "shows the note section in the stage" },
+    ],
     run({ name }, s) {
       // An agent never moves the person out of a section they are working in (the actor rule: the showcase says their
       // keys are held while they're in one, `keys`): sections change from the index.
@@ -1467,7 +1476,7 @@ export class ActionsPane implements Pane {
   private view = new RowView();
   private lastClick = { at: 0, i: -1 };
   title() { return "the action registry · src/surface/actions.ts"; }
-  hint() { return "j k ↑↓ pick · ⏎ run it in the reader beside (no-argument note and desk actions)"; }
+  hint() { return "j k ↑↓ pick: its page under the list · ⏎ run it in the reader beside (no-argument note and desk actions)"; }
   /** The actions listed, in order (the set headers left out): what registry.pick's n counts. */
   private actionRows(): number[] { return this.rows.flatMap((r, i) => ("a" in r ? [i] : [])); }
   /** The selected action's place among them, from 1. */
@@ -1486,7 +1495,10 @@ export class ActionsPane implements Pane {
     if (to !== this.picked) this.press(desk, { n: to });
   }
   render(w: number, h: number, focused: boolean): PaneView {
-    const detail = 3;
+    // Under the list, the selected action's page (PIE-1032): as the power bar's preview and `ep0ch actions --doc` draw it.
+    const cur = this.rows[this.sel];
+    const page = cur && "a" in cur ? draftPreview(actionPage(cur.a), Math.max(20, w), null) : [];
+    const detail = page.length ? Math.min(page.length + 1, Math.max(3, Math.floor(h * 0.6))) : 0;
     const room = Math.max(1, h - detail);
     this.view.place(this.sel, this.rows.length, room);
     const nameW = Math.min(20, Math.max(8, Math.floor(w * 0.3))), keysW = Math.min(18, Math.max(6, Math.floor(w * 0.22)));
@@ -1498,11 +1510,7 @@ export class ActionsPane implements Pane {
         : fg(C.yellow) + " " + pad(r.a.name, nameW) + " " + fg(C.brown) + pad(r.a.keys ?? "—", keysW) + " " + fg(C.grey) + pad(r.a.summary, Math.max(1, w - nameW - keysW - 3)) + RESET;
     });
     while (lines.length < room) lines.push("");
-    const cur = this.rows[this.sel];
-    if (cur && "a" in cur) {
-      const args = Object.entries(cur.a.args).map(([k, s]) => `${k}${s.optional ? "?" : ""}: ${s.type}`).join(", ") || "no arguments";
-      lines.push(fg(C.blue) + "─".repeat(w) + RESET, fg(C.white) + pad(`ep0ch-door act ${cur.a.name}${Object.keys(cur.a.args).length ? " key=value…" : ""}`, w) + RESET, fg(C.dark) + pad(`${cur.a.scope} · ${args}`, w) + RESET);
-    }
+    if (detail) lines.push(fg(C.blue) + "─".repeat(w) + RESET, ...page.slice(0, detail - 1));
     return { lines, scroll: { top: this.view.top, room, total: this.rows.length } };
   }
   runAction(a: ActionInfo, desk: DeskApi, actor: Actor) {
@@ -1536,6 +1544,10 @@ export const REGISTRY_ACTIONS = actionSet<KindHost>()("registry", {
     keys: "j k ↑ ↓ PgUp PgDn, click, wheel · ⏎, double click (run)",
     touches: "tile", replay: "safe", says: r => `picked ${r.action}`,
     args: { n: { type: "number", optional: true, about: "the action's place in the list, from 1" }, run: { type: "boolean", optional: true, about: "run it in the reader beside, as ⏎ does" } },
+    examples: [
+      { act: "registry.pick n=5 tile=registry", does: "selects the fifth action in the registry list" },
+      { act: "registry.pick n=5 run=true tile=registry", does: "selects the fifth action and runs it in the reader beside", safe: false },
+    ],
     run({ n, run }, { pane, desk }, actor) {
       const list = pane as ActionsPane, at = n ?? list.picked;
       const a = list.pick(at, actor.kind !== "agent");

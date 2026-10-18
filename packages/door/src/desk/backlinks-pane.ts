@@ -546,6 +546,10 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       related: { type: "boolean", optional: true, about: "show this note and its descendants" },
       sort: { type: "string", optional: true, about: "updated, created or title, optionally -asc or -desc" },
     },
+    examples: [
+      { act: "backlinks tile=replies filter=seed", does: "answers the replies tile's rows that match seed, changing nothing of the person's" },
+      { act: "backlinks id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 stage=open", does: "answers that note's backlinks still open, grouped as Detail does" },
+    ],
     async run(args, { pane: L, desk }, actor) {
       const { id, ...want } = args;
       const open = (desk.shownNow?.(L) ?? true) && !!L.target;
@@ -588,6 +592,9 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
     keys: ". space, a click on a group's ▾ ▸ + −, a double click on its header",
     touches: "tile", replay: "safe", person: LINK_GROUPS_ARE_THE_PERSONS,
     args: { kind: { type: "string", optional: true, about: "outlinks, resources or backlinks, or a backlink kind (its key, as peek's rows give it, or its label); default the selected row's" } },
+    examples: [
+      { act: "backlinks.fold tile=replies kind=outlinks", does: "opens or folds the outlinks group in the links tile" },
+    ],
     run({ kind }, { pane, desk }) {
       const r = pane.rows()[pane.sel];
       if (kind !== undefined && isLinkGroup(kind.toLowerCase())) { pane.fold(kind.toLowerCase() as LinkGroupName); desk.redraw(); return { backlinks: pane.describe() }; }
@@ -615,6 +622,10 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       open: { type: "boolean", optional: true, about: "open it, as ⏎ does (a group opens or folds)" },
       fresh: { type: "boolean", optional: true, about: "open it fresh, as alt+⏎ does" },
     },
+    examples: [
+      { act: "backlinks.pick tile=replies n=2", does: "selects row 2; it shows where the tile's selection goes" },
+      { act: "backlinks.pick tile=replies by=1", does: "moves to the next row, as j does" },
+    ],
     async run({ n, id, by, open, fresh }, { pane, desk }, actor) {
       if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("backlinks.pick takes one of n, id or by");
       const rows = pane.rows();
@@ -634,6 +645,10 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       id: { type: "string", optional: true, about: "a linked block's id or a resource's (or its start)" },
       where: { type: "string", optional: true, about: "home (default): the tile its opens land in; new: a new detail beside its home" },
     },
+    examples: [
+      { act: "backlinks.open tile=replies n=1", does: "opens the first linked note in the tile its opens land in" },
+      { act: "backlinks.open tile=replies n=1 where=new", does: "opens it in a new detail beside the tile's home" },
+    ],
     async run({ n, id, where }, { pane, desk }, actor) {
       if (where !== undefined && where !== "home" && where !== "new") throw new ActionRefused(`backlinks.open: where is home or new, not ${where}`);
       if (n !== undefined && id !== undefined) throw new ActionRefused("backlinks.open takes one of n or id");
@@ -654,6 +669,10 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       toggle: { type: "string", optional: true, about: "one group to switch on or off" },
       choose: { type: "boolean", optional: true, about: "open the list of groups (the person's)" },
     },
+    examples: [
+      { act: "backlinks.groups tile=replies show=outlinks,backlinks", does: "lists only the outlinks and backlinks groups" },
+      { act: "backlinks.groups tile=replies toggle=resources", does: "switches the resources group on or off" },
+    ],
     run({ show, toggle, choose }, { pane, desk }, actor) {
       if ([show, toggle, choose].filter(x => x !== undefined && x !== false).length !== 1) throw new ActionRefused("backlinks.groups takes one of show, toggle or choose");
       if (choose) {
@@ -687,6 +706,10 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       sort: { type: "string", optional: true, about: "updated, created or title, optionally -asc or -desc" },
       step: { type: "string", optional: true, about: "a control stepped to its next value, as its key does: kind, stage, resolved, related or sort; filter starts typing one" },
     },
+    examples: [
+      { act: "backlinks.view tile=replies filter=seed sort=updated-desc", does: "lists the links matching seed, newest first" },
+      { act: "backlinks.view tile=replies step=stage", does: "steps the Stage control to its next value" },
+    ],
     run({ step, ...args }, { pane, desk }, actor) {
       if (step !== undefined) {
         if (!(["kind", "stage", "resolved", "related", "sort", "filter"] as string[]).includes(step)) throw new ActionRefused(`step is filter, kind, stage, resolved, related or sort, not ${step}`);

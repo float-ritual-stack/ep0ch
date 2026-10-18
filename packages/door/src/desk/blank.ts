@@ -62,6 +62,10 @@ export const BLANK_ACTIONS = actionSet<KindHost>()("blank", {
       cmd: { type: "string", optional: true, about: "pty: the command line (default $SHELL)" },
       name: { type: "string", optional: true, about: "its name (default its kind)" },
     },
+    examples: [
+      { act: "blank.fill kind=tree", does: "puts the outline tree where the blank tile was" },
+      { act: "blank.fill kind=pty cmd=htop name=top", does: "starts htop in a terminal tile named top in its place" },
+    ],
     async run({ kind, view, cmd, name }, { desk, tile }, actor) {
       if (!KINDS.includes(kind)) throw new ActionRefused(`blank.fill: kind is ${KINDS.join(", ")}, not ${kind}`);
       const d = desk as DeskApi & Required<Pick<DeskApi, "replaceTile" | "askChoices">>;

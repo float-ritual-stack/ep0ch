@@ -183,6 +183,9 @@ test("every kind a page draws draws from its Markdown rows, never its source", a
     chat: "---\n- shypht: did the beans go in?\n- loki: yes, this morning",
     compare: "columns: [Raised, Bags]\n---\n- cost: £60 | £12",
     matrix: "---\n- north: beans=2 peas=1",
+    keys: "---\n- g then d: the desk\n- ctrl+k: the power bar",
+    props: "---\n- **bed**: text — the bed it goes in\n- depth: a number · 2 — how deep, in cm",
+    example: "prompt: ep0ch act\n---\n- `layout.move tile=tree where=edge-down` → lays the tree along the bottom",
   };
   for (const [kind, body] of Object.entries(sources)) {
     const note = store.create(`Figure ${kind}\n::graph-${kind}\n---\ntitle: The ${kind}\n${body}\n::`);

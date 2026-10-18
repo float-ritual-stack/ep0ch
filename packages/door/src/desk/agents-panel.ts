@@ -109,6 +109,9 @@ export const AGENTS_ACTIONS = actionSet<KindHost>()("agents", {
     keys: "j k ↑ ↓, the wheel, a click",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (agents.list reads the rows)",
     args: { n: { type: "number", about: "its place in the list, from 1" } },
+    examples: [
+      { act: "agents.pick n=2", does: "selects the second agent in the panel, as agents.list names them" },
+    ],
     run({ n }, { pane, desk }) {
       const p = pane as AgentsPane, rows = p.rows();
       if (!rows.length) throw new ActionRefused("no agent sessions run · n starts one, or `ep0ch agent` from a folder");

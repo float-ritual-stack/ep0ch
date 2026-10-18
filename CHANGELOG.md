@@ -33,6 +33,18 @@ would move where and why; `ep0ch route <note>` and `--all` move them; in the doo
   grant, the path's cap, or both) and whom it affects, and `⏎` applies it. Only you apply it; an agent reads the matrix
   (`mcp.access.matrix`) and can ask what a change would do (`access.plan`). `ep0ch mcp access --cap gpty@gurgle=full` is the
   cap write on its own.
+### An action's documentation is drawn with components, with real examples (PIE-1032)
+
+- **Changed:** the power bar's preview of an action is its page, not a paragraph: its one line, its keys as keycaps, one
+  or two real `ep0ch act` lines with what each does (`safe` on one an agent may run as it is), its arguments as a
+  properties table (name, values, default or needed, what it means), then the rest of what it says, a fact a line.
+- **New:** `ep0ch actions --doc <action>` draws the same page in a shell (`--source` prints its Blockdown, `--json` both),
+  from the running door when there is one, else the door's own registry.
+- **New components:** `::graph-props` (a properties table; the library's component pages and an extension's page draw
+  their tables with it) and `::graph-example` (commands and what each does). They draw in the door, the library and
+  on published pages; `::graph-keys` now draws on published pages too, and takes a key with nothing after it (`- esc:`).
+- **For agents:** every action that takes arguments has examples (`ep0ch actions` lists them as `examples`).
+- **Changed:** `tune.aim` takes `target=` (was `tile=`, which an act line takes as the tile to run in).
 
 ### In the power bar tab completes, and alt+← alt+→ change scope (PIE-1014)
 

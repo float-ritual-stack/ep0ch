@@ -1918,7 +1918,12 @@ The board's new-card composer is the same control too.
 
 `ctrl+k` (or `cmd+k` where the terminal sends it, or a click on `^K` at the status bar's left) opens one palette over
 whatever screen is shown and your drawer: a list on the left, what the lit row is on the right (a note drawn as a reader
-draws it, a terminal's screen, an action's summary and keys), its scopes along the top.
+draws it, a terminal's screen, an action's page), its scopes along the top.
+
+**An action's page** (PIE-1032) is its one line, its keys as keycaps, one or two real `ep0ch act` lines with what each
+does (`safe` on one an agent may run as it is), its arguments as a properties table, then the rest of what it says.
+The same page: `ep0ch actions --doc layout.move` in a shell (`--source` for its Blockdown), and under the list in the
+kitchen sink's actions section.
 
 - **Nothing typed:** the tiles open on every screen and in your drawer, indented as each screen's layout tree (a mounted
   screen's tiles under its mount, named `mount/tile`; picking one opens the mount and goes in) (`●` has

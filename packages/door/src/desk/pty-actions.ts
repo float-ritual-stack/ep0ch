@@ -23,6 +23,10 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     summary: "send text=<text> to the program in terminal tile=<tile>, as typed keys (\\n is ⏎). Refused to an agent for the terminal the person is in",
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there (an nvim tile's socket edits other lines without their cursor)", says: r => `typed into ${r.tile}`,
     args: { text: { type: "string", about: "what to type; \\n for enter, \\e for escape" } },
+    examples: [
+      { act: "tile.type tile=draft text=\"ls -la\\n\"", does: "types ls -la and enter into the program in the draft terminal" },
+      { act: "tile.type tile=draft text=\"\\e:w\\n\"", does: "sends escape, :w and enter: an editor there saves its file" },
+    ],
     run({ text }, { pane, desk, tile }, actor) {
       return host(desk).typeTerminal(tile, pane, text, actor);
     },
@@ -43,6 +47,9 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     touches: "screen", replay: "safe", person: "typing in a terminal tile takes the person's keys; an agent sends it text with tile.type",
     menu: { label: "type in it", group: TERMINAL, key: "e", now: ({ pane }) => (pane.running ? null : { hide: true }) },
     args: { send: { type: "string", optional: true, about: "bytes to give the program first (a literal ctrl+])" } },
+    examples: [
+      { act: "tile.enter tile=draft", does: "the person's keys go to the draft terminal's program until ctrl+]" },
+    ],
     run({ send }, { pane, desk, tile }) { return host(desk).enterTerminal(tile, pane, send); },
   }),
   "tile.leave": def({
@@ -69,6 +76,9 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     summary: "the program in terminal tile=<tile> copied text=<text> (PIE-797): passed on to the person's clipboard as its own OSC 52 would be, if they typed or clicked in the tile in the last 2 min, with the \"copied from <tile>\" toast. Said by the door's wl-copy (scripts/clip) for Claude Code in a Herdr pane, whose OSC 52 Herdr's direct attach doesn't pass on (herdrdev/herdr#4612). It comes over the control socket like any program's request, so the rule is the tile's: nothing reaches the clipboard unless the person used that tile lately",
     touches: "nothing", replay: "safe",
     args: { text: { type: "string", about: "what the program copied" } },
+    examples: [
+      { act: "terminal.clip tile=draft text=\"seed order: 12 packets\"", does: "passes the program's copy on to the person's clipboard, with a toast" },
+    ],
     run({ text }, { pane, tile }) {
       if (!text) throw new ActionRefused("nothing to copy");
       pane.programCopied(text);
@@ -82,6 +92,10 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     touches: "tile", touchesWith: a => (a.on === false ? "nothing" : "tile"), while: "typing", way: "an agent doesn't flag the terminal they're typing in (quitting would no longer warn that it ends its program)",
     replay: "ask", says: (r, a) => (a.on === false ? `${r.tile} no longer shows an agent in Herdr` : `${r.tile} shows ${a.pane} in Herdr (quitting the door leaves it running)`),
     args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-<outline>)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: the tile no longer shows a Herdr agent" } },
+    examples: [
+      { act: "tile.herdr tile=agent pane=door-garden", does: "marks the agent tile as showing the Herdr pane door-garden; quitting leaves it running" },
+      { act: "tile.herdr tile=agent on=false", does: "the tile no longer shows a Herdr agent; quitting warns again" },
+    ],
     run({ pane: label, name, on }, { pane, desk, tile }, actor) {
       return host(desk).herdrTerminal(tile, pane, label, on, actor, name);
     },
