@@ -58,8 +58,29 @@ function mirrored(piece: string, hrefs: Set<string>, titleOf: (id: string) => st
       : ['page', value]
   const href = `${STAND_IN}${kind}/${encodeURIComponent(id)}`
   hrefs.add(href)
-  const label = (given?.[1]?.trim() || (kind === 'block' ? titleOf(id) || `((${id.slice(0, 8)}…))` : id)).replace(/[[\]\\]/g, '\\$&')
+  const label = (given?.[1]?.trim() || (kind === 'block' ? blockLabel(id, undefined, titleOf) : id)).replace(/[[\]\\]/g, '\\$&')
   return `[${label}](${href})${given ? '' : trimmed[2]}`
+}
+
+/** The longest a note's title is drawn in a reply before it is cut with `…`. */
+const TITLE_WIDTH = 48
+
+/**
+ * What an unaliased block reference shows (PIE-1043): the note's title (cut to fit, then ` › anchor` when the reference
+ * names a fragment), and until the title is known, or when there is none, the id's first eight characters and `…`.
+ */
+function blockLabel(id: string, fragment: string | undefined, titleOf: (id: string) => string | undefined): string {
+  const title = titleOf(id)?.replace(/\s+/g, ' ').trim()
+  if (!title) return `${id.slice(0, 8)}…`
+  const cut = title.length > TITLE_WIDTH ? `${title.slice(0, TITLE_WIDTH - 1).trimEnd()}…` : title
+  return fragment ? `${cut} › ${fragment}` : cut
+}
+
+/** The block ids a reply names without a label (`((id))`, `((id^anchor))`, a `my.ep0ch.sh` address), lowercased: the titles to look up before it is drawn. */
+export function unlabelledBlockIds(text: string): string[] {
+  const ids = new Set<string>()
+  for (const m of text.matchAll(new RegExp(`\\(\\((${UUID})(?:\\^${FRAGMENT})?\\)\\)|(?<=my\\.ep0ch\\.sh/pub/p/)(${UUID})`, 'g'))) ids.add((m[1] ?? m[2]!).toLowerCase())
+  return [...ids]
 }
 
 export type Linkified = {
@@ -80,16 +101,16 @@ export function linkifyReferences(text: string, prefixes: readonly string[], tit
     .map(prefix => `${prefix}-\\d+`)
   const reference = new RegExp(
     `\\[\\[([^\\[\\]|\\n]+)(?:\\|([^\\[\\]\\n]+))?\\]\\]` +
-      `|\\(\\((${UUID})(?:\\^${FRAGMENT})?(?:\\|([^()\\n]+))?\\)\\)` +
+      `|\\(\\((${UUID})(?:\\^(${FRAGMENT}))?(?:\\|([^()\\n]+))?\\)\\)` +
       (workIds.length ? `|(?<![\\w/#-])(${workIds.join('|')})(?![\\w-])` : ''),
     'g',
   )
   const rewrite = (plain: string) =>
-    plain.replace(reference, (whole, page?: string, pageLabel?: string, block?: string, blockLabel?: string, workId?: string) => {
+    plain.replace(reference, (_whole, page?: string, pageLabel?: string, block?: string, fragment?: string, aliasLabel?: string, workId?: string) => {
       const [kind, value, label] = page
         ? ['page', page.trim(), pageLabel?.trim() || page.trim()]
         : block
-          ? ['block', block.toLowerCase(), blockLabel?.trim() || whole]
+          ? ['block', block.toLowerCase(), aliasLabel?.trim() || blockLabel(block.toLowerCase(), fragment, titleOf)]
           : ['work', workId!.toUpperCase(), workId!]
       const href = `${STAND_IN}${kind}/${encodeURIComponent(value)}`
       hrefs.add(href)

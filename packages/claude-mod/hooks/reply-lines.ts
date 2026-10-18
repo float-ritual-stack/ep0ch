@@ -10,7 +10,7 @@ import { outlinerUriOf } from './references'
 /** One drawn piece of a line: prose with its inline style, or a reference to press. */
 export type LinePart =
   | { text: string; style?: 'bold' | 'italic' | 'bold-italic' | 'code' }
-  | { ref: string; label: string }
+  | { ref: string; label: string; external?: true }
 
 export type ReplyBlock =
   | { kind: 'markdown'; text: string }
@@ -18,14 +18,14 @@ export type ReplyBlock =
   | { kind: 'table'; header: LinePart[][]; rows: LinePart[][][] }
 
 /** `[label](stand-in)` as `linkifyReferences` writes it (labels have `[`, `]` and `\` escaped). */
-const LINK = /\[((?:[^\]\\\n]|\\.)*)\]\((https:\/\/pi-outliner\.invalid\/[^)\s]*)\)/g
+const LINK = /\[((?:[^\]\\\n]|\\.)*)\]\((https?:\/\/[^)\s]*)\)|`[^`\n]*`|\bhttps?:\/\/[^\s<>()[\]`]+/gi
 
 /** A reference stands in the text as `OPEN n CLOSE` while emphasis is found around it (private-use characters). */
 const OPEN = '\uE000'
 const CLOSE = '\uE001'
 const SLOT = /\uE000(\d+)\uE001/g
 
-type Ref = { ref: string; label: string }
+type Ref = { ref: string; label: string; external?: true }
 type Style = 'bold' | 'italic' | 'bold-italic' | 'code'
 
 const EMPHASIS = /`([^`\n]+)`|(\*\*\*|\*\*|__)(?=\S)(.+?)(?<=\S)\2|(?<![\w*])([*_])(?=[^\s*_])([^\n]*?[^\s*_])\4(?![\w*])/g
@@ -74,10 +74,17 @@ function styled(text: string, refs: Ref[], style?: Style): LinePart[] {
 /** Inline parts of some text holding references, or null when it holds none the mod can open. */
 function inlineOf(text: string): LinePart[] | null {
   const refs: Ref[] = []
-  const slotted = text.replace(LINK, (whole, label: string, href: string) => {
-    if (!outlinerUriOf(href)) return whole
-    refs.push({ ref: href, label: label.replace(/\\(.)/g, '$1') })
-    return `${OPEN}${refs.length - 1}${CLOSE}`
+  const slotted = text.replace(LINK, (whole, label: string | undefined, href: string | undefined) => {
+    if (whole.startsWith('`')) return whole
+    if (label !== undefined && href !== undefined) {
+      // `[label](address)`: a reference when the address is a stand-in, else a link out (PIE-1043).
+      refs.push(outlinerUriOf(href) ? { ref: href, label: label.replace(/\\(.)/g, '$1') } : { ref: href, label: label.replace(/\\(.)/g, '$1'), external: true })
+      return `${OPEN}${refs.length - 1}${CLOSE}`
+    }
+    // A bare address: the text stays as written, trailing punctuation outside it.
+    const [, url, tail] = /^(.*?)([.,;:!?]*)$/s.exec(whole)!
+    refs.push({ ref: url!, label: url!, external: true })
+    return `${OPEN}${refs.length - 1}${CLOSE}${tail}`
   })
   return refs.length ? styled(slotted, refs) : null
 }
@@ -101,7 +108,7 @@ function cellsOf(line: string): string[] {
 }
 
 /** The text a part shows, for a column's width. */
-const shown = (parts: LinePart[]) => parts.reduce((n, part) => n + ('ref' in part ? part.label : part.text).length, 0)
+const shown = (parts: LinePart[]) => parts.reduce((n, part) => n + ('ref' in part ? part.label.length + (part.external ? 2 : 0) : part.text.length), 0)
 
 /** Each column's width: its longest cell. */
 export function tableWidths(table: { header: LinePart[][]; rows: LinePart[][][] }): number[] {

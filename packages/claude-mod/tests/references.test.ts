@@ -1,7 +1,7 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
 
 import { replyBlocks } from '../hooks/reply-lines'
-import { linkifyReferences, outlinerReferenceOf, outlinerUriFor, outlinerUriOf } from '../hooks/references'
+import { unlabelledBlockIds, linkifyReferences, outlinerReferenceOf, outlinerUriFor, outlinerUriOf } from '../hooks/references'
 
 tier('user')
 
@@ -16,7 +16,7 @@ describe('references', () => {
     )
     expect(text).toBe(
       `See [PIE-356](${STAND_IN}work/PIE-356), [PIE-325](${STAND_IN}page/PIE-325), ` +
-        `[the notes](${STAND_IN}page/Daily%20notes) and [((${UUID}))](${STAND_IN}block/${UUID}).`,
+        `[the notes](${STAND_IN}page/Daily%20notes) and [${UUID.slice(0, 8)}…](${STAND_IN}block/${UUID}).`,
     )
     expect(hrefs).toEqual([
       `${STAND_IN}work/PIE-356`,
@@ -94,6 +94,15 @@ describe('references', () => {
       expect(outlinerReferenceOf(outlinerUriFor(reference)!)).toBe(reference)
     }
     expect(outlinerReferenceOf(`pi-outliner://block/${UUID.toUpperCase()}`)).toBe(`((${UUID}))`)
+  })
+
+  test('an unaliased ((id)) shows the note title, or the short id until it is known; an alias always wins (PIE-1043)', () => {
+    const none = linkifyReferences(`See ((${UUID})) and ((${UUID}^beds)).`, [])
+    expect(none.text).toBe(`See [${UUID.slice(0, 8)}…](${STAND_IN}block/${UUID}) and [${UUID.slice(0, 8)}…](${STAND_IN}block/${UUID}).`)
+    const titled = linkifyReferences(`See ((${UUID})) and ((${UUID}^beds)) and ((${UUID}|mine)).`, [], () => 'Bike shed')
+    expect(titled.text).toBe(`See [Bike shed](${STAND_IN}block/${UUID}) and [Bike shed › beds](${STAND_IN}block/${UUID}) and [mine](${STAND_IN}block/${UUID}).`)
+    expect(linkifyReferences(`((${UUID}))`, [], () => 'x'.repeat(80)).text).toContain(`[${'x'.repeat(47)}…]`)
+    expect(unlabelledBlockIds(`((${UUID.toUpperCase()})) ((${UUID}^a)) ((${UUID}|alias)) https://my.ep0ch.sh/pub/p/${UUID}`)).toEqual([UUID])
   })
 
   test('my.ep0ch.sh links Claude writes, bare or in a link, are the same references; other URLs are left alone', async () => {
