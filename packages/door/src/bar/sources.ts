@@ -4,7 +4,7 @@
 // a pause); actions are the dispatcher's (the focused tile's menu rows, then every action that needs no argument);
 // recent is the what-changed store behind the status bar's `+N new`; screens are the shell's `screen.list`. A pick goes
 // through the shared paths: the drawer's goTo, the `open` action, the dispatcher's press.
-import { identityFields, noteLabel, withWorkId, type Msg } from "../board";
+import { identityFields, noteLabel, subject, withWorkId, type Msg } from "../board";
 import { Desk } from "../desk/desk";
 import { PtyPane } from "../desk/pty";
 import { tileKinds } from "../desk/tile-kinds";
@@ -43,7 +43,7 @@ function tileRows(desk: Desk, at: string, group: string, screen: Screen | null, 
   return desk.tileOutline().flatMap(t => {
     const path = `${prefix}${t.name}`, p = desk.pane(t.name);
     const row: BarRow = {
-      key: `${at}:${path}`, label: t.showing ? `${path} · ${withWorkId(t.showing.workId, t.showing.title)}` : `${path} · ${t.title}`, depth: base + t.depth, group,
+      key: `${at}:${path}`, fill: path, label: t.showing ? `${path} · ${withWorkId(t.showing.workId, t.showing.title)}` : `${path} · ${t.title}`, depth: base + t.depth, group,
       mark: t.focused ? "●" : t.collapsed ? "▸" : t.float ? "⧉" : t.docked ? "⇤" : t.tab && !t.shown ? "⋯" : " ",
       detail: [t.kind, t.mode ?? "", t.collapsed ? "a spine" : "", t.float ? "floating" : "", t.docked ? "docked" : "", t.tab && !t.shown ? "a tab behind" : "", mounts.length ? "in a mount" : ""].filter(Boolean).join(" · "),
       data: { desk, name: t.name, screen, drawer, shows: t.showing?.id ?? null, kind: t.kind, path, mounts, find: t.showing ? identityFields(t.showing.workId, t.showing.page, t.showing.title) : [] } satisfies TileAt,
@@ -107,7 +107,7 @@ const TILES: BarSource = {
 };
 
 /** A hit's row: its work id (when its title doesn't start with it) and its title. */
-const noteRow = (m: Msg): BarRow => ({ key: m.id, label: noteLabel(m) });
+const noteRow = (m: Msg): BarRow => ({ key: m.id, label: noteLabel(m), fill: subject(m) });
 
 /** How many notes `/` lists with nothing typed. */
 const RECENT_NOTES = 30;
@@ -197,14 +197,14 @@ const ACTIONS: BarSource = {
     const menu = (() => { try { return top?.dispatch?.menu("focused", USER) ?? []; } catch { return []; } })();
     // While the hyper layer is on (PIE-699) each action that has a chord shows it, as ✦-, beside its other keys.
     const hy = (action: string) => (hyperOn() ? hyperKeysOf(action) : []);
-    const rows: BarRow[] = menu.map(m => ({ key: `menu:${m.action}:${JSON.stringify(m.args)}`, label: m.label, detail: `${m.group} · ${m.action}${hy(m.action).length ? ` · ${hy(m.action).join(" ")}` : ""}`, ...(m.key ? { keycap: m.key } : {}), ...(m.refused ? { refused: m.refused } : {}), data: { action: m.action, args: m.args, tile: m.tile, summary: "" } }));
+    const rows: BarRow[] = menu.map(m => ({ key: `menu:${m.action}:${JSON.stringify(m.args)}`, label: m.label, fill: m.action, detail: `${m.group} · ${m.action}${hy(m.action).length ? ` · ${hy(m.action).join(" ")}` : ""}`, ...(m.key ? { keycap: m.key } : {}), ...(m.refused ? { refused: m.refused } : {}), data: { action: m.action, args: m.args, tile: m.tile, summary: "" } }));
     const seen = new Set(menu.map(m => m.action));
     for (const a of host.dispatch.list().actions) {
       if (seen.has(a.name) || !bare(a)) continue;
       seen.add(a.name);
       const k = firstKey(a.keys);
       const script = scriptActions().find(s => s.action.name === a.name);
-      rows.push({ key: a.name, label: script?.extension.name ?? a.name, detail: `${a.summary.split(/[.:;(]/)[0]!.slice(0, 80)}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys } });
+      rows.push({ key: a.name, fill: a.name, label: script?.extension.name ?? a.name, detail: `${a.summary.split(/[.:;(]/)[0]!.slice(0, 80)}${hy(a.name).length ? ` · ${hy(a.name).join(" ")}` : ""}`, ...(k ? { keycap: k } : hy(a.name).length ? { keycap: hy(a.name)[0]! } : {}), data: { action: a.name, args: {}, summary: a.summary, keys: a.keys } });
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);

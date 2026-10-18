@@ -14,6 +14,8 @@ export interface BarRow {
   /** Unique within its source (a tile's id, a note's id, an action's name). */
   key: string;
   label: string;
+  /** What tab puts on the line for this row (a tile's path, a note's title, an action's name); its label when none. */
+  fill?: string;
   /** Dim words after the label (where a tile is, who changed a note, an action's group). */
   detail?: string;
   /** How far it's indented: a tile's depth in its screen's layout tree. */
