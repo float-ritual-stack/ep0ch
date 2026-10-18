@@ -862,7 +862,7 @@ export class Publisher {
       maxBytes: this.maxBytes,
       ...(local ? {} : { remoteService: true }),
     };
-    if (local) this.skinPolicy = { roots: [dirname(location.database)], workspaceRoot: dirname(location.database), maxBytes: this.maxBytes };
+    if (local) this.skinPolicy = { roots: [join(dirname(location.database), "skins")], workspaceRoot: dirname(location.database), maxBytes: this.maxBytes };
     if (this.options.tunnels) {
       this.tunnels = new ShareTunnels({
         request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
@@ -1909,14 +1909,15 @@ export class Publisher {
     const unavailable = { warning: "Skin unavailable. Use skins/<name>.css in the outline folder or a visible note with [page::skins/<name>] and a css fence." };
     // This authored value is a name, never a path outside the outline's skins folder.
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name)) return unavailable;
-    if (this.skinPolicy) {
-      const check = checkAttachment(join("skins", `${name}.css`), this.skinPolicy);
+    const roots = this.skinPolicy ? canonicalPublishRoots(this.skinPolicy.roots).roots : [];
+    if (this.skinPolicy && roots.length) {
+      const check = checkAttachment(join("skins", `${name}.css`), { ...this.skinPolicy, roots });
       if (check.ok) {
         const file = await this.client.request<FileContents>({ action: "files.read", path: check.path }).catch(() => null);
         if (!file || file.absolutePath !== check.path || file.revision.size !== String(check.size) || file.revision.mtimeNs !== check.mtimeNs) return unavailable;
         return { css: file.text };
       }
-      if (check.refusal !== "missing") return unavailable;
+      if (check.refusal !== "missing") return { warning: `Skin unavailable. ${check.refusal === "outside-roots" ? "The file is outside the skins folder." : check.reason} Use a regular file inside skins/.` };
     }
     const page = await this.client.request<PageAddressResolution>({ action: "pages.resolve", address: `skins/${name}` });
     if (page.status !== "resolved" || !page.block || !(await host.shown([page.block.id])).has(page.block.id)) return unavailable;

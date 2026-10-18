@@ -129,6 +129,38 @@ test("skins respect private ancestors, share scope, file confinement, and the HT
   expect(html).toContain("data-publish-skin");
 });
 
+test("a skin symlink only embeds a regular file inside the real skins folder", async () => {
+  const { store, publisher } = await setup();
+  store.create("Garden report [publish::public:report] [publish-skin::night]\nThe seedlings are ready.");
+  const outline = join(store.database.filename, "..");
+  const secret = join(outline, "skins-extra", "private.css");
+  mkdirSync(join(outline, "skins-extra"));
+  writeFileSync(secret, "body { --private-marker: secret; }");
+  const folder = join(outline, "skins");
+  mkdirSync(folder);
+  const link = join(folder, "night.css");
+  symlinkSync(secret, link);
+  const render = async () => (await publisher.handle(new Request("http://127.0.0.1/share/p/report?view=html"), "public")).text();
+  const escaped = await render();
+  expect(escaped).not.toContain("--private-marker");
+  expect(escaped).toContain("Skin unavailable");
+  expect(escaped).toContain("outside the skins folder");
+  expect(escaped).toContain("The seedlings are ready.");
+
+  rmSync(link);
+  mkdirSync(join(folder, "directory.css"));
+  symlinkSync(join(folder, "directory.css"), link);
+  const directory = await render();
+  expect(directory).toContain("Skin unavailable");
+  expect(directory).toContain("not a regular file");
+
+  rmSync(link);
+  const css = "body { --skin-marker: allowed; }";
+  writeFileSync(join(folder, "allowed.css"), css);
+  symlinkSync(join(folder, "allowed.css"), link);
+  expect(await render()).toContain(css);
+});
+
 test("the showcase dispatch CSS styles the same published page without changing its body", async () => {
   const { store, get } = await setup();
   const css = readFileSync(new URL("../../door/src/showcase/assets/skins/dispatch.css", import.meta.url), "utf8");

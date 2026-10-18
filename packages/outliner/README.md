@@ -762,8 +762,9 @@ the content visible with an inline warning.
 
 Skin notes and inherited declarations obey the page's visibility and share
 scope, including `[publish::never]`. Public pages need public skin notes.
-Files stay within the outline's attachment boundary; they are not a new public
+Files must resolve to regular files inside the real `skins/` folder; they are not a new public
 file directory. Raw exports and standalone HTML artifacts keep their own form.
+CSS `url()` is left unchanged: the outline's owner writes the skin, and the page CSP already allows images from anywhere, as it does for notes' own images.
 The default remains dark. The showcase's **Garden dispatch** demonstrates the
 Void/Newsprint dark look; its reusable CSS is at
 `packages/door/src/showcase/assets/skins/dispatch.css`. To apply it to W42 after
