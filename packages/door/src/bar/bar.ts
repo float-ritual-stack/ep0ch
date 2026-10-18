@@ -6,7 +6,7 @@
 // screen is shown and the drawer, as the drawer is: it takes every key while it's open (the person is busy), and
 // esc or a click outside puts it away. What it lists is its sources' (src/bar/source.ts): with nothing typed, the
 // tiles and then what changed; typed, every source that answers in the main list, each under its heading; after a
-// prefix (`%` `/` `>` `+` `@`, an extension's) or tab, one source. A pick is the `bar.pick` action (⏎, a double click;
+// prefix (`%` `/` `>` `+` `@`, an extension's) or alt+← alt+→, one source; tab fills the line with the lit row's words. A pick is the `bar.pick` action (⏎, a double click;
 // alt+⏎ or an alt-click is the alternate), which hands the row back to its source.
 //
 // The preview is drawn by the readers' renderers, never one of the bar's own: a note through a note surface, Markdown
@@ -118,11 +118,22 @@ export class PowerBar {
     this.refresh();
   }
 
-  /** The keys it takes before the list's: tab through the scopes, a prefix typed first, backspace out of a scope, alt+⏎. */
+  /**
+   * The keys it takes before the list's: alt+← alt+→ through the scopes, tab to complete the line (as a shell does: the
+   * lit row's words, the bar stays open), a prefix typed first, backspace out of a scope, alt+⏎.
+   */
   private ownKey(k: Key): boolean {
-    if (k.kind === "tab" || k.kind === "backtab") {
+    if (k.kind === "alt-left" || k.kind === "alt-right") {
       const all = this.scopes(), at = all.indexOf(this.scope);
-      this.setScope(all[(at + (k.kind === "tab" ? 1 : -1) + all.length) % all.length]!);
+      this.setScope(all[(at + (k.kind === "alt-right" ? 1 : -1) + all.length) % all.length]!);
+      return true;
+    }
+    if (k.kind === "tab" || k.kind === "backtab") {
+      const it = this.items[this.picker.sel];
+      if (k.kind === "tab" && it) {
+        const text = it.row.fill ?? it.row.label;
+        if (text !== this.input.text) { this.input.text = text; this.input.cursor = [...text].length; this.refresh(); }
+      }
       return true;
     }
     if (k.kind === "backspace" && !this.input.text && this.scope) { this.setScope(null); return true; }
@@ -268,7 +279,7 @@ export class PowerBar {
     const preview = (pw: number, ph: number) => it ? this.previewLines(it, pw, ph) : empty ? wrap(hint, pw).map(l => dim(l)) : [];
     return {
       rect, title: " power bar ",
-      foot: "↑↓ pick · ⏎ go · alt+⏎ zoom or new detail · ⇥ scope · esc",
+      foot: "↑↓ pick · ⏎ go · alt+⏎ zoom or new detail · ⇥ complete · alt+←→ scope · esc",
       head, ...(tail.length ? { tail } : {}),
       preview,
     };

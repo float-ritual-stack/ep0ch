@@ -94,7 +94,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(app.whatChanged.count()).toBe(1);
   });
 
-  test("typed, every source answers under its heading; a prefix, tab and backspace move between scopes; esc puts it away", async () => {
+  test("typed, every source answers under its heading; a prefix, alt+← alt+→ and backspace move between scopes; esc puts it away", async () => {
     key(ctrlK); type("garden");
     await until(() => peek().bar.rows.some((r: any) => r.source === "notes"), "the notes search answered", 5000);
     const rows = peek().bar.rows;
@@ -105,16 +105,34 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar.rows.every((r: any) => r.source === "actions")).toBe(true);
     // The focused tile's menu rows come first, each with its key.
     expect(peek().bar.rows.some((r: any) => r.keycap === "ctrl+w x" || r.keycap === "ctrl+w z")).toBe(true);
-    key({ kind: "tab" });
+    key({ kind: "alt-right" });
     expect(peek().bar.scope).toBe("recent");
-    key({ kind: "backtab" });
-    key({ kind: "backtab" });
+    key({ kind: "alt-left" });
+    key({ kind: "alt-left" });
     expect(peek().bar.scope).toBe("notes");
     key({ kind: "backspace" });
     expect(peek().bar.scope).toBe("all");
     key({ kind: "esc" });
     expect(peek().bar).toBeUndefined();
     expect(app.person().busy).toBe(false as boolean);
+  });
+
+  test("tab fills the line with the lit row's words and keeps the bar open; it no longer changes scope", async () => {
+    key(ctrlK); type("/runner");
+    await until(() => peek().bar?.rows.length > 0, "the hit", 5000);
+    const label = peek().bar.rows[0].label as string;
+    key({ kind: "tab" });
+    expect(peek().bar.scope).toBe("notes");
+    expect(peek().bar.query).toBe(label);
+    key({ kind: "backtab" });
+    expect(peek().bar.scope).toBe("notes");
+    key({ kind: "esc" });
+    // A typed action line keeps its command: tab never fills `run `.
+    key(ctrlK); type("tile.focus dir=right");
+    await until(() => peek().bar?.rows[0]?.label?.startsWith("run "), "the action line's row", 5000);
+    key({ kind: "tab" });
+    expect(peek().bar.query).toBe("tile.focus dir=right");
+    key({ kind: "esc" });
   });
 
   test("a note picked opens where opens land; alt+⏎ opens it in a new detail", async () => {

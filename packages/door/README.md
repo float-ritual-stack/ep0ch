@@ -1208,7 +1208,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Tab` / `Shift+Tab`, `1`–`9`, click | focus |
 | `alt+n` / `alt+p` | next / previous tab |
 | `alt+d` | load the `daily` layout |
-| `ctrl+k`, `cmd+k`, a click on `^K` (the status bar's left) | the power bar over any screen ([The power bar](#the-power-bar-pie-656)): the tiles open everywhere, then what changed; type to look through tiles, notes, actions, what changed and screens at once, or start with `%` `/` `>` `+` `@` `&` (tab cycles) for one; ⏎ goes, alt+⏎ zooms a tile or opens a note in a new detail, esc puts it away. Never in a draft (there `ctrl+k` cuts to the line's end), a filter, a picker or a terminal tile |
+| `ctrl+k`, `cmd+k`, a click on `^K` (the status bar's left) | the power bar over any screen ([The power bar](#the-power-bar-pie-656)): the tiles open everywhere, then what changed; type to look through tiles, notes, actions, what changed and screens at once, or start with `%` `/` `>` `+` `@` `&` (alt+← alt+→ cycle; tab completes the line) for one; ⏎ goes, alt+⏎ zooms a tile or opens a note in a new detail, esc puts it away. Never in a draft (there `ctrl+k` cuts to the line's end), a filter, a picker or a terminal tile |
 | `ctrl+n` | a new note floating over the screen, opened to be written (again for another; from an edit too, what you typed saved first): under the note in the reader you're in, else at the top of the Inbox ([New notes and pages](#new-notes-and-pages-pie-544)); on every screen, never in a filter, a picker or a terminal tile. On the board's lanes: a new card in that lane |
 | `alt+l` | link this tile's opens (then a click, `h j k l` or a number) |
 | `Z`, `K/J` or `alt+↑` `alt+↓` in a reader | move the note shown (`note.move`, PIE-943): `Z` asks in the power bar where (its parents first, then the notes changed lately, the Inbox, then any note by its words), `alt+↑` `alt+↓` put it up or down among its siblings; `ctrl+z` puts it back. Works in a reader of the note surface on an outline note (desk reader, detail, preview, welcome and board readers, the BBS message reader), not on a file or Resource preview. In the outline tile the same keys move the selected row (`I` `O` indent and outdent; `K` `J` for up and down on a terminal that doesn't send Option+arrows); in a river column, the selected card (`column.move`). Replies in the reader’s thread panel and BBS message lists take `K/J` or `alt+↑/↓` to reorder, `I/O` to indent/outdent, `Z` for the picker and `ctrl+z` to undo. Drag onto a row to nest; drop on its left mark to reorder. In river columns, start a move drag on the left mark; dragging text still selects it. Reader `I/O` keep properties/preview; a floating tile keeps `J/K` for moving the tile |
@@ -1923,8 +1923,10 @@ draws it, a terminal's screen, an action's summary and keys), its scopes along t
   where it's set up), the actions you can do here (the focused tile's menu first, each with its key), what changed and
   the screens, each under its heading.
 - **One scope:** start with `%` tiles, `/` notes, `>` actions, `+` recent, `@` screens, `&` extensions, or an extension's own prefix
-  (`~` for the glyphs example); tab and shift+tab cycle, backspace on an empty line goes back to all. The desk's `/`
+  (`~` for the glyphs example); alt+← and alt+→ cycle (or a click on a scope), backspace on an empty line goes back to all. The desk's `/`
   and a river column's `g` open it in its notes scope.
+- **Completing:** tab fills the line with the lit row's words (a note's title, an action's name, a tile's path) and keeps
+  the bar open, as a shell does; the list narrows to it. Inline completion in a draft is unchanged: tab inserts.
 - **Going:** ⏎ or a double click. A tile gets your keys: a spine opens, a screen under this one comes up first. A note
   opens where opens land. An action runs as its key would. alt+⏎ (or an alt- or ctrl-click) zooms a tile, or opens a note
   in a new detail. Esc or a click outside puts it away.

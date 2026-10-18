@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### In the power bar tab completes, and alt+← alt+→ change scope (PIE-1014)
+
+- **Changed:** `alt+←` and `alt+→` move between the bar's scopes (all, tiles, notes, actions…); `tab` no longer does, and
+  `shift+tab` does nothing. A typed prefix, a click on a scope and backspace on an empty line work as before.
+- **New:** `tab` fills the line with the lit row's words (a note's title, an action's name, a tile's path) and keeps the
+  bar open, as a shell completes; the list narrows to it, and `⏎` still picks. Inline completion in a draft is unchanged
+  (tab inserts). No other screen's `alt+←` (a reader's back) is touched: the bar already held every key while open.
+
 ### Each agent can keep its own focus pointer (PIE-997)
 
 `agent.focus tile=… note=… line=…` gives an agent an explicit pointer without moving your keys.
