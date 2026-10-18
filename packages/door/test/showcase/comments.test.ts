@@ -152,12 +152,12 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     const pick = p.items.findIndex(i => i.insertion === `((${meeting}))`);
     expect(pick, p.items.map(i => i.label).join("\n")).toBeGreaterThanOrEqual(0);
     for (let i = 0; i < pick; i++) press({ kind: "down" });
-    press({ kind: "tab" });
+    press({ kind: "enter" });
     await until(() => d()!.text.endsWith(`((${meeting}))`), "the meeting inserted", 8000);
     ch("^");
     p = await settled("the meeting's passages");
     expect(p.items[0]!.insertion).toBe(`((${meeting}^a10))`);
-    press({ kind: "tab" });
+    press({ kind: "enter" });
     await until(() => d()!.text.endsWith(`((${meeting}^a10))`), "refined to ^a10", 8000);
     // And an embed of the meeting's decision, pasted.
     press({ kind: "paste", text: `\n!((${meeting}^decision))` });
@@ -545,7 +545,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     for (const c of "see ((alotment notebok") ch(c);
     const { completionOf } = await import("../../src/surface/completer");
     await until(() => { const p = completionOf(d()!); return !!p && !p.loading && p.items.length > 0; }, "the (( popup", 8000);
-    press({ kind: "tab" });
+    press({ kind: "enter" });
     const ref = `((${notebook.id}))`;
     await until(() => d()!.text.includes(ref), "the reference inserted", 8000);
     press({ kind: "end" });
@@ -625,11 +625,11 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
       expect(at, p.items.map(i => i.label).join("\n")).toBeGreaterThanOrEqual(0);
       expect(p.items.slice(at + 1, at + 3).map(i => i.label)).toEqual(["  ^a10  We agreed to water the seedlings every morning, before the glass warms.", "  ^decision  # Decision"]);
       for (let i = 0; i < at; i++) press({ kind: "down" });
-      press({ kind: "tab" });
+      press({ kind: "enter" });
       await until(() => d()!.text.endsWith(`((${meeting}))`), "the meeting inserted", 8000);
     };
     await pickMeeting();
-    // ^ straight after its )): the meeting's anchors first, then its passages. Tab takes ^a10.
+    // ^ straight after its )): the meeting's anchors first, then its passages. ⏎ takes ^a10.
     ch("^");
     expect(d()!.text).toEndWith(`((${meeting}^))`);
     let p = await settled("the meeting's passages");
@@ -638,7 +638,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     expect(p.items[2]!.label).toBe("Present: Ana, Bo and Cy, in the greenhouse at ten. · adds ^present-ana-bo");
     const drawn = rows().join("\n");
     expect(drawn).toContain(`in ${SEED.meeting} 1/`);
-    press({ kind: "tab" });
+    press({ kind: "enter" });
     await until(() => d()!.text.endsWith(`((${meeting}^a10))`), "refined to ^a10", 8000);
     // Another, refined to a line with no anchor: the meeting gains it, as the person's, and the reference points at it.
     type(" and ");
@@ -647,7 +647,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     p = await settled("the vent line");
     await until(() => !!pop()?.target.query.endsWith("vent") && !pop()!.loading, "narrowed to vent", 8000);
     expect(pop()!.items.map(i => i.label)).toEqual(["Ana mends the vent hinge · adds ^ana-mends-the"]);
-    press({ kind: "tab" });
+    press({ kind: "enter" });
     await until(() => d()!.text.endsWith(`((${meeting}^ana-mends-the))`), "refined to the new anchor", 8000);
     expect((await board.get(meeting))!.text).toContain("- Ana mends the vent hinge ^ana-mends-the");
     const history = await board.request("block.revisions", { blockId: meeting }) as { revisions: { author?: string }[] };
@@ -666,7 +666,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     p = await settled("the meeting's headings");
     expect(p.items.map(i => i.insertion)).toContain(`((${meeting}^decision))`);
     for (let i = 0; i < p.items.findIndex(i => i.insertion === `((${meeting}^decision))`); i++) press({ kind: "down" });
-    press({ kind: "tab" });
+    press({ kind: "enter" });
     await until(() => d()!.lines[1] === `Read ((${meeting}^decision))`, "refined by the click and #", 8000);
     // A mistake: an unclosed (( left in. Sent as written, with a warning.
     press({ kind: "end" });

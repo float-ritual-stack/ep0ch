@@ -19,7 +19,7 @@ import { listPreview } from "../bar/list-preview";
 import { subject, type Msg } from "../board";
 import {
   completionTargetAtCursor, filterTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
-  type CompletionTarget,
+  type CompletionKind, type CompletionTarget,
 } from "../completion";
 import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type FragmentCandidate, type SocketBoard } from "../socket";
@@ -49,9 +49,9 @@ export const SEARCH_JEV_PAUSE_MS = 300;
 export const jevOff = new WeakSet<object>();
 /** Room for the list and a small reader-rendered example beneath it. */
 export const COMPLETION_ROWS = 14;
-export const COMPLETION_HINT = "up/down or wheel choose · enter after choosing · tab/double click inserts · esc dismisses";
+export const COMPLETION_HINT = "up/down or wheel choose · enter inserts (styles/properties: after choosing) · tab/double click inserts · esc dismisses";
 /** A `((` popup's: what a reference does once it's in (PIE-762). */
-export const REFERENCE_HINT = "up/down choose · enter after choosing · double click inserts · then ^ or # searches inside it · esc dismisses";
+export const REFERENCE_HINT = "up/down choose · enter/double click inserts · then ^ or # searches inside it · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
 export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage">;
@@ -661,10 +661,14 @@ export const completerOf = (d: CompletionField): Completer | null => byDraft.get
 /** The draft's popup, if one is open (for drawing). */
 export const completionOf = (d: CompletionField): CompletionState | null => byDraft.get(d)?.shown ?? null;
 
+const AUTO_OPENING_KINDS: ReadonlySet<CompletionKind> = new Set([
+  "component", "key", "value", "yaml-key", "yaml-value", "filter-key", "filter-value",
+]);
+
 const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" || k.ch === " " || k.ch === "@");
 
 /**
- * The popup's own keys, for a draft or a line: while it has candidates, up/down choose, Enter accepts a deliberate choice and Tab inserts; Esc closes
+ * The popup's own keys, for a draft or a line: while it has candidates, up/down choose, Enter accepts (auto-opening kinds need a deliberate choice) and Tab inserts; Esc closes
  * the popup (and only the popup). Tab or Ctrl+Space in a token asks again; Tab anywhere else is the field's. True when
  * the popup took the key.
  */
@@ -678,7 +682,7 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
       if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return true; }
       // A new page alone on the list (PIE-592) is chosen only on purpose (↓ or a click): Enter and Tab stay the draft's.
       const lone = s.items.length === 1 && !!s.items[0]!.newPage && !s.picked;
-      if ((k.kind === "tab" || (k.kind === "enter" && s.picked)) && !lone) { void c.accept(); return true; }
+      if ((k.kind === "tab" || (k.kind === "enter" && (s.picked || !AUTO_OPENING_KINDS.has(s.target.kind)))) && !lone) { void c.accept(); return true; }
     }
   }
   if (k.kind === "tab" || isCtrlSpace(k)) {

@@ -431,6 +431,20 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     return { s, h, d, type, press, pop, settled, screen };
   }
 
+  test("Enter inserts the top page match but leaves an unchosen heading style as a newline", async () => {
+    const e = await editing(await create("Completion practice\n"));
+    e.type("[[");
+    e.type("see");
+    await e.settled();
+    e.press(K("enter"));
+    await until(() => e.d.text.endsWith("[[seeds]]"), "Enter inserts the top page");
+    e.press(K("enter"));
+    e.type("## Title ::");
+    await e.settled();
+    e.press(K("enter"));
+    expect(e.d.text).toBe("Completion practice\n[[seeds]]\n## Title ::\n");
+  });
+
   test("component completion inserts an editable example with one undo (PIE-1013)", async () => {
     const e = await editing(await create("Component practice\n"));
     e.type("::");
