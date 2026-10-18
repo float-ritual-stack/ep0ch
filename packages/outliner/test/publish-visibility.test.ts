@@ -2,7 +2,7 @@
 // script's output, an `::if` over a relation, on the tailnet page (every note but a locked one) and the public one (only
 // [publish::public] notes). Scratch services in temp folders; every note is made up.
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -56,7 +56,7 @@ async function setup() {
     await client.request({ action: "extensions.list", reload: true });
     await client.request({ action: "resources.projection.read", blockId, materialize: true });
   };
-  return { store, client, tailnet, publicly, draw };
+  return { store, client, tailnet, publicly, draw, workspace };
 }
 
 test("a render script's output on a page says hidden here when the script read a note the page may not show", async () => {
@@ -367,4 +367,35 @@ test("nested templates publish the caller's props and values, including conditio
     expect(html).not.toContain("{{props.crop}}");
     expect(html).not.toContain("::fields");
   }
+});
+
+test("nested templates withhold stored handler output without reads from public readers", async () => {
+  const { store, draw, tailnet, publicly, workspace } = await setup();
+  const extension = join(workspace, "extensions", "private-summary");
+  mkdirSync(extension, { recursive: true });
+  writeFileSync(join(extension, "extension.json"), JSON.stringify({
+    contract: 2, id: "private-summary", version: 1, name: "Private summary", run: ["bun", "main.ts"],
+    handlers: [{ key: "private-summary", kind: "output", effects: "read" }],
+  }));
+  writeFileSync(join(extension, "main.ts"), `
+    import { OutlinerClient } from ${JSON.stringify(join(import.meta.dir, "../src/client.ts"))};
+    const { input } = await Bun.stdin.json();
+    const client = new OutlinerClient(process.env.EP0CH_SOCKET);
+    const result = await client.request({ action: "blocks.read", ids: [input.argument], fields: ["text"] });
+    console.log(JSON.stringify({ ok: true, value: { markdown: result.blocks[0].text } }));
+  `);
+  const privateNote = store.create("PRIVATE_TEMPLATE_VALUE");
+  store.create("Marker [script::safe-marker] [mode::render] [publish::public]\n```js\nreturn 'VISIBLE_TEMPLATE_OUTPUT';\n```");
+  const leaf = store.create(`Leaf [page::handler-leaf] [publish::public]\nprivate-summary:: ${privateNote.id}\nsafe-marker::`);
+  await draw(leaf.id);
+  await until("both template outputs stored", () => store.extensionOutputs(leaf.id).filter(row => row.result).length === 2);
+  store.create("Middle [page::handler-middle] [publish::public]\n::use{of=[[handler-leaf]]}");
+  store.create("Garden [publish::public:handler-use]\n::use{of=[[handler-middle]]}");
+  const inside = await tailnet("handler-use");
+  expect(inside).toContain("PRIVATE_TEMPLATE_VALUE");
+  expect(inside).toContain("VISIBLE_TEMPLATE_OUTPUT");
+  const outside = await publicly("handler-use");
+  expect(outside).not.toContain("PRIVATE_TEMPLATE_VALUE");
+  expect(outside).toContain("not shared");
+  expect(outside).toContain("VISIBLE_TEMPLATE_OUTPUT");
 });

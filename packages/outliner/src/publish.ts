@@ -2232,10 +2232,10 @@ export class Publisher {
       const embedded = Object.values(embeds.read.blocks).filter((b) => !embeds.locked.has(b.id) && !embeds.extensionHidden?.has(b.id) && (!embeds.shareable || embeds.shareable.has(b.id)));
       embeds.values = await readPageValues(valueHost, embedded.map((b) => ({ id: b.id, text: b.text ?? "" })));
       const projections = await this.readProjections(embedded);
-      embeds.under = await this.handlerLines(projections.lines, new Map(embedded.map(b => [b.id, b.text])), options.format ?? "html", components, { index: linked, basePath: base, pages }, valueHost);
+      embeds.under = await this.handlerLines(projections.lines, new Map(embedded.map(b => [b.id, b.text])), options.format ?? "html", components, { index: linked, basePath: base, pages, audience }, valueHost);
     }
     const texts = new Map(rows.map((row) => [row.block.id, row.block.text ?? ""]));
-    const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages }, valueHost);
+    const under = await this.handlerLines(lines, texts, options.format ?? "html", components, { index: linked, basePath: base, pages, audience }, valueHost);
     // An HTML page draws the built-in components (figures, links components, embedded views) from the service's
     // answers; Markdown keeps their source as written.
     let drawn = new Map<string, Map<number, DrawnComponent>>();
@@ -2249,7 +2249,7 @@ export class Publisher {
       if (embeds) embeds.views = await this.embeddedViews(host, embeds, components);
     }
     for (const row of rows) {
-      const uses = await this.usedLines(row.block.id, row.block.text ?? "", valueHost, components, { index: linked, basePath: base, pages }, options.format ?? "html");
+      const uses = await this.usedLines(row.block.id, row.block.text ?? "", valueHost, components, { index: linked, basePath: base, pages, audience }, options.format ?? "html");
       if (uses.size) drawn.set(row.block.id, new Map([...(drawn.get(row.block.id) ?? []), ...uses]));
     }
     // Its images: served from this page's address when the file may leave the machine, else their words. Its artifacts
@@ -2332,7 +2332,7 @@ export class Publisher {
    */
   private async handlerLines(
     lines: ReadonlyMap<string, readonly ResourceProjection[]>, texts: ReadonlyMap<string, string>, format: "markdown" | "html",
-    components: string[], context: TextContext, host: LiveHost, site?: Pick<SiteAnswerRequest, "chain" | "props">,
+    components: string[], context: TextContext & { audience: PublishAudience }, host: LiveHost, site?: Pick<SiteAnswerRequest, "chain" | "props">,
   ): Promise<Map<string, Map<number, string>>> {
     const out = new Map<string, Map<number, string>>();
     // A section's callouts draw as the page's do.
@@ -2351,6 +2351,7 @@ export class Publisher {
       for (const projection of projections) {
         const line = projection.anchor.line;
         let output = hasResult(projection) ? projection.output : undefined;
+        if (context.audience === "public" && output && !output.reads) { shown.set(line, placeholder("not shared")); continue; }
         let scopedBody: string | undefined;
         if (output?.reads) {
           const hidden = new Set<string>();
@@ -2395,7 +2396,7 @@ export class Publisher {
     return out;
   }
 
-  private async usedLines(blockId: string, text: string, host: LiveHost, components: string[], context: TextContext, format: "markdown" | "html", chain: SiteLink[] = [], props?: Record<string, string[]>): Promise<Map<number, DrawnComponent>> {
+  private async usedLines(blockId: string, text: string, host: LiveHost, components: string[], context: TextContext & { audience: PublishAudience }, format: "markdown" | "html", chain: SiteLink[] = [], props?: Record<string, string[]>): Promise<Map<number, DrawnComponent>> {
     const drawn = new Map<number, DrawnComponent>();
     for (const call of useCallsOf(text)) {
       let markdown: string;
