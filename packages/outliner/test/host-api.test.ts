@@ -321,11 +321,15 @@ test("editing a dotted-folder script reloads its opt-in without an explicit relo
       } catch (error) { active.reject(error); }
     },
   });
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await connected.promise;
     await Bun.write(file, "// ep0ch-script\nreturn 'Ready';");
-    expect(await active.promise).toMatchObject({ name: "watched", state: "active" });
-  } finally { await watcher.stop(); }
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("timed out after 5 s waiting for watched script to become active")), 5000);
+    });
+    expect(await Promise.race([active.promise, deadline])).toMatchObject({ name: "watched", state: "active" });
+  } finally { clearTimeout(timer); await watcher.stop(); }
 }, 30_000);
 
 

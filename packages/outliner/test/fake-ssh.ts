@@ -37,7 +37,16 @@ const opt = (flag: string) => { const i = argv.indexOf(flag); return i >= 0 ? ar
 const sep = argv.indexOf("--");
 const machine = sep >= 0 ? argv[sep + 1] : undefined;
 const command = sep >= 0 ? argv[sep + 2] : undefined;
-const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const alive = (pid: number) => {
+  try {
+    if (existsSync("/proc")) {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      return stat.slice(stat.lastIndexOf(") ") + 2)[0] !== "Z";
+    }
+    process.kill(pid, 0);
+    return true;
+  } catch { return false; }
+};
 const pidIn = (ctl: string) => { try { return Number(readFileSync(ctl, "utf8").trim()) || 0; } catch { return 0; } };
 
 if (argv[0] === "--serve") {

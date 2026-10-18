@@ -29,7 +29,7 @@ now() { date +%s; }
 age() { local s=$(( $(now) - $1 )); if [ $s -ge 120 ]; then echo "$((s / 60)) min"; else echo "${s} s"; fi; }
 dir_re='(/tmp/ep0ch-box-[A-Za-z0-9_.-]+-[A-Za-z0-9]{8})([^A-Za-z0-9]|$)'
 run_prefix=${dir%-????????}
-# Uploading runs arrive marked kept; only a guard holding this lock may expose them to the stale-dir sweep.
+# Uploading runs arrive marked kept; abandoned uploads expire after 24 hours without activity.
 exec {dirfd}>"$dir/guard.lock"
 flock "$dirfd" || exit 1
 if [ "$keep" = 1 ]; then touch "$dir/kept"; else rm -f "$dir/kept"; fi
@@ -68,7 +68,7 @@ stop_group() {
   return 0
 }
 
-# A pre-PIE-994 guard holds only its worktree lock, so respect that too while those runs finish.
+# Pre-PIE-994 guards hold only their worktree lock and drain within the hour; this one lock directory is enough.
 held_by_guard() {
   local info fd
   for info in "$locks"/wt-*.info; do
@@ -80,16 +80,22 @@ held_by_guard() {
   return 1
 }
 
-# ── sweep: unlocked, unkept directories, then orphans of runs whose dir no longer exists ──
+# ── sweep: finished directories and abandoned uploads, then orphans whose dir no longer exists ──
 sweep() {
   local p pid d killed=0 victims=()
   for d in "$run_prefix"-????????; do
     [ "$d" = "$dir" ] && continue
-    [ -d "$d" ] && [ -O "$d" ] && [ ! -L "$d" ] && [ ! -e "$d/kept" ] || continue
+    [ -d "$d" ] && [ -O "$d" ] && [ ! -L "$d" ] || continue
     (
-      exec 9>"$d/guard.lock" || exit 0
+      # Protect the gap between mktemp and kept, and recently touched markers/locks.
+      [ -z "$(find "$d" -maxdepth 1 \( -path "$d" -o -name kept -o -name guard.lock \) -mmin -15 -print -quit)" ] || exit 0
+      if [ -e "$d/kept" ]; then
+        [ -z "$(find "$d" -mmin -1440 -print -quit)" ] || exit 0
+      fi
+      # Append leaves an existing lock's mtime alone; sweeping must not renew abandoned runs.
+      exec 9>>"$d/guard.lock" || exit 0
       flock -n 9 || exit 0
-      [ ! -e "$d/kept" ] && ! held_by_guard "$d" || exit 0
+      ! held_by_guard "$d" || exit 0
       rm -rf -- "$d"
       say "sweep: removed finished run dir $d"
     )
@@ -167,7 +173,7 @@ reap() {
       [ $code = 0 ] && code=97
     fi
   fi
-  if [ "$keep" = 1 ]; then touch "$dir/kept"; say "kept $host:$dir (--keep: it stays until you remove it on $host)"; else rm -rf -- "$dir"; fi
+  if [ "$keep" = 1 ]; then touch "$dir/kept"; say "kept $host:$dir (--keep: swept after 24 hours without activity)"; else rm -rf -- "$dir"; fi
   [ -n "$mine_info" ] && rm -f "$mine_info"
   rm -f "$wtinfo" 2>/dev/null
 }

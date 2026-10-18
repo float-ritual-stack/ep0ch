@@ -73,3 +73,39 @@ for (const ending of ["pass", "failure", "timeout", "killed", "clean"] as const)
     }
   }, 30_000);
 }
+
+
+test.skipIf(!existsSync("/proc"))("a forward exits when its owner is an unreaped zombie", async () => {
+  const root = mkdtempSync("/tmp/ssh-zombie-");
+  const ownerFile = join(root, "owner");
+  // Keep the parent alive without reaping so kill(pid, 0) still succeeds for the dead owner.
+  const parent = Bun.spawn(["python3", "-c", `
+import os, sys
+pid = os.fork()
+if pid == 0:
+    os._exit(0)
+with open(sys.argv[1], "w") as f:
+    f.write(str(pid))
+sys.stdin.read()
+os.waitpid(pid, 0)
+`, ownerFile], { stdin: "pipe", stdout: "ignore", stderr: "inherit" });
+  let forward: ReturnType<typeof Bun.spawn> | undefined;
+  try {
+    const deadline = Date.now() + 3000;
+    while ((!existsSync(ownerFile) || alive(Number(readFileSync(ownerFile, "utf8")))) && Date.now() < deadline) await Bun.sleep(20);
+    expect(existsSync(ownerFile)).toBe(true);
+    const pid = Number(readFileSync(ownerFile, "utf8"));
+    expect(readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]![0]).toBe("Z");
+    process.kill(pid, 0);
+    forward = Bun.spawn([process.execPath, join(import.meta.dir, "fake-ssh.ts"), "--serve",
+      join(root, "local"), join(root, "remote"), join(root, "ctl")], {
+      env: { ...process.env, FAKE_SSH_OWNER_FILE: ownerFile }, stdout: "ignore", stderr: "inherit",
+    });
+    expect(await Promise.race([forward.exited, Bun.sleep(2000).then(() => "forward outlived zombie owner")])).toBe(0);
+  } finally {
+    if (forward) { if (forward.exitCode === null) forward.kill(); await forward.exited; }
+    parent.stdin.end();
+    await parent.exited;
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 10_000);
