@@ -32,6 +32,7 @@ import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { calloutsReady, TONE } from "../callouts";
 import { keyCandidates, valueCandidates, variation, yamlKeyCandidates, type ComponentSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
 import { componentsReady } from "../component-schemas";
+import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
 import { drawVariation } from "../library/draw";
 import { visible, width as cells } from "../style";
@@ -136,6 +137,12 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
     const src = { board, redraw: () => {} };
     items = propertyCandidates(await componentsReady(src), target, src);
     empty = "";
+  } else if (target.kind === "component") {
+    const schemas = await componentsReady({ board, redraw: () => {} });
+    items = schemas.flatMap(schema => {
+      const name = COMPONENT_OPEN.exec(schema.source.use.split("\n")[0]!)?.[1];
+      return name?.startsWith(target.query) ? [{ label: `::${name}`, insertion: `::${name}`, kind: "component", context: `${schema.title} · ${schema.where}` }] : [];
+    });
   } else if (target.kind === "callout") {
     // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
     items = calloutCandidates(await calloutsReady({ board, redraw: () => {} }), target.query);
@@ -578,7 +585,7 @@ export class Completer {
       this.dismiss();
       // A folder leaves `[file::notes/` open: its entries are offered next; a filter's key `stage:` its values. A chosen value ends it
       // (the cursor is still in its word, which would offer the same value again).
-      if (s.target.kind !== "filter-value" && this.target()) void this.refresh();
+      if (s.target.kind !== "filter-value" && s.target.kind !== "component" && this.target()) void this.refresh();
       return true;
     } catch (e) {
       if (this.current(generation)) { s.message = e instanceof Error ? e.message : String(e); this.redraw(); }
@@ -628,7 +635,7 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
   }
   if (k.kind === "tab" || isCtrlSpace(k)) {
     if (c.target()) { void c.refresh(); return true; }
-    if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file::, a callout's > [!, a [key:: property or a figure's YAML"; return true; }
+    if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file::, a callout's > [!, ::component, a [key:: property or a figure's YAML"; return true; }
   }
   return false;
 }
@@ -715,7 +722,7 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   const room = Math.max(1, h - Number(header) - Number(footer) - 1);
   const win = completionWindow(s.items.length, s.index, room);
   const out: string[] = [];
-  const heading = { callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
+  const heading = { component: "components", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
   if (header) rows.push(null), out.push(line(` ${s.heading ?? heading} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan), bg(C.blue)));
   for (let i = win.start; i < win.end; i++) {
     const it = s.items[i]!, sel = i === s.index;
