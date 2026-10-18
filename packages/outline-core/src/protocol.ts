@@ -110,6 +110,7 @@ export interface BlockRevisionEntry {
   savedAt: string;
   author?: BlockAuthor;
   actorId?: string;
+  taskId?: string;
   chars: number;
   lines: number;
   firstLine: string;
