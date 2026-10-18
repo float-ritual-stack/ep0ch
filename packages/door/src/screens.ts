@@ -20,7 +20,7 @@ import { ARM_MS, editArmMs, useEditArm } from "./arm";
 import { hyperOn, useHyper } from "./hyper";
 import { HERO_MODES, heroHeaderMode, heroHeaderOn, useHeroHeader, type HeroMode } from "./surface/hero-header";
 import { writeState } from "./state";
-import { overscroll, overscrollOf, useOverscroll } from "./scroll";
+import { RowPresses, overscroll, overscrollOf, useOverscroll } from "./scroll";
 import { COMPOSER_PLACES, composerPlace, composerPlaceOf, useComposerPlace } from "./surface/composer";
 import { overflows, scrollPct } from "./canvas";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
@@ -78,6 +78,7 @@ interface Spot { y: number; x0: number; x1: number; key?: Key; index?: number; t
  */
 class Pointer {
   private spots: Spot[] = [];
+  private readonly presses = new RowPresses();
   private down: { spot: Spot; open: boolean } | null = null;
   /** A new frame: what the last one drew is gone. */
   frame() { this.spots = []; }
@@ -99,9 +100,9 @@ class Pointer {
     if (k.action === "down") {
       this.down = null;
       if (!s) return;
-      const was = s.index !== undefined && s.index === h.sel;
+      const gesture = s.twice ? this.presses.press(s.index ?? s.y, k) : "open";
       if (s.index !== undefined) h.select(s.index);
-      this.down = { spot: s, open: !s.twice || was };
+      this.down = { spot: s, open: gesture === "open" };
       return;
     }
     if (k.action === "drag") {

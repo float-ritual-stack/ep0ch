@@ -484,7 +484,8 @@ export class TreePane implements Pane {
    * Open row `i` as ⏎ does, as `actor`: a group folds or opens; a note opens where the tree's opens go (the keys
    * follow the person's own there, never an agent's); a resource is registered if it has to be and shown.
    */
-  async openRow(i: number, desk: DeskApi, actor: Actor = USER): Promise<Record<string, unknown>> {
+  async openRow(i: number, desk: DeskApi, actor: Actor = USER, fresh = false): Promise<Record<string, unknown>> {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     const r = this.rows[i];
     if (!r) throw new ActionRefused(this.roots ? `no row ${i + 1}; the tree has ${this.rows.length}` : "the outline is still being read");
     const agent = actor.kind === "agent";
@@ -501,8 +502,8 @@ export class TreePane implements Pane {
     }
     const land = (m: Msg) => {
       const routed = desk.routes?.(this);
-      desk.setCurrent(m, { from: this, link: true, by: actor });
-      if (!routed && !agent) desk.focusKind("reader");
+      desk.setCurrent(m, { from: this, link: true, fresh, by: actor });
+      if (!routed && !agent && !fresh) desk.focusKind("reader");
     };
     if (r.kind === "block") { land(r.m); return { row: i + 1, id: r.m.id }; }
     // A link: its note, a ticket's block, or a Resource registered if it must be and shown (the shared model's open).
@@ -667,14 +668,14 @@ export class TreePane implements Pane {
     if (left) { const p = this.parentRow(this.sel); if (p >= 0) this.run(desk, "tree.pick", { n: p + 1 }); return true; }
     if (right || space) return true;
     // ⏎ opens it: in the tile this one links to (PIE-473), else as the current note, the keys to a reader.
-    if (k.kind === "enter") { this.run(desk, "tree.pick", { n: this.sel + 1, open: true }); return true; }
+    if (k.kind === "enter" || k.kind === "alt-enter") { this.run(desk, "tree.pick", { n: this.sel + 1, open: true, fresh: k.kind === "alt-enter" }); return true; }
     return false;
   }
 
   /**
    * A press on a row escalates as the keys do (RowView.press): a click selects it (its note shows where the tree's
    * selection goes, as j k), a double click opens it (⏎), an alt-, ctrl- or middle-click opens it too (the tree's
-   * opens have no "fresh"); a press that gave the tree the keys only selects. A click on a row's mark folds or
+   * alt-opens use the same landing path); a press that gave the tree the keys only selects. A click on a row's mark folds or
    * unfolds it (a note's children, a group, a link's own links) at once, as its disclosure.
    */
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
@@ -707,7 +708,7 @@ export class TreePane implements Pane {
     if (row.kind === "block" && k.button === 0 && !row.via) this.drag = { id: row.m.id, from: i, over: null, beside: false, moved: false };
     // The press that starts a drag (PIE-943) never opens on a slow second click: the tree keeps the double click.
     const gesture = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
-    if (i !== this.sel) this.run(desk, "tree.pick", { n: i + 1 });
+    if (i !== this.sel || gesture === "select" || gesture === "focus") this.run(desk, "tree.pick", { n: i + 1 });
     const onMark = x <= row.depth * 2 + 1;
     const nests = row.kind === "block" || row.kind === "group" || row.kind === "kind" || !!rowBlock(row);
     if (onMark && nests && gesture !== "focus") {
@@ -715,7 +716,7 @@ export class TreePane implements Pane {
       else this.run(desk, "tree.links", { n: i + 1 });
       return true;
     }
-    if (gesture === "open" || gesture === "fresh") this.run(desk, "tree.pick", { n: i + 1, open: true });
+    if (gesture === "open" || gesture === "fresh") this.run(desk, "tree.pick", { n: i + 1, open: true, fresh: gesture === "fresh" });
     return true;
   }
 
@@ -823,26 +824,28 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
     },
   }),
   "tree.pick": def({
-    summary: "pick a row of the outline tree: n (from 1) or id. As the person: the selection moves there; open=true opens it as ⏎ does (a note where the tree's opens go, a group folds, a resource is registered if it must be and its stored content shown). An agent's never moves the person's selection or keys: its pick shows the row's note where the tree's selection goes, its open opens it there",
-    keys: "j k ↑ ↓ PgUp PgDn Home End h ← (to the row above), click, wheel (pick) · ⏎, double click, alt- ctrl- or middle-click (open)",
+    summary: "pick a row of the outline tree: n (from 1) or id. As the person: the selection moves there; fresh=true alt-opens it; open=true opens it as ⏎ does (a note where the tree's opens go, a group folds, a resource is registered if it must be and its stored content shown). An agent's never moves the person's selection or keys: its pick shows the row's note where the tree's selection goes, its open opens it there",
+    keys: "j k ↑ ↓ PgUp PgDn Home End h ← (to the row above), click, wheel (pick) · ⏎, double click (open) · alt+⏎, alt-click (alt-open)",
     // open=true may register a resource and opens a note: a restarted door asks first (replay is per action).
     touches: "nothing", replay: "ask", says: (r, a) => `${a.open ? "opened" : "picked"} row ${r.row} of the outline`,
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
       open: { type: "boolean", optional: true, about: "open it, as ⏎ does" },
+      fresh: { type: "boolean", optional: true, about: "alt-open it, as alt+⏎ does" },
     },
     examples: [
       { act: "tree.pick tile=tree n=2", does: "picks row 2: the person's selection moves there; an agent's shows its note" },
       { act: "tree.pick tile=tree id=7d9a1f40 open=true", does: "opens that note where the tree's opens go" },
+      { act: "tree.pick tile=tree n=2 fresh=true", does: "opens row 2's note in a new reader, as alt-click does" },
     ],
-    async run({ n, id, open }, { pane, desk }, actor) {
+    async run({ n, id, open, fresh }, { pane, desk }, actor) {
       const i = rowOf(pane, n, id);
       if (!pane.list()[i]) throw new ActionRefused(`no row ${i + 1}; the tree has ${pane.list().length}`);
       // The person's pick moves their selection; an agent's is its own: the row's note shown where the tree's selection goes.
       const agent = actor.kind === "agent";
-      if (!agent) pane.selectRow(i, desk, !open);
-      return open ? pane.openRow(i, desk, actor) : agent ? pane.showRow(i, desk, actor) : { row: i + 1, id: rowBlock(pane.list()[i]) ?? undefined };
+      if (!agent) pane.selectRow(i, desk, !open && !fresh);
+      return open || fresh ? pane.openRow(i, desk, actor, fresh) : agent ? pane.showRow(i, desk, actor) : { row: i + 1, id: rowBlock(pane.list()[i]) ?? undefined };
     },
   }),
 });

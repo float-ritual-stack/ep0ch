@@ -52,6 +52,19 @@ const floated = (s: LayoutState) => names(s, s.floats.map(f => f.id));
 const withFloat = (s: LayoutState, id: number) => ok(s, { op: "float", tile: id }).state;
 
 describe("one operation, one transaction", () => {
+  test("select targets survive setting open and alt wires, and closing a target removes only its wires", () => {
+    extra = { 3: { notes: true }, 4: { notes: true } };
+    let s = ok(fresh(), { op: "link", tile: 1, to: 3, verb: "select" }).state;
+    s = ok(s, { op: "link", tile: 1, to: 4, verb: "select" }).state;
+    s = ok(s, { op: "link", tile: 1, to: 2, verb: "open" }).state;
+    s = ok(s, { op: "link", tile: 1, to: 3, verb: "alt" }).state;
+    expect(landing(s, 1, "open", facts(1))).toEqual({ to: 2 });
+    expect(landing(s, 1, "alt", facts(1))).toEqual({ to: 3 });
+    expect(s.wires.filter(w => w.verb === "select").map(w => w.to)).toEqual([3, 4]);
+    s = ok(s, { op: "close", tile: 3 }).state;
+    expect(s.wires).toEqual([{ from: 1, verb: "select", to: 4 }, { from: 1, verb: "open", to: 2 }]);
+    extra = {};
+  });
   test("a refused operation changes nothing and says why; a done one answers a new state, the old one left as it was", () => {
     extra = {};
     const s = fresh();
@@ -400,21 +413,21 @@ describe("the rest of the layout's operations", () => {
     no(fresh(), { op: "link", tile: 1, to: 3 }, /thread is a thread tile: opens land in a tile that takes notes \(reader\)/);
     no(fresh(), { op: "link", tile: 2, to: 2 }, /reader can't open into itself/);
     const s = ok(fresh(), { op: "link", tile: 1, to: 2 }).state;
-    expect(landing(s, 1, facts(1))).toEqual({ to: 2 });
+    expect(landing(s, 1, "open", facts(1))).toEqual({ to: 2 });
     const into = ok(fresh(), { op: "policy", tile: 3, set: { opensInto: "reader" }, clear: [] }).state;
-    expect(landing(into, 4, facts(4))).toEqual({ to: 2 });
+    expect(landing(into, 4, "open", facts(4))).toEqual({ to: 2 });
     no(fresh(), { op: "policy", tile: 3, set: { opensInto: "thread" }, clear: [] }, /thread is a thread tile: opens land in a tile that takes notes/);
     // Closing the tile a link names takes the link away.
-    expect(ok(s, { op: "close", tile: 2 }, PERSON, { focus: 1 }).state.links.size).toBe(0);
+    expect(ok(s, { op: "close", tile: 2 }, PERSON, { focus: 1 }).state.wires.length).toBe(0);
   });
 
   test("an open with link= (tile.preview) is opened and linked in one step, by link's rules; reveal shows a tile without the keys", () => {
     // A reader opened below the tree, its opens linked to it: one step, the keys left where they were.
     const r = ok(fresh(), { op: "open", tile: 7, kind: "reader", name: "tree-preview", at: { kind: "split", target: 1, dir: "down" }, keys: false, link: 1 });
-    expect(r.state.links.get(1)).toBe(7);
+    expect(r.state.wires.find(w => w.from === 1 && w.verb === "open")?.to).toBe(7);
     expect(r.answer).toMatchObject({ tile: "tree-preview", link: "tree" });
     expect(r.focus).toBe(2);
-    expect(landing(r.state, 1, facts(1))).toEqual({ to: 7 });
+    expect(landing(r.state, 1, "open", facts(1))).toEqual({ to: 7 });
     // A kind that takes no notes isn't linked, and isn't opened either; on a locked screen neither happens.
     no(fresh(), { op: "open", tile: 7, kind: "thread", at: { kind: "split", target: 1, dir: "down" }, link: 1 }, /a thread tile: opens land in a tile that takes notes/);
     no(ok(fresh(), { op: "lock", on: true }).state, { op: "open", tile: 7, kind: "reader", at: { kind: "split", target: 1, dir: "down" }, link: 1 }, /the screen is locked/);
@@ -632,7 +645,7 @@ describe("replace: a new tile in another's place (PIE-565, the blank tile's rows
     const r = ok(linked, { op: "replace", tile: 2, with: 9, kind: "pty" });
     expect(treeNames(r.state)).toEqual(["tree", "pty", "thread", "activity"]);
     expect(r.focus).toBe(9);
-    expect(r.state.links.has(1)).toBe(false);
+    expect(r.state.wires.some(w => w.from === 1)).toBe(false);
     expect(r.answer).toEqual({ tile: "pty", replaced: "reader" });
   });
 

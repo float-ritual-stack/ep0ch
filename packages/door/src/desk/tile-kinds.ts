@@ -87,12 +87,7 @@ export interface TileKind {
    * names no tile (an agent's `open <id>`) never lands in it.
    */
   readonly follower?: boolean;
-  /**
-   * The role a new link from a tile of this kind has (PIE-646) unless said: `target` for a list whose selection is
-   * previewed and whose ⏎ opens (the links tile), so a reader linked to it takes only what is opened. Absent: `preview`.
-   */
-  readonly linkRole?: "preview" | "target";
-  /** Its selection drives previews (it calls `desk.showFrom`): a link from it has a role worth saying on its header. */
+  /** Its selection drives previews (it calls `desk.showFrom`): its frame says where selections land. */
   readonly previews?: true;
   /** In the drawer its picks open notes on the screen shown (it has no reader of its own): alt+l links it to one, else its header says which reader an open lands in now (PIE-700). */
   readonly opensOnScreen?: true;

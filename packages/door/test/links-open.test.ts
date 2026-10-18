@@ -192,7 +192,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await act("tile.open", { kind: "detail", name: "side", where: "right" }, "reader");
     await act("tile.focus", {}, "links");
     await act("tile.link", { to: "side" }, "links");
-    expect(tile("links")).toMatchObject({ link: "side", linkRole: "target" });
+    expect(tile("links")).toMatchObject({ wires: expect.arrayContaining([{ verb: "open", to: "side" }]) });
     await pickRow(porch.id);
     await until(() => (desk.pane("peek") as ReaderPane).msg?.id === porch.id, "the preview follows");
     expect(reader("side").msg).toBeFalsy();
@@ -206,41 +206,44 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     expect(D().layoutGet().focus).toBe("links");
   }, 20_000);
 
-  test("role=preview makes the linked tile follow the selection too; the role changes by action and by a click on the header", async () => {
+  test("select wires fan out independently of open, and survive saving and loading the layout", async () => {
     await setup();
     await act("tile.open", { kind: "detail", name: "side", where: "right" }, "reader");
-    await act("tile.focus", {}, "links");
-    await act("tile.link", { to: "side", role: "preview" }, "links");
-    expect(tile("links").linkRole).toBe("preview");
+    await act("tile.link", { to: "side", verb: "select" }, "links");
+    await act("tile.link", { to: "reader", verb: "open" }, "links");
     await pickRow(hall.id);
-    await until(() => reader("side").msg?.id === hall.id, "the preview-role link follows the selection");
-    await act("tile.link", { role: "target" }, "links");
-    expect(tile("links").linkRole).toBe("target");
-    await pickRow(porch.id);
-    await Bun.sleep(150);
-    expect(reader("side").msg?.id).toBe(hall.id);
-    // The chip on the header says it, and a click flips it.
-    const lines = render().lines.map(plain), y = lines.findIndex(l => l.includes("⏎ target")), x = lines[y]!.indexOf("⏎ target") + 2;
-    expect(y).toBeGreaterThan(-1);
-    mouse("down", x, y); mouse("up", x, y);
-    expect(tile("links").linkRole).toBe("preview");
-    expect(render().lines.map(plain).join("\n")).toContain("◌ preview");
-    await expect(act("tile.link", { role: "sideways" }, "links")).rejects.toThrow(/role is preview or target/);
-    await act("tile.link", {}, "links");
-    await expect(act("tile.link", { role: "target" }, "links")).rejects.toThrow(/links nowhere/);
-  }, 20_000);
-
-  test("the role is saved with the screen and comes back; the default isn't written", async () => {
-    await setup();
-    await act("tile.open", { kind: "detail", name: "side", where: "right" }, "reader");
-    await act("tile.focus", {}, "links");
-    await act("tile.link", { to: "side" }, "links");
-    expect(JSON.stringify(D().saved())).not.toContain("linkRole");
-    await act("tile.link", { role: "preview" }, "links");
-    expect(JSON.stringify(D().saved())).toContain(`"linkRole":"preview"`);
+    await until(() => reader("side").msg?.id === hall.id && reader("peek").msg?.id === hall.id, "both select targets show the row");
+    expect(reader("reader").msg?.id).toBe(lamp.id);
     const saved = D().saved();
     D().build(saved, true);
-    expect(tile("links")).toMatchObject({ link: "side", linkRole: "preview" });
+    await pickRow(porch.id);
+    await until(() => reader("side").msg?.id === porch.id && reader("peek").msg?.id === porch.id, "both select wires survive reload");
+    await act("tile.link", { to: "side", verb: "select", remove: true }, "links");
+    await pickRow(hall.id);
+    await until(() => reader("peek").msg?.id === hall.id, "the other select target stays connected");
+    expect(reader("side").msg?.id).toBe(porch.id);
+    await act("backlinks.open", { id: hall.id }, "links");
+    expect(reader("reader").msg?.id).toBe(hall.id);
+  }, 20_000);
+
+  test("old preview-role links become open wires and preview sources become select wires on load", async () => {
+    await setup();
+    const saved = D().saved();
+    const walk = (n: any) => {
+      if (n.t === "leaf" && n.name === "links") { delete n.wires; n.link = "reader"; n.linkRole = "preview"; }
+      if (n.t === "leaf" && n.name === "peek") n.source = "tile:links";
+      for (const c of n.kids ?? []) walk(c);
+      if (n.a) walk(n.a); if (n.b) walk(n.b);
+    };
+    walk(saved.root);
+    D().build(saved, true);
+    await pickRow(porch.id);
+    await until(() => reader("peek").msg?.id === porch.id, "the old source becomes a select wire");
+    expect(reader("reader").msg?.id).toBe(lamp.id);
+    await act("tile.focus", {}, "links");
+    key({ kind: "enter" });
+    await until(() => reader("reader").msg?.id === porch.id, "the old preview-role link takes only opens");
+    expect(tile("links").wires).toEqual(expect.arrayContaining([{ verb: "select", to: "peek" }, { verb: "open", to: "reader" }]));
   }, 20_000);
 
   test("an agent's open from the list lands in its home and never takes the person's keys; a group row opens or folds", async () => {

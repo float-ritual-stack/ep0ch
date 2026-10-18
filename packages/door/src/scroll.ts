@@ -125,14 +125,13 @@ export type RowGesture = "focus" | "select" | "open" | "fresh";
 /** A press as the list is told it: its modifier bits, and whether it gave the list's tile the keys. */
 export interface RowPress {
   mods?: number; button?: number; focusing?: boolean; now?: number;
-  /** The row pressed is the selected one, the person's own pick: a list that opens on a second click (PIE-944) says so, and a press on it opens. */
+  /** The row pressed is the selected one, the person's own pick: kept as row context; being selected never turns a single click into an open. */
   selected?: boolean;
 }
 
 /**
  * A press as a list hands it to `press`: the pointer's modifiers and what the desk said (`press`, which carries
- * `focusing`), and whether row `row` is already the selected one (PIE-944): a click on the selected row opens, so a
- * second click opens however slowly it comes, as ⏎ would. Every list whose rows open on ⏎ passes it.
+ * `focusing`), and whether row `row` is already the selected one (PIE-944): selection is context only. Opening requires a double click.
  */
 export const pressOn = (k: { mods?: number; button?: number }, press: RowPress | undefined, selected: boolean): RowPress => ({ ...(press ?? { mods: k.mods ?? 0, button: k.button }), selected });
 
@@ -141,18 +140,17 @@ export class RowPresses {
   private last: { row: number; at: number } | null = null;
   /**
    * A press on row `row`: what it asks for. A double click opens even when its first press gave the list the keys;
-   * a press on the selected row opens (`selected`: a second click, however slow); a single press that did only selects, whatever modifier it carried (a first click never navigates).
+   * any other unmodified press selects, including a press on the selected row.
    */
   press(row: number, p: RowPress = {}): RowGesture {
+    if ((p.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL) || p.button === MOUSE_MIDDLE) { this.last = null; return "fresh"; }
     const now = p.now ?? Date.now(), l = this.last;
     const twice = !!l && l.row === row && now - l.at < DOUBLE_MS;
     // A third press starts afresh: a triple click is a double click and a single one, never two opens.
     this.last = twice ? null : { row, at: now };
     if (twice) return "open";
     if (p.focusing) return "focus";
-    // An alt-, ctrl- or middle-click is the fresh open, on the selected row too.
-    if ((p.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL) || p.button === MOUSE_MIDDLE) return "fresh";
-    return p.selected ? "open" : "select";
+    return "select";
   }
   /** The list changed under the pointer (another note's rows): the next press starts afresh. */
   forget() { this.last = null; }

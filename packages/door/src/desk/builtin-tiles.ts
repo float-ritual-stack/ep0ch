@@ -111,15 +111,15 @@ const builtins = (): TileKind[] => [
   {
     kind: "preview", about: "a reader following a tile's selection or a file (source=tile:<name> or file:<path>)",
     keys: [{ key: "p", label: "preview", spec: at => ({ source: `tile:${at.name}` }) }],
-    make: s => { const p = new PreviewPane((s.source && sourceOf(s.source)) || (s.file ? { file: s.file } : { tile: "tree" })); if (s.label) p.label = s.label; p.takeMargin(s.margin); return p; },
+    make: s => { const p = new PreviewPane((s.source && sourceOf(s.source)) || (s.file ? { file: s.file } : { tile: "" })); if (s.label) p.label = s.label; p.takeMargin(s.margin); return p; },
     ...reading,
     follower: true,
     // It follows the note sent to it, as it follows its source; back returns to what it showed (PIE-453).
     take: (p, m, desk) => { const pv = p as PreviewPane; if (pv.msg?.id !== m.id) pv.surface.track(() => pv.follow(m, desk)); return null; },
     save: p => { const pv = p as PreviewPane; return { ...pv.spec?.(), ...(pv.label ? { label: pv.label } : {}) }; },
     check: s => (s.source && !/^(tile|file):./.test(s.source) ? "a preview's source is tile:<name> or file:<path>" : null),
-    defaults: (s, at) => (s.source ? {} : s.file ? { source: `file:${s.file}` } : { source: `tile:${at.name}` }),
-    follows: p => { const s = (p as PreviewPane).source; return "tile" in s ? s.tile : null; },
+    defaults: (s, at) => ((s.source || s.selectFrom) ? {} : s.file ? { source: `file:${s.file}` } : { source: `tile:${at.name}` }),
+
     start: (p, env) => {
       const pv = p as PreviewPane;
       // Moved here whole, it keeps its note: a tile here that shares its source's name is another tile.
@@ -129,7 +129,7 @@ const builtins = (): TileKind[] => [
       const m = showing(src);
       if (m) pv.follow(m, env.desk);
     },
-    describe: (p, full) => ({ ...reading.describe!(p, full), source: sourceName((p as PreviewPane).source) }),
+    describe: (p, full) => { const source = (p as PreviewPane).source; return { ...reading.describe!(p, full), ...("file" in source ? { source: sourceName(source) } : {}) }; },
   },
   {
     kind: "pty", about: "a program in a terminal (cmd=\"nvim draft.md\", file=<path it edits>, cwd=<folder>)", noun: "a terminal tile",
@@ -216,7 +216,7 @@ const builtins = (): TileKind[] => [
     kind: "backlinks", about: "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
     aim: p => p as BacklinksPane, companion: "preview", previews: true,
     // A selection previews (a preview tile follows it), ⏎ opens: in its home, the reader it belongs to, or the tile linked to it as a target (PIE-646, PIE-794).
-    linkRole: "target", home: p => (p as BacklinksPane).home,
+    home: p => (p as BacklinksPane).home,
     keys: [{ key: "l", label: "backlinks", spec: at => ({ source: `tile:${at.name}` }) }, { key: "h", label: "children", spec: at => ({ source: `tile:${at.name}`, linkGroups: "children" }) }],
     // Children alone (the replies of what a reader shows) followed its reader before subject= was saved, and still does.
     make: s => {

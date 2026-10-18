@@ -61,6 +61,8 @@ export interface TileSpec {
   /** A mount's own layout, as its desk saves it (a group's whole tree): the mount comes back as it was, never as its full screen was. */
   inner?: unknown;
   /** Where this tile's opens land: another tile's name (PIE-473). */
+  wires?: { verb: "select" | "open" | "alt"; to: string }[];
+  selectFrom?: string;
   link?: string;
   /** What that link does when it isn't the kind's default (PIE-646): `preview` follows the source's selection too, `target` is only opened into. */
   linkRole?: "preview" | "target";
@@ -143,9 +145,15 @@ export { isTileKind };
  * A spec as a saved layout, a screen spec or an agent wrote it, in the kinds there are now. `detail` was a kind of its
  * own (PIE-705): it reads as a reader that starts held, or pinned when it names a `page`.
  */
-export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: "held" | "pinned" }>(s: S): S {
-  if (s.kind !== "detail") return s;
-  return { ...s, kind: "reader", mode: s.mode ?? (s.page ? "pinned" : "held") };
+export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: "held" | "pinned"; link?: string; linkRole?: string; source?: string; wires?: TileSpec["wires"]; selectFrom?: string }>(s: S): S & { selectFrom?: string } {
+  const { link, linkRole, ...rest } = s;
+  const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), { verb: "open" as const, to: link }] } : {}) };
+  if (out.kind === "detail") { out.kind = "reader"; out.mode ??= s.page ? "pinned" : "held"; }
+  if (out.kind === "preview" && out.source?.startsWith("tile:")) {
+    out.selectFrom = out.source.slice(5);
+    delete out.source;
+  }
+  return out as S;
 }
 
 export const shell = () => process.env.SHELL || "sh";
