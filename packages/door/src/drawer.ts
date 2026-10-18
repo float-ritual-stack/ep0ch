@@ -49,6 +49,8 @@ import type { TileDone, Where } from "./desk/tile-actions";
 import { registerTileKind, tileKind, UnavailableTile } from "./desk/tile-kinds";
 import { statusMark, waitingOnYou } from "./desk/program-status";
 import { rowFacts, WAITING_YOU_KIND_NAME } from "./desk/waiting-you";
+import { ACCESS_MATRIX_KIND_NAME, sourceOf } from "./desk/access-matrix";
+import { gatherMatrix } from "./mcp-access-matrix";
 import { AGENTS_KIND_NAME } from "./desk/agents-panel";
 import { agentOf, asSession, configsOf, pickSession, sessionCommand, sessionFacts, shownWords, stateOf, tildeOf, untilde, withIds, type AgentConfig, type AgentSession, type Shown } from "./desk/agent-sessions";
 import { KNOWN_AGENTS } from "./desk/drawer-program";
@@ -315,6 +317,20 @@ export class AgentDrawer {
   }
 
   /**
+   * The who-can-reach-what matrix (src/desk/access-matrix.ts) as a tab in the drawer, opened once and shown again after, as
+   * `waiting` opens its list: the person's pulls the drawer up and goes to it; an agent's opens it behind the tab shown.
+   */
+  async accessMatrix(actor: Actor): Promise<{ tile: string }> {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the drawer isn't ready");
+    if (actor.kind !== "agent" && !this.open) { this.offered = true; this.set(true, actor); }
+    const tile = this.tabs().find(t => t.kind === ACCESS_MATRIX_KIND_NAME)?.name ?? (await d.openTile({ kind: ACCESS_MATRIX_KIND_NAME }, DRAWER_TILE_ID, "tabs", actor)).tile;
+    if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown(); }
+    this.host.redraw();
+    return { tile };
+  }
+
+  /**
    * The what-changed list (src/desk/what-changed.ts: the notes others changed since the person last looked) as a tab in
    * the drawer, as `waiting` opens its own. The person's opening it is looking: what it holds is marked seen (the status
    * bar's count goes to 0), while the list keeps marking those rows new. An agent's opens it behind the tab shown and
@@ -339,6 +355,9 @@ export class AgentDrawer {
     this.host.redraw();
     return { tile, changed, seen: person };
   }
+
+  /** The door this drawer is in (its outline, board and machine), or none. */
+  ctxOfDoor() { return this.host.ctx?.(); }
 
   /** The what-changed rows, titles read, for `changes.list`. */
   async changesRead(): Promise<{ changed: Record<string, unknown>[] }> {
@@ -1469,6 +1488,26 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     says: (out: { tile?: string }) => `· opened the waiting-on-you list in the drawer (${out.tile ?? "waiting-you"})`,
     args: {},
     run(_, { drawer }, actor) { return drawer.waiting(actor); },
+  }),
+  "access.open": def({
+    summary: "the who-can-reach-what matrix as a tab in the drawer: which MCP caller (a named path, a stdio client) can reach which outline and how far, the lower of the outline's grant and the caller's cap, with each one's calls in the last 7 days. The person's pulls the drawer up and goes to it (n r p f plan a change, ⏎ applies it: the person's only); an agent's opens it behind the tab shown (mcp.access.matrix reads the same data)",
+    keys: "the power bar (ctrl+k, > access.open), then % lists it among the tiles",
+    touches: "shape", replay: "ask",
+    says: (out: { tile?: string }) => `· opened who can reach what in the drawer (${out.tile ?? "access-matrix"})`,
+    args: {},
+    run(_, { drawer }, actor) { return drawer.accessMatrix(actor); },
+  }),
+  "mcp.access.matrix": def({
+    summary: "who can reach what, read: each MCP caller (a named path such as /gpty/mcp, or a client such as claude-code@float-2) against each outline of this door's machine, the effective level (the lower of the outline's grant and the caller's cap) with why, and the caller's calls in the last 7 days and last call per outline. Reads the grants (ep0ch mcp access), the caps (EP0CH_MCP_PATH_ACCESS) and the usage records (ep0ch mcp usage); changing access is the person's (access.apply on the tile)",
+    keys: "ep0ch mcp access --matrix --json prints the same",
+    touches: "nothing", replay: "safe",
+    args: {},
+    async run(_, { drawer }) {
+      const door = drawer.ctxOfDoor();
+      if (!door) throw new ActionRefused("this door has no outline to read the matrix from");
+      const m = await gatherMatrix([sourceOf(door)]);
+      return { callers: m.callers, outlines: m.outlines, cells: m.cells.flat(), caps: m.caps, usage: m.usage, localMachine: m.localMachine };
+    },
   }),
   "changes.open": def({
     summary: "the what-changed list as a tab in the drawer: the notes others (agents, other clients, extensions when asked for) changed since the person last looked, newest first, with who, when and what, from the service's change feed. The person's pulls the drawer up and goes to it, and looking marks what it holds seen (the status bar's +N new goes to 0, kept per outline); an agent's opens it behind the tab shown and never marks anything seen (changes.list reads the same rows). Rows: changes.pick, changes.go (⏎, alt+⏎ in a new detail), changes.diff, changes.seen",

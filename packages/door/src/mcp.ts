@@ -23,6 +23,7 @@ import { pendingOverlay, proposalSeen, proposalSeenInText, receiptStatus, writeS
 import { QUERY_LIMIT, queryPage } from "./mcp-query";
 import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, ResponseScope, seeStub, unchangedStub, pairOf, FIELD_NAMES } from "./mcp-orient";
 import { recordUsage, usageShape, usageCommand } from "./mcp-usage";
+import { CAP_KEY, gatherMatrix, hostSourceFor, matrixLines, setPathCap } from "./mcp-access-matrix";
 import { callRegistry, callShown } from "./mcp-calls";
 import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
@@ -40,6 +41,12 @@ export const MCP_USAGE = `  ep0ch mcp usage [--since 24h] [--by tool|actor|outli
                                    server for this machine's outlines (and EP0CH_MCP_REMOTE's, live or from a mirror);
                                    needs EP0CH_MCP_RESOURCE, CLERK_PUBLISHABLE_KEY (or EP0CH_MCP_ISSUER) and
                                    EP0CH_MCP_ALLOWED_SUBJECTS (unset: refuse and log who asked)
+  ep0ch mcp access --matrix [--machine <ssh-name>]... [--json]
+                                   who can reach what: each caller (a named path, a client) against each outline, the
+                                   lower of the outline's grant and the caller's cap, with calls in the last 7 days
+                                   (the door's tile: ctrl+k > access.open)
+  ep0ch mcp access --cap <persona>[@<outline>[@<machine>]]=<level>
+                                   cap a named path (/<persona>/mcp) in EP0CH_MCP_PATH_ACCESS (~/.config/ep0ch/mcp.env)
   ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
                                    show or set this outline's persisted MCP access grant (stdio and the gateway alike):
                                    propose and full let the write tools (outline_create, outline_patch,
@@ -1278,16 +1285,22 @@ function mcpArgs(argsIn: string[]): string[] | { error: string } {
   return out;
 }
 
-function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; level?: McpAccessLevel; json: boolean } | { error: string } {
-  const args = argsIn.slice(2), boardArgs: string[] = [];
-  let level: McpAccessLevel | undefined, json = false;
+function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; machines: string[]; level?: McpAccessLevel; json: boolean; matrix: boolean; cap?: string } | { error: string } {
+  const args = argsIn.slice(2), boardArgs: string[] = [], machines: string[] = [];
+  let level: McpAccessLevel | undefined, json = false, matrix = false, cap: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--json") { json = true; continue; }
+    if (a === "--matrix") { matrix = true; continue; }
+    if (a === "--cap") {
+      const v = args[++i];
+      if (!v || v.startsWith("--")) return { error: "--cap needs <persona>[@<outline>[@<machine>]]=<level>, for example --cap gpty@gurgle=full" };
+      cap = v; continue;
+    }
     if (a === "--ws" || a === "--machine") {
       const v = args[i + 1];
       if (!v || v.startsWith("--")) return { error: `${a} needs a value` };
-      boardArgs.push(a, v); i++; continue;
+      boardArgs.push(a, v); i++; if (a === "--machine") machines.push(v); continue;
     }
     if ((MCP_ACCESS_LEVELS as readonly string[]).includes(a)) {
       if (level) return { error: `mcp access takes one level, got ${level} and ${a}` };
@@ -1295,7 +1308,9 @@ function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; level?: McpAcce
     }
     return { error: `mcp access doesn't take ${JSON.stringify(a)}; use none, read, propose or full` };
   }
-  return { boardArgs, level, json };
+  if (cap && (matrix || level)) return { error: "--cap changes a named path's cap on its own; run it without --matrix or a level" };
+  if (matrix && level) return { error: "--matrix shows who can reach what; to change an outline's level run ep0ch mcp access <level> --ws <name>" };
+  return { boardArgs, machines, level, json, matrix, ...(cap ? { cap } : {}) };
 }
 
 const ACCESS_SAYS: Record<McpAccessLevel, string> = {
@@ -1305,11 +1320,40 @@ const ACCESS_SAYS: Record<McpAccessLevel, string> = {
   full: " (reads, and writes applied, checked against the revision they read; a note open in your draft gets a proposal instead; stdio and the remote gateway alike)",
 };
 
+/** `ep0ch mcp access --matrix [--machine <ssh-name>]… [--json]`: who can reach what, and how far (src/mcp-access-matrix.ts). */
+async function accessMatrixCommand(parsed: { machines: string[]; json: boolean }, write: (line: string) => void, err: (line: string) => void): Promise<number> {
+  const sources = [];
+  for (const machine of parsed.machines.length ? parsed.machines : [undefined]) {
+    const source = await hostSourceFor(machine);
+    if ("error" in source) { err(`ep0ch: ${source.error}`); return 1; }
+    sources.push(source);
+  }
+  try {
+    const matrix = await gatherMatrix(sources);
+    if (parsed.json) write(JSON.stringify(matrix, null, 2)); else for (const line of matrixLines(matrix)) write(line);
+    return 0;
+  } catch (e) { err(`ep0ch: ${(e as Error).message}`); return 1; }
+}
+
+/** `ep0ch mcp access --cap gpty@gurgle=full`: the person's write of a named path's cap into mcp.env. */
+async function accessCapCommand(cap: string, write: (line: string) => void, err: (line: string) => void): Promise<number> {
+  const [key = "", level = ""] = cap.split("=");
+  if (!(MCP_ACCESS_LEVELS as readonly string[]).includes(level)) { err(`ep0ch: --cap ${cap}: the level is one of ${MCP_ACCESS_LEVELS.join(", ")}`); return 2; }
+  try {
+    const done = setPathCap(key, level as McpAccessLevel);
+    write(`${key} is capped at ${level}: ${CAP_KEY}=${done.spec} in ${done.file}`);
+    write("  The gateway reads it on its next request; a connected client sees the tools that match at its next connect.");
+    return 0;
+  } catch (e) { err(`ep0ch: ${(e as Error).message}`); return 1; }
+}
+
 async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
   const parsed = mcpAccessArgs(argsIn);
   const err = io.err ?? console.error;
   const write = io.write ?? (line => process.stdout.write(`${line}\n`));
   if ("error" in parsed) { err(`ep0ch: ${parsed.error}`); return 2; }
+  if (parsed.matrix) return accessMatrixCommand(parsed, write, err);
+  if (parsed.cap) return accessCapCommand(parsed.cap, write, err);
   const board = await boardFor(parsed.boardArgs);
   if ("error" in board) { err(`ep0ch: ${board.error}`); return 1; }
   try {

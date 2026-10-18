@@ -6,7 +6,7 @@ import type { BlockSizeCensus } from "@ep0ch/outline-core/protocol";
 import { boardFor } from "./notes-cli";
 import { stateDir } from "./state";
 
-interface Usage {
+export interface Usage {
   time: string; actor: string; tool: string; outline: string | null;
   shape: Record<string, unknown>;
   requestBytes: number; responseBytes: number; requestTokens: number; responseTokens: number; durationMs: number;
@@ -64,6 +64,21 @@ function pruneUsage(dir: string, now: number): void {
   }
 }
 
+/** The usage records of the last `since` milliseconds from this machine's state directory (`ep0ch mcp usage`, the access matrix). */
+export function readUsage(since: number, now = Date.now(), dir = usageDir()): { rows: Usage[]; cutoff: string; dir: string } {
+  const cutoff = new Date(now - since).toISOString();
+  let files: string[];
+  try { files = readdirSync(dir); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; files = []; }
+  const rows: Usage[] = [];
+  for (const file of files.sort()) if (/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file) && file.slice(0, 10) >= cutoff.slice(0, 10)) {
+    for (const line of readFileSync(join(dir, file), "utf8").split("\n")) if (line) {
+      const row: Usage = JSON.parse(line);
+      if (row.time >= cutoff) rows.push(row);
+    }
+  }
+  return { rows, cutoff, dir };
+}
+
 function stats(values: number[]) {
   values.sort((a, b) => a - b);
   const n = values.length;
@@ -115,16 +130,7 @@ export async function usageCommand(args: string[], io: { write?: (s: string) => 
       return 0;
     }
     if (boardArgs.length) throw new Error("--ws and --machine apply to --census; usage reads this machine's MCP state directory");
-    const cutoff = new Date(Date.now() - since).toISOString(), dir = usageDir();
-    let files: string[];
-    try { files = readdirSync(dir); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e; files = []; }
-    const rows: Usage[] = [];
-    for (const file of files.sort()) if (/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file) && file.slice(0, 10) >= cutoff.slice(0, 10)) {
-      for (const line of readFileSync(join(dir, file), "utf8").split("\n")) if (line) {
-        const row: Usage = JSON.parse(line);
-        if (row.time >= cutoff) rows.push(row);
-      }
-    }
+    const { rows, cutoff, dir } = readUsage(since);
     const grouped = new Map<string, Usage[]>();
     for (const row of rows) { const key = row[by] ?? "(no outline)"; const group = grouped.get(key) ?? []; group.push(row); grouped.set(key, group); }
     const report = { since: cutoff, directory: dir, by, total: summarize(rows), groups: [...grouped].sort(([a], [b]) => a.localeCompare(b)).map(([key, entries]) => ({ key, ...summarize(entries) })) };

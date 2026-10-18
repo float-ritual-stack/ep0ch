@@ -283,6 +283,11 @@ yourself (path 1): `/exit`, then `claude --continue`.
   search, actions with their keys, what changed, screens, an extension's rows) and opens nothing; `bar.pick n=… query=…`
   picks as you, through the row's own path and its rules (a tile on a screen not shown is refused). While the person's
   bar is open (`peek`'s `bar`), they're busy: don't wait on them, and never close it (`bar.close` is theirs).
+- **Who can reach what** (PIE-1034): `mcp.access.matrix` reads which MCP caller (a named path such as `gpty`, a client
+  such as `claude-code@float-2`) can reach which outline of this door's machine: the effective level (the lower of the
+  outline's grant and the caller's cap) with why, and each caller's calls in the last 7 days. `access.open` shows the
+  matrix in the person's drawer; on its tile `access.plan` (caller, outline, level) says what a change would run and whom
+  it affects, and writes nothing. `access.apply` is the person's and refused to you: what agents may reach is theirs to set.
 - **What waits on the person** (PIE-614): terminal tiles report status with OSC 7501. `peek` gives each terminal's
   `status` records, `status.list` reads the list the person opens with `alt+w`, `host.waiting` opens it. Marking a
   done as seen (`status.seen`) is theirs; yours is refused. The list also holds the requests held for the person's `r`

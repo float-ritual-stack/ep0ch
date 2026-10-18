@@ -28,6 +28,7 @@ import { CALLOUTS, CALLOUT_TYPE, SHOWCASE_ASSETS, artifactsText, galleryCards, g
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
 import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, SPACING_LAB, DISPATCH_SKIN } from "./seed/looks";
+import { seedAccess } from "./seed/access";
 import { scriptExamples } from "@ep0ch/outliner/script-examples";
 import { VENT_PERSON, VENT_PROJECT, VENT_RECIPE, ventRailText } from "./seed/values";
 import { DAILY_NOTES, DAILY_TEMPLATE, MEETING_ACTIONS, MEETING_PAGES, MEETING_TEMPLATE } from "./seed/templates";
@@ -543,6 +544,7 @@ if (request.input.request === "describe the beds") {
 
   // Re-read what later writes changed (the shed gained comments and children).
   for (const k of Object.keys(notes) as SeedName[]) notes[k] = (await board.get(notes[k].id)) ?? notes[k];
+  await seedAccess(board);
   return { notes, lanes, cards, chores, race: race.race, comments: { open: open.id, resolved: resolved.id, resource: resourceThread } };
 }
 

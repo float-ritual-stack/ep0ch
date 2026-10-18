@@ -22,6 +22,17 @@ rule; its order is the rules' order. `ep0ch route <note> --dry-run` and `ep0ch r
 would move where and why; `ep0ch route <note>` and `--all` move them; in the door, `alt+z` on a note routes it
 (`alt+Z` says what would move, `ctrl+z` puts it back; the tile menu's "route by rules"). New wire request:
 `notes.route`; `notes.create`'s placement gains `rule: "route"`. Showcase: "Notes that file themselves".
+### One view of who can reach what (PIE-1034)
+
+- **New:** `ep0ch mcp access --matrix` (and a tile in the door: `ctrl+k`, `access.open`) shows every MCP caller (daddy, gpty,
+  kitty's batches, the stdio clients, any name in usage or the caps) against every outline: the effective level as a glyph
+  and a word (`● full`, `♦ propose`, `○ read`, `✗ none`), why when a caller has less than the outline allows ("rotfield
+  allows full; gpty is capped at propose"), and each caller's calls in the last 7 days and last call, so an unused grant
+  stands out. It reads what was already there: the outlines' grants, `EP0CH_MCP_PATH_ACCESS` and the usage records.
+- **New:** in the tile, pick a cell and press `n r p f` (or click the chips): it says which command runs (the outline's
+  grant, the path's cap, or both) and whom it affects, and `⏎` applies it. Only you apply it; an agent reads the matrix
+  (`mcp.access.matrix`) and can ask what a change would do (`access.plan`). `ep0ch mcp access --cap gpty@gurgle=full` is the
+  cap write on its own.
 
 ### In the power bar tab completes, and alt+← alt+→ change scope (PIE-1014)
 

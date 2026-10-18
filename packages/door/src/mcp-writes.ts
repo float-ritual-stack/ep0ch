@@ -110,12 +110,16 @@ export function principalOf(caller: McpCaller, machine: string = canonicalLocalM
   return clientName(caller.clientId ?? caller.sub, env);
 }
 
+/** The file the MCP settings are read from: `~/.config/ep0ch/mcp.env` (under `XDG_CONFIG_HOME` when that is set). */
+export const mcpEnvFile = (env: Record<string, string | undefined>): string =>
+  join(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config"), "ep0ch", "mcp.env");
+
 /** An MCP setting: the environment's, else `~/.config/ep0ch/mcp.env`'s (EP0CH_MCP_PERSONAS, EP0CH_MCP_SCRATCH_CAP). */
 export function mcpSetting(env: Record<string, string | undefined>, key: string): string | undefined {
   const value = env[key];
   if (value !== undefined) return value;
   try {
-    const file = join(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), ".config"), "ep0ch", "mcp.env");
+    const file = mcpEnvFile(env);
     return existsSync(file) ? parseEnvFile(readFileSync(file, "utf8"))[key] : undefined;
   } catch { return undefined; }
 }
@@ -167,8 +171,11 @@ export const levelFor = (status: { level: McpAccessLevel; owner?: string }, call
   const level = caller && status.owner && status.level !== "none" && status.owner === principalOf(caller, machine) ? "full" : status.level;
   // A connection capped lower (a named path's `propose`) gets no more than its cap in this outline, whatever it allows.
   const cap = caller?.cap?.(where);
-  return cap && LEVELS.indexOf(cap) < LEVELS.indexOf(level) ? cap : level;
+  return cap ? lowerLevel(cap, level) : level;
 };
+
+/** The lower of two levels: what an outline's grant and a caller's cap leave. */
+export const lowerLevel = (a: McpAccessLevel, b: McpAccessLevel): McpAccessLevel => LEVELS.indexOf(a) <= LEVELS.indexOf(b) ? a : b;
 
 /**
  * What a named path may do at most, in each outline (PIE-804): `EP0CH_MCP_PATH_ACCESS`, a comma list of
@@ -177,16 +184,23 @@ export const levelFor = (status: { level: McpAccessLevel; owner?: string }, call
  * `--ws`, a mirror as `<outline>@<machine>`. It is a cap: the outline's own level still bounds it.
  */
 export function pathCap(spec: string, persona: string): (where?: BoardAddress) => McpAccessLevel {
+  const entry = pathCapEntry(spec, persona);
+  return where => entry(where).level;
+}
+
+/** `pathCap`, with the entry it took the level from (`gpty@gurgle`), or null when the default `propose` applies. */
+export function pathCapEntry(spec: string, persona: string): (where?: BoardAddress) => { level: McpAccessLevel; entry: string | null } {
   const entries = new Map<string, McpAccessLevel>();
   for (const entry of spec.split(",")) {
     const [who = "", level = ""] = entry.split("=").map(x => x.trim());
     if ((LEVELS as readonly string[]).includes(level)) entries.set(who.toLowerCase(), level as McpAccessLevel);
   }
   const name = persona.toLowerCase();
-  return where => (where ? entries.get(`${name}@${where.outline}@${where.machine}`.toLowerCase()) ?? entries.get(`${name}@${where.outline}`.toLowerCase()) : undefined)
-    ?? entries.get(name) ?? "propose";
+  const found = (key: string) => entries.has(key) ? { level: entries.get(key)!, entry: key } : undefined;
+  return where => (where ? found(`${name}@${where.outline}@${where.machine}`.toLowerCase()) ?? found(`${name}@${where.outline}`.toLowerCase()) : undefined)
+    ?? found(name) ?? { level: "propose", entry: null };
 }
-const LEVELS: readonly McpAccessLevel[] = ["none", "read", "propose", "full"];
+export const LEVELS: readonly McpAccessLevel[] = ["none", "read", "propose", "full"];
 
 export { assignIdRefusal, restoreRefusal, proposalSettlementRefusal, writesAt } from "@ep0ch/outliner/mcp-write";
 export type { McpWrite, WriteOutcome } from "@ep0ch/outliner/mcp-write";
