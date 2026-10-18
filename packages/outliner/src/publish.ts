@@ -19,7 +19,8 @@ import { artifactKind, artifactPagePath, artifactTitle, imagePrimitiveSpec, MEDI
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { hostname, networkInterfaces } from "node:os";
-import { extname } from "node:path";
+import { dirname, extname, join } from "node:path";
+import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { Marked } from "marked";
 import { blockdownMarked } from "./blockdown-marked";
 import type { OutlinerClient, OutlinerWatcher } from "./client";
@@ -568,7 +569,7 @@ interface SearchTag { base: string; near?: string; form?: boolean }
  * the marginalia reader on it; `search` puts the search box above the breadcrumbs, with its script. Any other page is
  * as it always was: a bar, the body, no script.
  */
-function htmlPage(title: string, body: string, nav: string, options: { reader?: ReaderTag; browse?: boolean; search?: SearchTag; sourcesScript?: string } = {}): string {
+function htmlPage(title: string, body: string, nav: string, options: { reader?: ReaderTag; browse?: boolean; search?: SearchTag; sourcesScript?: string; skin?: { css?: string; warning?: string } } = {}): string {
   const { reader, search } = options;
   const browse = options.browse || !!reader || !!search;
   // The reader first: it sets the polyfill's options, and registers its helpers once both have run.
@@ -580,9 +581,9 @@ function htmlPage(title: string, body: string, nav: string, options: { reader?: 
     : browse ? `<main class="browse">` : "<main>";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark"><title>${escapeHtml(title)}</title><style>${PAGE_STYLE}${body.includes('class="sources-panel"') ? SOURCES_STYLE : ""}${browse ? BROWSE_STYLE + SEARCH_STYLE : ""}</style>${script}</head>
+<meta name="color-scheme" content="dark"><title>${escapeHtml(title)}</title><style>${PAGE_STYLE}${body.includes('class="sources-panel"') ? SOURCES_STYLE : ""}${browse ? BROWSE_STYLE + SEARCH_STYLE : ""}</style>${options.skin?.css ? `<style data-publish-skin>${options.skin.css.replace(/</g, "\\3c ")}</style>` : ""}${script}</head>
 <body>${main}${box}${browse ? nav : `<header class="bar">${nav}</header>`}
-${body}
+${options.skin?.warning ? `<p class="dim" role="status">${escapeHtml(options.skin.warning)}</p>` : ""}${body}
 </main></body></html>
 `;
 }
@@ -733,6 +734,7 @@ export class Publisher {
   /** The `--public-url` host: answered on the public listener only. */
   private readonly publicHost: string | undefined;
   private policy: AttachmentPolicy | null = null;
+  private skinPolicy?: AttachmentPolicy;
   private readonly compiler: ArtifactCompiler | null;
   private index: { value: PublishedIndex; at: number } | null = null;
   private calloutCache: { value: CalloutRegistry; at: number } | null = null;
@@ -860,6 +862,7 @@ export class Publisher {
       maxBytes: this.maxBytes,
       ...(local ? {} : { remoteService: true }),
     };
+    if (local) this.skinPolicy = { roots: [join(dirname(location.database), "skins")], workspaceRoot: dirname(location.database), maxBytes: this.maxBytes };
     if (this.options.tunnels) {
       this.tunnels = new ShareTunnels({
         request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
@@ -1516,6 +1519,7 @@ export class Publisher {
     if ((await this.lockedIds([entry.blockId])).size) return notFound();
     // So is `public`: a note made tailnet-only again leaves the public listener at once.
     if (audience === "public" && !(await this.stillPublic(entry.blockId))) return notFound();
+    const skin = (asHtml && (audience !== "tailnet" || entry.type !== "block")) || view === "full" ? await this.pageSkin(entry.blockId, audience, index, share) : undefined;
     if (entry.type !== "block" && entry.attachment?.source !== undefined) {
       // Check again at request time: the file or a link in its path may have changed since the index.
       const check = checkAttachment(entry.attachment.source, this.requirePolicy());
@@ -1526,11 +1530,11 @@ export class Publisher {
         return respond("Attachment changed while it was read; try again\n", "text/plain; charset=utf-8", 409);
       }
       if (check.type === "html" || check.type === "react" || check.type === "svg" || check.type === "mermaid") {
-        const failed = (body: string, status: number) => renderedHtml(this.page(entry, body, audience), status);
+        const failed = (body: string, status: number) => renderedHtml(this.page(entry, body, audience, skin), status);
         return this.artifactResponse(entry.title, check.type, check.path, contents.text, view, `${this.basePathFor(audience)}${entry.path}?view=source`, failed);
       }
       if (check.type === "markdown") {
-        if (asHtml) return renderedHtml(this.page(entry, htmlViewLinks(renderMarkdownHtml(await this.attachedMarkdown(entry, index, contents.text, audience), await this.callouts()), index, this.basePathFor(audience)), audience));
+        if (asHtml) return renderedHtml(this.page(entry, htmlViewLinks(renderMarkdownHtml(await this.attachedMarkdown(entry, index, contents.text, audience), await this.callouts()), index, this.basePathFor(audience)), audience, skin));
         // Raw, the public audience gets the file with its links and embeds resolved, so the ids
         // of notes that aren't public never leave in `((…))` as written.
         if (audience === "public") {
@@ -1554,9 +1558,9 @@ export class Publisher {
       const article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
       const sourceText = (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text;
       const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText, rendered.drawn.get(entry.blockId) ?? new Map());
-      if (!browse) return renderedHtml(this.page(entry, sources + article, audience), 200, sources ? READER_CSP : RENDERED_CSP);
+      if (!browse) return renderedHtml(this.page(entry, sources + article, audience, skin), 200, sources ? READER_CSP : RENDERED_CSP);
       const crumbs = await this.crumbs(entry, index, true, share);
-      return renderedHtml(htmlPage(entry.title, `${sources}<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId } }), 200, READER_CSP);
+      return renderedHtml(htmlPage(entry.title, `${sources}<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId }, skin }), 200, READER_CSP);
     }
     const { markdown } = await this.blockMarkdown(entry, index, audience, false, { format: "markdown", owner, ...(share ? { share } : {}) });
     return respond(markdown, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
@@ -1624,7 +1628,7 @@ export class Publisher {
     const title = entry?.title ?? this.outlineName ?? "outline";
     const search = { base, ...(entry ? { near: entry.blockId } : {}) };
     return entry
-      ? renderedHtml(htmlPage(title, body, crumbs, { reader: this.readerTag(entry, false, share), search }), 200, READER_CSP)
+      ? renderedHtml(htmlPage(title, body, crumbs, { reader: this.readerTag(entry, false, share), search, skin: await this.pageSkin(entry.blockId, "tailnet", index, share) }), 200, READER_CSP)
       : renderedHtml(htmlPage(title, body, crumbs, { search }), 200, READER_CSP);
   }
 
@@ -1894,11 +1898,40 @@ export class Publisher {
     return { type: check.type, path: check.path, text: contents.text };
   }
 
-  private page(entry: PublishedEntry, body: string, audience: PublishAudience): string {
+  private async pageSkin(blockId: string, audience: PublishAudience, index: PublishedIndex, share?: PageShare): Promise<{ css?: string; warning?: string } | undefined> {
+    const host = this.liveHost(audience, index, share?.base ?? this.basePathFor(audience), share);
+    const own = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["properties"] })).blocks[0];
+    const chain = [...await this.ancestors(blockId), ...(own ? [own] : [])].reverse();
+    const shown = await host.shown(chain.map(block => block.id));
+    const selected = chain.find(block => shown.has(block.id) && getProperty(block.properties ?? [], "publish-skin") !== undefined);
+    if (!selected) return undefined;
+    const name = getProperty(selected.properties ?? [], "publish-skin")!;
+    const unavailable = { warning: "Skin unavailable. Use skins/<name>.css in the outline folder or a visible note with [page::skins/<name>] and a css fence." };
+    // This authored value is a name, never a path outside the outline's skins folder.
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name)) return unavailable;
+    const roots = this.skinPolicy ? canonicalPublishRoots(this.skinPolicy.roots).roots : [];
+    if (this.skinPolicy && roots.length) {
+      const check = checkAttachment(join("skins", `${name}.css`), { ...this.skinPolicy, roots });
+      if (check.ok) {
+        const file = await this.client.request<FileContents>({ action: "files.read", path: check.path }).catch(() => null);
+        if (!file || file.absolutePath !== check.path || file.revision.size !== String(check.size) || file.revision.mtimeNs !== check.mtimeNs) return unavailable;
+        return { css: file.text };
+      }
+      if (check.refusal !== "missing") return { warning: `Skin unavailable. ${check.refusal === "outside-roots" ? "The file is outside the skins folder." : check.reason} Use a regular file inside skins/.` };
+    }
+    const page = await this.client.request<PageAddressResolution>({ action: "pages.resolve", address: `skins/${name}` });
+    if (page.status !== "resolved" || !page.block || !(await host.shown([page.block.id])).has(page.block.id)) return unavailable;
+    const read = await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [page.block.id], fields: ["text"] });
+    const lines = (read.blocks[0]?.text ?? "").split("\n");
+    const fences = codeBlocks(lines).fences.filter(block => block.closed && block.fence.info === "css");
+    return fences.length ? { css: fences.map(block => lines.slice(block.start + 1, block.end).join("\n")).join("\n") } : unavailable;
+  }
+
+  private page(entry: PublishedEntry, body: string, audience: PublishAudience, skin?: { css?: string; warning?: string }): string {
     const href = (path: string) => escapeHtml(`${this.basePathFor(audience)}${path}`);
     // The public listener has no index to link to.
     const nav = audience === "public" ? escapeHtml(entry.slug) : `<a href="${href("/index")}">index</a> / ${escapeHtml(entry.slug)}`;
-    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${escapeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav, { sourcesScript: `${this.basePathFor(audience)}${PAGE_ROUTE}/sources.js` });
+    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${escapeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav, { skin, sourcesScript: `${this.basePathFor(audience)}${PAGE_ROUTE}/sources.js` });
   }
 
   /**

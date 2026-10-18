@@ -1,0 +1,55 @@
+/* The dispatch's dark phosphor palette, on the publisher's existing page and components. */
+:root {
+  color-scheme: dark;
+  --bg: #050505;
+  --fg: #e8ebe6;
+  --dim: #8d948c;
+  --rule: #232623;
+  --link: #6f93ff;
+  --dispatch-surface: #0c0d0c;
+  --dispatch-phosphor: #4ade80;
+  --dispatch-signal: #22d3ee;
+  --dispatch-hazard: #e8f000;
+  --dispatch-hot: #e23cf0;
+}
+body {
+  font: 15px/1.7 ui-monospace, Menlo, monospace;
+  background-image: repeating-linear-gradient(0deg, #ffffff04 0 1px, transparent 1px 4px);
+}
+main, main.browse { max-width: 72rem; }
+article { max-width: 78ch; }
+article h1 {
+  font: 800 clamp(2rem, 6vw, 4.5rem)/1.05 ui-monospace, Menlo, monospace;
+  text-transform: uppercase;
+  letter-spacing: -.04em;
+  overflow-wrap: anywhere;
+  color: var(--dispatch-phosphor);
+  text-shadow: 0 0 12px #4ade8033;
+  border-bottom: 3px double var(--dispatch-phosphor);
+  padding-bottom: .4em;
+}
+article h2, .inside > h2 {
+  margin-top: 2rem;
+  font-family: ui-monospace, Menlo, monospace;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--dispatch-signal);
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: .4em;
+}
+article h3 { color: var(--dispatch-hazard); }
+.callout, article blockquote {
+  background: var(--dispatch-surface);
+  border-radius: 0;
+  border-left: 3px solid var(--dispatch-hazard);
+}
+.callout-head, .callout > summary { color: var(--dispatch-hot); }
+th { background: var(--dispatch-surface); text-transform: uppercase; letter-spacing: .12em; }
+th, td { padding: .6rem; }
+ul.kids > li { background: var(--dispatch-surface); }
+a:hover { color: var(--dispatch-signal); }
+:focus-visible { outline: 2px solid var(--dispatch-hazard); outline-offset: 2px; }
+@media (max-width: 40rem) {
+  body { font-size: 14px; }
+  main, main.browse { padding-inline: 1rem; }
+}

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, realpathSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -24,7 +24,7 @@ function scratchDirectory(prefix: string): string {
 }
 
 /** A throwaway service over a fictional outline, and a publisher reading it. */
-async function setup(options: { maxBytes?: number; roots?: string[]; basePath?: string; serviceHostname?: string } = {}) {
+async function setup(options: { maxBytes?: number; roots?: string[]; basePath?: string; publicUrl?: string; serviceHostname?: string } = {}) {
   const root = scratchDirectory("outliner-publish-");
   const workspace = join(root, "garden");
   mkdirSync(workspace);
@@ -58,6 +58,120 @@ async function setup(options: { maxBytes?: number; roots?: string[]; basePath?: 
   };
   return { root, workspace, store, client, publisher, get, write };
 }
+
+test("a page inherits its skin, overrides it, and never publishes a hidden skin note", async () => {
+  const { store, get, publisher } = await setup();
+  const css = "body { background: #101018; --skin-marker: inherited; }";
+  const skin = store.create(`Garden skin [page::skins/garden] [publish::public]\n\`\`\`css\n${css}\n\`\`\``);
+  const parent = store.create("Garden dispatch [publish::public:dispatch] [publish-skin::garden]\nThe weekly news.");
+  const child = store.create("Seed report [publish::public:seed-report]\nSeedlings are ready.", parent.id);
+  const outside = () => publisher.handle(new Request("http://127.0.0.1/share/p/seed-report?view=html"), "public");
+  for (const path of ["/p/dispatch?view=html", "/p/seed-report?view=html", "/p/seed-report?view=full"]) {
+    expect(await (await get(path)).text()).toContain(css);
+  }
+  expect(await (await outside()).text()).toContain(css);
+  store.update(skin.id, skin.text.replace("[publish::public]", "[publish::never]"), skin.revision, { author: "user" });
+  const hidden = await (await outside()).text();
+  expect(hidden).not.toContain(css);
+  expect(hidden).toContain("Skin unavailable");
+  expect(hidden).toContain("Seedlings are ready.");
+
+  const folder = join(store.database.filename, "..", "skins");
+  mkdirSync(folder, { recursive: true });
+  const override = 'body { --skin-marker: override; }';
+  writeFileSync(join(folder, "night.css"), override);
+  store.update(child.id, child.text + "\n[publish-skin::night]", child.revision, { author: "user" });
+  expect(await (await outside()).text()).toContain(override);
+  writeFileSync(join(folder, "night.css"), 'body { --skin-marker: refreshed; }');
+  expect(await (await outside()).text()).toContain('--skin-marker: refreshed');
+});
+
+test("skins respect private ancestors, share scope, file confinement, and the HTML boundary", async () => {
+  const { root, store, client, publisher, get } = await setup({ publicUrl: "http://127.0.0.1/share" });
+  const css = "body { --private-skin: hidden; }";
+  const skin = store.create(`Private style [page::skins/private] [publish::public]\n\`\`\`css\n${css}\n\`\`\``);
+  const parent = store.create("Private parent [publish-skin::private]");
+  const child = store.create("Public child [publish::public:public-child]\nA readable report.", parent.id);
+  const publicHtml = async () => (await publisher.handle(new Request("http://127.0.0.1/share/p/public-child?view=html"), "public")).text();
+  expect(await (await get(`/p/${child.id}?view=html`)).text()).toContain(css);
+  expect(await publicHtml()).not.toContain(css);
+  store.update(skin.id, skin.text.replace(" [publish::public]", ""), skin.revision, { author: "user" });
+  store.update(child.id, child.text + "\n[publish-skin::private]", child.revision, { author: "user" });
+  expect(await publicHtml()).not.toContain(css);
+  const { share } = await client.request<{ share: { url: string } }>({ action: "shares.start", scope: child.id, ttl: "2m" });
+  const shared = await publisher.handle(new Request(share.url, { headers: { accept: "text/html" } }), "public");
+  expect(shared.status).toBe(200);
+  const sharedHtml = await shared.text();
+  expect(sharedHtml).toContain("A readable report.");
+  expect(sharedHtml).not.toContain(css);
+  expect(sharedHtml).toContain("Skin unavailable");
+  store.create(`Shared style [page::skins/shared]\n\`\`\`css\nbody { --shared-skin: visible; }\n\`\`\``, child.id);
+  store.update(child.id, child.text + "\n[publish-skin::shared]", store.get(child.id)!.revision, { author: "user" });
+  const insideShare = await publisher.handle(new Request(share.url, { headers: { accept: "text/html" } }), "public");
+  expect(await insideShare.text()).toContain("body { --shared-skin: visible; }");
+  store.update(child.id, child.text + "\n[publish-skin::private]", store.get(child.id)!.revision, { author: "user" });
+
+  const folder = join(store.database.filename, "..", "skins");
+  mkdirSync(folder, { recursive: true });
+  const outside = join(root, "secret.css");
+  writeFileSync(outside, css);
+  symlinkSync(outside, join(folder, "private.css"));
+  expect(await (await get(`/p/${child.id}?view=html`)).text()).not.toContain(css);
+  store.update(child.id, child.text + "\n[publish-skin::../secret]", store.get(child.id)!.revision, { author: "user" });
+  expect(await publicHtml()).not.toContain(css);
+
+  const source = 'body::after { content: "</style><script>unexpected()</script>"; }';
+  store.create("Markup probe [publish::public:markup-probe] [publish-skin::markup]");
+  writeFileSync(join(folder, "markup.css"), source);
+  const html = await (await get("/p/markup-probe?view=html")).text();
+  expect(html).not.toContain("<script>unexpected()");
+  expect(html).toContain('\\3c /style>');
+  expect(html).toContain("data-publish-skin");
+});
+
+test("a skin symlink only embeds a regular file inside the real skins folder", async () => {
+  const { store, publisher } = await setup();
+  store.create("Garden report [publish::public:report] [publish-skin::night]\nThe seedlings are ready.");
+  const outline = join(store.database.filename, "..");
+  const secret = join(outline, "skins-extra", "private.css");
+  mkdirSync(join(outline, "skins-extra"));
+  writeFileSync(secret, "body { --private-marker: secret; }");
+  const folder = join(outline, "skins");
+  mkdirSync(folder);
+  const link = join(folder, "night.css");
+  symlinkSync(secret, link);
+  const render = async () => (await publisher.handle(new Request("http://127.0.0.1/share/p/report?view=html"), "public")).text();
+  const escaped = await render();
+  expect(escaped).not.toContain("--private-marker");
+  expect(escaped).toContain("Skin unavailable");
+  expect(escaped).toContain("outside the skins folder");
+  expect(escaped).toContain("The seedlings are ready.");
+
+  rmSync(link);
+  mkdirSync(join(folder, "directory.css"));
+  symlinkSync(join(folder, "directory.css"), link);
+  const directory = await render();
+  expect(directory).toContain("Skin unavailable");
+  expect(directory).toContain("not a regular file");
+
+  rmSync(link);
+  const css = "body { --skin-marker: allowed; }";
+  writeFileSync(join(folder, "allowed.css"), css);
+  symlinkSync(join(folder, "allowed.css"), link);
+  expect(await render()).toContain(css);
+});
+
+test("the showcase dispatch CSS styles the same published page without changing its body", async () => {
+  const { store, get } = await setup();
+  const css = readFileSync(new URL("../../door/src/showcase/assets/skins/dispatch.css", import.meta.url), "utf8");
+  store.create(`Dispatch style [page::skins/dispatch]\n\`\`\`css\n${css}\n\`\`\``);
+  const page = store.create("Garden dispatch [publish::garden-dispatch]\n## This week\nThe greenhouse is ready.");
+  const before = await (await get("/p/garden-dispatch?view=html")).text();
+  store.update(page.id, page.text.replace("[publish::garden-dispatch]", "[publish::garden-dispatch] [publish-skin::dispatch]"), page.revision, { author: "user" });
+  const after = await (await get("/p/garden-dispatch?view=html")).text();
+  expect(after).toContain(css);
+  expect(after.match(/<article>[\s\S]*?<\/article>/)?.[0].replace(/line:\d+/g, "line").replace(/  +/g, " ")).toBe(before.match(/<article>[\s\S]*?<\/article>/)?.[0].replace(/line:\d+/g, "line").replace(/  +/g, " "));
+});
 
 test("a [publish::true] page with an attached markdown file serves the markdown at its page address", async () => {
   const { store, get, write } = await setup();
