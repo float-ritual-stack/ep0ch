@@ -369,9 +369,9 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
       const down = lines.slice(r.row, r.row + r.rows).map(l => [...l][r.col] ?? " ").join("").replace(/[·×■✎¶≡ ]/g, "");
       expect({ kind, title: down.length > 0 }).toEqual({ kind, title: true });
     }
-    // The one with no title says its number and name, as its header does.
+    // The one with no note says what it is (PIE-1015: a spine names its contents, here an empty detail), never blank.
     const r = d.drawnAt("k1")!;
-    expect(lines.slice(r.row, r.row + r.rows).map(l => [...l][r.col] ?? " ").join("")).toContain("2 k1");
+    expect(lines.slice(r.row, r.row + r.rows).map(l => [...l][r.col] ?? " ").join("")).toContain("detail · empty");
     app.pop();
   });
 
