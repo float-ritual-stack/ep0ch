@@ -2586,6 +2586,7 @@ as the service draws them.
 | `space`, `⏎`, or a click on a value | every combination: pick or unpick it (`library.pick`); `x` clears (`library.clear`), `n` `p` page (`library.page`) |
 | `j` `k` (`↓` `↑`), or a click on a variation | select a variation (`library.select`) |
 | `y`, or a click on `copy` | copy its source (`library.copy`: the declaring note and the line that uses it; `part=use` or `part=note` one of them). An agent's copy comes back as its answer, never to your clipboard |
+| drag over source, drawing or properties; double/triple click | select and copy text, a word or a line with the reader’s selection; `cmd+c` copies it again. `library.select text=` returns drawn text to an agent without moving your selection or writing your clipboard |
 | `w`, or a click on a width | draw at 40, 80, 160 or all three at once (`library.width`) |
 | the wheel, `PgUp` `PgDn` | scroll (`library.scroll`) |
 

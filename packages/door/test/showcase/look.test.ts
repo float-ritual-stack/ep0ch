@@ -4,7 +4,7 @@
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
-import { osc52 } from "../../src/surface/selection";
+import { osc52, SELECT_BG } from "../../src/surface/selection";
 import { surfaceBg } from "../../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -324,6 +324,47 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(await app.act({ action: "library.component", args: { name: "graph-quadrant" }, as: "test-agent" })).toMatchObject({});
     await app.act({ action: "library.part", args: { part: "overview" }, as: "test-agent" });
     await until(() => screen().includes("Quadrant (::graph-quadrant)") && screen().includes("Minimal example"), "a figure's overview", 5000);
+  }, 20_000);
+
+
+  test("the library examples select and copy by dragging, word and line, without an agent taking the clipboard (PIE-1025)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "library" }, as: "test-agent" });
+    await app.act({ action: "library.component", args: { name: "heading-style" }, as: "test-agent" });
+    await app.act({ action: "library.part", args: { part: "overview" }, as: "test-agent" });
+    await until(() => screen().includes("┊ ## Your calls [heading::band]"), "the example source");
+    const point = (text: string, containing = text) => {
+      const rows = screen().split("\n"), y = rows.findIndex(l => l.includes(containing));
+      expect(y).toBeGreaterThan(-1);
+      return { x: rows[y]!.indexOf(text), y };
+    };
+    const mouse = (action: "down" | "drag" | "up", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
+    const start = point("## Your calls [heading::band]", "┊ ## Your calls");
+    mouse("down", start.x, start.y);
+    mouse("drag", start.x + 12, start.y);
+    mouse("up", start.x + 12, start.y);
+    await until(() => written.includes(osc52("## Your calls")), "the dragged source copied", 2000);
+    const selectedLine = () => sc.render(app).lines.find(l => plain(l).includes("┊ ## Your calls"))!;
+    expect(selectedLine()).toContain(SELECT_BG);
+    const highlight = selectedLine();
+    const before = written.filter(s => s.includes("\x1b]52;")).length;
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "library.select", args: { text: "heading-pattern" }, as: "test-agent" })).toMatchObject({ text: "heading-pattern" });
+    expect(written.filter(s => s.includes("\x1b]52;"))).toHaveLength(before);
+    expect(selectedLine()).toBe(highlight);
+    press({ kind: "super", ch: "c" });
+    await until(() => written.filter(s => s === osc52("## Your calls")).length === 2, "cmd+c kept the person's selection");
+    const word = point("Your calls [heading::band]", "┊ ## Your calls");
+    for (let i = 0; i < 2; i++) { mouse("down", word.x, word.y); mouse("up", word.x, word.y); }
+    await until(() => written.includes(osc52("Your")), "double click copied the word");
+    mouse("down", word.x, word.y); mouse("up", word.x, word.y);
+    await until(() => written.includes(osc52("## Your calls [heading::band]")), "triple click copied the source without its gutter");
+    for (const text of ["Y O U R   C A L L S", "on the declaring note"]) {
+      const p = point(text);
+      mouse("down", p.x, p.y); mouse("drag", p.x + text.length - 1, p.y); mouse("up", p.x + text.length - 1, p.y);
+      await until(() => written.includes(osc52(text)), `copied ${text}`);
+    }
+    press({ kind: "esc" });
   }, 20_000);
 
 
