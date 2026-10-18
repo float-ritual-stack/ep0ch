@@ -194,6 +194,7 @@ if (request.input.request === "describe the beds") {
     "Neither shows who ran it, when, or a button: the one dim mark in the margin beside each is all that says so. Put the cursor on it (the [ ] keys), or click it, to see when it ran and to run it again. A script that writes leaves its output in the note, as a region you can edit:",
     outputRegionText({ label: "last week's rota", producer: notes.scripts.id, anchor: "out-rota-7c2e", body: "- Mon: Sam waters the beans\n- Wed: Robin thins the carrots\n- Fri: Sam picks the first peas" }),
     "Change a word inside it and it is yours: the script's next run waits as a proposal beside it.",
+    "A running script's place() follows the line that asked it, even if you insert paragraphs above it before the answer lands. Changing or duplicating that caller leaves a reason in the run note; run it again or name an ^anchor.",
     "Press S for Sources. Open the table, then c downloads its raw rows as CSV and J as JSON; the same controls are clickable. Published pages have the same Query, Transform and Result folds behind Sources.",
   ].join("\n"));
   // Motion (PIE-958): a button runs a script whose layout changes glide; its tiles float, wander and settle, then land where the layout is.
