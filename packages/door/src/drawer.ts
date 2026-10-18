@@ -59,6 +59,7 @@ import { basename, resolve as resolvePath } from "node:path";
 import { words } from "./text";
 import { WHAT_CHANGED_KIND_NAME, type WhatChangedPane } from "./desk/what-changed";
 import { PTY_ACTIONS } from "./desk/pty-actions";
+import { realTileDeps, tileOf, type TileOfAnswer, type TileProc } from "./tile-of";
 import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
@@ -642,6 +643,17 @@ export class AgentDrawer {
   desks(): Desk[] {
     const screen = tilesOf(this.host.screen?.());
     return [...(this.d ? [this.d] : []), ...(screen && screen !== this.d ? [screen] : [])];
+  }
+  /** The terminal tile a process is drawn in, on the drawer or the screen shown (`host.tileOf`, PIE-1043). */
+  tileOf(q: { pid?: number; port?: number }): TileOfAnswer {
+    const tiles: TileProc[] = [];
+    for (const desk of this.desks()) {
+      for (const t of desk.layoutGet().tiles) {
+        const p = desk.pane(t.name);
+        if (p instanceof PtyPane && p.pid) tiles.push({ id: t.id, name: t.name, pid: p.pid });
+      }
+    }
+    return tileOf(tiles, q, realTileDeps());
   }
   /** The drawer's tiles, as tabs: the drawer's own first. */
   tabs(): { name: string; id: string; kind: string; title: string; shown: boolean; focused: boolean; pid?: number }[] {
@@ -1540,6 +1552,20 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { drawer }) { return { waiting: waitingOnYou(drawer).map((r, i) => rowFacts(r, i + 1)) }; },
+  }),
+  "host.tileOf": def({
+    summary: "which terminal tile (the drawer's or the screen's) a process is drawn in, read: pid=<pid> finds the tile whose program is that process or its ancestor; port=<n> the tile whose program, or a descendant of it, holds a TCP connection with that local port (the ssh client in a tile, for the sshd on the far end: its client port is the second field of SSH_CONNECTION). Answers {tile, id, by} with tile null when none matches. Changes nothing and says nothing on the screen: the Claude mod asks it to open a pressed reference where the tile's opens go",
+    keys: "ep0ch act host.tileOf port=<n>",
+    touches: "nothing", replay: "safe",
+    args: {
+      pid: { type: "number", optional: true, about: "a process on this machine" },
+      port: { type: "number", optional: true, about: "a local TCP port held by a process in a terminal tile" },
+    },
+    examples: [{ act: "host.tileOf port=51234", does: "names the terminal tile whose ssh client uses local port 51234" }],
+    run({ pid, port }, { drawer }) {
+      if (pid === undefined && port === undefined) throw new ActionRefused("host.tileOf: give pid=<pid> or port=<local tcp port>");
+      return drawer.tileOf({ ...(pid !== undefined ? { pid } : {}), ...(port !== undefined ? { port } : {}) });
+    },
   }),
   "host.agent": def({
     summary: "the drawer's own agent (its first tab): name=<agent> chooses one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door), saved for this outline's session (default=true: for every outline). It starts inside the person's login shell, from the drawer's own tab's next start: one running keeps running (agent.restart starts the new one in its place). No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",

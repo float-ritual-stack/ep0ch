@@ -15,7 +15,11 @@ are its record. The outliner's entries from then are kept below, under
 A press (and the `show` tool) resolves the door the way the door tools do, by `ep0ch where`, so a Claude resumed after
 its door restarted, or started outside a tile, opens the note in the folder's door instead of the mentions pane; when
 no door answers the toast says why. `**bold**` and `*italic*` around a reference and other text draw as bold and
-italic, and a table with a reference in a row stays one table with pressable cells. Reload the mod (`/reload-plugins`).
+italic, and a table with a reference in a row stays one table with pressable cells. A Claude that came in over ssh
+(no `EP0CH_TILE`) opens from the tile it is drawn in: the new read-only door action `host.tileOf` finds the terminal
+tile whose ssh client holds the connection named in `SSH_CONNECTION`, so the press follows that tile's opens; when no
+tile is found it opens where the screen's opens land, silently. Reload the mod (`/reload-plugins`); the door needs
+`ep0ch install --apply` for `host.tileOf` (an older door just opens without a tile).
 
 ### References in Claude's replies show their label, never the address (PIE-1042)
 

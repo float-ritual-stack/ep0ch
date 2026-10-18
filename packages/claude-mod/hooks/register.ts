@@ -1379,6 +1379,24 @@ function openNote($: EngineInterface, workspace: Workspace | null, uri: string, 
   return shown
 }
 
+/**
+ * The tile of the door at `control` that this session's ssh connection runs through: sshd's SSH_CONNECTION names the
+ * client's port, and the door (on the machine the ssh client runs on) knows which terminal tile holds that connection
+ * (`host.tileOf`). Null with no such connection, an older door, or no tile; never an error.
+ */
+async function tileOfConnection($: EngineInterface, control: string, actor: string): Promise<string | null> {
+  const port = Number((await $.env.get('SSH_CONNECTION'))?.trim().split(/\s+/)[1])
+  if (!Number.isInteger(port) || port <= 0) return null
+  try {
+    const ran = await $.process.run(['ep0ch', 'act', 'host.tileOf', `port=${port}`, '--as', actor], { cwd: await startFolderOf($), env: { EP0CH_CONTROL: control }, timeoutMs: 5000 })
+    if (ran.exitCode !== 0) return null
+    const tile: unknown = JSON.parse(ran.stdout)?.tile
+    return typeof tile === 'string' && tile ? tile : null
+  } catch {
+    return null
+  }
+}
+
 async function openNow($: EngineInterface, workspace: Workspace | null, uri: string, actor: string, door?: string): Promise<Shown> {
   const [{ EP0CH_CONTROL: given, HERDR_PANE_ID: paneId, HERDR_WORKSPACE_ID: herdrWorkspace }, tile, tileId] = await Promise.all([
     routeEnvOf($),
@@ -1416,7 +1434,9 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
   let why: string
   if (control) {
     const { id, title } = await resolve()
-    const from = doorTileOf({ ...(tile ? { EP0CH_TILE: tile } : {}), ...(tileId ? { EP0CH_TILE_ID: tileId } : {}) })
+    // The tile this Claude is drawn in: its own variables, else (a Claude that came in over ssh has none) the door's
+    // answer for the ssh connection it arrived on (`host.tileOf`, PIE-1043). None found: where the screen's opens land.
+    const from = doorTileOf({ ...(tile ? { EP0CH_TILE: tile } : {}), ...(tileId ? { EP0CH_TILE_ID: tileId } : {}) }) ?? await tileOfConnection($, control, actor)
     // From this tile, its opens' link; a door that doesn't know the tile (or is older than `from=`) is asked again
     // naming none, and lands it where its opens land. Never a reader by name: an agent naming the reader the person
     // reads is refused (ep0ch-door round 3), and where opens land never takes their keys.
