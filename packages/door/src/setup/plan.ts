@@ -31,7 +31,7 @@ export interface Step {
   links?: LinkWork;
   /** backups: the files it writes (the job's units, its settings) before it loads them. */
   writes?: { path: string; text: string }[];
-  /** schema: the outlines it migrates, one step (`from` → `to`) with one script (absolute), and how to go back. */
+  /** schema: the outlines it migrates, `from` → `to` with the retained offline scripts (absolute), and how to go back. */
   migrate?: Migration;
   /** name: the machine name it writes. */
   machineName?: string;
@@ -40,9 +40,9 @@ export interface Step {
 }
 
 export interface Migration {
-  from: number; to: number; script: string;
+  from: number; to: number; scripts: Record<number, string>;
   /** `copy`: where each is copied (VACUUM INTO) just before its script runs, with nothing serving it: what going back restores. */
-  outlines: { name: string; path: string; copy?: string }[];
+  outlines: { name: string; path: string; version: number; copy?: string }[];
   /** Where the copies go: an outline that appears after the plan (found again once the host is stopped) is copied there too. */
   copyDir?: string;
   /** Whether it stops the host first (the host's unit runs it). */
@@ -325,9 +325,8 @@ export function emptyOutlinesSaid(outlines: readonly { name: string; path: strin
 /**
  * The outlines' schema (PIE-617). When the code the checkout ends on opens a newer schema than an outline is at, the
  * outline is migrated by that code's script for the step (packages/outliner/scripts/migrations/NNNN-*.ts, NNNN-1 →
- * NNNN): the host is stopped first (the script refuses a served file), and the host step starts it after. One step
- * only: each script is a one-off written against its own version's schema, so an outline older than the step, or a
- * step whose script was deleted, isn't migrated but imported, and install refuses to update the checkout until it's
+ * NNNN): the host is stopped first (the script refuses a served file), and the host step starts it after. Retained
+ * scripts run in version order. A missing step requires import, and install refuses to update until the outline is
  * moved aside (manual here; buildPlan then holds the checkout back). Null when the schema wasn't looked at.
  */
 export function schemaStep(f: Facts, updates: boolean): Step | null {
@@ -343,7 +342,7 @@ export function schemaStep(f: Facts, updates: boolean): Step | null {
     return updates ? { id: "schema", title, status: "manual", why: `${why}, so the outlines can't be checked against it; retry: git -C ${f.repo.root} fetch origin main, then rerun`, commands: [] }
       : { id: "schema", title, status: "skip", why, commands: [] };
   }
-  const to = code.version, from = to - 1;
+  const to = code.version;
   const ahead = s.outlines.filter(o => o.version !== null && o.version > to);
   const behind = s.outlines.filter(o => o.version !== null && o.version < to);
   // An outline whose version couldn't be read matters only when this run changes the schema the code opens.
@@ -352,13 +351,16 @@ export function schemaStep(f: Facts, updates: boolean): Step | null {
   if (!behind.length && !unread.length) {
     return { id: "schema", title, status: "skip", why: `${!s.outlines.length ? "no outlines" : ahead.length ? `no outline is behind schema ${to}` : `every outline is at schema ${to}`}${aside}${said}`, commands: [] };
   }
-  const script = code.scripts[to];
+  const from = Math.min(to - 1, ...behind.map(o => o.version!));
+  const versions = Array.from({ length: to - from }, (_, i) => from + i + 1);
+  const scripts = Object.fromEntries(versions.filter(v => code.scripts[v]).map(v => [v, join(f.repo.root, code.scripts[v]!)]));
   const h = f.host, u = h.unit;
   const stop = u ? hostUnitCommand(u, "stop") : "stop the outline host";
   const problems: string[] = unread.map(o => `couldn't read ${o.name}'s schema version (${o.error}); check ${o.path}, then rerun`);
   for (const o of behind) {
-    if (o.version === from && script) continue;
-    const why = o.version === from ? `no migration script takes schema ${from} to ${to} (it was deleted once the machines that matter ran it)` : `${script ? `${basename(script)} takes schema ${from} to ${to} only` : `no migration script reaches schema ${to}`}`;
+    const missing = versions.find(v => v > o.version! && !scripts[v]);
+    if (missing === undefined) continue;
+    const why = `no migration script takes schema ${missing - 1} to ${missing} (it was deleted once the machines that matter ran it)`;
     const old = `${o.path}.schema-${o.version}`;
     problems.push(`${o.name} is schema ${o.version}: ${why}; import it into a new outline instead: ${stop}; mv ${sh(o.path)} ${sh(old)}; ep0ch install --apply; ep0ch outline import ${sh(old)} ${o.name}`);
   }
@@ -369,11 +371,10 @@ export function schemaStep(f: Facts, updates: boolean): Step | null {
   else if (stopsHost && unitChanges(f)) problems.push(`${u!.kind} ${u!.name} needs changing before install restarts it: ${unitChanges(f)}`);
   if (problems.length) return { id: "schema", title, status: "manual", why: `${updates ? `the checkout isn't updated: ${at} opens schema ${to}, and ` : ""}${problems.join("; ")}${aside}${said}`, commands: [] };
   const names = behind.map(o => o.name);
-  const abs = join(f.repo.root, script!);
   return { id: "schema", title, status: "do",
-    why: `schema ${from} → ${to}: will migrate ${names.length} outline${names.length === 1 ? "" : "s"} (${names.join(", ")}) with ${basename(script!)}${stopsHost ? `; the host stops while they migrate (each in one transaction) and starts after` : ""}${aside}${said}`,
-    commands: [...(stopsHost ? [stop] : []), ...behind.map(o => `bun ${sh(abs)} ${sh(o.path)}`)],
-    migrate: { from, to, script: abs, outlines: behind.map(o => ({ name: o.name, path: o.path })), stopsHost, ...(updates && f.repo.checkout.head ? { before: f.repo.checkout.head } : {}) } };
+    why: `schema ${from} → ${to}: will migrate ${names.length} outline${names.length === 1 ? "" : "s"} (${names.join(", ")}) with ${versions.map(v => basename(scripts[v]!)).join(", ")}${stopsHost ? `; the host stops while they migrate (each in one transaction) and starts after` : ""}${aside}${said}`,
+    commands: [...(stopsHost ? [stop] : []), ...behind.flatMap(o => versions.filter(v => v > o.version!).map(v => `bun ${sh(scripts[v]!)} ${sh(o.path)}`))],
+    migrate: { from, to, scripts, outlines: behind.map(o => ({ name: o.name, path: o.path, version: o.version! })), stopsHost, ...(updates && f.repo.checkout.head ? { before: f.repo.checkout.head } : {}) } };
 }
 
 /**
@@ -604,9 +605,9 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const backup = backupStep(f, o, [repo, plugin, link, ...(schema ? [schema] : []), host].some(s => s.status === "do"));
   // Each outline's copy from just before its script (the host stopped, so nothing written since is missing from it).
   if (schema?.migrate) {
-    const { from } = schema.migrate, copyDir = join(o.backupDir, stamp(o.now));
+    const copyDir = join(o.backupDir, stamp(o.now));
     schema.migrate.copyDir = copyDir;
-    schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(copyDir, `${m.name}.schema-${from}.sqlite`) }));
+    schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(copyDir, `${m.name}.schema-${m.version}.sqlite`) }));
   }
   const mod: Step = { id: "claude-mod", title: "Install the Claude mod and rename its settings", status: "do", why: "load ep0ch and allow its tools; report launch commands that still name pi-outliner", commands: [`bun ${sh(join(f.repo.outliner, "scripts/install-claude-mod.ts"))} --project ${sh(f.repo.root)}`] };
   // The session last: handed to the new code once everything under it is current.

@@ -1,5 +1,4 @@
-import { Database } from "bun:sqlite";
-import { migrateReferenceIndex } from "../scripts/migrations/0006-reference-index";
+import { replaceReferenceIndex } from "../src/reference-index";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -203,16 +202,15 @@ test.each(["backlinks", "records-1", "records-20", "draft.patch", "draft.patch-a
     store.database.transaction(() => {
       const insert = store.database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, NULL, ?, ?, 'user', ?, ?)");
       for (let i = 0; i < 50_000; i++) {
-        insert.run(crypto.randomUUID(), i + 100, `Note ${i}\nSee ((${unrelated.id})) and [[Unclaimed page ${i % 100}]].`, target.createdAt, target.createdAt);
+        const id = crypto.randomUUID();
+        const text = `Note ${i}\nSee ((${unrelated.id})) and [[Unclaimed page ${i % 100}]].`;
+        insert.run(id, i + 100, text, target.createdAt, target.createdAt);
+        replaceReferenceIndex(store.database, id, text);
       }
     })();
     const source = store.create(`Needle source ((${target.id}))`);
     store.close();
     const path = join(root, "outline.sqlite");
-    const previous = new Database(path);
-    previous.exec("DROP TABLE block_reference_candidates; PRAGMA user_version = 5");
-    previous.close();
-    migrateReferenceIndex(path);
     store = new OutlinerStore(path);
     const server = largeServer = new OutlinerServer(store, join(root, "large.sock"));
     const small = smallStore.create("Small note");

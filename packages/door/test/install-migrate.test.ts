@@ -91,8 +91,7 @@ beforeAll(async () => {
   const schema = join(repo, "packages/outliner/src/schema.ts");
   writeFileSync(schema, readFileSync(schema, "utf8").replace(/^export const SCHEMA_VERSION = \d+;/m, `export const SCHEMA_VERSION = ${M};`));
   writeFileSync(join(repo, "packages/outliner/scripts/migrations", STEP_FILE), STEP);
-  // An earlier step's script is deleted once used (AGENTS.md): what's left is this step's.
-  for (const f of readdirSync(join(repo, "packages/outliner/scripts/migrations"))) if (f.startsWith(`${String(N).padStart(4, "0")}-`)) rmSync(join(repo, "packages/outliner/scripts/migrations", f));
+  // Keep 0006 and 0007: an outline still at 5 must take both before the new step.
   git("add", "-A"); git("commit", "-qm", `seed trays: schema ${M}`);
   newHead = git("rev-parse", "HEAD");
   git("push", "-q", "origin", "main"); git("reset", "-q", "--hard", oldHead);
@@ -150,6 +149,12 @@ store.create("Bay badges [rule-name::bay-badges] [rule-match::type=bay-job] [rul
 store.close();
 `);
   sh([bun, join(root, "seed-rule.ts")], repo);
+  const source = new Database(join(outlines, "allotment.sqlite"), { readonly: true });
+  source.run("VACUUM INTO ?", [join(outlines, "seed-bank.sqlite")]);
+  source.close();
+  const old = new Database(join(outlines, "seed-bank.sqlite"));
+  old.exec("DROP TABLE block_reference_candidates; ALTER TABLE block_revisions DROP COLUMN task_id; PRAGMA user_version = 5");
+  old.close();
   // Compost needs only a settings rewrite: install must not decide from note changes alone.
   mkdirSync(join(outlines, "compost/extensions/readwise"), { recursive: true });
   writeFileSync(join(outlines, "compost/extensions/readwise/config.json"), JSON.stringify({ config: { link: "https://notes.example/{outline}/b/{id}" } }));
@@ -188,7 +193,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(plan.out).toContain("away, workstation");
     expect(existsSync(sshLog)).toBe(false);
     expect(readFileSync(join(outlines, ".host/clients"), "utf8")).toBe("away\n");
-    expect(plan.out).toContain(`schema ${N} → ${M}: will migrate 2 outlines (allotment, compost) with ${STEP_FILE}`);
+    expect(plan.out).toContain(`schema 5 → ${M}: will migrate 3 outlines (allotment, compost, seed-bank) with 0006-reference-index.ts, 0007-revision-tasks.ts, ${STEP_FILE}`);
     expect(plan.out).toContain("systemctl --user stop outliner-host.service");
     expect(git("rev-parse", "HEAD")).toBe(oldHead);
 
@@ -253,7 +258,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     }
     expect(JSON.parse(readFileSync(join(root, "inspect/.claude/settings.local.json"), "utf8")).permissions.allow).toEqual(["mcp__ep0ch"]);
     // The host started by hand is stopped through its unit first.
-    expect(r2.steps.find(s => s.id === "schema")!.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", `compost: schema ${N} → ${M}`]);
+    expect(r2.steps.find(s => s.id === "schema")!.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", `compost: schema ${N} → ${M}`, `seed-bank: schema 5 → ${M}`]);
     // The sweep: the host was already down for the migration, so it stops nothing more; the old form is in the new grammar.
     expect(r2.steps.find(s => s.id === "sweep")!.done![0]).toMatch(/^allotment: rewrote 1 note \(1 rule-place\)/);
     expect(ruleNote()).toContain("[rule-place::append]");
@@ -262,6 +267,9 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(r2.steps.find(s => s.id === "host")!.done!.join(" ")).toContain("started the outline host (systemd outliner-host.service");
     expect(r2.steps.find(s => s.id === "session")!.status).toBe("do");
     expect([version("allotment"), version("compost")]).toEqual([M, M]);
+    expect(version("seed-bank")).toBe(M);
+    const seeds = await hostRequest(sock, "blocks.query", { outline: "seed-bank", query: { where: "rule-name=bay-badges" } });
+    expect(seeds.blocks[0].text).toContain("Bay badges");
     // The host opens both on the new code (a ping opens the outline it names, and it refuses one at another schema).
     for (const outline of ["allotment", "compost"]) expect(await hostRequest(sock, "ping", { outline })).toMatchObject({ protocolVersion: expect.any(Number) });
     const repaired = await hostRequest(sock, "blocks.query", { outline: "compost", query: { where: "type=deploy machine=install" } });
