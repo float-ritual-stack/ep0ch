@@ -209,6 +209,95 @@ const BINDING_REFRESH_MS = 30_000
 /** How long the first prompt waits for the binding before saying it is still being looked up: as long as for `where`. */
 const BINDING_WAIT_MS = WHERE_WAIT_MS
 
+async function drawReferences($: EngineInterface, e: RenderInput<'AssistantMessage' | 'UserMessage'>): Promise<RenderElement | null> {
+  const prompt = 'origin' in e.props ? e.props : null
+  // Attachment placeholders need the engine's stored content; the full transcript stays the engine's too.
+  if (prompt && (prompt.origin.kind !== 'composer' || prompt.from || prompt.task || prompt.isExpanded ||
+    /\[(?:Image(?: #\d+)?|Pasted text[^\]]*|\.\.\.Truncated text[^\]]*|\u2726 Team setup guide[^\]]*)\]/.test(prompt.text))) return null
+  const workspace = references?.workspace
+  if (!workspace) return null
+  const titles = new Map<string, string>()
+  for (const id of unlabelledBlockIds(e.props.text)) {
+    const title = await titleFor($, id)
+    if (title) titles.set(id, title)
+  }
+  const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id))
+  if (prompt && hrefs.length === 0) return null
+  // A terminal draws a link out of the outline itself too (a trailing arrow, dim), so a reply with one is not left to the engine.
+  const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
+  if ((hrefs.length === 0 && blocks.every(block => block.kind === 'markdown')) || text.length > 10_000) return null
+  const { Box, Text, Markdown, Button, Link } = await $.ui.resolve(e)
+  const open = (href: string, surface: RenderSurface) => void openReference($, workspace, href, surface)
+  // A terminal prints the address beside a link it cannot make a hyperlink of, so there the references are drawn
+  // here, as their labels (PIE-1042); the desktop draws the Markdown, whose links are real.
+  const seen = new Map<string, number>()
+  const drawParts = (parts: LinePart[], at: string, allBold: boolean) => parts.flatMap((part, i) => {
+    if ('ref' in part) {
+      const count = (seen.get(part.ref) ?? 0) + 1
+      seen.set(part.ref, count)
+      // A link out of the outline: dim, with a trailing arrow, and the terminal's own hyperlink opens it (OSC 8).
+      if (part.external) {
+        return [Link({
+          key: count === 1 ? part.ref : `${part.ref}#${count}`,
+          href: part.ref,
+          children: [Text({ key: 'label', color: 'inactive', bold: allBold || undefined, children: part.label }), Text({ key: 'arrow', color: 'inactive', children: ' »' })],
+        })]
+      }
+      return [Button({
+        key: count === 1 ? part.ref : `${part.ref}#${count}`,
+        plain: true,
+        onPress: press => open(part.ref, press.surface),
+        children: Text({ underline: true, color: 'suggestion', bold: allBold || undefined, children: part.label }),
+      })]
+    }
+    return (part.text.match(/\S+\s*|\s+/g) ?? []).map((word, w) =>
+      Text({
+        key: `${at}.t${i}.${w}`,
+        bold: allBold || part.style === 'bold' || part.style === 'bold-italic' || undefined,
+        italic: part.style === 'italic' || part.style === 'bold-italic' || undefined,
+        color: part.style === 'code' ? 'permission' : part.style === 'dim' ? 'inactive' : undefined,
+        children: word,
+      }))
+  })
+  const body = blocks.map((block, n) => {
+    if (block.kind === 'markdown') {
+      return Markdown(block.text === text
+        ? { key: 'outliner-references', text, pressableLinks: hrefs.slice(0, 256), onLinkPress: (link, press) => open(link.href, press.surface) }
+        : { text: block.text })
+    }
+    if (block.kind === 'table') {
+      // A table drawn whole (PIE-1043): a row per Box, a fixed-width cell per column, pressable references inside.
+      const widths = tableWidths(block)
+      const row = (cells: LinePart[][], key: string, bold: boolean) => Box({
+        key,
+        flexDirection: 'row',
+        children: cells.flatMap((cell, c) => [
+          ...(c ? [Text({ key: `bar${c}`, dimColor: true, children: ' │ ' })] : []),
+          Box({ key: `c${c}`, width: widths[c], flexShrink: 0, flexDirection: 'row', flexWrap: 'wrap', children: drawParts(cell, `${key}.${c}`, bold) }),
+        ]),
+      })
+      return Box({
+        key: `outliner-table-${n}`,
+        flexDirection: 'column',
+        children: [
+          row(block.header, 'head', true),
+          Text({ key: 'rule', dimColor: true, children: widths.map(w => '─'.repeat(w)).join('─┼─') }),
+          ...block.rows.map((cells, r) => row(cells, `row${r}`, false)),
+        ],
+      })
+    }
+    return Box({ key: `outliner-line-${n}`, flexDirection: 'row', flexWrap: 'wrap', children: drawParts(block.parts, `l${n}`, false) })
+  })
+  return Box({
+    flexDirection: 'row',
+    backgroundColor: prompt ? 'userMessageBackground' : undefined,
+    children: [
+      Box({ width: 2, flexShrink: 0, children: Text({ children: prompt ? '\u276f ' : 'isFirstOfReply' in e.props && e.props.isFirstOfReply ? '⏺' : '' }) }),
+      Box({ flexGrow: 1, flexShrink: 1, flexDirection: 'column', children: body }),
+    ],
+  })
+}
+
 /**
  * Registers Recent Mentions: each completed main-loop answer in a folder bound
  * to an outline goes to that outline, as the Codex Stop hook sends Codex's.
@@ -530,88 +619,10 @@ export function register(on: On, options: PluginOptions): void {
     }
   })
 
-  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    const workspace = references?.workspace
-    if (!workspace) return next(e)
-    const titles = new Map<string, string>()
-    for (const id of unlabelledBlockIds(e.props.text)) {
-      const title = await titleFor($, id)
-      if (title) titles.set(id, title)
-    }
-    const { text, hrefs } = linkifyReferences(e.props.text, references!.prefixes, id => titles.get(id))
-    // A terminal draws a link out of the outline itself too (a trailing arrow, dim), so a reply with one is not left to the engine.
-    const blocks: ReplyBlock[] = e.surface === 'terminal' ? replyBlocks(text) : [{ kind: 'markdown', text }]
-    if ((hrefs.length === 0 && blocks.every(block => block.kind === 'markdown')) || text.length > 10_000) return next(e)
-    const { Box, Text, Markdown, Button, Link } = await $.ui.resolve(e)
-    const open = (href: string, surface: RenderSurface) => void openReference($, workspace, href, surface)
-    // A terminal prints the address beside a link it cannot make a hyperlink of, so there the references are drawn
-    // here, as their labels (PIE-1042); the desktop draws the Markdown, whose links are real.
-    const seen = new Map<string, number>()
-    const drawParts = (parts: LinePart[], at: string, allBold: boolean) => parts.flatMap((part, i) => {
-      if ('ref' in part) {
-        const count = (seen.get(part.ref) ?? 0) + 1
-        seen.set(part.ref, count)
-        // A link out of the outline: dim, with a trailing arrow, and the terminal's own hyperlink opens it (OSC 8).
-        if (part.external) {
-          return [Link({
-            key: count === 1 ? part.ref : `${part.ref}#${count}`,
-            href: part.ref,
-            children: [Text({ key: 'label', color: 'inactive', bold: allBold || undefined, children: part.label }), Text({ key: 'arrow', color: 'inactive', children: ' »' })],
-          })]
-        }
-        return [Button({
-          key: count === 1 ? part.ref : `${part.ref}#${count}`,
-          plain: true,
-          onPress: press => open(part.ref, press.surface),
-          children: Text({ underline: true, color: 'suggestion', bold: allBold || undefined, children: part.label }),
-        })]
-      }
-      return (part.text.match(/\S+\s*|\s+/g) ?? []).map((word, w) =>
-        Text({
-          key: `${at}.t${i}.${w}`,
-          bold: allBold || part.style === 'bold' || part.style === 'bold-italic' || undefined,
-          italic: part.style === 'italic' || part.style === 'bold-italic' || undefined,
-          color: part.style === 'code' ? 'permission' : part.style === 'dim' ? 'inactive' : undefined,
-          children: word,
-        }))
-    })
-    const body = blocks.map((block, n) => {
-      if (block.kind === 'markdown') {
-        return Markdown(block.text === text
-          ? { key: 'outliner-references', text, pressableLinks: hrefs.slice(0, 256), onLinkPress: (link, press) => open(link.href, press.surface) }
-          : { text: block.text })
-      }
-      if (block.kind === 'table') {
-        // A table drawn whole (PIE-1043): a row per Box, a fixed-width cell per column, pressable references inside.
-        const widths = tableWidths(block)
-        const row = (cells: LinePart[][], key: string, bold: boolean) => Box({
-          key,
-          flexDirection: 'row',
-          children: cells.flatMap((cell, c) => [
-            ...(c ? [Text({ key: `bar${c}`, dimColor: true, children: ' │ ' })] : []),
-            Box({ key: `c${c}`, width: widths[c], flexShrink: 0, flexDirection: 'row', flexWrap: 'wrap', children: drawParts(cell, `${key}.${c}`, bold) }),
-          ]),
-        })
-        return Box({
-          key: `outliner-table-${n}`,
-          flexDirection: 'column',
-          children: [
-            row(block.header, 'head', true),
-            Text({ key: 'rule', dimColor: true, children: widths.map(w => '─'.repeat(w)).join('─┼─') }),
-            ...block.rows.map((cells, r) => row(cells, `row${r}`, false)),
-          ],
-        })
-      }
-      return Box({ key: `outliner-line-${n}`, flexDirection: 'row', flexWrap: 'wrap', children: drawParts(block.parts, `l${n}`, false) })
-    })
-    return Box({
-      flexDirection: 'row',
-      children: [
-        Box({ width: 2, flexShrink: 0, children: Text({ children: e.props.isFirstOfReply ? '⏺' : '' }) }),
-        Box({ flexGrow: 1, flexShrink: 1, flexDirection: 'column', children: body }),
-      ],
-    })
-  })
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) =>
+    await drawReferences($, e) ?? next(e))
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) =>
+    await drawReferences($, e) ?? next(e))
 
   // The mod's own tool calls as compact rows that fold open on what they wrote (hooks/tool-rows.ts). Anything the
   // formatter doesn't recognise, a drawing that throws, or the person's `/tool-rows off` leaves the engine's row.

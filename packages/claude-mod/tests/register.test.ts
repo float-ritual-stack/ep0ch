@@ -61,6 +61,10 @@ function sessionIn(
     const { Box, Text } = $.ui.resolve(e)
     return Box({ key: 'engine', children: Text({ children: e.props.text }) })
   })
+  on('ui.render', { component: 'UserMessage' }, ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    return Box({ key: 'engine-prompt', children: Text({ children: e.props.text }) })
+  })
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: typeof cwd === 'function' ? cwd() : cwd }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
@@ -391,6 +395,55 @@ describe('register', () => {
     })
     expect(await plain.find({ key: 'outliner-references' })).toBeUndefined()
     expect((await plain.find({ key: 'engine' }))?.text).toBe('Nothing to link here.')
+  })
+
+  test('prompt references draw as labels without replacing the prompt (PIE-1054)', async ($, on) => {
+    const session = sessionIn(on, WORKSPACE, succeeding)
+    await session.begin(() => $.session.start(START))
+    const drawn = await $.ui.mount({
+      plugin: 'ep0ch', surface: 'terminal', component: 'UserMessage',
+      props: { text: `See [[Daily notes]], ((${BLOCK})), ((${BLOCK}|the note)), PIE-7, https://my.ep0ch.sh/pub/p/PIE-8 and https://example.com/docs.`, origin: { kind: 'composer' }, isExpanded: false, onScreen: null },
+    })
+    await session.clock.settle()
+    for (const [key, label] of [
+      ['https://pi-outliner.invalid/page/Daily%20notes', 'Daily notes'],
+      [`https://pi-outliner.invalid/block/${BLOCK}`, 'Daily notes'],
+      [`https://pi-outliner.invalid/block/${BLOCK}#2`, 'the note'],
+      ['https://pi-outliner.invalid/work/PIE-7', 'PIE-7'],
+      ['https://pi-outliner.invalid/work/PIE-8', 'PIE-8'],
+    ]) {
+      expect((await drawn.find({ key }))?.text).toBe(label)
+    }
+    expect(await drawn.find({ text: /https:\/\/example\.com\/docs/ })).toBeDefined()
+    const row = await drawn.find({ type: 'Box' })
+    expect(row?.text).toContain('\u276f See ')
+    expect(row?.props.backgroundColor).toBe('userMessageBackground')
+    await drawn.press({ key: 'https://pi-outliner.invalid/work/PIE-7' })
+    await session.clock.settle()
+    expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', 'pi-outliner://work/PIE-7'])
+  })
+
+  test('prompts with attachments or no references and other user rows stay with the engine', async ($, on) => {
+    const session = sessionIn(on, WORKSPACE, succeeding)
+    await session.begin(() => $.session.start(START))
+    for (const props of [
+      { text: 'Nothing to link here.' },
+      { text: 'See https://example.com/docs.' },
+      { text: 'See PIE-7 and [Image #1]' },
+      { text: 'See PIE-7 and [Image]' },
+      { text: 'See PIE-7 and [Pasted text #2 +30 lines]' },
+      { text: 'See PIE-7 and [...Truncated text #2 +30 lines...]' },
+      { text: 'See PIE-7', isExpanded: true },
+      { text: 'See PIE-7', origin: { kind: 'bridge' as const } },
+      { text: 'See PIE-7', from: { name: 'helper' } },
+      { text: 'See PIE-7', task: { id: 'task-1', status: 'completed' as const } },
+    ]) {
+      const drawn = await $.ui.mount({
+        plugin: 'ep0ch', surface: 'terminal', component: 'UserMessage',
+        props: { origin: { kind: 'composer' }, isExpanded: false, ...props },
+      })
+      expect((await drawn.find({ key: 'engine-prompt' }))?.text).toBe(props.text)
+    }
   })
 
   test('an unaliased ((id)) draws as its short id, then as the note title once looked up, and still opens (PIE-1043)', async ($, on) => {
