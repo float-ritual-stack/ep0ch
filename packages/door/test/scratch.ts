@@ -206,7 +206,10 @@ export class ScratchHost {
   get config() { return join(this.root, "config"); }
   get sock() { return join(this.outlines, ".host", "host.sock"); }
   /** The environment a door or `ep0ch` command uses to find this host (HOME is the scratch's, so no real .ep0ch is read above it). */
-  get env(): Record<string, string> { return { EP0CH_OUTLINES: this.outlines, XDG_CONFIG_HOME: this.config, HOME: join(this.root, "home") }; }
+  get env(): Record<string, string> {
+    // A CLI's fake SSH forward belongs to the test runner, not the short-lived CLI that opens it.
+    return { EP0CH_OUTLINES: this.outlines, XDG_CONFIG_HOME: this.config, HOME: join(this.root, "home"), FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE! };
+  }
   folder(name: string): string { const p = join(this.root, "folders", name); mkdirSync(p, { recursive: true }); return p; }
 
   async start(defaultOutline?: string): Promise<string> {
