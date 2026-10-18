@@ -67,6 +67,37 @@ return await place(${JSON.stringify(body)}, { at: "^week", mode: ${JSON.stringif
 \`\`\``;
 const NOTE = "Plan\n\n## This week ^week\n\nmy own paragraph\n\n## Later ^later";
 
+test("place follows its caller when lines are inserted above it during the run", async () => {
+  const { store, create, run } = await setup();
+  const caller = "Run the weekly report here.";
+  const note = create(`Plan\n\n${caller}\n\nLeave this paragraph below the report.`);
+  const changed = note.text.replace(caller, `New context\n${"More context\n".repeat(30)}${caller}`);
+  create(`Moving report [script::moving-report] [effects::write]\n\`\`\`js
+await tools.outline_edit({ ref: this.id, expectedRevision: ${note.revision}, text: ${JSON.stringify(changed)} });
+await place("The weekly result.");
+\`\`\``);
+  const result = await run("moving-report", { blockId: note.id, line: 2 });
+  expect(result.text).toContain("· done");
+  const saved = store.get(note.id)!.text;
+  expect(saved).toContain(`${caller}\n\n> [!output]`);
+  expect(findOutputRegions(saved)[0]?.body).toBe("The weekly result.");
+  expect(saved).toContain("Leave this paragraph below the report.");
+});
+
+test("place leaves the note alone when its caller was rewritten during the run", async () => {
+  const { store, create, run } = await setup();
+  const note = create("Plan\n\nRun the report here.\n\nKeep this paragraph.");
+  const changed = note.text.replace("Run the report here.", "I no longer want the report here.");
+  create(`Changed report [script::changed-report] [effects::write]\n\`\`\`js
+await tools.outline_edit({ ref: this.id, expectedRevision: ${note.revision}, text: ${JSON.stringify(changed)} });
+await place("The weekly result.");
+\`\`\``);
+  const result = await run("changed-report", { blockId: note.id, line: 2 });
+  expect(result.text).toContain("place's caller changed");
+  expect(result.text).toContain("give at: ^anchor");
+  expect(store.get(note.id)!.text).toBe(changed);
+});
+
 test("place appends a region under the anchor as the script; a rerun with upsert replaces only that region", async () => {
   const { store, create, run } = await setup();
   create(WEEKLY("upsert"));

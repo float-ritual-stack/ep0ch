@@ -84,7 +84,7 @@ The code is the body of an async function: `await` and `return` work at the top.
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. A render line keeps repeats (`tag=a tag=b` is two values); every action run path gives one value per key. | `packages/outliner/src/script-runtime.ts:27` |
 | `view` | The builders of [view.*](#view). | `packages/outliner/src/script-runtime.ts:49` |
 | `tools` | The agent tools, `await tools.outline_read({ ref })`. See [tools.*](#tools). | `packages/outliner/src/script-runtime.ts:38` |
-| `text(value)`, `console.log(...)` | Add a line to the run note's output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:297` |
+| `text(value)`, `console.log(...)` | Add a line to the run note's output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:311` |
 | `exit()` | Ends the script successfully, keeping its output (the sandbox's own). | |
 
 `text`, `console`, `exit`, `store`/`load` and `ALL_TOOLS` come from the QuickJS sandbox
@@ -217,10 +217,10 @@ The returned value becomes text, the same way in a run note and a drawn line:
 
 | Returned | Shown as | Source |
 |---|---|---|
-| `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:33` |
-| `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:27` |
-| `undefined` | nothing (a run note ends at the output lines) | `packages/outliner/src/script-runs.ts:298` |
-| `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:37` |
+| `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:34` |
+| `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:28` |
+| `undefined` | nothing (a run note ends at the output lines) | `packages/outliner/src/script-runs.ts:312` |
+| `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:38` |
 
 ## Record shapes
 
@@ -246,14 +246,14 @@ examples lean on:
 | `BlockRecord` | `packages/outline-core/src/block-record.ts:14` |
 | `textRecord` | `packages/outliner/src/block-records.ts:35` |
 | `ScriptSiteGlobals` | `packages/outliner/src/script-runtime.ts:11` |
-| `bind` | `packages/outliner/src/script-runs.ts:85` |
+| `bind` | `packages/outliner/src/script-runs.ts:86` |
 
 ## Modes
 
 | Mode | Written | Runs | Draws or writes | Source |
 |---|---|---|---|---|
-| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:194` |
-| render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:119` |
+| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:195` |
+| render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:120` |
 | `pipelineCalls` (the `::=` line) | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:150` |
 
 **Render mode in detail.**
@@ -276,7 +276,7 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `slotProps` | `packages/outliner/src/script-runs.ts:40` |
+| `slotProps` | `packages/outliner/src/script-runs.ts:41` |
 | `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:801` |
 | `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:417` |
 
@@ -300,13 +300,13 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:195` |
+| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:196` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:714` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1953` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4223` |
 | `viaYolo` | `packages/outliner/src/server.ts:4246` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:313` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:327` |
 
 ## Lifecycle
 
@@ -324,10 +324,10 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:192` |
-| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:204` |
-| `stopRun` | `packages/outliner/src/script-runs.ts:185` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:254` |
+| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:193` |
+| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:205` |
+| `stopRun` | `packages/outliner/src/script-runs.ts:186` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:255` |
 | `scripts.stop` | `packages/outliner/src/server.ts:1943` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2459` |
 

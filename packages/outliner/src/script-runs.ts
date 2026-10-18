@@ -1,4 +1,5 @@
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
+import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { createPatch } from "diff";
 import { slotPairs } from "@ep0ch/outline-core/action-line";
 import type { AgentToolsClient } from "./agent-tools";
@@ -258,11 +259,14 @@ export class ScriptRuns {
       },
     };
     const site = this.bind(source, { blockId: request.blockId, line: request.line, trigger: !!request.trigger, props: Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, [String(v)]])) });
+    let caller: { text: string; span: DraftPatchSpan } | undefined;
     // place(): the plan is made on the note as its draft has it now, sent as this script, applied or one proposal at the caller.
     const place = async (content: string, opts: { at?: string; mode?: string; label?: string; interpolate?: boolean }) => {
       if (!site.thisId) throw new Error("place writes into this run's note: run this script from a note (this run has none)");
       const draft = await client.request<{ text: string; revision: number; holder?: string }>({ action: "drafts.read", blockId: site.thisId });
-      const line = request.line;
+      const located = caller ? rebaseSpans(caller.text, draft.text, [caller.span]) : undefined;
+      if (located && !located.ok && !opts.at) throw new Error(`place's caller changed: ${located.reason}; run it again from the note, or give at: ^anchor`);
+      const line = located?.ok ? draft.text.slice(0, located.spans[0]!.start).split("\n").length - 1 : undefined;
       const producer = { id: source.blockId ?? extension.id.replace(/[^A-Za-z0-9_-]/g, "-").padEnd(8, "-"), name: extension.name };
       const plan = planPlace(draft.text, {
         producer, content, ...(opts.at !== undefined ? { at: opts.at } : {}), ...(opts.mode !== undefined ? { mode: opts.mode as PlaceMode } : {}),
@@ -290,6 +294,15 @@ export class ScriptRuns {
     const task = (async () => {
       let failure: string | undefined;
       try {
+        if (site.thisId && request.line !== undefined) {
+          // Read before executing: the run itself can insert text above the line that asked it.
+          const draft = await client.request<{ text: string }>({ action: "drafts.read", blockId: site.thisId });
+          const lines = draft.text.split("\n"), observed = lines[request.line];
+          if (observed !== undefined) {
+            const start = lines.slice(0, request.line).reduce((n, line) => n + line.length + 1, 0);
+            caller = { text: draft.text, span: { observed, replacement: observed, range: { start, end: start + observed.length } } };
+          }
+        }
         const result = await runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined, site.globals);
         const current = this.registry.extension(extension.id);
         if (!current || current.stamp !== extension.stamp) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
