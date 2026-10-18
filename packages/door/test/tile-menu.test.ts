@@ -220,6 +220,42 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     await mine("tile.zoom", { on: false }, "reader");
   });
 
+  test("a menu taller than the screen scrolls with its foot always shown (PIE-1036): at 40 rows, wheel, arrows and a thumb reach the last row", async () => {
+    info.rows = 40;
+    try {
+      fresh();
+      await until(() => !!D().pane("reader")?.msg, "the reader shows a note");
+      render();
+      key(ctrl("w")); key(char("."));
+      await until(() => menu()?.name === "tile menu", "^W . opens it");
+      const rows = menu()!.items as readonly MenuRow[];
+      const lines = () => render().lines.map(visible);
+      const draw = () => lines().slice(0, 40);
+      const last = rows.at(-1)!;
+      // The box stays on the screen with its foot (its bottom border and hint), whatever the rows' count.
+      const box = () => { const l = draw(); const t = l.findIndex(x => x.includes("┌─ reader")); const b = l.findIndex((x, i) => i > t && x.includes("type to filter")); return { t, b, l }; };
+      expect(box().t).toBeGreaterThanOrEqual(0);
+      expect(box().b).toBeGreaterThan(box().t);
+      // The wheel scrolls the rows, not only the cursor: the rest of the menu comes into view and the foot stays.
+      const first = box().l.join("\n");
+      expect(first).not.toContain(last.label + " ");
+      for (let n = 0; n < 40; n++) key({ kind: "mouse", action: "wheel-down", button: 0, x: 5, y: 5 });
+      expect(box().l.join("\n")).toContain(last.label);
+      expect(box().b).toBeGreaterThan(box().t);
+      // A thumb on the box's right border says there is more, and the cursor is on a row in view, never off the screen.
+      const edge = () => { const { t, b, l } = box(); const x = l[t]!.indexOf("┐", l[t]!.indexOf("┌─ reader")); return l.slice(t + 1, b).map(r => [...r][x]); };
+      expect(edge()).toContain("█");
+      expect(box().l.join("\n")).toContain(menu()!.items[(menu() as any).sel]!.label);
+      // Arrows reach the last row too, and ⏎ runs it.
+      key({ kind: "esc" });
+      key(ctrl("w")); key(char("."));
+      await until(() => menu()?.name === "tile menu", "open again");
+      for (let n = 0; n < rows.length; n++) key({ kind: "down" });
+      expect(box().l.join("\n")).toContain(last.label);
+      key({ kind: "esc" });
+    } finally { info.rows = 64; }
+  });
+
   test("the letters a query matches are lit: a word where it sits, else its letters in order", () => {
     expect([...litCells("preview beside", "view")]).toEqual([3, 4, 5, 6]);
     expect([...litCells("fold to a spine", "fsp")].sort((a, b) => a - b)).toEqual([0, 10, 11]);

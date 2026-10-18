@@ -10,6 +10,12 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A tile's menu taller than the screen scrolls (PIE-1036)
+
+The wheel over a tile's ⋯ menu scrolls its rows (the cursor goes to a row in view, so ⏎ never runs one off the screen),
+a thumb on the box's right edge shows how far down it is, and the foot (the hint) and the last rows stay reachable at
+any height; the arrows still move the cursor. A `ListPicker` takes `scrolls: true` for the same.
+
 ### The scripts page's code pointers follow their symbols (PIE-1040)
 
 `bun packages/outliner/scripts/scripts-doc.ts` now writes each `path:line` pointer from the symbol it sits beside, so a moved
