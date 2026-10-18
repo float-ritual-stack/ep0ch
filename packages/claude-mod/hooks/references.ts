@@ -36,6 +36,32 @@ function codeRuns(text: string): { code: boolean; text: string }[] {
   return runs
 }
 
+/** A `my.ep0ch.sh/pub/p/<PIE-n|page|id>` address: the web form of a reference (the tailnet's published notes). */
+const WEB = 'https://my\\.ep0ch\\.sh/pub/p/([^\\s<>()\\[\\]?#]+)(?:[?#][^\\s<>()]*)?'
+const WEB_LINK = new RegExp(`^\\[([^\\]\\n]*)\\]\\(${WEB}\\)$`, 'i')
+const WEB_BARE = new RegExp(`^${WEB}$`, 'i')
+
+/**
+ * A `my.ep0ch.sh` address Claude wrote, bare or as `[label](url)`, as the same stand-in link a reference gets (labelled
+ * by its label, else the Work ID, the page name or the note's title); null for any other link or URL, left as written.
+ */
+function mirrored(piece: string, hrefs: Set<string>, titleOf: (id: string) => string | undefined): string | null {
+  const trimmed = /^(.*?)([.,;:!?]*)$/s.exec(piece)!
+  const given = WEB_LINK.exec(piece)
+  const bare = given ? null : WEB_BARE.exec(trimmed[1]!)
+  const target = given?.[2] ?? bare?.[1]
+  if (!target) return null
+  let value: string
+  try { value = decodeURIComponent(target) } catch { return null }
+  const [kind, id] = /^[A-Z][A-Z0-9]*-\d+$/.test(value) ? ['work', value]
+    : new RegExp(`^${UUID}$`).test(value) ? ['block', value.toLowerCase()]
+      : ['page', value]
+  const href = `${STAND_IN}${kind}/${encodeURIComponent(id)}`
+  hrefs.add(href)
+  const label = (given?.[1]?.trim() || (kind === 'block' ? titleOf(id) || `((${id.slice(0, 8)}…))` : id)).replace(/[[\]\\]/g, '\\$&')
+  return `[${label}](${href})${given ? '' : trimmed[2]}`
+}
+
 export type Linkified = {
   /** The markdown to draw, references as stand-in links. */
   text: string
@@ -47,7 +73,7 @@ export type Linkified = {
  * `[[page]]`, `[[target|label]]`, `((uuid))`, `((uuid|label))` and bare Work
  * IDs with one of `prefixes`, rewritten as links outside protected ranges.
  */
-export function linkifyReferences(text: string, prefixes: readonly string[]): Linkified {
+export function linkifyReferences(text: string, prefixes: readonly string[], titleOf: (id: string) => string | undefined = () => undefined): Linkified {
   const hrefs = new Set<string>()
   const workIds = prefixes
     .filter(prefix => /^[A-Z][A-Z0-9]*$/.test(prefix))
@@ -75,7 +101,7 @@ export function linkifyReferences(text: string, prefixes: readonly string[]): Li
     if (run.code) { out += run.text; continue }
     let last = 0
     for (const match of run.text.matchAll(PROTECTED)) {
-      out += rewrite(run.text.slice(last, match.index)) + match[0]
+      out += rewrite(run.text.slice(last, match.index)) + (mirrored(match[0], hrefs, titleOf) ?? match[0])
       last = match.index + match[0].length
     }
     out += rewrite(run.text.slice(last))

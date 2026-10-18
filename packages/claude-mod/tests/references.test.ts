@@ -1,5 +1,6 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
 
+import { replyBlocks } from '../hooks/reply-lines'
 import { linkifyReferences, outlinerReferenceOf, outlinerUriFor, outlinerUriOf } from '../hooks/references'
 
 tier('user')
@@ -93,5 +94,26 @@ describe('references', () => {
       expect(outlinerReferenceOf(outlinerUriFor(reference)!)).toBe(reference)
     }
     expect(outlinerReferenceOf(`pi-outliner://block/${UUID.toUpperCase()}`)).toBe(`((${UUID}))`)
+  })
+
+  test('my.ep0ch.sh links Claude writes, bare or in a link, are the same references; other URLs are left alone', async () => {
+    const source = `See https://my.ep0ch.sh/pub/p/PIE-8. And [it](https://my.ep0ch.sh/pub/p/Daily%20notes), https://my.ep0ch.sh/pub/p/${UUID} and https://example.com/a.`
+    const { text, hrefs } = linkifyReferences(source, [], id => (id === UUID ? 'Bike shed' : undefined))
+    expect(text).toBe(
+      `See [PIE-8](${STAND_IN}work/PIE-8). And [it](${STAND_IN}page/Daily%20notes), [Bike shed](${STAND_IN}block/${UUID}) and https://example.com/a.`,
+    )
+    expect(hrefs).toEqual([`${STAND_IN}work/PIE-8`, `${STAND_IN}page/Daily%20notes`, `${STAND_IN}block/${UUID}`])
+    expect(linkifyReferences('`https://my.ep0ch.sh/pub/p/PIE-8`', []).hrefs).toEqual([])
+  })
+
+  test('replyBlocks: lines holding references are parts, the rest Markdown runs, code left alone', async () => {
+    const { text } = linkifyReferences('# Title\nplain\n- see PIE-1 and **PIE-2**\n```\nPIE-3\n```', ['PIE'])
+    const blocks = replyBlocks(text)
+    expect(blocks.map(b => b.kind)).toEqual(['markdown', 'line', 'markdown'])
+    expect(blocks[1]).toEqual({
+      kind: 'line',
+      parts: [{ text: '• ' }, { text: 'see ' }, { ref: `${STAND_IN}work/PIE-1`, label: 'PIE-1' }, { text: ' and ' }, { ref: `${STAND_IN}work/PIE-2`, label: 'PIE-2' }],
+    })
+    expect(JSON.stringify(blocks)).not.toContain('PIE-3](')
   })
 })

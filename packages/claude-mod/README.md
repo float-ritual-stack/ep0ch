@@ -113,10 +113,13 @@ A click, `show` and `door_open` share one open (`openNote` in
 - If you are editing in that Detail, a click or `show` is refused with a toast
   (the Outliner protects active edits) rather than opening a second pane.
 - Clicks reach the mod in the fullscreen terminal (`"tui": "fullscreen"`).
-- Links carry `https://pi-outliner.invalid/...` stand-ins, because Claude Code only
-  draws https, http and file links as links. Where it does not detect terminal
-  hyperlink support (a Herdr pane), it prints each URL beside its text; set
-  `FORCE_HYPERLINK=1` in the settings `env` block to draw the text alone.
+- A reference in a reply reads as its label only, underlined, in every terminal (PIE-1042): Claude Code's `Markdown`
+  and `Link` print the address beside a link when the terminal has no hyperlinks, and cannot be told not to, so in a
+  terminal the mod draws the lines that hold a reference itself (`hooks/reply-lines.ts`: one pressable `Button` per
+  reference, prose around it with bold, italic and code kept) and leaves every other line to the engine's Markdown.
+  The desktop and VS Code keep the Markdown, whose links are real, on `https://pi-outliner.invalid/...` stand-ins.
+  `https://my.ep0ch.sh/pub/p/<PIE-n|page|id>` that Claude writes, bare or as `[label](url)`, is the same reference
+  (a bare one drawn as its PIE-n, page name or the note's title); other URLs are left as written.
 - A target the Outliner cannot resolve is a toast, never a new page.
 
 ### Where this Claude is bound
