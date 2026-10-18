@@ -33,6 +33,9 @@ const MAX_BODY = 1024 * 1024;
 /** Requests answered at once; up to MAX_WAITING more wait their turn, and past that a request is turned away (503). */
 const MAX_INFLIGHT = 4;
 const MAX_WAITING = 32;
+const MAX_STREAMS_PER_CLIENT = 4;
+const MAX_STREAMS = 64;
+const KEEP_ALIVE_MS = 25_000;
 
 /** What the gateway checks a token against. `keys`: the issuer's JWKS (a local set under test). */
 export interface BearerPolicy {
@@ -47,7 +50,7 @@ export interface BearerPolicy {
 }
 
 export type BearerVerdict =
-  | { ok: true; sub: string; clientId?: string }
+  | { ok: true; sub: string; clientId?: string; expiresAt: number }
   | { ok: false; status: 401 | 403 | 503; error?: string; description: string };
 
 const trimSlash = (url: string) => url.replace(/\/+$/, "");
@@ -100,7 +103,7 @@ export async function verifyBearer(authorization: string | null, policy: BearerP
     log(`mcp gateway: refused ${who}: client not on EP0CH_MCP_ALLOWED_CLIENTS`);
     return { ok: false, status: 403, description: "this client may not use this gateway" };
   }
-  return { ok: true, sub, ...(clientId ? { clientId } : {}) };
+  return { ok: true, sub, ...(clientId ? { clientId } : {}), expiresAt: payload.exp! * 1000 };
 }
 
 /** Clerk's issuer from a publishable key: outline-core's, the one rule the web sign-in reads too. */
@@ -358,7 +361,14 @@ export function startGateway(opts: {
     return { release() { if (released) return; released = true; const next = waiting.shift(); if (next) next(); else inflight--; } };
   };
 
-  const streams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const streams = new Set<{ sub: string; clientId?: string; close(): void }>();
+  const closeDisallowedStreams = () => {
+    for (const stream of streams) {
+      if (!policy.allowedSubjects.includes(stream.sub) ||
+        (policy.allowedClients?.length && !(stream.clientId && policy.allowedClients.includes(stream.clientId)))) stream.close();
+    }
+  };
+  const busy = () => json(503, { error: "busy", error_description: "too many requests at once; try again" }, { "Retry-After": "1" });
   const server = Bun.serve({
     hostname: opts.bind,
     port: opts.port,
@@ -380,6 +390,7 @@ export function startGateway(opts: {
 
       // Every request to the endpoint, whatever its method, shows its token first, for this path's resource.
       // A token is for one host's resource: one issued for another host's isn't taken here.
+      closeDisallowedStreams();
       const verdict = await verifyBearer(req.headers.get("authorization"), { ...policy, resource: `${origin}${route.path}` }, log);
       if (!verdict.ok) {
         if (verdict.status === 401) {
@@ -388,25 +399,55 @@ export function startGateway(opts: {
         }
         return json(verdict.status, { error: verdict.status === 403 ? "forbidden" : "unavailable", error_description: verdict.description });
       }
-      if (req.method === "GET") {
-        if (!req.headers.get("accept")?.includes("text/event-stream")) return json(406, { error: "Accept must include text/event-stream" });
-        server.timeout(req, 0);
-        let controller: ReadableStreamDefaultController<Uint8Array>;
-        const stream = new ReadableStream<Uint8Array>({
-          start(c) {
-            controller = c;
-            streams.add(c);
-            // A deploy drops the old stream. Every reconnect invalidates the client's cached tools,
-            // without keeping sessions or replay state across gateway processes.
-            c.enqueue(new TextEncoder().encode('event: message\ndata: {"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n\n'));
-          },
-          cancel() { streams.delete(controller); },
-        });
-        return new Response(stream, { headers: { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } });
-      }
-      if (req.method !== "POST") return json(405, { error: "method not allowed" }, { Allow: "GET, POST" });
+      if (req.method !== "GET" && req.method !== "POST") return json(405, { error: "method not allowed" }, { Allow: "GET, POST" });
+      if (req.method === "GET" && !req.headers.get("accept")?.includes("text/event-stream")) return json(406, { error: "Accept must include text/event-stream" });
       const slot = await admit();
-      if (!slot) return json(503, { error: "busy", error_description: "too many requests at once; try again" }, { "Retry-After": "1" });
+      if (!slot) return busy();
+      if (req.method === "GET") {
+        // Setup shares POST's admission queue; idle streams have their own budget so tools can still run.
+        try {
+          const owned = [...streams].filter(s => s.sub === verdict.sub && s.clientId === verdict.clientId);
+          if (owned.length >= MAX_STREAMS_PER_CLIENT) owned[0]!.close();
+          if (streams.size >= MAX_STREAMS) return busy();
+          server.timeout(req, 0);
+          let finish: (cancelled?: boolean) => void;
+          const stream = new ReadableStream<Uint8Array>({
+            start(c) {
+              let closed = false;
+              let deadline: ReturnType<typeof setTimeout>;
+              let heartbeat: ReturnType<typeof setInterval>;
+              const entry = { sub: verdict.sub, clientId: verdict.clientId, close: () => finish() };
+              finish = (cancelled = false) => {
+                if (closed) return;
+                closed = true;
+                clearTimeout(deadline);
+                clearInterval(heartbeat);
+                streams.delete(entry);
+                if (!cancelled) c.close();
+              };
+              const expire = () => {
+                const remaining = verdict.expiresAt - Date.now();
+                if (remaining <= 0) { finish(); return; }
+                // Timers use a signed 32-bit delay; long-lived tokens still expire at their actual deadline.
+                deadline = setTimeout(expire, Math.min(remaining, 2_147_483_647));
+              };
+              streams.add(entry);
+              // A deploy drops the old stream. Every reconnect invalidates the client's cached tools,
+              // without keeping sessions or replay state across gateway processes.
+              c.enqueue(new TextEncoder().encode('event: message\ndata: {"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n\n'));
+              heartbeat = setInterval(() => {
+                closeDisallowedStreams();
+                if (closed) return;
+                try { c.enqueue(new TextEncoder().encode(": keep-alive\n\n")); }
+                catch { finish(true); }
+              }, KEEP_ALIVE_MS);
+              expire();
+            },
+            cancel() { finish(true); },
+          });
+          return new Response(stream, { headers: { ...cors, "Content-Type": "text/event-stream", "Cache-Control": "no-store", "X-Accel-Buffering": "no" } });
+        } finally { slot.release(); }
+      }
       let answer;
       let body = "";
       try { body = await req.text(); } catch { slot.release(); return json(400, { error: "unreadable body" }); }
