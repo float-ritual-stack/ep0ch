@@ -263,4 +263,30 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     letter("t");
   }, 60_000);
 
+  test("undo refuses a changed note and keeps the receipt for another attempt", async () => {
+    const note = await board.createBlock(garden.id, "Carrots");
+    const act = (args: Record<string, unknown>) => app.act({ action: "tree.move", tile: treeName(), args, as: "undo-gardener" });
+    await act({ id: note.id, to: shed.id, revision: note.revision });
+    const moved = (await board.get(note.id))!;
+    await board.request("update", { blockId: note.id, text: "Carrots, keep in shed", expectedRevision: moved.revision });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(act({ id: note.id, undo: true })).rejects.toThrow("changed since");
+      expect((await board.get(note.id))!.parentId).toBe(shed.id);
+    }
+  }, 60_000);
+
+  test("undo keeps its receipt when the original parent is in Trash", async () => {
+    const parent = await board.createBlock(null, "Cold frame");
+    const note = await board.createBlock(parent.id, "Radishes");
+    const act = (args: Record<string, unknown>) => app.act({ action: "tree.move", tile: treeName(), args, as: "undo-gardener" });
+    await act({ id: note.id, to: shed.id, revision: note.revision });
+    const fresh = (await board.get(parent.id))!;
+    await board.request("delete", { blockId: parent.id, expectedRevision: fresh.revision });
+    await expect(act({ id: note.id, undo: true })).rejects.toThrow("Trash");
+    await board.request("trash.restore", { blockId: parent.id });
+    await act({ id: note.id, undo: true });
+    expect((await board.get(note.id))!.parentId).toBe(parent.id);
+    await expect(act({ id: note.id, undo: true })).rejects.toThrow("no move");
+  }, 60_000);
+
 });

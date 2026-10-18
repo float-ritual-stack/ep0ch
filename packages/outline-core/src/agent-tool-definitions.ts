@@ -468,13 +468,13 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
   {
     name: "outline_move",
     operation: "move",
-    example: { ref: "PIE-123", parent: `((${NOTE}))`, position: 0 },
+    example: { ref: "PIE-123", parent: `((${NOTE}))`, position: 0, revision: 3 },
     writes: true,
     target: "ref",
     description:
       "Move {note} (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among " +
       "its children (0 is first; default last), or just `before` or `after` a sibling note. Give exactly one of parent, " +
-      "before, after. With `revision` (what outline_read returned) it is refused if the note changed since. Attributed to " +
+      "before, after. Give `revision` (what outline_read returned); it is refused if the note changed since. Attributed to " +
       "you; the note keeps its id, text and links. Refused, with what to give instead: a place under Trash, " +
       "Bookmarks or a guide (the service fills them itself; the Inbox and the Deploys record take children), a place inside the note itself, a note in Trash, a ref that " +
       "doesn't resolve (with the nearest notes). A move to where it already is answers unchanged.",
@@ -484,9 +484,9 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       before: { type: "string", description: "A note to go just before (a ref): it gives the parent and the place" },
       after: { type: "string", description: "A note to go just after (a ref)" },
       position: { type: "integer", minimum: 0, description: "With parent: among its children, 0 first (default last)" },
-      revision: { type: "integer", minimum: 1, description: "Optional: the revision outline_read returned; refused if the note changed since" },
+      revision: EXPECTED,
     },
-    required: ["ref"],
+    required: ["ref", "revision"],
     command(input) {
       if (!nonEmpty(input.ref)) return "Give the ref of the note to move.";
       const places = ["parent", "before", "after"].filter(key => input[key] !== undefined);

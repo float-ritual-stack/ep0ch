@@ -395,35 +395,35 @@ test("move puts a note under a parent or beside a sibling, attributed; it refuse
   const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent", "--kinds", "move", "--limit", "5"])).stdout);
   expect(activity.entries.map((e: any) => [e.kind, e.block.id, e.actorId, e.sessionId])).toEqual([["move", stray.id, "garden-agent", "s-9"]]);
 
-  const after = await agent("move", { ref: stray.id, after: first.id });
+  const after = await agent("move", { ref: stray.id, revision: store.require(stray.id).revision, after: first.id });
   expect(after.json).toMatchObject({ outcome: "applied", position: 1 });
   expect(store.children(day.id).map(b => b.id)).toEqual([first.id, stray.id, second.id]);
-  expect((await agent("move", { ref: stray.id, before: second.id })).json).toMatchObject({ outcome: "unchanged", position: 1 });
-  await agent("move", { ref: second.id, before: first.id });
+  expect((await agent("move", { ref: stray.id, revision: store.require(stray.id).revision, before: second.id })).json).toMatchObject({ outcome: "unchanged", position: 1 });
+  await agent("move", { ref: second.id, revision: store.require(second.id).revision, before: first.id });
   expect(store.children(day.id).map(b => b.id)).toEqual([second.id, first.id, stray.id]);
-  expect((await agent("move", { ref: first.id, parent: "root" })).json).toMatchObject({ outcome: "applied", parentId: null });
+  expect((await agent("move", { ref: first.id, revision: store.require(first.id).revision, parent: "root" })).json).toMatchObject({ outcome: "applied", parentId: null });
 
-  const inside = await agent("move", { ref: stray.id, parent: kid.id });
+  const inside = await agent("move", { ref: stray.id, revision: store.require(stray.id).revision, parent: kid.id });
   expect(inside.exitCode).toBe(1);
   expect(inside.stderr).toContain("inside itself");
   expect(inside.stderr).toContain("pick a parent outside it");
-  expect((await agent("move", { ref: stray.id, parent: stray.id })).stderr).toContain("under itself");
-  const missing = await agent("move", { ref: stray.id, parent: "[[Tuesdy]]" });
+  expect((await agent("move", { ref: stray.id, revision: store.require(stray.id).revision, parent: stray.id })).stderr).toContain("under itself");
+  const missing = await agent("move", { ref: stray.id, revision: store.require(stray.id).revision, parent: "[[Tuesdy]]" });
   expect(missing.exitCode).toBe(1);
   expect(missing.stderr).toContain("The parent");
   expect(missing.stderr).toContain(`((${day.id}|Tuesday))`);
   expect(missing.stderr).toContain("outline_find");
-  expect((await agent("move", { ref: stray.id })).stderr).toContain("exactly one of parent");
-  expect((await agent("move", { ref: stray.id, before: second.id, position: 0 })).stderr).toContain("position goes with parent");
+  expect((await agent("move", { ref: stray.id, revision: store.require(stray.id).revision })).stderr).toContain("exactly one of parent");
+  expect((await agent("move", { ref: stray.id, revision: store.require(stray.id).revision, before: second.id, position: 0 })).stderr).toContain("position goes with parent");
   const stale = await agent("move", { ref: stray.id, parent: "root", revision: stray.revision + 7 });
   expect(stale.stderr).toContain("changed since you read it");
 
   const inbox = JSON.parse((await cli(["list", "--filter", "system-view=inbox", "--fields", "id"])).stdout).blocks[0].id;
-  expect((await agent("move", { ref: kid.id, parent: inbox })).json).toMatchObject({ outcome: "applied", parentId: inbox });
+  expect((await agent("move", { ref: kid.id, revision: store.require(kid.id).revision, parent: inbox })).json).toMatchObject({ outcome: "applied", parentId: inbox });
   const trashView = JSON.parse((await cli(["list", "--filter", "system-view=trash", "--fields", "id"])).stdout).blocks[0].id;
-  const intoTrash = await agent("move", { ref: kid.id, parent: trashView });
+  const intoTrash = await agent("move", { ref: kid.id, revision: store.require(kid.id).revision, parent: trashView });
   expect(intoTrash.stderr).toContain("Trash, which the service fills itself");
-  expect((await agent("move", { ref: trashView, parent: trashView })).exitCode).toBe(1);
+  expect((await agent("move", { ref: trashView, revision: store.require(trashView).revision, parent: trashView })).exitCode).toBe(1);
 }, 30_000);
 
 test("a system note moves like any note, attributed, and its refusals name what it is", async () => {
@@ -433,22 +433,23 @@ test("a system note moves like any note, attributed, and its refusals name what 
   const run = store.create("Deploy one [type::deploy]", deploys.id);
   const snapshot = store.create("Snapshot of garden [type::snapshot]", null, "system");
 
-  expect((await agent("move", { ref: snapshot.id, parent: day.id })).json).toMatchObject({ outcome: "applied", parentId: day.id });
-  expect((await agent("move", { ref: deploys.id, parent: day.id })).json).toMatchObject({ outcome: "applied", parentId: day.id });
+  expect((await agent("move", { ref: snapshot.id, revision: store.require(snapshot.id).revision, parent: day.id })).json).toMatchObject({ outcome: "applied", parentId: day.id });
+  expect((await agent("move", { ref: deploys.id, revision: store.require(deploys.id).revision, parent: day.id })).json).toMatchObject({ outcome: "applied", parentId: day.id });
   expect(store.get(deploys.id)).toMatchObject({ parentId: day.id });
   // Its runs still go under it.
-  expect((await agent("move", { ref: store.create("Deploy two").id, parent: deploys.id })).json.outcome).toBe("applied");
+  const secondRun = store.create("Deploy two");
+  expect((await agent("move", { ref: secondRun.id, revision: store.require(secondRun.id).revision, parent: deploys.id })).json.outcome).toBe("applied");
   expect(store.get(run.id)!.parentId).toBe(deploys.id);
   const activity = JSON.parse((await cli(["activity", "--author", "agent", "--actor", "garden-agent", "--kinds", "move", "--limit", "10"])).stdout);
   expect(activity.entries.map((e: any) => [e.kind, e.block.id, e.actorId])).toContainEqual(["move", snapshot.id, "garden-agent"]);
 
   // Trash moves anywhere but into itself, and the service still finds it.
   const trash = JSON.parse((await cli(["list", "--filter", "system-view=trash", "--fields", "id"])).stdout).blocks[0].id;
-  expect((await agent("move", { ref: trash, parent: day.id })).json).toMatchObject({ outcome: "applied", parentId: day.id });
+  expect((await agent("move", { ref: trash, revision: store.require(trash).revision, parent: day.id })).json).toMatchObject({ outcome: "applied", parentId: day.id });
   const holder = store.get(day.id)!;
   expect((await agent("trash", { ref: day.id, revision: holder.revision })).stderr).toContain("holds Trash");
   expect((await agent("trash", { ref: trash, revision: store.get(trash)!.revision })).stderr).toContain("Trash, which the service keeps");
-  expect((await agent("move", { ref: snapshot.id, parent: trash })).stderr).toContain("Trash, which the service fills itself");
+  expect((await agent("move", { ref: snapshot.id, revision: store.require(snapshot.id).revision, parent: trash })).stderr).toContain("Trash, which the service fills itself");
 });
 
 test("trash puts a note away against the revision read, restore brings it back; a stale revision, a system note and a note inside a trashed one are refused", async () => {
@@ -678,3 +679,38 @@ test("a real edit between the read and move refuses the stale move", async () =>
   expect(edited).toBe(true);
   expect(store.require(note.id)).toMatchObject({ parentId: null, text: "Seed trays, keep here", revision: note.revision + 1 });
 });
+
+test("move requires the revision read and teaches the complete call", async () => {
+  const { store, agent } = await setup();
+  const parent = store.create("Potting bench");
+  const note = store.create("Seed trays");
+  const refused = await agent("move", { ref: note.id, parent: parent.id });
+  expect(refused.exitCode).toBe(1);
+  expect(refused.stderr).toContain("revision");
+  expect(refused.stderr).toContain("outline_read");
+  expect(refused.stderr).toContain("Arguments:");
+  expect(refused.stderr).toContain("parent");
+  expect(store.require(note.id).parentId).toBeNull();
+  const read = await agent("read", { ref: note.id });
+  expect((await agent("move", { ref: note.id, parent: parent.id, revision: read.json.revision })).exitCode).toBe(0);
+  expect(store.require(note.id).parentId).toBe(parent.id);
+});
+
+for (const destination of ["missing Inbox", "trashed parent", "trashed before", "trashed after"]) {
+  test(`move explains ${destination} and offers other destinations`, async () => {
+    const { store, agent } = await setup();
+    const note = store.create("Seed trays");
+    const target = store.create("Old bench");
+    store.delete(target.id);
+    for (const inbox of store.queryBlocks({ filters: [{ key: "system-view", value: "inbox" }] }).blocks) {
+      store.update(inbox.id, "Former inbox", inbox.revision);
+    }
+    const place = destination === "missing Inbox" ? { parent: "inbox" }
+      : { [destination.split(" ")[1]!]: target.id };
+    const refused = await agent("move", { ref: note.id, revision: note.revision, ...place });
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr).toContain(destination === "missing Inbox" ? "Inbox" : "Trash");
+    for (const option of ["parent", "before", "after", "root"]) expect(refused.stderr).toContain(option);
+    expect(store.require(note.id).parentId).toBeNull();
+  });
+}

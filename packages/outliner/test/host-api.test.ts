@@ -135,7 +135,7 @@ test("a wrong call is answered as the tools answer an agent, and a write needs a
   const { client } = await setup();
   const api = hostApi(client, { actorId: "garden-script" });
   await expect(api.tool.outline_read!({ title: "Seed swap" })).rejects.toThrow(/outline_read/);
-  await expect(api.tool.outline_move!({ ref: "PIE-1" })).rejects.toThrow("Give exactly one of parent");
+  await expect(api.tool.outline_move!({ ref: "PIE-1", revision: 1 })).rejects.toThrow("Give exactly one of parent");
   await expect(api.call("outline_nope", {})).rejects.toThrow("No tool outline_nope");
   await expect(api.call("toString", {})).rejects.toThrow("No tool toString");
 

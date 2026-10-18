@@ -1165,12 +1165,12 @@ export type MoveResult = import("@ep0ch/outline-core/protocol").NoteMoveReceipt 
 
 export async function moveBlock(
   client: AgentToolsClient,
-  input: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision?: number; step?: MoveStep },
+  input: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision: number; step?: MoveStep },
   actor: AgentActor,
 ): Promise<MoveResult> {
   const block = await writableBlock(client, input.ref);
   const moved = await client.request<Block & import("@ep0ch/outline-core/protocol").NoteMoveReceipt>({
-    action: "move", blockId: block.id, expectedRevision: input.revision ?? block.revision,
+    action: "move", blockId: block.id, expectedRevision: input.revision,
     to: input.parent, before: input.before, after: input.after, step: input.step, position: input.position,
     mutation: mutationOf(actor),
   });

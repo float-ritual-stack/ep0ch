@@ -15,7 +15,7 @@ export function moveNote(store: OutlinerStore, id: string, intent: NoteMoveInten
     const named = (ref: string, role: string): Block => {
       const found = store.lookupBlockRef(ref);
       if (found.kind === "found") return found.block;
-      if (found.kind === "trashed") throw new Error(found.message);
+      if (found.kind === "trashed") throw new Error(`${found.message}: choose another parent, before or after a note outside Trash, or root`);
       const near = store.searchTree(ref.replace(/^\[\[|\]\]$|^\(\(|\)\)$/g, "")).matches.slice(0, 3);
       throw new Error(`${role} ${JSON.stringify(ref)} doesn't resolve to a note: ${found.message}.${near.length ? ` Did you mean ${near.map(m => `((${m.block.id}|${m.title}))`).join(", ")}?` : ""} outline_find finds a note by its words.`);
     };
@@ -50,7 +50,11 @@ export function moveNote(store: OutlinerStore, id: string, intent: NoteMoveInten
       if (beside.id === block.id) throw new Error("A note can't go beside itself; name a sibling or give parent");
       parentId = beside.parentId;
     } else if (to !== undefined) {
-      parentId = to === "root" ? null : to === "inbox" ? store.queryBlocks({ filters: [{ key: "system-view", value: "inbox" }], limit: 1 }).blocks[0]!.id : named(to, "The parent").id;
+      if (to === "inbox") {
+        const inbox = store.queryBlocks({ filters: [{ key: "system-view", value: "inbox" }], limit: 1 }).blocks[0];
+        if (!inbox) throw new Error("This outline has no Inbox: choose a parent, before or after another note, or root");
+        parentId = inbox.id;
+      } else parentId = to === "root" ? null : named(to, "The parent").id;
     }
     const parent = parentId === null ? null : named(parentId!, "The parent");
     if (parent && isSystemNote(parent) && !parent.properties.some(p => p.key === "system-view" && ["inbox", "deploys"].includes(p.value.toLowerCase()))) {
