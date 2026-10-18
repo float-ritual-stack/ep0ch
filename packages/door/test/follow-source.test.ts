@@ -58,21 +58,21 @@ describe.skipIf(!outliner)("what a following reader follows (PIE-814)", () => {
     await until(() => !!D().current, "the first root is the current note");
   }, 20_000);
 
-  test("the chip names the source; a tree out of sight moving the current note is named", async () => {
+  test("the chip says whether the reader shows the current note", async () => {
     D().setCurrent(notes[0], {});
-    expect(chipText("a")).toBe("follows · current");
+    expect(chipText("a")).toBe("shows the current note");
     // The tree shut in its dock, its selection moving the current note (as its row did for Evan).
     await mine("tile.focus", {}, "a");
     await mine("tile.slide", { open: false }, "tree");
     D().setCurrent(notes[1], { from: pane("tree") });
     expect(D().shownNow(pane("tree"))).toBe(false);
-    expect(chipText("a")).toBe("follows · current ← tree (docked)");
+    expect(chipText("a")).toBe("shows the current note");
   });
 
   test("reader.follow source=<tile>: a select wire; the tree's selection shows there, held from the current note", async () => {
     expect(await act("reader.follow", { source: "tree" }, "b")).toMatchObject({ source: "tree" });
     expect(D().layoutGet().tiles.find((t: any) => t.name === "tree").wires).toContainEqual({ verb: "select", to: "b" });
-    expect(chipText("b")).toBe("follows · tree (docked)");
+    expect(chipText("b")).toBe("stays put");
     const was = r("b").msg?.id;
     // The current note moved from elsewhere: b stays (it follows the tree, not the current note).
     D().setCurrent(notes[2], {});
@@ -85,18 +85,18 @@ describe.skipIf(!outliner)("what a following reader follows (PIE-814)", () => {
     const saved = D().layoutSpec();
     D().build(saved, false); render();
     expect(D().followSource(r("b"))?.name).toBe("tree");
-    expect(chipText("b")).toBe("follows · tree (docked)");
+    expect(chipText("b")).toBe("stays put");
     await until(() => r("b").msg?.id === notes[0].id, "b back on its note");
   });
 
   test("source=none holds it; source=current follows again and keeps its note; a bad source is refused with why", async () => {
     await act("reader.follow", { source: "none" }, "b");
-    expect(chipText("b")).toBe("held");
+    expect(chipText("b")).toBe("stays put");
     expect(D().layoutGet().tiles.find((t: any) => t.name === "tree").link).toBeFalsy();
     D().setCurrent(notes[1], { from: pane("tree") });
     expect(r("b").msg?.id).toBe(notes[0].id);
     await act("reader.follow", { source: "current" }, "b");
-    expect(chipText("b")).toMatch(/^follows · current/);
+    expect(chipText("b")).toBe("shows the current note");
     // A refused source leaves it as it was: still following the current note, and a tile it follows stays followed.
     await expect(act("reader.follow", { source: "b" }, "b")).rejects.toThrow(/no selection to follow/);
     expect(r("b").followMode).toBe("follows");
@@ -113,7 +113,7 @@ describe.skipIf(!outliner)("what a following reader follows (PIE-814)", () => {
     await expect(act("reader.follow", {}, "b")).rejects.toThrow(/source=current, source=none or source=<tile>/);
   });
 
-  test("P and a click on the chip open the picker; choosing a row follows it", async () => {
+  test("P and the state chip open the policy panel; Shows changes the reader state", async () => {
     await mine("tile.focus", {}, "b");
     key({ kind: "char", ch: "P" });
     expect(D().overlaid()).toBe(true);
@@ -121,11 +121,11 @@ describe.skipIf(!outliner)("what a following reader follows (PIE-814)", () => {
     const c = chip("b");
     key({ kind: "mouse", action: "down", button: 0, x: c.from, y: c.row } as Key);
     key({ kind: "mouse", action: "up", button: 0, x: c.from, y: c.row } as Key);
-    // The rows: the current note, the tree, a, then nothing. Down once to the tree, ⏎.
-    key({ kind: "down" } as Key);
-    key({ kind: "enter" } as Key);
-    await until(() => D().followSource(r("b"))?.name === "tree", "b follows the tree");
-    expect(chipText("b")).toBe("follows · tree (docked)");
+    expect(D().overlays.top()?.name).toBe("policy");
+    key({ kind: "enter" });
+    await until(() => r("b").holding, "the Shows row makes b stay put");
+    key({ kind: "esc" });
+    expect(chipText("b")).toBe("stays put");
     // p lets go: it follows the current note again, keeping its note.
     const kept = r("b").msg?.id;
     key({ kind: "char", ch: "p" });

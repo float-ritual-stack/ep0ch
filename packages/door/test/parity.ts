@@ -506,6 +506,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const desk = () => new Desk();
   const DESK: Scenario[] = [
     ["desk: tree", desk, [k("1")]],
+    ["desk: select wire", desk, [k("1"), ALT("l"), k("s")]],
+    ["desk: alt wire", desk, [k("1"), ALT("l"), k("a")]],
+    ["desk: wire policy", desk, [k("1"), CTRL_W, k("P")]],
     ["desk: thread", desk, [k("3")]],
     ["desk: activity", desk, [k("4")]],
     ["desk: reader on a note", desk, [k("1"), { kind: "down" }, { kind: "enter" }, k("2")]],

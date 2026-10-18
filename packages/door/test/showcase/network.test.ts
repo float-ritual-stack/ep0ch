@@ -131,7 +131,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     expect(await app.act({ action: "reader.follow", tile: "detail", args: { source: "tree" }, as: "test-agent" })).toMatchObject({ tile: "detail", source: "tree" });
     expect(tile("tree").wires).toContainEqual({ verb: "select", to: "detail" });
     const detail = [...stage().panes.entries()].find(([id]: any) => stage().nameOf(id) === "detail")![1] as any;
-    expect(detail.headControls(40, stage())[0].text).toBe("follows · tree");
+    expect(detail.headControls(40, stage())[0].text).toBe("stays put");
     await app.act({ action: "reader.follow", tile: "detail", args: { source: "none" }, as: "test-agent" });
     expect(tile("tree").link).toBeFalsy();
     expect(S().focus).toBe("index");

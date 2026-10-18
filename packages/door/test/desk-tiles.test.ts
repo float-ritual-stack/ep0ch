@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
+import { visible } from "../src/style";
 import { Desk } from "../src/desk/desk";
 import { splitAxis } from "../src/desk/layout";
 import { keyBytes, mouseBytes } from "../src/desk/pty";
@@ -210,6 +211,44 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     // An agent links, and a link to a terminal is refused with the reason.
     await expect(act("tile.link", { to: "claude" }, "now")).rejects.toThrow(/opens land in a tile that takes notes/);
     expect(await act("tile.link", {}, "now")).toMatchObject({ link: null });
+  }, 30_000);
+
+  test("link mode picks select and alt targets without replacing the open wire", async () => {
+    await mine("layout.load", { name: "terminal-day" });
+    await mine("tile.focus", {}, "tree");
+    const md = rect("middle"), sd = rect("side");
+    key(alt("l")); key(char("s")); key(char("!")); render();
+    mouse("down", sd.col + 5, sd.row + 5);
+    expect(tile("tree").wires).toContainEqual({ verb: "select", to: "side" });
+    expect(tile("tree").link).toBe("middle");
+    key(alt("l")); key(char("a")); render();
+    mouse("down", md.col + 5, md.row + 5);
+    expect(tile("tree").wires).toContainEqual({ verb: "alt", to: "middle" });
+    key(alt("l")); key(char("a")); render();
+    mouse("down", sd.col, sd.row + 5);
+    expect(tile("tree").wires).toContainEqual({ verb: "alt", to: "side", rule: "beside" });
+    key(alt("l")); key(char("s")); key({ kind: "esc" });
+    expect(tile("tree").link).toBe("middle");
+    await until(() => D().pane("tree").rows?.some((r: any) => r.m?.id === notes.beans.id), "the beans row loaded");
+    await mine("tree.pick", { id: notes.beans.id }, "tree");
+    await until(() => tile("side").showing?.id === notes.beans.id, "selection lands in the mouse-wired reader");
+    const tr = rect("tree"), header = visible(render().lines[tr.row]!);
+    const chip = header.indexOf("○", tr.col);
+    expect(chip).toBeGreaterThan(tr.col);
+    mouse("down", chip, tr.row);
+    mouse("down", tr.col + 3, tr.row + 3);
+    expect(tile("tree").wires.some((w: any) => w.verb === "select")).toBe(false);
+    key(ctrl("w")); key(char("P")); render();
+    key({ kind: "enter" }); render();
+    mouse("down", sd.col + 5, sd.row + 5);
+    expect(tile("tree").wires).toContainEqual({ verb: "select", to: "side" });
+    key(ctrl("w")); key(char("P"));
+    const panelLines = render().lines.map(visible);
+    const clearRow = panelLines.findIndex((line: string) => line.includes("Select shows in:"));
+    mouse("down", panelLines[clearRow]!.lastIndexOf("×"), clearRow);
+    expect(tile("tree").wires.some((w: any) => w.verb === "select")).toBe(false);
+    key({ kind: "esc" });
+    await mine("layout.load", { name: "terminal-day" });
   }, 30_000);
 
   test("a preview follows its source tile, and a file preview is re-read when the file changes, read-only", async () => {
