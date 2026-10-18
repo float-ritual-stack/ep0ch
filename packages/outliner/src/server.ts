@@ -1905,6 +1905,17 @@ export class OutlinerServer {
   ): Promise<OutlinerResponse> {
     request = this.viaYolo(request);
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
+    if (request.action === "site.answer" && request.scriptLine !== undefined) {
+      try {
+        if (!Number.isInteger(request.scriptLine) || request.scriptLine < 0 || request.hidden === undefined) throw new Error("A published script needs scriptLine (from zero) and hidden (the reader's cut)");
+        const answer = answerSite(this.store, request);
+        const deps = new Set(answer.deps);
+        const rendered = await this.extensionCalls.renderForSite(answer.blockId, request.scriptLine, request.hidden, ids => { for (const id of ids) deps.add(id); }, request);
+        const ids = rendered.reads.map(read => read.id);
+        for (const id of ids) deps.add(id);
+        return { id: request.id, ok: true, result: { ...answer, deps: [...deps], script: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}), reads: { ids, ...(rendered.untracked ? { untracked: true } : {}) } } }, sequence: this.store.sequence };
+      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+    }
     if (request.action === "scripts.stop") {
       try {
         if (typeof request.run !== "string" || !request.run.trim()) throw new Error("scripts.stop needs run: the id a script run answered with (its undo), for example { action: \"scripts.stop\", run: \"<undo id>\" }");

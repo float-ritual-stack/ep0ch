@@ -28,4 +28,26 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
     await board.update(id, after.text.replace("[owner::Sam]", "[owner::Robin]"), after.revision!, USER);
     await until(() => screen().includes("Robin sows beans") && /Robin\s.*42/.test(screen()) && !screen().includes("Sam sows"), "both lines redrawn", 15_000);
   }, 40_000);
+
+  test("the published showcase draws its visible seed count through both embed forms", async () => {
+    const page = await board.resolvePage("showcase-published-script-lines");
+    const template = await board.resolvePage("showcase-seed-count");
+    expect(page.block?.id).toBeDefined();
+    expect(template.block?.id).toBeDefined();
+    await board.request("resources.projection.read", { blockId: template.block!.id, materialize: true });
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const rendered = await board.request<{ text: string }>("notes.render", { blockId: page.block!.id, format: "html", audience: "public" });
+      if ((rendered.text.match(/Seeds shown here: 1/g) ?? []).length >= 3) {
+        expect(rendered.text).not.toContain("Seeds shown here: 2");
+        expect(rendered.text).not.toContain("hidden here");
+        expect(rendered.text).toContain("not shared");
+        expect(rendered.text).not.toContain("PRIVATE_SCRIPT_SECRET");
+        break;
+      }
+      if (Date.now() > deadline) throw new Error(`The published showcase did not draw both counts: ${rendered.text}`);
+      await Bun.sleep(25);
+    }
+  }, 15_000);
+
 });

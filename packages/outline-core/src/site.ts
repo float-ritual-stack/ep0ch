@@ -119,6 +119,8 @@ export interface SiteAnswerRequest {
    * reads, the notes a prefix could start) so the reader can say which of them it shows, and asks again naming the rest.
    */
   hidden?: string[];
+  /** Re-evaluate this render-script line with the reader’s query cut, without changing stored output. */
+  scriptLine?: number;
 }
 
 /**
@@ -211,6 +213,7 @@ export interface SiteValue {
 
 /** `site.answer`'s answer. `deps` are the notes it was computed from: it changes only when one of them does. */
 export interface SiteAnswer {
+  script?: { markdown: string; view?: unknown; reads: { ids: string[]; untracked?: true } };
   blockId: string;
   revision: number;
   /** The Site, in ids: `this` is the host in a `use`. */

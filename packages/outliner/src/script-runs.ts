@@ -1,3 +1,4 @@
+import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
 import { createPatch } from "diff";
 import { slotPairs } from "@ep0ch/outline-core/action-line";
 import type { AgentToolsClient } from "./agent-tools";
@@ -10,10 +11,11 @@ import { hostApi, type HostApi, type HostStep } from "./host-api";
 import { runScript, type ScriptSiteGlobals } from "./script-runtime";
 import { PRIMITIVE_TYPES, renderComponent, validateComponent, type ComponentOutput, type Primitive } from "./component-primitives";
 import { textRecord } from "./block-records";
-import { answerSite } from "./site-answer";
+import { visibleMatches } from "./site-producers";
+import { bind, answerSite } from "./site-answer";
 import { scriptFence } from "./script-sources";
 import { MAX_DEADLINE_MS } from "./extension-manifest";
-import type { Address } from "@ep0ch/outline-core/site";
+import type { Address, SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
@@ -43,7 +45,7 @@ export function slotProps(words: string | null | undefined): Record<string, stri
 }
 
 /** What a render-mode script drew, and what it read: the notes (with their revision when first read) and the queries (with their rows). */
-export interface ScriptRendered { markdown: string; /** The view it drew, when it returned one (PIE-981: a client that draws views draws this, and presses what it carries). */ view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[]; /** The script's own note: redraws the line, but is not a note the output shows. */ own?: string; /** It saw more than could be listed: its output depends on notes no list names. */ untracked?: true }
+export interface ScriptRendered { markdown: string; /** The view it drew, when it returned one (PIE-981: a client that draws views draws this, and presses what it carries). */ view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[]; /** It saw more than could be listed: its output depends on notes no list names. */ untracked?: true }
 
 /** One script run's view of the Site: the globals it reads, the path reader behind `resolve`, and the notes it read. */
 interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: HostApi["resolve"] }
@@ -81,11 +83,18 @@ export class ScriptRuns {
    * about (a rule's matched block, the note a key was pressed in), `self` the script's own note. Read through the
    * service's one resolver (`answerSite`), so a path means what it means in `{{ }}`.
    */
-  private bind(source: ScriptSource, input: { blockId?: string; line?: number; trigger?: boolean; props: Record<string, string[]> }, onRead?: (ids: readonly string[]) => void): SiteBinding {
+  private bind(source: ScriptSource, input: { blockId?: string; line?: number; trigger?: boolean; props: Record<string, string[]> }, onRead?: (ids: readonly string[]) => void, visibleId?: (id: string) => string | null): SiteBinding {
     // The note's own text as a record (properties, fields, header, tasks); `read()` is the full record, links and backlinks too.
     const record = (id: string | undefined) => {
       const block = id ? this.store.get(id) : null;
-      return block && !block.effectiveDeletedRootId ? textRecord(block) : undefined;
+      if (!block || block.effectiveDeletedRootId) return undefined;
+      onRead?.([block.id]);
+      const value = textRecord(block);
+      if (value.parent) {
+        if (visibleId) value.parent = visibleId(value.parent);
+        else onRead?.([value.parent]);
+      }
+      return value;
     };
     const here = record(input.blockId);
     const own = record(source.blockId);
@@ -108,26 +117,58 @@ export class ScriptRuns {
    * notes it read and their revisions then (what it must be drawn again for). No run note, no undo step, and nothing
    * written: the API is read-only, and a refused write says so. Called by ExtensionCalls' one producer path.
    */
-  async render(source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number }): Promise<ScriptRendered> {
+  async render(source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number; hidden?: string[]; site?: Pick<SiteAnswerRequest, "chain" | "props">; onCandidates?: (ids: string[]) => void }): Promise<ScriptRendered> {
     const reads = new Map<string, number | null>();
     const queries: ScriptRendered["queries"] = [];
     let untracked = false;
+    let hiddenQueryRoot = false;
     const onRead = (ids: readonly string[]) => { for (const id of ids) if (!reads.has(id)) reads.set(id, this.store.get(id)?.revision ?? null); };
     const props = slotProps(input.argument);
-    // The script's own note redraws the line when edited (its code, `self`): a read to watch, not one a reader's view depends on (`own`).
-    if (source.blockId) onRead([source.blockId]);
-    const site = this.bind(source, { blockId: input.blockId, line: input.line, props }, onRead);
+    // The script's note supplies self as well as code, so it follows the same visibility cut as an embed.
+    if (source.blockId) {
+      input.onCandidates?.([source.blockId]);
+      if (input.hidden?.includes(source.blockId)) return { markdown: "not shared", reads: [], queries };
+      onRead([source.blockId]);
+    }
+    const visibleId = input.hidden === undefined ? undefined : (id: string) => {
+      input.onCandidates?.([id]);
+      if (input.hidden!.includes(id)) return null;
+      onRead([id]);
+      return id;
+    };
+    const bound = input.hidden === undefined ? undefined : bind(this.store, { ...input.site, blockId: input.blockId, hidden: input.hidden }, Date.now);
+    const site = this.bind(source, { blockId: bound?.site.this?.id ?? input.blockId, line: input.line, props: { ...bound?.site.props, ...props } }, onRead, visibleId);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`The script ran past its deadline (${Math.round(input.deadlineMs / 1000)}s)`)), input.deadlineMs);
     const signal = input.signal ? AbortSignal.any([controller.signal, input.signal]) : controller.signal;
     try {
-      const api = hostApi(this.client, undefined, {
-        effects: "read", onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
+      const select = (blocks: import("./types").VisibleBlock[], where?: string) => {
+        const visible = visibleMatches(this.store, bound!.world, blocks, where);
+        input.onCandidates?.([...bound!.world.deps]);
+        if (bound!.world.hiddenHits) untracked = true;
+        return visible;
+      };
+      const client: AgentToolsClient = bound ? {
+        requireCompatibleService: () => this.client.requireCompatibleService(),
+        request: async <T>(request: Parameters<AgentToolsClient["request"]>[0]): Promise<T> => {
+          const root = request.action === "blocks.query" ? request.query.subtreeRootId : request.action === "views.read" ? request.viewId : undefined;
+          if (root && visibleId!(root) === null) {
+            hiddenQueryRoot = true;
+            throw new Error("not shared");
+          }
+          if (request.action === "blocks.query") return this.store.queryBlocks({ ...request.query, machinery: request.query.machinery ?? DEFAULT_MACHINERY }, undefined, select) as T;
+          if (request.action === "views.read") return this.store.readSavedView(request.viewId, request, "full", select) as T;
+          return this.client.request<T>(request);
+        },
+      } : this.client;
+      const api = hostApi(client, undefined, {
+        effects: "read", cutQueries: !!bound, visibleId, onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
+      if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
       if (!result.ok) throw new Error(result.error.message);
       const drew = result.value === undefined ? null : scriptView(result.value);
-      return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(source.blockId ? { own: source.blockId } : {}), ...(untracked ? { untracked: true as const } : {}) };
+      return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}) };
     } finally { clearTimeout(timer); }
   }
 

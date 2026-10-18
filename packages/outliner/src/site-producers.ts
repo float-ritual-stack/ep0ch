@@ -11,7 +11,6 @@ import { asksPerItem, CHILDREN_QUERY, figureQuestion, liveAsk, sortProblem } fro
 import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/outline-core/site";
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
 import type { Bound } from "./site-answer";
-import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { queryRelations, type QueryRelationKind, type ValueBinder } from "./block-query";
 
 type Props = Record<string, any>;
@@ -20,8 +19,8 @@ type Props = Record<string, any>;
 export interface ProducerStore {
   get(id: string): { id: string; revision: number; text: string; parentId: string | null } | null;
   children(parentId: string | null): { id: string }[];
-  queryBlocks(input: BlockSearchQuery, binder?: ValueBinder): VisibleBlockCollection & { groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string };
-  readSavedView(viewId: string, options: Record<string, never>, format: "tree"): SavedViewReadResult<TreeIndexBlock>;
+  queryBlocks(input: BlockSearchQuery, binder?: ValueBinder, select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): VisibleBlockCollection & { groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string };
+  readSavedView(viewId: string, options: Record<string, never>, format: "tree", select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): SavedViewReadResult<TreeIndexBlock>;
   matchQuery(expression: unknown, ids: unknown, narrow?: { this?: unknown }, binder?: ValueBinder): { blockIds: string[] };
 }
 
@@ -79,6 +78,14 @@ function neighbours(store: ProducerStore, id: string, relations: ReadonlySet<Que
   return { ids: out, incomplete };
 }
 
+/** Apply the Site's cut before a query counts, groups, facets or limits its matches. */
+export function visibleMatches<T extends { id: string }>(store: ProducerStore, world: Bound["world"], blocks: T[], where?: string): T[] {
+  const ids = blocks.map(block => block.id);
+  for (const id of ids) world.deps.add(id);
+  const gone = unknowable(store, world, ids, where);
+  return blocks.filter(block => !world.hidden.has(block.id) && !gone.has(block.id));
+}
+
 /**
  * The store a producer asks, cut for a limited reader: a query's or a view's rows, and the notes a subset holds for, leave
  * out any note `unknowable` says the question can't be answered for. Every producer asks this store, so none can forget.
@@ -87,17 +94,8 @@ function cutStore(store: ProducerStore, world: Bound["world"]): ProducerStore {
   return {
     get: id => store.get(id),
     children: id => store.children(id),
-    queryBlocks: (input, binder) => {
-      const found = store.queryBlocks(input, binder);
-      const gone = unknowable(store, world, found.blocks.map(block => block.id), input.where);
-      return gone.size ? { ...found, blocks: found.blocks.filter(block => !gone.has(block.id)) } : found;
-    },
-    readSavedView: (viewId, options, format) => {
-      const read = store.readSavedView(viewId, options, format);
-      if (read.status !== "ready") return read;
-      const gone = unknowable(store, world, read.blocks.map(block => block.id), parsePropertyRecords(store.get(viewId)?.text ?? "").find(r => r.key === "query")?.value);
-      return gone.size ? { ...read, blocks: read.blocks.filter(block => !gone.has(block.id)) } : read;
-    },
+    queryBlocks: (input, binder) => store.queryBlocks(input, binder, blocks => visibleMatches(store, world, blocks, input.where)),
+    readSavedView: (viewId, options, format) => store.readSavedView(viewId, options, format, (blocks, where) => visibleMatches(store, world, blocks, where)),
     matchQuery: (expression, ids, narrow, binder) => {
       const matched = store.matchQuery(expression, ids, narrow, binder);
       const gone = unknowable(store, world, Array.isArray(ids) ? ids as string[] : [], typeof expression === "string" ? expression : undefined);

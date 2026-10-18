@@ -100,7 +100,7 @@ test("a render script that reads a note and returns its child says hidden here w
   const { store, draw, tailnet, publicly } = await setup();
   const parent = store.create("Seed shelf [publish::public:shelf]");
   store.create("Vault codes [publish::never] [code::9023]", parent.id);
-  const reader = store.create("Peek [script::peek] [mode::render]\n```js\nreturn JSON.stringify(await read(\"" + parent.id + "\", { depth: 1 }));\n```");
+  const reader = store.create("Peek [script::peek] [mode::render] [publish::public]\n```js\nreturn JSON.stringify(await read(\"" + parent.id + "\", { depth: 1 }));\n```");
   const page = store.create("Shelf view [publish::public:shelf-view]\npeek::", null, "user");
   void reader;
   await draw(page.id);
@@ -111,13 +111,40 @@ test("a render script that reads a note and returns its child says hidden here w
   }
 });
 
-test("a script defined in a note the page does not show still draws: its code is not content", async () => {
+test("a private script's self never appears directly, embedded, or used on a public page", async () => {
   const { store, draw, publicly } = await setup();
-  store.create("Peek [script::peek-self] [mode::render] [publish::never]\n```js\nreturn `self says ${self.title}`;\n```");
-  const page = store.create("Shelf view [publish::public:shelf-two]\npeek-self::", null, "user");
+  const script = store.create('PRIVATE_SCRIPT_TITLE [script::peek-self] [mode::render] [publish::never] [secret::PRIVATE_SCRIPT_PROPERTY]\n```js\nreturn self.title + JSON.stringify(self.properties);\n```');
+  const page = store.create("Shelf view [page::private-script-host] [publish::public:shelf-two]\npeek-self::");
   await draw(page.id);
-  await until("the line drawn", () => store.extensionOutputs(page.id).filter(row => row.result).length === 1);
-  expect(await publicly("shelf-two")).toContain("self says Peek");
+  await until("private script drawn", () => store.extensionOutputs(page.id).some(row => row.result));
+  store.create(`Embedded [publish::public:self-embedded]\n!((${page.id}))`);
+  store.create("Used [publish::public:self-used]\n::use{of=[[private-script-host]]}");
+  for (const slug of ["shelf-two", "self-embedded", "self-used"]) {
+    const html = await publicly(slug);
+    expect(html).not.toContain("PRIVATE_SCRIPT_TITLE");
+    expect(html).not.toContain("PRIVATE_SCRIPT_PROPERTY");
+    expect(html).not.toContain(script.id);
+    expect(html).toContain("not shared");
+  }
+});
+
+test("published script globals and query rows withhold private parent ids but retain visible parents", async () => {
+  const { store, client, draw, publicly } = await setup();
+  const parent = store.create("PRIVATE_PARENT");
+  const visible = store.create("Visible parent [publish::public]");
+  store.create("Private child [type::parent-probe] [publish::public]", parent.id);
+  store.create("Visible child [type::parent-probe] [publish::public]", visible.id);
+  store.create('Parent probe [script::parent-probe] [mode::render] [publish::public]\n```js\nconst rows = (await q("type=parent-probe")).blocks;\nreturn "THIS=" + this.parent + "; SELF=" + self.parent + "; ROWS=" + rows.map(row => row.parentId).join(",");\n```', parent.id);
+  const page = store.create("Parent report [publish::public:parent-report]\nparent-probe::", parent.id);
+  await draw(page.id);
+  await until("parent probe drawn", () => store.extensionOutputs(page.id).some(row => row.result));
+  const html = await publicly("parent-report");
+  expect(html).not.toContain(parent.id);
+  expect(html).toContain("THIS=null; SELF=null; ROWS=");
+  expect(html).toContain(visible.id);
+  const answer = await client.request<{ deps: string[]; script: { markdown: string } }>({ action: "site.answer", blockId: page.id, scriptLine: 1, hidden: [parent.id] });
+  expect(answer.deps).toContain(parent.id);
+  expect(answer.script.markdown).not.toContain(parent.id);
 });
 
 test("a script that prints a breadcrumb, or counts matches it was not shown, says hidden here", async () => {
@@ -125,8 +152,8 @@ test("a script that prints a breadcrumb, or counts matches it was not shown, say
   const locked = store.create("Vault shelf [publish::never]");
   const row = store.create("Seed packet [type::seed] [publish::public]", locked.id);
   store.create("Seed packet two [type::seed] [publish::never]");
-  store.create("Crumbs [script::crumbs] [mode::render]\n```js\nreturn JSON.stringify(await read(\"" + row.id + "\", { depth: 0 }));\n```");
-  store.create("Counter [script::counter] [mode::render]\n```js\nconst found = await q(\"type=seed\", { limit: 1 });\nreturn `${found.total} seeds`;\n```");
+  store.create("Crumbs [script::crumbs] [mode::render] [publish::public]\n```js\nreturn JSON.stringify(await read(\"" + row.id + "\", { depth: 0 }));\n```");
+  store.create("Counter [script::counter] [mode::render] [publish::public]\n```js\nconst found = await q(\"type=seed\", { limit: 1 });\nreturn `${found.total} seeds`;\n```");
   const page = store.create("Script page two [publish::public:script-two]\ncrumbs::\ncounter::", null, "user");
   await draw(page.id);
   await until("both drawn", () => store.extensionOutputs(page.id).filter(row => row.result).length === 2);
@@ -186,12 +213,12 @@ test("a script that calls a tool directly, or reads deep, is tracked as well as 
   const { store, draw, tailnet, publicly } = await setup();
   const alpha = store.create("Alpha project [type::project] [publish::public]");
   store.create("Alpha sign-off [status::approved] [publish::never]", alpha.id);
-  store.create("Direct [script::direct] [mode::render]\n```js\nconst found = await tools.outline_find({ query: \"type=project child:status=approved\" });\nreturn `${found.blocks.length} signed`;\n```");
+  store.create("Direct [script::direct] [mode::render] [publish::public]\n```js\nconst found = await tools.outline_find({ query: \"type=project child:status=approved\" });\nreturn `${found.blocks.length} signed`;\n```");
   const top = store.create("Top [publish::public]");
   let at = top;
   for (let level = 0; level < 5; level++) at = store.create(`Level ${level}`, at.id);
   store.create("Deep vault [publish::never] [code::9023]", at.id);
-  store.create("Deep [script::deep] [mode::render]\n```js\nreturn JSON.stringify(await read(\"" + top.id + "\", { depth: 6 }));\n```");
+  store.create("Deep [script::deep] [mode::render] [publish::public]\n```js\nreturn JSON.stringify(await read(\"" + top.id + "\", { depth: 6 }));\n```");
   const page = store.create("Script page [publish::public:script-page]\ndirect::\ndeep::", null, "user");
   await draw(page.id);
   await until("both drawn", () => store.extensionOutputs(page.id).filter(row => row.result).length === 2);
@@ -214,12 +241,77 @@ test("a NOT over a relation to a note the page may not show says nothing, and an
   expect(await tailnet("bed-list")).toContain("Bean bed");
 });
 
-test("a script line in a note a page embeds is not drawn into the page: only the page's own lines go through the cut", async () => {
-  const { store, draw, tailnet } = await setup();
-  store.create("Marker [script::marker] [mode::render]\n```js\nreturn 'EMBED-MARK';\n```");
-  const inner = store.create("Inner [publish::public]\nmarker::");
+test("embedded and used script lines show safe output and hide private reads", async () => {
+  const { store, draw, tailnet, publicly } = await setup();
+  const locked = store.create("Locked [publish::never] [code::SECRET_EMBED_CODE]");
+  store.create("Marker [script::marker] [mode::render] [publish::public]\n```js\nreturn 'EMBED-MARK ' + this.title;\n```");
+  const inner = store.create(`Inner [page::inner] [publish::public]\nmarker::\n::= (await resolve('((${locked.id})).code')).values[0]`);
   await draw(inner.id);
-  await until("the inner line drawn", () => store.extensionOutputs(inner.id).filter(row => row.result).length === 1);
+  await until("the inner lines drawn", () => store.extensionOutputs(inner.id).filter(row => row.result).length === 2);
   store.create(`Outer [publish::public:outer]\n!((${inner.id}))`);
-  expect(await tailnet("outer")).not.toContain("EMBED-MARK");
+  store.create("Used [publish::public:used]\n::use{of=[[inner]]}");
+  for (const page of ["outer", "used"]) for (const read of [tailnet, publicly]) {
+    const html = await read(page);
+    expect(html).toContain(page === "used" ? "EMBED-MARK Used" : "EMBED-MARK Inner");
+    expect(html).toContain("hidden here");
+    expect(html).not.toContain("SECRET_EMBED_CODE");
+  }
+});
+
+test("a limited script search counts visible matches before applying its limit", async () => {
+  const { store, draw, tailnet, publicly } = await setup();
+  store.create("Visible seed [type::seed] [publish::public]");
+  store.create("Quiet seed [type::seed]");
+  store.create("Locked seed [type::seed] [publish::never]");
+  const view = store.create("Seeds [type::virtual-branch] [query::type=seed] [publish::public]");
+  store.create(`Counter [script::visible-count] [mode::render] [publish::public]\n\`\`\`js\nconst found = await tools.outline_find({ view: "${view.id}", limit: 1 });\nreturn "VISIBLE_COUNT=" + found.total + "; ROWS=" + found.blocks.length;\n\`\`\``);
+  const page = store.create("Count [publish::public:count]\nvisible-count::");
+  await draw(page.id);
+  await until("counter drawn", () => store.extensionOutputs(page.id).some(row => row.result));
+  expect(await publicly("count")).toContain("VISIBLE_COUNT=1; ROWS=1");
+  expect(await tailnet("count")).toContain("VISIBLE_COUNT=2; ROWS=1");
+  store.create(`All seeds [script::all-seeds] [mode::render] [publish::public]\n\`\`\`js\nconst found = await q("type=seed", { limit: 10 });\nreturn view.text({ text: "ALL_COUNT=" + found.blocks.length });\n\`\`\``);
+  const all = store.create("All [publish::public:all]\nall-seeds::");
+  await draw(all.id);
+  await until("all seeds drawn", () => store.extensionOutputs(all.id).some(row => row.result));
+  expect(await publicly("all")).toContain("ALL_COUNT=1");
+  expect(await tailnet("all")).toContain("ALL_COUNT=2");
+});
+
+for (const scope of ["under", "view"] as const) test(`a published script cannot count through a hidden ${scope} note`, async () => {
+  const { store, client, draw, publicly, tailnet } = await setup();
+  const root = store.create(scope === "view"
+    ? "Private seed view [type::virtual-branch] [query::type=seed]"
+    : "Private seed shelf");
+  store.create("Visible seed [type::seed] [publish::public]", scope === "under" ? root.id : null);
+  const query = scope === "under"
+    ? `q("type=seed", { under: "${root.id}" })`
+    : `tools.outline_find({ view: "${root.id}" })`;
+  store.create(`Counter [script::scope-count] [mode::render] [publish::public]\n\`\`\`js\nconst found = await ${query};\nreturn "SCOPE_COUNT=" + ${scope === "under" ? "found.blocks.length" : "found.total"};\n\`\`\``);
+  const page = store.create("Scoped count [publish::public:scoped-count]\nscope-count::");
+  await draw(page.id);
+  await until("scoped counter drawn", () => store.extensionOutputs(page.id).some(row => row.result));
+  expect(await tailnet("scoped-count")).toContain("SCOPE_COUNT=1");
+  const outside = await publicly("scoped-count");
+  expect(outside).not.toContain("SCOPE_COUNT=1");
+  expect(outside).toContain("not shared");
+  const answer = await client.request<{ deps: string[]; script: { markdown: string } }>({
+    action: "site.answer", blockId: page.id, scriptLine: 1, hidden: [root.id],
+  });
+  expect(answer.deps).toContain(root.id);
+  expect(answer.script.markdown).toBe("not shared");
+  store.update(root.id, `${root.text} [publish::public]`, root.revision, { author: "user" });
+  expect(await publicly("scoped-count")).toContain("SCOPE_COUNT=1");
+});
+
+test("the Site counts a limited figure's groups before taking its first row", async () => {
+  const { store, client } = await setup();
+  const page = store.create("Bed totals [publish::public]");
+  store.create("Beans [type::crop] [family::legume] [publish::public]");
+  const hidden = store.create("Peas [type::crop] [family::legume] [publish::never]");
+  const answer = await client.request<{ produced: { groups: { value: string; count: number }[] } }>({
+    action: "site.answer", blockId: page.id, hidden: [hidden.id],
+    produce: { kind: "figure", figure: "rank", props: { query: "type=crop", group: "family", limit: 1 } },
+  });
+  expect(answer.produced.groups).toEqual([expect.objectContaining({ value: "legume", count: 1 })]);
 });
