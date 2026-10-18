@@ -7995,8 +7995,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "draft.redo": forwardDraft("draft.redo"),
   "draft.copy": forwardDraft("draft.copy"),
   "complete": def({
-    summary: "completion, as typing [[, ((, [file::, > [!, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile); refine=^ or refine=# opens the finished ((reference)) at the draft's cursor again to search inside its note, as typing ^ or # in it does (PIE-762): a passage with no anchor gets one when inserted. Property keys and values come from the component schemas (PIE-618)",
-    keys: "[[ (( [file:: > [! [key:: while writing; tab, ctrl+space · up/down, enter/tab, esc · ^ or # in a ((reference))",
+    summary: "completion, as typing [[, ((, [file::, > [!, ::component, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile); refine=^ or refine=# opens the finished ((reference)) at the draft's cursor again to search inside its note, as typing ^ or # in it does (PIE-762): a passage with no anchor gets one when inserted. Property keys and values come from the component schemas (PIE-618)",
+    keys: "[[ (( [file:: > [! ::component [key:: while writing; tab, ctrl+space · up/down, enter/tab, esc · ^ or # in a ((reference))",
     // Looking candidates up reads; putting one in types in the draft at its cursor: an agent's only in a draft it
     // opened and alone typed in, or one the person invited it into (an @name line; the insert uses the invitation up).
     touches: "draft", draft: "type", replay: "ask",
@@ -8026,11 +8026,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const lines = text.split("\n"), line = lines.at(-1)!;
         target = completionTargetAtCursor(line, line.length, lines, lines.length - 1);
         if (!target && key) target = { kind: "filter-value", start: 0, end: line.length, query: line, key };
-        if (!target) throw new ActionRefused(`nothing to complete: text should end inside [[, ((, [file::, > [!, a [key:: property or a figure's YAML (it ends ${JSON.stringify(line.slice(-20))})`);
+        if (!target) throw new ActionRefused(`nothing to complete: text should end inside [[, ((, [file::, > [!, ::component, a [key:: property or a figure's YAML (it ends ${JSON.stringify(line.slice(-20))})`);
       } else {
         if (!d) throw new ActionRefused("nothing is being written here; pass text=\"[[...\" or open an edit first");
         target = completionTargetAtCursor(d.lines[d.row] ?? "", d.col, d.lines, d.row);
-        if (!target) throw new ActionRefused(`the draft's cursor (line ${d.row + 1}, column ${d.col + 1}) isn't inside [[, ((, [file::, > [!, a [key:: property or a figure's YAML`);
+        if (!target) throw new ActionRefused(`the draft's cursor (line ${d.row + 1}, column ${d.col + 1}) isn't inside [[, ((, [file::, > [!, ::component, a [key:: property or a figure's YAML`);
       }
       // The draft as the target was read from it: typing during the lookups below moves the token, and a
       // splice at the old span would land in the wrong place, so any change refuses the insert.

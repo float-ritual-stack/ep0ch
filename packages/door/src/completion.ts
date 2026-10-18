@@ -11,7 +11,7 @@ import { codeSpanRanges, cursorInCode } from "@ep0ch/outline-core/code-ranges";
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
  * `yaml-value` the same inside a component block's YAML.
  */
-export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value";
+export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value";
 
 export interface CompletionTarget {
   kind: CompletionKind;
@@ -49,6 +49,8 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
   if (yaml) return yaml.kind === "key" ? { kind: "yaml-key", start: yaml.start, end: yaml.end, query: yaml.query, component: yaml.component } : { kind: "yaml-value", start: yaml.start, end: yaml.end, query: yaml.query, key: yaml.key, component: yaml.component };
   const end = Math.max(0, Math.min(column, line.length));
   const beforeCursor = line.slice(0, end);
+  const component = /^( {0,3})::([a-z][a-z0-9-]*|)$/.exec(beforeCursor);
+  if (component) return { kind: "component", start: component[1]!.length, end: end + /^[a-z0-9-]*/.exec(line.slice(end))![0].length, query: component[2]! };
   let target: CompletionTarget | null = null;
   // A `[[` or `((` in a code span earlier on the line is text: it opens nothing the cursor is in (PIE-764).
   const code = line.includes("`") ? codeSpanRanges(line) : [];

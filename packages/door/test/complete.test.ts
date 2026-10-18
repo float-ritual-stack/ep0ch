@@ -417,6 +417,32 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     return { s, h, d, type, press, pop, settled, screen };
   }
 
+  test("component names in raw edit open on typing, insert by keys and mouse, and answer complete (PIE-594)", async () => {
+    const e = await editing(await create("Component practice\n"));
+    e.type("::graph");
+    const p = await e.settled();
+    expect(p.items.some(i => i.insertion === "::graph-meter")).toBe(true);
+    expect(e.screen()).toContain("components 1/");
+    e.type("-meter");
+    await e.settled();
+    e.press(K("enter"));
+    await until(() => !e.pop(), "the component inserted");
+    expect(e.d.lines.at(-1)).toBe("::graph-meter");
+    e.press(K("enter")); e.type("::graph-ta");
+    await e.settled();
+    const row = e.screen().split("\n").findIndex(l => l.includes("::graph-table"));
+    expect(row).toBeGreaterThanOrEqual(0);
+    expect(e.s.click(10, row, e.h)).toBe(true);
+    await until(() => !e.pop(), "the clicked component inserted");
+    expect(e.d.lines.at(-1)).toBe("::graph-table");
+    const result: any = await e.s.act("complete", { text: "::graph-met" }, e.h, AGENT);
+    expect(result.items).toContainEqual(expect.objectContaining({ insertion: "::graph-meter" }));
+    await expect(e.s.act("complete", { text: "```\n::graph" }, e.h, AGENT)).rejects.toThrow("nothing to complete");
+    e.press(ctrl("s"));
+    await until(() => e.s.draft === null, "the save");
+    expect((await board.get(e.d.blockId))!.text).toBe("Component practice\n::graph-meter\n::graph-table");
+  });
+
   test("the mouse: the wheel moves through the candidates, a click on one inserts it, a click elsewhere on the popup does nothing", async () => {
     const e = await editing(ids.compost!);
     e.press(K("enter")); e.type("see [[");
@@ -684,7 +710,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.d.lines.at(-1)).toBe("  ");
     expect(e.pop()).toBeNull();
     e.press(ctrl("`"));                                                   // ctrl+space with nothing to complete
-    expect(e.d.note).toContain("[[, ((, [file::, a callout's > [!, a [key:: property or a figure's YAML");
+    expect(e.d.note).toContain("completion works inside");
   });
 
   test("inside backticks or a fence no popup opens, by keys or the complete action; after a closed span it does (PIE-764)", async () => {
