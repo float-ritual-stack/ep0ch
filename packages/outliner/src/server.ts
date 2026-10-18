@@ -1917,7 +1917,8 @@ export class OutlinerServer {
             try {
               const rendered = await this.extensionCalls.renderForSite(answer.blockId, projection.anchor.line, request.hidden, ids => ids.forEach(id => deps.add(id)), request);
               rendered.reads.forEach(r => deps.add(r.id));
-              projection.output = { ...projection.output, markdown: rendered.untracked ? "hidden here" : rendered.markdown };
+              const hidden = rendered.untracked || rendered.reads.some(read => request.hidden!.includes(read.id));
+              projection.output = { ...projection.output, markdown: hidden ? "hidden here" : rendered.markdown };
             } catch { projection.output = { ...projection.output, markdown: "hidden here" }; }
           }
         }

@@ -1554,7 +1554,7 @@ export class Publisher {
       const article = htmlViewLinks(drawSteps(drawAnchors(drawMarginalia(drawComponents(accentWorkId(renderMarkdownHtml(rendered.markdown, await this.callouts())), rendered.components), rendered.marks, browse), rendered.anchors), rendered.steps, owner), rendered.index, base);
       const sourceText = (await this.client.request<Block>({ action: "get", blockId: entry.blockId })).text;
       const sources = await pageSources(this.liveHost(audience, index, base, share), entry.blockId, this.outlineName ?? "this outline", sourceText, rendered.drawn.get(entry.blockId) ?? new Map());
-      if (!browse) return renderedHtml(this.page(entry, sources + article, audience), 200, READER_CSP);
+      if (!browse) return renderedHtml(this.page(entry, sources + article, audience), 200, sources ? READER_CSP : RENDERED_CSP);
       const crumbs = await this.crumbs(entry, index, true, share);
       return renderedHtml(htmlPage(entry.title, `${sources}<article>\n${article}</article>\n${this.pageFooter(entry, true, share)}`, crumbs, { reader: this.readerTag(entry, true, share), search: { base, near: entry.blockId } }), 200, READER_CSP);
     }
