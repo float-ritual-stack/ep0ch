@@ -24,7 +24,7 @@ import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, figuresText, markdownFiguresText } from "./seed/figures";
 import { DEEP_LINKS, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
-import { CALLOUTS, CALLOUT_TYPE, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
+import { CALLOUTS, CALLOUT_TYPE, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
 import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, SPACING_LAB, DISPATCH_SKIN } from "./seed/looks";
@@ -193,7 +193,7 @@ if (request.input.request === "describe the beds") {
     "Below it, one sentence is generated too:",
     "::= (await resolve('this.owner')).values[0] + ' sows ' + (await resolve('this.crop')).values[0]",
     "Neither shows who ran it, when, or a button: the one dim mark in the margin beside each is all that says so. Put the cursor on it (the [ ] keys), or click it, to see when it ran and to run it again. A script that writes leaves its output in the note, as a region you can edit:",
-    outputRegionText({ label: "last week's rota", producer: notes.scripts.id, anchor: "out-rota-7c2e", body: "- Mon: Sam waters the beans\n- Wed: Robin thins the carrots\n- Fri: Sam picks the first peas" }),
+    outputRegionText({ label: "last week's rota", producer: notes.scripts.id, anchor: "out-rota-7c2e", body: `- Mon: Sam waters the beans\n- Wed: Robin thins the carrots\n- Fri: Sam picks the first peas\n\n[img::${SHOWCASE_ASSETS}/seed-packet.webp] [height::4] [alt::the seeds for next week]` }),
     "Change a word inside it and it is yours: the script's next run waits as a proposal beside it.",
     "A running script's place() follows the line that asked it, even if you insert paragraphs above it before the answer lands. Changing or duplicating that caller leaves a reason in the run note; run it again or name an ^anchor.",
     "Press S for Sources. Open the table, then c downloads its raw rows as CSV and J as JSON; the same controls are clickable. Published pages have the same Query, Transform and Result folds behind Sources.",
