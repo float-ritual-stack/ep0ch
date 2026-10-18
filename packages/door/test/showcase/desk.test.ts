@@ -467,7 +467,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
   }, 30_000);
 
 
-  test("the power bar section (PIE-656): the stage's tiles listed as their tree, the folded one a spine; ctrl+k then %pears and ⏎ opens it from its spine and gives it the keys; a pasted action line is the first row; an agent's bar.open answers and opens nothing", async () => {
+  test("the power bar section (PIE-656): the stage's tiles listed as their tree, the folded one a spine; ctrl+k then %pears and ⏎ opens it from its spine and gives it the keys; a pasted action line is the first row; an agent's bar.open answers and opens nothing; layout.move runs through its form (PIE-1031)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "bar" }, as: "test-agent" });
     await until(() => marks.bar!.every(m => screen().includes(m)), "the power bar section");
@@ -501,6 +501,26 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "esc" });
     expect((app as any).bar.describe().query).toBe("");
     press({ kind: "esc" });
+    expect((app as any).bar).toBeNull();
+    // layout.move through its form (PIE-1031): ⏎ on the action opens it, a field each; the tile fields list the stage's
+    // tiles, where= its choices; the act line under them runs as the person.
+    press({ kind: "char", ch: "k", ctrl: true });
+    for (const c of ">layout.move") press({ kind: "char", ch: c });
+    press({ kind: "enter" });
+    await until(() => (app as any).bar?.describe().form?.action === "layout.move", "layout.move's form");
+    const form = () => (app as any).bar.describe().form;
+    expect(form().fields.map((f: any) => f.name).slice(0, 3)).toEqual(["tile", "to", "where"]);
+    await (app as any).bar.settled();
+    expect((app as any).bar.describe().rows.some((r: any) => r.key === "answer:shed")).toBe(true);
+    for (const c of "shed") press({ kind: "char", ch: c });
+    await until(() => (app as any).bar.describe().rows[0]?.key === "answer:shed", "shed offered first");
+    press({ kind: "enter" });
+    await until(() => form()?.focus === "to", "on to to=");
+    await app.dispatch.press("bar.form", { op: "set", field: "to", value: "reader" });
+    await app.dispatch.press("bar.form", { op: "set", field: "where", value: "tabs" });
+    expect(form().line).toBe("layout.move tile=shed to=reader where=tabs");
+    await app.dispatch.press("bar.form", { op: "run" });
+    await until(() => !!stage().tileOutline().find(t => t.name === "shed")?.tab, "shed in the reader's tabs");
     expect((app as any).bar).toBeNull();
     if (S().focus === "stage") press({ kind: "esc" });
   }, 30_000);

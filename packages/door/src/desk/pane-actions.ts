@@ -24,7 +24,7 @@ export const PANE_ACTIONS = actionSet<On>()("pane", {
     get summary() { return `open a tile beside tile=<tile> (default the focused one), along its longer side: kind=<kind> (default reader; ${kinds()}), dir=row (beside) or col (below). The person's focus stays where it is. tile.open does the same with where= and to=. The board's details open with a note: open tile=new-detail`; },
     keys: "desk ^W o <kind>; board alt+⏎",
     touches: "shape", landing: true, replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind ?? "reader", r.pane)}`,
-    args: { kind: { type: "string", optional: true, about: "what the new tile shows: a kind from the tile-kind registry (default reader)" }, dir: { type: "string", optional: true, about: "row (beside) or col (below); default along the longer side" } },
+    args: { kind: { type: "string", optional: true, kind: "tile-kind", about: "what the new tile shows: a kind from the tile-kind registry (default reader)" }, dir: { type: "string", optional: true, about: "row (beside) or col (below); default along the longer side" } },
     examples: [
       { act: "pane.split tile=reader kind=tree", does: "opens a tree beside the reader, along its longer side" },
       { act: "pane.split tile=reader kind=activity dir=col", does: "opens the activity tile below the reader" },

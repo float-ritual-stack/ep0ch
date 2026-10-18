@@ -806,7 +806,7 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
       step: { type: "string", optional: true, about: "up, down, in or out" },
-      to: { type: "string", optional: true, about: "under this note: inbox, root, or an id, ((ref)), [[page]] or Work ID" },
+      to: { type: "string", optional: true, kind: "note", choices: ["inbox", "root"], about: "under this note: inbox, root, or an id, ((ref)), [[page]] or Work ID" },
       before: { type: "string", optional: true, about: "a sibling to go just above" },
       after: { type: "string", optional: true, about: "a sibling to go just below" },
       position: { type: "number", optional: true, about: "with to=: its place among the children, from 1 (default first)" },

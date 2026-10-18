@@ -872,7 +872,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     touches: "tile", replay: "safe", way: "an agent sets a reader's mode when the person isn't in it", says: r => `${r.mode === "follows" ? "let the reader follow the current note" : r.mode === "pinned" ? `pinned the reader to [[${r.page}]]` : "held the reader on its note"}`,
     menu: { label: "hold on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : pane.followMode !== "follows" ? { label: "follow the current note" } : null) },
     args: {
-      mode: { type: "string", optional: true, about: "follows, held or pinned; left out, the other of follows and held" },
+      mode: { type: "string", optional: true, choices: ["follows", "held", "pinned"], about: "follows, held or pinned; left out, the other of follows and held" },
       page: { type: "string", optional: true, about: "mode=pinned: the page's name (`[[name]]`); left out, the shown note's own page" },
     },
     examples: [

@@ -4,10 +4,12 @@
 // until it's put away. An agent's never touch the person's bar: `bar.open` answers the rows it would list, and
 // `bar.pick` lists them for itself and picks one, which runs through the source's shared path as the agent, so every
 // rule an action has for an agent (never their keys, focus or screen) is that path's own.
-import { ActionRefused, actionSet, def } from "../surface/actions";
+import { ActionRefused, actionSet, actRequestOf, def, lineWords, type ActRequest } from "../surface/actions";
 import type { Actor } from "../socket";
 import type { PowerBar } from "./bar";
-import { barSource, barSources } from "./source";
+import { formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
+import { formFor, openActionForm } from "./form";
+import { barSource, barSources, type BarHost } from "./source";
 
 /** What the bar's actions run on: the door's open bar (the person's), and how to make one (the person's, or an agent's own unseen). */
 export interface BarOn {
@@ -16,7 +18,22 @@ export interface BarOn {
   /** A bar of the agent's own, never drawn: its rows once its sources answered. */
   unseen(o: { query?: string; scope?: string | null }): Promise<PowerBar>;
   close(): void;
+  /** What the bar's sources reach (an action's form opens through it). */
+  host(): BarHost;
 }
+
+/** The call a form starts from: line= (an act line, some of its arguments given) or action= alone. */
+function formRequest(action: string | undefined, line: string | undefined): ActRequest {
+  if (line !== undefined) {
+    const req = actRequestOf(lineWords(line));
+    if (action !== undefined && action !== req.action) throw new ActionRefused(`line= runs ${req.action}, not action=${action}: give one of them`);
+    return req;
+  }
+  if (action === undefined) throw new ActionRefused("which action? action=<name> (layout.move), or line=<an act line> to start from (\"layout.move to=notes\")");
+  return { action };
+}
+
+const FORM_OPS = ["open", "focus", "set", "clear", "back", "copy", "run"] as const;
 
 const scopeArg = (scope: string | undefined): string | null => {
   if (scope === undefined || scope === "all" || scope === "") return null;
@@ -100,6 +117,43 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       try { b.edit(op, { text, from, to }, actor.kind === "user"); return { query: b.query, selected: b.input.selectedText() }; }
       finally { if (actor.kind === "agent") b.close(); }
+    },
+  }),
+  "bar.form": def({
+    summary: "an action's form in the power bar (PIE-1031): a field per argument (the ones it needs first, then tile= when it runs on a tile, then the rest), each with what it means; the field in focus lists its values, the things in the system it can name (a tile, a note, a page, a screen, a saved view, a property's key or value, a tile kind), its choices, or true and false, typing filtering them; the act line it will run under them, and its examples, a pick of one filling the form. op=open action=<name> (or line=<an act line> to start from some of its arguments) opens it; op=focus field=<name> (run: the act line) moves to a field; op=set field= value= answers one and goes on; op=clear field= leaves one out; op=back goes back a field; op=copy copies the act line; op=run runs it as the person, through the dispatcher. An agent's op=open answers the fields (their kinds, choices and defaults) and opens nothing; an agent runs the action itself",
+    keys: "enter on an action that takes arguments in the power bar's actions (alt+enter runs one that needs none as it is); in the form: enter picks a value and goes on, alt+enter picks and runs, shift+tab or backspace on an empty line goes back a field, a click on a field or the act line",
+    touches: "nothing", replay: "ask",
+    args: {
+      op: { type: "string", choices: FORM_OPS, about: "open, focus, set, clear, back, copy or run" },
+      action: { type: "string", optional: true, about: "op=open: the action whose form it is" },
+      line: { type: "string", optional: true, about: "op=open: an act line to start from, some of its arguments answered" },
+      field: { type: "string", optional: true, about: "op=focus, set or clear: the field (run, with op=focus: the act line)" },
+      value: { type: "string", optional: true, about: "op=set: the field's answer" },
+    },
+    examples: [
+      { act: "bar.form op=open action=layout.move", does: "opens layout.move's form: tile, to, where and the rest, each with its values" },
+      { act: "bar.form op=open line=\"layout.move to=notes\"", does: "an agent's: answers layout.move's fields, to= already notes; nothing opens" },
+    ],
+    async run({ op, action, line, field, value }, { on }, actor: Actor) {
+      if (!(FORM_OPS as readonly string[]).includes(op)) throw new ActionRefused(`op is ${FORM_OPS.join(", ")}`);
+      if (op === "open") {
+        const req = formRequest(action, line);
+        if (actor.kind === "agent") return formFor(on.host(), req);
+        await openActionForm(on.host(), req, actor);
+        return formState();
+      }
+      if (actor.kind === "agent") throw new ActionRefused("the form open in the power bar is the person's; an agent runs the action itself (ep0ch act <action> …, op=open answers its fields)");
+      if (!formOpen()) throw new ActionRefused("no form is open · pick an action that takes arguments in the power bar (ctrl+k then >)");
+      const need = () => { if (field === undefined) throw new ActionRefused(`op=${op} names field=`); return field; };
+      if (op === "run") { const why = formState()?.refused; if (typeof why === "string") throw new ActionRefused(why); on.close(); return formRun(); }
+      if (op === "copy") { const l = `ep0ch act ${formLine()}`; on.host().ctx.copy?.(l); on.host().ctx.flash(`copied: ${l}`); return { copied: l }; }
+      if (op === "focus") formFocus(need());
+      else if (op === "back") formFocus("back");
+      else if (op === "set") { if (value === undefined) throw new ActionRefused("op=set names value="); formSet(need(), value, true); }
+      else formSet(need(), undefined);
+      // The bar again, on the field in focus now: its values listed.
+      on.open({ scope: "ask" });
+      return formState();
     },
   }),
   "bar.close": def({

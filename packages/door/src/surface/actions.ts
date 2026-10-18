@@ -12,12 +12,42 @@ import { checkToolArgs, REF_ALIASES } from "@ep0ch/outline-core/tool-args";
 import { visible, width } from "../style";
 import type { Key } from "../term";
 
+/**
+ * An act line as the door shows it (the power bar's typed line, an action's form, PIE-1031): the action, its tile=,
+ * then its arguments, each value bare unless it needs quotes (a space, a quote, empty), as `ep0ch act` takes it back.
+ */
+export function shownLine(action: string, args: Record<string, unknown> = {}, tile?: string): string {
+  const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
+  return [action, ...(tile !== undefined ? [`tile=${said(tile)}`] : []), ...Object.entries(args).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${said(String(v))}`)].join(" ");
+}
+
 export type ArgType = "string" | "number" | "boolean";
 /**
- * One argument: its type, whether it may be left out, and what it means. `tile`: it names a tile (`to=`), and the
- * dispatcher reads it with `tile=`'s one grammar, so the action is given that tile's name.
+ * What kind of thing in the system an argument's value names (PIE-1031), so the power bar's form offers the values
+ * there are (src/bar/arg-kinds.ts answers each from the system: the layout, the service), and `actions` says it:
+ * - `tile`: a tile on the screen shown (`to=`); the dispatcher reads it with `tile=`'s one grammar, so the action is
+ *   given that tile's name.
+ * - `note`: a note, by the service's search (an id, a `((ref))`, a Work ID). `page`: a page's name (`[[name]]`).
+ * - `screen`: a screen by name (screen.list). `view`: a saved view (a virtual branch's block id).
+ * - `key`: a property's key; `value`: a value of the key the argument `of` names (the outline's property index).
+ * - `tile-kind`: a kind of tile (the tile-kind registry).
+ * A boolean needs none (true or false), nor does a value from a fixed list (`choices`).
  */
-export interface ArgSpec { type: ArgType; optional?: boolean; about: string; tile?: true; /** What a left-out optional one means, when it means one thing (`focused`, `1`): its page's default column. */ default?: string }
+export type ArgKind = "tile" | "note" | "page" | "screen" | "view" | "key" | "value" | "tile-kind";
+/**
+ * One argument: its type, whether it may be left out, and what it means; `kind`: the kind of thing it names (ArgKind);
+ * `choices`: the values it takes, when they are a fixed list (`where=left|right|…`), offered first (with a kind, the
+ * kind's values follow them: `inbox`, `root`, then any note).
+ */
+export interface ArgSpec {
+  type: ArgType; optional?: boolean; about: string;
+  kind?: ArgKind;
+  choices?: readonly string[];
+  /** `kind: "value"`: the argument naming the property whose values it takes. */
+  of?: string;
+  /** What a left-out optional one means, when it means one thing (`focused`, `1`): its page's default column. */
+  default?: string;
+}
 
 /**
  * A real call of an action and what it does (PIE-1032): its page shows one or two, as `act` lines. `act` is the line
@@ -423,7 +453,7 @@ export function hintSpots(drawn: string, keyStyles: readonly string[]): { from: 
 
 /** A value that looks like what an argument takes, for the example call in an error. */
 const placeholder = (k: string, s: ArgSpec): string | number | boolean =>
-  s.type === "number" ? 1 : s.type === "boolean" ? true : k === "id" ? "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34" : k === "tile" || s.tile ? "main" : "text";
+  s.type === "number" ? 1 : s.type === "boolean" ? true : k === "id" ? "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34" : k === "tile" || s.kind === "tile" ? "main" : "text";
 
 /**
  * The names of a call checked once for every action (@ep0ch/outline-core/tool-args): the block argument is `id`, and

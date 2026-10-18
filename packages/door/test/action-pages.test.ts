@@ -54,7 +54,9 @@ describe("an action's page", () => {
     expect(drawn).toContain("[^W] [m] then [h] [j] [k] [l]");
     // The arguments' table: a row per argument, what each means under it.
     expect(drawn).toMatch(/name\s+values/);
-    expect(drawn).toMatch(/where\s+text/);
+    // A fixed list of values is its values (PIE-1031), a tile its kind.
+    expect(drawn).toMatch(/where\s+left, right, up, down, tabs/);
+    expect(drawn).toMatch(/into\s+a tile/);
     expect(drawn).toContain("the tile it goes beside");
     // An example as the line an agent types, and what it does under it.
     const ex = move().examples![0]!;

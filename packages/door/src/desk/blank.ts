@@ -58,7 +58,7 @@ export const BLANK_ACTIONS = actionSet<KindHost>()("blank", {
     menu: ROWS.filter(r => r.kind).map(r => ({ label: r.label, group: START, key: r.key, args: { kind: r.kind! } })),
     args: {
       kind: { type: "string", about: KINDS.join(", ") },
-      view: { type: "string", optional: true, about: "query: the saved view (virtual branch) whose cards it lists" },
+      view: { type: "string", optional: true, kind: "view", about: "query: the saved view (virtual branch) whose cards it lists" },
       cmd: { type: "string", optional: true, about: "pty: the command line (default $SHELL)" },
       name: { type: "string", optional: true, about: "its name (default its kind)" },
     },

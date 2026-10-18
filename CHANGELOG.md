@@ -10,6 +10,25 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An action's arguments are a form in the power bar (PIE-1031)
+
+In the power bar (`ctrl+k`), ⏎ on an action that takes arguments opens its form, as charmbracelet's gum does: a field
+per argument (the ones it needs first, then `tile=`, the tile it runs on, then the rest), each with what it means and
+its answer so far, and the `ep0ch act` line it will run under them. The field you're on lists its values: a tile field
+the screen's tiles (by title and path), a note field the outline's search, a page, a screen, a saved view, a property's
+key or value, a tile kind, a fixed list of choices (`where=left, right, up, down, tabs, …`), or true and false. Type to
+filter them; ⏎ answers and moves on, and past the last field ⏎ runs the line as you (or copies it). alt+⏎ answers and
+runs at once, shift+tab goes back a field, and a click on a field or on the act line goes there. The action's examples
+are rows too: picking one fills the form. A line typed without an argument it needs (`tile.open where=right`) opens
+the form with what you typed answered. The actions scope now lists every action, not only those that need nothing;
+alt+⏎ still runs one that needs nothing as it is.
+
+Each action declares what its arguments name (`kind`: tile, note, page, screen, view, key, value, tile-kind) and its
+`choices`, so `ep0ch actions` and an action's page say it too; agents read a form's fields with
+`ep0ch act bar.form op=open action=layout.move`. The kitchen sink's power bar section moves a tile through
+layout.move's form. No protocol change: the outline's wire is untouched (the door's control socket answers `kind` and
+`choices` in `actions`).
+
 ### Notes route themselves by rules written as notes (PIE-1010)
 
 A routing rule is a note: `[type::route] [query::type=recipe] [route-to::((recipes))]`, with optional

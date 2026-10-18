@@ -1940,8 +1940,18 @@ kitchen sink's actions section.
   by one word per press. The fill is selected: typing replaces it, Backspace removes it. A non-prefix fill replaces
   the line in one undo step. Inline completion in a draft is unchanged: Tab inserts.
 - **Going:** ⏎ or a double click. A tile gets your keys: a spine opens, a screen under this one comes up first. A note
-  opens where opens land. An action runs as its key would. alt+⏎ (or an alt- or ctrl-click) zooms a tile, or opens a note
-  in a new detail. Esc clears text, keeping the scope; Esc on an empty line or a click outside closes it.
+  opens where opens land. An action that takes nothing runs as its key would; one that takes arguments opens its form
+  (below). alt+⏎ (or an alt- or ctrl-click) zooms a tile, opens a note in a new detail, or runs an action that needs no
+  argument as it is. Esc clears text, keeping the scope; Esc on an empty line or a click outside closes it.
+- **An action's form** (PIE-1031): a field per argument, the ones it needs first, then `tile=` (the tile it runs on)
+  when it runs on one, then the rest, each with what it means and its answer; the act line it will run under them. The
+  field in focus lists its values: a tile field the screen's tiles, a note field the outline's search, a screen, a saved
+  view, a property's key or value, a tile kind, its choices (`where=left, right, …`), or true and false; typing filters
+  them, and what you type is an answer too unless the values are a fixed list. ⏎ answers and goes on, `leave it out`
+  skips an optional one; past the last field the act line's rows run it (as you, through the dispatcher) or copy it.
+  alt+⏎ answers and runs at once; shift+tab, or backspace on an empty line, goes back a field; a click on a field or on
+  the act line goes there. The action's examples are rows too: one picked fills the form. A line typed without an
+  argument it needs (`tile.open where=right`) opens the form with what you typed answered.
 - **The extensions scope** (`&`): the outline's Extensions hub and each installed extension's page (⏎ opens it: its
   README, what it adds, its demo notes under it), the repo's extensions that aren't installed (⏎ on `install <name>`
   installs one, with its page and demo notes), and, once you type a name, removing one, keeping its demo notes or not
@@ -1951,7 +1961,9 @@ kitchen sink's actions section.
 - **Agents:** `act bar.open query=… scope=…` answers the rows and opens nothing; `act bar.pick n=… query=…` picks as the
   agent, through the same paths and their rules; your open bar is yours (an agent can't close it, and while it's open
   you're busy, so an agent's move of your screen waits). `bar.edit op=complete query=… scope=…` completes an agent's
-  own line; `op=cut from=0 to=4 query=…` cuts a range. `peek` shows the person's bar when it's open.
+  own line; `op=cut from=0 to=4 query=…` cuts a range. `peek` shows the person's bar when it's open (and its form:
+  fields, focus, act line). `bar.form op=open action=layout.move` (or `line="layout.move to=notes"`) answers an action's
+  fields with their kinds, choices and defaults; `ep0ch actions` lists each argument's `kind`, `choices` and `of`.
 
 ### New notes and pages (PIE-544)
 
@@ -2787,6 +2799,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `search` | `query=` (2 characters or more), `limit=`: the desk's search. An agent's answers numbered hits and opens nothing; yours opens the power bar in its notes scope, and its `⏎` runs `open` | `/` |
 | `macro.record`, `macro.stop` | Start with optional `name=`; stop saves editable action lines as a script block. Person only; replay is the script’s `ext.<id>.run` action | `alt+Q`, status bar’s `⇧⌥Q` / `REC stop`, power bar |
 | `bar.open`, `bar.pick`, `bar.close` | `query=`, `scope=tiles\|notes\|actions\|recent\|screens\|extensions\|<an extension's>` (or its prefix); `n=` (from 1), `alt=true`. The power bar (PIE-656): yours opens it with your keys in it and picks from it; an agent's `bar.open` answers the rows and opens nothing, its `bar.pick` lists for itself (`query=`, `scope=`) and picks as itself (a tile on another screen refused; a note lands where an agent's opens land); `bar.close` is yours | `ctrl+k`, `cmd+k`, `^K`; ⏎, alt+⏎; esc |
+| `bar.form` | `op=open action=<name>` (or `line=<an act line>`), `op=focus field=<name>\|run`, `op=set field= value=`, `op=clear field=`, `op=back`, `op=copy`, `op=run`. An action's form in the power bar (PIE-1031): a field per argument with its values, the act line under them, run as you; an agent's `op=open` answers the fields (kind, choices, default) and opens nothing | ⏎ on an action that takes arguments; in the form ⏎, alt+⏎, shift+tab, a click on a field |
 | `tile.enter`, `tile.leave` | `send=` (enter: a key to pass on, the second `ctrl+]`): type in a terminal tile, or leave it. The person's only: an agent uses `tile.type` | `e`, `⏎` or a click on a terminal tile; `ctrl+]` |
 | `reader.reveal` | `tile=<a reader>` (default the focused one): its note in the outline, the outline's cursor on its row (its dock slides open); the person's only | `alt+r`, a click on the reader's crumbs |
 | `activity.pick`, `activity.reload`, `reader.mode` | `n=`, `open=true`; `mode=follows\|held\|pinned` and `page=` (reader.mode: any reader, a detail too; left out it is `p`'s toggle of follows and held; a click on the mode chip on the frame cycles all three). The activity and reader tiles' own keys, registered on their tile kinds. An agent's pick answers the row and moves nothing of yours (a thread's replies are a links tile's Children: `backlinks.pick`) | `j k ↑↓`, a click, `⏎`; `r`; `p` |

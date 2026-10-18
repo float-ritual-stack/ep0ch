@@ -97,10 +97,10 @@ const POLICY_ARGS = {
   overlay: { type: "boolean", optional: true, about: "a dock slides over (true) or takes its room while open (false)" },
   stays: { type: "boolean", optional: true, about: "an open dock stays open when the keys leave it" },
   locked: { type: "boolean", optional: true, about: "its shape is fixed, its contents live" },
-  opensInto: { type: "string", optional: true, about: "the tile its tiles' opens land in (empty clears)" },
-  opens: { type: "string", optional: true, about: "the open rule: current (the current note) or next (a new column after the tile's own, in a flow)" },
-  agents: { type: "string", optional: true, about: "what an agent may do to the tiles under it (free, edit, off; PIE-639): node=screen is the screen's default, a tile's own wins (tile.agent); free clears" },
-  host: { type: "string", optional: true, about: "node=screen: where the host layer (the agent, terminals) may appear over this screen: over, beside or none" },
+  opensInto: { type: "string", optional: true, kind: "tile", about: "the tile its tiles' opens land in (empty clears)" },
+  opens: { type: "string", optional: true, choices: ["current", "next"], about: "the open rule: current (the current note) or next (a new column after the tile's own, in a flow)" },
+  agents: { type: "string", optional: true, choices: ["free", "edit", "off"], about: "what an agent may do to the tiles under it (free, edit, off; PIE-639): node=screen is the screen's default, a tile's own wins (tile.agent); free clears" },
+  host: { type: "string", optional: true, choices: ["over", "beside", "none"], about: "node=screen: where the host layer (the agent, terminals) may appear over this screen: over, beside or none" },
   clear: { type: "string", optional: true, about: "fields to take away, comma-separated" },
 } as const;
 type PolicyArgs = ArgsOf<typeof POLICY_ARGS>;
@@ -133,10 +133,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       return `moved ${r.tile} ${w.startsWith("edge-") ? `to the ${w.slice(5)} edge` : `${PLACE[w]} ${a.to}`}`;
     },
     args: {
-      to: { type: "string", optional: true, tile: true, about: "the tile it goes beside or into (not needed for an edge)" },
-      where: { type: "string", optional: true, about: "left, right, up, down, tabs, or edge-left/right/up/down (default right)" },
+      to: { type: "string", optional: true, kind: "tile", about: "the tile it goes beside or into (not needed for an edge)" },
+      where: { type: "string", optional: true, choices: ["left", "right", "up", "down", "tabs", "edge-left", "edge-right", "edge-up", "edge-down"], about: "left, right, up, down, tabs, or edge-left/right/up/down (default right)" },
       index: { type: "number", optional: true, about: "with where=tabs: the place among the tabs (0 first)" },
-      into: { type: "string", optional: true, tile: true, about: "a group tile on this screen: the tile goes into it whole" },
+      into: { type: "string", optional: true, kind: "tile", about: "a group tile on this screen: the tile goes into it whole" },
       out: { type: "boolean", optional: true, about: "on a tile of a group: it goes out onto the screen holding the group" },
       beside: { type: "string", optional: true, about: "with into=: the group's tile it goes beside or into; with out=true: the tile outside it goes beside (default the group)" },
     },
@@ -157,24 +157,24 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     keys: "^W o <kind>; ^W O <kind> as a tab; ⏎ or a double click on a view in ^W o q's picker",
     touches: "shape", landing: true, replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.tile)}`,
     args: {
-      kind: { type: "string", about: "what the tile shows" },
+      kind: { type: "string", kind: "tile-kind", about: "what the tile shows" },
       name: { type: "string", optional: true, about: "its name (default: its kind, numbered)" },
       cmd: { type: "string", optional: true, about: "pty: the command line (default $SHELL)" },
       file: { type: "string", optional: true, about: "pty: the file it edits; preview: the file it shows" },
       source: { type: "string", optional: true, about: "preview: tile:<name> or file:<path>" },
-      mode: { type: "string", optional: true, about: "reader: held (it keeps note=, the current note never moves it) or pinned (to page=); left out it follows the current note. kind=detail is kind=reader mode=held" },
-      note: { type: "string", optional: true, about: "reader, held: the note it keeps" },
-      id: { type: "string", optional: true, about: "reader, held: the same as note=" },
-      page: { type: "string", optional: true, about: "reader, pinned: the page it's pinned to, as in [[name]]" },
+      mode: { type: "string", optional: true, choices: ["held", "pinned"], about: "reader: held (it keeps note=, the current note never moves it) or pinned (to page=); left out it follows the current note. kind=detail is kind=reader mode=held" },
+      note: { type: "string", optional: true, kind: "note", about: "reader, held: the note it keeps" },
+      id: { type: "string", optional: true, kind: "note", about: "reader, held: the same as note=" },
+      page: { type: "string", optional: true, kind: "page", about: "reader, pinned: the page it's pinned to, as in [[name]]" },
       cwd: { type: "string", optional: true, about: "pty: the folder it runs in" },
-      view: { type: "string", optional: true, about: "query: the saved view (virtual branch) whose cards it lists" },
+      view: { type: "string", optional: true, kind: "view", about: "query: the saved view (virtual branch) whose cards it lists" },
       query: { type: "string", optional: true, about: "query: a query in the views' grammar it lists instead (#garden, PIE-800); source=tile:<a reader> makes that reader its home" },
-      screen: { type: "string", optional: true, about: "screen (a mount, PIE-651): the screen it mounts (board, river, brief, a screen you made…)" },
+      screen: { type: "string", optional: true, kind: "screen", about: "screen (a mount, PIE-651): the screen it mounts (board, river, brief, a screen you made…)" },
       part: { type: "string", optional: true, about: "screen: a container's key of it to mount alone (the board's lanes)" },
       target: { type: "string", optional: true, about: "screen: what it opens on, where it takes one (the board's hub, detail's note)" },
       label: { type: "string", optional: true, about: "screen: what its title (and its spine) says" },
-      to: { type: "string", optional: true, tile: true, about: "the tile it opens beside (default the focused one; tile= also names it)" },
-      where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right); next: the column after its own in a flow" },
+      to: { type: "string", optional: true, kind: "tile", about: "the tile it opens beside (default the focused one; tile= also names it)" },
+      where: { type: "string", optional: true, choices: ["left", "right", "up", "down", "tabs", "next"], about: "left, right, up, down or tabs (default right); next: the column after its own in a flow" },
     },
     examples: [
       { act: "tile.open kind=reader mode=held note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=tree where=right", does: "opens a reader beside the tree that keeps the seed-swap note" },
@@ -205,7 +205,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "grow (by>0) or shrink (by<0) tile=<tile> by steps along axis=row (width, default) or col (height), as its keys do; on the board tile=lanes is the lanes' row. layout.resize places a border exactly",
     keys: "^W < > + -; board < >; drag a border",
     touches: "shape", replay: "safe", says: (r, a) => `${a.by > 0 ? "grew" : "shrank"} ${r.tile}`,
-    args: { by: { type: "number", about: "steps: +1 grows it by one key press, -2 shrinks it by two" }, axis: { type: "string", optional: true, about: "row (width, default) or col (height)" } },
+    args: { by: { type: "number", about: "steps: +1 grows it by one key press, -2 shrinks it by two" }, axis: { type: "string", optional: true, choices: ["row", "col"], about: "row (width, default) or col (height)" } },
     examples: [
       { act: "tile.resize by=2 tile=reader", does: "makes the reader wider by two key presses' worth" },
       { act: "tile.resize by=-3 axis=col tile=activity", does: "makes the activity tile shorter by three steps" },
@@ -249,8 +249,8 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     keys: "alt+l then click the tile, h j k l or 1-9 (the tile itself unlinks); a click on the link's role on the header (⏎ target, ◌ preview)",
     touches: "shape", replay: "safe", says: (r, a) => (a.role && !a.to ? `${r.tile}'s link is a ${a.role}` : a.to ? `linked ${r.tile} → ${a.to}` : `unlinked ${r.tile}`),
     args: {
-      to: { type: "string", optional: true, tile: true, about: "the tile its opens land in; left out, the link is taken away (or, with role=, kept)" },
-      role: { type: "string", optional: true, about: "preview (the linked tile follows the selection) or target (it takes only what is opened into it); default the source kind's: the links tile's is target" },
+      to: { type: "string", optional: true, kind: "tile", about: "the tile its opens land in; left out, the link is taken away (or, with role=, kept)" },
+      role: { type: "string", optional: true, choices: ["preview", "target"], about: "preview (the linked tile follows the selection) or target (it takes only what is opened into it); default the source kind's: the links tile's is target" },
     },
     examples: [
       { act: "tile.link tile=tree to=reader role=preview", does: "makes the reader follow the tree's selection as it moves" },
@@ -265,7 +265,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "give the person's keys to tile=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
     keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →), ✦h ✦j ✦k ✦l ✦1-✦9 (hyper, from an edit or a terminal tile too); esc q back home (a screen with a home: the board's lanes)",
     touches: "screen", replay: "safe", says: r => `gave the keys to ${r.tile}`,
-    args: { dir: { type: "string", optional: true, about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
+    args: { dir: { type: "string", optional: true, choices: ["left", "right", "up", "down"], about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
     examples: [
       { act: "tile.focus tile=reader", does: "gives the person's keys to the reader" },
       { act: "tile.focus dir=left tile=reader", does: "gives the keys to the tile left of the reader" },
@@ -280,7 +280,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     keys: "^W p; ^W P then edge (⏎ or a click cycles it); board T, B; a click on a header's ⇤ docked undocks it; while dragging a tile, p, or a drop on a dock's handle",
     touches: "shape", replay: "safe", confirms: true, says: r => (r.changed === false ? null : r.docked ? `docked ${r.tile} to the ${EDGE_WORD[r.edge as Dir] ?? r.edge} edge` : `undocked ${r.tile}`),
     menu: { label: "dock it to an edge", group: TILE, key: "ctrl+w p", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.inDrawer ? { hide: true } : { refused: n.refused("pin"), ...(n.dock ? { label: "undock it" } : {}) }; } },
-    args: { on: { type: "boolean", optional: true, about: "true docks it to an edge, false undocks it back into the layout" }, edge: { type: "string", optional: true, about: "left, right, up or down: the outer edge the dock slides from; other: the opposite side to where it is (undocked, it's moved there and stays undocked)" }, container: { type: "string", optional: true, about: "a split (s<n>) to dock whole, instead of the tile's own slot" } },
+    args: { on: { type: "boolean", optional: true, about: "true docks it to an edge, false undocks it back into the layout" }, edge: { type: "string", optional: true, choices: ["left", "right", "up", "down", "other"], about: "left, right, up or down: the outer edge the dock slides from; other: the opposite side to where it is (undocked, it's moved there and stays undocked)" }, container: { type: "string", optional: true, about: "a split (s<n>) to dock whole, instead of the tile's own slot" } },
     examples: [
       { act: "tile.dock on=true edge=left tile=tree", does: "docks the tree to the left edge, sliding over the other tiles" },
       { act: "tile.dock on=false tile=tree", does: "undocks the tree, back in the layout where it was" },
@@ -299,7 +299,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     menu: { label: "fold to a spine", group: TILE, key: "ctrl+w c", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float || n.inDrawer ? { hide: true } : { refused: n.refused("collapse") }; } },
     args: {
       on: { type: "boolean", optional: true, about: "true folds it, false opens it; default toggles" },
-      dir: { type: "string", optional: true, about: "v: a vertical spine (tiles side by side), h: a horizontal one (tiles stacked); default the way its split runs. Another way than it's folded refolds it" },
+      dir: { type: "string", optional: true, choices: ["v", "h"], about: "v: a vertical spine (tiles side by side), h: a horizontal one (tiles stacked); default the way its split runs. Another way than it's folded refolds it" },
     },
     examples: [
       { act: "tile.collapse on=true tile=activity", does: "folds the activity tile to a spine, keeping what is in it" },
@@ -323,7 +323,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "back (dir=back, the default) or forward in tile=<tile>'s flow: the person's keys go to the column it was opened from, or the one back last left; it widens only if it's covered, so the text comes back where it was. The person's keys only: an agent opens beside instead (open, link.follow)",
     keys: "river column: alt+← alt+b backspace the mouse's back button, a click on ← back (back); alt+→ alt+f the forward button, a click on forward → (forward)",
     touches: "screen", replay: "safe", person: "back and forward in a flow move the person's keys between columns; an agent opens beside (open, link.follow) instead",
-    args: { dir: { type: "string", optional: true, about: "back or forward; default back" } },
+    args: { dir: { type: "string", optional: true, choices: ["back", "forward"], about: "back or forward; default back" } },
     examples: [
       { act: "tile.travel tile=card", does: "takes the person's keys back to the column this one was opened from" },
       { act: "tile.travel dir=forward tile=card", does: "takes the keys forward to the column back last left" },
@@ -361,7 +361,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     args: {
       on: { type: "boolean", optional: true, about: "true: into your drawer; false: out of it into the screen shown; left out, whichever it isn't" },
       to: { type: "string", optional: true, about: "on=false: the screen's tile it goes beside (its name); left out, the tile the person has" },
-      where: { type: "string", optional: true, about: "on=false: left, right, up, down, tabs, edge-left, edge-right, edge-up, edge-down" },
+      where: { type: "string", optional: true, choices: ["left", "right", "up", "down", "tabs", "edge-left", "edge-right", "edge-up", "edge-down"], about: "on=false: left, right, up, down, tabs, edge-left, edge-right, edge-up, edge-down" },
     },
     examples: [
       { act: "tile.drawer on=true tile=activity", does: "puts the activity tile in your drawer, keeping its state" },
@@ -404,7 +404,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     touches: "shape", ownGate: true, replay: "safe", confirms: true,
     says: r => (r.changed === false ? null : `set ${r.tile} to ${AGENT_WORDS[r.agents as AgentLevel]}`),
     menu: { label: "what agents may do here", group: TILE, key: "ctrl+w g", now: ({ d, reader }) => { const a = d.agentNow(reader); return { label: a.level === "free" ? "agents: free · set edit only" : a.level === "edit" ? "agents: edit only · set hands off" : "agents: hands off · set free" }; } },
-    args: { policy: { type: "string", optional: true, about: "free, edit, off, or inherit; left out, the next one (free, edit, off, free)" } },
+    args: { policy: { type: "string", optional: true, choices: ["free", "edit", "off", "inherit"], about: "free, edit, off, or inherit; left out, the next one (free, edit, off, free)" } },
     examples: [
       { act: "tile.agent policy=edit tile=reader", does: "lets agents edit the reader's note but not navigate, close or move it" },
       { act: "tile.agent policy=inherit tile=reader", does: "takes the reader's own agent level away, so its container's applies" },
@@ -468,7 +468,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { label: "preview beside", group: TILE, key: "ctrl+w v", args: { where: "right" }, now: ({ d, reader }, _t, actor) => (d.tileNow(reader, actor).flow || d.tileNow(reader, actor).inDrawer ? { hide: true } : null) },
       { label: "preview below", group: TILE, key: "ctrl+w V", args: { where: "down" }, now: ({ d, reader }, _t, actor) => (d.tileNow(reader, actor).flow || d.tileNow(reader, actor).inDrawer ? { hide: true } : null) },
     ],
-    args: { where: { type: "string", optional: true, about: "right, down, left or up; default right if the tile is wide, else down" } },
+    args: { where: { type: "string", optional: true, choices: ["right", "down", "left", "up"], about: "right, down, left or up; default right if the tile is wide, else down" } },
     examples: [
       { act: "tile.preview tile=tree where=right", does: "opens a reader to the right of the tree where its opens land" },
       { act: "tile.preview tile=replies where=down", does: "opens a reader below the replies tile and links its opens to it" },
@@ -545,7 +545,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "layout.swap": def({
     summary: "tile=<tile> and tile to=<tile> trade places", keys: "^W s (the next tile)",
     touches: "shape", replay: "safe", says: (r, a) => `swapped ${r.tile} and ${a.to}`,
-    args: { to: { type: "string", tile: true, about: "the tile it trades places with" } },
+    args: { to: { type: "string", kind: "tile", about: "the tile it trades places with" } },
     examples: [
       { act: "layout.swap tile=tree to=reader", does: "trades the places of the tree and the reader" },
     ],
@@ -625,8 +625,8 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     args: {
       on: { type: "boolean", optional: true, about: "true gathers, false spills a group back; default: a group spills, any other tile is gathered" },
       node: { type: "string", optional: true, about: "a container (its id from layout.get, or its key) to gather whole, in place of tile=" },
-      with: { type: "string", optional: true, tile: true, about: "another tile to put beside it in the group" },
-      where: { type: "string", optional: true, about: "with with=: right (default), left, up or down of it" },
+      with: { type: "string", optional: true, kind: "tile", about: "another tile to put beside it in the group" },
+      where: { type: "string", optional: true, choices: ["right", "left", "up", "down"], about: "with with=: right (default), left, up or down of it" },
       name: { type: "string", optional: true, about: "the group tile's name (default group, numbered)" },
       label: { type: "string", optional: true, about: "what its title says" },
       selected: { type: "boolean", optional: true, about: "gather the tiles this actor picked (tile.select) instead of tile=" },
@@ -652,7 +652,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     touches: "shape", replay: "safe", confirms: true,
     says: r => `moved ${r.tile} ${r.out ? `out of ${r.from ?? "its group"}` : `into ${r.into}`}`,
     menu: { label: "move into a group…", group: TILE, key: "ctrl+w i", now: ({ d, reader }) => { const n = d.groupsFor(reader); return d.inGroup() ? { label: "move out of its group" } : n.length ? null : { hide: true }; } },
-    args: { group: { type: "string", optional: true, tile: true, about: "the group tile to move it into" } },
+    args: { group: { type: "string", optional: true, kind: "tile", about: "the group tile to move it into" } },
     examples: [
       { act: "tile.into group=thread tile=activity", does: "moves the activity tile whole into the thread group" },
       { act: "tile.into tile=activity", does: "moves the activity tile back out of its group onto the screen" },
@@ -735,7 +735,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     says: r => (r?.armed ? null : `deleted the screen ${r.screen} (its note is in the Trash)`),
     // No keycap: its x is the screens picker's, not this tile's.
     menu: { label: "delete this screen (its note to the Trash)", group: SCREEN, key: "", now: ({ d }) => (d.madeName() ? { args: { name: d.madeName()! } } : { hide: true }) },
-    args: { name: { type: "string", about: "the screen's name (screen.list's made screens)" } },
+    args: { name: { type: "string", kind: "screen", about: "the screen's name (screen.list's made screens)" } },
     examples: [
       { act: "screen.delete name=\"garden planning\"", does: "moves the garden planning screen note to the outline's Trash" },
     ],

@@ -498,7 +498,7 @@ export class Dispatcher {
     const recordedArgs = { ...seen };
     for (const [key, spec] of Object.entries(reg.set.argsOf(req.action) ?? {})) {
       const value = recordedArgs[key];
-      if (spec.tile && typeof value === "string" && !isTilePath(value)) recordedArgs[key] = this.tile(value)?.id ?? value;
+      if (spec.kind === "tile" && typeof value === "string" && !isTilePath(value)) recordedArgs[key] = this.tile(value)?.id ?? value;
     }
     const ran = actor.kind === "user" && ctx?.recordAction
       ? ctx.recordAction({ action: req.action, args: recordedArgs, ...(reg.takes === "tile" || req.tile !== undefined ? { tile: at.tile?.id ?? at.name ?? req.tile } : {}) }, def.replay, run)
@@ -597,7 +597,7 @@ export class Dispatcher {
   private tileArgs(spec: Record<string, ArgSpec>, raw: Record<string, unknown>, tiles: TileRef[]): Record<string, unknown> {
     const out = { ...raw };
     for (const [k, s] of Object.entries(spec)) {
-      if (!s.tile || typeof out[k] !== "string" || !tiles.length) continue;
+      if (s.kind !== "tile" || typeof out[k] !== "string" || !tiles.length) continue;
       // A path (`group/tile`, `../tile`) names a tile of another screen of the family: the action reads it (tile.link to=).
       if (isTilePath(String(out[k]))) continue;
       const hit = this.named(String(out[k]), tiles);
