@@ -96,7 +96,7 @@ test("an ::if over a relation never lets its body say what a note the page may n
 
 // Codex's review of the first fix: what a script or a query consults is more than the rows it returns.
 
-test("a render script that reads a note and returns its child says hidden here when the child is one the page may not show", async () => {
+test("a render script reads only the children the page may show", async () => {
   const { store, draw, tailnet, publicly } = await setup();
   const parent = store.create("Seed shelf [publish::public:shelf]");
   store.create("Vault codes [publish::never] [code::9023]", parent.id);
@@ -107,7 +107,8 @@ test("a render script that reads a note and returns its child says hidden here w
   await until("the line drawn", () => store.extensionOutputs(page.id).filter(row => row.result).length === 1);
   for (const html of [await tailnet("shelf-view"), await publicly("shelf-view")]) {
     expect(html).not.toContain("9023");
-    expect(html).toContain("hidden here");
+    expect(html).toContain("&quot;children&quot;:[]");
+    expect(html).toContain("&quot;complete&quot;:true");
   }
 });
 
@@ -314,4 +315,41 @@ test("the Site counts a limited figure's groups before taking its first row", as
     produce: { kind: "figure", figure: "rank", props: { query: "type=crop", group: "family", limit: 1 } },
   });
   expect(answer.produced.groups).toEqual([expect.objectContaining({ value: "legume", count: 1 })]);
+});
+
+test("a published read is complete when its only child is hidden", async () => {
+  const { store, draw, publicly } = await setup();
+  const parent = store.create("Visible shelf [publish::public]");
+  store.create("Private packet [publish::never]", parent.id);
+  store.create(`Read completeness [script::read-completeness] [mode::render] [publish::public]\n\`\`\`js\nconst read = await tools.outline_read({ ref: "${parent.id}", depth: 0 });\nreturn "COMPLETE=" + read.complete + "; CHILDREN=" + read.children.length;\n\`\`\``);
+  const page = store.create("Shelf report [publish::public:shelf-report]\nread-completeness::");
+  await draw(page.id);
+  await until("read drawn", () => store.extensionOutputs(page.id).some(row => row.result));
+  expect(await publicly("shelf-report")).toContain("COMPLETE=true; CHILDREN=0");
+  const visible = store.create("Public packet [publish::public]", parent.id);
+  expect(await publicly("shelf-report")).toContain("COMPLETE=false; CHILDREN=0");
+  store.create("Private label [publish::never]", visible.id);
+  store.create(`Bounded read [script::bounded-read] [mode::render] [publish::public]\n\`\`\`js\nconst read = await tools.outline_read({ ref: "${parent.id}", depth: 1, limit: 1 });\nreturn "BOUNDED=" + read.complete + "; CHILD=" + read.children[0]?.text + "; MORE=" + !!read.children[0]?.more;\n\`\`\``);
+  const bounded = store.create("Bounded shelf [publish::public:bounded-shelf]\nbounded-read::");
+  await draw(bounded.id);
+  await until("bounded read drawn", () => store.extensionOutputs(bounded.id).some(row => row.result));
+  const html = await publicly("bounded-shelf");
+  expect(html).toContain("BOUNDED=true; CHILD=Public packet");
+  expect(html).toContain("MORE=false");
+});
+
+test("published changes count visible edits before limiting the page", async () => {
+  const { store, draw, publicly } = await setup();
+  const visible = store.create("Public planting [publish::public]");
+  const edit = (id: string, text: string) => store.update(id, text, store.get(id)!.revision, { author: "agent", actorId: "garden-helper" });
+  edit(visible.id, "Public planting revised [publish::public]");
+  for (let i = 0; i < 3; i++) {
+    const hidden = store.create("Private planting [publish::never]");
+    edit(hidden.id, "Private planting revised [publish::never]");
+  }
+  store.create('Recent planting [script::recent-planting] [mode::render] [publish::public]\n```js\nconst found = await tools.outline_changes({ since: 0, actor: "garden-helper", limit: 1 });\nreturn "CHANGES=" + found.entries.length + "; COMPLETE=" + found.complete + "; TITLE=" + found.entries[0]?.title;\n```');
+  const page = store.create("Planting changes [publish::public:planting-changes]\nrecent-planting::");
+  await draw(page.id);
+  await until("changes drawn", () => store.extensionOutputs(page.id).some(row => row.result));
+  expect(await publicly("planting-changes")).toContain("CHANGES=1; COMPLETE=true; TITLE=Public planting revised");
 });
