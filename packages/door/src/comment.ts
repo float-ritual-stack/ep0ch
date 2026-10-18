@@ -11,7 +11,7 @@ import { editHint, writtenBy, type EditFrame } from "./surface/editor";
 import { composerPlace, nextPlace, type ComposerPlace } from "./surface/composer";
 import type { Completer } from "./surface/completer";
 import { authorName, USER, type Actor, type AnnotationProps, type Comment, type CommentPassage, type SocketBoard } from "./socket";
-import { C, chip, ellipsize, fg, pad, RESET, selected } from "./style";
+import { C, chip, ellipsize, fg, pad, RESET, selectedRow } from "./style";
 import { ch, isUp, isDown, type Key } from "./term";
 import { findPassage, isMiss, missMessage, passageAt } from "@ep0ch/outline-core/passage";
 import { ago, rule, wrap } from "./text";
@@ -620,7 +620,7 @@ export class CommentSession {
       if (!t.open && (i === 0 || this.threads[i - 1]!.open)) lines.push(fg(C.dark) + pad("── earlier ── s on one brings it back", w) + RESET);
       if (i === this.sel) selAt = lines.length;
       const top = `${this.picked.has(t.id) ? "+" : t.open ? OPEN : DONE} ${authorName(t.author)} · ${ago(t.at)}${editedMark(t)} · ${t.lifecycle}${t.tldr ? " · TL;DR" : ""}${t.replies.length ? ` · ${t.replies.length} repl${t.replies.length === 1 ? "y" : "ies"}` : ""}${this.picked.has(t.id) ? " · picked" : ""}${t.quotedIn?.length ? ` · quoted ${t.quotedIn.length}×` : ""}`;
-      lines.push(i === this.sel ? selected() + pad(top, w) + RESET : fg(t.open ? C.yellow : C.dark) + pad(top, w) + RESET);
+      lines.push(i === this.sel ? selectedRow(top, w) : fg(t.open ? C.yellow : C.dark) + pad(top, w) + RESET);
       // On the earlier shelf a thread is its one line until it's chosen.
       if (!t.open && i !== this.sel) return;
       // A thread with a TL;DR shows it, its discussion folded behind it, until it's chosen.

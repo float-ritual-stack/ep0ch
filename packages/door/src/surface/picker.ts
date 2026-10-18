@@ -6,7 +6,7 @@
 // `ended` (its mode stack lets it go). A line typed above the list is a LineInput.
 import type { Canvas, Rect } from "../canvas";
 import { RowView } from "../scroll";
-import { bg, C, fg, pad, RESET, selected } from "../style";
+import { bg, C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { LineInput } from "./line";
 import type { Mode } from "./modes";
@@ -177,4 +177,4 @@ export function linePrompt<H>(o: { name: string; title: string; text: string; pr
 }
 
 /** A row in the picker's colours: lit when the cursor is on it, else in `ink`. */
-export const pickRow = (text: string, on: boolean, w: number, ink: number = C.grey) => (on ? selected() : fg(ink)) + pad(text, w) + RESET;
+export const pickRow = (text: string, on: boolean, w: number, ink: number = C.grey) => on ? selectedRow(text, w) : fg(ink) + pad(text, w) + RESET;

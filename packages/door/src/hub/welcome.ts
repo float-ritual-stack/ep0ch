@@ -25,7 +25,7 @@ import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
-import { artLines, C, chip, ellipsize, fg, headOf, pad, paint, RESET, selected, width } from "../style";
+import { artLines, C, chip, ellipsize, fg, headOf, pad, paint, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key, type TermInfo } from "../term";
 import { bbsDate, wrap } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -198,7 +198,7 @@ export class WelcomeList implements Pane {
       lines: this.rows.slice(this.view.top, this.view.top + h).map(r => {
         if ("more" in r) return fg(C.dark) + pad(`  … ${r.more} more`, w) + RESET;
         const m = this.items![r.i]!, key = tabKey(r.i) ?? " ";
-        if (r.i === at) return (focused ? selected() : chip(C.magenta)) + pad(` ${key} ${subject(m)}`, w) + RESET;
+        if (r.i === at) return selectedRow(` ${key} ${subject(m)}`, w, focused);
         return pad(` ${fg(C.white)}${key} ${fg(C.lmagenta)}${subject(m)}`, w) + RESET;
       }),
     };

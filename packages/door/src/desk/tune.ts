@@ -27,7 +27,7 @@ import {
 import { surfaceMix } from "../theme";
 import type { Actor } from "../socket";
 import { ActionRefused, actionSet, agentLabel, def } from "../surface/actions";
-import { bgRgb, C, chip, ellipsize, fg, pad, RESET, selected, width } from "../style";
+import { bgRgb, C, chip, ellipsize, fg, pad, RESET, selected, selectedRow, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { RowView, type RowPress } from "../scroll";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
@@ -268,16 +268,16 @@ export class TunePane implements Pane {
       const ownText = !picked ? "" : !aimed ? "—" : own.every(v => v === null) ? "—" : own.map(v => (v === UNSET ? "×" : v ?? "·")).join(" ");
       const srcW = Math.max(0, w - nameW - valW - lvlW - ctl - 1);
       const y = lines.length;
-      const name = pad(ellipsize(row.name, nameW - 1), nameW), value = swatch && valW > 6 ? pad(ellipsize(shown, valW - 4), valW - 3) + " " + swatch + (on ? selected(focused) : "") : pad(ellipsize(shown, valW - 1), valW);
+      const name = " " + pad(ellipsize(row.name, nameW - 2), nameW - 1), value = swatch && valW > 6 ? pad(ellipsize(shown, valW - 4), valW - 3) + " " + swatch + (on ? selected(focused) : "") : pad(ellipsize(shown, valW - 1), valW);
       const lvl = picked ? " " + pad(ellipsize(ownText, lvlW - 2), lvlW - 1) : "";
       const whence = shadow ? `⊘ ${shadow.why}` : `${tuned ? "● " : "← "}${sourceWords(src)}`;
       const ink = (c: number) => (on ? "" : fg(shadow ? C.dark : c));
-      const body = (on ? selected(focused) : "") + fg(on ? C.white : shadow ? C.dark : C.grey) + name + ink(tuned ? C.yellow : C.white) + value + ink(C.lcyan) + lvl + (on ? "" : fg(shadow ? C.yellow : C.dark)) + pad(whence, srcW) + RESET;
+      const body = (on ? "" : fg(shadow ? C.dark : C.grey)) + name + ink(tuned ? C.yellow : C.white) + value + ink(C.lcyan) + lvl + (on ? "" : fg(shadow ? C.yellow : C.dark)) + pad(whence, srcW) + RESET;
       this.rowAt.set(y, { row: i, valueFrom: nameW, valueTo: nameW + valW });
       // × resets this row's value to what it inherits (tune.unset, as x); − and + nudge it.
       const unset = nameW + valW + lvlW + srcW + 1, minus = unset + 2;
       this.controls.push({ y, x: unset, cols: 1, action: "tune.unset", args: { row: row.name } }, { y, x: minus, cols: 3, action: "tune.nudge", args: { row: row.name, by: -1 } }, { y, x: minus + 4, cols: 3, action: "tune.nudge", args: { row: row.name, by: 1 } });
-      lines.push(body + " " + fg(C.dark) + "×" + RESET + " " + fg(C.cyan) + "[−] [+]" + RESET);
+      lines.push((on ? selectedRow(body, nameW + valW + lvlW + srcW, focused) : body) + " " + fg(C.dark) + "×" + RESET + " " + fg(C.cyan) + "[−] [+]" + RESET);
     }
     // What the tile's look couldn't use (a value out of range, a style no note declares), then the help.
     const problems = t.look.problems;

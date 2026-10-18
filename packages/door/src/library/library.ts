@@ -9,7 +9,7 @@ import { axisValues, grid, spaceSize, spaceVariations, sweep, valuesWords, varia
 import { componentsOf } from "../component-schemas";
 import type { ListSource } from "../outline-lists";
 import { RowView, scrolled, wheelRows } from "../scroll";
-import { BOLD, C, chip, ellipsize, fg, pad, RESET, selected, UNBOLD, width } from "../style";
+import { BOLD, C, chip, ellipsize, fg, pad, RESET, selectedRow, UNBOLD, width } from "../style";
 import { draftPreview } from "../surface/note";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { ch, type Key } from "../term";
@@ -112,8 +112,8 @@ export class LibraryPane implements Pane {
   private block(v: Variation, i: number, label: string, W: number, src: ListSource | null, cut = W): Row[] {
     const sel = i === this.selectedV, out: Row[] = [];
     const copy = " copy ", room = Math.max(4, cut - width(copy) - 3);
-    const head = `${sel ? "▌" : " "} ${ellipsize(label, room)}`;
-    out.push({ text: (sel ? selected(true) : fg(C.lcyan)) + pad(head, cut - width(copy)) + RESET + fg(C.dark) + copy + RESET, v: i,
+    const head = `  ${ellipsize(label, room)}`;
+    out.push({ text: (sel ? selectedRow(head, cut - width(copy)) : fg(C.lcyan) + pad(head, cut - width(copy)) + RESET) + fg(C.dark) + copy + RESET, v: i,
       hits: [{ from: 0, to: cut - width(copy), action: "library.select", args: { n: i + 1 } }, { from: cut - width(copy), to: cut, action: "library.copy", args: { n: i + 1 } }] });
     for (const cols of this.allWidths ? WIDTHS : [this.width]) {
       const drawn = drawVariation(v, cols, src);

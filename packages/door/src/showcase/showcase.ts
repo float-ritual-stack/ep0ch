@@ -13,7 +13,7 @@ import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } fro
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
-import { C, fg, pad, paint, RESET, selected } from "../style";
+import { C, fg, pad, paint, RESET, selectedRow } from "../style";
 import { wrap } from "../text";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ActionRefused, actionSet, def, type ActionInfo, type ActRequest } from "../surface/actions";
@@ -881,11 +881,12 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "focus", need: "see which tile, figure or table has the keys and which row inside it the cursor is on, in every theme", part: "the two focus levels (PIE-969): container focus, the tile's frame and the ruler's tint over the figure or block the cursor is in (theme.focus.container, theme.edge.focus); item focus, the row the cursor is on (theme.focus.item: a band and a left-edge bar, one style, style.ts selected() for every list tile and NoteSurface's figure rows and panels), dark and 4.5:1 or better under every text colour (test/theme-focus.test.ts)", files: "src/theme.ts (focus), src/style.ts (selected, itemStyle), src/surface/selection.ts (ITEM_BG), src/surface/note.ts (ITEM_KINDS)",
-    aside: "the left reader has the keys: press ⏎ to go in, [ ] to walk the rows of the figures: the figure keeps its amber tint (it has the cursor) and the row under the cursor is a blue band with a bar at its left edge · the right reader doesn't have the keys · `act theme.set name=calm|night|classic` redraws both in each theme · classic uses readable grey text on the selected band, including formerly dim metadata and blue text; calm and night keep their row colours · every list tile (outline, links, query lanes, river) marks its row with the same band",
+    key: "focus", need: "see which tile, figure or table has the keys and which row inside it the cursor is on, in every theme", part: "the two focus levels (PIE-969): container focus, the tile's frame and the ruler's tint over the figure or block the cursor is in (theme.focus.container, theme.edge.focus); item focus, the row the cursor is on (theme.focus.item: a band and a left-edge bar, one style, style.ts selectedRow() for every list tile and NoteSurface's figure rows and panels), dark and 4.5:1 or better under every text colour (test/theme-focus.test.ts)", files: "src/theme.ts (focus), src/style.ts (selectedRow, itemStyle), src/surface/selection.ts (ITEM_BG), src/surface/note.ts (ITEM_KINDS)",
+    aside: "the left reader has the keys: press ⏎ to go in, [ ] to walk the rows of the figures: the figure keeps its amber tint (it has the cursor) and the row under the cursor is a blue band with a bar at its left edge · the right reader doesn't have the keys · `act theme.set name=calm|night|classic` redraws both in each theme · classic uses readable grey text on the selected band, including formerly dim metadata and blue text; calm and night keep their row colours · click the outline tile on the right and press j/k: its selected row has the same band and ▌ marker; click back to the figures to see the outline’s idle band (PIE-999)",
     stage(n, show) {
-      const a = new ReaderPane(), b = new ReaderPane();
-      return deskOf({ title: "showcase · focus levels", panes: [a, b], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[a, n.markdownFigures], [b, n.keys]]);
+      const a = new ReaderPane(true), b = new ReaderPane(true);
+      a.holdOn(); b.holdOn();
+      return deskOf({ title: "showcase · focus levels", panes: [a, b, new TreePane()], names: ["figures", "reader", "outline"], layout: ([x, y, z]) => pair("row", 0.7, row(0.6, x!, y!), leaf(z!)) }, show, [[a, n.markdownFigures], [b, n.keys]]);
     },
   },
   {
@@ -1224,7 +1225,7 @@ export class Showcase implements Screen {
     SECTIONS.slice(top, top + fit).forEach((s, j) => {
       const i = top + j, on = i === this.sel;
       const label = pad(` ${String(i + 1).padStart(2)} ${wide ? s.need : s.key}`, idx.cols - 2);
-      canvas.text(1, 2 + j * 2, on ? (this.focus === "index" ? selected() : fg(C.yellow)) + label + RESET : fg(C.grey) + label + RESET, idx.cols - 2);
+      canvas.text(1, 2 + j * 2, on ? selectedRow(label, idx.cols - 2, this.focus === "index") : fg(C.grey) + label + RESET, idx.cols - 2);
       if (wide) canvas.text(1, 3 + j * 2, fg(C.dark) + pad(`    ${s.key}`, idx.cols - 2) + RESET, idx.cols - 2);
     });
     const s = SECTIONS[this.sel]!;
@@ -1475,7 +1476,7 @@ export class ActionsPane implements Pane {
       const i = this.view.top + j;
       if ("head" in r) return fg(C.lcyan) + pad(r.head, w) + RESET;
       const text = ` ${pad(r.a.name, nameW)} ${pad(r.a.keys ?? "—", keysW)} ${r.a.summary}`;
-      return i === this.sel ? selected(focused) + pad(text, w) + RESET
+      return i === this.sel ? selectedRow(text, w, focused)
         : fg(C.yellow) + " " + pad(r.a.name, nameW) + " " + fg(C.brown) + pad(r.a.keys ?? "—", keysW) + " " + fg(C.grey) + pad(r.a.summary, Math.max(1, w - nameW - keysW - 3)) + RESET;
     });
     while (lines.length < room) lines.push("");

@@ -13,7 +13,7 @@
 import { subject, type Msg } from "../board";
 import type { FacetAnswer } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
-import { C, fg, pad, RESET, selected } from "../style";
+import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago } from "../text";
 import { RowView, wheelRows, type RowPress } from "../scroll";
@@ -247,7 +247,7 @@ export class FacetsPane implements Pane {
   }
 
   private line(r: Row, on: boolean, focused: boolean, w: number): string {
-    const style = (text: string, colour: string) => (on ? selected(focused, "idleRow") + pad(text.replace(/\x1b\[[\d;]*m/g, ""), w) + RESET : colour + pad(text, w) + RESET);
+    const style = (text: string, colour: string) => (on ? selectedRow(text.replace(/\x1b\[[\d;]*m/g, ""), w, focused, "idleRow") : colour + pad(text, w) + RESET);
     const room = Math.max(4, w - 3 - (USES + 1 + LAST));
     if (r.kind === "note") return style(` ${subject(r.note)} · ${ago(r.note.updatedAt)}`, fg(C.grey));
     if (r.kind === "clause") return style(` ${r.clause.mode === "include" ? "+" : "−"} ${clauseText({ ...r.clause, mode: "include" })}`, r.clause.mode === "include" ? fg(C.lgreen) : fg(C.lred));
@@ -259,7 +259,7 @@ export class FacetsPane implements Pane {
     const label = `${"  ".repeat(r.node.depth)}${r.key === "tag" ? "#" : ""}${r.node.label}${r.node.kids.length ? "/" : ""}`.slice(0, room - 3);
     const figs = v ? `${String(v.count).padStart(USES)} ${(v.last ? ago(v.last) : "").padStart(LAST)}` : " ".repeat(USES + 1 + LAST);
     const colour = r.state === "include" ? fg(C.lgreen) : r.state === "exclude" ? fg(C.lred) : r.zero ? fg(C.dark) : fg(C.grey);
-    return on ? selected(focused, "idleRow") + pad(`   ${mark} ${pad(label, room - 3)}${figs}`, w) + RESET
+    return on ? selectedRow(`   ${mark} ${pad(label, room - 3)}${figs}`, w, focused, "idleRow")
       : pad(`   ${colour}${mark} ${pad(label, room - 3)}${fg(C.dark)}${figs}`, w) + RESET;
   }
 

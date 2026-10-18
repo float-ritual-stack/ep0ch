@@ -17,7 +17,7 @@ import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList } from "../surface/note";
-import { artLines, C, dim, fg, pad, RESET, selected } from "../style";
+import { artLines, C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
@@ -668,7 +668,7 @@ export class ActivityPane implements Pane {
       lines: this.rows.slice(this.view.top, this.view.top + h).map((r, i) => {
         const aw = Math.max(6, Math.min(16, Math.floor(w / 4), Math.max(...this.rows!.map(x => authorName(x.actor).length))));
         const when = ago(r.at).padStart(4), actor = pad(authorName(r.actor), aw), subj = subject(r.block);
-        if (this.view.top + i === this.sel) return selected(focused) + pad(`${when} ${actor} ${subj}`, w) + RESET;
+        if (this.view.top + i === this.sel) return selectedRow(`${when} ${actor} ${subj}`, w, focused);
         const who = r.author === "agent" ? C.lmagenta : r.author === "user" ? C.yellow : C.cyan;
         return fg(C.dark) + when + " " + fg(who) + actor + " " + fg(C.grey) + pad(subj, Math.max(1, w - aw - 6)) + RESET;
       }),

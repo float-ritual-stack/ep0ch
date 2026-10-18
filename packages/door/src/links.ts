@@ -32,7 +32,7 @@ import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { watchedOn, type Watching } from "./watched";
 import type { LinkTarget } from "./refs";
 import { ActionRefused } from "./surface/actions";
-import { C, ellipsize, fg, pad, RESET, selected as lit, width } from "./style";
+import { C, ellipsize, fg, pad, RESET, selectedRow, width } from "./style";
 
 export { ALL_LINK_GROUPS, blockGroups, isLinkGroup, LINK_BLOCK_KINDS, LINK_GROUPS, linkBlockAt, type LinkBlockKind, type LinkBlockSpec, type LinkGroupName, type LinkPreview } from "@ep0ch/outline-core/link-blocks";
 import { ALL_LINK_GROUPS, blockGroups, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
@@ -427,7 +427,7 @@ export function linkRowLine(r: LinkRow, o: { cols: number; selected?: boolean; f
   else if (width(text) > room) { text = ellipsize(text, room); context = ""; }
   const tail = context ? (r.kind === "backlink" ? " — " : r.kind === "kind" ? " " : " · ") + context : "";
   const shown = o.tag ? o.tag(text) : text;
-  if (o.selected) return lit(o.focused ?? true, "idleRow") + pad(head + shown + tail, o.cols) + RESET;
+  if (o.selected) return selectedRow(head + shown + tail, o.cols, o.focused ?? true, "idleRow");
   const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : r.kind === "fold" ? C.dark : r.kind === "child" && r.thread?.here ? C.lcyan : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
   // A group's stage values in their family's colour (PIE-819), when the whole of them fits as drawn.
   const inks = r.kind === "kind" && tail === " " + words.context ? familyInks(r.group, words.context) : null;

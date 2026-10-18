@@ -20,7 +20,7 @@ import { describeLinkRow, linkNote, linkRowLine, linkRows, linksOf, type LinkGro
 import { isOutlineNote } from "../authored";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, LINK_GROUPS_ARE_THE_PERSONS } from "../backlinks";
 import { outlineState, readState, writeState } from "../state";
-import { C, fg, pad, paint, RESET, selected, visible } from "../style";
+import { C, fg, pad, paint, RESET, selectedRow, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import { lastTop, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
@@ -443,9 +443,8 @@ export class RiverColumn extends ReaderPane {
     flat.forEach((row, n) => {
       const m = row.m, on = n === this.sel;
       const rail = fg(C.blue) + "│ ".repeat(row.depth) + RESET;
-      const mark = on ? fg(active ? C.lcyan : C.grey) + "▌" + RESET : " ";
       const tw = Math.max(8, w - row.depth * 2 - 2);
-      push(rail + mark + (on && active ? selected() : fg(C.white)) + pad(`${glyph(m)} ${subject(m)}`, tw) + RESET, n);
+      push(rail + (on ? selectedRow(` ${glyph(m)} ${subject(m)}`, tw + 1, active) : " " + fg(C.white) + pad(`${glyph(m)} ${subject(m)}`, tw) + RESET), n);
       push(rail + " " + pad(`${fg(authorColour(m.author))}${authorName(m.author)}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m)}`, tw), n);
       // Links read as their titles here too (not as raw ((ids))); an embed reads as its title.
       const gist = visible(presentLinks(bodyLines(m).slice(0, 2).join(" ").replace(/!\(\(/g, "(("), false, desk ? { board: desk.ctx.board, redraw: () => desk.redraw() } : null, m.text));

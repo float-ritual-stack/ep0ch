@@ -102,6 +102,16 @@ describe.skipIf(!outliner)("the themes on real screens (WCAG 2 contrast)", () =>
         if (now === was && i >= 2) break;
         was = now;
       }
+      if (where.startsWith("menu R ")) {
+        const title = A.stack.at(-1).listRows()[0].title;
+        const row = mirror.cells.find(row => row.map(c => c.ch).join("").includes(title.slice(0, 40)))!;
+        expect(row, "the first message is visible").toBeDefined();
+        const marker = row[0]!;
+        expect(marker.ch, `${name}: the selected list row has its item-focus marker`).toBe("▌");
+        const colours = mirror.colours(marker);
+        expect(colours.bg).toEqual([...THEMES[name].focus.item.bg]);
+        expect(contrast(colours.fg as unknown as Rgb, colours.bg as unknown as Rgb)).toBeGreaterThanOrEqual(3);
+      }
       const p = pairsOf(mirror, `${name} ${where}`, name);
       out.text.push(...p.text); out.border.push(...p.border);
     };

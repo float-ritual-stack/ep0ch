@@ -32,6 +32,20 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+  test("focus rows (PIE-999): the outline marker follows the keys while the figures stay held", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "focus" }, as: "test-agent" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "focus")).top; };
+    await until(() => screen().includes("Workspace") && screen().includes("Figures"), "the focus exhibits");
+    press({ kind: "enter" });
+    ch("3"); ch("j");
+    await until(() => screen().includes("▌▸ Trash"), "the marker on the next outline row");
+    const tiles = stage().layoutGet().tiles;
+    expect(tiles.find((t: any) => t.name === "figures").showing.id).toBe(seeded.notes.markdownFigures.id);
+    expect(tiles.find((t: any) => t.name === "reader").showing.id).toBe(seeded.notes.keys.id);
+    press({ kind: "esc" });
+  });
+
   test("trash (PIE-878): d says what would go, d again trashes the heap and its notes under it, ctrl+z brings them back; the links list's row alone; an agent says confirm=", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "trash" }, as: "test-agent" })).toMatchObject({ key: "trash" });
