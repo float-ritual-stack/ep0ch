@@ -690,7 +690,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * the entry (tiles kept by name), checked through the module's `load` so a lock, the tile the person types in and a
    * container's policy hold.
    */
-  undoLayout(actor: Actor, txn?: string): { undone: string; what: string; steps: number; left?: string } {
+  undoLayout(actor: Actor, txn?: string): { undone: string; what: string; steps: number; screen: string; left?: string } {
     const party = partyOf(actor);
     let entries: LayoutEntry[];
     if (txn) {
@@ -707,7 +707,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = this.undoEntries(entries, actor);
     if (!r.done.length) throw new ActionRefused(r.blocked!);
     this.save(); this.redraw();
-    return { undone: this.title, what: r.done[0]!.what, steps: r.done.reduce((n, e) => n + e.steps, 0), ...(r.blocked ? { left: r.blocked } : {}) };
+    return { undone: this.title, screen: this.layoutName ?? this.spec.name, what: r.done[0]!.what, steps: r.done.reduce((n, e) => n + e.steps, 0), ...(r.blocked ? { left: r.blocked } : {}) };
   }
 
   /**
@@ -728,6 +728,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       catch (e) { return { done, blocked: e instanceof ActionRefused ? e.message : String(e) }; }
       finally { this.replaying = false; }
       this.rebuildTo(entry.before, keepFocus);
+      this.layoutName = entry.before.name ?? null;
+      this.madeBase = this.layoutName ? madeScreen(this.layoutName) ?? null : null;
+      this.settled = this.snapshotShape();
       this.history.take(entry);
       done.push(entry);
     }
@@ -1118,7 +1121,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   // A comment's own tile (PIE-846) isn't kept either: a handover opens it again with its comment (Screen.reopen).
   private saved() { return serializeLayout(this.layout, id => this.specOf(id), id => { const p = this.panes.get(id); return (p instanceof PtyPane && !!p.run.temp) || p instanceof CommentTilePane || this.openedInto(id) !== undefined; }); }
   /** The layout as saved: tile specs in the tree of containers (each with its policy), the focus, the open rule, the screen's policy. */
-  layoutSpec(): LayoutSpec { return { ...this.saved(), focus: this.nameOf(this.focus), rule: this.rule }; }
+  layoutSpec(): LayoutSpec { return { ...this.saved(), focus: this.nameOf(this.focus), rule: this.rule, ...(this.layoutName ? { name: this.layoutName } : {}) }; }
   private savedPolicy() { return Object.keys(this.layout.policy).length ? { policy: { ...this.layout.policy } } : {}; }
 
   private readonly writes: boolean;
@@ -4982,6 +4985,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A screen a person makes from blank (or one they made) is that screen now: its title, and what a session reopens.
     if (this.madeHere()) { this.title = title; this.madeAs = name; }
     this.savedAs = shape;
+    this.settled = this.snapshotShape();
     this.save(); this.redraw();
     return { screen: name, title, ...(title !== name ? { slug: name } : {}), note: note.id, revision: note.revision, created, tiles: this.all().map(id => this.nameOf(id)) };
   }
@@ -5053,6 +5057,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.layoutName = name;
     this.madeBase = madeScreen(name) ? { ...madeScreen(name)! } : null;
     this.savedAs = this.shapeNow();
+    this.settled = this.snapshotShape();
     this.save(); this.redraw();
     // What it kept that the layout has no place for (a running program): in a shut dock, said.
     const kept = this.shutDocks().flatMap(d => leaves(d.kid)).filter(id => before.has(id) && this.holdsWork(this.panes.get(id)!)).map(id => this.nameOf(id));

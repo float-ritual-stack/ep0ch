@@ -570,7 +570,7 @@ Beans [qty::5] [price::2]
 
 #### Fantasia: a button, a transaction, motion, undo (needs a door)
 
-**Body line:** below a title, write `::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 motion=fantasia stay=1}` in a note (`stay=1` leaves the tiles where they danced, so `layout.undo` has something to take back; without it the script undoes itself at the end), and this script as `[script::fantasia] [effects::write]`.
+**Body line:** below a title, write `::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 layout=focus motion=fantasia}` in a note, and save this script as `[script::fantasia] [effects::write]`. First save the `focus` screen as described below. For a dance left floating to undo, replace `layout=focus` with `stay=1`; stay takes precedence if both are present. With neither, the script undoes its own layout at the end.
 It is the acceptance test of the self-reference wave: one click runs the whole chain. It needs several tiles the person isn't holding to show anything, and unlike examples 1 to 5 it needs a connected door (it moves tiles), so it is not pasted by the scripts-docs test; the showcase's *fantasia* section runs it live.
 
 ```js

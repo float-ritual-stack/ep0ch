@@ -31,6 +31,7 @@
 **Declare props:** `[form-field::status choice active|paused|done default=active]` and `[form-field::owner text default=Sam]` compile to the shared PropsSpec, as action arguments and component schemas do.
 **Pass props:** `::use{of=[[status-card]] owner=Robin status=paused}`; `status={{parent.status}}` reads the caller's Site before invoking the template.
 **Reserved words:** `of`, `act`, `at`, `mode`, `as`, `label`, `txn`, `motion`, `create`, `freeze`, `for` describe the invocation rather than a template's own prop names.
+**Definition preview:** on the template's own page, `{{props.x}}` prints “no prop x was passed”: props belong to an invocation, including when a render script resolves that value. Check the `::use` caller to see supplied props and form defaults.
 **Live template:** `::use` draws the template body with the host as `this`; edits to the definition redraw its uses.
 **Stamp:** `template.stamp of='[[status-card]]' as=new` writes a note to edit; props, self and clock values are filled, while host-relative values stay live unless `freeze=all` is given.
 **Render:** `[mode::render]` and a `name::` body line draw the returned view; dependencies cause redraws, with no note edit or undo step.
@@ -54,6 +55,7 @@
 ## Scratch setup for all five tasks
 
 **Worktree:** run from the repository root; every command below uses this checkout, not the installed `ep0ch`.
+**Fresh shells:** each agent command runs in a fresh shell. Define `e()` again in every shell that uses it, or replace `e` with `scripts/agent-env notes-guide -- bun packages/door/src/main.ts --ws garden`. Keep the printed scratch path and host PID; set `work=<that-path>` and `host_pid=<that-pid>` in later shells that need them.
 **Isolation:** use one agent-env name for the host, door and commands; its outlines and control socket are private.
 **Ready:** the host prints `{"status":"ready","pid":…, …}` only after listening; wait for that line before creating the outline, and keep its PID for cleanup.
 
@@ -61,6 +63,7 @@
 work=$(mktemp -d /tmp/ep0ch-agent-$(id -u)/notes-XXXXXX)
 scripts/agent-env notes-guide -- env XDG_CONFIG_HOME="$work/config" bun packages/outliner/src/host-main.ts >"$work/host.log" 2>"$work/host.err" &
 host_pid=$!
+printf 'work=%s host_pid=%s\n' "$work" "$host_pid"
 until rg -q '"status":"ready"' "$work/host.log"; do
   kill -0 "$host_pid" || { cat "$work/host.err"; break; }
   sleep 0.1
@@ -149,7 +152,8 @@ bed-table:: week=12
 ```
 
 **Done:** `e show <caller-id>` draws a table with Early beans, Sam and 12.
-**Redraw:** open it in the scratch door below, edit `[owner::Sam]` to `[owner::Robin]`, save with Ctrl+S; the table redraws to Robin without changing the handler line.
+**Redraw:** open it in the scratch door below, edit `[owner::Sam]` to `[owner::Robin]`, press Ctrl+S once to confirm the property change, then Ctrl+S again to save; the table redraws to Robin without changing the handler line.
+**Outside a door:** read the caller's current revision with `scripts/agent-env notes-guide -- bun packages/outliner/src/cli.ts --ws garden read <caller-id> --fields id,text,revision`, then edit the full source with `scripts/agent-env notes-guide -- bun packages/outliner/src/cli.ts --ws garden update --id <caller-id> --text "$(cat <edited-source-file>)" --expected <rev>`. Show it again to check Robin in the table.
 **No write:** showing the table does not add children or change the caller's revision.
 
 ## 4. Append while a person holds a draft
@@ -164,7 +168,7 @@ The log starts here. ^log
 My paragraph to keep typing in.
 ```
 
-**Script:** save this definition; the `at` prop lets the second run target the output region returned by the first.
+**Script:** save this definition; the `target` prop lets the second run target the output region returned by the first.
 
 ````blockdown
 Append log [script::append-log] [effects::write]
@@ -180,17 +184,18 @@ return await tools.outline_edit({
 **Open a door:** substitute the target ID, then start your own pane.
 
 ```sh
-tmux new-session -d -s notes-guide -x 160 -y 48 "scripts/agent-env notes-guide -- bun packages/door/src/main.ts --ws garden --no-daemon --screen detail <target-id>"
+tmux new-session -d -s notes-guide -c "$(pwd)" -x 160 -y 48 "scripts/agent-env notes-guide -- bun packages/door/src/main.ts --ws garden --no-daemon --screen detail <target-id>"
 e peek
 e act edit
 ```
 
+**Working directory:** `-c` must name this worktree's root; if you start tmux elsewhere, replace `$(pwd)` with its absolute path.
 **Hold:** wait for `e peek` to report `editing.held`; by keys, `e e` also opens the editor, while `e` then Enter dismisses the arm.
-**Enter:** an agent-opened editor remains held; if its frame says `held (e enters)`, run `tmux send-keys -t notes-guide e` to give the scripted person its keys.
-**Type below the target:** from the first line run `tmux send-keys -t notes-guide Down Down Down Down End`, check `peek` shows the cursor on the final paragraph, then `tmux send-keys -t notes-guide -l ' Still typing.'`; leave the draft open.
-**Run:** `e act ext.<script-id>.run block=<target-id> --as gardener`; wait for its run note to finish and read it with `e show --source <run-note-id>`.
+**Enter:** an agent-opened editor remains held; if its frame says `held (e enters)`, run `tmux send-keys -t notes-guide e` to give the scripted person its keys. Movement and typing keys sent before that `e` are ignored until the draft is entered.
+**Type below the target:** move to the final paragraph by source line, checking `e peek`'s `cursor.line` (zero-based: line 4 in this example). Wrapped headers make a fixed count of Down presses unreliable; check after moving, then use End and `tmux send-keys -t notes-guide -l ' Still typing.'`. Leave the draft open.
+**Run:** `e ext act script-<hash> run --block <target-id> --actor gardener`; wait for its run note to finish and read it with `e show --source <run-note-id>`. This service CLI route also works outside a door; the held draft requires the scratch door above.
 **First result:** the receipt says `outcome: applied`, the draft contains the output and the person's words, and `e show --source <target-id>` still shows the saved version.
-**Conflict:** copy the receipt's `anchor`, use the pane's arrow keys to put the person's cursor inside the new output body, and run `e act ext.<script-id>.run block=<target-id> target=^<anchor> --as gardener`.
+**Conflict:** copy the receipt's `anchor`, use the pane's arrow keys to put the person's cursor inside the new output body, and run `e ext act script-<hash> run --block <target-id> --arg target=^<anchor> --actor gardener`.
 **Second result:** the receipt says `outcome: proposed`; the draft keeps the person's text, and the proposal can be applied or dismissed later.
 **Finish the edit:** Ctrl+S in your own pane saves the combined draft before task 5.
 
@@ -201,7 +206,7 @@ e act edit
 
 ```blockdown
 Dance controls [page::dance-controls]
-::button{label="Fantasia" of=fantasia beats=3 tempo=450 layout=focus motion=fantasia}
+::button{label="✦ Fantasia" of=fantasia beats=3 tempo=450 layout=focus motion=fantasia}
 ```
 
 **Desk:** `e act screen.open name=desk` leaves Detail, whose layout is fixed.
@@ -209,9 +214,11 @@ Dance controls [page::dance-controls]
 **Undo reader:** before saving, also open the Fantasia definition with `e act tile.open kind=detail note=<script-note-id>` and keep the returned tile name for `ext.undo`.
 **Save:** `e act screen.save name=focus` creates the settle target, including that undo reader; `layout=focus` can now load it.
 **Person's press:** click the Fantasia chip in your own pane, or select it and press Enter; the invitation lets the run move the held tile as well.
+**Variant:** `stay=1` instead of `layout=focus` leaves the tiles where they danced for an undo demonstration; do not combine them, since stay takes precedence. With neither, Fantasia undoes its own layout before finishing.
 **Done:** tiles float, wait between beats, settle into focus, and one Ctrl+Z (`layout.undo`) puts the original layout back.
 **Agent's press:** `e act button.press note=<button-note-id> label=Fantasia --as gardener` runs the same script without an invitation; the person's held tile stays put, said in the run note.
 **Undo arguments:** `e act ext.undo tile=<undo-reader> --as gardener` uses the reader prepared above (the receipt's `undoOn` is the script definition); it takes no `run=` and undoes that actor's last run there, writes and layout together.
+**Restore receipt:** a successful `ext.undo` lists the restored write IDs in `written` and reports `layout: { undone: true, steps: …, screen: "<previous-screen>" }`. Run `e act layout.get` to check `layout`, the tile tree and the floats against the state before the dance. `layout.refused` or `layout.left` explains a refused or partial restore. A second `layout.undo txn=<undo-id>` says “no layout change in transaction” because the successful restore already consumed it.
 **Stop arguments:** `e act script.stop run=<undo-id>` stops a running script; `e act layout.undo txn=<undo-id>` takes back only its layout.
 
 ## Cleanup
@@ -221,7 +228,7 @@ Dance controls [page::dance-controls]
 ```sh
 tmux kill-session -t notes-guide
 kill "$host_pid"
-wait "$host_pid"
+# In the shell that launched the host, also: wait "$host_pid"
 scripts/scratch-clean "$work"
 scripts/agent-env notes-guide --clean
 ```

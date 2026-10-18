@@ -91,6 +91,7 @@ function frameCtx(f: FramedScreen): Ctx {
     get t(): TermInfo { return { ...o().t, cols: f.w, rows: f.h + 1 }; },
     get agentPointers() { return o().agentPointers; },
     get board() { return o().board; },
+    get scriptUndos() { return o().scriptUndos; },
     get host() { return o().host; },
     get workspace() { return o().workspace; },
     get outline() { return o().outline; },

@@ -12,6 +12,7 @@ import { SocketBoard, USER } from "../src/socket";
 import { INVITES } from "../src/surface/invite";
 import { actorRule } from "../src/surface/dispatch";
 import { NOBODY } from "../src/whereabouts";
+import { FANTASIA } from "../src/showcase/seed";
 import { extensionList } from "../src/extensions";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -212,6 +213,30 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     await board.undoExtension(run.undo, USER);
     await untilAsync(async () => names().includes(a) && names().includes(b), "the layout is back", 8000);
     expect(names().sort()).toEqual(before.sort());
+  }, 60_000);
+
+  test("ext.undo restores Fantasia's saved screen and reports the writes and layout", async () => {
+    const note = await board.request<{ id: string }>("create", { author: "user", text: `Dance [script::restore-dance] [effects::write]\n\x60\x60\x60js\n${FANTASIA}\n\x60\x60\x60` });
+    const reader = await person("tile.open", { kind: "detail", note: note.id }) as { tile: string };
+    await person("screen.save", { name: "before-dance" });
+    await person("tile.close", {}, names().find(n => n !== reader.tile)!);
+    await person("screen.save", { name: "after-dance" });
+    await person("layout.load", { name: "before-dance" });
+    const before = await person("layout.get") as { layout: string; tree: unknown; floats: unknown[] };
+    await board.request("extensions.list", { reload: true });
+    await app.loadExtensions(true);
+    const ext = extensionList()!.extensions.find(e => e.name === "restore-dance")!;
+    const run = await person(`ext.${ext.id}.run`, { block: note.id, beats: "1", tempo: "150", layout: "after-dance", invitation: INVITES.mint("you") }) as { undo: string; written: string[] };
+    await untilAsync(async () => (await board.get(run.written[0]!))!.text.includes("· done"), "Fantasia settled");
+    await untilAsync(async () => !D().history.isOpen(run.undo), "Fantasia transaction closed");
+    expect((await person("layout.get") as { layout: string }).layout).toBe("after-dance");
+    const restored = await person("ext.undo", {}, reader.tile);
+    const after = await person("layout.get") as typeof before;
+    const shape = (tree: unknown) => JSON.stringify(tree, (key, value) => key === "id" ? undefined : value);
+    expect(shape(after.tree)).toBe(shape(before.tree));
+    expect(after.floats).toEqual(before.floats);
+    expect(after.layout).toBe("before-dance");
+    expect(restored).toMatchObject({ written: run.written, layout: { undone: true, screen: "before-dance" } });
   }, 60_000);
 
   test("a run that is stopped ends its transaction early: the layout it changed is put back, and the screen says so", async () => {
