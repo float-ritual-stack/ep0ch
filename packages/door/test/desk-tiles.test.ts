@@ -414,7 +414,9 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("tile.agent", { policy: "inherit" }, "middle");
     await mine("tile.agent", { policy: "inherit" }, "preview");
     await act("tree.pick", { n: n(notes.beans.id) }, "tree");
-    await until(() => tile("middle").showing?.id === notes.beans.id && tile("preview").showing?.id === notes.beans.id, "the agent's pick shown where the tree's selection goes");
+    // A selection shows in the tree's select target (the preview); the detail its opens land in stays put (PIE-1019/1020: select previews, only an open moves the detail).
+    await until(() => tile("preview").showing?.id === notes.beans.id, "the agent's pick shown in the tree's select target");
+    expect(tile("middle").showing?.id ?? null).toBe(middle);
     expect(get().focus).toBe("now");
     expect(tree.sel).toBe(sel);
   });

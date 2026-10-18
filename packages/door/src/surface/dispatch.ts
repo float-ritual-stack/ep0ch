@@ -232,6 +232,8 @@ const BLOCK = /^[0-9a-f-]{8,}$/;
 const NUMBER = /^#?([1-9][0-9]{0,2})$/;
 
 export class Dispatcher {
+  private nextConfirmation = 0;
+  private saidConfirmation = 0;
   private regs: (Registration | Delegation)[] = [];
   constructor(private readonly host: DispatchHost, regs: (Registration | Delegation)[] = []) {
     this.regs = [...regs];
@@ -491,6 +493,7 @@ export class Dispatcher {
     const seen = reg.set.defArgs(req.action, args, typed);
     const no = this.refusal(reg, def, req.action, at, args, seen, actor);
     if (no) throw new ActionRefused(no);
+    const confirmation = ++this.nextConfirmation;
     const ctx = this.host.ctx();
     const on = reg.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
     // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
@@ -506,9 +509,13 @@ export class Dispatcher {
     // What it did, said on the status bar: an agent's always, with who it is; the person's when the screen doesn't
     // show it. Said as soon as it's done: at once for an action that answers at once (a key's flash is there to read).
     const done = (out: unknown) => {
-      if (def.says && (actor.kind === "agent" || def.confirms)) {
+      if (def.says && (actor.kind === "agent" || (def.confirms && confirmation >= this.saidConfirmation))) {
         const s = def.says(out, seen as never), said = typeof s === "string" ? s : s?.text, ms = typeof s === "object" && s ? s.ms : undefined;
-        if (said) ctx?.flash?.(actor.kind === "agent" ? `${agentLabel(actor)} ${said}` : said.replace(/^· /, ""), ms);
+        if (said) {
+          // An earlier async open must not overwrite the status of a later action.
+          this.saidConfirmation = Math.max(this.saidConfirmation, confirmation);
+          ctx?.flash?.(actor.kind === "agent" ? `${agentLabel(actor)} ${said}` : said.replace(/^· /, ""), ms);
+        }
       }
       return reg.answer ? reg.answer(out, at) : out;
     };

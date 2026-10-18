@@ -69,9 +69,9 @@ describe.skipIf(!outliner)("what a following reader follows (PIE-814)", () => {
     expect(chipText("a")).toBe("follows · current ← tree (docked)");
   });
 
-  test("reader.follow source=<tile>: a link with the preview role; the tree's selection shows there, held from the current note", async () => {
+  test("reader.follow source=<tile>: a select wire; the tree's selection shows there, held from the current note", async () => {
     expect(await act("reader.follow", { source: "tree" }, "b")).toMatchObject({ source: "tree" });
-    expect(D().layoutGet().tiles.find((t: any) => t.name === "tree").link).toBe("b");
+    expect(D().layoutGet().tiles.find((t: any) => t.name === "tree").wires).toContainEqual({ verb: "select", to: "b" });
     expect(chipText("b")).toBe("follows · tree (docked)");
     const was = r("b").msg?.id;
     // The current note moved from elsewhere: b stays (it follows the tree, not the current note).

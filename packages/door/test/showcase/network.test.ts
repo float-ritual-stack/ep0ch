@@ -129,7 +129,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     expect(await app.act({ action: "reader.mode", tile: "now", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ tile: "now", mode: "follows" });
     // What it follows (PIE-814): the detail follows the tree by a link, and its chip says so; none lets go.
     expect(await app.act({ action: "reader.follow", tile: "detail", args: { source: "tree" }, as: "test-agent" })).toMatchObject({ tile: "detail", source: "tree" });
-    expect(tile("tree").link).toBe("detail");
+    expect(tile("tree").wires).toContainEqual({ verb: "select", to: "detail" });
     const detail = [...stage().panes.entries()].find(([id]: any) => stage().nameOf(id) === "detail")![1] as any;
     expect(detail.headControls(40, stage())[0].text).toBe("follows · tree");
     await app.act({ action: "reader.follow", tile: "detail", args: { source: "none" }, as: "test-agent" });

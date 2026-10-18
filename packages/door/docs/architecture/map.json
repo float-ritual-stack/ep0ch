@@ -988,7 +988,7 @@
       "built": "The layout tree holds links only between its own tiles, so a link whose far end is elsewhere is kept on the desk as ext, by the tile it starts from, naming the far tile by pane or path (`<group>/<tile>`, `../<tile>`); extTarget finds it, relink turns it back into the layout's own when both ends meet on one desk.",
       "refs": [
         { "r": "door", "p": "src/desk/desk.ts", "l": 755, "m": "private readonly ext = new Map" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 815, "m": "extTarget(id: number)" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 815, "m": "extTarget(id: number," },
         { "r": "door", "p": "src/desk/desk.ts", "l": 781, "m": "pathTo(pane: Pane)" }
       ]
     },

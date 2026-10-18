@@ -251,6 +251,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     args: {
       to: { type: "string", optional: true, kind: "tile", about: "target tile; absent removes this verb's wires" },
       verb: { type: "string", optional: true, choices: ["select", "open", "alt"], about: "select, open (default), alt" },
+      role: { type: "string", optional: true, choices: ["preview", "target"], about: "script shorthand: preview selects, target opens; verb takes precedence" },
       remove: { type: "boolean", optional: true, about: "remove only this target" },
     },
     examples: [
@@ -258,9 +259,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "tile.link tile=tree to=preview verb=select", does: "makes the preview show the tree's selection as it moves" },
       { act: "tile.link tile=tree verb=open", does: "takes the tree's open wires away, so its opens land where they did before" },
     ],
-    run({ to, verb, remove }, { d, reader }, actor) {
+    run({ to, verb, role, remove }, { d, reader }, actor) {
       if (verb !== undefined && !(WIRE_VERBS as readonly string[]).includes(verb)) throw new ActionRefused(`tile.link: verb is select, open or alt, not ${verb}`);
-      return d.linkTile(reader, to, actor, verb as WireVerb | undefined, remove);
+      return d.linkTile(reader, to, actor, (verb ?? (role === "preview" ? "select" : "open")) as WireVerb, remove);
     },
   }),
   "tile.focus": def({
@@ -460,11 +461,11 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.preview": def({
-    summary: "Open a reader beside or below tile=<tile>, connected by a select wire. Selections show there without moving the current note; the open wire is independent. A terminal's preview follows its file. Again reveals the existing select target. where=right, down, left or up.",
+    summary: "Open a preview beside or below a list, connected by a select wire; selections show there without moving the current note. On a reader, open a detail where its opens land, connected by an open wire. A terminal's preview follows its file. Again reveals the existing target. where=right, down, left or up.",
     keys: "O in a reader; ^W v beside, ^W V below",
     // Said to the person too (confirms): ^W v on a tile already linked shows the one there, which looked like nothing happening.
     touches: "shape", replay: "safe", confirms: true,
-    says: r => (r.existing ? `${r.from} already selects into ${r.tile}: showed it` : `opened ${tileNoun(String(r.kind), r.tile)} for ${r.from}'s selections`),
+    says: r => (r.existing ? r.verb === "open" ? `${r.from} already opens into ${r.tile}: showed it · alt+l then click ${r.tile} to unlink` : `${r.from} already selects into ${r.tile}: showed it` : `opened ${tileNoun(String(r.kind), r.tile)} ${r.verb === "open" ? `where ${r.from}'s opens land` : `for ${r.from}'s selections`}`),
     // Beside it and below it: where its opens land (a flow's column opens the next column instead).
     menu: [
       { label: "preview beside", group: TILE, key: "ctrl+w v", args: { where: "right" }, now: ({ d, reader }, _t, actor) => (d.tileNow(reader, actor).flow || d.tileNow(reader, actor).inDrawer ? { hide: true } : null) },

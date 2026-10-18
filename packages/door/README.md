@@ -258,7 +258,9 @@ A journey to try, whichever service it is:
     ep0ch --showcase
     ep0ch --showcase --reset
 
-opens the showcase (PIE-439): the shared door parts, live, one section per row of the reuse map
+The `select-open` section demonstrates a tree, its selection preview, and a separate open target.
+
+This opens the showcase (PIE-439): the shared door parts, live, one section per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 key-names row, its list-picker and line-input rows (in the panes section's ^W P and ^W r,
 the board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,

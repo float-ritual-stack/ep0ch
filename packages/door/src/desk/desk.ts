@@ -880,7 +880,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (to.includes("/")) { this.addExt(from, { path: to, verb }); continue; }
       const target = [...names].find(([, n]) => n === to)?.[0];
       if (target === undefined || (target === from && !own)) continue;
-      wires.push({ from, verb, to: target });
+      if (!wires.some(w => w.from === from && w.verb === verb && w.to === target)) wires.push({ from, verb, to: target });
     }
     // The open rule is the screen's policy now (PIE-513); a spec's `rule` says it as it did.
     const policy = { ...policyOf(spec.policy), ...(spec.rule === "next" ? { opens: "next" as const } : {}) };
@@ -948,7 +948,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * it followed wherever either goes, never another of that name).
    */
   private followers(id: number): Pane[] {
-    return selectTargets(this.layout, id).flatMap(to => { const p = this.panes.get(to); return p ? [p] : []; });
+    return [...selectTargets(this.layout, id).flatMap(to => { const p = this.panes.get(to); return p ? [p] : []; }), ...(this.ext.get(id) ?? []).flatMap(w => { const target = w.verb === "select" ? this.extTarget(id, "select", w) : undefined; return target ? [target.pane] : []; })];
   }
   /** This desk's tiles bound to follow `src`, a tile on another desk now (the drawer's, or the screen's). */
   boundTo(src: Pane): Pane[] { return [...this.panes.values()].filter(q => boundSource.get(q) === src); }
@@ -1097,6 +1097,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** A follower bound to a tile on another desk (a preview in a group, its source outside): its `source` is that tile's path. */
   private sourceAcross(p: Pane): Partial<TileSpec> {
+    const id = this.idOf(p);
+    if (id !== undefined && kindOf(p)?.follower) {
+      const source = this.selectSeeds.get(id) ?? (this.followsOf(id).source !== undefined ? this.nameOf(this.followsOf(id).source!) : undefined);
+      if (source) return { source: `tile:${source}` };
+    }
     const b = boundSource.get(p), f = kindOf(p)?.follows?.(p);
     if (!b || b === NO_SOURCE || !f) return {};
     // Bound to a tile on this desk now: its name here (a spill brings `../tree` back to `tree`); on another: its path.
@@ -1115,16 +1120,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id)!;
     const link = wireTarget(this.layout, id);
     const k = kindOf(p), kept = this.unregistered.get(id);
+    const wires = [...this.layout.wires.filter(w => w.from === id && this.panes.has(w.to)).map(w => ({ verb: w.verb, to: this.nameOf(w.to) })), ...(this.extSpec(id).wires ?? [])];
     return {
       ...(kept ? (({ link: _l, linkRole: _r, ...rest }) => rest)(kept) : {}),
       t: "leaf", kind: kept?.kind ?? p.kind, name: this.nameOf(id), id: this.tileId(id), ...(kept ? {} : (k?.save ? k.save(p) : p.spec?.()) ?? {}),
       ...(p.writtenTitle !== undefined ? { writtenTitle: p.writtenTitle, systemTitle: p.systemTitle ?? false } : {}),
       ...this.sourceAcross(p),
       ...(this.selectSeeds.has(id) ? { selectFrom: this.selectSeeds.get(id) } : {}),
-      wires: [...this.layout.wires.filter(w => w.from === id && this.panes.has(w.to)).map(w => ({ verb: w.verb, to: this.nameOf(w.to) })), ...(this.extSpec(id).wires ?? [])],
       ...(this.collapsed.has(id) ? { collapsed: this.collapsed.get(id)!.dir === "h" ? "h" as const : true as const } : {}),
       ...(this.layout.agents.has(id) ? { agents: this.layout.agents.get(id)! } : {}),
       ...(p.instanceLook && Object.keys(p.instanceLook).length ? { look: { ...p.instanceLook } } : {}),
+      ...(wires.some(w => w.verb === "open") ? { link: wires.find(w => w.verb === "open")!.to } : {}),
+      ...(wires.some(w => w.verb !== "open") ? { wires: wires.filter(w => w.verb !== "open") } : {}),
     };
   }
 
@@ -1472,6 +1479,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (p.followMode === "pinned") return { says: `the page [[${p.pinPage}]]`, change, unlink };
       return { says: "nothing: held on its note", change };
     }
+    const selectedBy = this.layout.wires.find(w => w.verb === "select" && w.to === id);
+    if (selectedBy) return { says: `${this.nameOf(selectedBy.from)}'s selection (a preview follows its source)`, source: selectedBy.from };
     const home = k?.home?.(p) ?? null, held = p && k?.hold ? k.hold.held(p) : null;
     if (held === false && home) return { says: `the #tags opened in ${home}`, unlink: { label: "unlink: hold it on its tag; the next tag opens a new list", run: run("tile.hold", { on: true }) } };
     if (held === true) return { says: `nothing: held on its tag (${home ?? "its reader"}'s next tag opens a new list)`, change: { label: `follow ${home ?? "its reader"}'s tags again`, run: run("tile.hold", { on: false }) } };
@@ -2174,7 +2183,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Read with `tile=`'s grammar (a name, an id, a number), as an argument that may name the host layer's agent.
     const t = this.tile(this.dispatch.name(from) ?? from);
     if (fresh) {
-      const m = await this.ctx.board.get(id);
+      const m = this.onScreenBlock(id) ?? await this.ctx.board.get(id);
       if (!m) throw new ActionRefused(`no block ${id}`);
       const before = new Set(this.all());
       this.setCurrent(m, { from: this.panes.get(t.id), link: true, fresh: true, by: actor });
@@ -2182,7 +2191,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const target = wireTarget(this.layout, t.id, "alt");
       return { reader: made !== undefined ? this.nameOf(made) : target !== undefined ? this.nameOf(target) : null, id: m.id };
     }
-    // Its opens land in a container (the board's readers row): a tile there holds it (`fresh`: a new one).
+    // Its opens land in a container (the board's readers row): a tile there holds it.
     const into = landing(this.layout, t.id, "open", this.facts(t.id));
     if (into && "into" in into) return this.openPlace(id, fresh ? "new-detail" : "detail", actor, t.id);
     // From a list (the links tile): fresh is a new detail beside its home, the list keeps the keys (PIE-646).
@@ -2932,6 +2941,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...this.dockView(id),
       ...this.policyView(id),
       ...(kindOf(p)?.describe?.(p, true) ?? {}),
+      ...(kindOf(p)?.follower && !(p instanceof PreviewPane && "file" in p.source) && (this.selectSeeds.has(id) || this.followsOf(id).source !== undefined) ? { source: `tile:${this.selectSeeds.get(id) ?? this.nameOf(this.followsOf(id).source!)}` } : {}),
       title: this.frameTitle(id, r?.rows),
       label: this.displayTitle(id),
       showing: m ? { id: m.id, title: subject(m) } : undefined,
@@ -2960,7 +2970,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const id of this.all()) { const to = this.linkOf(id); if (to !== undefined && to !== id) into.set(to, [...(into.get(to) ?? []), this.nameOf(id)]); }
     for (const [id, p] of this.panes) if (p instanceof ReaderPane) p.landsFrom = into.get(id) ?? [];
     // A preview following a list that quotes its selection (the backlinks: where the source mentions the note) says it.
-    for (const p of this.panes.values()) if (p instanceof PreviewPane && "tile" in p.source) { const src = this.pane(p.source.tile) as { snippet?(): string } | undefined; p.quote = src?.snippet && this.shownNow(p) ? src.snippet() : ""; }
+    for (const [id, p] of this.panes) if (p instanceof PreviewPane && "tile" in p.source) { const source = this.followsOf(id).source; const src = (source === undefined ? this.pane(p.source.tile) : this.panes.get(source)) as { snippet?(): string } | undefined; p.quote = src?.snippet && this.shownNow(p) ? src.snippet() : ""; }
     const canvas = new Canvas(cols, rows - 1);
     // A view built on the desk may keep rows above the tiles for its own art (the welcome's logo band).
     const band = this.band();
@@ -3560,9 +3570,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The tiles whose links end at `pane` (on this desk, or across the host layer's edge): their names, as the header says them. */
   private linkedFrom(pane: Pane): { names: string[]; across: boolean } {
-    const names = this.layout.wires.map(w => [w.from, w.to] as const).filter(([src, to]) => this.panes.get(to) === pane && this.panes.has(src) && this.panes.get(src) !== pane).map(([src]) => this.nameOf(src));
+    const names = this.layout.wires.filter(w => w.verb === "open").map(w => [w.from, w.to] as const).filter(([src, to]) => this.panes.get(to) === pane && this.panes.has(src) && this.panes.get(src) !== pane).map(([src]) => this.nameOf(src));
     let across = false;
-    for (const d of this.relatives()) for (const [sid, wires] of d.ext) if (wires.some(w => d.extTarget(sid, w.verb, w)?.pane === pane)) { names.push(d.nameOf(sid)); across = true; }
+    for (const d of this.relatives()) for (const [sid, wires] of d.ext) if (wires.some(w => w.verb === "open" && d.extTarget(sid, w.verb, w)?.pane === pane)) { names.push(d.nameOf(sid)); across = true; }
     return { names: [...new Set(names)], across };
   }
   /** A path across the host layer's edge as a header says it: the tile's name (`@chain/reader9` is reader9). */
@@ -4761,17 +4771,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const target = this.paneAtPath(to);
       for (const w of this.ext.get(src.id) ?? []) if (w.verb === verb && (w.path === to || (target && w.pane === target))) this.cutExt(src.id, w);
       this.save(); this.redraw();
-      return { tile: src.name, wire: null, verb };
+      return { tile: src.name, link: null, verb };
     }
     if (to?.includes("/")) {
       const target = this.linkAcross(src.id, to, verb, actor);
       this.save(); this.redraw();
-      return { tile: src.name, wire: this.pathTo(target) ?? to, verb };
+      return { tile: src.name, link: this.pathTo(target) ?? to, verb };
     }
     const r = this.apply({ op: "link", tile: src.id, ...(to ? { to: this.tile(to).id } : {}), verb, remove }, actor);
     for (const w of this.ext.get(src.id) ?? []) if (w.verb === verb && (verb !== "select" || !to)) this.cutExt(src.id, w);
     this.save(); this.redraw();
-    return { tile: src.name, ...r.answer };
+    return { tile: src.name, ...r.answer, link: to ?? null };
   }
 
   selectTab(sel: string | undefined, by: number | undefined, actor: Actor): TileDone {
@@ -4886,12 +4896,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(t.id)!;
     // A flow's column already opens the next column (its open rule): a split inside it would end the trail.
     if (this.inFlow(t.id) && !(wireTarget(this.layout, t.id) !== undefined)) throw new ActionRefused(`${t.name} is a column of a flow: its opens already land in the next column`);
-    const had = selectTargets(this.layout, t.id)[0];
+    const k = kindOf(p);
+    const verb: WireVerb = k?.accepts?.notes && !k.previewSource ? "open" : "select";
+    const had = verb === "select" ? selectTargets(this.layout, t.id)[0] : wireTarget(this.layout, t.id);
     if (had !== undefined) {
       this.apply({ op: "reveal", tile: had }, actor);
       const name = this.nameOf(had);
       if (actor.kind !== "agent") this.focusTile(name, actor); else { this.save(); this.redraw(); }
-      return { tile: name, from: t.name, existing: true };
+      return { tile: name, from: t.name, existing: true, verb };
     }
     const r0 = this.rectsNow().get(t.id);
     const dir: Dir = where ?? (r0 && splitAxis(r0) === "col" ? "down" : "right");
@@ -4899,14 +4911,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Checked before the kind is asked (the board collapses its own strip for it): a refused name changes nothing.
     const bad = tileNameProblem(name);
     if (bad) throw new ActionRefused(`tile.preview: ${bad} · ^W v on a shorter-named tile, or tile.open name=… then tile.link`);
-    const k = kindOf(p);
     // Asked of the layout before the kind is: a preview has nowhere to go beside a float or into a locked container.
-    const why = refusal(this.layout, { op: "open", tile: this.nextId, kind: "preview", name, at: placeOf(dir, t.id), link: t.id, verb: "select" }, this.layoutCtx(actor));
+    const why = refusal(this.layout, { op: "open", tile: this.nextId, kind: "preview", name, at: placeOf(dir, t.id), link: t.id, verb }, this.layoutCtx(actor));
     if (why) throw new ActionRefused(why);
     let spec: NewTile;
     try { spec = k?.previewSource ? { kind: "preview", source: await k.previewSource(p, t.name, actor) } : k?.accepts?.notes ? { kind: "reader", mode: "held" } : { kind: "preview", source: `tile:${t.name}` }; }
     catch (e) { throw e instanceof ActionRefused ? e : new ActionRefused(e instanceof Error ? e.message : String(e)); }
-    return this.openTile({ ...spec, name }, t.name, dir, actor, { link: t.id, verb: "select", keys: false });
+    return { ...await this.openTile({ ...spec, name }, t.name, dir, actor, { link: t.id, verb, keys: false }), verb };
   }
 
   // ── terminal tiles: what the terminal kind's actions (PTY_ACTIONS) change on the desk ──
@@ -5721,13 +5732,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const links: ExtLink[] = [];
     const into: [number, WireVerb][] = [];
     const agents = keepLinks ? this.layout.agents.get(t.id) : undefined, fold = keepLinks ? this.layout.collapsed.get(t.id) : undefined;
-    if (keepLinks) {
+    {
       this.resolveExt();
       for (const w of this.layout.wires) {
+        if (!keepLinks && w.verb !== "select") continue;
         if (w.from === t.id && w.to !== t.id && this.panes.has(w.to)) links.push({ pane: this.panes.get(w.to), verb: w.verb, found: true });
         if (w.to === t.id && w.from !== t.id) into.push([w.from, w.verb]);
       }
-      links.push(...(this.ext.get(t.id) ?? []).map(w => ({ ...w })));
+      links.push(...(this.ext.get(t.id) ?? []).filter(w => keepLinks || w.verb === "select").map(w => ({ ...w })));
     }
     const spec = this.specOf(t.id);
     const typing = pane === this.ptyIn && this.focus === t.id;
