@@ -9,9 +9,9 @@ import { uncover, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
-import { Dispatcher, GONE_ACTIONS } from "./surface/dispatch";
+import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
-import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
+import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
 import { NEW_NOTE_ACTIONS } from "./new-note";
 import { TEMPLATE_ACTIONS } from "./template-stamp";
@@ -114,6 +114,7 @@ export function pressOf(k: Key): string | null {
 export const TEST_APPS = Symbol.for("ep0ch.test.apps");
 
 export interface Ctx {
+  agentPointers?: AgentPointers;
   t: TermInfo;
   /** The host layer's drawer, where a tile goes to travel across screens (absent: none here). */
   readonly hostLayer?: HostLayer;
@@ -969,6 +970,7 @@ export class App implements Ctx {
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
+      pointers: this.agentPointers.list(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
       ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.() ?? null };
@@ -1052,6 +1054,7 @@ export class App implements Ctx {
    * the board's, the river's `open`). An extension's action a tile kind also lists (tarot's keep) is the tile's when
    * the request names the tile (tile=) or no block; with block= it runs on that block, tile or none.
    */
+  readonly agentPointers = new AgentPointers();
   readonly recording = new MacroRecording();
   recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
 
@@ -1068,6 +1071,7 @@ export class App implements Ctx {
     { set: EXTENSION_INSTALL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
     { delegate: () => this.stack.at(-1)?.dispatch },
+    { set: POINTER_ACTIONS, takes: "screen", on: at => ({ dispatcher: this.dispatch, at }) },
   ]);
 
   /**
@@ -1098,7 +1102,7 @@ export class App implements Ctx {
     const who = agentLabel(actor);
     // Finding the owner can refuse too (a name both the screen and the drawer have): said like every refusal.
     let takes: boolean;
-    try { takes = this.dispatch.takes(req); } catch (e) { this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`); throw e; }
+    try { takes = this.dispatch.takes(req, actor); } catch (e) { this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`); throw e; }
     if (!takes && GONE_ACTIONS[req.action]) throw new ActionRefused(GONE_ACTIONS[req.action]!);
     if (!takes) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${this.dispatch.list().actions.map(a => a.name).join(", ")}`);
     this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);

@@ -61,6 +61,7 @@ export const marks: Record<string, string[]> = {
   thread: ["Who has spare leek seedlings?", "THREAD", "► Ben: mine are still in modules", "2 more earlier", "1 more later"],
   // The day's plan with its outbox: the waiting letters listed, the first one previewed beside the list.
   "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
+  "agent-focus": ["Plan for Saturday", "@fern:3", "@moss:5", "who's online"],
   presence: ["who's online", "last callers · live"],
   live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
   // The society page: one question as a list, tabs by crop and a rank by season.

@@ -23,7 +23,7 @@ export const PANE_ACTIONS = actionSet<On>()("pane", {
   "pane.split": def({
     get summary() { return `open a tile beside tile=<tile> (default the focused one), along its longer side: kind=<kind> (default reader; ${kinds()}), dir=row (beside) or col (below). The person's focus stays where it is. tile.open does the same with where= and to=. The board's details open with a note: open tile=new-detail`; },
     keys: "desk ^W o <kind>; board alt+⏎",
-    touches: "shape", replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind ?? "reader", r.pane)}`,
+    touches: "shape", landing: true, replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind ?? "reader", r.pane)}`,
     args: { kind: { type: "string", optional: true, about: "what the new tile shows: a kind from the tile-kind registry (default reader)" }, dir: { type: "string", optional: true, about: "row (beside) or col (below); default along the longer side" } },
     run({ kind, dir }, { h, reader }, actor) { return h.splitPane(reader, kind, axisOf(dir, "pane.split"), actor); },
   }),

@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Each agent can keep its own focus pointer (PIE-997)
+
+`agent.focus tile=… note=… line=…` gives an agent an explicit pointer without moving your keys.
+Its untargeted tile actions use that pointer; a dim name in the footer and on its line shows where
+it is. Click the name to go there. Presence, `peek` and `where` list all pointers. Clearing the
+pointer, closing its tile or leaving its screen restores today's targeting. Agents without a
+pointer and `tile.focus` behave as before. Try the showcase's agent-focus section with two agents.
+
+
 ### MCP calls have measured costs (PIE-1003)
 
 Local and gateway MCP tool calls record bytes, estimated tokens, duration and query

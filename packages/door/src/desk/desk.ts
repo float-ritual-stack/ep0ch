@@ -410,6 +410,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private linkChips: { id: number; from: number; to: number; row: number }[] = [];
   /** Each ⧉ as drawn (a float's, and the focused pinned tile's): a click runs tile.float, putting back or floating it. */
   private floatButtons: { id: number; from: number; to: number; row: number }[] = [];
+  private pointerHits: { id: number; from: number; to: number; row: number; agent: string }[] = [];
   /** Each closable tile's × (tile.close by mouse). */
   private closeButtons: { id: number; from: number; to: number; row: number }[] = [];
   /** Each tile's ⋯ (its menu, tile.menu), and how far its cell is from the tile's right edge (a float moves under it). */
@@ -1276,6 +1277,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * the background, its programs running, and D on the menu brings the same desk back. Otherwise it's done.
    */
   dispose(): void | "keep" {
+    this.ctx?.agentPointers?.drop(this);
     this.onScreen = false;
     this.leaveResize();
     if (this.spec.stays && this.running().length) { Desk.kept = this; return "keep"; }
@@ -2262,9 +2264,25 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost(), this.registrations());
 
+  async visitAgent(agent: string) {
+    const p = this.ctx.agentPointers?.get(agent, this);
+    if (!p) throw new ActionRefused(`no explicit pointer for ${agent} here`);
+    await this.dispatch.press("tile.focus", {}, p.tile);
+    if (p.note) {
+      const pane = this.pane(p.name);
+      if (pane instanceof ReaderPane && pane.msg?.id !== p.note) await this.dispatch.press("open", { id: p.note }, p.tile);
+    }
+    if (p.line !== undefined) {
+      await this.dispatch.press("reading.place", { line: p.line }, p.tile);
+      await this.dispatch.press("view.scrollTo", { line: p.line }, p.tile);
+    }
+    return { pointer: p };
+  }
+
   private dispatchHost() {
     const d = this;
     return {
+      pointerScope: d,
       get title() { return d.title; },
       ctx: () => d.ctx,
       ...(d.whereNow ? { where: () => d.whereNow!() } : {}),
@@ -2976,6 +2994,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.transition && !flying) this.transition = null;
     const ghosts: [number, Rect][] = [];
     this.tileSpots = [];
+    this.pointerHits = [];
     this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.linkChips = []; this.dockCloses = []; this.floatButtons = []; this.closeButtons = []; this.foldButtons = []; this.wireChips = []; this.holdButtons = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
@@ -3250,7 +3269,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const lines = lv.border === "none" || joined ? NO_BOX : lv.border !== "auto" && lv.border !== "joined" ? BORDER_BOXES[lv.border] : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
     const glyphs = keys ? FOCUS_BOX : lines;
     const frameInk = (cover === "peek" && !focused ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
-    canvas.box(r, frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, glyphs);
+    const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
+    const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
+    const foot = armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint;
+    canvas.box(r, frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
+    let markerX = r.col + 3;
+    for (const p of pointers) {
+      const label = `@${p.agent}${p.line ? `:${p.line}` : ""}`;
+      const size = Math.min(width(label), r.col + r.cols - 2 - markerX);
+      if (size <= 0) break;
+      this.pointerHits.push({ id, row: r.row + r.rows - 1, from: markerX, to: markerX + size, agent: p.agent });
+      markerX += size + 1;
+    }
     // `edge=bar`: a bar down its left side in the tone (the tile colour for neutral; a state's colour while it has one), over the frame's side.
     if (lv.edge === "bar" && r.rows > 2) for (let y = r.row + 1; y < r.row + r.rows - 1; y++) canvas.text(r.col, y, (edgeC === "tile" || edgeC === toned ? edge(toned ?? "tile") : frameInk) + "▌" + RESET, 1);
     // The focused tile's ⧉, in its frame's top right corner, floats it by mouse (tile.float, as ^W f); a float's own
@@ -3296,6 +3326,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return out;
     }
     view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
+    const lineEnds = new Map<number, number>();
+    if (pane instanceof ReaderPane) for (const p of pointers) {
+      if (p.line === undefined || (p.note && p.note !== pane.msg?.id)) continue;
+      const y = view.lines.findIndex((_, row) => pane.surface.sourceLineAt(row) === p.line! - 1);
+      if (y < 0 || y >= inner.rows) continue;
+      const end = lineEnds.get(y) ?? inner.col + inner.cols;
+      const label = `@${p.agent}`, size = Math.min(width(label), end - inner.col);
+      if (size <= 0) continue;
+      const x = end - size;
+      lineEnds.set(y, x - 1);
+      canvas.text(x, inner.row + y, fg(C.dark) + label + RESET, size);
+      this.pointerHits.push({ id, row: inner.row + y, from: x, to: x + size, agent: p.agent });
+    }
     // The surface under what it drew and its padding, never over a picture drawn under the text (a header's backdrop:
     // Kitty shows it only through cells on the default background, so the surface yields there).
     if (surface && !(pane instanceof PtyPane)) {
@@ -5321,6 +5364,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** Everything this desk keeps about tile `id` that leaves it (closed, or moved whole to the drawer or another screen). */
   private forgetTile(id: number, p: Pane) {
+    this.ctx?.agentPointers?.dropTile(this, this.tileId(id));
     if (this.ptyIn === p) this.ptyIn = null;
     if (this.chord?.pane === p) this.chord = null;
     if (this.pending?.pane === p) this.pending = null;
@@ -6168,6 +6212,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // container shuts its dock, by its close), a control a tile put there (the backlinks' status) does what its key
       // does. A float's header carries the same controls: they're asked first, so its title drag doesn't swallow them.
       const at = (h: { id: number; row: number; from: number; to: number }) => hit?.[0] === h.id && h.row === k.y && k.x >= h.from && k.x < h.to;
+      const pointer = this.pointerHits.find(at);
+      if (pointer) return this.run("agent.visit", { agent: pointer.agent });
       const mh = this.markHits.find(at);
       if (mh) return this.run("block.unmark", { n: mh.n });
       const dx = this.dockCloses.find(at);
@@ -6479,6 +6525,12 @@ interface DeskOn { d: Desk; reader?: string }
 
 /** What the desk adds to a reader's note actions: which note is current, and which pane has the keys. */
 export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
+  "agent.visit": def({
+    summary: "take your keys to an agent's explicit pointer", keys: "click an agent pointer",
+    touches: "screen", replay: "safe", person: "only the person follows a pointer; agent.focus sets your own",
+    args: { agent: { type: "string", about: "the agent whose pointer to visit" } },
+    run({ agent }, { d }) { return d.visitAgent(agent); },
+  }),
   "screen.spec": def({
     summary: "the screen shown as its spec (PIE-515): its name, title, layout as it opens (containers with policy, tiles by kind), key map, hint, band and where opens land: the data a screen note holds. Nothing on screen moves; layout.get says how it's laid out now",
     touches: "nothing", replay: "safe",
@@ -6504,7 +6556,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     // A reader named (tile=) is moved: an agent's is refused in the one the person has. Naming none (or a place word),
     // it lands where opens land: maybe the note they're reading, said on screen, never their keys or a reader they type in.
     touches: "tile", touchesWith: (_, tile) => (tile !== undefined ? "tile" : "nothing"), way: "opening a note there would move what they're reading · name another reader with tile=, or name none (ep0ch open <id>): it lands where opens land, never their keys or a reader they type in",
-    replay: "safe", confirms: true, places: ["detail", "new-detail", "float"], says: r => `opened a note${r.reader ? ` in ${r.reader}` : ""}`,
+    replay: "safe", confirms: true, landing: true, places: ["detail", "new-detail", "float"], says: r => `opened a note${r.reader ? ` in ${r.reader}` : ""}`,
     args: { id: { type: "string", optional: true, about: "the block id (or file=)" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎); alone: a new detail beside the tile with the keys" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" },
       file: { type: "string", optional: true, about: "a file on this machine (an absolute path) in place of id: Markdown drawn as a preview draws it, any other file through the file Resource reader (PIE-602)" },
       diff: { type: "boolean", optional: true, about: "with file=: its changes (git's diff against its last commit, else against=)" },

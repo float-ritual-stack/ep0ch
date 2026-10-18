@@ -89,6 +89,7 @@ function frameCtx(f: FramedScreen): Ctx {
   const o = () => f.outerCtx;
   const ctx: Ctx = {
     get t(): TermInfo { return { ...o().t, cols: f.w, rows: f.h + 1 }; },
+    get agentPointers() { return o().agentPointers; },
     get board() { return o().board; },
     get host() { return o().host; },
     get workspace() { return o().workspace; },

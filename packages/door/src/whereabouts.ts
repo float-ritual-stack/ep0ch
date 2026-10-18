@@ -40,6 +40,36 @@ export interface Whereabouts extends ScreenKeys {
 /** The host layer's agent tile, as `typingIn` names it while the person types in the drawer. */
 export const HOST_AGENT = "drawer.agent";
 
+export interface AgentPointer {
+  agent: string;
+  screen: string;
+  tile: string;
+  name: string;
+  note?: string;
+  line?: number;
+}
+
+/** Explicit pointers live only as long as the screen and tile they name. */
+export class AgentPointers {
+  private entries = new Map<string, { scope: object; read: () => AgentPointer | null }>();
+  set(agent: string, scope: object, read: () => AgentPointer | null) { this.entries.set(agent, { scope, read }); }
+  clear(agent: string) { this.entries.delete(agent); }
+  dropTile(scope: object, tile: string) {
+    for (const p of this.list(scope)) if (p.tile === tile) this.clear(p.agent);
+  }
+  drop(scope: object) { for (const [agent, p] of this.entries) if (p.scope === scope) this.clear(agent); }
+  get(agent: string, scope?: object): AgentPointer | undefined {
+    const entry = this.entries.get(agent);
+    if (!entry) return;
+    const p = entry.read();
+    if (!p) { this.clear(agent); return; }
+    return scope === undefined || entry.scope === scope ? p : undefined;
+  }
+  list(scope?: object): AgentPointer[] {
+    return [...this.entries.keys()].flatMap(agent => { const p = this.get(agent, scope); return p ? [p] : []; });
+  }
+}
+
 /** How long the person has to have been away from the keys and the mouse before an agent moves what they see. */
 export const SHELL_IDLE_MS = 2000;
 
