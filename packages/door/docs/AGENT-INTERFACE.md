@@ -29,7 +29,7 @@ outline serves on `door-<pid>.sock`, and a starting door sweeps sockets no door 
 without `EP0CH_CONTROL` reaches the door on the outline its folder names (`EP0CH_WS`, the `.ep0ch`), else the only one
 running; with several, it prints the `EP0CH_CONTROL=…` for each. **The socket is the door's shell:** a client can do what the person can, including
 start a program in a terminal tile (`tile.open kind=pty cmd=…`), and `as=` is only a claimed name. So it is
-0600, in a folder that is the user's alone (0700, owner checked, the nvim sockets' check); in a folder anyone
+0600 from the moment it is created, in a folder that is the user's alone (0700, owner checked, the nvim sockets' check); in a folder anyone
 else can reach, the door serves no socket and says why. A request line longer than 16 Mi characters is refused and cut off (well above any note's whole text for `edit.text`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, its tile's name as
 `EP0CH_TILE` and its id as `EP0CH_TILE_ID`, so a program in a tile
 reaches the door it runs in (for the daily agent in Herdr, the socket of the door attached to it; see the
