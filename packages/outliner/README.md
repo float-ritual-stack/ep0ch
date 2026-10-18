@@ -1489,7 +1489,7 @@ unchanged.
 | `Ctrl+E` or modified Enter | Explicitly edit the selected block in the linked Detail |
 | `g` | Search blocks with a document preview and optional Jev ranking |
 | `o` | Open the first exact `((block-id))` or symbolic `[[address]]` reference in the linked Detail |
-| `R` | Reveal this row's canonical physical source, clearing filters, expanding its ancestors, and focusing this Tree |
+| `Option/Alt+R` | Reveal this row's canonical physical source, clearing filters, expanding its ancestors, and focusing this Tree |
 | `Option+Shift+R` | Reveal the first authored reference in this Tree |
 | `Shift+V` | Open the selected virtual branch in the generic split navigator |
 | `m` / `Shift+M` | Toggle a bookmark for the selected block / open Bookmarks |
@@ -2348,7 +2348,7 @@ canonical first child under that result and selects it in the same occurrence.
 Only the selected occurrence opens; other collapsed results stay collapsed.
 The child does not need to match the view's query. Depth or row-budget limits
 are checked before creation and again on save; a refusal offers Reveal source
-(`Shift+R`) or changing the view bounds. Nested definition rows whose canonical
+(`Option/Alt+R`) or changing the view bounds. Nested definition rows whose canonical
 children cannot be projected are refused rather than creating an invisible child.
 Adding siblings and indenting/outdenting projected rows remain disabled.
 

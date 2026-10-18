@@ -962,7 +962,7 @@ describe("createTreeController", () => {
     expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({ action: "navigation.dispatch", sourceClientId: "tree-test", target: { kind: "block", blockId: target.id }, intent: "open", });
     expect(controller.view().status).toBe("Opened Target in linked Detail");
 
-    await controller.handleKeypress("R", { name: "r", shift: true }, "pass");
+    await controller.handleKeypress("", { name: "r", meta: true }, "pass");
     expect(fake.calls.filter((call) => call.action === "navigation.dispatch")).toEqual([
       expect.objectContaining({
         target: { kind: "block", blockId: target.id },
@@ -2870,7 +2870,7 @@ describe("createTreeController", () => {
     await controller.handleKeypress("", { name: "space" }, "pass");
     await controller.handleRowClick("occurrence:view:card");
 
-    await controller.handleKeypress("R", { name: "r", shift: true }, "pass");
+    await controller.handleKeypress("", { name: "r", meta: true }, "pass");
 
     expect(controller.view().rows[controller.view().selectedIndex]).toMatchObject({
       rowId: card.id,
