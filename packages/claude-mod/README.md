@@ -127,6 +127,11 @@ A click, `show` and `door_open` share one open (`openNote` in
   that tile, so Alt+L from the Claude tile's wire is followed; no tile found, it opens where the screen's opens land.
 - A target the Outliner cannot resolve is a toast, never a new page.
 
+Composer prompts with references use the same labels and presses as replies, with the prompt marker and theme
+background (PIE-1054). Prompts with image or pasted-content placeholders, expanded transcript rows, and messages
+from agents or tasks keep the engine's drawing. This is a Claude transcript feature, so its demonstration and
+regression coverage live in the plugin render tests rather than the door's showcase.
+
 ### Where this Claude is bound
 
 So nobody has to ask which outline Claude's tools reach (PIE-546), the mod says it three ways, from one set of facts:
