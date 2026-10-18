@@ -3227,7 +3227,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // the warning tone (amber), and loud (on its capped-dark amber surface, bold, the frame amber too) when the same key
     // was refused again. A tile with a screen of its own in it (a group) leaves it to that screen's focused tile.
     const no = keys && !pane.nestsTiles?.() ? this.ctx?.refusal?.() ?? null : null;
-    const head = (float ? `${fg(C.yellow)}⧉ ${RESET}` : "") + this.header(id, r, keys, float ? 2 : 0);
+    const head = (float ? `${fg(C.yellow)}⧉ ${RESET}` : "") + this.header(id, r, keys, !joined && lv.border !== "none", float ? 2 : 0);
     // A float's ⧉ puts it back: the cell either side counts too (a font that draws the glyph wide puts it under the pointer there).
     if (float) this.floatButtons.push({ id, row: r.row, from: r.col + 2, to: r.col + 5 });
     const view = inner.cols >= 1 && inner.rows >= 1 ? this.drawn(id, pane, inner, focused, typing) : null;
@@ -3405,7 +3405,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * one shown on blue); then what it shows, where its opens land (→), and a dock's state. Each tab's
    * label is kept as a hit for clicks and drags.
    */
-  private header(id: number, r: Rect, focused: boolean, indent = 0): string {
+  private header(id: number, r: Rect, focused: boolean, framed: boolean, indent = 0): string {
     const set = tabsOf(this.root, id);
     let x = r.col + 3 + indent;
     const max = r.col + r.cols - 2;
@@ -3436,7 +3436,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const room = Math.max(1, max - xNow() - chips - 18);
       put(pad(`${this.numLabel(id)}${this.displayTitle(id)}`, room).trimEnd(), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
       this.putMarks(id, put, xNow, r.row);
-      return this.headerEnd(id, put, xNow, max, r.row, focused);
+      return this.headerEnd(id, put, xNow, max, r.row, focused, framed);
     } else if (this.noteOf(id)) {
       // NoteSurface owns the full title; the frame identifies the tile and keeps its mode controls reachable.
       const m = this.noteOf(id)!, named = workIdTitle(subject(m), prop(m, "work-id"));
@@ -3449,7 +3449,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const chips = (p.headControls?.(max, this) ?? []).reduce((n, c) => n + 3 + Math.min(8, width(c.text)), 0);
       const room = Math.max(0, max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 10 - chips);
       put(width(label) <= room ? label : headOf(label, Math.max(0, room - 1)).trimEnd() + (room ? "…" : ""), fg(C.dark), id);
-      return this.headerEnd(id, put, xNow, max, r.row, focused);
+      return this.headerEnd(id, put, xNow, max, r.row, focused, framed);
     } else {
       this.putStatus(id, put, true);
       put(`${this.numLabel(id)}${this.displayTitle(id)}`, focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
@@ -3457,14 +3457,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.putMarks(id, put, xNow, r.row);
     const label = this.panes.get(id)!.headLabel?.();
     if (label) put(` ${label}`, "");
-    return this.headerEnd(id, put, xNow, max, r.row, focused);
+    return this.headerEnd(id, put, xNow, max, r.row, focused, framed);
   }
 
   /**
    * Controls the tile puts on its header where they fit (the backlinks' status, who's online's refresh), each a click;
    * room is kept for the dock's own glyph and [×] and how far down it is. Then the header's tail.
    */
-  private headerEnd(id: number, put: (text: string, sgr: string) => void, xNow: () => number, max: number, row: number, focused: boolean): string {
+  private headerEnd(id: number, put: (text: string, sgr: string) => void, xNow: () => number, max: number, row: number, focused: boolean, framed: boolean): string {
     const ctl = this.panes.get(id)!.headControls?.(max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 18, this) ?? null;
     if (ctl?.length) {
       // A chip (a reader's mode) is a label with a click, not the tile's keys: the frame still says those.
@@ -3472,7 +3472,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       put(" ·", fg(C.dark));
       ctl.forEach((c, i) => { if (i) put(" ·", fg(C.dark)); const from = xNow() + 1; put(` ${c.text}`, c.sgr); if (c.press) this.headPresses.push({ id, row, from, to: xNow(), press: c.press }); });
     }
-    return this.headerTail(id, put, xNow, row, max, focused);
+    return this.headerTail(id, put, xNow, row, max, focused, framed);
   }
 
   /**
@@ -3605,7 +3605,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return this.openLandingReader(USER)?.name ?? null;
   }
 
-  private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number, max: number, focused: boolean): string {
+  private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number, max: number, focused: boolean, framed: boolean): string {
     // A list a #tag opened (PIE-855) follows its reader's tags until held: ◄ and the reader, a click opens ^W P's follows row.
     const p = this.panes.get(id)!, home = kindOf(p)?.home?.(p);
     if (home && kindOf(p)?.hold?.held(p) === false) { const from = xNow(); put(` ◄ ${home}`, fg(C.lmagenta)); this.wireChips.push({ id, row, from: from + 1, to: xNow(), wire: "follows" }); }
@@ -3623,7 +3623,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const short = verbs.map((verb, i) => ` ${glyphs[verb]} ${words[i]}`);
     const room = max - xNow() - 14;
     const labels = wide.reduce((n, x) => n + width(x), 0) <= room ? wide : short.reduce((n, x) => n + width(x), 0) <= room ? short : verbs.map(verb => ` ${glyphs[verb]}`);
-    if (kindOf(p)?.previews || kindOf(p)?.accepts?.notes) {
+    if (framed && (kindOf(p)?.previews || kindOf(p)?.accepts?.notes)) {
       // Wire controls are separate from the tile's identity and dock state.
       put(focused ? " ═" : " ─", fg(C.dark));
       verbs.forEach((verb, i) => {
