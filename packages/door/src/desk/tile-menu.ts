@@ -63,7 +63,7 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
       const lit = litCells(r.label, input.text);
       const label = [...r.label].map((c, j) => (lit.has(j) ? fg(C.yellow) + c + fg(on ? C.white : r.refused ? C.dark : C.grey) : c)).join("");
       const capCell = cap ? (r.refused ? fg(C.dark) : chip(C.dark)) + cap + RESET : "";
-      return [(on ? selectedRow(`  ${label}`, w - width(cap)) : fg(r.refused ? C.dark : C.grey) + pad(`  ${label}`, w - width(cap)) + RESET) + capCell];
+      return [(on ? selectedRow(`  ${label}`, w - width(cap)) : fg(r.refused ? C.dark : C.grey) + pad(` ${label}`, w - width(cap)) + RESET) + capCell];
     },
     choose: (r, _i, h) => run(r, h),
     // A row's own chord runs it (the first that isn't refused; a refused one says why), unless it's a key the list moves by.
