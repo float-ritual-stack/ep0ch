@@ -13,7 +13,7 @@ import { artBlock, cloneGrid, locate, stamp } from "./art-view";
 import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Msg } from "./board";
 import { artNamed, loadArt, members, PACK_DIR, packs, type Member } from "./packs";
-import { C, center, chip, fg, pad, paint, RESET, selected, width } from "./style";
+import { C, center, chip, fg, pad, paint, RESET, selectedRow, width } from "./style";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
 import { hyperOn, useHyper } from "./hyper";
@@ -1158,7 +1158,7 @@ export class MessageList extends BbsList {
       this.ptr.row(lines.length, n, w);
       const num = (prop(m, "work-id") ?? String(n + 1)).padStart(7).slice(-7);
       const row = ` ${num}  ${pad(authorName(m.author), 17)} ${pad(subject(m), Math.max(10, w - 52))} ${bbsDate(m.updatedAt)}`;
-      lines.push(n === this.sel ? selected() + pad(row, w) + RESET : fg(C.lcyan) + num.padStart(8) + fg(C.brown) + "  " + pad(authorName(m.author), 17) + " " + fg(C.grey) + pad(subject(m), Math.max(10, w - 52)) + " " + fg(C.dark) + bbsDate(m.updatedAt) + RESET);
+      lines.push(n === this.sel ? selectedRow(row, w) : fg(C.lcyan) + num.padStart(8) + fg(C.brown) + "  " + pad(authorName(m.author), 17) + " " + fg(C.grey) + pad(subject(m), Math.max(10, w - 52)) + " " + fg(C.dark) + bbsDate(m.updatedAt) + RESET);
     });
     while (lines.length < h - 1) lines.push("");
     lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · K/J reorder · I/O in/out · ", ["|15Z|08 move to…", char("Z")], " · ", ["|15Q|08 back", char("q")]]));
@@ -1467,7 +1467,7 @@ export class Conferences extends BbsList {
     (this.confs ?? []).forEach((c, i) => {
       this.ptr.row(lines.length, i, w);
       const label = `${String(i + 1).padStart(3)}  ${pad(subject(c), w - 30)} ${fg(C.dark)}${prop(c, "type") ?? ""}`;
-      lines.push(i === this.sel ? selected() + pad(label, w) + RESET : fg(C.lcyan) + label.slice(0, 5) + fg(C.grey) + label.slice(5) + RESET);
+      lines.push(i === this.sel ? selectedRow(label, w) : fg(C.lcyan) + label.slice(0, 5) + fg(C.grey) + label.slice(5) + RESET);
     });
     if (!this.confs) lines.push(paint("|08  dialing…"));
     lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ↑↓ select · ", ["|15ENTER|08 join", ENTER], " · ", ["|15Q|08 back", char("q")]]));
@@ -1500,7 +1500,7 @@ export class FileAreas extends BbsList {
       this.ptr.row(lines.length, i, w);
       if (on) for (let j = 1; j <= Math.min(5, Math.max(0, d.length - 1)); j++) this.ptr.row(lines.length + j, i, w);
       const head = ` ${pad(basename(p).toUpperCase(), 14)} ${String(Math.round(size / 1024)).padStart(5)}k  ${pad(d[0] ?? "", w - 32)}`;
-      lines.push(on ? selected() + pad(head, w) + RESET : fg(C.lcyan) + head.slice(0, 15) + fg(C.grey) + head.slice(15, 23) + fg(C.white) + head.slice(23) + RESET);
+      lines.push(on ? selectedRow(head, w) : fg(C.lcyan) + head.slice(0, 15) + fg(C.grey) + head.slice(15, 23) + fg(C.white) + head.slice(23) + RESET);
       if (on) for (const extra of d.slice(1, 6)) lines.push(`${" ".repeat(24)}${fg(C.dark)}${pad(extra, w - 25)}${RESET}`);
     });
     while (lines.length < h - 1) lines.push("");

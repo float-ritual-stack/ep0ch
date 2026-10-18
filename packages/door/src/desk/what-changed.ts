@@ -11,7 +11,7 @@
 // (WHAT_CHANGED_ACTIONS): j k pick, ⏎ or a click opens the note where opens land, alt+⏎ (or an alt-click) in a new
 // detail, d shows the change itself (the note's earlier text, block.revisions, against what it became).
 import { subject } from "../board";
-import { C, dim, fg, pad, RESET, selected } from "../style";
+import { C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago } from "../text";
 import { pressOn, RowView } from "../scroll";
@@ -279,7 +279,7 @@ export class WhatChangedPane implements Pane {
       const isNew = this.isNew(r), mark = isNew ? "●" : " ", title = r.title ?? "…", age = ago(r.at).padStart(4);
       const tag = r.ext ? "ext" : r.machine ? "machine" : r.agent ? "agent" : "";
       const who = `${authorName(r.who)}${tag && !r.who.startsWith(tag) ? ` (${tag})` : ""}`;
-      if (n === this.at) lines.push({ row: n, text: selected(focused) + pad(` ${mark} ${title} · ${who} · ${r.kind}  ${age}`, w) + RESET });
+      if (n === this.at) lines.push({ row: n, text: selectedRow(` ${mark} ${title} · ${who} · ${r.kind}  ${age}`, w, focused) });
       else lines.push({ row: n, text: pad(` ${isNew ? fg(C.yellow) + mark : dim(mark)} ${fg(C.lcyan)}${title}${fg(C.dark)} · ${r.agent ? fg(C.lmagenta) : fg(C.grey)}${who}${fg(C.dark)} · ${fg(C.grey)}${r.kind}  ${dim(age)}`, w) + RESET });
       for (const d of this.diffs.get(this.keyOf(r)) ?? []) {
         const sgr = d.startsWith("+") ? fg(C.lgreen) : d.startsWith("-") ? fg(C.lred) : fg(C.grey);

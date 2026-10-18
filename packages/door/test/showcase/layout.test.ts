@@ -38,7 +38,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   test("focus (PIE-969): the figure with the keys keeps its tint and the row under the cursor is a band with a bar, in every theme", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "focus" }, as: "test-agent" })).toMatchObject({ key: "focus" });
-    const els = async () => { screen(); return ((await app.act({ action: "elements", tile: "reader", as: "test-agent" })) as any).elements as { kind: string; label: string; current?: boolean }[]; };
+    const els = async () => { screen(); return ((await app.act({ action: "elements", tile: "figures", as: "test-agent" })) as any).elements as { kind: string; label: string; current?: boolean }[]; };
     for (let end = Date.now() + 8000; !(await els()).some(e => e.kind === "row" && e.label.includes("plant out")); await Bun.sleep(50))
       if (Date.now() > end) throw new Error("timed out waiting for the figure block's child rows");
     // The agent switches the theme through act (from the index: the showcase holds an agent off while the person is in a

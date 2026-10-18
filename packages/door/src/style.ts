@@ -21,14 +21,17 @@ export const itemStyle = () => {
   const { fg } = theme().focus.item;
   return itemBg() + (fg ? fgRgb(fg) : "");
 };
-/**
- * The one item-focus style (PIE-969): a list's selected row, its background and text. The theme's item band and text
- * (white unless the token overrides it) while the list has the keys, on the idle tint (`idleRow` for a search's or the backlinks' rows) while it doesn't.
- * Every selectable list draws its cursor row through this; the reader's figure rows add `itemBar`'s edge marker.
- */
+/** Item-focus colours, also used by tabs and spines that have no row gutter. */
 export const selected = (keys = true, idle: "idle" | "idleRow" = "idle") => fg(C.white) + (keys ? itemStyle() : tint(idle));
-/** The marker at the left edge of the row the cursor is on in a reader (PIE-969): a bar in the theme's `focus.item.bar`. */
+/** The marker at the left edge of the row the cursor is on. */
 export const itemBar = () => fgRgb(theme().focus.item.bar) + theme().focus.item.glyph + RESET;
+/** A cursor row owns its band, gutter and width; reuse a leading blank so columns and click targets stay put. */
+export function selectedRow(text: string, cols: number, keys = true, idle: "idle" | "idleRow" = "idle"): string {
+  if (cols <= 0) return "";
+  const style = selected(keys, idle);
+  const body = text.replace(/^((?:\x1b\[[\d;]*m)*) /, "$1");
+  return style + (keys ? itemBar() : " ") + style + (cols > 1 ? pad(body, cols - 1) : "").split(RESET).join(RESET + style) + RESET;
+}
 /** A chip lighter than this (relative luminance) would be a bright patch: calm and night draw it as coloured text instead. */
 export const CHIP_MAX_LUMINANCE = 0.3;
 /**

@@ -11,7 +11,7 @@
 import { subject, type Msg } from "../board";
 import { fromWallClock, readDate } from "@ep0ch/outline-core/dates";
 import { type Actor, type SocketBoard } from "../socket";
-import { C, fg, pad, RESET, selected } from "../style";
+import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { newNoteOffer } from "../new-note";
@@ -126,7 +126,7 @@ export class WaitingPane implements Pane {
       lines: this.rows.slice(this.view.top, this.view.top + h).map(r => {
         if ("head" in r) return pad(`${fg(C.yellow)}${r.head.who}${fg(C.dark)} · ${r.head.items.length} waiting · longest ${ago(r.head.since)}`, w) + RESET;
         const m = r.item, age = ago(sentAt(m)).padStart(4), ticket = (prop(m, "ticket") ?? "").padEnd(tw), what = waitingOn(m).what;
-        if (r.n === this.at) return selected(focused) + pad(` ${age} ${ticket} ${what}`, w) + RESET;
+        if (r.n === this.at) return selectedRow(` ${age} ${ticket} ${what}`, w, focused);
         const old = Date.now() - sentAt(m) > 3 * 86_400_000;
         return pad(` ${fg(old ? C.lred : C.brown)}${age} ${fg(C.lcyan)}${ticket} ${fg(C.grey)}${what}`, w) + RESET;
       }),

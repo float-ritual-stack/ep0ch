@@ -21,7 +21,7 @@ import { linkBlock, linkNote, linkRowLine, linkRows, linkWords, SEP, type LinkGr
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { shortId } from "../refs";
 import { ActionRefused, actionSet, def } from "../surface/actions";
-import { C, dim, fg, pad, RESET, selected } from "../style";
+import { C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { Fold } from "../fold";
 import { readView, type ViewRead } from "../views";
 import { RowView, type RowPress } from "../scroll";
@@ -594,7 +594,7 @@ export class TreePane implements Pane {
       const indent = "  ".repeat(r.depth);
       if (r.kind === "branch-note") {
         const text = `${indent}${r.role === "results" ? "◇ " : r.role === "more" ? "▸ " : "  "}${r.text}`;
-        return on ? selected(focused) + pad(text, w) + RESET : fg(r.role === "more" ? C.lcyan : C.dark) + pad(text, w) + RESET;
+        return on ? selectedRow(text, w, focused) : fg(r.role === "more" ? C.lcyan : C.dark) + pad(text, w) + RESET;
       }
       if (r.kind === "block") {
         const k = this.fold.kids.get(r.foldId);
@@ -606,7 +606,7 @@ export class TreePane implements Pane {
         const found = branch && branch.read !== "loading" && branch.read.status === "ready" ? `V:${branch.read.total ?? branch.items.length}` : "";
         const tag = (found || (prop(r.m, "work-id") ?? prop(r.m, "status") ?? prop(r.m, "type") ?? "")).slice(0, 14);
         const room = Math.max(4, w - (tag ? tag.length + 1 : 0));
-        if (on) return selected(focused) + pad(`${indent}${mark} ${subject(r.m)}`, room) + (tag ? " " + tag : "") + RESET;
+        if (on) return selectedRow(pad(`${indent}${mark} ${subject(r.m)}`, room - (indent ? 0 : 1)) + (tag ? " " + tag : ""), w, focused);
         const here = desk.current?.id === r.m.id;
         return pad(`${indent}${fg(C.lcyan)}${mark} ${fg(here ? C.yellow : r.via !== undefined && r.rel === 0 ? C.lgreen : C.grey)}${subject(r.m)}`, room) + (tag ? " " + fg(C.brown) + tag : "") + RESET;
       }

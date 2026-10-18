@@ -14,7 +14,7 @@
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
-import { C, fg, pad, RESET, selected } from "../style";
+import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
@@ -214,9 +214,8 @@ export class QueryPane implements Pane {
       const pri = PRIORITY[prop(m, "priority") ?? ""] ?? C.dark;
       const extra = (keys ? summarySegments(m.properties, keys).map(x => x.value) : [prop(m, "track"), prop(m, "to") && `→ ${prop(m, "to")}`, prop(m, "channel"), prop(m, "waiting-on") && `waiting on ${prop(m, "waiting-on")}`]).filter(Boolean).join(" · ");
       if (sel) {
-        const style = selected(focused, "idleRow");
-        lines.push(style + pad(` ${wid} ${prop(m, "priority") ?? ""} ${extra} · ${ago(m.updatedAt)}`, w) + RESET);
-        lines.push(style + pad(` ${title}`, w) + RESET);
+        lines.push(selectedRow(` ${wid} ${prop(m, "priority") ?? ""} ${extra} · ${ago(m.updatedAt)}`, w, focused, "idleRow"));
+        lines.push(selectedRow(` ${title}`, w, focused, "idleRow"));
       } else {
         lines.push(pad(` ${fg(pri)}● ${fg(C.lcyan)}${wid}${wid ? " " : ""}${fg(C.dark)}${extra} · ${ago(m.updatedAt)}`, w) + RESET);
         lines.push(fg(C.grey) + pad(` ${title}`, w) + RESET);

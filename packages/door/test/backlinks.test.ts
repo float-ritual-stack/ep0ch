@@ -354,7 +354,7 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
     // One line per row, the breadcrumb and reference suffix on the same line.
     expect(lines[1]).toContain("▾ ← backlinks (7)");
     expect(lines[2]).toContain("  + Outbox item 4 (1 waiting · 1 draft · 2 done)");
-    expect(lines[3]).toMatch(/^ {4}← Offer spare onion sets — draft · .*block reference ×1/);
+    expect(lines[3]).toMatch(/^▌ {3}← Offer spare onion sets — draft · .*block reference ×1/);
     expect(lines[4]).toMatch(/^ {4}← Ask Ana about bean seed — waiting/);
     await until(() => B().linksPreview.msg?.id === ids.draft, "the preview on the selected source");
   }, 20_000);

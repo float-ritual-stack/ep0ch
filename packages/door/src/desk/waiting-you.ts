@@ -10,7 +10,7 @@
 // Beside the programs, the requests held for the person's `r` (PIE-888): an `@name` line an agent or an extension wrote
 // that no grant lets wake its agent, as the service lists them (`agents.held`, src/held-asks.ts). ⏎ or a click opens the
 // note it's in; `r` sends it (the same `r` as on the line: asked as the person); an agent reads them and may open one.
-import { C, dim, fg, pad, RESET, selected } from "../style";
+import { C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -76,12 +76,12 @@ export class WaitingYouPane implements Pane {
           const a = held[n - rows.length]!, age = ago(Date.parse(a.at)).padStart(4);
           // The row's last words are its send: a click on them is r.
           const plain = pad(` ‼ @${a.agent} · ${a.title} · ${a.why}  ${age}`, Math.max(0, w - SEND.length)) + SEND;
-          return n === this.at ? selected(focused) + plain + RESET : pad(` ${fg(C.yellow)}‼ ${fg(C.lcyan)}@${a.agent}${fg(C.dark)} · ${fg(C.grey)}${a.title}${fg(C.dark)} · ${fg(C.grey)}${a.why}  ${dim(age)}`, Math.max(0, w - SEND.length)) + fg(C.lcyan) + SEND + RESET;
+          return n === this.at ? selectedRow(plain, w, focused) : pad(` ${fg(C.yellow)}‼ ${fg(C.lcyan)}@${a.agent}${fg(C.dark)} · ${fg(C.grey)}${a.title}${fg(C.dark)} · ${fg(C.grey)}${a.why}  ${dim(age)}`, Math.max(0, w - SEND.length)) + fg(C.lcyan) + SEND + RESET;
         }
         const r = rows[n]!, m = statusMark(r.record), age = ago(r.at).padStart(4);
         const who = r.record.id ? `${r.name}/${r.record.title ? r.record.title : r.record.id}` : r.name;
         const what = recordText(r.record);
-        if (n === this.at) return selected(focused) + pad(` ${m.glyph} ${who} · ${m.word}${what ? ` · ${what}` : ""}  ${age}`, w) + RESET;
+        if (n === this.at) return selectedRow(` ${m.glyph} ${who} · ${m.word}${what ? ` · ${what}` : ""}  ${age}`, w, focused);
         return pad(` ${m.sgr}${m.glyph} ${fg(C.lcyan)}${who}${fg(C.dark)} · ${m.sgr}${m.word}${what ? `${fg(C.dark)} · ${fg(C.grey)}${what}` : ""}  ${dim(age)}`, w) + RESET;
       }),
     };

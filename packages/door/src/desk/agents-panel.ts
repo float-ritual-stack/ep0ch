@@ -6,7 +6,7 @@
 // with no panel open): ⏎ or a click jumps to it (`agents.go`), a pulls it into your drawer (`agents.drawer`), d docks it
 // on the screen shown (`agents.dock`), n starts a new one (`agents.new`: pick the program, then the folder). j k pick
 // (`agents.pick`, the kind's own). Moving one moves the same process: the conversation is kept.
-import { C, fg, pad, RESET, selected } from "../style";
+import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { RowView } from "../scroll";
@@ -61,7 +61,7 @@ export class AgentsPane implements Pane {
         // What it is and what it's doing first, its folder last: a narrow panel cuts the folder, never the state.
         const who = s.persona ? ` · ${s.persona}` : "";
         const text = ` ${g.glyph} ${s.program}${who} · ${s.word} · ${shownWords(s.shown)} · ${tildeOf(s.folder)}`;
-        if (n === this.at) return selected(focused) + pad(text, w) + RESET;
+        if (n === this.at) return selectedRow(text, w, focused);
         return pad(` ${g.sgr}${g.glyph} ${fg(C.lcyan)}${s.program}${s.persona ? `${fg(C.dark)} · ${fg(C.lmagenta)}${s.persona}` : ""}${fg(C.dark)} · ${g.sgr}${s.word}${fg(C.dark)} · ${fg(C.grey)}${shownWords(s.shown)}${fg(C.dark)} · ${fg(C.white)}${tildeOf(s.folder)}`, w) + RESET;
       }),
     };

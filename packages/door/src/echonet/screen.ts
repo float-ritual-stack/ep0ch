@@ -16,7 +16,7 @@ import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { pressOn, RowView, wheelRows, type RowPress } from "../scroll";
 import { authorName, hostRequest, SocketBoard, USER, type Actor, type OutlineEvent } from "../socket";
-import { C, fg, pad, paint, RESET, selected, width } from "../style";
+import { C, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
 import { ch, isDown, isUp, type Key } from "../term";
@@ -262,7 +262,7 @@ export class EchoAreas implements Pane {
       // Where it comes from: an area that starts in the door's own outline is local; another outline's, that outline.
       const toss = a.lastToss ? ago(a.lastToss).padStart(5) : "    -", from = a.kind === "sub" ? a.origin : a.outline === this.own ? "local" : a.node;
       const text = ` ${n}  ${pad(a.tag.toUpperCase(), tagW)} ${pad(named, nameW)} ${pad(from, nodeW)} ${total} ${fresh} ${toss}`;
-      if (i === this.at) return selected(focused) + pad(text, w) + RESET;
+      if (i === this.at) return selectedRow(text, w, focused);
       if (a.problem) return pad(`${fg(C.dark)} ${n}  ${pad(a.tag.toUpperCase(), tagW)} ${fg(C.lred)}${pad(a.problem, w - tagW - 6)}`, w) + RESET;
       return pad(`${fg(C.dark)} ${n}  ${fg(a.fresh ? C.lcyan : C.cyan)}${pad(a.tag.toUpperCase(), tagW)} ${fg(a.fresh ? C.white : C.grey)}${pad(named, nameW)} ${fg(from === "local" ? C.brown : C.lblue)}${pad(from, nodeW)} ${fg(C.grey)}${total} ${fg(a.fresh ? C.yellow : C.dark)}${fresh} ${fg(C.dark)}${toss}`, w) + RESET;
     });
@@ -432,7 +432,7 @@ export class EchoMessages implements Pane {
     const head = paint(`|09  #   ${"From".padEnd(fromW)} ${"Subject".padEnd(subjW)} Date`);
     const rows = this.items.map((m, i) => {
       const mark = m.fresh ? "●" : " ", n = String(m.n).padStart(3), from = pad(messageFrom(m.msg), fromW), subj = pad(subject(m.msg), subjW), date = bbsDate(arrived(m.msg));
-      if (i === this.at) return selected(focused) + pad(`${n} ${mark} ${from} ${subj} ${date}`, w) + RESET;
+      if (i === this.at) return selectedRow(`${n} ${mark} ${from} ${subj} ${date}`, w, focused);
       return pad(`${fg(C.dark)}${n} ${fg(C.yellow)}${mark} ${fg(m.fresh ? C.brown : C.dark)}${from} ${fg(m.fresh ? C.white : C.grey)}${subj} ${fg(C.dark)}${date}`, w) + RESET;
     });
     const room = Math.max(1, h - 1);

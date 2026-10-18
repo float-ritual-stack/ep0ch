@@ -23,7 +23,7 @@ import type { Canvas, Rect } from "./canvas";
 import type { Placement } from "./kitty";
 import { artNamed } from "./packs";
 import { hostRequest, type Actor } from "./socket";
-import { C, fg, pad, paint, RESET, selected, visible } from "./style";
+import { C, fg, pad, paint, RESET, selectedRow, visible } from "./style";
 import { ch, isDown, isUp, type Key } from "./term";
 import { ActionRefused, actionSet, def } from "./surface/actions";
 import { LineInput } from "./surface/line";
@@ -204,7 +204,7 @@ export class HomePane implements Pane {
     return {
       lines: rows.slice(this.view.top, this.view.top + h).map((r, i) => {
         const text = this.rowText(r);
-        return this.view.top + i === sel ? selected(focused) + pad(visible(text), w) + RESET : pad(fg(C.grey) + text, w) + RESET;
+        return this.view.top + i === sel ? selectedRow(visible(text), w, focused) : pad(fg(C.grey) + text, w) + RESET;
       }),
     };
   }

@@ -64,7 +64,7 @@ export const useReadingRuler = (on: boolean | undefined) => { ruler = on !== fal
 export let THREAD_BG = "";
 /**
  * Item focus (PIE-969): the row the cursor is on inside a reader's figure, list or table, one band over the container's
- * ruler tint; `ITEM_IDLE_BG` while the reader doesn't have the keys. The same band every list's `selected()` draws.
+ * ruler tint; `ITEM_IDLE_BG` while the reader doesn't have the keys. The same band every list's `selectedRow()` draws.
  */
 export let ITEM_BG = "";
 export let ITEM_IDLE_BG = "";
