@@ -12,7 +12,7 @@ import { C, fg, pad, RESET, visible, width, type LinkRange } from "../style";
 import { inWindow, type Placement } from "../kitty";
 import type { LinkTarget } from "../refs";
 import { rule, words } from "../text";
-import { ownTerminal, type Handover, type TileProgram } from "../term";
+import { ownTerminal, type Handover, type TileProgram, type Key } from "../term";
 import { agentLabel } from "./actions";
 import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 
@@ -290,4 +290,30 @@ export function recoverEdits(alive: (pid: number) => boolean): string[] {
     } catch { /* the next door tries again */ }
   }
   return kept;
+}
+
+/** A query uses the same draft, with line breaks flattened at the input edge. */
+export function editorLineKey(d: Draft, k: Key, copy: (text: string) => void): boolean {
+  if (["enter", "esc", "tab", "backtab", "up", "down", "pgup", "pgdn", "mouse"].includes(k.kind)) return false;
+  if (k.kind === "char" && k.ctrl) {
+    if (k.ch === "u") { d.splice(0, d.text.length, ""); return true; }
+    if (k.ch === "w") {
+      const selection = d.selection();
+      const end = selection?.[1].col ?? d.col;
+      const start = selection?.[0].col ?? d.text.slice(0, end).replace(/\S+\s*$/, "").length;
+      d.splice(start, end, ""); return true;
+    }
+    if (k.ch === "x") {
+      const text = d.selectedText();
+      if (text) { copy(text); const selected = d.selection()!; d.splice(selected[0].col, selected[1].col, ""); }
+      return true;
+    }
+  }
+  const selected = d.selection();
+  if (selected && (k.kind === "backspace" || k.kind === "delete")) {
+    d.splice(selected[0].col, selected[1].col, ""); return true;
+  }
+  const input = k.kind === "paste" ? { ...k, text: k.text.replace(/[\r\n]+$/, "").replace(/\r\n?|\n|\t/g, " ") } : k;
+  if (d.key(input) === "copy") { const text = d.selectedText(); if (text) copy(text); }
+  return true;
 }

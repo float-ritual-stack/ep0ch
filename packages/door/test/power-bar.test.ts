@@ -60,7 +60,8 @@ describe.skipIf(!outliner)("the power bar", () => {
     await Bun.sleep(100);
   }, 30_000);
   // Each test starts with the bar put away, whatever the one before left.
-  beforeEach(() => { if ((app as any)?.bar) key({ kind: "esc" }); });
+  const closeBar = () => { if (peek().bar?.query) key({ kind: "esc" }); if (peek().bar) key({ kind: "esc" }); };
+  beforeEach(closeBar);
   afterAll(async () => {
     app?.drawer.tile?.kill(); board?.close(); await scratch.dispose();
     for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
@@ -123,6 +124,74 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(app.person().busy).toBe(false as boolean);
   });
 
+  test("the line selects and deletes text, and esc clears before closing its scope", () => {
+    key(ctrlK); type("/garden path");
+    key({ kind: "left", shift: true });
+    key({ kind: "left", shift: true });
+    key({ kind: "backspace" });
+    expect(peek().bar.query).toBe("garden pa");
+    key({ kind: "char", ch: "z", ctrl: true });
+    expect(peek().bar.query).toBe("garden path");
+    key({ kind: "char", ch: "w", ctrl: true });
+    expect(peek().bar.query).toBe("garden ");
+    key({ kind: "paste", text: "bean row\n" });
+    key({ kind: "home", shift: true });
+    key({ kind: "char", ch: "x", ctrl: true });
+    expect(peek().bar.query).toBe("");
+    key({ kind: "char", ch: "z", ctrl: true });
+    expect(peek().bar.query).toBe("garden bean row");
+    key({ kind: "char", ch: "u", ctrl: true });
+    expect(peek().bar.query).toBe("");
+    type("again");
+    key({ kind: "esc" });
+    expect(peek().bar).toMatchObject({ query: "", scope: "notes" });
+    key({ kind: "esc" });
+    expect(peek().bar).toBeUndefined();
+  });
+
+  test("tab extends the common prefix and selects only the fill", async () => {
+    await board.createBlock(null, "Zinnia planting calendar");
+    await board.createBlock(null, "Zinnia planting guide");
+    key(ctrlK); type("/Zinn");
+    await until(() => peek().bar?.rows.length >= 2, "zinnia candidates", 5000);
+    key({ kind: "tab" });
+    expect(peek().bar.query).toBe("Zinnia planting ");
+    key({ kind: "backspace" });
+    expect(peek().bar.query).toBe("Zinn");
+  });
+
+  test("completion advances by words and act edits an agent's own line", async () => {
+    await board.createBlock(null, "Marigold watering schedule");
+    await app.dispatch.press("bar.open", { scope: "notes", query: "Marigold w" });
+    await until(() => peek().bar?.rows.some((r: any) => r.label === "Marigold watering schedule"), "the guide", 5000);
+    key({ kind: "tab" });
+    expect(peek().bar.query).toBe("Marigold watering ");
+    await until(() => peek().bar?.rows.some((r: any) => r.label === "Marigold watering schedule"), "the narrowed guide", 5000);
+    key({ kind: "tab" });
+    expect(peek().bar.query).toBe("Marigold watering schedule");
+    key({ kind: "char", ch: "z", ctrl: true });
+    expect(peek().bar.query).toBe("Marigold watering ");
+    key({ kind: "char", ch: "z", ctrl: true });
+    expect(peek().bar.query).toBe("Marigold w");
+    const own = await app.dispatch.act({ action: "bar.edit", args: { op: "cut", query: "private query", from: 0, to: 7 } }, AGENT);
+    expect(own).toMatchObject({ query: " query" });
+    expect(peek().bar.query).toBe("Marigold w");
+  });
+
+  test("the line supports mouse drag and double-click selection", () => {
+    key(ctrlK); type("/garden path"); frame();
+    const bar = (app as any).bar;
+    const x = bar.rect.col + 3, y = bar.rect.row + 2;
+    const mouse = (action: "down" | "drag" | "up", col: number) => key({ kind: "mouse", action, button: 0, x: x + col, y });
+    mouse("down", 0); mouse("drag", 6); mouse("up", 6);
+    key({ kind: "delete" });
+    expect(peek().bar.query).toBe(" path");
+    key({ kind: "char", ch: "z", ctrl: true }); frame();
+    mouse("down", 9); mouse("up", 9); mouse("down", 9); mouse("up", 9);
+    key({ kind: "backspace" });
+    expect(peek().bar.query).toBe("garden ");
+  });
+
   test("tab fills the line with the lit row's words and keeps the bar open; it no longer changes scope", async () => {
     key(ctrlK); type("/runner");
     await until(() => peek().bar?.rows.length > 0, "the hit", 5000);
@@ -130,15 +199,17 @@ describe.skipIf(!outliner)("the power bar", () => {
     key({ kind: "tab" });
     expect(peek().bar.scope).toBe("notes");
     expect(peek().bar.query).toBe(label);
+    key({ kind: "char", ch: "z", ctrl: true });
+    expect(peek().bar.query).toBe("runner");
     key({ kind: "backtab" });
     expect(peek().bar.scope).toBe("notes");
-    key({ kind: "esc" });
+    closeBar();
     // A typed action line keeps its command: tab never fills `run `.
     key(ctrlK); type("tile.focus dir=right");
     await until(() => peek().bar?.rows[0]?.label?.startsWith("run "), "the action line's row", 5000);
     key({ kind: "tab" });
     expect(peek().bar.query).toBe("tile.focus dir=right");
-    key({ kind: "esc" });
+    closeBar();
   });
 
   test("a note picked opens where opens land; alt+⏎ opens it in a new detail", async () => {
@@ -163,7 +234,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     const m = (await board.get(notes.beans!.id))!;
     await board.update(m.id, `${m.text}\nwatered every dawn`, m.revision!, AGENT);
     await until(() => frame().join("\n").includes("watered every dawn"), "the preview shows the change", 5000);
-    key({ kind: "esc" });
+    closeBar();
     // A read that fails: offline is said as offline.
     const get = board.get.bind(board);
     (board as any).get = async () => { throw new Offline("the outline isn't answering (test)"); };
@@ -172,7 +243,7 @@ describe.skipIf(!outliner)("the power bar", () => {
       await until(() => peek().bar?.rows.length > 0, "the hit", 5000);
       await until(() => frame().join("\n").includes("offline"), "the preview says offline", 5000);
       expect(frame().join("\n")).not.toContain("that note is gone");
-    } finally { (board as any).get = get; key({ kind: "esc" }); }
+    } finally { (board as any).get = get; closeBar(); }
   });
 
   test("a tile picked gets the keys, its spine opened; alt+⏎ zooms it; one on a screen under this comes up first", async () => {
@@ -266,12 +337,12 @@ describe.skipIf(!outliner)("the power bar", () => {
     key(ctrlK); type("tile.open kind=query colour=red");
     expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query colour=red" });
     expect(peek().bar.rows[0].refused).toContain("colour");
-    key({ kind: "esc" });
+    closeBar();
     // The name alone of one that needs arguments says what it needs.
     key(ctrlK); type("tile.open");
     expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open" });
     expect(peek().bar.rows[0].refused).toContain("kind");
-    key({ kind: "esc" });
+    closeBar();
     // An argument the bar asks for takes a paste the same way.
     let answered: Record<string, string> | null = null;
     await askInBar(app as any, "Name the bed", [{ name: "name", type: "text" }], {}, USER, async a => { answered = a; });
@@ -299,11 +370,11 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(lit.source).toBe("notes");
     (app as any).bar.refresh(true);
     expect(peek().bar.rows[peek().bar.selected - 1]).toMatchObject({ source: "notes", key: lit.key });
-    key({ kind: "esc" });
+    closeBar();
     // Only the line: words in the tiles scope list no actions.
     key(ctrlK); type("%theme.cycle");
     expect(peek().bar.rows.some((r: any) => r.source === "actions")).toBe(false);
-    key({ kind: "esc" });
+    closeBar();
     // What's typed in an argument's question is its answer, never an action to run.
     let answered: Record<string, string> | null = null;
     await askInBar(app as any, "Name the bed", [{ name: "name", type: "text" }], {}, USER, async a => { answered = a; });
@@ -329,7 +400,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar).toBeDefined();
     // While the person has it open, an agent's move of their screen waits (they're busy).
     await expect(app.act({ action: "screen.open", args: { name: "who" }, as: "wren-agent" })).rejects.toThrow();
-    key({ kind: "esc" });
+    closeBar();
   });
 
   test("an extension's source (glyphs): its prefix scopes the bar to it; a row copies, another runs its action as the extension", async () => {
@@ -337,7 +408,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     await until(() => peek().bar?.rows.length > 0, "the glyphs answered", 8000);
     expect(peek().bar.scope).toBe("ext.glyphs.glyphs");
     expect(peek().bar.rows.map((r: any) => r.label)).toContain("▒  medium shade");
-    key({ kind: "esc" });
+    closeBar();
     // With a note in front of the person, the source offers to rule it; picked, the extension writes under it.
     (app as any).lastInput = 0;
     const r = await app.act({ action: "bar.open", args: { scope: "~", query: "double box line" }, as: "wren-agent" }) as any;
@@ -367,7 +438,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     await until(() => app.whatChanged.list().some(r => r.blockId === notes.beans!.id && !r.seen), "the change heard");
     expect(peek().bar.rows.length).toBeGreaterThan(0);
     expect(peek().bar.rows[peek().bar.selected - 1].key).toBe(lit);
-    key({ kind: "esc" });
+    closeBar();
   });
 
   test("an agent-made work item is in +recent, read as `HUB-707 title`, and found by its work id, its page name or its words (PIE-664)", async () => {
@@ -423,13 +494,13 @@ describe.skipIf(!outliner)("the power bar", () => {
     // Typing runs the one search, not the recents.
     type("shed");
     await until(() => peek().bar.query === "shed" && peek().bar.rows[0]?.label === "Bike shed", "the search", 5000);
-    key({ kind: "esc" });
+    closeBar();
   });
 
   test("the desk's / opens the bar in its notes scope (the one search)", async () => {
     desk.focusPane(desk.pane(desk.tileOutline().find(t => t.kind === "tree")?.name ?? desk.tileOutline()[0]!.name)!, { kind: "user" });
     key(ch("/"));
     await until(() => peek().bar?.scope === "notes", "the notes scope", 3000);
-    key({ kind: "esc" });
+    closeBar();
   });
 });

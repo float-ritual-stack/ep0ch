@@ -1927,11 +1927,14 @@ draws it, a terminal's screen, an action's summary and keys), its scopes along t
 - **One scope:** start with `%` tiles, `/` notes, `>` actions, `+` recent, `@` screens, `&` extensions, or an extension's own prefix
   (`~` for the glyphs example); alt+← and alt+→ cycle (or a click on a scope), backspace on an empty line goes back to all. The desk's `/`
   and a river column's `g` open it in its notes scope.
-- **Completing:** tab fills the line with the lit row's words (a note's title, an action's name, a tile's path) and keeps
-  the bar open, as a shell does; the list narrows to it. Inline completion in a draft is unchanged: tab inserts.
+- **Editing:** the shared editor supports mouse drag or double-click selection, Shift+arrows, delete, Ctrl+X cut,
+  paste and Ctrl+Z undo. Ctrl+U clears the line; Ctrl+W deletes the preceding word.
+- **Completing:** Tab extends the common prefix of rows starting with your text, otherwise advances the lit row
+  by one word per press. The fill is selected: typing replaces it, Backspace removes it. A non-prefix fill replaces
+  the line in one undo step. Inline completion in a draft is unchanged: Tab inserts.
 - **Going:** ⏎ or a double click. A tile gets your keys: a spine opens, a screen under this one comes up first. A note
   opens where opens land. An action runs as its key would. alt+⏎ (or an alt- or ctrl-click) zooms a tile, or opens a note
-  in a new detail. Esc or a click outside puts it away.
+  in a new detail. Esc clears text, keeping the scope; Esc on an empty line or a click outside closes it.
 - **The extensions scope** (`&`): the outline's Extensions hub and each installed extension's page (⏎ opens it: its
   README, what it adds, its demo notes under it), the repo's extensions that aren't installed (⏎ on `install <name>`
   installs one, with its page and demo notes), and, once you type a name, removing one, keeping its demo notes or not
@@ -1940,7 +1943,8 @@ draws it, a terminal's screen, an action's summary and keys), its scopes along t
   block, run one of its actions or copy text (the outliner's `docs/extensions/README.md`, "Bar sources").
 - **Agents:** `act bar.open query=… scope=…` answers the rows and opens nothing; `act bar.pick n=… query=…` picks as the
   agent, through the same paths and their rules; your open bar is yours (an agent can't close it, and while it's open
-  you're busy, so an agent's move of your screen waits). `peek` shows the bar when it's open.
+  you're busy, so an agent's move of your screen waits). `bar.edit op=complete query=… scope=…` completes an agent's
+  own line; `op=cut from=0 to=4 query=…` cuts a range. `peek` shows the person's bar when it's open.
 
 ### New notes and pages (PIE-544)
 
