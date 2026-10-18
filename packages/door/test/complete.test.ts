@@ -150,6 +150,7 @@ describe("callout types after > [! (PIE-538): the outline's one list, in the sam
     for (const ch of "wa") completionKey(d, char(ch), c);
     await until(() => !!c.state && !c.state.loading && c.state.target.query === "wa", "warning");
     expect(c.state!.items[0]!.insertion).toBe("[!warning]");
+    completionKey(d, K("down"), c); completionKey(d, K("up"), c);
     completionKey(d, K("enter"), c);
     await until(() => d.lines[1] === "> [!warning]", "the insert");
     expect(completionOf(d)).toBeNull();
@@ -183,6 +184,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     const drawn = renderCompletion(c.state!, 110, 8).map(visible).join("\n");
     expect(drawn).toContain("properties 1/2");
     expect(drawn).toContain("Heading styles");
+    completionKey(d, K("down"), c); completionKey(d, K("up"), c);
     completionKey(d, K("enter"), c);
     await until(() => d.lines[1] === "## Calls [heading-pattern::" && !!c.state && !c.state.loading && c.state.target.kind === "value", "the values");
     // Each value with a preview: the glyph track it draws, small.
@@ -191,6 +193,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     expect(renderCompletion(c.state!, 70, 8).map(visible).join("\n")).toContain("values 1/5");
     for (const ch of "wa") completionKey(d, char(ch), c);
     await until(() => !!c.state && !c.state.loading && c.state.target.query === "wa", "waffle");
+    completionKey(d, K("down"), c); completionKey(d, K("up"), c);
     completionKey(d, K("enter"), c);
     await until(() => d.lines[1] === "## Calls [heading-pattern::waffle]", "the value");
     expect(completionOf(d)).toBeNull();
@@ -201,6 +204,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the styles");
     expect(c.state!.items.map(i => i.insertion)).toEqual(["plot]"]);
     expect(c.state!.items[0]!.context).toContain("this outline's");
+    completionKey(d, K("down"), c); completionKey(d, K("up"), c);
     completionKey(d, K("enter"), c);
     await until(() => d.lines[1] === "## Calls [heading::plot]", "the outline's own style");
   });
@@ -214,6 +218,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the YAML keys");
     expect(c.state!.target).toMatchObject({ kind: "yaml-key", component: "graph-meter" });
     expect(c.state!.items.map(i => i.insertion)).toEqual(["limit: "]);
+    completionKey(d, K("down"), c); completionKey(d, K("up"), c);
     completionKey(d, K("enter"), c);
     await until(() => d.lines[3] === "limit: " && !!c.state && !c.state.loading && c.state.target.kind === "yaml-value", "its values");
     expect(c.state!.items.map(i => i.insertion)).toEqual(["0.5", "1"]);
@@ -437,6 +442,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(p.items[0]!.insertion).toContain("\n---\ntitle: Disk\nvalue: 0.6\n---\n::");
     expect(p.items.length).toBeGreaterThan(1);
     expect(e.screen()).toContain("DISK");
+    e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
     await until(() => !e.pop(), "the component inserted");
     expect(e.d.selectedText()).toBe("Disk");
@@ -461,18 +467,47 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
   });
 
   test("heading shorthand uses the outline's styles and writes a bracket property (PIE-1012)", async () => {
-    for (const token of ["::", "heading::", "heading:", "[heading::"]) {
+    for (const token of ["::", "[heading::"]) {
       const e = await editing(await create("Heading practice\n## Calls "));
       e.type(token + "orch");
       await e.settled();
       e.press(K("tab"));
       await until(() => e.d.lines[1]!.includes("[heading::orchard]"), "the style inserted");
       expect(e.d.lines[1]).toBe("## Calls [heading::orchard]");
-      await until(() => e.pop()?.target.kind === "key" && !e.pop()?.loading, "the style fields");
-      expect(e.pop()!.items.some(i => i.insertion === " [heading-tone::")).toBe(true);
-      e.press(K("esc"));
+      expect(e.pop()).toBeNull();
       e.press(ctrl("z"));
       expect(e.d.lines[1]).toBe("## Calls " + token + "orch");
+    }
+  });
+
+  test("ordinary headings keep Enter, and style suggestions need a deliberate choice", async () => {
+    for (const text of ["## Plans for the heading:", "## Calls heading::", "## Calls :: mid-thought", "## Calls [heading::orchard]"]) {
+      const e = await editing(await create("Heading practice\n"));
+      e.type(text);
+      expect(e.pop()).toBeNull();
+      e.press(K("enter"));
+      expect(e.d.lines).toEqual(["Heading practice", text, ""]);
+      expect(e.pop()).toBeNull();
+    }
+    const middle = await editing(await create("Heading practice\n## Calls  later"));
+    middle.d.col = "## Calls ".length;
+    middle.type("::");
+    expect(middle.pop()).toBeNull();
+    middle.press(K("enter"));
+    expect(middle.d.lines).toEqual(["Heading practice", "## Calls ::", " later"]);
+    for (const ask of [null, K("down"), ctrl(" "), K("tab")]) {
+      const e = await editing(await create("Heading practice\n"));
+      e.type("## Calls ::");
+      await e.settled();
+      expect(e.pop()!.items.some(i => i.insertion === "[heading::orchard]")).toBe(true);
+      if (ask) {
+        if (ask.kind !== "down") e.press(K("esc"));
+        e.press(ask);
+        await e.settled();
+      }
+      e.press(K("enter"));
+      if (ask) await until(() => e.d.lines[1]!.includes("[heading::"), "chosen style");
+      else expect(e.d.lines).toEqual(["Heading practice", "## Calls ::", ""]);
     }
   });
 
@@ -598,6 +633,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     let p = await e.settled();
     expect(p.items[0]).toMatchObject({ blockId: ids.compost, kind: "block", insertion: `((${ids.compost}))`, label: "Turn the compost" });
     await until(() => !!e.pop()?.items[0]?.context, "the selected candidate's context");
+    e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe(`((${ids.compost}))`);
@@ -606,6 +642,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     p = await e.settled();
     expect(p.items[0]).toMatchObject({ insertion: `((${ids.seeds}^beans))`, label: "^beans  Seed list » # Beans" });
     expect(p.items[1]).toMatchObject({ insertion: `((${ids.seeds}^runner-beans))`, label: "Seed list » runner beans · adds ^runner-beans" });
+    e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe(`((${ids.compost})) ((${ids.seeds}^beans))`);
@@ -613,6 +650,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.type(" ((#bed");
     p = await e.settled();
     expect(p.items[0]).toMatchObject({ blockId: ids.plan, insertion: `((${ids.plan}^beds))` });
+    e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines[1]).toBe("## Beds ^beds");
@@ -630,6 +668,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const p = await e.settled();
     expect(p.message).not.toContain("searched only");
     expect(p.items).toEqual([expect.objectContaining({ blockId: old, fragmentId: "winter-squash", label: "Seed catalogue » # Winter squash · adds ^winter-squash" })]);
+    e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe(`((${old}^winter-squash))`);
@@ -657,6 +696,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.type("pond diary");
     p = await e.settled();
     for (let i = 0; i < p.items.findIndex(i => i.insertion === `((${pond}))`); i++) e.press(K("down"));
+    e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
     await until(() => e.d.lines.at(-1) === `((${pond}))`, "the note inserted");
     e.type("^");
@@ -673,6 +713,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.type("frogs");
     await until(() => !!e.pop()?.target.query.endsWith("frogs") && !e.pop()!.loading, "the frogs lookup");
     expect(e.pop()!.items.map(i => i.insertion)).toEqual([`((${pond}^the-frogs-came))`]);
+    e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
     await until(() => e.d.lines.at(-1) === `((${pond}^the-frogs-came))`, "the refined reference");
     expect((await board.get(pond))!.text).toContain("in March. ^the-frogs-came");
@@ -707,6 +748,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("enter")); e.type("[file::no");
     let p = await e.settled();
     expect(p.items.map(i => [i.label, i.insertion])).toEqual([["notes/", "[file::notes/"]]);
+    e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
     await until(() => e.d.lines.at(-1) === "[file::notes/" && !!e.pop() && !e.pop()!.loading && e.pop()!.items.length === 2, "the folder's entries");
     p = e.pop()!;
@@ -805,6 +847,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const env: any = { complete: (x: Draft) => completerFor(x, board, () => {}), external() {}, flash() {}, redraw() {} };
     for (const c of "ask ((compost") s.key(char(c), env);
     await until(() => !!completionOf(d) && !completionOf(d)!.loading, "the lookup");
+    s.key(K("down"), env); s.key(K("up"), env);
     s.key(K("enter"), env);
     await until(() => d.text === `ask ((${ids.compost}))`, "the insertion");
     expect(completionOf(d)).toBeNull();

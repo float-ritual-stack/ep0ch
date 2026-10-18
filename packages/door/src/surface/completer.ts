@@ -49,9 +49,9 @@ export const SEARCH_JEV_PAUSE_MS = 300;
 export const jevOff = new WeakSet<object>();
 /** Room for the list and a small reader-rendered example beneath it. */
 export const COMPLETION_ROWS = 14;
-export const COMPLETION_HINT = "up/down or wheel choose · enter/tab/double click inserts · esc dismisses";
+export const COMPLETION_HINT = "up/down or wheel choose · enter after choosing · tab/double click inserts · esc dismisses";
 /** A `((` popup's: what a reference does once it's in (PIE-762). */
-export const REFERENCE_HINT = "up/down choose · enter/double click inserts · then ^ or # searches inside it · esc dismisses";
+export const REFERENCE_HINT = "up/down choose · enter after choosing · double click inserts · then ^ or # searches inside it · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
 export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage">;
@@ -367,7 +367,7 @@ export function propertyCandidates(schemas: readonly ComponentSchema[], target: 
   return found.slice(0, COMPLETION_LIMIT).map(c => {
     const preview = c.value === undefined ? "" : valuePreview(schemas, c, src);
     const schema = schemas.find(s => s.id === c.component);
-    return { label: preview ? `${c.label}  ${preview}` : c.label, insertion: target.headingShort ? `[heading::${c.insertion}` : target.propertyGap ? ` ${c.insertion}` : c.insertion,
+    return { label: preview ? `${c.label}  ${preview}` : c.label, insertion: target.headingShort ? `[heading::${c.insertion}` : c.insertion,
       ...(schema && c.value !== undefined ? { preview: (w: number, h: number) => drawVariation(variation(schema, { [c.key]: c.value! }, c.key), w, src).slice(0, h) } : {}), kind: target.kind.endsWith("key") ? "property" : "value", context: c.detail };
   });
 }
@@ -459,7 +459,7 @@ export interface CompletionState extends CompletionLookup {
   loading: boolean;
   /** Where the cursor was when it was asked: a reply for anywhere else is dropped. */
   at: { row: number; col: number; line: string };
-  /** The person moved through the list (↑ ↓, the wheel): a new page alone on it is theirs to choose then. */
+  /** The person chose the popup with arrows, the wheel, a click, Tab or Ctrl+Space. */
   picked?: boolean;
 }
 
@@ -540,14 +540,15 @@ export class Completer {
   }
 
   /** Look up the token at the cursor (or close the popup when the cursor isn't in one). */
-  async refresh(): Promise<void> {
+  async refresh(explicit = false): Promise<void> {
     const target = this.target();
     if (!target || this.d.busy) { this.dismiss(); return; }
     this.stopJev();
     // A re-ask of the same query keeps the pick; a changed query picks its best match.
     const same = this.state?.target.kind === target.kind && this.state.target.query === target.query;
+    const picked = explicit || (same && this.state?.picked);
     const generation = ++this.generation, was = same ? this.state?.items[this.state.index]?.insertion : undefined;
-    this.state = { target, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
+    this.state = { target, picked, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
     this.redraw();
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
@@ -558,7 +559,7 @@ export class Completer {
       // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
       if (!r.items.length && target.kind !== "page" && target.kind !== "block" && target.kind !== "file" && target.kind !== "callout") { this.dismiss(); return; }
       const index = Math.max(0, r.items.findIndex(i => i.insertion === was));
-      this.state = { ...r, target, index, loading: false, at: this.state!.at };
+      this.state = { ...r, target, picked: this.state?.picked, index, loading: false, at: this.state!.at };
       this.redraw();
       void this.enrich(generation);
       this.askJev(generation, target);
@@ -663,7 +664,7 @@ export const completionOf = (d: CompletionField): CompletionState | null => byDr
 const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" || k.ch === " " || k.ch === "@");
 
 /**
- * The popup's own keys, for a draft or a line: while it has candidates, up/down choose and Enter/Tab insert; Esc closes
+ * The popup's own keys, for a draft or a line: while it has candidates, up/down choose, Enter accepts a deliberate choice and Tab inserts; Esc closes
  * the popup (and only the popup). Tab or Ctrl+Space in a token asks again; Tab anywhere else is the field's. True when
  * the popup took the key.
  */
@@ -677,11 +678,11 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
       if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return true; }
       // A new page alone on the list (PIE-592) is chosen only on purpose (↓ or a click): Enter and Tab stay the draft's.
       const lone = s.items.length === 1 && !!s.items[0]!.newPage && !s.picked;
-      if ((k.kind === "enter" || k.kind === "tab") && !lone) { void c.accept(); return true; }
+      if ((k.kind === "tab" || (k.kind === "enter" && s.picked)) && !lone) { void c.accept(); return true; }
     }
   }
   if (k.kind === "tab" || isCtrlSpace(k)) {
-    if (c.target()) { void c.refresh(); return true; }
+    if (c.target()) { void c.refresh(true); return true; }
     if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file::, a callout's > [!, ::component, a [key:: property or a figure's YAML"; return true; }
   }
   return false;
