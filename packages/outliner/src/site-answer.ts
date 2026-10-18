@@ -168,7 +168,9 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
 
   if (noteless) {
     const world = new StoreWorld(store, clock, hidden, request.hidden !== undefined);
-    return { site: { at: { block: "" }, props, actor: NEW_SITE_ACTOR }, scope: { ancestors: [], world }, world, route: ["no note: this request is outside any note, so `this` is unavailable"], deps: new Set(), blockId: "", revision: 0, text: "" };
+    // Extension argument templates have only their supplied props; figures still query the outline.
+    const scope: PathScope = { ancestors: [], ...(request.interpolate === undefined ? { world } : {}) };
+    return { site: { at: { block: "" }, props, actor: NEW_SITE_ACTOR }, scope, world, route: ["no note: this request is outside any note, so `this` is unavailable"], deps: new Set(), blockId: "", revision: 0, text: "" };
   }
   const route: string[] = [];
   const target = store.resolveBlockRef(request.blockId!);

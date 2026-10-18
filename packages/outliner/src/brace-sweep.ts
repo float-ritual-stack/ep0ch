@@ -16,7 +16,7 @@
 // database itself (a served file is refused), in one transaction and one attributed change (`brace-sweep`), so every
 // note's previous text is in its revisions. A persisted group lets `sweep --undo <id>` undo the whole pass.
 // It also stamps old peer-message copies with their plain query keys. Maintenance retains updated timestamps.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { extensionRoots } from "./extension-registry";
 import { ExtensionWrites } from "./extension-writes";
@@ -143,24 +143,33 @@ function planConfigs(database: string): SweepConfig[] {
   return changes;
 }
 
-// Files cannot join SQLite's transaction. Restore only the files this pass wrote if the group fails.
-function writeConfigs(configs: SweepConfig[], undo: boolean, write: () => void): void {
-  for (const config of configs) if (readFileSync(config.path, "utf8") !== (undo ? config.after : config.before)) {
-    throw new Error(`${config.path} changed since the sweep was planned; nothing was written`);
-  }
-  const written: SweepConfig[] = [];
-  try {
-    for (const config of configs) {
-      written.push(config);
-      writeFileSync(config.path, undo ? config.before : config.after);
+function checkConfigs(configs: SweepConfig[], undo: boolean): void {
+  for (const config of configs) {
+    const current = readFileSync(config.path, "utf8");
+    // An interrupted apply or undo leaves a mix of old and new files; both belong to this group.
+    if (current !== (undo ? config.after : config.before) && !(undo && current === config.before)) {
+      throw new Error(`${config.path} changed since the sweep was planned; nothing was written`);
     }
-    write();
-  } catch (error) {
-    for (const config of written.reverse()) writeFileSync(config.path, undo ? config.after : config.before);
-    throw error;
   }
 }
 
+function writeConfigs(configs: SweepConfig[], undo: boolean): void {
+  for (const config of configs) {
+    const temporary = join(dirname(config.path), `.brace-sweep-${crypto.randomUUID()}.tmp`);
+    const fd = openSync(temporary, "wx", statSync(config.path).mode);
+    try {
+      try {
+        writeFileSync(fd, undo ? config.before : config.after);
+        fsyncSync(fd);
+      } finally { closeSync(fd); }
+      renameSync(temporary, config.path);
+      const directory = openSync(dirname(config.path), "r");
+      try { fsyncSync(directory); } finally { closeSync(directory); }
+    } finally {
+      if (existsSync(temporary)) unlinkSync(temporary);
+    }
+  }
+}
 
 /** A unified-style diff of the lines that changed in one note, for the dry run. */
 export function sweepDiff(note: SweepNote): string {
@@ -217,13 +226,20 @@ export async function applySweep(database: string): Promise<SweepReport> {
   const undo = crypto.randomUUID();
   try {
     const actor = { author: "system" as const, actorId: "brace-sweep" };
-    writeConfigs(plan.configs, false, () => store.changes.run(store.changes.attribution({ action: "brace-sweep", actor }), () => store.database.transaction(() => {
+    checkConfigs(plan.configs, false);
+    // The undo must reach disk before any file can be replaced, including on a power loss.
+    store.database.exec("PRAGMA synchronous = FULL");
+    store.changes.run(store.changes.attribution({ action: "brace-sweep", actor }), () => store.database.transaction(() => {
       const edits = plan.notes.map(note => {
         const updated = store.update(note.id, note.after, note.revision, actor, "text", [], store.require(note.id).updatedAt);
         return { blockId: note.id, before: note.before, revision: updated.revision };
       });
       store.database.query("INSERT INTO metadata (key, value) VALUES (?, ?)").run(`brace-sweep:${undo}`, JSON.stringify({ edits, configs: plan.configs }));
-    })()));
+    })());
+    try { writeConfigs(plan.configs, false); }
+    catch (error) {
+      throw new Error(`Brace sweep interrupted: ${error instanceof Error ? error.message : String(error)}. Restore with: outliner sweep ${JSON.stringify(database)} --undo ${undo}`, { cause: error });
+    }
   } finally {
     store.close();
   }
@@ -240,10 +256,14 @@ export async function undoSweep(database: string, undo: string): Promise<{ datab
     const group = JSON.parse(row.value) as { edits: { blockId: string; before: string; revision: number }[]; configs: SweepConfig[] };
     const writes = new ExtensionWrites(store, {});
     const id = writes.rememberTextGroup("brace-sweep", group.edits);
-    writeConfigs(group.configs, true, () => store.database.transaction(() => {
+    checkConfigs(group.configs, true);
+    store.database.exec("PRAGMA synchronous = FULL");
+    store.database.transaction(() => {
       writes.undo(id, { author: "user" });
+      // Keep the durable group until every original file is back; a crash rolls back the note undo.
+      writeConfigs(group.configs, true);
       store.database.query("DELETE FROM metadata WHERE key = ?").run(`brace-sweep:${undo}`);
-    })());
+    })();
     return { database, undone: undo };
   } finally { store.close(); }
 }
