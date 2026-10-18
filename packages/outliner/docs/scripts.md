@@ -305,7 +305,7 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:196` |
-| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:714` |
+| `script_run` (the gateway tool) | `packages/door/src/mcp.ts:721` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1979` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4281` |
