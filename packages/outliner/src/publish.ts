@@ -764,7 +764,7 @@ export class Publisher {
       published: async (id) => (await this.readIndex()).entries.some(entry => entry.blockId === id && !!entry.public),
       request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
       writes: (fresh) => this.options.writes?.(fresh) ?? Promise.resolve(null),
-    }, READER_COMPOSE_STYLE);
+    }, READER_COMPOSE_STYLE, () => this.outlineName ?? "this outline");
     this.marginalia = new PageMarginalia({
       request: (request) => this.client.request(request as Parameters<PublishClient["request"]>[0]),
       view: (page, full, share) => this.view(page, full, share),

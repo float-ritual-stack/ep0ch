@@ -1,12 +1,13 @@
 (async function () {
   const source = new URL(location.href).searchParams.get("source");
-  const parentOrigin = new URL(source).origin;
+  const parentOrigin = document.querySelector("p").dataset.parentOrigin;
+  const scope = new URL(location.href).searchParams.get("scope");
   const endpoint = location.pathname.slice(0, -"/frame".length);
   const status = document.querySelector("p");
   let token;
   try {
     const response = await fetch(`${endpoint}/lease`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source, scope }),
     });
     const lease = await response.json();
     if (!response.ok) throw new Error(lease.error);

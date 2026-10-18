@@ -395,7 +395,11 @@ test("a signed-in bookmark creates a scoped iframe session on its named outline"
   expect(lease.token).toBeUndefined();
   expect(mint.headers.get("set-cookie")).toContain("HttpOnly");
   const session = mint.headers.get("set-cookie")!.split(";")[0]!;
-  const minted = await at(gate, "/pub/o/orchard/_reader/lease", { cookie: session, method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify({ source: "https://journal.example/pears" }) });
+  const approval = { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify({ source: "https://journal.example", decision: "allow" }) };
+  expect((await at(gate, "/pub/o/orchard/reader/approve", approval)).status).toBe(401);
+  expect((await at(gate, "/pub/o/orchard/reader/approve", { ...approval, cookie, headers: { ...approval.headers, origin: "https://journal.example" } })).status).toBe(403);
+  expect((await at(gate, "/pub/o/orchard/reader/approve", { ...approval, cookie })).status).toBe(200);
+  const minted = await at(gate, "/pub/o/orchard/_reader/lease", { cookie: session, method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify({ source: "https://journal.example/pears", scope: lease.id }) });
   expect(minted.status).toBe(200);
   const token = (await minted.json()).token;
   const path = "/pub/o/orchard/_reader/write";

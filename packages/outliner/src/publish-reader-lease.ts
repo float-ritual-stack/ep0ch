@@ -16,14 +16,24 @@ const answer = (status: number, body: unknown) => Response.json(body, { status, 
 export class ReaderLeases {
   private readonly leases = new Map<string, Lease>();
   private readonly scopes = new Map<string, Scope>();
-  constructor(private readonly host: Pick<PageHost, "request" | "writes"> & { published: (id: string) => Promise<boolean> }, private readonly style: string) {}
+  private readonly approvedOrigins = new Set<string>();
+  constructor(private readonly host: Pick<PageHost, "request" | "writes"> & { published: (id: string) => Promise<boolean> }, private readonly style: string, private readonly outlineName: () => string) {}
 
   async owner(request: Request, route: string, endpoint: string): Promise<Response> {
+    if (route === "/reader/approve") return this.approve(request);
     if (request.method === "GET" && route === "/reader") {
-      return this.page(`<h1>Reader on any page</h1><p>Make a one-hour bookmarklet for this outline. Select words on a page, then use Highlight, Comment or Ask. A block anchor receives a quote comment; other pages become captures under today, with their source URL. Type #pie-request as you would in a note.</p><form method="post" action="reader/bookmark"><label>Published block id (optional) <input name="block"></label><button>Make bookmarklet</button></form><h2>Try it</h2><p>On a page at another origin, select a passage and click the bookmark. Comment saves under today; on the chosen published page, a block anchor receives the comment. Use the built-in reader on this publisher’s own pages.</p>`);
+      const origins = [...this.approvedOrigins].map(source => `<li>${escapeHtml(source)}<form method="post" action="reader/origin-revoke"><input type="hidden" name="source" value="${escapeHtml(source)}"><button>Revoke</button></form></li>`).join("");
+      return this.page(`<h1>Reader on any page</h1><p>Make a one-hour bookmarklet for this outline. Select words on a page, then use Highlight, Comment or Ask. A block anchor receives a quote comment; other pages become captures under today, with their source URL. Type #pie-request as you would in a note.</p><form method="post" action="reader/bookmark"><label>Published block id (optional) <input name="block"></label><button>Make bookmarklet</button></form><h2>Approved origins</h2><p>Approvals last until revoked or the publisher restarts.</p><ul>${origins}</ul><h2>Try it</h2><p>On a page at another origin, select a passage and click the bookmark. Comment saves under today; on the chosen published page, a block anchor receives the comment. Use the built-in reader on this publisher’s own pages.</p>`);
     }
     if (request.method !== "POST") return answer(405, { ok: false });
     if (!sameOrigin(request)) return answer(403, { ok: false });
+    if (route === "/reader/origin-revoke") {
+      const input = request.headers.get("content-type")?.includes("application/json") ? await request.json() : Object.fromEntries(await request.formData());
+      let origin: string;
+      try { origin = new URL(input.source).origin; } catch { return answer(400, { ok: false }); }
+      this.approvedOrigins.delete(origin);
+      return this.page(`<p>Origin revoked.</p><a href="../reader">Back to reader installation</a>`);
+    }
     if (route === "/reader/revoke") {
       const input = request.headers.get("content-type")?.includes("application/json") ? await request.json() : Object.fromEntries(await request.formData());
       for (const scope of this.scopes.values()) if (scope.id === input.id) scope.ended = true;
@@ -43,13 +53,13 @@ export class ReaderLeases {
     const session = randomBytes(32).toString("base64url");
     const scope: Scope = { id: crypto.randomUUID(), expiresAt: Date.now() + 3_600_000, ended: false, today: today.block.id, block: input.block || undefined, writes: [] };
     this.scopes.set(session, scope);
-    const code = `${await Bun.file(new URL("./publish-reader-bookmark.js", import.meta.url)).text()}(${JSON.stringify(endpoint)},${JSON.stringify(this.style)});`;
+    const code = `${await Bun.file(new URL("./publish-reader-bookmark.js", import.meta.url)).text()}(${JSON.stringify(endpoint)},${JSON.stringify(this.style)},${JSON.stringify(scope.id)});`;
     const bookmarklet = `javascript:${encodeURIComponent(code)}`;
     const response = request.headers.get("content-type")?.includes("application/json")
       ? answer(200, { id: scope.id, expiresAt: new Date(scope.expiresAt).toISOString(), bookmarklet })
       : this.page(`<h1>Reader on any page</h1><p>Drag <a href="${escapeHtml(bookmarklet)}">ep0ch reader</a> to your bookmarks. Select words on a page at another origin and click the bookmark.</p><p>Expires ${escapeHtml(new Date(scope.expiresAt).toISOString())}. Pages must allow frames and the publisher's cookie. A failed send keeps your words in the box. On the publisher's own pages use their reader controls.</p><form method="post" action="revoke"><input type="hidden" name="id" value="${scope.id}"><button>End this lease</button></form>`);
     const url = new URL(endpoint);
-    response.headers.set("set-cookie", `ep0ch_reader=${session}; Path=${url.pathname}; HttpOnly; Max-Age=3600; ${url.protocol === "https:" ? "SameSite=None; Secure" : "SameSite=Lax"}`);
+    response.headers.set("set-cookie", `ep0ch_reader_${scope.id}=${session}; Path=${url.pathname}; HttpOnly; Max-Age=3600; ${url.protocol === "https:" ? "SameSite=None; Secure" : "SameSite=Lax"}`);
     return response;
   }
 
@@ -60,27 +70,64 @@ export class ReaderLeases {
       let source: URL;
       try { source = new URL(url.searchParams.get("source") ?? ""); } catch { return answer(400, { ok: false }); }
       if (!["http:", "https:"].includes(source.protocol) || source.origin === url.origin) return answer(403, { ok: false });
+      const approved = this.approvedOrigin(source.origin);
+      if (!approved) return answer(403, { ok: false, error: "Approve this origin in the reader popup first" });
       const nonce = randomBytes(16).toString("base64url");
-      const response = this.page(`<p>Connecting…</p><script nonce="${nonce}">${await Bun.file(new URL("./publish-reader-frame.js", import.meta.url)).text()}</script>`);
-      response.headers.set("content-security-policy", `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; style-src 'unsafe-inline'; frame-ancestors ${source.origin}`);
+      const response = this.page(`<p data-parent-origin="${escapeHtml(approved)}">Connecting…</p><script nonce="${nonce}">${await Bun.file(new URL("./publish-reader-frame.js", import.meta.url)).text()}</script>`);
+      response.headers.set("content-security-policy", `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; style-src 'unsafe-inline'; frame-ancestors ${approved}`);
       return response;
     }
     if (route !== "lease") return answer(404, { ok: false });
     if (request.method !== "POST") return answer(405, { ok: false });
     if (!sameOrigin(request)) return answer(403, { ok: false });
-    const session = request.headers.get("cookie")?.split(";").map(part => part.trim()).find(part => part.startsWith("ep0ch_reader="))?.slice("ep0ch_reader=".length);
-    const scope = session ? this.scopes.get(session) : undefined;
-    if (!scope || scope.ended || scope.expiresAt <= Date.now()) return answer(410, { ok: false, error: "Open the outline's /reader page to make a new bookmark; allow its cookie in this frame" });
+    let input;
     let source: URL;
-    try { source = new URL((await request.json()).source); } catch { return answer(400, { ok: false }); }
+    try {
+      input = await request.json();
+      source = new URL(input.source);
+    } catch { return answer(400, { ok: false }); }
     if (!["http:", "https:"].includes(source.protocol) || source.origin === url.origin) return answer(403, { ok: false });
+    const scope = this.scope(request, input.scope);
+    if (!scope) return answer(410, { ok: false, error: "Open the outline's /reader page to make a new bookmark; allow its cookie in this frame" });
+    if (!this.approvedOrigin(source.origin)) return answer(403, { ok: false, error: "Approve this origin in the reader popup first" });
     const token = randomBytes(32).toString("base64url");
     this.leases.set(token, { scope, source: source.href });
     return answer(200, { token });
   }
 
+  private approvedOrigin(origin: string): string | undefined {
+    return [...this.approvedOrigins].find(approved => approved === origin);
+  }
+
+  private scope(request: Request, id: string): Scope | undefined {
+    const name = `ep0ch_reader_${id}=`;
+    const session = request.headers.get("cookie")?.split(";").map(part => part.trim()).find(part => part.startsWith(name))?.slice(name.length);
+    const scope = session ? this.scopes.get(session) : undefined;
+    return scope && scope.id === id && !scope.ended && scope.expiresAt > Date.now() ? scope : undefined;
+  }
+
+  private async approve(request: Request): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "POST") return answer(405, { ok: false });
+    if (request.method === "POST" && !sameOrigin(request)) return answer(403, { ok: false });
+    const input = request.method === "GET" ? Object.fromEntries(new URL(request.url).searchParams)
+      : request.headers.get("content-type")?.includes("application/json") ? await request.json() : Object.fromEntries(await request.formData());
+    let source: URL;
+    try { source = new URL(input.source); } catch { return answer(400, { ok: false }); }
+    if (!["http:", "https:"].includes(source.protocol) || source.origin === new URL(request.url).origin) return answer(403, { ok: false });
+    if (request.method === "POST" || this.approvedOrigins.has(source.origin)) {
+      const allowed = request.method === "GET" || input.decision === "allow";
+      if (allowed) this.approvedOrigins.add(source.origin);
+      const nonce = randomBytes(16).toString("base64url");
+      const response = this.page(`<p>${allowed ? "Allowed" : "Denied"}. You can close this window.</p><script nonce="${nonce}">if(window.opener){window.opener.postMessage({kind:"ep0ch-approved",allowed:${allowed}},${JSON.stringify(source.origin).replace(/</g, "\\u003c")});window.close();}</script>`);
+      response.headers.set("content-security-policy", `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; frame-ancestors 'none'; form-action 'self'`);
+      return response;
+    }
+    return this.page(`<h1>Allow ${escapeHtml(source.origin)} to send highlights and comments to ${escapeHtml(this.outlineName())}?</h1><form method="post"><input type="hidden" name="source" value="${escapeHtml(source.origin)}"><button name="decision" value="allow">Allow</button><button name="decision" value="deny">Deny</button></form>`);
+  }
+
   private page(body: string): Response {
-    return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Reader on any page</title><style>body{background:#111;color:#ddd;font:18px/1.5 system-ui;max-width:42rem;margin:2rem auto;padding:1rem}a{color:#bcd}</style>${body}`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" } });
+    // Keep same-origin form POSTs from acquiring Origin: null under the sign-in gate’s no-referrer header.
+    return new Response(`<!doctype html><meta charset="utf-8"><meta name="referrer" content="same-origin"><meta name="viewport" content="width=device-width"><title>Reader on any page</title><style>body{background:#111;color:#ddd;font:18px/1.5 system-ui;max-width:42rem;margin:2rem auto;padding:1rem}a{color:#bcd}</style>${body}`, { headers: { "content-security-policy": "frame-ancestors 'none'; form-action 'self'", "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" } });
   }
 
   private async write(request: Request): Promise<Response> {
@@ -88,6 +135,7 @@ export class ReaderLeases {
     const issued = token ? this.leases.get(token) : undefined;
     const lease = issued?.scope;
     if (!lease || lease.ended || lease.expiresAt <= Date.now()) return answer(410, { ok: false, error: "Lease ended: make a new bookmarklet on the outline's /reader page" });
+    if (!this.approvedOrigin(new URL(issued!.source).origin)) return answer(403, { ok: false, error: "This origin was revoked; your words are still here" });
     if (request.method !== "POST") return answer(405, { ok: false });
     if (!sameOrigin(request)) return answer(403, { ok: false });
     let input;
@@ -130,6 +178,7 @@ export class ReaderLeases {
     const why = await this.host.writes(true);
     if (why) return answer(403, { ok: false, error: "This outline is not taking writes; your text is still here" });
     if (lease.ended || lease.expiresAt <= Date.now()) return answer(410, { ok: false, error: "Lease ended: make a new bookmarklet" });
+    if (!this.approvedOrigin(new URL(issued!.source).origin)) return answer(403, { ok: false, error: "This origin was revoked; your words are still here" });
     const body = input.body ?? "";
     const quoted = input.quote.split(/\r?\n/).map((line: string) => `> ${line}`).join("\n");
     const properties = { source, via: `reader:${lease.id}`, ...(input.action === "ask" ? { kind: "question" } : input.action === "highlight" ? { kind: "highlight" } : {}) };

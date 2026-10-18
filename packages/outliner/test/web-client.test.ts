@@ -799,9 +799,10 @@ async function mintReader() {
   }));
   expect(response.status).toBe(200);
   const bookmark = await response.json();
+  await readerPost("reader/approve", { source: "https://field.example", decision: "allow" });
   const minted = await publisher.handle(new Request(`http://${HOST}/pub/_reader/lease`, {
     method: "POST", headers: { origin: `http://${HOST}`, cookie: response.headers.get("set-cookie")!.split(";")[0]!, "content-type": "application/json" },
-    body: JSON.stringify({ source: "https://field.example/dispatch" }),
+    body: JSON.stringify({ source: "https://field.example/dispatch", scope: bookmark.id }),
   }));
   expect(minted.status).toBe(200);
   return { ...bookmark, token: (await minted.json()).token, writeUrl: `http://${HOST}/pub/_reader/write` };
@@ -843,5 +844,77 @@ test("reader security: lease write budgets have Retry-After", async () => {
     const response = await sendReader(lease, readerCapture);
     expect(response.status).toBe(429);
     expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(60);
+  } finally { setSystemTime(); }
+});
+
+const readerPost = (path: string, body: unknown, cookie = "") => publisher.handle(new Request(`http://${HOST}/pub/${path}`, {
+  method: "POST", headers: { origin: `http://${HOST}`, "content-type": "application/json", cookie }, body: JSON.stringify(body),
+}));
+
+test("reader approval blocks unapproved origins and revocation stops existing leases", async () => {
+  const response = await readerPost("reader/bookmark", {});
+  const bookmark = await response.json();
+  const cookie = response.headers.get("set-cookie")!.split(";")[0]!;
+  const source = "https://unapproved.example/article";
+  const mint = () => readerPost("_reader/lease", { source, scope: bookmark.id }, cookie);
+  expect((await mint()).status).toBe(403);
+  expect((await get(`/pub/_reader/frame?source=${encodeURIComponent(source)}&scope=${bookmark.id}`, { cookie })).status).toBe(403);
+  expect((await readerPost("reader/approve", { source, decision: "deny" })).status).toBe(200);
+  expect((await mint()).status).toBe(403);
+  expect((await readerPost("reader/approve", { source, decision: "allow" })).status).toBe(200);
+  const minted = await mint();
+  expect(minted.status).toBe(200);
+  const token = (await minted.json()).token;
+  expect(await page("/pub/reader")).toContain("https://unapproved.example");
+  const frame = await get(`/pub/_reader/frame?source=${encodeURIComponent(source)}&scope=${bookmark.id}`, { cookie });
+  expect(frame.headers.get("content-security-policy")).toContain("frame-ancestors https://unapproved.example");
+  let finish!: () => void;
+  const pending = publisher.handle(new Request(`http://${HOST}/pub/_reader/write`, {
+    method: "POST", headers: { origin: `http://${HOST}`, authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode(JSON.stringify({ ...readerCapture, source })));
+      finish = () => controller.close();
+    } }),
+  }));
+  expect((await readerPost("reader/origin-revoke", { source })).status).toBe(200);
+  finish();
+  expect((await pending).status).toBe(403);
+  expect((await mint()).status).toBe(403);
+  expect((await sendReader({ token, writeUrl: `http://${HOST}/pub/_reader/write` }, { ...readerCapture, source })).status).toBe(403);
+});
+
+test("reader installation and approval cannot be framed", async () => {
+  for (const path of ["/pub/reader", "/pub/reader/approve?source=https%3A%2F%2Ffield.example%2Farticle"]) {
+    const response = await get(path);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+  }
+});
+
+test("older reader bookmarks retain their day and block after another bookmark is installed", async () => {
+  const source = "https://field.example/dispatch";
+  const make = async (block: string) => {
+    const response = await readerPost("reader/bookmark", { block });
+    return { ...await response.json(), cookie: response.headers.get("set-cookie")!.split(";")[0]! };
+  };
+  try {
+    setSystemTime(new Date(2030, 4, 1, 23, 50));
+    const first = await make(letter.id);
+    setSystemTime(new Date(2030, 4, 2, 0, 5));
+    const secondBlock = store.create("Other public page [publish::public]\nAnother passage", null, "user");
+    const second = await make(secondBlock.id);
+    // Model a browser cookie jar: a newer cookie replaces only the same cookie name.
+    const jar = new Map<string, string>();
+    for (const cookie of [first.cookie, second.cookie]) jar.set(cookie.split("=")[0], cookie);
+    const cookie = [...jar.values()].join("; ");
+    await readerPost("reader/approve", { source, decision: "allow" });
+    for (const [bookmark, block, day] of [[first, letter, "2030-05-01"], [second, secondBlock, "2030-05-02"]] as const) {
+      const minted = await readerPost("_reader/lease", { source, scope: bookmark.id }, cookie);
+      expect(minted.status).toBe(200);
+      const lease = { token: (await minted.json()).token, writeUrl: `http://${HOST}/pub/_reader/write` };
+      expect((await sendReader(lease, { ...readerCapture, block: block.id })).status).toBe(200);
+      expect((await sendReader(lease, { ...readerCapture, body: bookmark.id })).status).toBe(200);
+      expect(store.children(store.resolvePageAddress(day).block!.id).some(b => b.text.includes(bookmark.id))).toBe(true);
+    }
   } finally { setSystemTime(); }
 });

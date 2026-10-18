@@ -754,7 +754,10 @@ HTML pages keep `^anchor` destinations and heading slugs. Backlinks in `::links`
 **Reader bookmarklet (PIE-974):** open `/pub/reader` in the web client, or
 `/pub/o/<outline>/reader` for another outline. Optionally choose a public block
 id, make a bookmarklet, and drag its link to the bookmarks bar. On another
-origin, select words and click the bookmark. Highlight, Comment and Ask use
+origin, select words and click the bookmark. A publisher popup asks whether to
+allow that origin to send highlights and comments to the named outline. Allow
+or Deny there; the install page lists approved origins with a Revoke button.
+Approvals last until revoked or the publisher restarts. Highlight, Comment and Ask use
 the shared composer styling and ordinary comment/capture writers. A selection
 with the chosen block's anchor becomes a quote comment; unanchored selections
 become captures under the `YYYY-MM-DD` page bound when the bookmark was made.
@@ -763,16 +766,20 @@ Typed requests, including `#pie-request`, go through the ordinary note/comment
 path. An unmatched quote is saved on the allowed block with a visible warning.
 
 The bookmark contains no credential. Its sandboxed publisher-origin iframe
-mints and holds a token using an HttpOnly publisher cookie; the host page sends
+mints and holds a token only for an approved origin, using an HttpOnly cookie
+keyed by the bookmark’s scope id. Installing another bookmark leaves the older
+bookmark’s day and block unchanged. The host page sends
 selection and comment text through origin-checked messages and receives only
-receipts. Writes use an Authorization header, never a token URL. The scope
+receipts. The frame permits only its approved parent origin; installation and
+approval pages cannot be framed. Revoking an origin also stops its existing
+frames from writing. Writes use an Authorization header, never a token URL. The scope
 lasts one hour, permits only the bound day and chosen public block, and allows
 10 writes per minute and 60 total, including across reopened frames. Bodies
 are limited to 64 KiB before parsing; rate refusals include Retry-After.
 The installation page can revoke the scope; restarting its publisher ends it.
 
 A tailnet bookmarklet needs tailnet access. Cross-site use requires HTTPS and
-the browser allowing the publisher's third-party cookie and frame. On the
+the browser allowing the publisher's popup, third-party cookie and frame. On the
 publisher's own origin use the page's built-in reader controls. A refused send
 keeps the draft, and invoking the bookmark again preserves an open draft.
 The scratch browser journey demonstrates this web-only flow; the terminal
