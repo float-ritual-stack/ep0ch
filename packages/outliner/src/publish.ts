@@ -17,7 +17,7 @@ import { publishedValueWords, readPageValues } from "./publish-values";
 import { substituteValues } from "@ep0ch/outline-core/site-values";
 import type { SiteValue } from "@ep0ch/outline-core/site";
 import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaHtml, mediaMarkdown, mediaPath, noteMediaLines } from "./publish-media";
-import { artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
+import { artifactPagePath, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
 import { hostname, networkInterfaces } from "node:os";
@@ -1914,7 +1914,7 @@ export class Publisher {
   }
 
   // Existing note links keep their visibility checks before redirecting to the static origin.
-  private async serveArtifact(blockId: string, line: number, _view: string | null, audience: PublishAudience, share?: PageShare): Promise<Response> {
+  private async serveArtifact(blockId: string, line: number, view: string | null, audience: PublishAudience, share?: PageShare): Promise<Response> {
     if ((await this.lockedIds([blockId])).size) return notFound();
     if (share && !(await this.inScope([blockId], share)).has(blockId)) return notFound();
     if (audience === "public" && !share && !(await this.reachedFromPublic(blockId))) return notFound();
@@ -1922,7 +1922,18 @@ export class Publisher {
     const spec = block ? noteMediaLines(block.text ?? "").get(line) : undefined;
     if (!spec || spec.kind !== "artifact") return notFound();
     const artifact = await this.client.request<ArtifactInfo>({ action: "artifacts.show", name: spec.path }).catch(() => null);
-    return artifact?.url ? Response.redirect(artifact.url, 302) : notFound();
+    if (artifact) return artifact.url ? Response.redirect(artifact.url, 302) : notFound();
+    const check = this.policy && checkAttachment(spec.path, this.policy);
+    if (!check || !check.ok) return notFound();
+    const contents = await this.client.request<FileContents>({ action: "files.read", path: check.path });
+    if (contents.absolutePath !== check.path || contents.revision.size !== String(check.size) || contents.revision.mtimeNs !== check.mtimeNs) {
+      return respond("Attachment changed while it was read; try again\n", "text/plain; charset=utf-8", 409);
+    }
+    if (check.type === "markdown") return renderedHtml(renderMarkdownHtml(contents.text));
+    if (check.type !== "html" && check.type !== "react" && check.type !== "svg" && check.type !== "mermaid") return notFound();
+    const base = share?.base ?? this.basePathFor(audience);
+    return this.artifactResponse(artifactTitle(spec), check.type, check.path, contents.text, view,
+      `${base}${artifactPagePath(blockId, line)}?view=source`, (body, status) => renderedHtml(body, status));
   }
 
   private async pageSkin(blockId: string, audience: PublishAudience, index: PublishedIndex, share?: PageShare): Promise<{ css?: string; warning?: string } | undefined> {
@@ -2322,6 +2333,12 @@ export class Publisher {
         if (artifact?.url) {
           artifacts.set(`${row.block.id}:${line}`, spec.alt ?? artifact.name);
           artifactUrls.set(`${row.block.id}:${line}`, artifact.url);
+        } else if (!artifact && policy) {
+          const check = checkAttachment(spec.path, policy);
+          if (check.ok && check.type !== "text") {
+            artifacts.set(`${row.block.id}:${line}`, artifactTitle(spec));
+            artifactUrls.set(`${row.block.id}:${line}`, `${base}${artifactPagePath(row.block.id, line)}`);
+          }
         }
       }
     }

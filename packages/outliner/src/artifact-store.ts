@@ -1,10 +1,11 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, writeSync, rmSync, lstatSync, existsSync, cpSync, watch, type FSWatcher } from "node:fs";
 import { join, dirname, extname, basename } from "node:path";
-import { ArtifactCompiler, reactArtifactPage } from "./publish-artifacts";
+import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { artifactReference, type ArtifactInfo, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 
 const artifactLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_BYTES ?? 64 * 1024 * 1024);
 const artifactEntryLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_ENTRIES ?? 5000);
+const artifactSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 function artifactName(name: string): string {
   if (artifactReference(name)?.name !== name) throw new Error("Use an artifact name containing letters, numbers, dots, underscores or hyphens.");
   return name;
@@ -13,12 +14,26 @@ function artifactPath(path: string): string {
   if (!path || path.includes("\\") || path.includes("\0") || path.split("/").some(p => !p || p === "." || p === "..")) throw new Error(`Unsafe artifact path: ${path}`);
   return path;
 }
-function artifactFiles(folder: string, ignoreHidden = false): string[] {
+function checkArtifactSize(entries: number, bytes: number, context = "") {
+  if (entries > artifactEntryLimit()) throw new Error(`Artifact has ${entries} entries; cap is ${artifactEntryLimit()}.`);
+  if (bytes > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes${context}.`);
+}
+function artifactFiles(folder: string, ignoreHidden = false, budget?: { entries: number; bytes: number; context?: string }): string[] {
   return readdirSync(folder).filter(name => !ignoreHidden || !name.startsWith(".")).sort().flatMap(name => {
     const path = join(folder, name), stat = lstatSync(path);
     if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) throw new Error(`Artifacts cannot contain links or special files: ${name}`);
-    return stat.isDirectory() ? artifactFiles(path, ignoreHidden).map(p => `${name}/${p}`) : [name];
+    if (budget) {
+      budget.entries++; budget.bytes += stat.isFile() ? stat.size : 0;
+      checkArtifactSize(budget.entries, budget.bytes, budget.context);
+    }
+    return stat.isDirectory() ? artifactFiles(path, ignoreHidden, budget).map(p => `${name}/${p}`) : [name];
   });
+}
+
+function readArtifactInput(source: string, folder: boolean, ignoreHidden = false): Record<string, Buffer> {
+  const paths = folder ? artifactFiles(source, ignoreHidden, { entries: 0, bytes: 0 }) : [basename(source)];
+  if (!folder) checkArtifactSize(1, lstatSync(source).size);
+  return Object.fromEntries(paths.map(path => [path, readFileSync(folder ? join(source, path) : source)]));
 }
 
 export class ArtifactStore {
@@ -51,7 +66,7 @@ export class ArtifactStore {
     if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
     const files = artifactFiles(folder), bytes = files.reduce((n, p) => n + lstatSync(join(folder, p)).size, 0);
     const origin = process.env.EP0CH_ARTIFACT_ORIGIN?.replace(/\/$/, "");
-    return { name, ...(pin ? { version: Number(pin) } : {}), files, bytes, url: origin ? `${origin}/${this.id(name)}/${encodeURIComponent(ref)}/` : null };
+    return { name, ...(pin ? { version: Number(pin) } : {}), files, bytes, url: origin ? `${origin}/${this.id(ref)}/${encodeURIComponent(ref)}/` : null };
   }
   async compile(name: string, folder = join(this.live, name), rejectErrors = false) {
     if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
@@ -59,12 +74,20 @@ export class ArtifactStore {
     const index = join(folder, "index.html");
     if (existsSync(index) && (!existsSync(generated) || readFileSync(generated, "utf8") !== new Bun.CryptoHasher("sha256").update(readFileSync(index)).digest("hex"))) return;
     const files = artifactFiles(folder).filter(p => p !== "index.html");
-    if (files.length !== 1 || !/\.(jsx|tsx)$/i.test(files[0]!)) return;
+    if (files.length !== 1 || !/\.(jsx|tsx|mermaid|mmd|md|markdown)$/i.test(files[0]!)) return;
     const source = readFileSync(join(folder, files[0]!), "utf8");
-    const build = await this.compiler.compile(source, extname(files[0]!).toLowerCase() as ".jsx" | ".tsx");
-    if (!build.ok && rejectErrors) throw new Error(`Artifact could not compile: ${build.problems.join("\n")}`);
-    // Direct puts preserve source even when it cannot compile.
-    const html = build.ok ? reactArtifactPage(name, build.script) : `<!doctype html><title>Artifact needs fixing</title><pre>${build.problems.join("\n").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`;
+    const extension = extname(files[0]!).toLowerCase();
+    let html: string;
+    if (extension === ".mermaid" || extension === ".mmd") html = mermaidArtifactPage(name, source);
+    else if (extension === ".md" || extension === ".markdown") {
+      const { renderMarkdownHtml } = await import("./publish");
+      html = `<!doctype html><meta charset="utf-8"><body>${renderMarkdownHtml(source)}</body>`;
+    } else {
+      const build = await this.compiler.compile(source, extension as ".jsx" | ".tsx");
+      if (!build.ok && rejectErrors) throw new Error(`Artifact could not compile: ${build.problems.join("\n")}`);
+      // Direct puts preserve source even when it cannot compile.
+      html = build.ok ? reactArtifactPage(name, build.script) : `<!doctype html><title>Artifact needs fixing</title><pre>${build.problems.join("\n").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</pre>`;
+    }
     if (readFileSync(join(folder, files[0]!), "utf8") !== source) return;
     if (!existsSync(join(folder, "index.html")) || readFileSync(join(folder, "index.html"), "utf8") !== html) {
       mkdirSync(dirname(generated), { recursive: true });
@@ -101,11 +124,8 @@ export class ArtifactStore {
       const stat = lstatSync(source), folder = stat.isDirectory();
       if (stat.isSymbolicLink() || (!folder && !stat.isFile())) throw new Error("Drop a regular file or folder, without links.");
       if (!folder && !/\.(html|jsx|tsx|svg|mermaid|md)$/i.test(entry)) throw new Error("Unknown artifact kind; use html, jsx, tsx, svg, mermaid or md, or a built folder.");
-      const name = folder ? entry : basename(entry, extname(entry)).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const paths = folder ? artifactFiles(source, true) : [entry];
-      const pathOf = (path: string) => folder ? join(source, path) : source;
-      if (paths.reduce((bytes, path) => bytes + lstatSync(pathOf(path)).size, 0) > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes.`);
-      const files = Object.fromEntries(paths.map(path => [path, readFileSync(pathOf(path))]));
+      const name = folder ? entry : artifactSlug(basename(entry, extname(entry)));
+      const files = readArtifactInput(source, folder, true);
       await this.put(name, files, { compile: !folder, rejectErrors: true });
       const version = await this.snapshot(name);
       appendFileSync(join(inbox, "receipts.log"), `${new Date().toISOString()}\t${name}\t${version.version}\t${version.url ?? ""}\n`);
@@ -133,8 +153,13 @@ export class ArtifactStore {
   async put(name: string, files: Record<string, string | Uint8Array>, options = { compile: true, rejectErrors: false }) {
     artifactName(name); this.prepare();
     let size = 0;
-    for (const [path, content] of Object.entries(files)) { artifactPath(path); size += Buffer.byteLength(content); }
-    if (size > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes.`);
+    const entries = new Set<string>();
+    for (const [path, content] of Object.entries(files)) {
+      artifactPath(path); size += Buffer.byteLength(content);
+      const parts = path.split("/");
+      for (let at = 1; at <= parts.length; at++) entries.add(parts.slice(0, at).join("/"));
+      checkArtifactSize(entries.size, size);
+    }
     const stage = join(this.root, `.${crypto.randomUUID()}.incoming`);
     mkdirSync(stage);
     try {
@@ -144,7 +169,7 @@ export class ArtifactStore {
   }
   private async install(name: string, stage: string, options = { compile: true, rejectErrors: false }) {
     if (options.compile) await this.compile(name, stage, options.rejectErrors);
-    if (artifactFiles(stage).reduce((bytes, path) => bytes + lstatSync(join(stage, path)).size, 0) > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes after compilation.`);
+    artifactFiles(stage, false, { entries: 0, bytes: 0, context: " after compilation" });
     const folder = join(this.live, name), previous = `${stage}.previous`;
     if (existsSync(folder)) {
       if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
@@ -163,50 +188,59 @@ export class ArtifactStore {
     mkdirSync(dirname(sequence), { recursive: true });
     const version = (existsSync(sequence) ? Number(readFileSync(sequence, "utf8")) : 0) + 1;
     writeFileSync(sequence, String(version));
-    const target = join(dir, String(version));
-    cpSync(join(this.live, name), join(target, "files"), { recursive: true });
-    const hash = new Bun.CryptoHasher("sha256");
-    for (const file of artifactFiles(join(target, "files"))) hash.update(file + "\0").update(readFileSync(join(target, "files", file)));
-    const result = { ...this.info(`${name}@${version}`), hash: hash.digest("hex"), at: new Date().toISOString() };
-    writeFileSync(join(target, "meta.json"), JSON.stringify(result));
-    return result;
+    const target = join(dir, String(version)), stage = join(this.root, `.${crypto.randomUUID()}.snapshot`);
+    try {
+      cpSync(join(this.live, name), join(stage, "files"), { recursive: true });
+      const hash = new Bun.CryptoHasher("sha256");
+      for (const file of info.files) hash.update(file + "\0").update(readFileSync(join(stage, "files", file)));
+      const origin = process.env.EP0CH_ARTIFACT_ORIGIN?.replace(/\/$/, ""), ref = `${name}@${version}`;
+      const result = { ...info, version, url: origin ? `${origin}/${this.id(ref)}/${encodeURIComponent(ref)}/` : null,
+        hash: hash.digest("hex"), at: new Date().toISOString() };
+      writeFileSync(join(stage, "meta.json"), JSON.stringify(result));
+      renameSync(stage, target);
+      return result;
+    } finally { rmSync(stage, { recursive: true, force: true }); }
   }
+
   async request(request: ArtifactRequest, workspace?: string): Promise<unknown> {
     this.prepare();
     switch (request.action) {
       case "artifacts.import": {
         if (!workspace) throw new Error("Select an outline with --ws to import its artifacts folder.");
         const source = join(workspace, "artifacts"), imported: ArtifactInfo[] = [];
-        const alreadyThere: string[] = [], collided: { entry: string; name: string }[] = [];
-        const report = () => ({ imported, alreadyThere, collided,
-          counts: { imported: imported.length, alreadyThere: alreadyThere.length, collided: collided.length },
-          said: "Imported paths resolve to their artifact names. Collisions were skipped. Source files were kept." });
+        const alreadyThere: string[] = [], collided: { entry: string; name: string }[] = [], skipped: { entry: string; reason: string }[] = [];
+        const report = () => ({ imported, alreadyThere, collided, skipped,
+          counts: { imported: imported.length, alreadyThere: alreadyThere.length, collided: collided.length, skipped: skipped.length },
+          said: "Imported paths resolve to their artifact names. Collisions and invalid entries were skipped. Source files were kept." });
         const aliasFile = join(this.root, "aliases", basename(workspace));
         const aliases: Record<string, string> = existsSync(aliasFile) ? JSON.parse(readFileSync(aliasFile, "utf8")) : {};
         const sourceStat = lstatSync(source, { throwIfNoEntry: false });
         if (!sourceStat) return report();
         if (sourceStat.isSymbolicLink()) throw new Error(`Import refuses link ${source}.`);
-        for (const entry of readdirSync(source)) {
-          const path = join(source, entry), stat = lstatSync(path);
-          if (stat.isSymbolicLink()) throw new Error(`Import refuses link ${entry}.`);
-          const name = stat.isDirectory() ? entry : entry.slice(0, entry.length - extname(entry).length);
-          const files = stat.isDirectory() ? Object.fromEntries(artifactFiles(path).map(p => [p, readFileSync(join(path, p))])) : { [entry]: readFileSync(path) };
-          const live = join(this.live, name);
-          if (existsSync(live)) {
-            // Compilation adds an index; only an unchanged generated index is outside the imported source.
-            const generated = join(this.root, "generated", name), index = join(live, "index.html");
-            const generatedIndex = !Object.hasOwn(files, "index.html") && existsSync(generated) && existsSync(index)
-              && readFileSync(generated, "utf8") === new Bun.CryptoHasher("sha256").update(readFileSync(index)).digest("hex");
-            const paths = artifactFiles(live).filter(p => !(generatedIndex && p === "index.html"));
-            if (aliases[path] === name && paths.length === Object.keys(files).length
-              && paths.every(p => files[p] !== undefined && readFileSync(join(live, p)).equals(files[p]!))) alreadyThere.push(entry);
-            else collided.push({ entry, name });
-            continue;
-          }
-          imported.push(await this.put(name, files));
-          aliases[`artifacts/${entry}`] = name; aliases[path] = name;
-          mkdirSync(dirname(aliasFile), { recursive: true });
-          writeFileSync(aliasFile, JSON.stringify(aliases));
+        for (const entry of readdirSync(source).filter(entry => !entry.startsWith(".")).sort()) {
+          try {
+            const path = join(source, entry), stat = lstatSync(path);
+            if (stat.isSymbolicLink()) throw new Error(`Import refuses link ${entry}.`);
+            const derived = stat.isDirectory() ? entry : basename(entry, extname(entry));
+            const name = artifactName(artifactReference(derived)?.name === derived ? derived : artifactSlug(derived));
+            const files = readArtifactInput(path, stat.isDirectory(), true);
+            const live = join(this.live, name);
+            if (existsSync(live)) {
+              // Compilation adds an index; only an unchanged generated index is outside the imported source.
+              const generated = join(this.root, "generated", name), index = join(live, "index.html");
+              const generatedIndex = !Object.hasOwn(files, "index.html") && existsSync(generated) && existsSync(index)
+                && readFileSync(generated, "utf8") === new Bun.CryptoHasher("sha256").update(readFileSync(index)).digest("hex");
+              const paths = artifactFiles(live).filter(p => !(generatedIndex && p === "index.html"));
+              if (aliases[path] === name && paths.length === Object.keys(files).length
+                && paths.every(p => files[p] !== undefined && readFileSync(join(live, p)).equals(files[p]!))) alreadyThere.push(entry);
+              else collided.push({ entry, name });
+              continue;
+            }
+            imported.push(await this.put(name, files));
+            aliases[`artifacts/${entry}`] = name; aliases[path] = name;
+            mkdirSync(dirname(aliasFile), { recursive: true });
+            writeFileSync(aliasFile, JSON.stringify(aliases));
+          } catch (error) { skipped.push({ entry, reason: (error as Error).message }); }
         }
         return report();
       }
@@ -220,12 +254,13 @@ export class ArtifactStore {
       case "artifacts.list": return { artifacts: readdirSync(this.live).filter(n => !n.startsWith(".")).map(n => this.info(n)) };
       case "artifacts.versions": {
         const dir = join(this.root, "snapshots", artifactName(request.name));
-        return { versions: existsSync(dir) ? readdirSync(dir).map(n => JSON.parse(readFileSync(join(dir, n, "meta.json"), "utf8"))).sort((a,b) => a.version - b.version) : [] };
+        return { versions: existsSync(dir) ? readdirSync(dir).filter(n => existsSync(join(dir, n, "meta.json"))).map(n => JSON.parse(readFileSync(join(dir, n, "meta.json"), "utf8"))).sort((a,b) => a.version - b.version) : [] };
       }
       case "artifacts.snapshot": return this.snapshot(artifactName(request.name));
       case "artifacts.rm": {
         const info = this.info(request.name);
         rmSync(info.version ? join(this.root, "snapshots", info.name, String(info.version)) : join(this.live, info.name), { recursive: true });
+        rmSync(join(this.root, "ids", request.name), { force: true });
         return { removed: request.name };
       }
       case "artifacts.upload.begin": {
@@ -262,7 +297,7 @@ function untar(path: string, folder: string): void {
       at += 512;
       if (header.every(b => b === 0)) break;
       entries++;
-      if (entries > artifactEntryLimit()) throw new Error(`Artifact upload has ${entries} entries; cap is ${artifactEntryLimit()}.`);
+      checkArtifactSize(entries, bytes);
       const field = (start: number, end: number) => header.subarray(start, end).toString().split("\0")[0]!;
       const sum = header.reduce((n,b,i) => n + (i >= 148 && i < 156 ? 32 : b), 0);
       if (sum !== parseInt(field(148,156).trim(), 8)) throw new Error("Invalid tar header.");
@@ -271,7 +306,7 @@ function untar(path: string, folder: string): void {
       const kind = field(156,157), size = parseInt(field(124,136).trim(), 8);
       if (!Number.isSafeInteger(size) || size < 0 || at + size > length) throw new Error("Incomplete tar upload.");
       bytes += size;
-      if (bytes > artifactLimit()) throw new Error(`Artifact exceeds ${artifactLimit()} bytes.`);
+      checkArtifactSize(entries, bytes);
       if (kind === "5") { if (relative && relative !== ".") artifactPath(relative); }
       else if (kind === "0" || kind === "") {
         const target = join(folder, artifactPath(relative)); mkdirSync(dirname(target), { recursive: true });

@@ -17,7 +17,7 @@ export function artifactResponse(root: string, request: Request, ancestors: stri
     const parsed = artifactReference(ref);
     if (!parsed) return missing();
     const { name, version } = parsed;
-    if (readFileSync(join(root, "ids", name), "utf8") !== id) return missing();
+    if (readFileSync(join(root, "ids", ref), "utf8") !== id) return missing();
     const folder = version ? join(root, "snapshots", name, String(version), "files") : join(root, "live", name);
     const relative = rest.filter(Boolean);
     let file = join(folder, ...relative);

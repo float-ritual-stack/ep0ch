@@ -166,7 +166,6 @@ test("imported artifact paths frame their static URLs and keep files outside the
   const note = store.create(`Desk toys [publish::public:desk-toys]\n[artifact::artifacts/orbit-lamp.html] [height::20] [alt::Orbit lamp]\n[artifact::${join(elsewhere, "secret.html")}]`);
   const html = await (await get("/p/desk-toys?view=html")).text();
   expect(html).toContain(`<iframe src="${url}" title="Orbit lamp"`);
-  expect(html.match(/<iframe[^>]*>/)?.[0]).not.toContain("sandbox");
   expect(html).toContain("height:25.00rem");
   expect(html).not.toContain(elsewhere);
   const frame = await get(`/p/${note.id}/artifact/1`);

@@ -355,7 +355,7 @@ export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "p
  * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
  */
-const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list"]);
+const READ_ONLY_COPY_ACTIONS: ReadonlySet<string> = new Set([...READ_ONLY_ACTIONS, "artifacts.show", "artifacts.list", "artifacts.versions", "events.subscribe", "children", "blocks.read", "transclusions.read", "callouts.types", "extensions.list"]);
 
 export class OutlinerServer {
   private readonly mentions: MentionRepository;
