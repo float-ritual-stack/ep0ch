@@ -106,6 +106,15 @@ export const STYLE_TOKENS = {
   "header.image": { base: "", what: "the header's picture, over the hero the note gives it: a path or one of the note's pictures (empty: the hero)", type: { kind: "text", max: 400 } },
   "header.image.x": { base: 0, what: "the header picture's crop moved across, in % of the picture (-50 to 50)", type: { kind: "int", min: -50, max: 50, step: 5 } },
   "header.image.y": { base: 0, what: "the header picture's crop moved down, in % of the picture (-50 to 50)", type: { kind: "int", min: -50, max: 50, step: 5 } },
+  "header.image.blur": { base: 0, what: "soften the header picture, from sharp (0) to strong (24)", type: { kind: "int", min: 0, max: 24, step: 1 } },
+  "header.image.bleed": { base: "full", what: "full spans the tile inside its frame; measure follows the text column", type: { kind: "enum", values: ["full", "measure"] } },
+  "header.image.height": { base: "auto", what: "auto: at most a third of the tile; rows or a share, capped at half its height", type: { kind: "text", max: 8, presets: ["auto", "6", "10", "16", "25%", "33%", "50%"] } },
+  "header.image.fit": { base: "cover", what: "cover crops around x/y; contain keeps the whole picture", type: { kind: "enum", values: ["cover", "contain"] } },
+  "header.image.dim": { base: "auto", what: "darken from 0 to 1; auto caps bright pictures before drawing", type: { kind: "text", max: 8, presets: ["auto", "0", "0.2", "0.4", "0.6", "0.8", "1"] } },
+  "header.image.tint": { base: "0", what: "duotone toward the tile tone, from 0 (original) to 1", type: { kind: "text", max: 8, presets: ["0", "0.25", "0.5", "0.75", "1"] } },
+  "header.image.fade": { base: "0", what: "bottom share fading into the reader background, from 0 to 1", type: { kind: "text", max: 8, presets: ["0", "0.25", "0.5", "0.75", "1"] } },
+  "header.image.scroll": { base: "scroll", what: "scroll away with the body, or stay pinned above it", type: { kind: "enum", values: ["scroll", "pinned"] } },
+  "header.title": { base: "below", what: "title below the picture, or over its bottom-left fade", type: { kind: "enum", values: ["below", "over"] } },
   "heading.margin": { base: BASE_HEADING.margin, what: "rows above, columns beside and rows below a heading", type: { kind: "margin" } },
   "heading.padding": { base: BASE_HEADING.padding, what: "rows and columns around a heading in its band", type: { kind: "padding" } },
   "bp.narrow": { base: 60, what: "narrow below this many columns", type: { kind: "int", min: 20, max: 400, step: 4 } },
@@ -122,6 +131,9 @@ export interface StyleValues {
   "list.zebra.bg": Exclude<Surface, "none">; "list.zebra.strength": number;
   "bg": Surface; "bg.strength": number; "tone": CalloutTone; "border": Border; "edge": Edge;
   "header.bg": Surface; "header.bg.opacity": number; "header.image": string; "header.image.x": number; "header.image.y": number;
+  "header.image.blur": number; "header.image.bleed": "full" | "measure"; "header.image.height": string;
+  "header.image.fit": "cover" | "contain"; "header.image.dim": string; "header.image.tint": string; "header.image.fade": string;
+  "header.image.scroll": "scroll" | "pinned"; "header.title": "below" | "over";
   "heading.margin": BandMargin; "heading.padding": BandRoom;
   "bp.narrow": number; "bp.wide": number;
 }
@@ -169,6 +181,9 @@ export function parseFieldKey(key: string): { token: StyleToken; variant: Breakp
 export function parseStyleValue(token: StyleToken, raw: string): { value: StyleValue } | { problem: string } {
   const spec: StyleTokenSpec = STYLE_TOKENS[token], v = raw.trim().toLowerCase();
   const type = spec.type;
+  if (["header.image.dim", "header.image.tint", "header.image.fade"].includes(token) && !(token === "header.image.dim" && v === "auto") && !/^(0|1|0?\.\d+|1\.0+)$/.test(v)) return { problem: `${token} is 0 to 1${token === "header.image.dim" ? " or auto" : ""}` };
+  if (token === "header.image.height" && v !== "auto" && !(/^[1-9]\d{0,2}$/.test(v) || (/^\d{1,2}%$/.test(v) && parseInt(v) > 0 && parseInt(v) <= 50))) return { problem: `${token} is auto, rows or 1% to 50%` };
+
   if (type.kind === "int") {
     if (!/^-?\d+$/.test(v)) return { problem: `${token} ${JSON.stringify(raw)} is a whole number, ${type.min} to ${type.max}` };
     const n = Number(v);

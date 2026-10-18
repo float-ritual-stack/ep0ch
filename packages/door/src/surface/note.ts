@@ -1,3 +1,4 @@
+import { heroLook } from "./hero-look";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { InlineList, inlineRowKey } from "./inline-list";
 import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
@@ -143,6 +144,7 @@ export interface SurfaceHost {
   readonly look?: Look;
   /** The tile host draws the gutter outside its padded, measured content rectangle. */
   readonly externalGutter?: number;
+  readonly heroBounds?: { col: number; row: number; cols: number };
   /** A followed link or `u` (up): the host decides where the note opens (in place, or as the current note). */
   navigate(m: Msg, how?: OpenHow): void;
   /**
@@ -912,7 +914,7 @@ export class NoteSurface {
   get picker(): Picker | null { return (this.modes.get("picker") as PickerMode | null)?.picker ?? null; }
   set picker(p: Picker | null) { if (p) this.modes.push(this.pickerMode(p)); else this.modes.drop("picker"); }
   /** The header image the last render drew above the note (PIE-532): its rows, and its image's element. */
-  private hero: { line: number; full: number } | null = null;
+  private hero: { line: number; full: number; pinned: boolean; over: boolean } | null = null;
   /** The last digest's layout (its note, doc and note lines), for its host's sticky header (stickyHeader). */
   private digested: { m: Msg; doc: Doc; lines: number[] } | null = null;
   /** The header's backdrop the last render drew (PIE-598): its image and note line, its step, and how it was drawn. */
@@ -1206,15 +1208,16 @@ export class NoteSurface {
   /** The note as the reader draws it (with its header image), and a floating or popup composer over it (PIE-770). */
   private renderReading(w: number, h: number, host: SurfaceHost | undefined, writing: ReturnType<NoteSurface["composing"]>): SurfaceView {
     const hero = this.heroOf(w, h, host);
-    this.hero = hero && { line: hero.line, full: hero.box.rows };
+    this.hero = hero && { line: hero.line, full: hero.box.rows, pinned: hero.look.scroll === "pinned", over: hero.look.title === "over" };
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
     // A split that doesn't fit the reader (too narrow or short to share) is drawn as a popup meanwhile.
     if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" || writing.cs.place === "tile" ? "popup" : writing.cs.place);
     if (!hero || !shown) return v;
-    const cut = hero.box.rows - shown, lines = Array.from({ length: shown }, () => "");
+    const cut = this.hero?.pinned ? 0 : Math.min(this.scroll, hero.box.rows), lines = Array.from({ length: shown }, () => "");
     if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
-    const p = hero.placement && inWindow(hero.placement, cut, shown);
+    const above = hero.placement?.row ?? 0;
+    const p = hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
     return { ...v, lines: [...lines, ...v.lines], gutter: v.gutter?.map(g => ({ ...g, row: g.row + shown })), placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
   }
 
@@ -1284,24 +1287,29 @@ export class NoteSurface {
    * rows (the cap's) are kept dark, so nothing flashes when it arrives; an image shorter than the cap then takes
    * fewer rows, and the note moves up once.
    */
-  private heroOf(w: number, h: number, host?: SurfaceHost): { line: number; box: ReturnType<typeof heroBox>; placement: Placement | null; loading: boolean; name: string } | null {
+  private heroOf(w: number, h: number, host?: SurfaceHost): { line: number; box: ReturnType<typeof heroBox>; placement: Placement | null; loading: boolean; name: string; look: ReturnType<typeof heroLook> } | null {
     const m = this.msg;
     if (!m || m.partial || !host?.ctx.graphics || this.modes.covers || this.panel?.full || h < HERO_MIN_PANE) return null;
-    const ref = this.imagesIn(m).find(x => x.spec.layout === "hero");
+    const values = this.lookAt(m, w, host).values;
+    const refs = this.imagesIn(m), named = values["header.image"];
+    const ref = (named ? refs.find(x => x.path === named || x.path.split("/").pop() === named) : undefined) ?? refs.find(x => x.spec.layout === "hero");
     if (!ref) return null;
+    const look = heroLook(ref.spec, values);
+    const bounds = look.bleed === "full" ? host.heroBounds : undefined;
+    const cols = look.bleed === "full" ? bounds?.cols ?? w : Math.max(1, w - this.bx - this.bxRight);
     const entry = media(ref.path, ref.spec.kind === "video" ? "video" : "img");
     if (entry.state === "error") return null;
-    const cap = Math.max(3, Math.min(ref.spec.height ?? Math.floor(h / 3), Math.floor(h / 2)));
+    const cap = Math.max(1, Math.min(look.height ?? Math.floor(h * (look.heightShare ?? 1 / 3)), Math.floor(h / 2)));
     const name = ref.path.split("/").pop() ?? ref.path;
     const [cw, chh] = cellOf(host);
     // Its rows come from its size, read from its header before it's decoded: the note never moves when it arrives.
     if (entry.state === "loading") {
-      const box = entry.width && entry.height ? heroBox({ width: entry.width, height: entry.height }, ref.spec, w, cap, cw, chh) : { col: 0, cols: w, rows: cap };
-      return { line: ref.line, box, placement: null, loading: true, name };
+      const box = entry.width && entry.height ? heroBox({ width: entry.width, height: entry.height }, look, cols, cap, cw, chh) : { col: 0, cols: w, rows: cap };
+      return { line: ref.line, box, placement: null, loading: true, name, look };
     }
-    const box = heroBox(entry, ref.spec, w, cap, cw, chh);
-    const [placement] = imagePlacements([{ line: 0, media: entry, ...(ref.spec.dim !== undefined ? { dim: ref.spec.dim } : {}), ...box }], 0, cw, chh);
-    return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}` } : null, loading: false, name };
+    const box = heroBox(entry, look, cols, cap, cw, chh);
+    const [placement] = imagePlacements([{ line: 0, media: entry, look: look.pixels, ...box }], 0, cw, chh);
+    return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}`, col: placement.col + (bounds?.col ?? (look.bleed === "full" ? 0 : this.bx)), row: bounds?.row ?? 0, rows: placement.rows - (bounds?.row ?? 0) } : null, loading: false, name, look };
   }
 
   /**
@@ -1402,6 +1410,7 @@ export class NoteSurface {
    */
   stickyHeader(m: Msg, w: number, host: SurfaceHost, under: number): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; placements: Placement[] } {
     const src = this.use(host);
+    this.lookAt(m, w, host);
     const { rows, summaryRow, summaryLinks, title } = this.headerBlock(m, w, host, src);
     const lines = [...rows], d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
@@ -1446,7 +1455,7 @@ export class NoteSurface {
     const graphics = !!host.ctx.graphics, cell = cellOf(host);
     const draw = (x: (typeof all)[number], n: number, over: { grid?: CellGrid; z?: number } = {}) => {
       const entry = media(x.path, x.kind);
-      return entry.state === "ready" ? backdrop(entry, x.focus, x.dim, n, w, rows, ...cell, graphics, over) : null;
+      return entry.state === "ready" ? backdrop(entry, x.focus, x.dim, n, w, rows, ...cell, graphics, { ...over, look: x.pixels }) : null;
     };
     // The one before stays under it until it's drawn at full (a step or a variant still being made never leaves the
     // header plain, or shows a lower step over nothing).
@@ -1471,18 +1480,18 @@ export class NoteSurface {
    * title, else the first `[layout::hero]` image, else an image that is the note's first block). Follow: the header
    * image, then every image in the body.
    */
-  private heroSources(m: Msg, doc: Doc, noteLines: number[], mode: HeroMode, scroll: number): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number }[] {
-    const all0 = this.heroPictures(m, doc, noteLines, mode, scroll);
-    // The look's `header.image.x` and `.y` (PIE-675): the crop moved across and down, in % of the picture, from the
-    // focus it has (its `[hero-focus::…]`, else its middle), where the default pick shows the wrong part of it.
-    const v = this.lastLook?.values, dx = (v?.["header.image.x"] ?? 0) / 100, dy = (v?.["header.image.y"] ?? 0) / 100;
-    if (!dx && !dy) return all0;
-    const clamp = (x: number) => Math.max(0, Math.min(1, x));
-    return all0.map(x => ({ ...x, focus: { x: clamp((x.focus?.x ?? 0.5) + dx), y: clamp((x.focus?.y ?? 0.5) + dy) } }));
+  private heroSources(m: Msg, doc: Doc, noteLines: number[], mode: HeroMode, scroll: number): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number; pixels?: import("../media").Look }[] {
+    const all = this.heroPictures(m, doc, noteLines, mode, scroll);
+    const values = this.lastLook!.values;
+    return all.map(x => {
+      const spec = this.imagesIn(m).find(r => r.line === x.line && r.path === x.path)?.spec ?? { kind: x.kind, path: x.path, problems: [] };
+      const look = heroLook(spec, values);
+      return { ...x, focus: look.focus, dim: look.pixels.dim, pixels: look.pixels };
+    });
   }
 
   /** heroSources' pictures, before the look's offsets: the look's `header.image` first when it names one, else the hero. */
-  private heroPictures(m: Msg, doc: Doc, noteLines: number[], mode: HeroMode, scroll: number): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number }[] {
+  private heroPictures(m: Msg, doc: Doc, noteLines: number[], mode: HeroMode, scroll: number): { path: string; kind: "img" | "video"; focus?: Focus; dim?: number; line: number; gone: number; pixels?: import("../media").Look }[] {
     const clamp = (x: number) => Math.max(0, Math.min(1, x));
     const look = (spec: MediaSpec) => ({ ...(spec.focus ? { focus: spec.focus } : {}), ...(spec.dim !== undefined ? { dim: spec.dim } : {}) });
     const out: ReturnType<NoteSurface["heroSources"]> = [];
@@ -1500,7 +1509,7 @@ export class NoteSurface {
     }
     if (this.hero && !named) {
       const ref = this.imagesIn(m).find(x => x.line === this.hero!.line);
-      if (ref) out.push({ path: ref.path, kind: ref.spec.kind === "video" ? "video" : "img", ...look(ref.spec), line: ref.line, gone: clamp(scroll / Math.max(1, this.hero.full)) });
+      if (ref) out.push({ path: ref.path, kind: ref.spec.kind === "video" ? "video" : "img", ...look(ref.spec), line: ref.line, gone: this.hero.pinned ? 0 : clamp(scroll / Math.max(1, this.hero.full)) });
       if (mode === "first") return out;
     }
     const all = m.text.split("\n"), first = doc.media[0];
@@ -1588,7 +1597,8 @@ export class NoteSurface {
     const view = this.position.view;
     if (view && view.row >= this.positionRows.origin && view.row < top) view.row = top;
     this.positionRows.origin = top;
-    this.positionRows.leading = this.hero?.full ?? 0;
+    if (this.hero?.over && title) this.hero.full = Math.max(0, this.hero.full - title.row - title.rows);
+    this.positionRows.leading = this.hero?.pinned ? 0 : this.hero?.full ?? 0;
     this.positionRows.settle();
     const whole = new Set((this.comments ?? []).filter(isWholeNote).map(c => c.id));
     const gutterRow = (k: Mark) => whole.has(k.thread) ? (title?.row ?? 1) : top + k.row - this.scroll;
@@ -1611,9 +1621,11 @@ export class NoteSurface {
     // `extra` rows above the bottom is S ≥ body + extra − (roomFull − (full − S)) while the image shows, and
     // S ≥ body + extra − roomFull once it's gone. End stops first where it's on the bottom edge (extra 0); the
     // furthest scroll is past the end (PIE-622, reader.overscroll: to the middle, by default).
+    const pinned = this.hero?.pinned;
     const full = this.hero?.full ?? 0, roomFull = Math.max(0, h - top);
-    const roomAt = (s: number) => Math.max(0, roomFull - Math.max(0, full - s));
+    const roomAt = (s: number) => Math.max(0, roomFull - (pinned ? full : Math.max(0, full - s)));
     const reach = (extra: number) => {
+      if (pinned) return Math.max(0, body.length + extra - Math.max(1, roomFull - full));
       const over = body.length + extra - Math.max(1, roomFull);
       return !full || over >= full ? Math.max(0, over) : Math.max(0, Math.ceil((over + full) / 2));
     };
@@ -1656,7 +1668,7 @@ export class NoteSurface {
     if (full && current && this.lastReveal) bringIn([current.row, current.row + 1]);
     if (this.position.view || this.scroll > this.maxScroll) this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
     room = roomAt(this.scroll);
-    const heroRows = full ? Math.max(0, full - this.scroll) : 0;
+    const heroRows = pinned ? full : Math.max(0, full - this.scroll);
     h -= heroRows;
     this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : [0, 1] };
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
@@ -1886,7 +1898,7 @@ export class NoteSurface {
       if (!list) this.inlineLists.set(key, list = new InlineList());
       return list.draw(key, rows, width, drawn, this.cur);
     };
-    const env = { ...(!this.printed ? { inlineList } : {}), ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, regions: book, fields: this.fieldsDrawing, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width, lists } } : {}) };
+    const env = { ...(!this.printed ? { inlineList } : {}), ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, ...(this.hero ? { heroLine: noteLine.indexOf(this.hero.line) } : {}), regions: book, fields: this.fieldsDrawing, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width, lists } } : {}) };
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -7646,7 +7658,7 @@ const cellOf = (host?: SurfaceHost): [number, number] => [host?.ctx.t?.cellW ?? 
 export const imagePlacements = (images: readonly DocImage[], col: number, cellW: number, cellH: number): Placement[] =>
   images.flatMap(im => {
     // Not drawn until a PNG dimmed for the part it shows is ready: its rows stay dark, never a bright first frame.
-    const png = sized(im.media, im.cols * cellW, im.rows * cellH, { ...(im.dim !== undefined ? { dim: im.dim } : {}), ...(im.crop ? { crop: im.crop } : {}) });
+    const png = sized(im.media, im.cols * cellW, im.rows * cellH, { ...im.look, ...(im.dim !== undefined ? { dim: im.dim } : {}), ...(im.crop ? { crop: im.crop } : {}) });
     if (!png) return [];
     // The part it was dimmed for (another crop's, while a resize goes on: src/media.ts sized).
     const c = png.crop;
