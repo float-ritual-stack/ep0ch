@@ -73,9 +73,9 @@ regressions and application journeys when integrating or changing them.
 | PIE-235 | One invocation-local virtual-child lookup; ranked filters compute matching block IDs once using existing indexes. | `tree-scale.ts` at 1k/5k plus the separate 24k `profile:tree --check-budget` fixture. |
 | PIE-280 | Durable draft/original recovery and publication only into an absent pathname. | `file-commit.ts`, process-interruption regressions, and the existing file-revision journey. |
 | PIE-281 | Position annotations only against the displayed source representation; captured/stale evidence remains reachable and unpositioned. | `annotation-identity.ts`, including changed files and metadata-only presentation. |
-| PIE-263 | Authored Resource references activate by exact host block/revision/span; repeated uses share one Resource. | Pi and ANSI `resource-occurrences.ts` journeys. |
+| PIE-263 | Authored Resource references activate by exact host block/revision/span; repeated uses share one Resource. | In-process `test/detail-controller.test.ts` occurrence selection coverage. |
 | PIE-282 | Immutable per-occurrence evidence in the existing annotation target; Resource passages retain their separate passage/revision anchor. | `reference-annotations.ts`, native-pointer scope checks, and public service/restart regressions. |
-| PIE-265 | In-Detail navigation, reply, resolve/reopen and complete evidence access, preserving target and viewport. | `annotation-threads.ts`: native Pi control activation, Pi/ANSI readers, narrow views and lifecycle refresh. |
+| PIE-265 | In-Detail navigation, reply, resolve/reopen and complete evidence access, preserving target and viewport. | In-process `test/detail-controller.test.ts` thread navigation and reply/lifecycle coverage. |
 | PIE-283 / A1-A2 | Opt-in fixed Tree/Detail surface with local ordinary navigation and explicit detached views. | `composed-surface.ts`, `composed-boundaries.ts`, and occurrence comments through the composed launch. |
 
 The application retains the existing document editor, annotation repository and
@@ -343,14 +343,11 @@ Use service reads for both embedded and detached presentation; keep line ranges
 and rendering local. Passive previews must remain passive, without silently
 interning a Resource or refreshing its provider.
 
-Scenario: `bun run test:e2e:file-authority` (`test/e2e/file-authority.ts`) runs
-Detail with a remote-mode client context and a separate fixture
-root. Give client and service different bytes at the same relative path. Follow each supported preview/open route and
-verify service-owned content; verify passive reads leave catalog identities and
-counts unchanged. Exercise service-owned completion. Retain the existing
-resource-authoring journey. Split roots on one host establish file ownership,
-not actual two-host SSH behavior. Stale-file-read protection and cached-revisit
-repainting are covered by controller regressions, not this E2E scenario.
+In-process coverage: `test/file-authority.test.ts` checks service-owned file
+bytes and completion with separate client and service roots, without passive
+Resource registration. `test/detail-controller.test.ts` covers stale file reads
+and cached revisits. Retain the existing resource-authoring journey as a manual
+check; split roots on one host do not establish two-host SSH behavior.
 
 ## Interaction packages
 
@@ -468,13 +465,10 @@ coordinates must continue to name the displayed text. Keep backlinks lazy and
 preserve cached revisits, dirty drafts, explicit-open ordering, and stale-result
 suppression. Resources keep provider-specific revisions and passive reads.
 
-Scenario: `bun run test:e2e:detail-progressive` (`test/e2e/detail-progressive.ts`). Delay and fail reference or
-annotation enrichment behind deterministic barriers. Actual Detail must show
-the cold primary content before release, retain it on enrichment failure, and
-reject an old response after A→B navigation. Exercise link/comment readiness,
-source positions, cache revisits, and a provider-backed Resource. Record
-selection-to-primary latency and request counts locally and through the private
-forwarded socket; repeat the affected journey on two hosts for remote UX claims.
+In-process coverage: `test/detail-controller.test.ts` exercises primary content
+while projection is pending, editing during cold reads, cached revisits and
+stale-result suppression. This does not establish private-Herdr input delivery
+or two-host SSH latency.
 
 Neighbor prefetch is removed from the required scope. Measure the simpler path
 first. Any later bounded prefetch must be justified by remaining latency and
@@ -590,8 +584,8 @@ preserve the current target, selected root and viewport.
 
 Pi uses existing preview regions. ANSI uses its ordinary reader and one scroll
 offset for complete wrapped threads, quotes and replies, with source rows separate
-from generated evidence. Preserve the actual `resource-occurrences`,
-`reference-annotations` and `annotation-threads` journeys and focused restart,
+from generated evidence. Retain `reference-annotations` as a manual journey
+and the in-process controller coverage, plus focused restart,
 stale-pointer, ambiguity/deletion, lifecycle-refresh and historical-order tests.
 The combined surface reuses these operations and identity rules.
 

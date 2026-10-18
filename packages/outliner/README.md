@@ -2929,14 +2929,6 @@ metadata-preserving external file replacement, and explicit cancellation/reload
 before a fresh save. The file journey does not claim to close the separate
 validation/rename race.
 
-`bun run test:e2e:file-authority` runs the file ownership journey for Detail.
-The fixture opens one additional remote-mode Tree/Detail pair with
-its own workspace root, deliberately writes different contents at the same path,
-and checks service-owned previews, path completion, preserved line ranges, and
-explicit Resource activation. Passive reads leave catalog identities unchanged.
-The runner records those clients' roots, socket, registrations, and process
-provenance. This is a same-host ownership test, not two-host SSH evidence.
-
 `bun run test:e2e:tree-index` prepares 1,000 blocks through the service and runs
 the Tree journey with direct and privately forwarded sockets. Real keys search
 full text beyond the preview, edit exact text, expand virtual rows, and navigate
@@ -2946,23 +2938,6 @@ Tree request counts, visible frames, and cleanup. First-frame timing runs from
 launch to the first observed populated frame and includes host/polling overhead.
 The forwarding observer records its own parsing cost; this is not two-host SSH
 latency evidence.
-
-`bun run test:e2e:detail-progressive` drives cold Detail reads and cached revisits
-with direct and privately forwarded sockets. Matched optional reference or
-annotation replies can be held, failed, or released after navigation. Real keys
-verify that primary content stays readable and editable, late replies preserve
-drafts and newer targets, unresolved links stay disabled, and block/Resource
-comments retain exact source ranges and provider revisions. The fixture records
-selection-to-primary timing, forwarded request counts, checkpoints, and cleanup.
-These same-host observations do not establish two-host SSH latency or host mouse
-behavior; emitted hyperlinks have separate renderer regressions.
-
-`bun run test:e2e:annotation-threads` uses real keys in a private Herdr session
-for contextual/Resource-wide thread navigation, multiline replies, visible save
-validation, resolve/reopen and cancellation. It verifies preserved target and
-viewport, other-occurrence and orphan reachability, and a narrow Detail. One real Reply control
-click and cancellation runs through the attached Herdr client's mouse input.
-Existing threads and an agent reply are seeded through public APIs.
 
 ## Project documents
 
