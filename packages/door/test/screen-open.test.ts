@@ -47,7 +47,7 @@ describe.skipIf(!outliner)("--screen <name> [<target>], through screen.open", ()
     expect(top().openArgs?.()).toEqual({ target: "a1111111-1111-4111-8111-111111111111" });
   });
 
-  test("detail on its target: an id, a ((ref|label)) or this outline's URI; another outline's URI is refused", async () => {
+  test("detail on its target: an id, a ((ref|label)) or this outline's URI; a missing outline is refused without creating it", async () => {
     await start(["--screen", "detail", note.id]);
     expect(top().name).toBe("detail");
     expect(top().openArgs?.()).toEqual({ target: note.id });
@@ -56,7 +56,7 @@ describe.skipIf(!outliner)("--screen <name> [<target>], through screen.open", ()
     const uri = formatEp0chBlockUri({ outline: scratch.name, machine: canonicalLocalMachineName(), blockId: note.id });
     await start(["--screen", "detail", uri]);
     expect(top().openArgs?.()).toEqual({ target: note.id });
-    await expect(start(["--screen", "detail", uri.replace(`${scratch.name}@`, "other-garden@")])).rejects.toThrow("that URI names other-garden");
+    await expect(start(["--screen", "detail", uri.replace(`${scratch.name}@`, "other-garden@")])).rejects.toThrow("has no outline other-garden");
     await expect(start(["--screen", "detail", "a1111111-1111-4111-8111-111111111111"])).rejects.toThrow("no block a1111111");
   });
 

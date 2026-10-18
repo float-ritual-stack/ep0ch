@@ -1,3 +1,5 @@
+import { outlineBoards } from "../desk/outline-boards";
+import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The power bar's built-in sources (PIE-656), each a scope with its prefix: tiles (%), notes (/), actions (>),
 // recent (+) and screens (@). None keeps a list of its own: tiles are the layout tree's (`Desk.tileOutline`) on every
@@ -147,16 +149,22 @@ export async function recentNotes(host: BarHost): Promise<BarRow[]> {
 
 const NOTES: BarSource = {
   id: "notes", title: "notes", prefix: "/", by: "door", asks: true,
-  about: "the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail",
+  about: "outline:<name> words searches another outline on this host; otherwise the outline's notes by words (with nothing typed, the notes changed most recently, newest first): the service's one search (Goto's ranker, nearer notes first), re-ordered by Jev after a pause when it's set up; ⏎ opens one where opens land, alt+⏎ in a new detail",
   main: { empty: false, typed: true, most: 10 },
   async rows(q, host) {
+    const named = q.match(/^outline:([^\s]+)(?:\s+(.*))?$/);
+    if (named) {
+      const ctx = await outlineBoards(host.ctx).on({ outline: named[1]! });
+      const info = await ctx.board.info();
+      return (await ctx.board.search(named[2] ?? "", 30)).map(m => ({ ...noteRow(m), key: formatEp0chBlockUri({ outline: named[1]!, machine: ctx.machine ?? info.machine!, blockId: m.id }), detail: named[1] }));
+    }
     if (!q.trim()) return recentNotes(host);
     if (q.trim().length < 2) return [];
     return (await host.ctx.board.search(q.trim(), 30, { near: host.near() ?? undefined })).map(noteRow);
   },
   later(q, rows, host, alive) {
     const board = host.ctx.board;
-    if (q.trim().length < 3 || rows.length < 2 || jevOff.has(board)) return null;
+    if (q.startsWith("outline:") || q.trim().length < 3 || rows.length < 2 || jevOff.has(board)) return null;
     // Asked only if the query is still the one typed after the pause, and the bar still open.
     return Bun.sleep(SEARCH_JEV_PAUSE_MS).then(() => (alive() ? board.search(q.trim(), 30, { semantic: true, near: host.near() ?? undefined }) : null)).then(h => {
       if (!h) return null;

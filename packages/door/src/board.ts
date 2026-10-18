@@ -9,6 +9,8 @@ import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
 import { prop } from "./props";
 
 export interface Msg {
+  /** Door-local provenance, carried between tiles; never sent as block data. */
+  address?: import("./desk/outline-boards").NoteAddress;
   id: string;
   text: string;
   parentId: string | null;

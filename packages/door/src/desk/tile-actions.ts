@@ -44,7 +44,7 @@ const TILE = "Tile";
 export interface TileDone { tile: string; [k: string]: unknown }
 
 /** A new tile: its kind and what it needs (the fields of a saved tile). */
-export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; page?: string; mode?: "held" | "pinned"; cwd?: string; view?: string; query?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string }
+export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; outline?: string; machine?: string; page?: string; mode?: "held" | "pinned"; cwd?: string; view?: string; query?: string; screen?: string; part?: string; target?: string; inner?: unknown; args?: Record<string, unknown>; label?: string }
 
 /**
  * What a tile action runs on: the desk, and the tile `tile=` named (by its name: the dispatcher read the grammar).
@@ -166,6 +166,8 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       file: { type: "string", optional: true, about: "pty: the file it edits; preview: the file it shows" },
       source: { type: "string", optional: true, about: "preview: tile:<name> or file:<path>" },
       mode: { type: "string", optional: true, choices: ["held", "pinned"], about: "reader: held (it keeps note=, the current note never moves it) or pinned (to page=); left out it follows the current note. kind=detail is kind=reader mode=held" },
+      outline: { type: "string", optional: true, kind: "outline", about: "the outline the reader reads and saves in (default: this door)" },
+      machine: { type: "string", optional: true, about: "the outline host machine (default: this door's host)" },
       note: { type: "string", optional: true, kind: "note", about: "reader, held: the note it keeps" },
       id: { type: "string", optional: true, kind: "note", about: "reader, held: the same as note=" },
       page: { type: "string", optional: true, kind: "page", about: "reader, pinned: the page it's pinned to, as in [[name]]" },

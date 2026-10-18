@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { titleLine, type Msg } from "../board";
-import { USER, type Actor, type SocketBoard } from "../socket";
+import { USER, hostRequest, type Actor, SocketBoard } from "../socket";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
 import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, PROGRAM_EXAMPLES, RULE_EXAMPLES, VIEW_EXAMPLES } from "./tickets/install";
@@ -88,6 +88,15 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.root = await make(null, [`${SEED.root} [${SHOWCASE_MARK.key}::${SHOWCASE_MARK.value}]`, "",
     "A made-up household's outline for the door's showcase: every shared part, on notes you can edit, move and comment on.",
     "Nothing here is real. `scripts/try-it.sh --showcase --reset` puts it all back."].join("\n"));
+
+  await hostRequest(board.path, "outlines.attach", { name: "showcase-orchard", create: true });
+  const orchard = new SocketBoard(board.path, undefined, "showcase-orchard");
+  try {
+    await orchard.info();
+    const neighbour = await orchard.createBlock(null, "Pear tree [page::pear-tree]\nWater deeply on dry days.");
+    const journal = await orchard.createBlock(null, `Orchard journal\nWater the pear tree. See [[pear-tree]] or ((${neighbour.id}|the tree)).`);
+    notes.crossOutline = await make(notes.root.id, `${SEED.crossOutline} [foreign-note::${journal.id}]\nThe reader beside this one holds a note in showcase-orchard. Edit or comment there: the save belongs to that outline. Its tinted frame names the outline.\n[Open the orchard journal](https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id})\n[web::https://my.ep0ch.sh/pub/o/showcase-orchard/p/${journal.id}]\nPress / and type outline:showcase-orchard pear to search that outline without leaving this screen.`);
+  } finally { orchard.close(); }
 
   // The workboard's allocator needs a Work-ID prefix and the project's one active work queue.
   await board.request("work-ids.configure", { prefix: WORK_PREFIX });

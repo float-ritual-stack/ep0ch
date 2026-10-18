@@ -7,7 +7,7 @@
 // the bar.
 import { noteLabel } from "../board";
 import type { ArgKind } from "../surface/actions";
-import { USER } from "../socket";
+import { USER, hostRequest } from "../socket";
 import { filtered } from "./filter";
 import { barSource, type BarHost, type BarPreview } from "./source";
 
@@ -22,6 +22,11 @@ const kinds = new Map<string, KindValues>();
 export function registerArgKind(kind: ArgKind | (string & {}), values: KindValues) { kinds.set(kind, values); }
 /** The values of `kind`, or none when no kind of that name is registered. */
 export const argKind = (kind: string): KindValues | undefined => kinds.get(kind);
+
+registerArgKind("outline", async (typed, host) => {
+  const result = await hostRequest<{ outlines: { name: string; archived?: boolean }[] }>(host.ctx.board.path, "outlines.list");
+  return filtered(result.outlines.filter(o => !o.archived).map(o => ({ value: o.name, label: o.name })), typed, r => [r.label]);
+});
 
 registerArgKind("tile", async (typed, host) => {
   // Loaded when asked: sources.ts reaches the desk, which reaches the actions (a static import is a cycle).

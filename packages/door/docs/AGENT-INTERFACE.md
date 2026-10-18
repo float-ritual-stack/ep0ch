@@ -21,6 +21,12 @@ MCP `script_run` takes a script block's `ref` or `uri` and starts an asynchronou
 `propose` access produces proposals, `full` applies writes, and `read`/`none` cannot start it. For script blocks,
 the host API, bindings and undo, see [ep0ch-outline: Scripts](../skills/ep0ch-outline/SKILL.md#scripts).
 
+A reader can hold another outline's note without changing screens. `ep0ch open ep0ch://orchard@box-a/b/<id>`
+opens it where the screen's opens land. `act tile.open kind=detail note=<id> outline=orchard machine=box-a`
+opens a tile beside the current one; omit `machine` for the door's host. The frame names the foreign outline.
+Edits, comments and drafts belong to that outline, and the saved tile keeps its outline and machine.
+The note picker (`/`) accepts `outline:orchard pear` to search another outline on the same host.
+
 ## The control socket
 
 `EP0CH_CONTROL` names it (default `door.sock` in the folder of the outline the door is on, in its state dir:

@@ -225,6 +225,8 @@ export interface LinkView { text: string; missing: boolean }
  * none.
  */
 export type LinkTarget = {
+  outline?: string;
+  machine?: string;
   inlineList?: { key: number; row: number };
   /**
    * A `{{ }}` the note reads (PIE-533 S2), as the service answered it: ⏎ or a click shows where its value is written (`block`,

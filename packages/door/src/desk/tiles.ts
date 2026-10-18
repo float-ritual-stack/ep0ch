@@ -30,6 +30,8 @@ export interface TileSpec {
   id?: string;
   /** A held reader's note (block id): it starts on it and keeps it. */
   note?: string;
+  outline?: string;
+  machine?: string;
   /** How a reader shows notes (PIE-705): omitted it follows the current note; `held` keeps `note`; `pinned` keeps the page named by `page`. */
   mode?: "held" | "pinned";
   /** A reader's place and back and forward stacks (NoteSurface.saveNav, PIE-643): read by version, dropped when it isn't this one's. */

@@ -1,3 +1,4 @@
+import { addressedResource } from "./open";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { subtitleSuffix } from "./text";
 // One links model: a block's Outlinks, Resources and Backlinks, as the outliner's Tree shows them under a block
@@ -551,7 +552,7 @@ export function linkTargetOf(r: LinkRow): LinkTarget | null {
     if (res.kind === "unregistered-page") return { page: res.address };
     return { role: "resource", reason: `${r.link.label} · ${outlinkWords(r.link).context}` };
   }
-  if (r.kind === "resource") return r.link.recordBlockId ? { block: r.link.recordBlockId, role: "row" } : { resource: r.link, label: r.link.label };
+  if (r.kind === "resource") return addressedResource(r.link) ?? (r.link.recordBlockId ? { block: r.link.recordBlockId, role: "row" } : { resource: r.link, label: r.link.label });
   return null;
 }
 

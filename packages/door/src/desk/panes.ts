@@ -1,3 +1,4 @@
+import { outlineBoards, type NoteAddress } from "./outline-boards";
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
 import { headedTitle } from "../board";
 import type { Completer } from "../surface/completer";
@@ -356,13 +357,13 @@ export class ReaderPane implements Pane {
     if (next === "pinned") {
       const name = page ?? prop(this.msg, "page");
       if (!name) throw new ActionRefused(`${this.msg ? "that note has no page to pin to" : "nothing to pin yet"} · name one: act reader.mode mode=pinned page=<name>`);
-      const r = await desk.ctx.board.resolvePage(name);
+      const r = await this.context(desk).board.resolvePage(name);
       if (r.status !== "resolved" || !r.block) throw new ActionRefused(`no page ${name} in this outline to pin to`);
       if (this.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
       if (gen !== this.modeGen) throw new ActionRefused("the reader's mode changed again while the page was looked up; nothing was pinned");
       letGo();
       this.held = this.follows; this.pinPage = name; this.pageNote = r.block.id;
-      if (this.msg?.id !== r.block.id) this.show(r.block, desk);
+      if (this.msg?.id !== r.block.id) this.show({ ...r.block, address: this.noteAddress }, desk);
     } else {
       letGo();
       this.pinPage = null; this.pageNote = null;
@@ -379,10 +380,10 @@ export class ReaderPane implements Pane {
   /** Start pinned to `page`: it is shown once the page resolves (`pinStart`). */
   pinTo(page: string) { this.held = this.follows; this.pinPage = page; }
   /** The page it's pinned to resolved to `block` (the tile joined a desk): show it, unless a note is open there already. */
-  pinned(block: Msg, desk: DeskApi) { if (this.pinPage && !this.msg) { this.pageNote = block.id; this.show(block, desk); } else if (this.pinPage && this.msg?.id === block.id) this.pageNote = block.id; }
+  pinned(block: Msg, desk: DeskApi) { if (this.pinPage && !this.msg) { this.pageNote = block.id; this.show({ ...block, address: this.noteAddress }, desk); } else if (this.pinPage && this.msg?.id === block.id) this.pageNote = block.id; }
   unsaved() { return this.surface.unsaved(); }
   keepDrafts(): string[] { return this.surface.keepDrafts(); }
-  dispose() { this.surface.dispose(); }
+  dispose() { this.offOutlineEvents?.(); this.surface.dispose(); }
   /**
    * A reader that follows is "reader"; one that keeps its note is a "detail" (the glossary's word for a held reader), which
    * a host may label ("detail 1" in the board's readers row). The mode chip on the frame says which mode it is in.
@@ -419,12 +420,38 @@ export class ReaderPane implements Pane {
   }
 
   /** The surface's host: this pane's desk or board, and where a followed link opens. */
+  noteAddress?: NoteAddress;
+  private outlineCtx?: Ctx;
+  private offOutlineEvents?: () => void;
+  private outlineWatching?: Ctx["board"];
+  private listen(desk: DeskApi) {
+    const ctx = this.context(desk);
+    if (this.outlineWatching === ctx.board) return;
+    this.offOutlineEvents?.(); this.outlineWatching = ctx.board;
+    if (ctx.board !== desk.ctx.board) this.offOutlineEvents = outlineBoards(desk.ctx).watch(ctx.board, e => {
+      this.surface.onEvent(this.host(desk));
+      if (this.surface.staleOn(e)) this.reread(desk);
+      desk.redraw();
+    });
+  }
+  async connect(desk: DeskApi) {
+    this.outlineCtx = this.noteAddress ? await outlineBoards(desk.ctx).on(this.noteAddress) : desk.ctx;
+    this.listen(desk);
+  }
+  context(desk: DeskApi): Ctx { return this.outlineCtx ?? desk.ctx; }
+
   host(desk: DeskApi): SurfaceHost {
     const pane = this;
     const h: SurfaceHost = {
       externalGutter: this.gutterCols,
       heroBounds: this.heroBounds,
-      ctx: desk.ctx,
+      ctx: this.context(desk),
+      contextFor: m => {
+        this.noteAddress = m?.address;
+        this.outlineCtx = m?.address ? outlineBoards(desk.ctx).peek(m.address) : undefined;
+        this.listen(desk);
+        return this.context(desk);
+      },
       // Whether the person's keys are here: an agent's fragment link is revealed only in a reader they aren't in.
       get focused() { return desk.hasFocus ? desk.hasFocus(pane) : undefined; },
       // Whether the person types in it: an edit left open while they're elsewhere (a preview they read through) is drawn away.
@@ -434,7 +461,7 @@ export class ReaderPane implements Pane {
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): a held reader with no
       // link replaces its own note and moves nothing else; a following one moves the current note; alt+⏎ opens beside.
-      navigate: (m, how) => desk.setCurrent(m, { reveal: true, from: this, ...how }),
+      navigate: (m, how) => { m.address ??= this.noteAddress; desk.setCurrent(m, { reveal: true, from: this, ...how }); },
       summaryKeys: m => desk.summaryKeys?.(m),
       // A #tag opened in it: the notes carrying it, in a list beside it (PIE-800).
       ...(desk.openQuery ? { query: (q: string, how?: OpenHow) => desk.openQuery!(this, q, how?.by ?? USER) } : {}),
@@ -476,7 +503,9 @@ export class ReaderPane implements Pane {
   /** Read its note again (NoteSurface.reread: one read at a time, a draft only marked). */
   reread(desk: DeskApi) { this.surface.reread(this.host(desk)); }
   show(m: Msg | null, desk: DeskApi) {
-    const shown = this.surface.show(m, this.host(desk));
+    if (this.editing && m?.id !== this.msg?.id) return false;
+    const host = this.host(desk);
+    const shown = this.surface.show(m, { ...host, ctx: host.contextFor!(m) });
     // The history a saved layout brought (PIE-643) is taken up with the note it was saved on (`wantNote`).
     if (shown && m && this.wantNav !== undefined && this.wantNote() === m.id) { const nav = this.wantNav; this.wantNav = undefined; this.surface.restoreNav(nav); }
     return shown;
@@ -494,9 +523,9 @@ export class ReaderPane implements Pane {
     const nav = this.wantNav ? this.wantNav : this.surface.saveNav();
     const note = this.msg && !this.msg.id.startsWith("file:") ? this.msg.id : this.want;
     // A pinned reader comes back on its page, not on the last note it held: no history to keep.
-    if (this.pinPage) return { mode: "pinned", page: this.pinPage, ...this.marginSpec() };
-    if (this.follows && this.held) return { mode: "held", ...(note ? { note } : {}), ...(nav ? { nav } : {}), ...this.marginSpec() };
-    return { ...(nav ? { nav } : {}), ...this.marginSpec() };
+    if (this.pinPage) return { mode: "pinned", page: this.pinPage, ...this.noteAddress, ...this.marginSpec() };
+    if (this.follows && this.held) return { mode: "held", ...(note ? { note } : {}), ...(nav ? { nav } : {}), ...this.noteAddress, ...this.marginSpec() };
+    return { ...(nav ? { nav } : {}), ...this.noteAddress, ...this.marginSpec() };
   }
   /** Its margin (PIE-873: marks only, or cards whole) when it isn't the default, kept with the layout as `margin`. */
   marginSpec(): { margin?: MarginMode } { return this.surface.marginMode === "trim" ? {} : { margin: this.surface.marginMode }; }

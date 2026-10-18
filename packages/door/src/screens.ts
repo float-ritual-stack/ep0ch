@@ -1,3 +1,4 @@
+import { readNote } from "./desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { moveNote, intentOf, moveQuestion, undoMove, type MoveArgs } from "./note-move";
 import { askInBar } from "./bar/ask";
@@ -30,7 +31,7 @@ import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
 import { madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } from "./desk/screen-spec";
 import { screenNoteProblems } from "./desk/screen-notes";
-import { namesOutline, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
+import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { bbsDate, printable, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
@@ -452,17 +453,13 @@ export function unknownScreen(name: string): string {
 }
 
 /**
- * A block target (detail's): an id, `((ref))` or an ep0ch:// URI, through outline-core's one parser; a URI must name
- * this door's outline. Refused when the outline has no such block.
+ * A block target (detail's): an id, `((ref))` or an ep0ch:// URI, resolved on its named outline. Refused when the outline has no such block.
  */
 async function blockTarget(given: string, ctx: Ctx): Promise<string> {
   let parsed;
   try { parsed = parseAddressedBlock(given.trim()); } catch (e) { throw new ActionRefused((e as Error).message); }
-  if ("outline" in parsed && ctx.outline && !namesOutline(parsed, { outline: ctx.outline, machine: ctx.machine ?? canonicalLocalMachineName() })) {
-    throw new ActionRefused(`that URI names ${parsed.outline} on ${parsed.machine}, but this door is ${ctx.outline} on ${ctx.machine ?? canonicalLocalMachineName()} · ep0ch --screen detail ${given.trim()} opens a door there`);
-  }
-  if (!(await ctx.board.get(parsed.blockId))) throw new ActionRefused(`no block ${parsed.blockId}`);
-  return parsed.blockId;
+  if (!(await readNote(ctx, given.trim()))) throw new ActionRefused(`no block ${parsed.blockId}`);
+  return "outline" in parsed && parsed.outline !== ctx.outline ? given.trim() : parsed.blockId;
 }
 
 /** Other names for what a menu item opens: its screen's title and the words the README uses. */
@@ -916,7 +913,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       { act: "open id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "puts that note in front of the person, in a reader" },
     ],
     async run({ id }, { ctx, here }) {
-      const m = await ctx.board.get(id);
+      const m = await readNote(ctx, id);
       if (!m) throw new ActionRefused(`no block ${id}`);
       // The screens that reach here (a message reader, the showcase) change what's in front of the person: the
       // idle wait and the rest of the actor rule, as for a screen change. (The desk, the board, the welcome, the

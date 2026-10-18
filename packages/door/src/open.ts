@@ -1,3 +1,5 @@
+import type { AuthoredResourceLink } from "./authored";
+import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 // Opening what a Markdown link names, as Detail does (pi-herdr-outliner src/detail-controller.ts
 // `link.open`, src/open-external.ts, src/outliner-links.ts): an http(s) address opens in the system's
 // browser; a pi-outliner:// link to a block, a page or a Work ID opens in the door like `((…))` and `[[…]]`;
@@ -34,8 +36,20 @@ const FRAGMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
  */
 export function destinationOf(url: string): { web: string } | { target: LinkTarget } | { refused: string } {
   const u = url.trim();
+  if (u.startsWith("ep0ch://")) {
+    try { const a = parseEp0chBlockUri(u); return { target: { block: a.blockId, outline: a.outline, machine: a.machine, ...(a.fragment ? { fragment: a.fragment } : {}) } }; }
+    catch (e) { return { refused: (e as Error).message }; }
+  }
   if (/^https?:\/\//i.test(u)) {
-    try { return { web: new URL(u).href }; } catch { return { refused: `not a web address: ${u}` }; }
+    try {
+      const p = new URL(u);
+      const match = p.hostname === "my.ep0ch.sh" && p.pathname.match(/^\/pub\/o\/([^/]+)\/(?:p\/)?(.+)$/);
+      if (match) {
+        const value = decodeURIComponent(match[2]!);
+        return { target: { outline: decodeURIComponent(match[1]!), ...(BLOCK_ID.test(value) && /^[0-9a-f-]{36}$/i.test(value) ? { block: value } : { page: value }), ...(p.hash ? { fragment: p.hash.slice(1) } : {}) } };
+      }
+      return { web: p.href };
+    } catch { return { refused: `not a web address: ${u}` }; }
   }
   if (!URL.canParse(u)) return { refused: `not a web or outliner link: ${u}` };
   const p = new URL(u);
@@ -47,4 +61,13 @@ export function destinationOf(url: string): { web: string } | { target: LinkTarg
   if (p.hostname === "block" && BLOCK_ID.test(value) && (!fragment || FRAGMENT_ID.test(fragment))) return { target: { block: value, ...(fragment ? { fragment } : {}) } };
   if (p.hostname === "page" || p.hostname === "work") return { target: { page: value } };
   return { refused: `the door can't open pi-outliner://${p.hostname} links yet` };
+}
+
+/** Published note links in the service's Resources rows still open as notes in the door. */
+export function addressedResource(link: AuthoredResourceLink): LinkTarget | null {
+  const r = link.resolution;
+  const url = r.kind === "unregistered" && r.reference.kind === "web" ? r.reference.url : r.kind === "ready" && r.provider === "web" ? r.addressLabel : null;
+  if (!url) return null;
+  const to = destinationOf(url);
+  return "target" in to && to.target.outline ? to.target : null;
 }

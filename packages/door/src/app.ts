@@ -1,3 +1,4 @@
+import { outlineBoards, readNote } from "./desk/outline-boards";
 import { INVITES } from "./surface/invite";
 import { MacroRecording, MACRO_ACTIONS } from "./macros";
 // The door: a stack of screens, one status bar, one paint per change.
@@ -518,7 +519,7 @@ export class App implements Ctx {
     return {
       ctx: this, dispatch: this.dispatch, screens: () => this.stack, kept: () => this.background,
       near: () => this.noteInFront(),
-      note: id => this.board.get(id),
+      note: id => readNote(this, id),
     };
   }
   /** What the bar's actions run on (BAR_ACTIONS). */
@@ -701,7 +702,7 @@ export class App implements Ctx {
   catchUp(): void {
     // What a control command reads is the settled screen, never a transition's frames (PIE-958).
     const snapped = this.stack.at(-1)?.settle?.() === true;
-    if (this.skipped || snapped) this.flush();
+    if (this.skipped || this.paintTimer || snapped) this.flush();
   }
   /** A frame was due while nobody saw the screen, and wasn't rendered. */
   private skipped = false;
@@ -1151,6 +1152,7 @@ export class App implements Ctx {
     // What the door reported to its terminal goes with it (OSC 7501 clear).
     this.display.programStatus?.(null);
     this.disarm();
+    outlineBoards(this).close();
     this.display.dispose();
     this.done();
   }
