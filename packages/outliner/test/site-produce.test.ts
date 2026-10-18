@@ -10,6 +10,8 @@ import type { SiteAnswer, SiteProduced } from "@ep0ch/outline-core/site";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { answerSite } from "../src/site-answer";
+import { queryRequestProblem } from "../src/block-query";
+import { siteBudget, StillCounting } from "../src/site-budget";
 import { OutlinerStore } from "../src/store";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -231,3 +233,18 @@ describe("children rows", () => {
 });
 
 void (null as unknown as SiteAnswer);
+
+describe("an answer past its time budget (PIE-1047)", () => {
+  test("a per-item figure that runs out of time stops with still counting, which the wire carries as its code", () => {
+    const store = scratch();
+    const { lego } = projects(store);
+    const ask = { blockId: lego.id, produce: { kind: "figure" as const, figure: "stat", props: { items: [{ label: "Tickets", query: "type=ticket" }, { label: "Lego", query: "project=lego-night" }] } } };
+    // Within its budget it answers; one already spent stops at the first item, naming it, instead of holding the host.
+    expect((answerSite(store, ask, Date.now, siteBudget()).produced as Extract<SiteProduced, { kind: "figure" }>).counts?.map(c => c.ids.length)).toEqual([3, 3]);
+    let stopped: unknown;
+    try { answerSite(store, ask, Date.now, siteBudget(1, performance.now() - 10)); } catch (error) { stopped = error; }
+    expect(stopped).toBeInstanceOf(StillCounting);
+    expect((stopped as Error).message).toStartWith("still counting: counting Tickets took more than 0.001 s");
+    expect(queryRequestProblem(stopped)).toMatchObject({ code: "still-counting" });
+  });
+});

@@ -201,7 +201,11 @@ export type { FieldRow, SiteAnswer, SiteAnswerRequest, SiteLink, SiteProblem, Si
 
 /** A query the service refused, with where. */
 export interface OutlinerRequestProblem {
-  code: "query-syntax" | "query-invalid";
+  /**
+   * `still-counting` (PIE-1047): the answer ran past the service's time budget for one request, so it stopped and went on
+   * to other requests; a reader draws "still counting" where the answer goes and asks again in a moment.
+   */
+  code: "query-syntax" | "query-invalid" | "still-counting";
   message: string;
   /** Query field that failed, such as where. */
   field?: string;

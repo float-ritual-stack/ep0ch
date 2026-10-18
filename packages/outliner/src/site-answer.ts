@@ -17,6 +17,7 @@ import { textRecord } from "./block-records";
 import { blockDisplayTitle } from "./references";
 import type { BlockRefLookup } from "./store";
 import { produce, unknowable, type ProducerStore } from "./site-producers";
+import { StillCounting, type SiteBudget } from "./site-budget";
 import type { Block } from "./types";
 
 /** What the Site read needs of the store. */
@@ -29,6 +30,7 @@ export interface SiteStore extends ProducerStore {
 }
 
 const MAX_PATHS = 50;
+
 /** The most placeholders one `interpolate` text is read for. */
 const MAX_PAGE_PLACEHOLDERS = 200;
 const MAX_CHAIN = 8;
@@ -47,7 +49,12 @@ class StoreWorld implements PathWorld {
   hiddenHits = 0;
 
   /** The reader may not see every note (the request named `hidden`, even if none yet): what decides an answer is checked, not only what it returns. */
-  constructor(private readonly store: SiteStore, private readonly clock: () => number, readonly hidden: ReadonlySet<string> = new Set(), readonly cut = false) {}
+  constructor(private readonly store: SiteStore, private readonly clock: () => number, readonly hidden: ReadonlySet<string> = new Set(), readonly cut = false, private readonly budget?: SiteBudget) {}
+
+  /** One unit of work done: past the request's budget, the answer stops with "still counting" (PIE-1047). */
+  spend(what = "this answer"): void {
+    if (this.budget && performance.now() > this.budget.deadline) throw new StillCounting(this.budget.ms, what);
+  }
 
   now() { return this.clock(); }
 
@@ -132,7 +139,7 @@ export interface Bound {
 
 const NEW_SITE_ACTOR = { id: "site.answer", author: "system" as const };
 
-export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number): Bound {
+export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => number, budget?: SiteBudget): Bound {
   // Figures and extension argument templates can be asked outside a note: props are available, but no `this`.
   const noteless = !!request && typeof request === "object" && request.blockId === undefined && (request.produce?.kind === "figure" || request.interpolate !== undefined);
   if (!noteless && (!request || typeof request !== "object" || typeof request.blockId !== "string" || !request.blockId!.trim())) {
@@ -167,7 +174,7 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
   const refused = (id: string, what: string) => { if (hidden.has(id)) throw new Error(`((${id})) is ${what} the reader may not see; it supplies no values`); };
 
   if (noteless) {
-    const world = new StoreWorld(store, clock, hidden, request.hidden !== undefined);
+    const world = new StoreWorld(store, clock, hidden, request.hidden !== undefined, budget);
     // Extension argument templates have only their supplied props; figures still query the outline.
     const scope: PathScope = { ancestors: [], ...(request.interpolate === undefined ? { world } : {}) };
     return { site: { at: { block: "" }, props, actor: NEW_SITE_ACTOR }, scope, world, route: ["no note: this request is outside any note, so `this` is unavailable"], deps: new Set(), blockId: "", revision: 0, text: "" };
@@ -177,7 +184,7 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
   const exact = target.id === request.blockId!.trim().toLowerCase();
   const text = request.draft?.text ?? target.text;
   if (hidden.has(target.id)) throw new Error(`((${target.id})) is a note the reader may not see; it has no values to read`);
-  const world = new StoreWorld(store, clock, hidden, request.hidden !== undefined);
+  const world = new StoreWorld(store, clock, hidden, request.hidden !== undefined, budget);
   const deps = new Set<string>([target.id]);
 
   // The note read: its saved text, or the draft being typed (the record is built from that text, so values agree with the screen).
@@ -236,6 +243,7 @@ export function bind(store: SiteStore, request: SiteAnswerRequest, clock: () => 
 }
 
 export function valueOf(bound: Bound, expression: string, parsed: ReturnType<typeof interpolationSpans>[number], start?: number, end?: number): SiteValue {
+  bound.world.spend(`reading {{${parsed.path}}}`);
   const hitsBefore = bound.world.hiddenHits;
   const read = valueRead(bound, expression, parsed, start, end);
   // A read that met a note the reader may not see says nothing of it: no value, not even a partial list.
@@ -303,12 +311,15 @@ function fill(bound: Bound, ask: NonNullable<SiteAnswerRequest["interpolate"]>):
   return { text: interpolate(ask.text, span => { const v = answered.get(span.start); return v && v.values && !v.hidden ? v.values : undefined; }, { fences: ask.fences ?? "literal" }), values };
 }
 
-/** `site.answer`: every `{{ }}` of the note (or its draft), and any `paths` asked, answered with how and from what. */
-export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: () => number = Date.now): SiteAnswer {
-  const bound = bind(store, request, clock);
+/**
+ * `site.answer`: every `{{ }}` of the note (or its draft), and any `paths` asked, answered with how and from what. With a
+ * `budget` (the service's own requests), past it the answer throws `StillCounting` instead of holding the loop.
+ */
+export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: () => number = Date.now, budget?: SiteBudget): SiteAnswer {
+  const bound = bind(store, request, clock, budget);
   // A producer's question (a figure, `::fields`, `::if`): asked of the bound Site, so `this` and its `{{ }}` operands are its host's.
   if (request.produce && request.draft && request.produce.kind !== "fields") bound.route.push("draft not read: this producer asks the saved note and the outline (a draft is read for `{{ }}` values and ::fields)");
-  const produced = request.produce ? produce(store, bound, request.produce, { read: path => valueOf(bound, path, pathSpan(path)), binder: boundBinder(bound) }) : undefined;
+  const produced = request.produce ? produce(store, bound, request.produce, { read: path => valueOf(bound, path, pathSpan(path)), binder: boundBinder(bound), spend: what => bound.world.spend(what) }) : undefined;
   // With a producer asking, only its question is answered: the note's own `{{ }}` are the client's other watch.
   const values = request.produce ? [] : interpolationSpans(bound.text).map(span => valueOf(bound, span.expression, span, span.start, span.end));
   const paths = (request.paths ?? []).map(path => valueOf(bound, path, pathSpan(path)));

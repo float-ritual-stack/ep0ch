@@ -26,7 +26,7 @@ import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { Marked } from "marked";
 import { blockdownMarked } from "./blockdown-marked";
-import type { OutlinerClient, OutlinerWatcher } from "./client";
+import { hostBusy, type OutlinerClient, type OutlinerWatcher } from "./client";
 import type { ShareSession, WebSession } from "@ep0ch/outline-core/protocol";
 import type { ShareResolution } from "./share-sessions";
 import type { WebDoor } from "./publish-door";
@@ -621,6 +621,33 @@ function renderedHtml(body: string, status = 200, csp = RENDERED_CSP): Response 
   return respond(body, "text/html; charset=utf-8", status, { "content-security-policy": csp });
 }
 
+/**
+ * Starts a serving publisher once the outline host answers (PIE-1047): a host that is busy (a request it didn't answer
+ * in time) or not up yet is waited for, said on the log with the next try, never a reason to exit; a protocol mismatch
+ * or a refusal still fails at once with its own words.
+ */
+export async function startWhenAnswered(publisher: Pick<Publisher, "start">, log: (line: string) => void, pause: (ms: number) => Promise<void> = ms => Bun.sleep(ms)): Promise<OutlinerServiceStatus> {
+  for (let wait = 1_000; ; wait = Math.min(wait * 2, 30_000)) {
+    try { return await publisher.start(); }
+    catch (error) {
+      const absent = ["ENOENT", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException)?.code ?? "");
+      if (!hostBusy(error) && !absent) throw error;
+      log(`publish: ${absent ? "the outline host isn't answering yet" : "the outline host is busy"} (${(error as Error).message}); trying again in ${wait / 1000} s`);
+      await pause(wait);
+    }
+  }
+}
+
+/** What a reader is told when the outline host is busy (PIE-1047): this page failed, try again; the publisher goes on. */
+export const HOST_BUSY = "The outline host is busy; try again in a moment";
+
+/** A page the host couldn't answer for: 503 "busy" (with Retry-After) when it is busy, else `fallback`'s 502. */
+function unreadable(error: unknown, fallback: string): Response {
+  return hostBusy(error)
+    ? respond(`${HOST_BUSY}\n`, "text/plain; charset=utf-8", 503, { "retry-after": "5" })
+    : respond(fallback, "text/plain; charset=utf-8", 502);
+}
+
 function notFound(): Response {
   return respond("Not found\n", "text/plain; charset=utf-8", 404);
 }
@@ -1117,7 +1144,7 @@ export class Publisher {
         return await this.answerShare(request, shared[1]!, shared[2] ?? "/", "", tunnel);
       } catch (error) {
         this.log(redactSharePath(`publish: tunnel ${request.method} ${new URL(request.url).pathname}: ${error instanceof Error ? error.message : String(error)}`));
-        return respond("The outline could not be read\n", "text/plain; charset=utf-8", 502);
+        return unreadable(error, "The outline could not be read\n");
       }
     }
     // The sign-in listener checked its own Host (its public name) before it let the request through.
@@ -1145,7 +1172,7 @@ export class Publisher {
         return await this.answerShare(request, shared[1]!, shared[2] ?? "/", mount);
       } catch (error) {
         this.log(redactSharePath(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`));
-        return respond("The outline could not be read\n", "text/plain; charset=utf-8", 502);
+        return unreadable(error, "The outline could not be read\n");
       }
     }
     // The tailnet's list of open shares, where each is ended (and every one at once), and one started from a page.
@@ -1154,7 +1181,7 @@ export class Publisher {
         return await this.serveShares(request, path);
       } catch (error) {
         this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
-        return respond("The outline could not be reached; try again\n", "text/plain; charset=utf-8", 502);
+        return unreadable(error, "The outline could not be reached; try again\n");
       }
     }
     // The signed-in web sessions (web-sessions.ts): every browser signed in at the sign-in listener, each with Revoke.
@@ -1163,7 +1190,7 @@ export class Publisher {
         return await this.serveSessions(request, path, signedIn);
       } catch (error) {
         this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
-        return respond("The outline host could not be reached; try again\n", "text/plain; charset=utf-8", 502);
+        return unreadable(error, "The outline host could not be reached; try again\n");
       }
     }
     // The door in the browser: a terminal, so where the person already is: the tailnet listener, or signed in (the gate
@@ -1224,7 +1251,7 @@ export class Publisher {
       return await this.serveEntry(entry, index, browsing ? "html" : view, audience);
     } catch (error) {
       this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
-      return respond("The outline could not be read\n", "text/plain; charset=utf-8", 502);
+      return unreadable(error, "The outline could not be read\n");
     }
   }
 

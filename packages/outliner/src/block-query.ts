@@ -1,4 +1,5 @@
 import { MACHINE_KEY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
+import { StillCounting } from "./site-budget";
 import { matchesFilters, normalizePropertyKey } from "./properties";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { ME_READER, QueryAtomError, THIS_TARGET, isQueryAtomWord, parseQueryAtom, tagMatches, type QueryRelationAtom } from "@ep0ch/outline-core/query-atoms";
@@ -390,6 +391,7 @@ export function queryRequestProblem(error: unknown): OutlinerRequestProblem | un
     };
   }
   if (error instanceof BlockQueryError) return { code: "query-invalid", message: error.message };
+  if (error instanceof StillCounting) return error.problem;
   return undefined;
 }
 

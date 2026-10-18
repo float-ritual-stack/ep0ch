@@ -42,6 +42,7 @@ import {
 import { readAuthoredLinks } from "./authored-links";
 import { readBlockRecords } from "./block-records";
 import { answerSite } from "./site-answer";
+import { siteBudget, StillCounting } from "./site-budget";
 import { templatePropsOf, templateUse } from "./template-use";
 import { readSources } from "./site-sources";
 import { placeOutput } from "./place";
@@ -85,7 +86,7 @@ import {
   TUI_RESOURCE_PRESENTATION_CONTEXT,
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
-import { actionOf, loopWatched, noteWork, STALL_REPORT_MS, Turns } from "./loop-watch";
+import { actionOf, loopWatched, noteWork, requestSubject, STALL_REPORT_MS, subjectLabel, Turns } from "./loop-watch";
 import { isWatchable, QueryWatches, type WatchConnection } from "./query-watches";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
@@ -1934,7 +1935,8 @@ export class OutlinerServer {
     if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (request.action === "site.answer" && request.sources) {
       try {
-        const answer = answerSite(this.store, request);
+        const budget = siteBudget();
+        const answer = answerSite(this.store, request, Date.now, budget);
         const deps = new Set(answer.deps);
         const projections = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalizeResourceProjectionRequest({ blockId: answer.blockId })), false)).projections.map(p => ({ ...p }));
         if (request.hidden) for (const projection of projections) {
@@ -1953,18 +1955,18 @@ export class OutlinerServer {
           return ext?.script ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code } : { kind: "extension", label: ext?.name ?? id };
         } }, { blockId: answer.blockId, ...(request.hidden ? { hidden: request.hidden } : {}) });
         return { id: request.id, ok: true, result: { ...answer, deps: [...deps], sources }, sequence: this.store.sequence };
-      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), ...(error instanceof StillCounting ? { problem: error.problem } : {}), sequence: this.store.sequence }; }
     }
     if (request.action === "site.answer" && request.scriptLine !== undefined) {
       try {
         if (!Number.isInteger(request.scriptLine) || request.scriptLine < 0 || request.hidden === undefined) throw new Error("A published script needs scriptLine (from zero) and hidden (the reader's cut)");
-        const answer = answerSite(this.store, request);
+        const answer = answerSite(this.store, request, Date.now, siteBudget());
         const deps = new Set(answer.deps);
         const rendered = await this.extensionCalls.renderForSite(answer.blockId, request.scriptLine, request.hidden, ids => { for (const id of ids) deps.add(id); }, request);
         const ids = rendered.reads.map(read => read.id);
         for (const id of ids) deps.add(id);
         return { id: request.id, ok: true, result: { ...answer, deps: [...deps], script: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}), reads: { ids, ...(rendered.untracked ? { untracked: true } : {}) } } }, sequence: this.store.sequence };
-      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
+      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), ...(error instanceof StillCounting ? { problem: error.problem } : {}), sequence: this.store.sequence }; }
     }
     if (request.action === "scripts.stop") {
       try {
@@ -2462,7 +2464,7 @@ export class OutlinerServer {
           result = this.store.blockFacets(request.blockIds);
           break;
         case "site.answer":
-          result = answerSite(this.store, request);
+          result = answerSite(this.store, request, Date.now, siteBudget());
           break;
         case "site.sources": {
           if (typeof request.blockId !== "string" || !request.blockId.trim()) throw new Error("site.sources needs blockId: the note whose generated regions are asked, for example { blockId: \"PIE-12\" }");
@@ -4453,14 +4455,16 @@ export class OutlinerServer {
   private timeRequest(request: OutlinerRequest | undefined, received: number, started: number, answered: number, loopMs: number, publishMs: number): void {
     const action = String(request?.action ?? "invalid");
     const ms = answered - received;
-    noteWork(action, loopMs);
+    // A request that held the loop is named by what it computed (PIE-1047), so a stall points at its note and figure.
+    const subject = loopMs >= SLOW_REQUEST_MS || ms >= SLOW_WAIT_MS ? requestSubject(request) : undefined;
+    noteWork(subject && loopMs >= SLOW_REQUEST_MS ? subjectLabel(action, subject) : action, loopMs);
     noteWork(`${action} fan-out`, publishMs);
     // Its own work held the loop, or it waited long enough for a client to notice (a third of the 3 s timeout).
     if (loopMs < SLOW_REQUEST_MS && publishMs < SLOW_REQUEST_MS && ms < SLOW_WAIT_MS) return;
     console.log(JSON.stringify({
       status: "slow_request", outline: this.outline?.name, action, ms: Math.round(ms),
       queuedMs: Math.round(started - received), handleMs: Math.round(answered - started), loopMs: Math.round(loopMs),
-      publishMs: Math.round(publishMs), subscribers: this.subscribers.size,
+      publishMs: Math.round(publishMs), subscribers: this.subscribers.size, ...(subject ?? requestSubject(request)),
     }));
   }
 

@@ -16,6 +16,7 @@ import { headerLine } from "@ep0ch/outline-core/header-line";
 import { blockGroups, LINK_GROUPS, linkBlockAt, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import type { AuthoredLinksSnapshot } from "./authored-links";
+import { hostBusy } from "./client";
 import { componentSentinel, MAX_PUBLISHED_COMPONENTS } from "./publish-components";
 import { componentSourceHtml, fieldsHtml, figureBodyHtml, figureFrame, linksHtml, viewLaneHtml, type FigureRows, type LinkGroupHtml, type LinkRowHtml, type ViewLane, type ViewRow } from "./publish-figures";
 import { checklistItems } from "./checklist-items";
@@ -208,6 +209,14 @@ async function produced(host: Pick<LiveHost, "request"> & Partial<Pick<LiveHost,
   throw new Error("this reads a note that isn't shown here");
 }
 
+/**
+ * Why a live figure has no answer on this page: "still counting" when the outline host is busy (it ran past its time
+ * budget, or didn't answer in time: PIE-1047, PIE-1009), else the service's own words. The rest of the page draws.
+ */
+function trouble(error: unknown): string {
+  return hostBusy(error) ? "still counting: the outline host is busy; reload in a moment" : error instanceof Error ? error.message : String(error);
+}
+
 /** A live figure's props from the service's answer, or null when it asks nothing. */
 async function answerFigure(host: LiveHost, kind: string, p: Props, note: string, args?: Record<string, string>): Promise<{ props: Props; status: string; error?: string } | null> {
   const asking = liveAsk(kind, p);
@@ -218,7 +227,7 @@ async function answerFigure(host: LiveHost, kind: string, p: Props, note: string
   if (!perItem && question && "error" in question) return { props: p, status: "live", error: question.error };
   let a: Extract<SiteProduced, { kind: "figure" }>;
   try { a = await produced(host, note, { kind: "figure", figure: kind, props: askProps(p) }, args) as typeof a; }
-  catch (e) { return { props: p, status: "live", error: (e as Error).message }; }
+  catch (e) { return { props: p, status: hostBusy(e) ? "live · still counting" : "live", error: trouble(e) }; }
   if (perItem) {
     // Each item's count is of the results this page may show.
     const items = await Promise.all((p.items as Props[]).map(async (item, k) => {

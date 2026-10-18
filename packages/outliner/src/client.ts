@@ -189,6 +189,22 @@ export class OutlinerWatcher {
   }
 }
 
+/** A request nobody answered in time: the host is busy (or gone); the caller says so and tries again later (PIE-1047). */
+export class OutlinerTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`Outliner request timed out after ${timeoutMs}ms`);
+    this.name = "OutlinerTimeoutError";
+  }
+}
+
+/**
+ * Whether a failed request means the outline host is busy (PIE-1047): it didn't answer in time, or its answer ran past
+ * the host's time budget ("still counting"). A reader says so and asks again; it never gives up on the host.
+ */
+export function hostBusy(error: unknown): boolean {
+  return error instanceof OutlinerTimeoutError || (error instanceof OutlinerRequestError && error.problem?.code === "still-counting");
+}
+
 /** A service-rejected request; `problem` carries structured detail when the service provides it. */
 export class OutlinerRequestError extends Error {
   constructor(message: string, readonly problem?: OutlinerRequestProblem) {
@@ -241,7 +257,7 @@ export class OutlinerClient {
     let buffer = "";
     const timeout = setTimeout(() => {
       socket.destroy();
-      responseReceived.reject(new Error(`Outliner request timed out after ${timeoutMs}ms`));
+      responseReceived.reject(new OutlinerTimeoutError(timeoutMs));
     }, timeoutMs);
 
     const fail = (error: Error): void => {

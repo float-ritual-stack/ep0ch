@@ -381,7 +381,8 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       ...(door ? { door } : {}),
       log: line => console.error(line),
     });
-    const status = await publisher.start();
+    // A serving publisher waits for a busy host instead of exiting (PIE-1047); `list` answers or fails now.
+    const status = operation === "serve" ? await (await import("./publish")).startWhenAnswered(publisher, line => console.error(line)) : await publisher.start();
     doorOutline ??= status.outline?.name;
     if (door && !doorOutline) throw new Error("--door: no outline is named for the door to open; add --ws <name>");
     if (operation === "list") {

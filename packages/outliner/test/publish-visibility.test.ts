@@ -5,8 +5,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OutlinerClient } from "../src/client";
-import { Publisher } from "../src/publish";
+import { OutlinerClient, OutlinerRequestError, OutlinerTimeoutError } from "../src/client";
+import { HOST_BUSY, Publisher, startWhenAnswered } from "../src/publish";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { scratchOutline } from "./scratch-outline";
@@ -24,7 +24,10 @@ async function until<T>(what: string, check: () => T | undefined | null | false,
   }
 }
 
-async function setup() {
+/** A host that is busy for the requests `busy` names: they fail as a host past its time budget, or one that never answers. */
+type Busy = (request: { action: string; produce?: { kind?: string } }) => "still-counting" | "timeout" | false;
+
+async function setup(busy: Busy = () => false) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-publish-visibility-")));
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
@@ -36,7 +39,14 @@ async function setup() {
   const server = new OutlinerServer(store, paths.socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80, ruleQuietMs: 20 });
   await server.start();
   const client = new OutlinerClient(paths.socket, 15_000);
-  const publisher = new Publisher({ client });
+  const asks = Object.create(client) as OutlinerClient;
+  asks.request = (async (input: Parameters<OutlinerClient["request"]>[0], timeoutMs?: number) => {
+    const why = busy(input as never);
+    if (why === "timeout") throw new OutlinerTimeoutError(3_000);
+    if (why === "still-counting") throw new OutlinerRequestError("still counting: checking which rows this page may show took more than 2 s", { code: "still-counting", message: "still counting" });
+    return client.request(input, timeoutMs);
+  }) as OutlinerClient["request"];
+  const publisher = new Publisher({ client: asks });
   await publisher.start();
   cleanups.push(async () => {
     await publisher.stop();
@@ -398,4 +408,36 @@ test("nested templates withhold stored handler output without reads from public 
   expect(outside).not.toContain("PRIVATE_TEMPLATE_VALUE");
   expect(outside).toContain("not shared");
   expect(outside).toContain("VISIBLE_TEMPLATE_OUTPUT");
+});
+
+test("a page whose figure the host is still counting loads, and the figure says so (PIE-1047, PIE-1009)", async () => {
+  // Oct 18: a figure's question held the host past every client's 3 s; a page now draws the rest and "still counting" there.
+  let counting = true;
+  const { store, tailnet } = await setup(request => counting && request.action === "site.answer" && request.produce?.kind === "figure" ? "timeout" : false);
+  store.create("Bean project [type::project] [publish::public]");
+  store.create("Seed swap page [publish::public:seed-swap]\nThe swap opens at noon.\n\n::graph-table\n---\nquery: type=project\n---\n::");
+  const html = await tailnet("seed-swap");
+  expect(html).toContain("The swap opens at noon.");
+  expect(html).toContain("still counting: the outline host is busy; reload in a moment");
+  counting = false;
+  expect(await tailnet("seed-swap")).not.toContain("still counting");
+});
+
+test("a host that doesn't answer in time fails the page as busy, and a publisher starting meanwhile waits for it (PIE-1047)", async () => {
+  let stalled = false;
+  const { store, tailnet } = await setup(() => stalled ? "timeout" : false);
+  store.create("Compost notes [publish::public:compost]");
+  stalled = true;
+  expect(await tailnet("compost")).toBe(`${HOST_BUSY}\n`);
+  stalled = false;
+  expect(await tailnet("compost")).toContain("Compost notes");
+  // Starting while the host is busy: said on the log and tried again, never an exit.
+  const lines: string[] = [];
+  let tries = 0;
+  const status = await startWhenAnswered({ start: async () => { if (++tries < 3) throw new OutlinerTimeoutError(3_000); return { outline: { name: "garden" } } as never; } }, line => lines.push(line), async () => {});
+  expect(status).toMatchObject({ outline: { name: "garden" } });
+  expect(lines).toEqual([
+    "publish: the outline host is busy (Outliner request timed out after 3000ms); trying again in 1 s",
+    "publish: the outline host is busy (Outliner request timed out after 3000ms); trying again in 2 s",
+  ]);
 });

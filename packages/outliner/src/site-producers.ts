@@ -12,6 +12,7 @@ import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/out
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
 import type { Bound } from "./site-answer";
 import { queryRelations, type QueryRelationKind, type ValueBinder } from "./block-query";
+import { StillCounting } from "./site-budget";
 
 type Props = Record<string, any>;
 
@@ -22,10 +23,12 @@ export interface ProducerStore {
   queryBlocks(input: BlockSearchQuery, binder?: ValueBinder, select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): VisibleBlockCollection & { groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string };
   readSavedView(viewId: string, options: Record<string, never>, format: "tree", select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): SavedViewReadResult<TreeIndexBlock>;
   matchQuery(expression: unknown, ids: unknown, narrow?: { this?: unknown }, binder?: ValueBinder): { blockIds: string[] };
+  /** For each id, the notes linking to it (`sources`) and the ones it links to (`targets`), read once for all of them. */
+  linkNeighbours(ids: readonly string[], which: { sources: boolean; targets: boolean }): Map<string, Set<string>>;
 }
 
 /** The Site's reads a producer makes: a path's answer, and a query operand's binder. */
-export interface SiteTools { read(path: string): SiteValue; binder: ValueBinder }
+export interface SiteTools { read(path: string): SiteValue; binder: ValueBinder; /** One unit of work done (the request's time budget, site-budget.ts). */ spend(what: string): void }
 
 /** The most notes whose neighbours are checked for one question; a note past it counts as unknowable. */
 export const MAX_CHECKED = 500;
@@ -46,40 +49,44 @@ export function unknowable(store: ProducerStore, world: Bound["world"], ids: rea
   const named = [...expression.matchAll(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi)].map(found => found[0].toLowerCase());
   for (const id of named) world.deps.add(id);
   const all = named.some(id => world.hidden.has(id));
+  const checked = all ? [] : ids.slice(0, MAX_CHECKED);
+  world.spend("checking which rows this page may show");
+  const near = neighbours(store, checked, relations);
   ids.forEach((id, i) => {
     if (all || i >= MAX_CHECKED) { out.add(id); return; }
-    const near = neighbours(store, id, relations);
-    for (const other of near.ids) {
+    world.spend("checking which rows this page may show");
+    for (const other of near.get(id)!) {
       world.deps.add(other);
       if (world.hidden.has(other)) out.add(id);
     }
-    if (near.incomplete) out.add(id);
   });
   if (out.size) world.hiddenHits += 1;
   return out;
 }
 
-/** The notes the relations a question reads can consult about `id`; `incomplete` when a list was cut short. */
-function neighbours(store: ProducerStore, id: string, relations: ReadonlySet<QueryRelationKind>): { ids: Set<string>; incomplete: boolean } {
-  const out = new Set<string>();
-  let incomplete = false;
+/**
+ * The notes the relations a question reads can consult about each of `ids`: children and ancestors from the tree, and
+ * links either way from one read of the link index for every row (PIE-1047: a whole-outline query per row held the
+ * host for 57 s over pie's 5k notes).
+ */
+function neighbours(store: ProducerStore, ids: readonly string[], relations: ReadonlySet<QueryRelationKind>): Map<string, Set<string>> {
   const all = relations.has("other");
-  if (all || relations.has("child")) for (const child of store.children(id)) out.add(child.id);
-  if (all || relations.has("parent") || relations.has("under")) {
-    const seen = new Set<string>([id]);
-    for (let at = store.get(id)?.parentId; at && !seen.has(at); at = relations.has("under") || all ? store.get(at)?.parentId : null) { out.add(at); seen.add(at); }
-  }
-  if (all || relations.has("links") || relations.has("linkedfrom")) {
-    const where = [all || relations.has("links") ? "links:this" : "", all || relations.has("linkedfrom") ? "linkedfrom:this" : ""].filter(Boolean).join(" OR ");
-    const linked = store.queryBlocks({ where, this: id, limit: 1000, machinery: "show" } as BlockSearchQuery);
-    for (const block of linked.blocks) out.add(block.id);
-    if (linked.completeness?.kind !== "complete") incomplete = true;
-  }
-  return { ids: out, incomplete };
+  const sources = all || relations.has("links"), targets = all || relations.has("linkedfrom");
+  const linked = sources || targets ? store.linkNeighbours(ids, { sources, targets }) : undefined;
+  return new Map(ids.map(id => {
+    const out = new Set<string>(linked?.get(id) ?? []);
+    if (all || relations.has("child")) for (const child of store.children(id)) out.add(child.id);
+    if (all || relations.has("parent") || relations.has("under")) {
+      const seen = new Set<string>([id]);
+      for (let at = store.get(id)?.parentId; at && !seen.has(at); at = relations.has("under") || all ? store.get(at)?.parentId : null) { out.add(at); seen.add(at); }
+    }
+    return [id, out];
+  }));
 }
 
 /** Apply the Site's cut before a query counts, groups, facets or limits its matches. */
 export function visibleMatches<T extends { id: string }>(store: ProducerStore, world: Bound["world"], blocks: T[], where?: string): T[] {
+  world.spend("checking which results this page may show");
   const ids = blocks.map(block => block.id);
   for (const id of ids) world.deps.add(id);
   const gone = unknowable(store, world, ids, where);
@@ -94,6 +101,7 @@ function cutStore(store: ProducerStore, world: Bound["world"]): ProducerStore {
   return {
     get: id => store.get(id),
     children: id => store.children(id),
+    linkNeighbours: (ids, which) => store.linkNeighbours(ids, which),
     queryBlocks: (input, binder) => store.queryBlocks(input, binder, blocks => visibleMatches(store, world, blocks, input.where)),
     readSavedView: (viewId, options, format) => store.readSavedView(viewId, options, format, (blocks, where) => visibleMatches(store, world, blocks, where)),
     matchQuery: (expression, ids, narrow, binder) => {
@@ -105,6 +113,8 @@ function cutStore(store: ProducerStore, world: Bound["world"]): ProducerStore {
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** A question's own error is its answer; running out of time is the whole request's (`StillCounting`). */
+const own = (error: unknown) => { if (error instanceof StillCounting) throw error; return message(error); };
 
 /** One question, asked: the results, or why not. A view is read as the door's tree reads it. */
 type Asked = { blocks: (VisibleBlock | TreeIndexBlock)[]; truncated: boolean; groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string; error?: string };
@@ -121,7 +131,7 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
       viewId = page.values![0]!;
     } else viewId = question.viewId;
     let read: SavedViewReadResult<TreeIndexBlock>;
-    try { read = store.readSavedView(viewId, {}, "tree"); } catch (error) { return { blocks: [], truncated: false, error: message(error) }; }
+    try { read = store.readSavedView(viewId, {}, "tree"); } catch (error) { return { blocks: [], truncated: false, error: own(error) }; }
     if (read.status !== "ready") return { blocks: [], truncated: false, error: `view ${read.status}: ${read.errors.join("; ")}` };
     const hidden = read.machineryHidden;
     return {
@@ -135,7 +145,7 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
     const found = store.queryBlocks({ where, ...(thisId ? { this: thisId } : {}), limit, sort: `${sort} ${direction}`, ...(question.group ? { group: question.group } : {}), machinery: machinery ?? DEFAULT_MACHINERY } as BlockSearchQuery, tools.binder);
     return { blocks: found.blocks, truncated: found.completeness?.kind === "truncated", ...(found.groups ? { groups: found.groups } : {}), ...(found.hint ? { hint: found.hint } : {}) };
   } catch (error) {
-    return { blocks: [], truncated: false, error: sortProblem(message(error), sort, direction) };
+    return { blocks: [], truncated: false, error: sortProblem(own(error), sort, direction) };
   }
 }
 
@@ -143,12 +153,13 @@ function ask(store: ProducerStore, tools: SiteTools, thisId: string | undefined,
 function subset(store: ProducerStore, tools: SiteTools, thisId: string | undefined, expression: string, ids: readonly string[]): { ids?: string[]; error?: string } {
   if (!ids.length) return { ids: [] };
   try { return { ids: store.matchQuery(expression, ids, thisId ? { this: thisId } : {}, tools.binder).blockIds }; }
-  catch (error) { return { error: message(error) }; }
+  catch (error) { return { error: own(error) }; }
 }
 
 function figure(store: ProducerStore, tools: SiteTools, thisId: string | undefined, kind: string, p: Props): SiteProduced {
   if (asksPerItem(kind, p)) {
     const counts = (p.items as Props[]).map((item, index) => {
+      tools.spend(`counting ${item.label ?? `item ${index + 1}`}`);
       const a = ask(store, tools, thisId, item);
       if (!a) return { ids: [], truncated: false };
       return a.error ? { ids: [], truncated: false, error: `${item.label ?? `item ${index + 1}`}: ${a.error}` } : { ids: a.blocks.map(b => b.id), truncated: a.truncated };
@@ -212,7 +223,7 @@ function holds(store: ProducerStore, bound: Bound, tools: SiteTools, thisId: str
     if (bound.world.hiddenHits > hits) return { kind: "if", holds: false, problem: { message: "this reads notes that aren't shown here", didYouMean: [] } };
     return { kind: "if", holds: held };
   }
-  catch (error) { return { kind: "if", holds: false, problem: { message: message(error), didYouMean: [], example: '::if{where="status=active"}' } }; }
+  catch (error) { return { kind: "if", holds: false, problem: { message: own(error), didYouMean: [], example: '::if{where="status=active"}' } }; }
 }
 
 /** A producer's question answered over the bound Site; `anyChange`: it depends on notes the answer can't name. */
