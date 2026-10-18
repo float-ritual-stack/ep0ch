@@ -11,7 +11,7 @@ import { tileKinds } from "../desk/tile-kinds";
 import { wCaption, type WRow } from "../desk/wkeys";
 import { ScreenTile } from "../desk/screen-tile";
 import { notConfigured, jevOff, SEARCH_JEV_PAUSE_MS } from "../surface/completer";
-import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, type ActionInfo, type ActRequest } from "../surface/actions";
+import { ActionRefused, actRequestOf, coerceActionArgs, declaredKeys, lineWords, shownLine, type ActionInfo, type ActRequest } from "../surface/actions";
 import { authorName, USER } from "../socket";
 import { ago } from "../text";
 import { filtered } from "./filter";
@@ -280,8 +280,7 @@ function actionLine(q: string, host: BarHost): BarRow | null {
     const spec = Object.fromEntries(Object.entries(info.args).map(([k, s]) => [k, missing.includes(k) ? { ...s, optional: true } : s]));
     req.args = coerceActionArgs(req.action, spec, req.args ?? {});
   } catch (e) { refused = e instanceof Error ? e.message : String(e); }
-  const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
-  const shown = [scripts.length === 1 ? scripts[0]!.extension.name! : req.action, ...Object.entries(req.args ?? {}).map(([k, v]) => `${k}=${said(String(v))}`), ...(req.tile !== undefined ? [`tile=${said(req.tile)}`] : [])].join(" ");
+  const shown = shownLine(scripts.length === 1 ? scripts[0]!.extension.name! : req.action, req.args ?? {}, req.tile);
   return {
     key: `line:${shown}`, label: `run ${shown}`, fill: shown, detail: missing.length && !refused ? `needs ${missing.map(k => `${k}=`).join(" ")} · ⏎ its form` : info.summary.split(/[.:;(]/)[0]!.slice(0, 80), exact: true, ...(refused ? { refused } : {}),
     data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: info.summary, keys: info.keys, ...(missing.length ? { form: true, missing } : {}) },

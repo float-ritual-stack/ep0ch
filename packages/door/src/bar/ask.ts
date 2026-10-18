@@ -11,7 +11,7 @@
 // the act line's own rows run it or copy it; alt+⏎ answers and runs at once; shift+tab (or backspace on an empty line)
 // goes back a field; a click on a field or on the act line goes there. The action's examples are rows too: one picked
 // fills the form. Moving between fields, answering, copying and running are `bar.form`, an action, as every key is.
-import { ActionRefused, type ActionExample } from "../surface/actions";
+import { ActionRefused, shownLine, type ActionExample } from "../surface/actions";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import type { Actor } from "../socket";
 import { noteLabel } from "../board";
@@ -101,15 +101,11 @@ export async function askInBar<R>(ctx: AskCtx, title: string, questions: readonl
 /** The form open in the ask scope now, or null (nothing asked, or questions that aren't a form). */
 export const formOpen = (): boolean => !!waiting?.form;
 
-/** A value as an act line writes it: bare, or quoted when it has a space or a quote in it (or is empty). */
-const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
-
-/** The act line a form's answers make: the action, its tile= first, then each answer in the fields' order. */
+/** The act line a form's answers make (`shownLine`): the action, its tile=, then each answer in the fields' order. */
 function lineOf(w: NonNullable<typeof waiting>): string {
   const f = w.form!, sel = f.selector;
-  const parts = [f.action, ...(sel && w.answers[sel] !== undefined ? [`tile=${said(w.answers[sel]!)}`] : [])];
-  for (const q of w.questions) if (q.name !== sel && w.answers[q.name] !== undefined) parts.push(`${q.name}=${said(w.answers[q.name]!)}`);
-  return parts.join(" ");
+  const args = Object.fromEntries(w.questions.filter(q => q.name !== sel && w.answers[q.name] !== undefined).map(q => [q.name, w.answers[q.name]]));
+  return shownLine(f.action, args, sel ? w.answers[sel] : undefined);
 }
 
 /** What a form says of itself, for `peek`, `bar.form` and a test: its action, fields, the one in focus and its act line. */

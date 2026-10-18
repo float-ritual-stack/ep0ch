@@ -12,6 +12,15 @@ import { checkToolArgs, REF_ALIASES } from "@ep0ch/outline-core/tool-args";
 import { visible, width } from "../style";
 import type { Key } from "../term";
 
+/**
+ * An act line as the door shows it (the power bar's typed line, an action's form, PIE-1031): the action, its tile=,
+ * then its arguments, each value bare unless it needs quotes (a space, a quote, empty), as `ep0ch act` takes it back.
+ */
+export function shownLine(action: string, args: Record<string, unknown> = {}, tile?: string): string {
+  const said = (v: string) => (/[\s"']/.test(v) || !v ? JSON.stringify(v) : v);
+  return [action, ...(tile !== undefined ? [`tile=${said(tile)}`] : []), ...Object.entries(args).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${said(String(v))}`)].join(" ");
+}
+
 export type ArgType = "string" | "number" | "boolean";
 /**
  * What kind of thing in the system an argument's value names (PIE-1031), so the power bar's form offers the values
