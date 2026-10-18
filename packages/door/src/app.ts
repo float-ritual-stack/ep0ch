@@ -702,7 +702,7 @@ export class App implements Ctx {
   catchUp(): void {
     // What a control command reads is the settled screen, never a transition's frames (PIE-958).
     const snapped = this.stack.at(-1)?.settle?.() === true;
-    if (this.skipped || snapped) this.flush();
+    if (this.skipped || this.paintTimer || snapped) this.flush();
   }
   /** A frame was due while nobody saw the screen, and wasn't rendered. */
   private skipped = false;

@@ -233,6 +233,10 @@ describe("two clients on one session", () => {
     expect(a.text()[0]).toBe("tick 2");
     n = 3; paint();                                        // attached: every frame is drawn again
     expect(a.text()[0]).toBe("tick 3");
+    n = 4; app.redraw();
+    app.catchUp();                                         // a control read before the queued frame is due
+    expect(term.mirror.text()).toContain("tick 4");
+    app.quit();
   });
 
   test("another size sees the same frame cut to its size, and its bottom row says whose size it is", () => {
