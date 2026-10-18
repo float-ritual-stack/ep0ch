@@ -8,6 +8,7 @@ export const MEETING_TEMPLATE = [
   "[form-field::mood choice good|meh|rough default=good]",
   "[form-field::date text default={{now.date}}]",
   "{{props.date}}: met {{props.with}}, mood {{props.mood}}. Filed on {{this.title}}.",
+  '::use{of=[[meeting-greeting]] with="{{props.with}}"}',
   "",
   "::graph-table",
   "---",

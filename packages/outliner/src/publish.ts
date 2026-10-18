@@ -2395,12 +2395,12 @@ export class Publisher {
     return out;
   }
 
-  private async usedLines(blockId: string, text: string, host: LiveHost, components: string[], context: TextContext, format: "markdown" | "html", chain: SiteLink[] = []): Promise<Map<number, DrawnComponent>> {
+  private async usedLines(blockId: string, text: string, host: LiveHost, components: string[], context: TextContext, format: "markdown" | "html", chain: SiteLink[] = [], props?: Record<string, string[]>): Promise<Map<number, DrawnComponent>> {
     const drawn = new Map<number, DrawnComponent>();
     for (const call of useCallsOf(text)) {
       let markdown: string;
       try {
-        const use = await host.request<TemplateUseAnswer>({ action: "template.use", block: blockId, line: call.line, chain });
+        const use = await host.request<TemplateUseAnswer>({ action: "template.use", block: blockId, line: call.line, chain, props });
         const shown = await host.shown(use.deps);
         if (use.deps.some(id => !shown.has(id))) markdown = placeholder("hidden here");
         else if (!use.template || use.problems.length) markdown = lineSource(text.split("\n")[call.line]!);
@@ -2408,8 +2408,12 @@ export class Publisher {
           const note = use.template;
           const projections = await this.readProjections([note]);
           const under = await this.handlerLines(projections.lines, new Map([[note.id, note.text]]), format, components, context, host, { chain: use.chain, props: use.props });
-          const nested = await this.usedLines(note.id, note.text, host, components, context, format, use.chain);
-          markdown = publishedText(decoratedText(note.text, undefined, under.get(note.id), nested), context);
+          const scoped: LiveHost = { ...host, request: request => host.request({ ...request,
+            ...(request.action === "site.answer" ? { chain: use.chain, props: { ...use.props, ...(request.props as Record<string, string[]>) } } : {}) }) };
+          const values = await readPageValues(scoped, [note]);
+          const builtins = format === "html" ? (await drawNoteComponents(scoped, [note], components)).get(note.id) : undefined;
+          const nested = await this.usedLines(note.id, note.text, host, components, context, format, use.chain, use.props);
+          markdown = publishedText(decoratedText(valuedText(note.text, values.get(note.id) ?? []), undefined, under.get(note.id), new Map([...(builtins ?? []), ...nested])), context);
         }
       } catch { markdown = placeholder("use unavailable"); }
       drawn.set(call.line, { end: call.line + 1, markdown });

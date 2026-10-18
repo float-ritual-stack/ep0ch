@@ -353,3 +353,18 @@ test("published changes count visible edits before limiting the page", async () 
   await until("changes drawn", () => store.extensionOutputs(page.id).some(row => row.result));
   expect(await publicly("planting-changes")).toContain("CHANGES=1; COMPLETE=true; TITLE=Public planting revised");
 });
+
+
+test("nested templates publish the caller's props and values, including conditional fields", async () => {
+  const { store, tailnet, publicly } = await setup();
+  store.create('Leaf [page::leaf] [publish::public] [form-field::crop text]\nFor {{this.owner}}: {{props.crop}}.\n::if{where="status=active"}\nActive template body\n::\n::fields{key=owner}');
+  store.create('Middle [page::middle] [publish::public] [form-field::crop text]\n::use{of=[[leaf]] crop="{{props.crop}}"}');
+  store.create('Garden [publish::public:nested-use] [owner::Ada] [status::active]\n::use{of=[[middle]] crop=seedlings}');
+  for (const read of [tailnet, publicly]) {
+    const html = (await read("nested-use")).split("<article>")[1]!.split("</article>")[0]!.split("</aside></details>").at(-1)!;
+    expect(html).toContain("For Ada: seedlings.");
+    expect(html).toContain("Active template body");
+    expect(html).not.toContain("{{props.crop}}");
+    expect(html).not.toContain("::fields");
+  }
+});

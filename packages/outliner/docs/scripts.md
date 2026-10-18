@@ -344,9 +344,9 @@ Each of these cost someone an hour.
 - **A render script redraws for what it read, not for what it could have** (the list under *Render mode*). `this`
   and `self` are snapshots taken when the line is drawn, and `this.children` is always empty: use `q("parent:this")` or
   `read(this.id)`. A note the script never touched, by any answer, doesn't redraw it.
-- **`ep0ch show` doesn't draw a handler line.** A note with `hello::` prints `hello::` and nothing under it (a test checks it);
-  the door opens the note and asks for the drawing, and so do Detail and the publisher. To see what a line drew from a
-  test, ask the service (`resources.projection.read` with `materialize: true`) and read the output store, as the tests here do.
+- **`ep0ch show <note>` draws handler output through the door's note surface.** It loads the outline's
+  extensions before drawing, so a cold CLI can inspect a render script without opening a door. `--source`
+  still prints only the authored text. The draw waits up to three seconds for live answers.
 - **`ext.<id>.run` on a render script runs it as an action** (with a run note), instead of refreshing its line. To draw a
   line again, `projection.refresh` (the door's `r` on the note).
 - **`[mode::render]` with `[effects::write]` isn't served.** Split it: a render script to show, an action script to do.

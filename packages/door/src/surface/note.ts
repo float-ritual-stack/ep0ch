@@ -66,7 +66,7 @@ import { lastTrashed } from "../note-trash";
 import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
-import { fieldsDrawn } from "../site-blocks";
+import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
 import { visible, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -1836,6 +1836,8 @@ export class NoteSurface {
     return room > 0 ? { lines, placements, gutter, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
   }
 
+  private readonly fieldsDrawing: FieldsDrawing = new Map();
+
   /**
    * The note laid out at this width: its rows, links, elements and comment marks, everything but where it's
    * scrolled to. A frame in which only scrolling happened (onlyScrolled: the wheel and nothing else since the
@@ -1861,13 +1863,14 @@ export class NoteSurface {
     const footRows = host?.footer?.(m, Math.max(1, w - this.bx - this.bxRight)) ?? [];
     const key = `${footRows.join("\n")}|${writing ? `${writing.cs.place}:${writing.d.text.length}:${writing.d.row}:${writing.d.col}|` : ""}${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${headingStylesStamp(headingStylesOf(src))}|${this.hero?.line ?? ""}|${this.raw ? "raw" : decorations.length}|${this.lastLook?.stamp ?? ""}|${this.bx},${this.bxRight}|${mcols}:${this.marginMode}|${openKey ?? ""}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
+    this.fieldsDrawing.clear();
     // The header image is drawn above the title (render), so its line here is only its caption.
     const bw = Math.max(1, w - this.bx - this.bxRight - mcols);
     const look = this.lastLook;
     // A list's own look (PIE-675): its lead-in or heading line's fields, with this connection's tuning over them, by the note's line.
     const noteLine = this.foldsIn(m).lines;
     const lists = (n: number, f: Readonly<Record<string, string>>) => (noteLine[n] === undefined ? { ...f } : listFieldsTuned(this.src, m.id, noteLine[n]!, f));
-    const env = { ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, regions: book, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width, lists } } : {}) };
+    const env = { ...this.docEnv(bw, host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero, regions: book, fields: this.fieldsDrawing, ...(look ? { look: { values: look.values, layers: look.layers, width: look.width, lists } } : {}) };
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -6066,8 +6069,8 @@ export class NoteSurface {
    * links to it for good. The one thing a `::fields` writes, and only when asked: drawing it never does.
    */
   async anchorField(key: string | undefined, n: number, host: SurfaceHost, actor: Actor) {
-    const m = this.requireNote();
-    const read = fieldsDrawn(m.id, key);
+    this.requireNote();
+    const read = fieldsDrawn(this.fieldsDrawing, key);
     if ("problem" in read) throw new ActionRefused(read.problem);
     const drawnFields = read.found;
     // What was drawn may be gone from the note (edited away, drawn by a reader that has since moved on).

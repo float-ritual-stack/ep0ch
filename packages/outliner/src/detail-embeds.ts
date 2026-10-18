@@ -11,7 +11,8 @@ import { resolveFragmentSlice, stripFragmentAnchors } from "./fragments";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING } from "./transclusions";
 import { propertyReferenceOccurrences } from "./reference-occurrences";
 import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, markdownValueWords, pairValues, problemWords, valueWords } from "@ep0ch/outline-core/site-values";
-import type { SiteAnswer } from "@ep0ch/outline-core/site";
+import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
+import type { SiteAnswer, SiteLink } from "@ep0ch/outline-core/site";
 import { blockDisplayTitle } from "./references";
 import { propertySummarySegments } from "./property-summary";
 import {
@@ -771,11 +772,11 @@ function proposalRegions(beside: readonly { afterLine: number; projected: Projec
  * whose origin is the token's source, so a comment on a drawn value anchors on the `{{ }}`. Never adds or removes a line.
  * The editor shows source: this is the read projection only. The text sent is the one on screen, so the values agree with it.
  */
-async function withSiteValues(requester: DetailEmbedRequester, hostBlockId: string | undefined, source: MappedDocument): Promise<{ source: MappedDocument; bindings: DetailValueBinding[] }> {
+async function withSiteValues(requester: DetailEmbedRequester, hostBlockId: string | undefined, source: MappedDocument, site: { chain?: SiteLink[]; props?: Record<string, string[]> } = {}): Promise<{ source: MappedDocument; bindings: DetailValueBinding[] }> {
   const bindings: DetailValueBinding[] = [];
   if (!hostBlockId || !source.text.includes("{{")) return { source, bindings };
   let answer: SiteAnswer;
-  try { answer = await requester.request<SiteAnswer>({ action: "site.answer", blockId: hostBlockId, draft: { text: source.text } }); }
+  try { answer = await requester.request<SiteAnswer>({ action: "site.answer", ...site, blockId: hostBlockId, draft: { text: source.text } }); }
   catch { return { source, bindings }; }
   const pairs = pairValues(source.text, answer.values.slice(0, MAX_NOTE_VALUES)).filter(pair => pair.value);
   if (!pairs.length) return { source, bindings };
@@ -803,12 +804,12 @@ export function detailEmbedIds(text: string): string[] {
 export async function projectDetailRead(
   requester: DetailEmbedRequester,
   text: string,
-  options: { hostBlockId?: string; hostRevision?: number; source?: MappedDocument } = {},
+  options: { hostBlockId?: string; hostRevision?: number; source?: MappedDocument; chain?: SiteLink[]; props?: Record<string, string[]> } = {},
 ): Promise<DetailReadProjection> {
   if (options.source && options.source.text !== text) throw new Error('Projection source must match its input text');
   const host = options.hostBlockId ? observeDocument({kind: 'block', blockId: options.hostBlockId}, text, options.hostRevision) : null;
   const presented = options.source ?? (host ? presentedSource(host) : generatedDocument(stripFragmentAnchors(text), 'host identity unavailable'));
-  const { source, bindings: valueBindings } = await withSiteValues(requester, options.hostBlockId, presented);
+  const { source, bindings: valueBindings } = await withSiteValues(requester, options.hostBlockId, presented, { chain: options.chain, props: options.props });
   const projectedSource = source.text;
   const valued = valueBindings.length ? { valueBindings } : {};
   const pendingProjections = options.hostBlockId
@@ -840,7 +841,18 @@ export async function projectDetailRead(
       afterLine: proposal.afterLine,
       projected: await projectEmbed(requester, proposal.id, undefined, options.hostBlockId, () => loadTarget(proposal.id), loadTarget, loadPhysicalBlocks),
     })));
-    return { regions: [...resourceRegions(projections ?? []), ...noticeRegions(text), ...proposalRegions(proposals)], projections };
+    const uses: InsertedRegion[] = [];
+    if (options.hostBlockId) for (const call of useCallsOf(text)) {
+      const use = await requester.request<TemplateUseAnswer>({ action: "template.use", block: options.hostBlockId,
+        line: call.line, draft: { text }, chain: options.chain, props: options.props });
+      const nested = use.template && !use.problems.length
+        ? await projectDetailRead(requester, use.template.text, { hostBlockId: use.template.id,
+          hostRevision: use.template.revision, chain: use.chain, props: use.props }) : null;
+      const words = nested?.text ?? use.problems.map(p => p.message).join("\n");
+      uses.push({ line: call.line, lines: words.split("\n"), indent: false,
+        ...(nested ? { provenance: nested.provenance } : {}), range: () => ({}), reason: "template use" });
+    }
+    return { regions: [...resourceRegions(projections ?? []), ...noticeRegions(text), ...proposalRegions(proposals), ...uses], projections };
   };
   const matches = embedMatches(projectedSource, text);
   if (matches.length === 0 && !isChecklistView(text)) {

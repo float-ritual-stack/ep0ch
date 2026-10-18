@@ -20,6 +20,7 @@ import { interpolationSpans } from "@ep0ch/outline-core/interpolation";
 import { MAX_NOTE_VALUES } from "@ep0ch/outline-core/site-values";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { linesToCells } from "./cells";
+import { bindExtensions, extensionList, loadExtensions } from "./extensions";
 import { connectFigures } from "./graphs";
 import { listenLive, liveBoard, liveSettled, liveSource, setLiveSource } from "./live";
 import { linksSource, listenLinks, setLinksSource } from "./links";
@@ -429,15 +430,18 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   if (lent) connectFigures(board, () => {});
   // Either kind of answer arriving (a live figure's, a link title's or ::links') draws it again.
   const unlistenLive = listenLive(() => { arrived = true; }), unlistenLinks = listenLinks(() => { arrived = true; });
+  const previousExtensions = extensionList();
   const surface = new NoteSurface(), tall = 100_000, end = Date.now() + settle.max;
   // Nobody presses a key in what show prints: folded callouts come unfolded, with no "z unfolds".
   surface.unfold = true;
   // …and a tabs figure prints every group in turn under a heading, with no tab or density control.
   surface.printed = true;
-  surface.show(m, host);
-  surface.render(width, tall, host);
   let drawn: string[] = [];
   try {
+    const loaded = await loadExtensions(board);
+    if (loaded && "error" in loaded) throw new Error(loaded.error);
+    surface.show(m, host);
+    surface.render(width, tall, host);
     while (Date.now() < end) {
       arrived = false;
       // The figures' answers, then a quiet spell for what else the reader reads (link titles, embeds, steps).
@@ -449,6 +453,8 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
     // The last draw while the connection is still this outline's.
     drawn = surface.render(width, tall, host).lines;
   } finally {
+    surface.dispose();
+    bindExtensions(previousExtensions);
     unlistenLive(); unlistenLinks();
     if (lent) { setLiveSource(lent.live.board, lent.live.redraw); setLinksSource(lent.links.board, lent.links.redraw); }
   }

@@ -668,6 +668,11 @@ test("Detail's read preview shows a note's {{ }} as the service reads them, line
     expect(run.origin.kind).toBe("source");
     const slice = (run.origin as unknown as { slices: { start: number; end: number; document: { text: string } }[] }).slices[0]!;
     expect(slice.document.text.slice(slice.start, slice.end)).toBe("{{this.owner}}");
+    store.create('Leaf [page::detail-leaf] [form-field::crop text]\nFor {{this.owner}}: {{props.crop}}.');
+    store.create('Middle [page::detail-middle] [form-field::crop text]\n::use{of=[[detail-leaf]] crop="{{props.crop}}"}');
+    const used = store.create('Garden [owner::Ada]\n::use{of=[[detail-middle]] crop=seedlings}');
+    const nested = await projectDetailRead(new OutlinerClient(socket), used.text, { hostBlockId: used.id, hostRevision: used.revision });
+    expect(nested.text).toContain("For Ada: seedlings.");
     // A note with no placeholder is left alone, and a service that can't answer leaves them as typed.
     expect((await projectDetailRead(new OutlinerClient(socket), "Plain", { hostBlockId: note.id, hostRevision: 1 })).text).toBe("Plain");
     expect((await projectDetailRead(new FakeRequester(new Map(), new Map()), "A {{this.owner}}", { hostBlockId: note.id })).text).toBe("A {{this.owner}}");

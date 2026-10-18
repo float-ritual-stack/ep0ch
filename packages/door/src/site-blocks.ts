@@ -13,12 +13,12 @@ import { C, ellipsize, fg, RESET } from "./style";
 /** One `::fields` as the reader last drew it: the note it read, that note's revision, and its rows. */
 export interface DrawnFields { from: string; revision: number; key: string; of: string | null; rows: FieldRow[] }
 
-/** What the reader last drew for a note's `::fields` components, by note: `fields.anchor` acts on these rows, by key. */
-const drawn = new Map<string, Map<string, DrawnFields>>();
+/** The fields in one reader layout; discarded when that reader draws its next layout. */
+export type FieldsDrawing = Map<string, DrawnFields>;
 
-/** The `::fields` of `note` the reader last drew for `key` (or its only one), or why not: nothing drawn, or several to choose from. */
-export function fieldsDrawn(note: string, key?: string): { found: DrawnFields } | { problem: string } {
-  const all = [...(drawn.get(note)?.values() ?? [])];
+/** The fields currently drawn for `key` (or the only component), or why the choice is ambiguous. */
+export function fieldsDrawn(drawn: FieldsDrawing, key?: string): { found: DrawnFields } | { problem: string } {
+  const all = [...drawn.values()];
   if (!all.length) return { problem: "this note draws no ::fields" };
   const named = key === undefined ? all : all.filter(d => d.key.toLowerCase() === key.toLowerCase());
   if (!named.length) return { problem: `this note draws no ::fields{key=${key}} (it draws ${all.map(d => d.key).join(", ")})` };
@@ -32,7 +32,7 @@ const problemLines = (message: string, didYouMean: readonly string[]) =>
 /**
  * A `::fields` drawn `W` wide. `tag`: how the reader makes a row an element it can step to and open (without one the rows are text).
  */
-export function renderFields(spec: FieldsSpec, note: string | undefined, W: number, tag?: (to: LinkTarget, text: string) => string, site?: LiveSite): string[] {
+export function renderFields(spec: FieldsSpec, note: string | undefined, W: number, tag?: (to: LinkTarget, text: string) => string, site?: LiveSite, drawn?: FieldsDrawing): string[] {
   const title = spec.title ?? spec.key ?? "fields";
   if (spec.problem) return frame(title, [fg(C.lred) + spec.problem + RESET], W);
   if (!note) return frame(title, [fg(C.dark) + "a note's fields: this one is drawn outside a note" + RESET], W);
@@ -42,9 +42,7 @@ export function renderFields(spec: FieldsSpec, note: string | undefined, W: numb
   if (read.state === "error" && !read.value) return frame(title, [fg(C.lred) + read.error + RESET], W, "live");
   const a = read.value as Extract<SiteProduced, { kind: "fields" }>;
   if (a.problem) return frame(title, problemLines(a.problem.message, a.problem.didYouMean), W, "live");
-  const list = drawn.get(note) ?? new Map();
-  list.set(`${spec.key.toLowerCase()}\0${spec.of ?? ""}`, { from: a.from, revision: a.revision, key: spec.key, of: spec.of, rows: a.rows });
-  drawn.set(note, list);
+  drawn?.set(`${note}\0${spec.key.toLowerCase()}\0${spec.of ?? ""}`, { from: a.from, revision: a.revision, key: spec.key, of: spec.of, rows: a.rows });
   const inner = Math.max(10, W - 4);
   const body = a.rows.map((row, n) => {
     const words = ellipsize(row.link ? row.link.title : row.value, Math.max(6, inner - 14));
