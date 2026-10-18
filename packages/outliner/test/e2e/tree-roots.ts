@@ -33,6 +33,13 @@ const result=await runHerdrScenario({
     await session.client.request({action:"update",mutation:{author:"agent",actorId:"PIE303-fixture"},blockId:fresh.id,expectedRevision:fresh.revision,text:fresh.text.replace("Nested result","Refreshed result")});
     await session.waitVisible(tree,"PIE303 Refreshed result");
     await session.checkpoint("02-occurrence-focus-depth-and-refresh");
+    await session.keys(tree,"alt+r");
+    await session.waitVisible(tree,"Revealed source PIE303 Nested query");
+    await session.waitVisible(tree,"PIE303 Source folder");
+    await session.checkpoint("02a-alt-r-reveals-physical-source");
+    await session.keys(tree,"alt+left");
+    await session.waitVisible(tree,"PIE303 Projected hub");
+
     const task=await create("Stage card\n[fixture::card] [work-stage::queued]");
     const roots:string[]=[tree];
     const views=[];

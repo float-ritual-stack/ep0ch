@@ -279,10 +279,9 @@ export class VirtualBranchNavigatorController {
       await this.removeSelectedRecord();
       return;
     }
-    if (
-      mapped.actionId === "tree.current.reveal" ||
-      mapped.actionId === "detail.current.reveal"
-    ) {
+    // The popup previews a source; its Reveal chord must not depend on which pane opened it.
+    const previewAction = this.actionKeymap.canonicalize("detail", "preview", str, key);
+    if (previewAction.actionId === "detail.current.reveal") {
       await this.revealSelected();
       return;
     }

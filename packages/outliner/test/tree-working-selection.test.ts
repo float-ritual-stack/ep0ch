@@ -156,3 +156,17 @@ test("Tree exposes recovery truncation rather than claiming an exhaustive count"
   expect(recoveries.length).toBe(100);
   expect(recoveries[0]!.description).toContain('newest 100');
 });
+
+
+test("Alt+R reveals a projected Tree row at its physical source and Back returns to the occurrence", async()=>{
+  const f=await fixture();
+  const {controller:c}=await f.open("tree-reveal");
+  const occurrence=f.row(c,f.ids[0]!).rowId;
+  await c.handleRowClick(occurrence);
+  await c.handleKeypress("",{name:"r",meta:true},"pass");
+  expect(c.view().rows[c.view().selectedIndex]).toMatchObject({kind:"physical",rowId:f.ids[0]});
+  await c.handleKeypress("",{name:"left",meta:true},"pass");
+  expect(c.view().rows[c.view().selectedIndex]!.rowId).toBe(occurrence);
+  await c.handleAction("tree.current.reveal");
+  expect(c.view().rows[c.view().selectedIndex]).toMatchObject({kind:"physical",rowId:f.ids[0]});
+});

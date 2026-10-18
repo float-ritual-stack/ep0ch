@@ -158,7 +158,7 @@ describe("Outliner action keymap", () => {
       expect(keymap.resolve(surface, mode, "l", {name: "l", meta: true}).actionId).toBe(`${surface}.navigation.link`);
       expect(keymap.menuItems(surface, mode)).toContainEqual(expect.objectContaining({id: `${surface}.navigation.link`, binding: "⌥L, ⇧L"}));
     }
-    expect(keymap.action("tree.current.reveal").defaultChords).toEqual(["Shift+R"]);
+    expect(keymap.action("tree.current.reveal").defaultChords).toEqual(["Alt+R"]);
     expect(keymap.action("detail.current.reveal").defaultChords).toEqual(["Shift+R"]);
     expect(keymap.action("tree.reference.reveal").defaultChords).toEqual(["Alt+Shift+R"]);
     expect(keymap.action("detail.reference.reveal").defaultChords).toEqual(["Alt+Shift+R"]);
@@ -202,7 +202,7 @@ describe("Outliner action keymap", () => {
     });
   });
 
-  test("rebinds and disables Shift-letter actions for uppercase Pi input", () => {
+  test("rebinds reveal to uppercase Pi input and disables its default Alt chord", () => {
     const rebound = new OutlinerActionKeymap("<test>", {
       "tree.current.reveal": ["Shift+Z"],
     });
@@ -210,13 +210,13 @@ describe("Outliner action keymap", () => {
       actionId: "tree.current.reveal",
       suppressed: false,
     });
-    expect(rebound.canonicalize("tree", "browse", "R", { name: "R" })).toMatchObject({
+    expect(rebound.canonicalize("tree", "browse", "", { name: "r", meta: true })).toMatchObject({
       actionId: null,
       suppressed: true,
     });
 
     const unbound = new OutlinerActionKeymap("<test>", { "tree.current.reveal": [] });
-    expect(unbound.canonicalize("tree", "browse", "R", { name: "R" })).toMatchObject({
+    expect(unbound.canonicalize("tree", "browse", "", { name: "r", meta: true })).toMatchObject({
       actionId: null,
       suppressed: true,
     });
