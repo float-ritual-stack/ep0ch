@@ -149,6 +149,8 @@ export interface SurfaceHost {
    * click opens a new detail): a list's row opens at once rather than being selected (an inline `::links`, PIE-693).
    */
   freshClick?: boolean;
+  /** A host's navigation rows (such as earlier briefs) open on the first click. */
+  opensOnClick?(link: Link): boolean;
   /** Show this reader's note in the outline (`reader.reveal`, a click on the crumbs, PIE-794); absent where there's no outline to show it in. */
   revealInOutline?(): void;
   /**
@@ -5221,7 +5223,7 @@ export class NoteSurface {
     // position; its preview and a preview linked to this reader follow), a second click on it soon after opens it (⏎),
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
     const lbk = h.link.linksBlock;
-    if (e && (lbk?.row || e.link?.inlineList)) {
+    if (e && (lbk?.row || e.link?.inlineList) && !host.opensOnClick?.(h.link)) {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
       const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was });
@@ -8593,6 +8595,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "scroll the inline list containing element n, passing the wheel to the note at its ends",
     touches: "tile", replay: "safe", person: "the list's scroll belongs to the person", keys: "wheel over an inline list",
     args: { n: { type: "number", about: "an element in the list" }, by: { type: "number", about: "rows to scroll" } },
+    examples: [{ act: "element.scroll n=2 by=3", does: "scrolls the inline list containing the second element down three rows" }],
     run({ n, by }, { surface, host }) { surface.scrollInline(n, by); host.redraw(); return {}; },
   }),
   "element.select": def({
