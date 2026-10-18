@@ -669,7 +669,7 @@ bun run cli ticket <block-uuid> --line 3
 bun run cli update --id <block-uuid> --text "Revised note" --expected <revision>
 bun run cli update --id <block-uuid> --text "Revised note" --expected <revision> --author agent --actor claude-code
 bun run cli create --text "Agent's note" --author agent --actor claude-code [--session <id>]
-bun run cli move --id <block-uuid> --parent <block-uuid|root> [--position 0] [--author agent --actor claude-code]
+bun run cli move --id <block-uuid> --expected <revision> --parent <block-uuid|root> [--position 0] [--author agent --actor claude-code]
 bun run cli delete --id <block-uuid> [--expected <revision>] [--if-empty] [--author agent --actor claude-code]
 bun run cli restore --id <block-uuid> [--author agent --actor claude-code]
 bun run cli activity --limit 50 [--since 2026-09-27T00:00:00Z] [--after <cursor>] [--author agent] [--actor claude-code] [--kinds text,properties,move,delete,restore]
@@ -690,7 +690,7 @@ bun run cli work-id-configure --prefix PIE
 bun run cli work-id-allocate --id <block-uuid> --expected <revision>
 ```
 
-Text updates require the integer `revision` returned by the read before editing. Omitting `--expected` or saving an old revision fails without replacing newer text. Sibling moves do not invalidate an unchanged text draft.
+Text updates and moves require the integer `revision` returned by the read (`--expected`). Moves accept `--parent`, `--before`, `--after`, or `--step up|down|in|out`; destination resolution and revision checking happen in one service transaction. Omitting `--expected` or saving an old revision fails without replacing newer text. Sibling moves do not invalidate an unchanged text draft.
 
 `purge --id <id> --confirm <work id or the id's first 8>` deletes a Trash root for good. `create`, `update`, `move`, `delete` (to Trash) and `restore` (from Trash) record who wrote: `--author user|agent|system` (default `user`), `--actor <id>` (for `update`, `move`, `delete` and `restore` the default is `cli` for the person's writes; `create` records no actor without it; required with `--author agent`) and `--session <id>`. An agent passes `--author agent --actor <its id>`, so the change feed, activity and Detail attribute the write to it, not to the person. `activity` reads the same record (`activity.recent`): edits by default, and moves, trashing and restores with `--kinds`.
 

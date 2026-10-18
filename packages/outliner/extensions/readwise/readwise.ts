@@ -511,7 +511,7 @@ async function ontoThread(home: Block, children: Block[], book: Book, highlights
     }
     if (block && block.parentId !== parentId) {
       // A tweet placed under the wrong one (an earlier tweet arrived late): move it when the service lets an extension.
-      await outline({ action: "move", blockId: block.id, parentId }, BOARD).catch(() => {});
+      await outline({ action: "move", blockId: block.id, parentId, expectedRevision: (await outline<Block>({ action: "get", blockId: block.id }, BOARD)).revision }, BOARD).catch(() => {});
     }
     if (block) { placed.push(block); head ??= block; }
   }

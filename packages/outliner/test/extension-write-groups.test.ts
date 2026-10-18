@@ -149,9 +149,9 @@ test("an order puts the children in place in one step, and undo puts them back",
   const moves = store.changes.since(0, 1000);
   expect(moves.kind === "changes" && moves.changes.filter((change) => change.kind === "move" && change.actor?.actorId === "ext:grouper").length).toBe(3);
   // Moved again since (a person's move within the same parent): undo is refused rather than undo that too.
-  await client.request({ action: "move", blockId: ids[0], parentId: list.id, position: 0, mutation: { author: "user" } });
+  await client.request({ action: "move", blockId: ids[0], expectedRevision: store.require(ids[0]!).revision, parentId: list.id, position: 0, mutation: { author: "user" } });
   await expect(client.request({ action: "extensions.undo", undo: done.undo!, mutation: { author: "user" } })).rejects.toThrow(/changed since; nothing was undone/);
-  await client.request({ action: "move", blockId: ids[0], parentId: list.id, position: 2, mutation: { author: "user" } });
+  await client.request({ action: "move", blockId: ids[0], expectedRevision: store.require(ids[0]!).revision, parentId: list.id, position: 2, mutation: { author: "user" } });
   await client.request({ action: "extensions.undo", undo: done.undo!, mutation: { author: "user" } });
   expect(live(list.id).map((child) => child.text)).toEqual(["Squash", "Beans", "Kale"]);
 });

@@ -55,7 +55,7 @@ test("an agent's move, trash and restore are attributed to the agent in the chan
   const seedlings = store.create("Seedlings to plant out");
   const start = store.sequence;
 
-  await client.request<Block>({ action: "move", blockId: seedlings.id, parentId: beds.id, mutation: gardenAgent });
+  await client.request<Block>({ action: "move", blockId: seedlings.id, expectedRevision: seedlings.revision, parentId: beds.id, mutation: gardenAgent });
   const moved = await activity(client, { author: "agent", kinds: ["move"] });
   expect(moved.entries.map(entry => [entry.block.id, entry.kind, entry.actorId, entry.sessionId, entry.taskId]))
     .toEqual([[seedlings.id, "move", "garden-agent", "s-7", "t-3"]]);
@@ -123,7 +123,7 @@ test("an agent's move without an actor is refused, and nothing moves or is recor
   const shed = store.create("Shed");
   const trowel = store.create("Trowel");
   const start = store.sequence;
-  await expect(client.request({ action: "move", blockId: trowel.id, parentId: shed.id, mutation: { author: "agent" } }))
+  await expect(client.request({ action: "move", blockId: trowel.id, expectedRevision: trowel.revision, parentId: shed.id, mutation: { author: "agent" } }))
     .rejects.toThrow("Agent mutation provenance requires actorId");
   await expect(client.request({ action: "delete", blockId: trowel.id, mutation: { author: "robot" } as never }))
     .rejects.toThrow("Mutation provenance must identify user, agent, or system");
@@ -133,7 +133,7 @@ test("an agent's move without an actor is refused, and nothing moves or is recor
   expect(await changesSince(client, start)).toEqual([]);
 });
 
-test("an older client's move, trash and restore stay unattributed and add no activity, as before", async () => {
+test("structural writes without provenance stay unattributed and add no activity", async () => {
   const { store, client } = await service();
   const orchard = store.create("Orchard");
   const pruning = store.create("Pruning notes");
@@ -141,8 +141,8 @@ test("an older client's move, trash and restore stay unattributed and add no act
   store.update(pruning.id, "Pruning notes, winter", pruning.revision, { author: "user", actorId: "detail" });
   const start = store.sequence;
 
-  // The request shapes an older client sends: no mutation, no kinds.
-  await client.request({ action: "move", blockId: pruning.id, parentId: orchard.id });
+  // Internal structural writes can omit provenance.
+  await client.request({ action: "move", blockId: pruning.id, expectedRevision: store.require(pruning.id).revision, parentId: orchard.id });
   await client.request({ action: "delete", blockId: orchard.id });
   await client.request({ action: "trash.restore", blockId: orchard.id });
 
@@ -163,7 +163,7 @@ test("activity without kinds still returns edits only, even after an attributed 
   store.update(compost.id, "Compost rota, weekly", compost.revision, { author: "agent", actorId: "garden-agent" });
   const edited = await activity(client, { author: "agent" });
 
-  await client.request({ action: "move", blockId: compost.id, parentId: tools.id, mutation: gardenAgent });
+  await client.request({ action: "move", blockId: compost.id, expectedRevision: store.require(compost.id).revision, parentId: tools.id, mutation: gardenAgent });
   await client.request({ action: "delete", blockId: tools.id, mutation: gardenAgent });
   const later = await activity(client, { author: "agent" });
   // An older client sees what it saw before: the edit, not the move; a trashed note is not listed.
@@ -247,8 +247,8 @@ for (const operation of ["move", "reparent", "reorder", "save", "stamp"] as cons
       const first = store.create("Seeds [status::ready]", root.id);
       const second = store.create("Tools", root.id);
       setSystemTime(new Date("2026-01-03T12:00:00Z"));
-      if (operation === "move") await client.request({ action: "move", blockId: second.id, parentId: root.id, position: 0, mutation: gardenAgent });
-      if (operation === "reparent") await client.request({ action: "move", blockId: second.id, parentId: first.id, mutation: gardenAgent });
+      if (operation === "move") await client.request({ action: "move", blockId: second.id, expectedRevision: second.revision, parentId: root.id, position: 0, mutation: gardenAgent });
+      if (operation === "reparent") await client.request({ action: "move", blockId: second.id, expectedRevision: second.revision, parentId: first.id, mutation: gardenAgent });
       if (operation === "reorder") store.reorderChildren(root.id, [second.id, first.id], gardenAgent);
       if (operation === "save") await client.request({ action: "update", blockId: first.id, text: first.text, expectedRevision: first.revision, mutation: gardenAgent });
       if (operation === "stamp") await client.request({ action: "properties.patch", blockId: first.id, expectedRevision: first.revision, operations: [{ op: "replace", ordinal: 0, value: "ready" }], mutation: gardenAgent });

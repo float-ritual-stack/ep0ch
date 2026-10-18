@@ -1949,6 +1949,7 @@ describe("createTreeController", () => {
     ]);
     expect(fake.calls.find((call) => call.action === "move")).toEqual({
       action: "move",
+      expectedRevision: 1,
       blockId: "child",
       parentId: "parent",
       position: 0,
@@ -3302,7 +3303,7 @@ describe("createTreeController", () => {
         if (input.action === "update") return store.update(input.blockId, input.text, input.expectedRevision) as T;
         if (input.action === "move") {
           if (++moves === 1) throw new Error("Transient move failure");
-          return store.move(input.blockId, input.parentId, input.position) as T;
+          return store.move(input.blockId, input.parentId!, input.position) as T;
         }
         return fallback(input);
       };

@@ -69,6 +69,8 @@ source evidence or distinguish authored glyphs from controls.
 - `src/publish-anchors.ts` carries source-line and fragment addresses through the existing publisher sentinels; fragment grammar and heading ids come from `src/fragments.ts`.
 - `src/store.ts` owns persistence and canonical graph invariants.
 - `src/server.ts` owns protocol dispatch, sequence, and subscriptions.
+- `src/note-move.ts` owns the service’s `move`: check the read revision, resolve destination intent and place the note
+  in one SQLite transaction. Tree, the door, CLI and agent tools send that intent; `store.move` is the internal graph write.
 - `src/loop-watch.ts` owns the host's one event loop (PIE-625): whose turn it is (`Turns`, the whole-outline reads
   last but never starved) and what held it (`loop_stalled`, `slow_request` in the host's log). `src/text-memo.ts`
   memoizes what is a pure function of a note's text (display titles); a whole-outline read uses those and the

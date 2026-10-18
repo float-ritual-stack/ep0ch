@@ -101,7 +101,7 @@ test("a client can't write as ext:<id>, by any of the ways a request names its w
     mutation: { author: "agent", actorId: " ext:other" } })).rejects.toThrow(refused);
   await expect(client.request({ action: "draft.patch", blockId: note.id, revision: note.revision,
     patches: [{ observed: "Garden plan", replacement: "Garden" }], mutation: { author: "agent", actorId: "ext:tidy" } })).rejects.toThrow(refused);
-  await expect(client.request({ action: "move", blockId: note.id, parentId: null, mutation: { author: "agent", actorId: "ext:moon" } })).rejects.toThrow(refused);
+  await expect(client.request({ action: "move", blockId: note.id, expectedRevision: note.revision, parentId: null, mutation: { author: "agent", actorId: "ext:moon" } })).rejects.toThrow(refused);
   await expect(client.request({ action: "extensions.act", extension: "scribe", extensionAction: "child", blockId: note.id,
     mutation: { author: "agent", actorId: "ext:scribe" } })).rejects.toThrow(refused);
   expect(store.get(note.id)!.text).toBe("Garden plan");

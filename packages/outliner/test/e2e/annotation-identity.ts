@@ -105,7 +105,7 @@ const result = await runHerdrScenario({
     assert.equal(fileSaved.originalTarget.representation.subject.kind, "resource");
     // A legacy annotation may physically live under a file reference. Its parent
     // cannot authorize new bytes as the annotation's represented source.
-    await session.client.request({ action: "move", blockId: fileSaved.block.id, parentId: fileHost.id, position: 0 });
+    await session.client.request({ action: "move", blockId: fileSaved.block.id, expectedRevision: fileSaved.block.revision, parentId: fileHost.id, position: 0 });
     await reveal(fileSaved.block.id);
     await session.waitVisible(detail, "Stored resolution: resolved");
     await writeFile(join(session.projectRoot, "evidence.txt"), "DIFFERENT-FILE-CONTENT\nChanged second line");

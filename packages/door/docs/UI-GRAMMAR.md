@@ -792,6 +792,14 @@ From a look at shiki, strata and mirador (all MIT). Where each fits:
 
 ## 7. Tiles: drag, tab, link, preview, layouts (PIE-413, PIE-417, PIE-473, PIE-474)
 
+Move keys (PIE-943/948): `K/J` are the Mac-terminal fallback for `alt+↑/↓` in readers, river columns,
+reply panels and BBS message lists, as in the outline tile. Child rows also take `I/O` to indent/outdent,
+`Z` for Move to and `ctrl+z` to undo. Reader `I` (full properties) and `O` (preview) stay unchanged;
+floating tiles keep `H/J/K/L` for their position, and drafts, filters and terminal programs keep their keys.
+Board lanes and Welcome keep their existing view-order actions. Dropping on a child row nests; its left mark
+places the note beside it, without a mouse modifier. River move drags start on that mark so text can still be selected.
+Every path sends intent and the read revision to the service, which resolves and moves in one transaction.
+
 `alt+Q` starts/stops a macro (`macro.record`, `macro.stop`); its status-bar chip is the mouse path.
 It leaves `q` (back) and `alt+m` (marks) unchanged. A terminal keeps its keys.
 
@@ -1166,6 +1174,6 @@ Replies are notes; whole-note comments and patch notes keep their existing behav
 | `alt+←` `alt+→` | not a move key anywhere | Readers and columns: back and forward (`historyKey`, `tile.travel`). The outline tile binds neither |
 | `K` `J` in the outline tile | up, down: the fallback for a terminal (a Mac's) that doesn't send Option+arrows | The tree binds `j k` to pick; a floating tile uses `H J K L` to move itself (`float.place`, the desk takes them first); the reader keeps `J K` for sizing in a mode |
 | `I` `O` in the outline tile | in under the note above, out after its parent | The reader's `I` (full properties) and `O` (open a preview) are readers' only; the tree binds neither |
-| `Z` in a reader, the outline tile, a river column | ask where it goes | Bound nowhere else. `>` was the first choice and is the board screen's widen-tile and the power bar's actions prefix; `P` picks a follower's source and steps the BBS list; `m` is the thread list |
+| `Z` in a reader, the outline tile, a river column, the reply panel or BBS message list | ask where it goes | The selected child row moves in a list; otherwise the reader’s note moves. `>` was the first choice and is the board screen's widen-tile and the power bar's actions prefix; `P` picks a follower's source and steps the BBS list; `m` is the thread list |
 | `ctrl+z` in a reader or the outline tile | puts the last move of that note back | In a reader it joins the chain (callout, image, step, extension, move: whichever came last). In the tile only for a row with a move newer than the last trash; otherwise the desk's untrash |
 | a drag in the outline tile | onto a row: under it (first); onto its `▸` mark at the left edge: above it (it started below) or below it | A press on a row selects; double-click opens. A match of a view's row doesn't drag (it's a copy) and says so; a drop outside the tile or inside the note itself moves nothing |

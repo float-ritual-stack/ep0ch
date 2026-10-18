@@ -588,7 +588,7 @@ export { leaveSaid, propertyChange, type LeaveResult };
 interface Choice { id: string; label: string; key: string }
 interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
-type ReplyLinksMode = ReaderMode<SurfaceHost> & { truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[] };
+type ReplyLinksMode = ReaderMode<SurfaceHost> & { dragFrom?: { block: Msg; y: number }; truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[] };
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; reply?: Msg; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
 /** Moving and sizing the floating composer by keys (ctrl+g, PIE-785): arrows or h j k l move it, shift with them sizes it. */
@@ -2640,6 +2640,15 @@ export class NoteSurface {
     return s;
   }
 
+  private replyRowAt(x: number, y: number): LinkRow | undefined {
+    const mode = this.replyLinks;
+    if (!mode) return;
+    y += this.drawn?.heroRows ?? 0;
+    const r = mode.rect;
+    if (x < r.x || x >= r.x + r.w || y <= r.y || y >= r.y + r.h) return;
+    return mode.rowsAt[y - r.y - 1 + mode.top];
+  }
+
   closeReplyLinks() { this.modes.drop("replies"); }
 
   async openReplyLinks(host: SurfaceHost, actor: Actor, refresh = false) {
@@ -2648,14 +2657,16 @@ export class NoteSurface {
     const m = this.requireNote();
     const [replies, links, backlinks, thread] = await Promise.all([readReplies(host.ctx.board, m.id, host.conference), host.ctx.board.authoredLinks(m.id), host.ctx.board.backlinks(m.id), readThread(host.ctx.board, m, host.conference)]);
     const out = { replies: replies.children.map(c => c.block.id), truncated: replies.truncated };
-    if (actor.kind === "agent" || movedOn(host, this, m.id)) return out;
+    // The opening token expires once the panel opens; refresh follows the same note and mode instead.
+    if (actor.kind === "agent" || this.msg?.id !== m.id || (!refresh && host.still && !host.still())) return out;
     const data: LinkData = { links: { kind: "ready", value: links }, backlinks: { kind: "ready", value: backlinks }, children: { kind: "ready", value: replies.children } };
     if (refresh) {
       if (previous && this.replyLinks === previous) {
         // The selection stays on its post when the thread changes under it (a reply arrived above it).
         const keep = previous.rowsAt[previous.selected]?.key;
         previous.data = data; previous.thread = thread;
-        const at = previous.group === "thread" && keep ? threadRows(thread, previous.unfolded).findIndex(r => r.key === keep) : -1;
+        if (previous.group === "thread") previous.rowsAt = threadRows(thread, previous.unfolded);
+        const at = previous.group === "thread" && keep ? previous.rowsAt.findIndex(r => r.key === keep) : -1;
         if (at >= 0) previous.selected = at; previous.truncated = replies.truncated || thread.truncated; } host.redraw(); return out; }
     const row = (n?: number) => mode.rowsAt[n === undefined ? mode.selected : n - 1];
     // ⏎ and a second click: a fold row shows its posts, any other row is read.
@@ -2667,6 +2678,15 @@ export class NoteSurface {
       selected: Math.max(0, threadRows(thread).findIndex(r => r.kind === "child" && r.thread?.here)), group: "thread", rect: { x: 0, y: 0, w: 0, h: 0 }, rowsAt: [],
       key: k => {
         const c = ch(k);
+        const step = k.kind === "alt-up" || c === "K" ? "up" : k.kind === "alt-down" || c === "J" ? "down" : c === "I" ? "in" : c === "O" ? "out" : undefined;
+        const picked = row();
+        if (k.kind === "char" && k.ctrl && k.ch === "z" && picked?.kind === "child") {
+          void this.runKey("note.move.undo", { id: picked.child.block.id }, host); return true;
+        }
+        if ((step || c === "Z") && picked?.kind === "child") {
+          void this.runKey("note.move", { id: picked.child.block.id, revision: picked.child.block.revision, ...(step ? { step } : {}) }, host);
+          return true;
+        }
         if (k.kind === "esc" || c === "t" || c === "q") run("note.thread.close");
         else if (isDown(k)) run("note.thread.pick", { by: 1 });
         else if (isUp(k)) run("note.thread.pick", { by: -1 });
@@ -2690,7 +2710,7 @@ export class NoteSurface {
       },
       wheel: (dir, _host, at) => { if (!at || at.x < mode.rect.x || at.y < mode.rect.y) return false; run("note.thread.pick", { by: dir }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("replies"); return { left: "nothing" }; },
-      hint: () => "j k select · ⏎ open · b other links · T full thread · Esc close", state: () => "replies",
+      hint: () => "j k select · K/J reorder · I/O in/out · Z move · ⏎ open · b links · T full · Esc close", state: () => "replies",
       describe: () => ({ replies: mode.data.children?.kind === "ready" ? mode.data.children.value.map(c => c.block.id) : [], truncated: mode.truncated, group: mode.group, rows: mode.rowsAt.map((r, i) => describeLinkRow(r, i + 1, i === mode.selected)) }),
     };
     this.modes.push(mode); host.redraw(); return out;
@@ -3811,7 +3831,7 @@ export class NoteSurface {
     // Z: move this note under another (PIE-943; > is the board's tile-widening and the power bar's actions scope): asked in the power bar, its parents and the places changed lately first.
     if (c === "Z" && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", {}, host); return true; }
     // alt+↑ alt+↓: this note up or down among its siblings, as they do in the outline tile, the board's lanes and the Welcome list.
-    if ((k.kind === "alt-up" || k.kind === "alt-down") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", { step: k.kind === "alt-up" ? "up" : "down" }, host); return true; }
+    if ((k.kind === "alt-up" || k.kind === "alt-down" || c === "K" || c === "J") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", { step: k.kind === "alt-up" || c === "K" ? "up" : "down" }, host); return true; }
     // b: this note's links (Outlinks, Resources, Backlinks) in the screen's links tile.
     if (c === "b" && this.msg && !this.msg.partial) { void this.runKey("links", {}, host, true); return true; }
     // The margin's cards (ADR 0004 contract 6): a row each, whole, or off.
@@ -6486,6 +6506,11 @@ export class NoteSurface {
     const n = this.gesture.press(x, y);
     // In a draft a press puts the cursor there (shift+click: selects from where it was), a drag from it selects, a
     // double click selects the word and a triple click the line (Draft's own selection, through draft.place).
+    const replies = this.replyLinks;
+    if (replies) {
+      const row = this.replyRowAt(x, y);
+      replies.dragFrom = !this.editing && row?.kind === "child" ? { block: row.child.block, y } : undefined;
+    }
     this.editPress = false;
     const beside = this.besideRect;
     if (this.editing && (!this.replyParent || !beside || (x >= beside.x && y >= beside.y))) {
@@ -6512,6 +6537,7 @@ export class NoteSurface {
 
   /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
   drag(x: number, y: number, host: SurfaceHost): void {
+    if (this.replyLinks?.dragFrom) { this.gesture.drag(x, y); return; }
     const g = this.gesture.pressed;
     if (this.editing && (!this.replyParent || this.editPress)) { this.gesture.drag(x, y); if (this.editPress && this.modes.press(x, y - (this.drawn?.heroRows ?? 0), host, true)) host.redraw(); return; }
     if (!g || !this.gesture.drag(x, y) || !this.drawn) return;
@@ -6546,6 +6572,17 @@ export class NoteSurface {
 
   private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
     const r = this.gesture.release(x, y);
+    const from = this.replyLinks?.dragFrom;
+    if (this.replyLinks) this.replyLinks.dragFrom = undefined;
+    if (from && !r.click) {
+      const row = this.replyRowAt(x, y);
+      if (row?.kind === "child" && row.child.block.id !== from.block.id) {
+        const target = row.child.block.id;
+        void this.runKey("note.move", { id: from.block.id, revision: from.block.revision,
+          ...(x < this.replyLinks!.rect.x + 4 ? y > from.y ? { after: target } : { before: target } : { to: target }) }, host);
+      }
+      return true;
+    }
     this.dragging = false;
     // The end of a drag that moved or sized the floating composer: nothing else (not a click in it).
     if (this.frameDrag) { this.frameDrag = null; this.editPress = false; host.redraw(); return true; }
@@ -9010,7 +9047,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.move": def({
     summary: "move a note (PIE-943; PIE-883's note.place is this with to=): the one shown, or id=, under a note (to= inbox, root, or a note's id, ((ref)), [[page]], Work ID; position= its place among the children, from 1, default first), beside a sibling (before= or after=) or one step in its list (step= up, down, in under the note above, out after its parent). The service's move, the note checked at revision= when given (one changed since is refused), recorded as whoever asks and put back by ctrl+z (note.move.undo). The person's, left out, is asked in the power bar (\"Move to…\"): the note's parents and the notes changed lately first, the Inbox, then any note by its words. An agent's goes by outline_move's rules (the outliner's moveBlock)",
-    keys: "Z (move to…), alt+up alt+down (up, down among its siblings) in a reader, the tile menu's rows, a click on the `→ …` row of a new note's edit",
+    keys: "Z (move to…), K J or alt+up alt+down (up, down among its siblings) in a reader, the tile menu's rows, a click on the `→ …` row of a new note's edit",
     touches: "nothing", replay: "ask",
     menu: { label: "move to…", group: "note", key: "Z", now: (_h, t) => (t.kind === "river.column" ? { hide: true } : null) },
     says: r => String((r as { said?: string }).said ?? "moved a note"),
@@ -9025,9 +9062,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
     async run(args, { surface, host }, actor) {
       const id = args.id ?? surface.requireNote().id;
+      const revision = args.revision ?? (surface.msg?.id === id ? surface.msg.revision : undefined);
       const asked = [args.to, args.before, args.after, args.step].some(x => x !== undefined);
       const run = async (a: MoveArgs) => {
-        const done = await moveNote(host.ctx.board, id, intentOf(a), actor, { revision: a.revision });
+        const done = await moveNote(host.ctx.board, id, intentOf(a), actor, { revision });
+        if (surface.replyLinks) await surface.openReplyLinks(host, { kind: "user" }, true);
         // The reader showing it reads its place again; the person's is told where it went.
         if (surface.msg?.id === id) {
           const fresh = await host.ctx.board.get(id).catch(() => null);
@@ -9045,12 +9084,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.move.undo": def({
     summary: "put the note shown back where the last move made here (by you) took it from",
-    keys: "ctrl+z (when a move was the last change made here)", touches: "nothing", replay: "ask", args: {},
-    async run(_, { surface, host }, actor) {
+    keys: "ctrl+z (when a move was the last change made here)", touches: "nothing", replay: "ask", args: { id: { type: "string", optional: true, about: "the moved note; default the one shown" } },
+    async run({ id }, { surface, host }, actor) {
       const m = surface.requireNote();
-      const done = await undoMove(host.ctx.board, actor, m.id);
+      const target = id ?? m.id;
+      const done = await undoMove(host.ctx.board, actor, target);
       const fresh = await host.ctx.board.get(m.id).catch(() => null);
       if (fresh) surface.refresh(fresh);
+      if (surface.replyLinks) await surface.openReplyLinks(host, { kind: "user" }, true);
       await surface.rereadPlace(host);
       asActor(host.ctx, actor).flash(done.said);
       return done;

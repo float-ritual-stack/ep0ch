@@ -675,7 +675,7 @@ export async function createBlock(
   let block = await client.request<Block>({ action: "create", text, parentId, author: actor.author ?? "agent", provenance: actor.author && actor.author !== "agent" ? undefined : provenanceOf(actor) });
   if (position !== undefined) {
     await client.requireCompatibleService();
-    block = await client.request<Block>({ action: "move", blockId: block.id, parentId, position, mutation: mutationOf(actor) });
+    block = await client.request<Block>({ action: "move", blockId: block.id, expectedRevision: block.revision, parentId, position, mutation: mutationOf(actor) });
   }
   return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId, ...(await warned(client, block.text, block.id)) };
 }
@@ -1155,118 +1155,28 @@ export async function assignWorkId(
 
 // ─── Move, trash and restore ────────────────────────────────────────────────
 
-const isInbox = (block: Block): boolean => block.properties.some(p => p.key === "system-view" && p.value.toLowerCase() === "inbox");
-/** A system note that holds real children: the Inbox, and install's Deploys record (its runs are its children). */
-const takesChildren = (block: Block): boolean => isInbox(block) || block.properties.some(p => p.key === "system-view" && p.value.toLowerCase() === "deploys");
 const short = (title: string): string => title.slice(0, 50).replace(/[|()]/g, " ").trim();
 const label = (block: Block): string => `((${block.id}|${short(blockDisplayTitle(block))}))`;
 
-/** Up to three notes whose words are near what the agent named, as a did-you-mean for a ref that did not resolve. */
-async function nearest(client: AgentToolsClient, ref: string): Promise<string> {
-  const words = ref.replace(/^\[\[|\]\]$|^\(\(|\)\)$/g, "").trim();
-  if (!words) return "";
-  try {
-    const found = await client.request<{ matches: { block: { id: string }; title: string }[] }>({ action: "tree.search", query: words });
-    const top = found.matches.slice(0, 3);
-    return top.length ? ` Did you mean ${top.map(m => `((${m.block.id}|${short(m.title)}))`).join(", ")}?` : "";
-  } catch { return ""; }
-}
-
-/** A block named by `ref` for a role (`the parent`): resolved and writable, or a refusal that says what to give instead. */
-async function namedBlock(client: AgentToolsClient, ref: unknown, role: string): Promise<Block> {
-  if (typeof ref !== "string" || !ref.trim()) throw new WorkToolRefusal(`Give ${role}: a ref (its id, ((id)), [[page]] or Work ID)`);
-  try {
-    return await writableBlock(client, ref);
-  } catch (e) {
-    if (!(e instanceof Error) || /is in Trash/.test(e.message)) throw e;
-    throw new WorkToolRefusal(`${role[0]!.toUpperCase()}${role.slice(1)} ${JSON.stringify(ref)} doesn't resolve to a note: ${e.message}.${await nearest(client, ref)} outline_find finds a note by its words.`);
-  }
-}
-
-/** The place a step takes `block` to, in the arguments `moveBlock` already reads: or a refusal that says which edge it is at. */
-async function stepIntent(client: AgentToolsClient, block: Block, input: { step?: MoveStep; parent?: string; before?: string; after?: string; position?: number; revision?: number }) {
-  const { step, ...rest } = input;
-  if (rest.parent !== undefined || rest.before !== undefined || rest.after !== undefined || rest.position !== undefined) throw new WorkToolRefusal("Give a step (up, down, in, out) or a place (parent, before, after), not both");
-  if (step !== "up" && step !== "down" && step !== "in" && step !== "out") throw new WorkToolRefusal("step is up, down, in (last under the note above it) or out (right after its parent)");
-  const siblings = await client.request<Block[]>({ action: "children", parentId: block.parentId });
-  const i = siblings.findIndex(sibling => sibling.id === block.id);
-  const edge = block.parentId === null ? " at the top level" : " under its parent";
-  if (step === "up") { if (i <= 0) throw new WorkToolRefusal(`${label(block)} is already first${edge}`); return { ...rest, before: siblings[i - 1]!.id }; }
-  if (step === "down") { if (i < 0 || i >= siblings.length - 1) throw new WorkToolRefusal(`${label(block)} is already last${edge}`); return { ...rest, after: siblings[i + 1]!.id }; }
-  if (step === "in") {
-    if (i <= 0) throw new WorkToolRefusal(`${label(block)} has no note above it to go in under`);
-    return { ...rest, parent: siblings[i - 1]!.id };
-  }
-  if (block.parentId === null) throw new WorkToolRefusal(`${label(block)} is at the top level: there is no outer level to go out to`);
-  return { ...rest, after: block.parentId };
-}
-
-export type MoveResult =
-  | { outcome: "applied"; id: string; ref: string; parentId: string | null; position: number; previousParentId: string | null; previousPosition: number; revision: number; said: string }
-  | { outcome: "unchanged"; id: string; ref: string; parentId: string | null; position: number; said: string };
-
-/** One place among its siblings (`up`, `down`), in under the sibling above (`in`), or out to right after its parent (`out`). */
 export type MoveStep = "up" | "down" | "in" | "out";
+export type MoveResult = import("@ep0ch/outline-core/protocol").NoteMoveReceipt & {
+  id: string; ref: string; parentId: string | null; position: number; revision: number;
+};
 
-/**
- * Moves a note to a new place: under `parent` (a ref, or `root`) at `position` (0 first, default last), or `before` or
- * `after` a sibling note, or one `step` (up, down, in under the sibling above, out after its parent). With `revision`, only
- * the note as it was read. The service's `move`, attributed to `actor` (an agent; the door's person passes `author: "user"`).
- * This is the one rule for where a move lands: the door's keys, drags and picker, outline_move and the CLI all come here.
- * A system note moves like any note (the service finds the Inbox, Trash, Bookmarks and the Deploys record by their
- * properties, never their place). Refused, saying what to give instead: a place under a view or guide the service
- * keeps (Trash, Bookmarks, a guide; the Inbox and the Deploys record take children), a place inside the note itself, a note in Trash, a ref that doesn't resolve (with the nearest notes).
- */
 export async function moveBlock(
   client: AgentToolsClient,
-  raw: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision?: number; step?: MoveStep },
+  input: { ref: string; parent?: string; before?: string; after?: string; position?: number; revision?: number; step?: MoveStep },
   actor: AgentActor,
 ): Promise<MoveResult> {
-  const block = await writableBlock(client, raw.ref);
-  const input = raw.step === undefined ? raw : await stepIntent(client, block, raw);
-  if (input.revision !== undefined && input.revision !== block.revision) {
-    throw new WorkToolRefusal(`${label(block)} changed since you read it (revision ${block.revision} now, you have ${input.revision}): outline_read it again, and move it only if it's still the note you mean`);
-  }
-  const given = (["parent", "before", "after"] as const).filter(key => input[key] !== undefined);
-  if (given.length !== 1) throw new WorkToolRefusal("Give exactly one of parent (under it; or root), before or after (beside a note), or a step");
-  if (input.position !== undefined && given[0] !== "parent") throw new WorkToolRefusal("position goes with parent (before and after are the place already)");
-  let parentId: string | null;
-  let beside: Block | null = null;
-  if (given[0] === "parent") {
-    if (typeof input.parent === "string" && input.parent.trim() === "root") parentId = null;
-    else {
-      const parent = await namedBlock(client, input.parent, "the parent");
-      if (isSystemNote(parent) && !takesChildren(parent)) throw new WorkToolRefusal(`${label(parent)} is ${systemNoteKind(parent)}, which the service fills itself, so a note put under it would not show where it belongs: put the note under a note of the outline's, or under the Inbox, or root`);
-      parentId = parent.id;
-    }
-  } else {
-    beside = await namedBlock(client, input[given[0]], `the note to go ${given[0]}`);
-    if (beside.id === block.id) throw new WorkToolRefusal(`A note can't go ${given[0]} itself; name a sibling or give parent`);
-    parentId = beside.parentId;
-    if (parentId) {
-      const parent = await client.request<Block>({ action: "get", blockId: parentId });
-      if (isSystemNote(parent) && !takesChildren(parent)) throw new WorkToolRefusal(`${label(beside)} is under ${systemNoteKind(parent)} (${label(parent)}), which the service fills itself: put the note under a note of the outline's, or root`);
-    }
-  }
-  const siblings = (await client.request<Block[]>({ action: "children", parentId })).filter(sibling => sibling.id !== block.id);
-  const requested = beside
-    ? siblings.findIndex(sibling => sibling.id === beside!.id) + (given[0] === "after" ? 1 : 0)
-    : input.position === undefined ? siblings.length : boundedInteger(input.position, "position", 0, 0, 1_000_000);
-  const position = Math.min(requested, siblings.length);
-  const where = parentId ? `under ${label(await client.request<Block>({ action: "get", blockId: parentId }))}` : "at the top level";
-  if (block.parentId === parentId) {
-    const before = (await client.request<Block[]>({ action: "children", parentId })).findIndex(sibling => sibling.id === block.id);
-    if (before === position) return { outcome: "unchanged", id: block.id, ref: `((${block.id}))`, parentId, position, said: `${label(block)} is already ${where} at position ${position}` };
-  }
-  const previousPosition = (await client.request<Block[]>({ action: "children", parentId: block.parentId })).findIndex(sibling => sibling.id === block.id);
-  // The service refuses a place inside the note itself; the refusal here says what to give instead.
-  const moved = await client.request<Block>({ action: "move", blockId: block.id, parentId, position, mutation: mutationOf(actor) }).catch(e => {
-    if (e instanceof Error && /beneath itself/.test(e.message)) {
-      throw new WorkToolRefusal(`${label(block)} can't go ${parentId === block.id ? "under itself" : "inside itself (the place is under its own descendants)"}: pick a parent outside it, or root`);
-    }
-    throw e;
+  const block = await writableBlock(client, input.ref);
+  const moved = await client.request<Block & import("@ep0ch/outline-core/protocol").NoteMoveReceipt>({
+    action: "move", blockId: block.id, expectedRevision: input.revision ?? block.revision,
+    to: input.parent, before: input.before, after: input.after, step: input.step, position: input.position,
+    mutation: mutationOf(actor),
   });
-  return { outcome: "applied", id: block.id, ref: `((${block.id}))`, parentId, position, previousParentId: block.parentId, previousPosition, revision: moved.revision, said: `moved ${label(block)} ${where} at position ${position}` };
+  return { outcome: moved.outcome, id: moved.id, ref: `((${moved.id}))`, parentId: moved.parentId,
+    position: moved.position, previousParentId: moved.previousParentId, previousPosition: moved.previousPosition,
+    revision: moved.revision, said: moved.said };
 }
 
 export type TrashResult =

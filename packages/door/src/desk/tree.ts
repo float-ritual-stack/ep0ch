@@ -563,9 +563,10 @@ export class TreePane implements Pane {
     };
     if (a.undo) return finish(await undoMove(board, actor, id));
     const { undo: _, ...where } = a;
-    if ([where.to, where.before, where.after, where.step].some(x => x !== undefined)) return finish(await moveNote(board, id, intentOf(where), actor, { revision: where.revision }));
+    const revision = where.revision ?? (r?.kind === "block" ? r.m.revision : undefined);
+    if ([where.to, where.before, where.after, where.step].some(x => x !== undefined)) return finish(await moveNote(board, id, intentOf(where), actor, { revision }));
     if (agent) throw new ActionRefused("say where: step=up|down|in|out, to=<inbox, root, or a note's id, ((ref)), [[page]], Work ID>, before= or after=");
-    return askInBar(desk.ctx as never, "Move the note", [moveQuestion(id)], {}, actor, answers => moveNote(board, id, intentOf({ ...where, to: answers.to! }), actor, { revision: where.revision }).then(finish)) as Promise<Record<string, unknown>>;
+    return askInBar(desk.ctx as never, "Move the note", [moveQuestion(id)], {}, actor, answers => moveNote(board, id, intentOf({ ...where, to: answers.to! }), actor, { revision }).then(finish)) as Promise<Record<string, unknown>>;
   }
 
   /** The rows in words, numbered from 1, as agents pick them. */

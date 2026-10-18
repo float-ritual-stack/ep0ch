@@ -1,9 +1,4 @@
-// Moving a note to a new parent or a new place among its siblings (PIE-943): the one step `note.move` (the reader, the
-// menu, the power bar's "Move to…", `act`), `tree.move` (the outline tile's keys and drags) and `column.move` run. The
-// door passes only intent (under a note, beside a sibling, or one step); where the note lands, what is refused and how a
-// stale revision reads are the outliner's `moveBlock`, the rule outline_move runs for an agent, so the person and an agent
-// can't be given two answers. This adds only what a client owns: who asked, the words, and ctrl+z (the service keeps no
-// undo token for a move, so the place it came from is kept here, in the shared UndoHistory).
+// Actions share the service's atomic move; the door keeps its receipt for local undo.
 import { recordedActorId, type Actor } from "./socket";
 import { ActionRefused } from "./surface/actions";
 import { UndoHistory, partyOf } from "./steps";
@@ -43,12 +38,9 @@ export function intentOf(a: MoveArgs): MoveIntent {
 }
 
 /** The `moveBlock` input for an intent: a person's `to` goes first under the note (position 0) unless a position says. */
-async function inputOf(board: WriteBoard, intent: MoveIntent): Promise<{ parent?: string; before?: string; after?: string; position?: number; step?: "up" | "down" | "in" | "out" }> {
+function inputOf(intent: MoveIntent) {
   if ("step" in intent || "before" in intent || "after" in intent) return intent;
-  const to = intent.to.trim();
-  const parent = to === "inbox" ? await board.inboxId().catch(() => null) : to;
-  if (!parent) throw new ActionRefused("this outline has no Inbox to put it in: to=<a note's id>");
-  return { parent, position: intent.position === undefined ? 0 : intent.position - 1 };
+  return { parent: intent.to, position: intent.position === undefined ? 0 : intent.position - 1 };
 }
 
 /** moveBlock's words name notes as ((id|title)); said to a person they read as the title (a bare ((id)) as "that note"). */
@@ -59,7 +51,7 @@ const plainly = (said: string) => said.replace(/\(\([0-9a-f-]{36}(?:\|([^)]*))?\
  * remembered for ctrl+z unless `undoable` is false (putting back isn't a move to put back).
  */
 export async function moveNote(board: WriteBoard, id: string, intent: MoveIntent, actor: Actor, opts: { revision?: number; undoable?: boolean } = {}): Promise<MoveDone> {
-  const input = { ref: id, ...(await inputOf(board, intent)), ...(opts.revision !== undefined ? { revision: opts.revision } : {}) };
+  const input = { ref: id, ...inputOf(intent), ...(opts.revision !== undefined ? { revision: opts.revision } : {}) };
   const r = await moveWithRules(board, input, { actorId: recordedActorId(actor), author: actor.kind });
   const parent = r.parentId ?? null;
   if (r.outcome === "unchanged") return { moved: id, parent, position: r.position, previousParent: parent, unchanged: true, said: plainly(r.said) };

@@ -5,8 +5,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { droppedStructure } from "../src/draft-patch";
-import { changesSince, READ_CHILDREN_MAX_CHARS, referenceTarget, shortDiff } from "../src/agent-tools";
+import { moveBlock, changesSince, READ_CHILDREN_MAX_CHARS, referenceTarget, shortDiff } from "../src/agent-tools";
 import { scratchOutline } from "./scratch-outline";
+import { OutlinerClient, type RequestInput } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 
@@ -47,7 +48,7 @@ async function setup() {
     const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { exitCode, stdout, stderr };
   };
-  return { store, agent, cli, root };
+  return { store, agent, cli, root, socket: paths.socket };
 }
 
 const LONG_NOTE = "Seed swap plan [page::Seed Swap] [kind::plan]\n\n## Beans\n\nBorlotti and runner beans. ^beans\n\n## Squash\n\nButternut only.";
@@ -656,4 +657,24 @@ test("a bad or unresolved reference never blocks a save: edit, create, comment, 
   expect(update.stderr).toContain(`warning: ((${target.id} isn't closed with ))`);
   const plain = await cli(["comment", "--id", note.id, "--expected", String(store.get(note.id)!.revision), "--request-id", "c-761", "--whole", "--text", "no references at all"]);
   expect([plain.exitCode, plain.stderr]).toEqual([0, ""]);
+});
+
+
+test("a real edit between the read and move refuses the stale move", async () => {
+  const { store, socket } = await setup();
+  const parent = store.create("Potting bench");
+  const note = store.create("Seed trays");
+  const client = new OutlinerClient(socket);
+  const request = client.request.bind(client);
+  let edited = false;
+  client.request = async <T>(input: RequestInput): Promise<T> => {
+    if (input.action === "move" && !edited) {
+      edited = true;
+      await request({ action: "update", blockId: note.id, text: "Seed trays, keep here", mutation: { author: "user" }, expectedRevision: note.revision });
+    }
+    return request<T>(input);
+  };
+  await expect(moveBlock(client, { ref: note.id, parent: parent.id, revision: note.revision }, { actorId: "garden-agent" })).rejects.toThrow("changed");
+  expect(edited).toBe(true);
+  expect(store.require(note.id)).toMatchObject({ parentId: null, text: "Seed trays, keep here", revision: note.revision + 1 });
 });

@@ -80,7 +80,7 @@ const result = await runHerdrScenario({
     await session.waitVisible(session.panes.detail, "Editing");
     await session.text(session.panes.detail, " AFTER-REORDER");
     await session.waitVisible(session.panes.detail, "S3-REMOTE-WINNER AFTER-REORDER");
-    await session.client.request({ action: "move", blockId: sibling.id, parentId: original.parentId, position: 0 });
+    await session.client.request({ action: "move", blockId: sibling.id, expectedRevision: sibling.revision, parentId: original.parentId, position: 0 });
     const afterMove = await read();
     assert.notEqual(afterMove.position, winner.position);
     assert.equal(afterMove.revision, winner.revision);

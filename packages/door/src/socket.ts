@@ -73,7 +73,7 @@ export function hostRequest<T = any>(path: string, action: string, params: Recor
  * or blocks.query `fields`), or compact (`preview`, from views.read `format: "tree"`).
  */
 interface WireBlock {
-  id: string; parentId?: string | null; text?: string; title?: string; preview?: string; revision?: number;
+  id: string; parentId?: string | null; position?: number; text?: string; title?: string; preview?: string; revision?: number;
   author?: string; actorId?: string;
   createdAt?: string; updatedAt?: string; deletedAt?: string | null; effectiveDeletedRootId?: string | null;
   properties?: { key: string; value: string }[];
@@ -225,6 +225,7 @@ const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   id: b.id,
   text: b.text ?? b.title ?? (b.preview !== undefined ? previewTitle(b.preview) : ""),
   parentId: b.parentId ?? null,
+  position: b.position,
   childIds,
   createdAt: b.createdAt ? Date.parse(b.createdAt) : 0,
   updatedAt: b.updatedAt ? Date.parse(b.updatedAt) : 0,
@@ -1256,7 +1257,8 @@ export class SocketBoard implements Board {
 
   /** Note `id` moved under `parentId` (null: the top level) at `position` among its children, first by default (`move`; PIE-883, PIE-943). */
   async move(id: string, parentId: string | null, actor: Actor = USER, position = 0): Promise<void> {
-    await this.request("move", { blockId: id, parentId, position, mutation: mutationFor(actor) });
+    const block = await this.get(id);
+    await this.request("move", { blockId: id, parentId, position, expectedRevision: block!.revision, mutation: mutationFor(actor) });
   }
   /** The outline's Inbox: the root the service made it as (`[system-view::inbox]`), or null. */
   async inboxId(): Promise<string | null> {

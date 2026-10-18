@@ -532,3 +532,19 @@ export interface BlockSizeCensus {
   actors: (BlockSizeSummary & { key: string })[];
   branches: (BlockSizeSummary & { key: string })[];
 }
+
+/** A structural move resolves its destination under the same transaction as its revision check. Positions are zero-based. */
+export interface NoteMoveIntent {
+  to?: string;
+  parentId?: string | null;
+  before?: string;
+  after?: string;
+  step?: "up" | "down" | "in" | "out";
+  position?: number;
+}
+export interface NoteMoveReceipt {
+  outcome: "applied" | "unchanged";
+  previousParentId: string | null;
+  previousPosition: number;
+  said: string;
+}

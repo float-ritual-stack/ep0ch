@@ -12,6 +12,7 @@ export interface Msg {
   id: string;
   text: string;
   parentId: string | null;
+  position?: number;
   childIds: string[];
   createdAt: number;   // epoch ms
   updatedAt: number;
