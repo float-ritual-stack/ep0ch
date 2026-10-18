@@ -220,6 +220,9 @@ export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
     keys: "h j k l, the arrows, a click on a cell",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's cell (peek lists every cell)",
     args: { row: { type: "number", optional: true, about: "the caller's row, from 1" }, col: { type: "number", optional: true, about: "the outline's column, from 1" }, ...cellArgs },
+    examples: [
+      { act: "access.pick row=2 col=3", does: "picks the second caller's cell in the third outline" },
+    ],
     run(a, { pane, desk }) {
       const p = pane as AccessMatrixPane, m = p.matrix;
       if (!m) throw new ActionRefused("the matrix is still being read");
@@ -238,6 +241,9 @@ export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
     keys: "n r p f (none, read, propose, full), the chips under the table",
     touches: "tile", replay: "safe",
     args: { level: { type: "string", about: "none, read, propose or full" }, ...cellArgs },
+    examples: [
+      { act: "access.plan level=read caller=garden-bot outline=garden", does: "plans garden-bot's cap in garden at read and shows the command, changing nothing" },
+    ],
     run(a, { pane, desk }, actor) {
       const p = pane as AccessMatrixPane, c = cellOf(p, a);
       const plan = planChange(p.matrix!, { caller: c.caller, outline: c.outline, machine: c.machine, level: a.level });
@@ -252,6 +258,9 @@ export const ACCESS_MATRIX_ACTIONS = actionSet<KindHost>()("access-matrix", {
     touches: "nothing", replay: "ask", says: (r: { ran: string[] }) => `ran ${r.ran.join(" and ")}`,
     person: "what agents may reach is the person's to set: an agent reads the matrix and asks access.plan what a change would do, and the person applies it",
     args: { level: { type: "string", optional: true, about: "none, read, propose or full (left out: the change the tile has planned)" }, ...cellArgs },
+    examples: [
+      { act: "access.apply", does: "applies the change the tile has planned (the person only)" },
+    ],
     async run(a, { pane, desk }, actor) {
       // `person` is checked by the dispatcher, but not while yolo lifts the agent gate: access is never lifted with it.
       if (actor.kind === "agent") throw new ActionRefused("what agents may reach is the person's to set: an agent reads the matrix and asks access.plan what a change would do");

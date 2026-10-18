@@ -9291,6 +9291,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       id: { type: "string", optional: true, about: "the note to route (default: the one shown)" },
       dry: { type: "boolean", optional: true, about: "say what would move where and why, moving nothing" },
     },
+    examples: [
+      { act: "note.route dry=true", does: "says where the note shown would move and which rule, moving nothing" },
+      { act: "note.route", does: "moves the note shown by the first routing rule that holds for it" },
+    ],
     async run({ id, dry }, { surface, host }, actor) {
       const target = id ?? surface.requireNote().id;
       const done = await routeNote(host.ctx.board, target, actor, { dryRun: dry === true });

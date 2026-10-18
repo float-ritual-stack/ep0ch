@@ -90,6 +90,10 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       query: { type: "string", optional: true, about: "an agent's own line" },
       scope: { type: "string", optional: true, about: "an agent's own scope" },
     },
+    examples: [
+      { act: "bar.edit op=clear", does: "clears the power bar's line" },
+      { act: "bar.edit op=complete", does: "fills the next part of the lit row into the line, selected" },
+    ],
     async run({ op, text, from, to, query, scope }, { on }, actor: Actor) {
       if (!["clear", "complete", "paste", "select", "cut", "delete-word", "undo"].includes(op)) throw new ActionRefused("choose clear, complete, paste, select, cut, delete-word or undo");
       const b = actor.kind === "agent" ? await on.unseen({ query, scope: scopeArg(scope) }) : on.bar();

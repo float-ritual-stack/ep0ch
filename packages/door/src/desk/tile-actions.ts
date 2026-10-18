@@ -485,6 +485,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     says: r => r.prompt ? null : `title: ${r.title}`,
     menu: { label: "Rename…", group: TILE, key: "ctrl+w n" },
     args: { text: { type: "string", optional: true, about: "display title; empty clears" } },
+    examples: [
+      { act: "tile.title text={{this.title}}", does: "names the tile by the title of the note it shows, following it" },
+      { act: "tile.title text=", does: "clears the written title, back to the system one" },
+    ],
     run({ text }, { d, reader }, actor) { return d.titleTile(reader, text, false, actor); },
   }),
   "tile.title.mode": def({
