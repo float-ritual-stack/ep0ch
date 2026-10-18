@@ -874,6 +874,50 @@ rule note never decorates rule notes' own words. What can't be used is listed in
 `ruleProblems` (the door says it once), and writing a rule note sends `extensions.changed`, so readers draw again.
 Heading styles (PIE-599) are the outline's own list (`[heading-style::name]` on a note or any line of one, `headings.styles`); a rule's `band` and `track` are drawn by the same drawer and name a style with `rule-style` (a `--- [rule::fade]` divider's `[rule::…]` is that feature's, which is why a rule note is `[rule-name::…]`). A code rule is the tier above it.
 
+## Routing: notes that file themselves (PIE-1010)
+
+A **routing rule** is a note, like a rule note: `[type::route]`, a `[query::…]` in the saved views' grammar and a
+`[route-to::((id))]` (a note's `((id))`, a `[[page]]`, a Work ID, `inbox` or `root`). The first rule whose query holds
+for a note moves it there, as Obsidian's Auto Note Mover files a note by its tag. It is a core extension of the service
+(`src/note-routing.ts`): it ships with the outliner, owns no property but its own (`route-*`; a query names any), and
+goes away whole when the file does.
+
+```text
+Recipes go to the shelf [type::route] [query::type=recipe] [route-to::((<recipes>))]
+Sweet recipes first [type::route] [query::type=recipe AND #sweet] [route-to::((<sweets>))] [route-order::1]
+Old things are archived [type::route] [query::status=old] [route-to::((<archive>))] [route-when::edit]
+Done by hand [type::route] [query::status=done] [route-to::((<done>))] [route-when::command]
+```
+
+- **First match wins:** by `route-order` (lower first), then the Routing view's hand order, then the order written.
+- **When a rule fires on its own** (`route-when`, default `create`): `create` for new notes (a note made with its
+  words through `notes.create`, a quick capture, and a new note's first words: the person's ctrl+n makes an empty note,
+  so its first save is its creation); `edit` on every later save too; `command` only when asked. Every rule counts
+  when asked: `ep0ch route <note>`, `ep0ch route --all`, the door's `note.route` (alt+z in a reader).
+- **One move path:** the service's atomic move (`note-move.ts`, the rule `outline_move` runs), attributed `author: agent`
+  `actorId: ext:route` with who asked as `requestedBy`, one change, put back by the door's ctrl+z or `outline_move`. A
+  note lands first among the target's children (`[route-at::end]`: last). Its own writes set no rule off.
+- **Never under a person's draft:** a note a door holds a draft of waits, and routes when the draft closes
+  (`drafts.release`). `ep0ch route` says `being written` for it.
+- **Placement asks routing first** (`src/note-placement.ts`): a note made with its words (`notes.create`: `ep0ch new`, the
+  door's `note.new text=`, an agent's `outline_new`) with `[type::recipe]` lands in Recipes directly, the receipt saying
+  `rule: "route"` and which rule. A clause about other notes (`links:`, `under:`) can't hold for a note that isn't
+  anywhere yet, and quick capture (`capture.create`, whose draft is already in the Inbox) keeps the Inbox: both route a
+  moment later, by the create rules, once the note is quiet.
+- **A history:** each move appends a line to a child of the rule, `Routing history [type::route-history] [machine::route]`
+  (what, from, to, when; the newest first, 50 kept), shown on the rule note as any child is.
+- **The Routing view** (`Routing [page::routing] [system-view::routing]`, a saved view over `type=route`, seeded once at
+  the root like Bookmarks) lists every rule wherever it is written; reorder its rows to reorder the rules. Like
+  Bookmarks it is one of the outline's own views (the web top level leaves it out); rename or move it as you like.
+- **What can't be used is said, never a move:** a rule without `query` or `route-to`, a target in Trash, a system note
+  (Trash, Bookmarks, a snapshot record), or a query the grammar refuses is listed by `ep0ch route … --dry-run` and the
+  door's `note.route`, with what to fix. A rule note, a history and a system note are never routed themselves.
+- **Dry run:** `ep0ch route --all --dry-run` (and `notes.route` with `dryRun: true`) says what would move where and why,
+  moving nothing; notes no rule holds for are counted, not listed.
+- **The seam for PIE-1011** (snapshot records filed under `.system`): `SEEDED_RULES` in `note-routing.ts`, a rule the
+  service seeds once; `route-to` resolves through the one block lookup, and `moveNote`'s system-parent allowlist is where
+  `.system` joins the Inbox.
+
 ## Component schemas: docs and completion
 
 A component says once what its properties are (PIE-618), and the door makes its docs page and the completion of its

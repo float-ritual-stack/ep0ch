@@ -91,7 +91,7 @@ import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
 import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
-import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
+import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
 import { hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
@@ -3839,6 +3839,8 @@ export class NoteSurface {
     if (c === "u" && this.msg?.parentId) { void this.runKey("up", {}, host, true); return true; }
     // Z: move this note under another (PIE-943; > is the board's tile-widening and the power bar's actions scope): asked in the power bar, its parents and the places changed lately first.
     if (c === "Z" && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", {}, host); return true; }
+    // alt+z: route this note by the outline's routing rules (PIE-1010); alt+Z says what would move, moving nothing.
+    if (k.kind === "alt" && (k.ch === "z" || k.ch === "Z") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.route", k.ch === "Z" ? { dry: true } : {}, host); return true; }
     // alt+↑ alt+↓: this note up or down among its siblings, as they do in the outline tile, the board's lanes and the Welcome list.
     if ((k.kind === "alt-up" || k.kind === "alt-down" || c === "K" || c === "J") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", { step: k.kind === "alt-up" || c === "K" ? "up" : "down" }, host); return true; }
     // b: this note's links (Outlinks, Resources, Backlinks) in the screen's links tile.
@@ -9080,6 +9082,33 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (asked) return run(args);
       if (actor.kind === "agent") throw new ActionRefused("say where: to=<inbox, root, or a note's id, ((ref)), [[page]], Work ID>, before=, after= or step=up|down|in|out");
       return askInBar(host.ctx as never, "Move the note", [moveQuestion(id)], {}, actor, answers => run({ ...args, to: answers.to! }));
+    },
+  }),
+  "note.route": def({
+    summary: "route a note by the outline's routing rules (PIE-1010): the one shown, or id=. The first rule note ([type::route] [query::…] [route-to::((id))], listed in the Routing view) whose query holds for it moves it there, by the service's one move, as ext:route with you recorded as who asked, in one revision; ctrl+z puts it back (note.move.undo). dry=true says what would move where and why (which rule) and moves nothing; a note no rule holds for is said so, and a rule that can't be used is named. A note being written in a door is never moved under the person: it routes when the draft closes",
+    keys: "alt+z in a reader (alt+Z says what would move, moving nothing), the tile menu's \"route by rules\"",
+    touches: "nothing", replay: "ask",
+    menu: { label: "route by rules", group: "note", key: "alt+z", now: (_h, t) => (t.kind === "river.column" ? { hide: true } : null) },
+    says: r => String((r as { said?: string }).said ?? "routed a note"),
+    args: {
+      id: { type: "string", optional: true, about: "the note to route (default: the one shown)" },
+      dry: { type: "boolean", optional: true, about: "say what would move where and why, moving nothing" },
+    },
+    async run({ id, dry }, { surface, host }, actor) {
+      const target = id ?? surface.requireNote().id;
+      const done = await routeNote(host.ctx.board, target, actor, { dryRun: dry === true });
+      if (done.outcome === "moved") {
+        if (surface.replyLinks) await surface.openReplyLinks(host, { kind: "user" }, true);
+        if (surface.msg?.id === target) {
+          const fresh = await host.ctx.board.get(target).catch(() => null);
+          if (fresh) surface.refresh(fresh);
+          await surface.rereadPlace(host);
+        }
+      }
+      asActor(host.ctx, actor).flash(done.said);
+      surface.noteAgent(actor, done.said);
+      host.redraw();
+      return done;
     },
   }),
   "note.move.undo": def({

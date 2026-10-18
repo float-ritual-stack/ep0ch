@@ -10,6 +10,19 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Notes route themselves by rules written as notes (PIE-1010)
+
+A routing rule is a note: `[type::route] [query::type=recipe] [route-to::((recipes))]`, with optional
+`[route-when::create|edit|command]` (default create), `[route-order::N]` and `[route-at::top|end]`. The first
+rule whose query holds for a note moves it there, by the service's one move, as `ext:route`, in one change, with
+a history under the rule. A new note made with its words lands where its rule says (`ep0ch new`, an agent's
+`outline_new`); a quick capture, a bare note and a new note's first words route a moment after you stop typing; a
+note you have open in a draft waits until you close it. A new **Routing** view at the root (`[[routing]]`) lists every
+rule; its order is the rules' order. `ep0ch route <note> --dry-run` and `ep0ch route --all --dry-run` say what
+would move where and why; `ep0ch route <note>` and `--all` move them; in the door, `alt+z` on a note routes it
+(`alt+Z` says what would move, `ctrl+z` puts it back; the tile menu's "route by rules"). New wire request:
+`notes.route`; `notes.create`'s placement gains `rule: "route"`. Showcase: "Notes that file themselves".
+
 ### In the power bar tab completes, and alt+← alt+→ change scope (PIE-1014)
 
 - **Changed:** `alt+←` and `alt+→` move between the bar's scopes (all, tiles, notes, actions…); `tab` no longer does, and

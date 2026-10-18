@@ -51,6 +51,7 @@ import { ExtensionSyncs } from "./extension-sync";
 import { resourceProviderEntries } from "./extension-registry";
 import { directiveProvidersOf, useResourceDirectiveProviders, type ResourceProviderEntry } from "./resource-references";
 import { ExtensionRules } from "./extension-rules";
+import { NoteRouting } from "./note-routing";
 import { ExtensionCalls, wholeTextSpan } from "./extension-calls";
 import { markTriggered } from "./extension-writes";
 import { grantOf, type ExtensionGrant } from "./extension-grants";
@@ -414,6 +415,8 @@ export class OutlinerServer {
   readonly agentRequests: AgentRequests;
   /** User-land rules: match, decorate, and change triggers (src/extension-rules.ts, PIE-600). */
   readonly extensionRules: ExtensionRules;
+  /** Notes routing themselves by rule notes (PIE-1010, src/note-routing.ts). */
+  readonly routing: NoteRouting;
   /** Handlers and actions an extension runs on a schedule, and what each run did (src/extension-schedule.ts, PIE-754). */
   readonly extensionSchedules: ExtensionSchedules;
   /** The Extensions hub, a page per extension and their demo notes (src/extension-pages.ts). */
@@ -435,7 +438,7 @@ export class OutlinerServer {
     readonly socketPath: string,
     readonly herdrRegistry?: HerdrRuntimeRegistry,
     private readonly promptDirectory?: string,
-    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; readOnly?: boolean;
+    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; routeQuietMs?: number; readOnly?: boolean;
       /** The host's outlines folder: where this machine's own name is kept (`.host/machine-name`). */
       outlinesFolder?: string;
       /** How often due schedules are looked for (default 15 s), and the clock they read (tests). */
@@ -603,6 +606,12 @@ export class OutlinerServer {
       // How many times each rule ran today, kept across restarts: a rule's daily cap holds through one.
       runsFile: join(this.stateDirectory, "rule-runs.json"),
     });
+    // Routing (PIE-1010): a note a door holds a draft of waits; placement asks it first for a new note's text.
+    this.routing = new NoteRouting(store, {
+      held: (blockId) => this.draftHolds.holdersOf(blockId, (clientId) => this.hasClient(clientId)).length > 0,
+      ...(options.routeQuietMs !== undefined ? { quietMs: options.routeQuietMs } : {}),
+    });
+    store.newNoteRouter = (text) => this.routing.place(text);
     this.extensionSchedules = new ExtensionSchedules({
       serving: () => this.extensionRegistry.serving(),
       run: (entry, at) => this.extensionCalls.runScheduled(entry.extension, entry.entry, entry.schedule, at),
@@ -744,6 +753,7 @@ export class OutlinerServer {
     this.agentRequests.start();
     this.extensionSync.start();
     this.extensionRules.start();
+    this.routing.ensureHub();
     this.extensionSchedules.start();
     // Its resource providers once its folders are read (and again on every reload).
     void this.extensionRegistry.watch().catch(() => {}).then(() => this.refreshResourceProviders());
@@ -780,7 +790,7 @@ export class OutlinerServer {
     }
     this.extensionSync.start();
     this.extensionRules.start();
-    if (!this.readOnly) this.extensionSchedules.start();
+    if (!this.readOnly) { this.routing.ensureHub(); this.extensionSchedules.start(); }
     await this.extensionRegistry.watch().catch(() => {});
     // Its resource providers once its folders are read: a note saved as soon as it answers reads its `key::` lines.
     await this.refreshResourceProviders();
@@ -798,6 +808,7 @@ export class OutlinerServer {
     this.extensionCalls.stop();
     await this.scriptRuns.stop();
     this.extensionRules.stop();
+    this.routing.stop();
     this.extensionSchedules.stop();
     this.snapshots.stop();
     this.agentRequests.stop();
@@ -924,7 +935,10 @@ export class OutlinerServer {
       this.browsingContextTargets.delete(removed.contextId);
     }
     if (removed) {
+      const heldHere = this.draftHolds.list().filter(hold => hold.clientId === removed.clientId).map(hold => hold.blockId);
       this.draftHolds.releaseClient(removed.clientId);
+      // A note that waited to route while this door held its draft routes now (PIE-1010).
+      for (const blockId of new Set(heldHere)) this.routing.draftReleased(blockId);
       // A door that goes away takes its yolo with it: never on without the door that set it.
       if (this.yolo.release(removed.clientId)) this.announceYolo();
       // A door that went away answers nothing it was asked: don't wait out the deadline.
@@ -2964,6 +2978,15 @@ export class OutlinerServer {
         case "notes.create":
           result = this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
           break;
+        case "notes.route": {
+          // PIE-1010: the moves are ext:route's; who asked is recorded beside them.
+          if (request.ref !== undefined && (typeof request.ref !== "string" || !request.ref.trim())) throw new Error("ref names the note to route: an id, ((id)), [[page]] or Work ID");
+          if (request.all !== undefined && typeof request.all !== "boolean") throw new Error("all is true or false");
+          if (request.dryRun !== undefined && typeof request.dryRun !== "boolean") throw new Error("dryRun is true or false");
+          const requestedBy = declaredRequester(request, "notes.route");
+          result = this.routing.run({ ...(request.ref ? { ref: request.ref } : {}), ...(request.all ? { all: true } : {}), ...(request.dryRun ? { dryRun: true } : {}), ...(requestedBy ? { requestedBy } : {}) });
+          break;
+        }
         case "template.stamp": {
           const { id: _id, action: _action, ...stamp } = request;
           result = stampTemplate(this.store, stamp);
@@ -3245,10 +3268,14 @@ export class OutlinerServer {
           result = this.draftHolds.heartbeat(request.holdId, request.revision);
           this.stalledHolds.delete(request.holdId);
           break;
-        case "drafts.release":
+        case "drafts.release": {
           this.stalledHolds.delete(request.holdId);
+          const released = this.draftHolds.list().find(hold => hold.holdId === request.holdId);
           result = { released: this.draftHolds.release(request.holdId) };
+          // The draft closed: a note that waited to route while it was held routes now (PIE-1010).
+          if (released) this.routing.draftReleased(released.blockId);
           break;
+        }
         case "drafts.touch": {
           // The person typed in the draft this hold keeps: a request line they wrote there runs once it is quiet.
           // Answered at once; the draft is read from the door afterwards, never while the door waits on this.
@@ -3883,6 +3910,10 @@ export class OutlinerServer {
       const ruleKind = event.change?.kind === "annotate" ? "edit" : event.change?.kind ?? "";
       if (event.domain === "content" && event.blockId && ["create", "edit", "move", "restore", "delete"].includes(ruleKind)) {
         this.extensionRules.blockChanged(event.blockId, event.change!.actor, ruleKind as "create" | "edit" | "move" | "restore" | "delete");
+      }
+      // Routing (PIE-1010) hears a note made or saved (a comment is a block of its own; a rule's query decides what matches).
+      if (event.domain === "content" && event.blockId && (event.change?.kind === "create" || event.change?.kind === "edit")) {
+        this.routing.blockChanged(event.blockId, event.change.actor, event.change.kind);
       }
     }
     return events;

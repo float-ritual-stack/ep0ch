@@ -205,11 +205,12 @@ test("serves bounded authored links without loading Resources or mutating storag
   const owner = store.create(
     `Owner ((${target.id}|Target)) [Guide](pi-outliner://resource/${resource.id})`,
   );
-  const blockIdsBefore = store.readWorkspaceSnapshot().physical.blocks.map((block) => block.id);
-  const sequenceBefore = store.sequence;
   const socket = join(directory, "outliner.sock");
   const server = new OutlinerServer(store, socket);
   await server.start();
+  // Read after the host has started (it seeds its own notes then, the Routing view among them: PIE-1010).
+  const blockIdsBefore = store.readWorkspaceSnapshot().physical.blocks.map((block) => block.id);
+  const sequenceBefore = store.sequence;
   cleanups.push(async () => {
     await server.close();
     store.close();

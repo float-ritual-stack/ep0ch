@@ -2,10 +2,11 @@
 // (`notes.create`, and the page stub `pages.follow` makes). A client says what it's making and, for a note, the note
 // the person was in (`near`); the service answers where it goes. No client computes where the Inbox is.
 //
-// The rule is a list of rules, tried in order; the first that answers places the note. Today: a note made from inside
-// another note goes under it, at the end of its children; everything else goes to the top of the Inbox, where quick
-// capture puts its notes. This list is the seam for rules the outline defines later (a note holding `[new-notes::…]`
-// lines: "type x goes under y", "pages go under Pages"): they read the outline and slot in before these two.
+// The rule is a list of rules, tried in order; the first that answers places the note. First the outline's own routing
+// rules (PIE-1010, src/note-routing.ts: `[type::route] [query::…] [route-to::((id))]` notes, asked through
+// `reads.route` with the note's text, so a captured `[type::recipe]` lands in Recipes directly); then a note made from
+// inside another note goes under it, at the end of its children; everything else goes to the top of the Inbox, where
+// quick capture puts its notes.
 // Quick capture (`capture.create`) asks for a capture, which only the Inbox rule answers: "the top of the Inbox" is
 // said once, here. A `near` the caller named itself (`nearOnly`: an agent, the CLI) that doesn't resolve is refused,
 // never quietly put in the Inbox; the door's reader names the note the person is in, and that falls back.
@@ -26,10 +27,12 @@ export type NewNoteIntent =
 /** Where a new note goes, and the words that say so: the wire type, outline-core's. */
 export type Placement = NotePlacement;
 
-/** What the rules may read: the outline's one Inbox, and a block if it's active. */
+/** What the rules may read: the outline's one Inbox, a block if it's active, and where routing would put the note's text. */
 export interface PlacementReads {
   inbox(): Block;
   active(id: string): Block | null;
+  /** The outline's routing rules (src/note-routing.ts) asked for a note with this text: a placement, or null for none. */
+  route?(): Placement | null;
 }
 
 /** One rule: a placement, or null to let the next rule decide. */
@@ -54,6 +57,9 @@ export function systemNoteKind(block: Block): string {
   return "a note the service made";
 }
 
+/** A note or capture whose words a routing rule holds for goes where the rule says (a page stub is never routed). */
+const byRoute: PlacementRule = (intent, reads) => (intent.kind === "page" ? null : reads.route?.() ?? null);
+
 /** A note made from inside another goes under it, last; never under a system note other than the Inbox. */
 const underNear: PlacementRule = (intent, reads) => {
   if (intent.kind !== "note" || !intent.near) return null;
@@ -67,7 +73,7 @@ const underNear: PlacementRule = (intent, reads) => {
 const inInbox: PlacementRule = (_intent, reads) => ({ parentId: reads.inbox().id, at: "top", rule: "inbox", said: "in the Inbox" });
 
 /** The rules, in order. */
-export const PLACEMENT_RULES: readonly PlacementRule[] = [underNear, inInbox];
+export const PLACEMENT_RULES: readonly PlacementRule[] = [byRoute, underNear, inInbox];
 
 /** Where a new note goes: the first rule that answers. */
 export function placeNewNote(intent: NewNoteIntent, reads: PlacementReads, rules: readonly PlacementRule[] = PLACEMENT_RULES): Placement {

@@ -118,7 +118,9 @@ test("Tree receives complete structure and bounded previews while exact bodies r
     const index = await client.request<TreeIndexSnapshot>({ action: "tree.index" });
 
     const fixtureIds = new Set([root.id, child.id, sibling.id]);
-    expect(index.physicalBlockIds).toHaveLength(initialCount + 3);
+    // Every physical block is indexed: the three fixtures, and the Routing view the host seeds on start (PIE-1010).
+    expect(store.readWorkspaceSnapshot().physical.blocks.length).toBe(initialCount + 4);
+    expect(index.physicalBlockIds).toHaveLength(initialCount + 4);
     expect(index.visible.completeness).toEqual({ kind: "complete" });
     expect(index.blocks.filter(block => fixtureIds.has(block.id))
       .map(block => [block.id, block.parentId, block.depth, block.hasChildren]))

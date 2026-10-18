@@ -22,7 +22,8 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, desk: Desk;
   let key: (k: Key) => void = () => {};
-  const info = { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false };
+  // Tall enough for a reader's whole menu (every note and reader row, grouped) to open below a right-click near its top.
+  const info = { cols: 160, rows: 64, cellW: 9, cellH: 16, kitty: false };
   const AS = "menu-agent-492";
   const D = () => desk as any;
   const act = (action: string, args: Record<string, unknown> = {}, tile?: string) => app.act({ action, args, tile, as: AS });

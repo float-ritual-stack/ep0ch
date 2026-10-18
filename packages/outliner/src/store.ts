@@ -3611,11 +3611,17 @@ export class OutlinerStore {
   createNote(text: string, intent: NewNoteIntent, author: BlockAuthor = "user", provenance?: BlockProvenance): NewNoteReceipt {
     if (typeof text !== "string") throw new Error("Note text must be a string");
     return this.database.transaction((): NewNoteReceipt => {
-      const placement = this.placementFromCurrentRead(intent);
+      const placement = this.placementFromCurrentRead(intent, text);
       const block = this.createAt(text, placement.parentId, author, provenance, this.createdTime(), placement.at === "top" ? 0 : undefined);
       return { block, placement };
     })();
   }
+
+  /**
+   * The outline's routing rules asked where a new note's text goes (PIE-1010, src/note-routing.ts), set by the server
+   * that runs them: the first placement rule. Without one, placement goes on as before.
+   */
+  newNoteRouter: ((text: string) => Placement | null) | undefined;
 
   /** Several writes as one: all happen or none do (a stamp's note and its subtree, PIE-533 S4). */
   inTransaction<T>(run: () => T): T {
@@ -3623,10 +3629,11 @@ export class OutlinerStore {
   }
 
   /** Where a new note or page goes now (src/note-placement.ts). */
-  private placementFromCurrentRead(intent: NewNoteIntent): Placement {
+  private placementFromCurrentRead(intent: NewNoteIntent, text = ""): Placement {
     return placeNewNote(intent, {
       inbox: () => this.requireCaptureInboxFromCurrentRead(),
       active: id => { const block = this.getFromCurrentRead(id); return block && !block.effectiveDeletedRootId ? block : null; },
+      route: () => this.newNoteRouter?.(text) ?? null,
     });
   }
 
@@ -4207,6 +4214,24 @@ export class OutlinerStore {
         }),
       };
     }).deferred();
+  }
+
+  /**
+   * Whether a query holds for a note that isn't saved yet, by its text alone (PIE-1010: routing a new note at placement):
+   * the same grammar and predicate as `matchQuery`, over the properties its text declares. `"open"` when the query asks
+   * about other notes (`links:`, `under:`, `child:`…), which can't hold for a note that isn't anywhere yet. Throws on a
+   * query the grammar refuses.
+   */
+  matchesText(expression: string, text: string): boolean | "open" {
+    const parsed = parseSearchExpression(expression);
+    const where = parsed.where && bindThis(parsed.where, undefined, undefined);
+    if (parsed.filters.some(filter => filter.key === "deleted")) return false;
+    if (where && queryReach(where).open) return "open";
+    const properties = parsePropertyRecords(text).filter(p => p.scope === "block").map(p => ({ key: p.key, value: p.value }));
+    if (!matchesFilters(properties, parsed.filters)) return false;
+    if (!where) return true;
+    const test = compileQueryExpression(where, Date.now(), this.queryRelations(this.loadGraph()));
+    return test({ text, createdAt: "", updatedAt: "" } as never, properties);
   }
 
   /**
