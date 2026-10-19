@@ -20,14 +20,14 @@ export async function runBook(ctx: Context, plan: RunbookPlan, actor: Actor, giv
   if (closing) throw new ActionRefused("The door is restarting; run this step again after it reconnects.");
   const step = plan.steps[0]!;
   const running = runs.get(keyOf(step));
-  if (running) return askInBar(ctx, `${step.title} is running`, [{ name: "run", type: "choice", choices: ["focus its tile", "stop it"], required: true }], {}, actor, async answers => {
+  if (running) return askInBar(ctx, `${step.title} is running`, [{ name: "run", label: "", type: "choice", choices: ["focus its tile", "stop it"], required: true }], {}, actor, async answers => {
     if (answers.run === "stop it") return stop(running);
     return running.job?.focus(actor);
   });
-  const questions: BarQuestion[] = step.fields.map(f => ({ name: f.name, type: f.choices ? "choice" : "text", required: true, free: !f.choices, masked: f.secret,
+  const questions: BarQuestion[] = step.fields.map(f => ({ name: f.name, label: f.name.replace(/^(ask|secret)\./, ""), type: f.choices ? "choice" : "text", required: true, free: !f.choices, masked: f.secret,
     ...(f.choices ? { choices: f.choices } : {}), description: f.secret ? "secret, passed only in the environment" : f.name }));
   if (actor.kind === "agent" && questions.some(q => given[q.name] === undefined)) throw new ActionRefused(`Supply ${questions.filter(q => given[q.name] === undefined).map(q => q.name).join(", ")} in with= before running this step.`);
-  return askInBar(ctx, step.title, questions, given, actor, answers => execute(ctx, step, actor, answers), questions.length ? { action: "ext.runbook.run-step" } : undefined);
+  return askInBar(ctx, `${step.title} needs`, questions, given, actor, answers => execute(ctx, step, actor, answers));
 }
 
 function record(run: Run, status: RunbookStatus, output = "", exit?: number): Promise<void> {
@@ -36,7 +36,7 @@ function record(run: Run, status: RunbookStatus, output = "", exit?: number): Pr
   run.writes = run.writes.then(async () => {
     const { step } = run;
     const result = await run.ctx.board.actExtension("runbook", "record", { blockId: step.block, args: {
-      step: JSON.stringify({ root: step.root, block: step.block, anchor: step.anchor, title: step.title, variables: step.variables }),
+      step: JSON.stringify({ root: step.root, block: step.block, anchor: step.anchor, title: step.title, variables: step.variables.filter(name => Object.hasOwn(step.env, name)) }),
       status, owner: `${hostname()}:${process.pid}`, at: run.at, cwd, ...(run.record ? { record: run.record } : {}), output,
       ...(!["starting", "running", "stopping"].includes(status) ? { end: new Date().toISOString() } : {}), ...(exit !== undefined ? { exit: String(exit) } : {}),
     } }, run.actor);

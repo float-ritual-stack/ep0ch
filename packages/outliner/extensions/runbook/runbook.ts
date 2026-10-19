@@ -10,9 +10,9 @@ const request = await Bun.stdin.json() as Request;
 
 function recordText(step: RunbookStep, args: Record<string, string>, by: string): string {
   const output = (args.output ?? "").trimEnd().slice(-12000);
-  return `${step.title} [type::run] [machine::runbook] [run.step::^${step.anchor}] [run.status::${args.status}]${args.exit !== undefined ? ` [run.exit::${args.exit}]` : ""} [run.at::${args.at}] [run.by::${by}] [run.owner::${args.owner}]\n` +
-    `Started: ${args.at}\n${args.end ? `Ended: ${args.end}\n` : ""}Folder: ${args.cwd ?? ""}\nVariables: ${step.variables.join(", ")}\n` +
-    `[run.cwd::${(args.cwd ?? "").replace(/[\r\n\]]/g, " ")}] [run.vars::${step.variables.join(",")}]\n\nMasking is best-effort. The terminal shows what the program prints.\n\n${inertFence(output || "(no output)")}`;
+  return `${step.title} [type::run] [machine::runbook] [run.step::^${step.anchor}] [run.status::${args.status}]${args.exit !== undefined ? ` [run.exit::${args.exit}]` : ""} [run.at::${args.at}] [run.by::${by}] [run.owner::${args.owner}] [run.cwd::${(args.cwd ?? "").replace(/[\r\n\]]/g, " ")}] [run.vars::${step.variables.join(",")}]\n` +
+    `Started: ${args.at}\n${args.end ? `Ended: ${args.end}\n` : ""}` +
+    `\nMasking is best-effort. The terminal shows what the program prints.\n\n${inertFence(output || "(no output)")}`;
 }
 
 try {
@@ -43,7 +43,7 @@ try {
       writes.push({ op: "create", parentId: step.root, text });
       const current = await outline<Block>({ action: "get", blockId: step.root });
       if (!current.text.includes("## Runs ^runbook-runs")) writes.push({ op: "update", blockId: step.root, expectedRevision: current.revision,
-        text: `${current.text}\n\n## Runs ^runbook-runs\n\n::graph-table\n---\ntitle: Runs\nquery: "type=run under:((${step.root}))"\ncolumns: [run.step, run.status, run.exit, run.by, run.at]\nsort: run.at\ndirection: desc\nmachinery: show\n---\n::` });
+        text: `${current.text}\n\n## Runs ^runbook-runs\n\n::graph-table\n---\ntitle: Runs\nquery: "type=run under:((${step.root}))"\ncolumns: [title, run.status, run.exit, run.at]\nsort: run.at\ndirection: desc\nmachinery: show\n---\n::` });
     }
     // The record and its first table land as one attributed, revision-checked write group.
     say({ writes });

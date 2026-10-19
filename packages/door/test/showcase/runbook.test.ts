@@ -3,7 +3,7 @@ import { readFileSync, readdirSync, statSync, existsSync, mkdirSync, writeFileSy
 import { join } from "node:path";
 import { ReaderPane } from "../../src/desk/panes";
 import { PtyPane } from "../../src/desk/pty";
-import { formState } from "../../src/bar/ask";
+
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
@@ -53,9 +53,11 @@ describe.skipIf(!outliner)("the runbook showcase", () => {
       h.press({ kind: "mouse", action: "up", button: 0, x, y });
     }
   };
-  const answer = async (field: string, value: string) => {
-    await until(() => formState()?.focus === field, `field ${field}`);
-    await act("bar.form", { op: "set", field, value });
+  const answer = async (_field: string, value: string) => {
+    await until(() => h.app.bar?.scope === "ask", "the value prompt");
+    await act("bar.edit", { op: "paste", text: value });
+    await until(() => h.app.bar?.items.some(i => i.row.data === value) ?? false, "the typed answer");
+    h.press({ kind: "enter" });
   };
   afterEach(async () => {
     if (h.app.bar && !h.app.bar.ended()) await act("bar.close");
@@ -67,6 +69,20 @@ describe.skipIf(!outliner)("the runbook showcase", () => {
       await act("tile.close", {}, name);
     }
   });
+
+  test("a step asks in a compact bar without action plumbing and cancellation leaves no record", async () => {
+    const book = await show("Garden prompt [type::runbook]\n\nStart the stub\n```sh run\nprintf '%s' {{ask.token}}\n```");
+    await run(0);
+    await until(() => !!h.app.bar, "the token prompt");
+    const prompt = h.app.bar!.draw(200, 60);
+    expect(prompt.lines.join("\n")).not.toContain("ep0ch act");
+    expect(prompt.lines.join("\n")).toContain("Start the stub needs token:");
+    expect(prompt.rect.rows).toBeLessThanOrEqual(6);
+    h.press({ kind: "paste", text: "fictional answer" });
+    h.press({ kind: "esc" });
+    expect(h.app.bar === null || h.app.bar.ended()).toBe(true);
+    expect(await records(book.id)).toHaveLength(0);
+  }, 30000);
 
   test("the README pasted as one note runs each fence by mouse or keyboard and leaves examples plain", async () => {
     const book = await show("Draft runbook");
@@ -82,16 +98,14 @@ describe.skipIf(!outliner)("the runbook showcase", () => {
     await run(0);
     expect((await waitRecord(book.id, "ok")).text).toContain("The herb garden: sage");
     await run(1, true);
-    await answer("ask.pot", "clay"); h.press({ kind: "enter" });
+    await answer("ask.pot", "clay");
     expect((await waitRecord(book.id, "ok", 2)).text).toContain("Pot: clay");
     await run(2);
-    await until(() => formState()?.focus === "secret.token", "masked token prompt");
+    await until(() => h.app.bar?.scope === "ask", "masked token prompt");
     for (const ch of TOKEN) h.ch(ch);
     expect(JSON.stringify(h.app.bar!.describe())).not.toContain(TOKEN);
     expect(h.app.bar!.draw(200, 60).lines.join("\n")).not.toContain(TOKEN);
     await until(() => h.app.bar?.items.some(i => i.row.key === "private-answer") ?? false, "the typed masked answer");
-    h.press({ kind: "enter" });
-    await until(() => formState()?.focus === "run", "run the masked form");
     h.press({ kind: "enter" });
     const last = await waitRecord(book.id, "ok", 3);
     expect(last.text).toContain("Token received");
@@ -111,18 +125,21 @@ describe.skipIf(!outliner)("the runbook showcase", () => {
     ].join("\n"));
     await until(() => controls().length === 2, "only the two command fences run");
     await run(0);
-    await answer("secret.token", TOKEN); h.press({ kind: "enter" });
+    await answer("secret.token", TOKEN);
     await until(() => (h.sc.tilesHere()!.pane("Start the stub") as PtyPane | undefined)?.text().join("\n").includes("stub up") ?? false, "stub server");
     await run(1);
-    await answer("secret.token", TOKEN); h.press({ kind: "enter" });
+    await answer("secret.token", TOKEN);
     const client = await waitRecord(book.id, "ok");
     expect(client.text).toContain("sage:the garden");
     expect(client.text).toContain(`[run.cwd::${h.scratch.root}]`);
-    expect(client.text).toContain("ONE,TWO,THREE,FOUR");
+    expect(client.text).toContain("[run.vars::HERB,LABEL,ONE,TWO,THREE,FOUR,TOKEN]");
     expect((h.sc.tilesHere()!.pane("Start the stub") as PtyPane).running).toBe(true);
     await run(0);
     await until(() => h.app.bar?.items.some(i => i.row.label === "stop it") ?? false, "focus or stop choices");
-    await act("bar.pick", { n: h.app.bar!.items.findIndex(i => i.row.label === "stop it") + 1 });
+    const choice = h.app.bar!.draw(200, 60);
+    expect(choice.rect.rows).toBeLessThanOrEqual(6);
+    expect(choice.lines.join("\n")).not.toContain("asks for run");
+    h.ch("j"); h.press({ kind: "enter" });
     expect((await waitRecord(book.id, "stopped")).text).not.toContain(TOKEN);
     expect(h.screen()).not.toContain(TOKEN);
   }, 45000);
@@ -132,6 +149,10 @@ describe.skipIf(!outliner)("the runbook showcase", () => {
     await run(0, true);
     const failed = await waitRecord(book.id, "failed");
     expect(failed.text).toContain("[run.exit::7]");
+    expect((await h.board.get(book.id))!.text).toContain("columns: [title, run.status, run.exit, run.at]");
+    expect(failed.text.split("\n")[0]).toContain("[run.cwd::");
+    expect(failed.text).not.toContain("\nFolder:");
+    expect(failed.text).not.toContain("\nVariables:");
     expect(failed.text).not.toContain("\x1b");
     expect(failed.text).not.toContain("\r");
     await act("tile.focus", {}, "reader");
@@ -145,14 +166,18 @@ describe.skipIf(!outliner)("the runbook showcase", () => {
     expect((await h.board.get(book.id))!.text).toContain(anchor);
     await act("tile.focus", {}, "reader");
     await until(() => h.screen().includes("run.status") && h.screen().includes("failed") && h.screen().includes("ok"), "both results in the live table");
+    const narrow = () => reader().surface.render(60, 100, reader().host(h.sc.tilesHere()!)).lines.join("\n");
+    await until(() => narrow().includes("run.at"), "four columns in a 60-column reader");
+    expect(narrow()).not.toContain("widen to see");
+    expect(narrow()).toContain("Check the pot");
   }, 30000);
 
   test("asked values stay data inside every shell quote style, and records scrub terminal escapes and encoded secrets", async () => {
     const book = await show("Literal values [type::runbook]\n\nPrint data\n```sh run\nprintf '%s\\n' {{ask.label}} \"{{ask.label}}\" '{{ask.label}}'; printf '%s' {{secret.token}} | base64; printf '\\033[31mplain\\033[0m\\r\\n'\n```");
-    const value = 'spaces "quotes" \'apostrophe\' $(printf INJECTED) `printf INJECTED` *\na second line';
+    const value = 'spaces "quotes" \'apostrophe\' $(printf INJECTED) `printf INJECTED` * a second word';
     await run(0);
     await answer("ask.label", value);
-    await answer("secret.token", TOKEN); h.press({ kind: "enter" });
+    await answer("secret.token", TOKEN);
     const done = await waitRecord(book.id, "ok");
     expect(done.text.split(value)).toHaveLength(4);
     expect(done.text).toContain("[redacted]");
@@ -165,7 +190,7 @@ describe.skipIf(!outliner)("the runbook showcase", () => {
   test("cancelling a masked prompt creates no run, and an agent's supplied answer is attributed", async () => {
     const book = await show("Private prompt [type::runbook]\n\nCheck the answer\n```sh run\ntest -n {{secret.token}}; printf '%s\\n' {{ask.label}}\n```");
     await run(0);
-    await until(() => formState()?.focus === "secret.token", "the private prompt");
+    await until(() => h.app.bar?.scope === "ask", "the private prompt");
     h.press({ kind: "paste", text: TOKEN });
     await act("bar.close");
     expect(await records(book.id)).toHaveLength(0);
