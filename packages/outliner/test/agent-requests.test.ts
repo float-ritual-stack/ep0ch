@@ -525,8 +525,8 @@ test("drafts.touch: a request written in a held draft runs before any save, and 
 test("resolve a revision-four proposal against revision five, or leave conflicting readings open", async () => {
   const answer = ["bun", "-e", `const prompt = await Bun.stdin.text();
 const data = JSON.parse(prompt.split("RESOLUTION CONTEXT:\\n")[1]);
-if (data.current.text.includes("grow carrots")) console.log(JSON.stringify({replacement: data.current.text, message: "Proposal asks for peas; current note asks for carrots."}));
-else console.log(JSON.stringify({replacement: data.current.text.replace("grow beans", "grow peas"), message: "Kept the new delivery date and changed the crop."}));`];
+if (data.current.text.includes("grow carrots")) console.log(JSON.stringify({ambiguous: "Proposal asks for peas; current note asks for carrots."}));
+else console.log(JSON.stringify({patches: [{observed: "grow beans", replacement: "grow peas"}], message: "Kept the new delivery date and changed the crop."}));`];
   const { client, store, create } = await setup({ answer });
   for (const conflict of [false, true]) {
     let note = await create("Garden plan\ngrow beans\ndelivery Monday");
@@ -544,7 +544,7 @@ else console.log(JSON.stringify({replacement: data.current.text.replace("grow be
       expect(resolved.properties).toContainEqual(expect.objectContaining({key: "proposal-status", value: "open"}));
     } else {
       expect(result).toMatchObject({outcome: "resolved"});
-      expect(store.get(note.id)!.text).toContain("grow peas\ndelivery Tuesday");
+      expect(store.get(note.id)!.text).toBe(current.text.replace("grow beans", "grow peas"));
       const changes = store.changes.since(0, 1000);
       const edit = changes.kind === "changes" ? [...changes.changes].reverse().find(change => change.kind === "edit" && change.blockId === note.id) : undefined;
       expect(edit?.actor).toMatchObject({author: "agent", actorId: "ext:tidy"});
@@ -563,8 +563,33 @@ else console.log(JSON.stringify({replacement: data.current.text.replace("grow be
   await client.request({action: "update", blockId: auto.id, text: auto.text.replace("Monday", "Tuesday"), expectedRevision: auto.revision, mutation: PERSON});
   await until("the rule resolving the stale proposal", () => store.get(pending.proposalId)!.properties.some(p => p.key === "proposal-status" && p.value === "resolved"))
   expect(store.get(auto.id)!.text).toContain("grow peas\ndelivery Tuesday");
-  expect(store.get(auto.id)!.text).toContain("[via-trigger::resolve-stale]");
+  expect(store.get(pending.proposalId)!.text).toContain("[via-trigger::resolve-stale]");
   const waiting = await client.request<{proposals: unknown[]}>({action: "draft.proposals.list", blockId: auto.id});
   expect(waiting.proposals).toEqual([]);
 
+});
+
+
+test("resolution pairs preserve unrelated bytes and refuse missing, repeated or destructive passages", async () => {
+  const cases = [
+    { patches: [{ observed: "grow beans", replacement: "grow peas" }, { observed: "delivery Monday", replacement: "delivery Tuesday" }], reason: null },
+    { patches: [{ observed: "not in this note", replacement: "invented" }], reason: "not in the current note" },
+    { patches: [{ observed: "unchanged", replacement: "rewritten" }], reason: "more than once" },
+    { patches: [{ observed: "see [[Seed list]]", replacement: "see the seed list" }], reason: "drop [[Seed list]]" },
+  ];
+  for (const { patches, reason } of cases) {
+    const answer = ["bun", "-e", `await Bun.stdin.text(); console.log(${JSON.stringify(JSON.stringify({ patches, message: "Re-anchored the crop and delivery edits." }))});`];
+    const { client, store, create } = await setup({ answer });
+    const note = await create(["Garden plan [kind::plan]", "grow beans", "delivery Monday", "see [[Seed list]] ^seeds", ...Array.from({length: 65}, (_, i) => `Line ${i}: unchanged  words with trailing spaces  `)].join("\n"));
+    const proposal = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: "always", patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "gardener"}});
+    const current = await client.request<Block>({action: "update", blockId: note.id, text: note.text + "\nA new paragraph.", expectedRevision: note.revision, mutation: PERSON});
+    const result = await client.request<{outcome: string; message: string}>({action: "draft.proposal.resolve", proposalId: proposal.proposalId, mutation: PERSON});
+    expect(result.outcome).toBe(reason ? "open" : "resolved");
+    expect(store.require(note.id).text).toBe(reason ? current.text : current.text.replace("grow beans", "grow peas").replace("delivery Monday", "delivery Tuesday"));
+    if (reason) {
+      expect(result.message).toContain(reason);
+      expect(store.require(proposal.proposalId).text).toContain(`Resolution: ${result.message}`);
+      expect(store.require(proposal.proposalId).properties).toContainEqual({key: "proposal-status", value: "open"});
+    }
+  }
 });

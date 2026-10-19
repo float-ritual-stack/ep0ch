@@ -179,7 +179,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
 
 
   test("the proposals section resolves by key, click and agent action, and waiting counts follow", async () => {
-    writeFileSync(join(scratch.root, "config", "pi-herdr-outliner", "extensions", "tidy", "config.json"), JSON.stringify({config: {answer: ["bun", "-e", `const prompt = await Bun.stdin.text(); const data = JSON.parse(prompt.split("RESOLUTION CONTEXT:\\n")[1]); console.log(JSON.stringify({replacement: data.current.text.replace("grow beans", "grow peas"), message: "Kept Tuesday and changed beans to peas."}));`]}}));
+    writeFileSync(join(scratch.root, "config", "pi-herdr-outliner", "extensions", "tidy", "config.json"), JSON.stringify({config: {answer: ["bun", "-e", `await Bun.stdin.text(); console.log(JSON.stringify({patches: [{observed: "grow beans", replacement: "grow peas"}], message: "Kept Tuesday and changed beans to peas."}));`]}}));
     await board.listExtensions(true);
     const make = async () => {
       const note = await board.request<any>("create", {text: "Resolution garden\ngrow beans\ndelivery Monday", author: "user"});

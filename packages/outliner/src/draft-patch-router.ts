@@ -459,19 +459,23 @@ export class DraftPatchRouter {
           const answer = await this.deps.resolve!({ proposal: block.text, original: { text: original.text, revision: edit.revision }, current: { id: edit.blockId, text: current.text, revision: current.revision } }, requestedBy);
           if (!answer.patches.length) return leaveOpen(answer.message ?? "The agent could not determine the intended change.");
           messages.push(answer.message ?? "Resolved the intended change.");
-          const patches = answer.patches.map(patch => wholeTextSpan(patch.observed,
-            patch.replacement.replace(/(\n|$)/, ` [from::${from}]${trigger ? ` [via-trigger::${trigger}]` : ""}$1`))!);
+          const patches = answer.patches;
           edits.push({ blockId: edit.blockId, revision: current.revision, patches });
           if (current.route === "draft") inverse.push({ blockId: edit.blockId, revision: current.revision,
             patches: patches.map(patch => ({ observed: patch.replacement, replacement: patch.observed })) });
         }
-        const status = withProposalStatus(block.text, "resolved").replace("\n", ` [from::${from}]\n`) + `\n\nResolved: ${messages.join(" ")}\n` + edits.map(edit => `((${edit.blockId}|Resolved edit))`).join("\n");
+        const status = withProposalStatus(block.text, "resolved").replace("\n", ` [from::${from}]${trigger ? ` [via-trigger::${trigger}]` : ""}\n`) + `\n\nResolved: ${messages.join(" ")}\n` + edits.map(edit => `((${edit.blockId}|Resolved edit))`).join("\n");
         const prepared = proposal.group ? this.deps.groups!(proposal.group, actor) : undefined;
-        const outcome = await store.changes.run(store.changes.attribution({ action: "draft.proposal.resolve", actor, requestedBy }), () => this.run([
-          ...edits,
-          { blockId: proposalId, revision: block.revision, patches: [{ observed: block.text, replacement: status }] },
-        ], { mutation: actor, policy: "edit", ...(prepared ? { alongside: prepared.write, told: toldBy(proposal.group), made: madeBy(proposal.group) } : {}) }));
+        const outcome = await store.changes.run(store.changes.attribution({ action: "draft.proposal.resolve", actor, requestedBy }), () => this.run(edits, {
+          mutation: actor, policy: "prose",
+          alongside: () => {
+            store.update(proposalId, status, block.revision, actor);
+            prepared?.write();
+          },
+          ...(prepared ? { told: toldBy(proposal.group), made: madeBy(proposal.group) } : {}),
+        }));
         if (!outcome.ok) return leaveOpen(outcome.reason);
+        outcome.applied.push({ blockId: proposalId, route: "saved", revision: store.requireActive(proposalId).revision });
         this.settled(proposalId, "resolved", actor);
         return { outcome: "resolved", proposalId, message: messages.join(" "), ...(prepared ? prepared.done(outcome.applied, inverse) : this.deps.keepResolution?.(outcome.applied, inverse)) };
       } catch (error) {

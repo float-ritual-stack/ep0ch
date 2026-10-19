@@ -30,10 +30,11 @@ Install: `outliner ext add tidy`. See [the four kinds](../../docs/extensions/REA
 
 `outline_proposal_resolve` (service: `draft.proposal.resolve`) hands the proposal, including its author's
 note, the original revision, and the current note to this responder. It uses the same `config.answer`
-command as an instructed tidy. The model returns the full rewritten note and a short message; returning
-the current text unchanged leaves the proposal open with that message and the two conflicting readings.
-The router compares the answer against the text read for this call, writes as `ext:tidy` with `[from::]`
-the proposer, and marks the proposal resolved with a link. `extensions.undo` takes its receipt back in one
+command as an instructed tidy. The model returns `{ "patches": [{ "observed": "exact short current passage", "replacement": "intended change" }], "message": "one line" }`,
+or `{ "ambiguous": "both conflicting readings in one line" }`. Each observed passage must occur exactly
+once in the current note; missing or repeated passages leave the proposal open with the reason.
+The router applies the pairs through `draft.patch` with policy `prose`, preserving links, anchors and
+properties. It writes as `ext:tidy` and marks the proposal resolved with a link and `[from::]` the proposer. `extensions.undo` takes its receipt back in one
 step; the door records that receipt for Ctrl+Z in the reader. Receipts last for this host process.
 
 Automatic resolution is off until the outline contains this rule note:
@@ -43,8 +44,8 @@ Resolve stale proposals [rule-name::resolve-stale-proposals] [rule-on::proposal/
 ```
 
 Proposal creation and target edits maintain the proposal's `stale` property. The rule engine supplies its
-ordinary quiet wait and loop guard; resolution writes carry `trigger:` attribution and rule-driven target
-edits carry `[via-trigger::]`. A failed resolution leaves the existing proposal open, never another proposal.
+ordinary quiet wait and loop guard; resolution writes carry `trigger:` attribution and resolved proposals
+carry `[via-trigger::]`. A failed resolution leaves the existing proposal open, never another proposal.
 For deployment, enable this note in pie and float-hub after updating their hosts and clients together.
 This change does not modify either live outline. A wire change requires a protocol bump at final rebase.
 

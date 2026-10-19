@@ -840,7 +840,7 @@ describe("the edit policy (the default)", () => {
     const text = store.require(proposed.proposalId).text;
     expect(text).toStartWith("1 proposed edit (6 changes) from @claude-code: not applied, because ");
     // The rewritten line is a passage the proposal can't place: it says so, and offers only dismiss (PIE-510).
-    expect(store.require(proposed.proposalId).properties).toContainEqual({ key: "proposal-applies", value: "no" });
+    expect(text.split("\n")[0]).toEndWith("[type::draft-proposal] [proposal-status::open] [proposal-applies::no] [type::proposal] [stale::true]");
     expect(text).not.toContain("A applies");
     expect(text).toContain("its 6 changes applied together or not at all");
     expect(text).toContain("Change 1 of 6, in Claude · now: this");
@@ -889,7 +889,7 @@ describe("the edit policy (the default)", () => {
     expect(result.reason).toBe("change 1 would drop [[Seed Swap]]; a prose edit keeps them");
     expect(store.require(page.id)).toMatchObject({ text: STATUS, revision: page.revision });
     const proposal = store.require(result.proposalId);
-    expect(proposal.text).toContain("change 1 would drop [[Seed Swap]]; a prose edit keeps them");
+    expect(proposal.text.split("\n")[0]).toBe("1 proposed edit (6 changes) from @claude-code: not applied, because change 1 would drop [[Seed Swap]]; a prose edit keeps them [type::draft-proposal] [proposal-status::open] [type::proposal] [stale::false]");
     expect(parseProposal(proposal.text)).toMatchObject({ policy: "prose" });
     // The person applies all of it anyway, as one edit.
     await client.request({ action: "draft.proposal.apply", proposalId: proposal.id, mutation: { author: "user" } });
