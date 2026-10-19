@@ -55,7 +55,9 @@ function box(dir: string, tag: string, flags: string[] = [], env: Record<string,
   texts.add(text);
   (async () => { for await (const c of p.stderr as unknown as AsyncIterable<Uint8Array>) text.err += new TextDecoder().decode(c); })();
   (async () => { for await (const _ of p.stdout as unknown as AsyncIterable<Uint8Array>) { /* drained */ } })();
-  return { p, text, started: () => lines(join(out, `${tag}.started`)).length > 0, daemons: () => pids(join(out, `${tag}.daemons`)), go: () => writeFileSync(join(out, `${tag}.go`), "") };
+  // Started means the stub's own mark and its daemon's pid are both there: the daemon writes its pid a moment after the
+  // mark, and a reader of daemons() right after started() raced it on a loaded CI box (main red, Oct 19).
+  return { p, text, started: () => lines(join(out, `${tag}.started`)).length > 0 && pids(join(out, `${tag}.daemons`)).length > 0, daemons: () => pids(join(out, `${tag}.daemons`)), go: () => writeFileSync(join(out, `${tag}.go`), "") };
 }
 
 beforeAll(() => {
