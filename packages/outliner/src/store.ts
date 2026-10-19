@@ -1036,6 +1036,7 @@ export class OutlinerStore {
   }
 
   private runbookText(text: string, parentId: string | null, id?: string): string {
+    if (!runnableFences(text).length) return text;
     const ancestors = parentId ? this.blockContext(parentId) : null;
     const root = isRunbook(text) ? null : [...(ancestors?.ancestors ?? []), ...(ancestors?.selected ? [ancestors.selected] : [])].reverse().find(b => isRunbook(b.text));
     if (!isRunbook(text) && !root) return text;
