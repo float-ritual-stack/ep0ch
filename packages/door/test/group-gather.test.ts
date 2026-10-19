@@ -370,6 +370,38 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await mine("tile.focus", {}, "tree"); await act("tile.close", {}, "pv"); await act("tile.close", {}, "det");
   }, 30_000);
 
+  test("link mode crosses sibling groups (PIE-1073): a click wires the source and its open lands there", async () => {
+    await fresh();
+    const a = (await me("tile.group", { with: "activity", where: "down" }, "tree")).tile;
+    const b = (await me("tile.group", { with: "replies", where: "down" }, "reader")).tile;
+    render();
+    await me("mount.enter", { on: true }, a);
+    await me("tile.focus", {}, `${a}/tree`);
+    key({ kind: "alt", ch: "l" });
+    render();
+    const r = innerAt(b, "reader");
+    mouse("down", r.col + 3, r.row + 3);
+    expect(inner(a, "tree").wires).toContainEqual({ verb: "open", to: `../${b}/reader` });
+    await D().pane(a).inner.dispatch.act({ action: "open", args: { id: seeded.notes.hub.id, from: "tree" } }, { kind: "agent", id: AS });
+    expect(inner(b, "reader").showing?.id).toBe(seeded.notes.hub.id);
+    await me("tile.link", {}, `${a}/tree`);
+    await me("tile.link", { ask: true }, `${a}/tree`);
+    render();
+    key({ kind: "char", ch: "3" });
+    expect(inner(a, "tree").wires).toContainEqual({ verb: "open", to: `../${b}/reader` });
+    await me("tile.link", {}, `${a}/tree`);
+    await me("tile.link", { ask: true }, `${a}/tree`);
+    render();
+    key({ kind: "char", ch: "l" });
+    expect(inner(a, "tree").wires).toContainEqual({ verb: "open", to: `../${b}/reader` });
+    await me("tile.link", { ask: true }, `${a}/tree`);
+    key({ kind: "esc" });
+    expect(render().lines.join("\n")).not.toContain("click to link here");
+    await me("mount.enter", { on: false }, a);
+    await spill(a);
+    await spill(b);
+  }, 30_000);
+
   test("gathering is a history entry the person can undo (PIE-957): layout.undo ungathers it, and the group's tiles are back where they were", async () => {
     render();
     const before = names().slice().sort();

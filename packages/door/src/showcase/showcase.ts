@@ -469,15 +469,24 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "screen", need: "mount a screen in another (the board on the desk), a part of one (its lanes), or a group of tiles a tab can hold; pop one out to its full screen and back", part: "the mount (PIE-651): ScreenTile over FramedScreen, the screen's own spec on its own desk inside the tile (partSpec for a part, groupSpec for a group); its title is its spine's label; tile.open kind=screen, mount.out (^W u, ▲ full), mount.enter (^W e, ⏎ in), screen.mount (^W M) and screen.part (^W I) on a full screen, tile.group (^W G), tile.select (shift+click, ^W space), tile.into (^W i), layout.move into=/out= (a drag onto or out of a group); tile=<mount>/<tile> for act, links across the edge by path (ExtLink in src/desk/desk.ts)", files: "src/desk/screen-tile.ts, src/desk/screen-spec.ts (partSpec, groupSpec), src/desk/screen-specs.ts (mountDesk), src/showcase/frame.ts",
-    aside: "the board here is the board's own spec, live, on its own desk inside the tile; the lanes under it are only its lanes row (part=lanes), whose ⏎ opens where this screen's opens land · ◂ on a mount folds it to a spine named for the screen, a click opens it · ▲ full (^W u) pops it out to the full board, q comes back to the mount where it was · ^W e (⏎ in) goes in: its own ^W and Tab, ctrl+] or esc comes out · on the reader in the tabs, ^W G gathers it into a group (`act tile.group tile=reader with=replies` puts the replies beside it): a tab holding a split · each mount keeps its own layout, selection and scroll, saved with this screen's; the cards are the outline's, shared · gathering (PIE-696): shift+click (or ^W space, tile.select) picks tiles, shown ◆ on their frames, and ^W G gathers the picked in the arrangement they had, esc lets go; ^W G in a split asks this tile or the whole split; drag a tile's title onto a group (its frame, or a drop zone inside it) to move it in, drag one out past the group's content to move it back out (layout.move into=<group> / out=true, ^W i); a link across the group's edge is a path (tile.link to=<group>/<tile>, ../<tile>) and survives all of it, the card preview here included",
+    aside: "the board here is the board's own spec, live, on its own desk inside the tile; the lanes under it are only its lanes row (part=lanes), whose ⏎ opens where this screen's opens land · ◂ on a mount folds it to a spine named for the screen, a click opens it · ▲ full (^W u) pops it out to the full board, q comes back to the mount where it was · ^W e (⏎ in) goes in: its own ^W and Tab, ctrl+] or esc comes out · on the reader in the tabs, ^W G gathers it into a group (`act tile.group tile=reader with=replies` puts the replies beside it): a tab holding a split · each mount keeps its own layout, selection and scroll, saved with this screen's; the cards are the outline's, shared · gathering (PIE-696): shift+click (or ^W space, tile.select) picks tiles, shown ◆ on their frames, and ^W G gathers the picked in the arrangement they had, esc lets go; ^W G in a split asks this tile or the whole split; drag a tile's title onto a group (its frame, or a drop zone inside it) to move it in, drag one out past the group's content to move it back out (layout.move into=<group> / out=true, ^W i); a link across the group's edge is a path (tile.link to=<group>/<tile>, ../<tile>) and survives all of it, the card preview here included. Below, source in A opens into detail in B: alt+l then a click, a screen-wide number or h j k l chooses a target across groups or in the drawer",
     stage(n, show) {
       const args = n.hub ? { args: { hub: n.hub.id } } : {};
       const board = new ScreenTile("screen", { screen: "board", ...args }), lanes = new ScreenTile("screen", { screen: "board", part: "lanes", ...args });
       const p = new PreviewPane({ tile: "board" }), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
+      const source = new ReaderPane(true), detail = new ReaderPane(true), outside = new ReaderPane(true);
       return deskOf({
-        title: "showcase · screen", panes: [board, lanes, p, r, th, act], names: ["board", "lanes", "card", "reader", "replies", "activity"],
-        layout: ([b, l, c, rd, h, a]) => pair("row", 0.62, pair("col", 0.6, leaf(b!), leaf(l!)), pair("col", 0.45, leaf(c!), { t: "tabs", ids: [rd!, h!, a!], active: 0 })),
-      }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+        title: "showcase · screen", panes: [board, lanes, p, r, th, act, source, detail, outside], names: ["board", "lanes", "card", "reader", "replies", "activity", "source", "detail", "outside"],
+        layout: ([b, l, c, rd, h, a, src, dst, out]) => pair("col", 0.65,
+          pair("row", 0.62, pair("col", 0.6, leaf(b!), leaf(l!)), pair("col", 0.45, leaf(c!), { t: "tabs", ids: [rd!, h!, a!], active: 0 })),
+          pair("row", 0.72, row(0.5, src!, dst!), leaf(out!))),
+      }, show, [[source, n.shed], [detail, n.notebook], [outside, n.shed]], d => {
+        if (n.notebook) d.setCurrent(n.notebook);
+        d.linkTile("source", "detail", USER);
+        d.groupTile("source", { name: "a", label: "Group A" }, USER);
+        d.groupTile("detail", { name: "b", label: "Group B" }, USER);
+        d.dispatch.press("tile.focus", {}, "board");
+      });
     },
   },
   {
@@ -1322,6 +1331,7 @@ export class Showcase implements Screen {
     else {
       const f = this.stage(this.sel)!;
       const r = this.stageRect;
+      if (f.top instanceof Desk) f.top.screenOrigin = { col: r.col, row: r.row };
       const frame = f.render(r.cols, r.rows, `s${this.sel}`);
       frame.lines.forEach((l, i) => canvas.text(r.col, r.row + i, l, r.cols));
       placements = (frame.placements ?? []).map(p => ({ ...p, col: p.col + r.col, row: p.row + r.row }));

@@ -17,6 +17,8 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     const get = () => d.dispatch.act({ action: "hint.get" }, { kind: "agent", id: "test-agent" }) as Promise<any>;
     await d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source");
     expect((await get()).cards[0].lines.join(" ")).toContain("select wire");
+    h.screen();
+    expect((await get()).cards.find((c: any) => c.tile === "reader")?.lines.join(" ")).toContain("select wire");
     const focus = d.layoutGet().focus;
     await d.dispatch.press("hint.pin");
     await d.dispatch.press("tile.title", { text: "Garden notes" }, "reader");

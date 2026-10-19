@@ -1201,6 +1201,7 @@ export class AgentDrawer {
     const d = this.desk;
     if (d && r.rows >= 4) {
       d.shownAs(true);
+      d.screenOrigin = { col: 0, row: this.deskRow() };
       // The desk draws its tiles in the rows between the bar and the drawer's own key row (its hint row isn't drawn:
       // the frame's own hint and the drawer's row say the keys).
       // The App's own context, its terminal the drawer's size (cell size and graphics as they are).
@@ -1348,12 +1349,12 @@ export class AgentDrawer {
     // alt+l waiting for a tile (PIE-700): a click on the other desk picks it, the drawer's list linking to a reader of the
     // screen above or a screen tile to one in the drawer; the keys stay where they are.
     if (k.action === "down" && screen && this.d && screen !== this.d) {
-      if (this.d.linkingFrom() && !inDrawer && !onChip) {
-        this.d.linkAt(screen, k.x, k.y);
+      if (this.d.linkingHere() && !inDrawer && !onChip) {
+        shown!.key(k, this.host.ctx!()!);
         return true;
       }
-      if (screen.linkingFrom() && inDrawer) {
-        screen.linkAt(this.d, k.x, k.y - this.deskRow());
+      if (screen.linkingHere() && inDrawer) {
+        this.d.key({ ...k, y: k.y - this.deskRow() }, this.host.ctx!()!);
         return true;
       }
     }

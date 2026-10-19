@@ -261,7 +261,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A tile of a group dragged by its title out past the group's content: where it would land on this screen. */
   private outDrag: { inner: Desk; name: string; target: { to?: string; where: Where; label: string; refused?: string } | null } | null = null;
   /** alt+l: the next click (or h j k l, a digit) picks where this tile's opens land. */
-  private linking: { from: number; verb: WireVerb } | null = null;
+  private linkMode: { desk: Desk; from: number; verb: WireVerb } | null = null;
+  private linkOwner(): Desk {
+    const host = this.ctx?.hostLayer;
+    const top = this.top();
+    return host?.isDrawer(top) ? host.desks().find(d => !host.isDrawer(d))?.top() ?? top : top;
+  }
+  private get linking() { return this.linkOwner().linkMode; }
+  private set linking(mode: { desk: Desk; from: number; verb: WireVerb } | null) { this.linkOwner().linkMode = mode; }
+  /** The host supplies its drawer offset; mounted desks use their holder's content origin. */
+  screenOrigin = { col: 0, row: 0 };
   /** A tile that takes every mouse event while the button is down (a terminal, a screen). */
   private mouseTile: { id: number; r: Rect } | null = null;
   /** What was drawn, for the mouse: tiles (docks first, they're on top), header labels, dock handles. */
@@ -1328,6 +1337,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   dispose(): void | "keep" {
     this.ctx?.agentPointers?.drop(this);
+    if (this.linking?.desk === this) this.linking = null;
     this.onScreen = false;
     this.leaveResize();
     if (this.spec.stays && this.running().length) { Desk.kept = this; return "keep"; }
@@ -2298,6 +2308,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private modeHintKey = "";
   private xray = false;
   private xrayCards: HintCard[] = [];
+  private linkCards: HintCard[] = [];
+  private hintCards(): HintCard[] { return this.xray ? this.xrayCards : this.linkCards.length ? this.linkCards : this.hintCard ? [this.hintCard] : []; }
 
   showHint(hint: Hint, sel?: string, actor: Actor = USER) {
     const t = this.tile(sel);
@@ -2310,11 +2322,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return this.showHint(text === undefined ? this.controlsHint(t.id) : { title: "Hint", lines: [text] }, t.name, actor);
   }
   hintGet(all = false) {
-    return { xray: this.xray, cards: all ? this.hits.map(([id]) => new HintCard(this.controlsHint(id), this.nameOf(id), id).describe()) : this.xray ? this.xrayCards.map(c => c.describe()) : this.hintCard ? [this.hintCard.describe()] : [] };
+    return { xray: this.xray, cards: all ? this.hits.map(([id]) => new HintCard(this.controlsHint(id), this.nameOf(id), id).describe()) : this.hintCards().map(c => c.describe()) };
   }
-  hintPin(sel?: string) { const card = this.xray ? this.xrayCards.find(c => c.anchor === this.tile(sel).id) : this.hintCard; if (card) { card.pinned = true; this.hintCard = card; this.xray = false; this.xrayCards = []; } this.redraw(); return this.hintGet(); }
-  hintScroll(by: number, sel?: string) { const card = this.xray ? this.xrayCards.find(c => c.anchor === this.tile(sel).id) : this.hintCard; card?.view.scroll(by); this.redraw(); return this.hintGet(); }
-  hintDismiss() { this.hintCard = null; this.xray = false; this.xrayCards = []; this.redraw(); return this.hintGet(); }
+  hintPin(sel?: string) { const card = this.xray || sel ? this.hintCards().find(c => c.anchor === this.tile(sel).id) : this.hintCard; if (card) { card.pinned = true; this.hintCard = card; this.linkCards = []; this.xray = false; this.xrayCards = []; } this.redraw(); return this.hintGet(); }
+  hintScroll(by: number, sel?: string) { const card = this.xray || sel ? this.hintCards().find(c => c.anchor === this.tile(sel).id) : this.hintCard; card?.view.scroll(by); this.redraw(); return this.hintGet(); }
+  hintDismiss() { this.hintCard = null; this.linkCards = []; this.xray = false; this.xrayCards = []; this.redraw(); return this.hintGet(); }
   xraySet(on?: boolean) {
     this.xray = on ?? !this.xray;
     this.xrayCards = this.xray ? this.hits.map(([id]) => new HintCard(this.controlsHint(id), this.nameOf(id), id)) : [];
@@ -2325,7 +2337,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   linkingHint(): Hint | null {
     if (!this.linking) return null;
-    const { from, verb } = this.linking, tile = this.nameOf(from);
+    const { desk, from, verb } = this.linking, tile = desk.nameOf(from);
     return { title: "Linking", lines: [`Linking from ${tile}'s ${verb} wire. Click a tile to send ${verb === "select" ? "selects" : "opens"} there.`, "Alt+click an edge or gap opens beside. Click this tile again to unlink."],
       keys: [{ keys: "h j k l / 1-9", does: "choose a tile" }, { keys: "esc", does: "cancel" }],
       choices: [ ...(["select", "open", "alt"] as const).map(v => ({ label: v, key: v === "select" ? "s" : v === "open" ? "o" : "a", act: { action: "tile.link", tile, args: { ask: true, verb: v } } })),
@@ -2333,14 +2345,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   private syncModeHint() {
     const overlay = this.overlays.top();
-    const mode = this.ctx?.armed?.() ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linking.from}:${this.linking.verb}` : this.drag ? "resize" : this.dragging || this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";
+    const mode = this.ctx?.armed?.() ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.verb}` : this.drag ? "resize" : this.dragging || this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";
     if (mode === this.modeHintKey) return;
     const previous = this.modeHintKey;
     this.modeHintKey = mode;
+    this.linkCards = [];
     if (!mode) { if (previous && !this.hintCard?.pinned) this.hintCard = null; return; }
     if (this.hintCard?.pinned) return;
     const hint = mode === "confirm" ? CONFIRM_HINT : overlay?.hintCard ?? (mode.startsWith("link:") ? this.linkingHint() : mode === "gather" ? GATHER_HINT : mode === "resize" ? RESIZE_HINT : MOVE_HINT);
-    if (hint) this.hintCard = new HintCard(hint, this.nameOf(this.linking?.from ?? this.focus), this.linking?.from ?? this.focus);
+    if (hint && mode.startsWith("link:")) {
+      this.linkCards = this.hits.filter(([id]) => this.linkAccepts(this.panes.get(id)!)).map(([id]) => new HintCard(hint, this.nameOf(id), id));
+      this.hintCard = this.linkCards.find(c => this.panes.get(c.anchor) === this.linkingFrom()) ?? this.linkCards[0] ?? null;
+    } else if (hint) this.hintCard = new HintCard(hint, this.nameOf(this.focus), this.focus);
   }
 
   readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost(), this.registrations());
@@ -2975,7 +2991,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(this.layout.policy.agents ? { agentsDefault: this.layout.policy.agents } : {}),
       ...(order.some(id => this.agentOf(id).level !== "free") ? { agentLimits: order.filter(id => this.agentOf(id).level !== "free").map(id => ({ tile: this.nameOf(id), id: this.tileId(id), level: this.agentOf(id).level, by: this.agentOf(id).by })) } : {}),
       layoutName: this.layoutName, rule: this.rule, focusName: this.nameOf(this.focus), inTerminal: this.rawKeys() ? this.nameOf(this.focus) : null,
-      linking: this.linking ? this.nameOf(this.linking.from) : null,
+      linking: this.linking ? this.linking.desk.nameOf(this.linking.from) : null,
       dragging: this.dragging ? { tile: this.nameOf(this.dragging.src), drop: this.dragging.drop ? dropView(this.dragging.drop, id => this.nameOf(id)) : null } : null,
       layout: describeLayout(this.layout, id => String(order.indexOf(id) + 1)),
       tree: describeLayout(this.layout, id => this.nameOf(id)),
@@ -3122,7 +3138,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       placements = uncover(placements, r);
       this.drawTile(canvas, id, r, false, this.isFloat(id));
     }
-    if (this.linking) {
+    if (this.linking?.desk === this) {
       const { from, verb } = this.linking;
       const source = this.hits.find(([id]) => id === from)?.[1];
       for (const wire of this.layout.wires.filter(w => w.from === from && w.verb === verb)) {
@@ -3148,7 +3164,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
     else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
     this.syncModeHint();
-    for (const card of this.xray ? this.xrayCards : this.hintCard ? [this.hintCard] : []) {
+    for (const card of this.hintCards()) {
       const id = card.anchor, anchor = this.hits.find(([i]) => i === id)?.[1];
       if (!anchor || id === undefined) continue;
       const look = this.lookAt(this.panes.get(id)!, anchor.cols).values;
@@ -3355,7 +3371,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pickedBy = [...this.selected].filter(([k, set]) => k !== "person" && set.has(id)).map(([k]) => k.slice(6));
     // At rest, its frame in the look's tone when its `edge` asks for one (PIE-675); every state above keeps its own colour.
     const toned = lv.edge !== "none" && lv.tone !== "neutral" ? TONE[lv.tone] : null;
-    const edgeC = no?.loud ? TONE.amber : this.linking ? (id === this.linking.from ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : pickedMe ? C.lcyan : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : pickedBy.length ? C.cyan : own?.colour ?? (keys ? "focus" : float ? C.yellow : dock ? C.brown : toned ?? "tile");
+    const edgeC = no?.loud ? TONE.amber : this.linking ? (this.panes.get(id) === this.linkingFrom() ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : pickedMe ? C.lcyan : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : pickedBy.length ? C.cyan : own?.colour ?? (keys ? "focus" : float ? C.yellow : dock ? C.brown : toned ?? "tile");
     const edge = (c: number | "focus" | "tile") => (typeof c === "number" ? fg(c) : fgRgb(theme().edge[c]));
     // One of the person's own left open here (PIE-812) is theirs again with the keys; another's takes e.
     const tail = (held ? fg(C.dark) + (pane instanceof ReaderPane && pane.surface.keepsOnFocusAway() ? " (kept open)" : " (e enters)") : "") + (pickedMe ? fg(C.lcyan) + " ◆ picked" : "") + (pickedBy.length ? fg(C.cyan) + ` ◇ picked by ${pickedBy.join(", ")}` : "");
@@ -3504,6 +3520,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.headOut += sgr + text + RESET; x += cells;
     };
     const pane = this.panes.get(id)!;
+    if (this.linking && pane !== this.linkingFrom() && this.linkAccepts(pane)) {
+      put(`${this.numLabel(id)}⌖ click to link here`, fg(C.lmagenta));
+      return this.headOut;
+    }
     const ctl = pane.headControls?.(Math.max(1, Math.min(22, Math.floor((max - x) / 3))), this) ?? [];
     const state = pane instanceof ReaderPane ? pane.surface.state()?.split(" ")[0] : null;
     const marks = this.marksOn(id).reduce((n, m) => n + width(markLabel(m)) + 2, 0);
@@ -3511,7 +3531,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const follows = home && kindOf(pane)?.hold?.held(pane) === false ? width(home) + 3 : 0;
     const dock = dockOf(this.root, id) ? 14 : 0;
     const chips = ctl.reduce((n, c) => n + width(c.text) + 3, 0);
-    const room = Math.max(1, max - x - marks - chips - dock - follows - (state ? state.length + 3 : 0));
+    const target = this.extTarget(id, "open");
+    const wire = target ? ` ◄ ${this.plainPath(this.pathTo(target.pane))}` : "";
+    const room = Math.max(1, max - x - marks - chips - dock - follows - width(wire) - (state ? state.length + 3 : 0));
     this.putStatus(id, put, true);
     if (state) put(`${state} · `, fg(C.dark));
     if (set && set.ids.length > 1) {
@@ -3520,6 +3542,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         put(pad(`${this.numLabel(t)}${this.displayTitle(t)}`, Math.max(1, Math.floor((room - 3 * (set.ids.length - 1)) / set.ids.length))).trimEnd(), i === set.active ? fg(C.cyan) : fg(C.grey), t);
       });
     } else put(pad(`${this.numLabel(id)}${this.displayTitle(id)}`, room).trimEnd(), focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
+    if (wire) {
+      const from = xNow() + 1;
+      put(wire, fg(C.lmagenta));
+      this.wireChips.push({ id, row: r.row, from, to: xNow(), wire: "open" });
+    }
     this.putMarks(id, put, xNow, r.row);
     if (ctl.some(c => !c.chip)) this.headCtl.add(id);
     for (const c of ctl) {
@@ -3566,7 +3593,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** Tiles are numbered in their headers (what 1-9 focus), unless the view keeps the digits for itself. */
   private get numbered() { return this.spec.digits !== false; }
-  private numLabel(id: number) { return this.numbered ? `${this.numberOf(id)} ` : ""; }
+  private numLabel(id: number) {
+    if (this.linking) {
+      const n = this.screenTiles().findIndex(t => t.pane === this.panes.get(id));
+      return n < 0 ? "" : `${n + 1} `;
+    }
+    return this.numbered ? `${this.numberOf(id)} ` : "";
+  }
   private frameTitle(id: number, rows?: number): string {
     const p = this.panes.get(id)!, m = this.noteOf(id);
     if ((p.writtenTitle && !p.systemTitle) || !m || (tabsOf(this.root, id)?.ids.length ?? 0) > 1) return this.displayTitle(id);
@@ -3698,7 +3731,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const room = max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 8, full = ` ${AGENT_GLYPH[ag]} ${AGENT_WORDS[ag]}`, text = full.length <= room ? full : ` ${AGENT_GLYPH[ag]}`;
       const from = xNow(); put(text, fg(ag === "off" ? C.lred : C.yellow)); this.agentChips.push({ id, row, from: from + 1, to: xNow() });
     }
-    if (this.linking && id !== this.linking.from) put(" ⌖ click to link here", fg(C.lmagenta));
     return this.headOut;
   }
 
@@ -3905,13 +3937,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (k.kind === "mouse") {
       this.hintPointer = { x: k.x, y: k.y };
       if (k.action === "wheel-up" || k.action === "wheel-down") {
-        const card = [...(this.xray ? this.xrayCards : this.hintCard ? [this.hintCard] : [])].reverse().find(c => c.contains(k.x, k.y));
+        const card = [...(this.hintCards())].reverse().find(c => c.contains(k.x, k.y));
         if (card?.view.maxTop) { this.run("hint.scroll", { by: k.action === "wheel-down" ? 1 : -1 }, this.nameOf(card.anchor)); return; }
       }
       if (k.action === "down" && k.button === 0) {
-        const cards = this.xray ? this.xrayCards : this.hintCard ? [this.hintCard] : [];
+        const cards = this.hintCards();
         const act = [...cards].reverse().map(c => c.at(k.x, k.y)).find(Boolean);
-        if (act) { void this.dispatch.press(act.action, act.args, act.tile); return; }
+        if (act) { void (this.linking && act.action === "tile.link" ? this.linking.desk : this).dispatch.press(act.action, act.args, act.tile); return; }
       }
       const b = this.menuButtons.find(b => k.y === b.row && k.x >= b.from && k.x < b.to);
       if (b && (k.action === "drag" && k.button === 3 || (k.action === "down" && k.button === 0))) {
@@ -4168,57 +4200,87 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** DeskApi.escaped: Esc found nothing left to close in a tile's own screen (a screen tile): the desk's next step, or nothing. */
   escaped() { if (!this.closeStep(true)) nothingToClose(this.ctx); }
 
-  /** alt+l is waiting for the tile to link to (PIE-700): the tile it started in. The host layer asks, so a click on the other desk (the drawer's, the screen's) can pick. */
-  linkingFrom(): Pane | null { return this.linking ? this.panes.get(this.linking.from) ?? null : null; }
-  /** The click or number on a tile of the host layer's other desk ends alt+l here: the link is by the tile's path across the edge. */
+  /** Every desk consults the screen's one pending wire, including the drawer. */
+  linkingFrom(): Pane | null { const p = this.linking; return p ? p.desk.panes.get(p.from) ?? null : null; }
+
+  linkingHere(): boolean { return this.linking?.desk.top() === this.top(); }
+
+  private linkAccepts(pane: Pane): boolean {
+    return pane === this.linkingFrom() || !!kindOf(pane)?.accepts?.notes || (this.linking?.verb === "alt" && !(pane instanceof ScreenTile));
+  }
+
+  /** Visible leaf tiles, in frame-number order, with rectangles in the screen's coordinates. */
+  private screenTiles(): { pane: Pane; rect: Rect }[] {
+    const walk = (d: Desk, offset: { col: number; row: number }): ReturnType<Desk["screenTiles"]> => {
+      return d.all().flatMap(id => {
+        const pane = d.panes.get(id)!;
+        const r = d.hits.find(([i]) => i === id)?.[1];
+        if (!r) return [];
+        if (pane instanceof ScreenTile && pane.inner) {
+          if (d.collapsed.has(id) || d.cover(id) === "spine") return [];
+          const origin = d.origin(id, r);
+          return walk(pane.inner, { col: offset.col + origin.col, row: offset.row + origin.row });
+        }
+        return [{ pane, rect: { ...r, col: r.col + offset.col, row: r.row + offset.row } }];
+      });
+    };
+    const owner = this.linkOwner(), host = this.ctx?.hostLayer;
+    const roots = new Set([owner, ...(host?.desks() ?? []).filter(d => d !== owner && d.onScreen)]);
+    return [...roots].flatMap(d => walk(d, d.screenOrigin));
+  }
+
   linkToPane(target: Pane, beside = false) {
     const pending = this.linking;
     if (!pending) return;
-    const { from, verb } = pending;
+    const { desk, from, verb } = pending;
     this.linking = null;
-    const path = this.pathTo(target);
+    const path = desk.pathTo(target);
     if (path === undefined) { this.ctx.flash("not linked: that tile isn't reachable from here"); return this.redraw(); }
-    this.run("tile.link", { verb, ...(target === this.panes.get(from) && !beside ? {} : { to: path, ...(beside && verb === "alt" ? { rule: "beside" } : {}) }) }, this.nameOf(from));
+    desk.run("tile.link", { verb, ...(target === desk.panes.get(from) && !beside ? {} : { to: path, ...(beside && verb === "alt" ? { rule: "beside" } : {}) }) }, desk.nameOf(from));
   }
-  linkAt(desk: Desk, x: number, y: number) {
+
+  linkAt(desk: Desk, x: number, y: number): void {
     if (!this.linking) return;
+    const action = [...desk.hintCards()].reverse().map(c => c.at(x, y)).find(Boolean);
+    if (action) { void (action.action === "tile.link" ? this.linking.desk : desk).dispatch.press(action.action, action.args, action.tile); return; }
     const hit = desk.hits.find(([, r]) => x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows);
+    if (hit) {
+      const pane = desk.panes.get(hit[0])!;
+      if (pane instanceof ScreenTile && pane.inner) {
+        if (desk.collapsed.has(hit[0]) || desk.cover(hit[0]) === "spine") return;
+        const origin = desk.origin(hit[0], hit[1]);
+        return this.linkAt(pane.inner, x - origin.col, y - origin.row);
+      }
+    }
     const distance = (r: Rect) => Math.max(r.col - x, 0, x - (r.col + r.cols - 1)) + Math.max(r.row - y, 0, y - (r.row + r.rows - 1));
     const target = hit ?? (this.linking.verb === "alt" ? [...desk.hits].sort(([, a], [, b]) => distance(a) - distance(b))[0] : undefined);
     if (!target) return;
-    const [to, r] = target;
+    const [to, r] = target, pane = desk.panes.get(to)!;
+    if (!this.linkAccepts(pane)) return;
     const beside = this.linking.verb === "alt" && (!hit || x === r.col || x === r.col + r.cols - 1 || y === r.row || y === r.row + r.rows - 1);
-    this.linkToPane(desk.panes.get(to)!, beside);
+    this.linkToPane(pane, beside);
   }
 
   linkHint(): string {
     if (!this.linking) return "";
-    const { from, verb } = this.linking;
-    return `${this.nameOf(from)} · ${verb === "open" ? "⏎" : verb} → ${this.wireWords(from, verb)} · s select · o open · a alt · click a tile / h j k l / 1-9 · alt: edge or gap = beside · self unlinks · esc cancels`;
+    const { desk, from, verb } = this.linking;
+    return `${desk.nameOf(from)} · ${verb === "open" ? "⏎" : verb} → ${desk.wireWords(from, verb)} · s select · o open · a alt · click a tile / h j k l / 1-9 · alt: edge or gap = beside · self unlinks · esc cancels`;
   }
 
-  /** The screen shown, for a tile in the drawer, which has its alt+l numbers: the tiles above it. */
   private otherDesk(): Desk | undefined {
     const host = this.ctx?.hostLayer;
     return host?.isDrawer(this) ? host.desks().find(d => !host.isDrawer(d)) : undefined;
   }
 
-  /** alt+l, then a key: h j k l (the tile that way), a tile's number (in the drawer: the screen's), or esc. */
   private linkKey(k: Key) {
-    const { from, verb } = this.linking!;
+    const { desk, from } = this.linking!;
     const c = ch(k);
-    if (c === "s" || c === "a" || c === "o") return this.run("tile.link", { ask: true, verb: c === "s" ? "select" : c === "a" ? "alt" : "open" }, this.nameOf(from));
-    if (k.kind === "esc") return this.run("tile.link", { ask: false }, this.nameOf(from));
-    // In the drawer a number is a tile of the screen above, whose tiles it is that a list there opens notes in.
-    const above = this.otherDesk();
-    if (above && /^[1-9]$/.test(c)) {
-      const target = above.panes.get(above.all()[Number(c) - 1] ?? -1);
-      if (target) { this.linking = { from, verb }; return this.linkToPane(target); }
-    }
-    const to = MOVE[c] ? neighbour(this.rectsNow(), from, MOVE[c]!) : /^[1-9]$/.test(c) ? this.all()[Number(c) - 1] ?? null : null;
-    if (to === null || to === undefined) return;
-    this.linking = null;
-    this.run("tile.link", { verb, ...(to === from ? {} : { to: this.nameOf(to) }) }, this.nameOf(from));
+    if (c === "s" || c === "a" || c === "o") return desk.run("tile.link", { ask: true, verb: c === "s" ? "select" : c === "a" ? "alt" : "open" }, desk.nameOf(from));
+    if (k.kind === "esc") return desk.run("tile.link", { ask: false }, desk.nameOf(from));
+    const tiles = this.screenTiles();
+    const rects = new Map(tiles.filter(t => this.linkAccepts(t.pane)).map(t => [t.pane, t.rect]));
+    const target = MOVE[c] ? neighbour(rects, desk.panes.get(from)!, MOVE[c]!) : /^[1-9]$/.test(c) ? tiles[Number(c) - 1]?.pane : null;
+    if (target && this.linkAccepts(target)) this.linkToPane(target);
   }
 
   /** The ^W keys the desk does itself (W_KEYS' `special`): a handler for each, or this doesn't type-check. */
@@ -4905,7 +4967,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   startLink(sel: string | undefined, verb: WireVerb, ask: boolean): TileDone {
     const src = this.tile(sel);
     this.overlays.drop("policy");
-    this.linking = ask ? { from: src.id, verb } : null;
+    this.linking = ask ? { desk: this, from: src.id, verb } : null;
     this.redraw();
     return { tile: src.name, picking: ask ? verb : false };
   }
@@ -5590,7 +5652,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.pending?.pane === p) this.pending = null;
     if (p instanceof ReaderPane && this.entered.in(p)) this.entered.clear();
     if (this.floatDrag?.id === id) this.floatDrag = null;
-    if (this.linking?.from === id) this.linking = null;
+    if (this.linking?.desk === this && this.linking.from === id) this.linking = null;
     if (this.mouseTile?.id === id) this.mouseTile = null;
     if (this.headPress?.id === id) this.headPress = null;
     if (this.dragging?.src === id) this.dragging = null;
@@ -6779,7 +6841,7 @@ export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
   "hint.get": def({ summary: "read the hint cards, or every tile's controls with xray=true", touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
   "hint.pin": def({ summary: "keep the current hint through the next action", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintPin(h.reader) }),
   "hint.scroll": def({ summary: "scroll a card whose controls do not fit", keys: "wheel", touches: "nothing", replay: "safe", args: { by: { type: "number", about: "rows to scroll" } }, examples: [{ act: "hint.scroll by=1", does: "shows the next row of controls" }], run: (a, h) => h.d.hintScroll(a.by, h.reader) }),
-  "hint.dismiss": def({ summary: "put away hint cards", keys: "esc", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintDismiss() }),
+  "hint.dismiss": def({ summary: "put away hint cards", keys: "esc, click", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintDismiss() }),
   "xray": def({ summary: "show every tile's controls; hold ctrl or toggle with ctrl+] then ?", keys: "ctrl, ctrl+] then ?", touches: "nothing", replay: "safe", args: { on: { type: "boolean", optional: true, about: "true shows, false hides, absent toggles" } }, examples: [{ act: "xray on=true", does: "shows every tile's card" }], run: (a, h) => h.d.xraySet(a.on) }),
 });
 
