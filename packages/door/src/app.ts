@@ -1181,12 +1181,12 @@ export class App implements Ctx {
   private xrayLeader = false;
   private route(k: Key) {
     if (k.kind === "modifier") {
-      if (this.dispatch.has("xray")) void this.dispatch.press("xray", k.event === "tap" ? {} : { on: k.event === "press" });
+      if (!this.bar && this.dispatch.has("xray")) void this.dispatch.press("xray", k.event === "tap" ? {} : { on: k.event === "press" });
       return;
     }
     const leader = this.xrayLeader;
-    if (k.kind !== "mouse") this.xrayLeader = k.kind === "char" && !!k.ctrl && k.ch === "]";
-    if (leader && k.kind === "char" && !k.ctrl && k.ch === "?" && this.dispatch.has("xray")) { void this.dispatch.press("xray"); return; }
+    if (k.kind !== "mouse") this.xrayLeader = !this.bar && k.kind === "char" && !!k.ctrl && k.ch === "]";
+    if (!this.bar && leader && k.kind === "char" && !k.ctrl && k.ch === "?" && this.dispatch.has("xray")) { void this.dispatch.press("xray"); return; }
 
     // keys.probe (PIE-699): describe the key, run nothing. A click still works (the status bar's chip, a tile), and esc ends it.
     if (this.probing && k.kind !== "mouse") {

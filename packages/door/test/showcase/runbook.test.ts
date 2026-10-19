@@ -35,7 +35,7 @@ describe.skipIf(!outliner)("the runbook showcase", () => {
     const book = (await board.children(listed.pages!.runbook!)).find(b => b.text.startsWith("Try a terminal runbook"))!;
     const steps = await board.children(book.id);
     await until(() => h.screen().includes("[run all]"), "the run-all control");
-    expect(h.screen().split("\n").find(line => line.includes("Try a terminal runbook"))).toContain("[run all]");
+    expect(h.screen().split("\n").find(line => line.includes("[run all]"))).toContain("Try a terminal runbook");
     const painted = h.screen().split("\n"), row = painted.findIndex(line => line.includes("[run all]"));
     const x = painted[row]!.indexOf("run all") + 2;
     const actions: string[] = [], untrace = traceActions(r => { actions.push(r.name); });
@@ -49,6 +49,16 @@ describe.skipIf(!outliner)("the runbook showcase", () => {
     await until(() => tile.text().join("\n").includes("Which herb?"), "the terminal prompt");
     await app.dispatch.act({ action: "tile.type", tile: "Runbook", args: { text: "sage\r" } }, USER);
     await until(() => formState()?.focus === "token", "the masked field", 10000);
+    await desk.dispatch.press("hint.show", { text: "Keep the runbook open" }, "reader");
+    await desk.dispatch.press("hint.pin");
+    h.press({ kind: "modifier", key: "ctrl", event: "press" });
+    expect(desk.hintGet().xray).toBe(false);
+    h.press({ kind: "modifier", key: "ctrl", event: "release" });
+    expect(formState()?.focus).toBe("token");
+    h.press({ kind: "char", ch: "]", ctrl: true }); h.ch("?");
+    expect(desk.hintGet().xray).toBe(false);
+    expect(app.bar!.query).toBe("?");
+    h.press({ kind: "backspace" });
     for (const ch of TOKEN) h.ch(ch);
     await until(() => !!app.bar?.items.some(i => i.row.key === "private-answer"), "masked answer row");
     expect(JSON.stringify(app.bar!.describe())).not.toContain(TOKEN);
