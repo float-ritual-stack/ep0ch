@@ -405,6 +405,7 @@ export class OutlinerServer {
   private providerRefreshes = 0;
   /** Set when close() starts: work that finishes after it (a reload's refresh) writes and announces nothing. */
   private stopping = false;
+  private readonly responses = new Set<Promise<void>>();
   private readonly fixtureProviders: readonly ResourceProviderEntry[];
   /** The extension folders this outline reads, watched (src/extension-registry.ts). */
   readonly extensionRegistry: ExtensionRegistry;
@@ -750,6 +751,7 @@ export class OutlinerServer {
 
   startHosted(): void {
     if (this.running) throw new Error("Outliner service is already started");
+    this.stopping = false;
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     this.hosted = true;
     // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches.
@@ -778,6 +780,7 @@ export class OutlinerServer {
       if (await this.socketIsActive()) throw new Error(`Outliner service is already running at ${this.socketPath}`);
       unlinkSync(this.socketPath);
     }
+    this.stopping = false;
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     this.snapshots.start();
     this.agentRequests.start();
@@ -814,6 +817,8 @@ export class OutlinerServer {
     this.extensionRegistry.stop();
     this.extensionCalls.stop();
     await this.scriptRuns.stop();
+    // The host releases this server's store after close; active reads still own it until they settle.
+    await Promise.allSettled(this.responses);
     this.extensionRules.stop();
     this.routing.stop();
     this.extensionSchedules.stop();
@@ -4390,15 +4395,25 @@ export class OutlinerServer {
   }
 
   private async respond(socket: Socket, line: string, received = performance.now()): Promise<void> {
+    const response = this.respondNow(socket, line, received);
+    this.responses.add(response);
+    try { await response; }
+    finally { this.responses.delete(response); }
+  }
+
+  private async respondNow(socket: Socket, line: string, received: number): Promise<void> {
     const started = performance.now();
     let request: OutlinerRequest | undefined;
     let response: OutlinerResponse;
     let attribution: ChangeAttribution | undefined;
     let loopMs: number | undefined;
     let grant: ExtensionGrant | undefined;
-    const previousSequence = this.store.sequence;
+    let previousSequence = 0;
     try {
       request = JSON.parse(line) as OutlinerRequest;
+      // Queued turns can outlive their mirror generation, but must never read its released store.
+      if (this.stopping) throw new Error("The outline service is stopping");
+      previousSequence = this.store.sequence;
       // The host routed this connection by its first line; it stays with that outline.
       if (this.hosted && request.outline !== undefined && request.outline !== this.outline?.name) {
         throw new Error(`This connection serves the outline "${this.outline?.name}"; open a new connection for "${String(request.outline)}"`);
@@ -4447,8 +4462,13 @@ export class OutlinerServer {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
         ...(problem ? { problem } : {}),
-        sequence: this.store.sequence,
+        sequence: attribution ? this.store.sequence : previousSequence,
       };
+      // Before dispatch there can be no commits, and a failed sequence read must not touch the store again.
+      if (!attribution) {
+        socket.write(`${JSON.stringify(response)}\n`);
+        return;
+      }
     }
     // Changes are already durable in the feed; a failure below only costs the live event.
     const changes = attribution ? this.store.changes.committed(attribution) : [];
