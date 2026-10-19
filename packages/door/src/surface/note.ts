@@ -39,7 +39,7 @@ import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
 import { codeSpans, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
-import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
+import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
@@ -1043,7 +1043,7 @@ export class NoteSurface {
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
     const back = this.peek(-1) ? "alt← back · " : "";
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
-    const proposal = this.msg && isOpenProposal(this.msg) ? (proposalApplies(this.msg) ? "A apply anyway · r resolve · X dismiss · " : "r resolve · X dismiss · ") : "";
+    const proposal = this.msg && isOpenProposal(this.msg) ? this.proposalKeys(this.msg.id) : "";
     return `${extra}${proposal}${back}↑↓ j k blocks/rows · ( ) sections · [ ] elements · f fold · M comments mode · R reply · t thread · i properties · z callouts · u up · C comment · m comments`;
   }
 
@@ -1599,7 +1599,7 @@ export class NoteSurface {
     const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
-    const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · r resolve · X dismiss" : " · r resolve · X dismiss"), w) + RESET]) } : null;
+    const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (" · " + this.proposalKeys(m.id).replace(/ · $/, "") + (proposalApplies(m) ? "" : " · it can't be applied: its passage was already gone")), w) + RESET]) } : null;
     const head = [
       ...headerBlock,
       ...(proposalHead ? proposalHead.lines : []),
@@ -3923,7 +3923,7 @@ export class NoteSurface {
     // c collapses where a pane can (the board's readers and lanes, which take it first); comment is C.
     if (c === "c") { host.ctx.flash("nothing collapses here · C comments on a passage"); return true; }
     // A: apply anyway (PIE-501), on the proposal shown, or the one whose embed or control is the current element.
-    if (c === "r" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("resolve", undefined, host); return true; }
+    if (c === "r" && this.msg && this.proposalOperations(this.currentProposal() ?? this.msg.id).includes("resolve")) { void this.proposalControl("resolve", undefined, host); return true; }
     if (c === "A" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("apply", undefined, host); return true; }
     // X: dismiss it (the proposal shown, or the one whose embed or control is the current element).
     if (c === "X" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("dismiss", undefined, host); return true; }
@@ -7385,8 +7385,14 @@ export class NoteSurface {
     return { lines, elems };
   }
 
+  private proposalOperations(id: string) {
+    if (this.msg?.id === id) return isOpenProposal(this.msg) ? proposalOps(this.msg) : [];
+    return this.elems.flatMap(e => e.link?.proposal?.id === id && e.link.proposal.op ? [e.link.proposal.op] : []);
+  }
+
   private proposalKeys(id: string): string {
-    return this.elems.some(x => x.link?.proposal?.op === "apply" && x.link.proposal.id === id) ? "A apply anyway · r resolve · X dismiss · " : "r resolve · X dismiss · ";
+    const keys = { apply: "A apply anyway", dismiss: "X dismiss", resolve: "r resolve" };
+    return this.proposalOperations(id).map(op => keys[op] + " · ").join("");
   }
 
   /** The person's `A`, `X`, or a click or ⏎ on a proposal's control: `proposal.apply` or `proposal.dismiss`, its refusal flashed. */

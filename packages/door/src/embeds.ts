@@ -233,10 +233,10 @@ export const proposalApplies = (m: Pick<Msg, "properties">) => prop(m, "proposal
 export const NOT_APPLICABLE = "the passage it changes was already gone when it was proposed, so it can't be applied; dismiss it (X) and edit the note by hand";
 
 /** A proposal's controls, as its embed's source line and an opened proposal's header draw them. */
-export const PROPOSAL_OPS = ["apply", "resolve", "dismiss"] as const;
+export const PROPOSAL_OPS = ["apply", "dismiss", "resolve"] as const;
 
-/** The controls proposal `m` offers: `[apply] [dismiss]`, or only `[dismiss]` when it can't be applied. */
-export const proposalOps = (m: Pick<Msg, "properties">) => PROPOSAL_OPS.filter(op => op !== "apply" || proposalApplies(m));
+/** Keep apply and dismiss together; stale or unappliable proposals also offer resolve. */
+export const proposalOps = (m: Pick<Msg, "properties">) => PROPOSAL_OPS.filter(op => op === "apply" ? proposalApplies(m) : op !== "resolve" || prop(m, "stale") === "true" || !proposalApplies(m));
 
 /** ` [apply] [dismiss]` for proposal `m`, each tagged as its control in `sink` (text without one). */
 export function proposalControls(m: Msg, sink: LinkTarget[] | undefined): string {

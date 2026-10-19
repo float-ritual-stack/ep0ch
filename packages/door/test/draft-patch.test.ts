@@ -553,6 +553,8 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const reader = new NoteSurface(), h = host();
     reader.show(proposal, h);
     expect(reader.render(100, 40, h).lines.map(visible).join("\n")).toContain("[apply]");
+    expect(reader.describeElements().filter(e => e.control).map(e => e.control)).toEqual(["apply", "dismiss"]);
+    expect(reader.hint()).not.toContain("r resolve");
     expect(proposal.text).toContain("at the end of the block");
     reader.key(char("A"), h);
     await until(() => e.d.text.endsWith("\nA proposed addition."), "the append applied");
@@ -584,9 +586,9 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const reader = new NoteSurface(), h = host();
     reader.show(proposal, h);
     const header = reader.render(90, 30, h).lines.map(visible).slice(0, 8).join("\n");
-    expect(header).toContain("proposal · [dismiss]");
+    expect(header).toContain("proposal · [dismiss] [resolve]");
     expect(header).not.toContain("[apply]");
-    expect(reader.hint()).toContain("X dismiss");
+    expect(reader.hint()).toContain("X dismiss · r resolve");
     expect(reader.hint()).not.toContain("A apply");
     flashes.length = 0;
     expect(reader.key(char("A"), h)).toBe(true);
