@@ -101,11 +101,13 @@ async function must(cmd: string[], recover: string, opts: { cwd?: string; env?: 
 
 async function waitForLaunchdUnload(target: string, env?: Env): Promise<void> {
   // bootout returns before launchd releases the label; bootstrap must wait for that release.
+  // Each probe gets a full few seconds of its own (the remaining budget once shrank to 0.1 s on a loaded box, and the
+  // probe's timeout was reported instead of the unload that never came); the budget as a whole is 10 s.
   const end = Date.now() + 10_000;
   while (Date.now() < end) {
-    const r = await run(["launchctl", "print", target], { env, timeoutMs: end - Date.now() });
+    const r = await run(["launchctl", "print", target], { env, timeoutMs: 5_000 });
     if (r.code === 3 || r.code === 113) return;
-    if (r.code !== 0) throw new StepFailed(`launchctl print ${target} failed: ${r.err || r.out || `exit ${r.code}`}`, `run launchctl bootout ${target}, then ep0ch install --apply again`);
+    if (r.code !== 0 && r.code !== 124) throw new StepFailed(`launchctl print ${target} failed: ${r.err || r.out || `exit ${r.code}`}`, `run launchctl bootout ${target}, then ep0ch install --apply again`);
     await Bun.sleep(Math.min(250, Math.max(0, end - Date.now())));
   }
   throw new StepFailed(`launchd did not unload ${target} within 10 seconds`, `run launchctl bootout ${target}, then ep0ch install --apply again`);
