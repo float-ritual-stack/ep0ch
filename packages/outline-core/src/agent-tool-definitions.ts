@@ -19,6 +19,7 @@ import type { ToolArgsSpec, ToolSchema } from "./tool-args";
 
 /** The `outliner agent` operations a tool runs. */
 export type AgentToolOperation =
+  | "artifact-deploy"
   | "read" | "find" | "resolve" | "site" | "edit" | "create" | "comment" | "reply" | "edit-comment" | "resolve-thread"
   | "proposal-apply" | "proposal-dismiss" | "changes" | "patch" | "set-property" | "assign-id" | "move" | "trash" | "restore" | "view-order";
 
@@ -77,6 +78,12 @@ function inputOf(input: Record<string, unknown>, keys: readonly string[]): Recor
 const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
 
 export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
+  {
+    name: "artifact_deploy", operation: "artifact-deploy", writes: true,
+    description: "Deploy an ep0ch-artifacts repo, register it and update notes that name it. The repo decides static store or Vercel.",
+    example: { repo: "ep0ch-artifacts/moth-garden" }, properties: { repo: { type: "string" } }, required: ["repo"],
+    command(input) { return { operation: "artifact-deploy", input: inputOf(input, ["repo"]) }; },
+  },
   {
     name: "outline_read",
     operation: "read",
@@ -559,6 +566,7 @@ export type AgentToolSurface = "mod" | "gateway";
  * surface registers that has no definition is listed with what it is: surface-only, or a gap still to close (PIE-720).
  */
 export const AGENT_TOOL_SURFACES: Readonly<Record<string, Readonly<Record<AgentToolSurface, true | string>>>> = {
+  artifact_deploy: { mod: true, gateway: "Use the artifact CLI or local agent tool; deployment cannot be proposed." },
   outline_read: { mod: true, gateway: "its own outline_read (an enveloped block record, seen, raw): converge on one read (PIE-720)" },
   outline_find: { mod: true, gateway: "its own outline_find (the ranked search ep0ch find uses): converge on one search (PIE-720)" },
   outline_resolve: { mod: true, gateway: "not yet on the gateway (PIE-720)" },

@@ -1390,6 +1390,64 @@ Import each outline's old artifacts, check a live and pinned URL, and update the
 infrastructure hub in the same deployment step. No live unit, DNS or route is
 changed by this PR. The sync command is run by Evan on his laptop.
 
+#### Deploying an artifact repo
+
+Write `[artifact::github.com/ep0ch-artifacts/my-repo]` or
+`[artifact::ep0ch-artifacts/my-repo]` on a note. The seeded `deploy-artifact` rule
+runs the saved script after the note is quiet. Both it and the local agent tool
+`artifact_deploy({ repo: "ep0ch-artifacts/my-repo" })` call the same service action
+as `ep0ch artifact deploy my-repo --ws pie --machine float-2`. Removing the rule
+stops automatic deployment; the service seeds it only once. Bare store artifact
+names keep their existing meaning and do not deploy repos.
+
+The host clones into `~/artifact-deploys/<repo>`. A package build/start script,
+Next, Vite, SvelteKit or API routes chooses Vercel in the `e-schultz` personal
+scope; otherwise tracked static files go through the existing store/compiler.
+Only the `ep0ch-artifacts` owner may deploy. Other owners get the exact fork and
+transfer commands. A matching commit skips the build/upload. `artifact ls` includes
+where, URL and commit. The run note explains the destination and DNS result.
+
+Static deployments serve at `https://artifacts.ep0ch.sh/<repo>/`. Named hosts also
+work at the artifact listener; wildcard DNS alone does not route HTTPS traffic.
+The deployer must confirm the existing Caddy edge forwards the desired Host to
+port 8796 before advertising a named static host. No per-repo Caddy configuration
+is written by this command.
+
+Vercel gets `<repo>.ep0ch.sh`. DNS runs through
+`with-secrets hetzner-dns -- hcloud ...`; use
+`with-secrets --add hetzner-dns HCLOUD_TOKEN` to enter the Cloud token privately.
+Without that group the command prints the exact manual CNAME/A record and keeps
+going. `ep0ch artifact dns <repo> --to vercel|float-2 --ws pie --machine float-2`
+can reconcile DNS separately. Program paths use `EP0CH_GIT`, `EP0CH_GH`,
+`EP0CH_VERCEL`, `EP0CH_HCLOUD` and `EP0CH_WITH_SECRETS`; the scratch tests use shell
+wrappers and `EP0CH_ARTIFACT_DEPLOYS` under their private temporary folder.
+External stderr is never copied into notes.
+
+After the coordinated protocol bump/install, the deployer runs these from their
+terminal (the actions execute on float-2):
+
+```sh
+ep0ch artifact backfill b415a1b4- --ws pie --machine float-2
+ep0ch artifact deploy ep0ch-artifacts/ansi-culture --ws pie --machine float-2
+ep0ch artifact deploy ep0ch-artifacts/ansi-culture --ws pie --machine float-2
+ep0ch artifact ls --ws pie --machine float-2
+```
+
+Backfill binds the existing catalogue by its block reference, imports the six
+named domains and the org repos' current URLs using read-only `gh`/`vercel`
+commands, and never deploys. A repo with no discovered URL is reported in
+`pending`, not claimed deployed. Subsequent registrations use that catalogue's
+ID; other outlines create `[[artifacts]]` when needed. Check one real deployment's
+URL and second-run `up-to-date` result, then update the infrastructure hub with the
+actual DNS and routing state. No real deploy or backfill is part of the tests.
+The local agent tool is available to scripts and the Claude mod; the MCP gateway
+has no deploy/proposal adapter.
+
+CLI contracts checked against the [Vercel list source](https://github.com/vercel/vercel/blob/main/packages/cli/src/commands/list/command.ts),
+[Vercel domains documentation](https://vercel.com/docs/cli/domains),
+[Vercel API CLI](https://vercel.com/docs/cli/api) (backfill reads deployment metadata by ID), and
+[Hetzner RRSet CLI reference](https://github.com/hetznercloud/cli/blob/main/docs/reference/manual/hcloud_zone_rrset.md).
+
 #### Before any public variant
 
 Before the publisher faces the public internet it needs its own origin

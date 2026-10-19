@@ -1,3 +1,4 @@
+import { deployedArtifacts } from "./artifact-deploy";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, writeSync, rmSync, lstatSync, existsSync, cpSync, watch, type FSWatcher } from "node:fs";
 import { join, dirname, extname, basename } from "node:path";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
@@ -34,6 +35,12 @@ function readArtifactInput(source: string, folder: boolean, ignoreHidden = false
   const paths = folder ? artifactFiles(source, ignoreHidden, { entries: 0, bytes: 0 }) : [basename(source)];
   if (!folder) checkArtifactSize(1, lstatSync(source).size);
   return Object.fromEntries(paths.map(path => [path, readFileSync(folder ? join(source, path) : source)]));
+}
+
+function artifactHash(folder: string, files: string[]): string {
+  const hash = new Bun.CryptoHasher("sha256");
+  for (const file of files) hash.update(file + "\0").update(readFileSync(join(folder, file)));
+  return hash.digest("hex");
 }
 
 export class ArtifactStore {
@@ -180,6 +187,9 @@ export class ArtifactStore {
     rmSync(previous, { recursive: true, force: true });
     return this.info(name);
   }
+  contentHash(name: string): string {
+    return artifactHash(join(this.live, name), this.info(name).files);
+  }
   private async snapshot(name: string) {
     const info = this.info(name), dir = join(this.root, "snapshots", name);
     mkdirSync(dir, { recursive: true });
@@ -191,11 +201,9 @@ export class ArtifactStore {
     const target = join(dir, String(version)), stage = join(this.root, `.${crypto.randomUUID()}.snapshot`);
     try {
       cpSync(join(this.live, name), join(stage, "files"), { recursive: true });
-      const hash = new Bun.CryptoHasher("sha256");
-      for (const file of info.files) hash.update(file + "\0").update(readFileSync(join(stage, "files", file)));
       const origin = process.env.EP0CH_ARTIFACT_ORIGIN?.replace(/\/$/, ""), ref = `${name}@${version}`;
       const result = { ...info, version, url: origin ? `${origin}/${this.id(ref)}/${encodeURIComponent(ref)}/` : null,
-        hash: hash.digest("hex"), at: new Date().toISOString() };
+        hash: artifactHash(join(stage, "files"), info.files), at: new Date().toISOString() };
       writeFileSync(join(stage, "meta.json"), JSON.stringify(result));
       renameSync(stage, target);
       return result;
@@ -205,6 +213,9 @@ export class ArtifactStore {
   async request(request: ArtifactRequest, workspace?: string): Promise<unknown> {
     this.prepare();
     switch (request.action) {
+      case "artifacts.deploy":
+      case "artifacts.dns":
+      case "artifacts.backfill": throw new Error("Select an outline with --ws for artifact deployment and registration.");
       case "artifacts.import": {
         if (!workspace) throw new Error("Select an outline with --ws to import its artifacts folder.");
         const source = join(workspace, "artifacts"), imported: ArtifactInfo[] = [];
@@ -251,7 +262,10 @@ export class ArtifactStore {
         const name = Object.hasOwn(map, request.name) ? map[request.name] : request.name;
         return this.info(name);
       }
-      case "artifacts.list": return { artifacts: readdirSync(this.live).filter(n => !n.startsWith(".")).map(n => this.info(n)) };
+      case "artifacts.list": {
+        const deployed = deployedArtifacts(this);
+        return { artifacts: [...readdirSync(this.live).filter(n => !n.startsWith(".") && !deployed.some(row => row.name === n)).map(n => this.info(n)), ...deployed] };
+      }
       case "artifacts.versions": {
         const dir = join(this.root, "snapshots", artifactName(request.name));
         return { versions: existsSync(dir) ? readdirSync(dir).filter(n => existsSync(join(dir, n, "meta.json"))).map(n => JSON.parse(readFileSync(join(dir, n, "meta.json"), "utf8"))).sort((a,b) => a.version - b.version) : [] };
