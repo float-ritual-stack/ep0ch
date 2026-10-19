@@ -582,7 +582,7 @@
       "built": "PtyPane over a PtyBackend (Bun.Terminal in this process, or a session's terminal host) and @xterm/headless; tileEnv is the one list of what a program doesn't inherit. A terminal's actions belong to its kind (PTY_ACTIONS: tile.type, tile.restart, tile.enter, tile.leave, tile.herdr, #105).",
       "refs": [
         { "r": "door", "p": "src/desk/pty.ts", "l": 165, "m": "export class PtyPane" },
-        { "r": "door", "p": "src/desk/pty-backend.ts", "l": 68, "m": "new Bun.Terminal" },
+        { "r": "door", "p": "src/desk/pty-backend.ts", "l": 70, "m": "const proc = Bun.spawn(s.argv" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 21, "m": "export const PTY_ACTIONS" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 125, "m": "export function tileEnv" }
       ],
