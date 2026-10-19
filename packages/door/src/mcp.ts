@@ -611,7 +611,8 @@ async function linkData(outlines: McpOutlines, args: Record<string, unknown>): P
   // The service keeps the note itself among its backlinks (the door's "this note" toggle); here it's noise, so one
   // more is asked for. The record's backlinks are the same relation, whole: their count is the total, so this answer
   // and outline_read's record always agree.
-  const sources = (await board.backlinks(target.id, limit + 1)).sources.filter(s => s.blockId !== target.id).slice(0, limit);
+  const backlinks = await board.backlinks(target.id, limit + 1);
+  const sources = backlinks.sources.filter(s => s.blockId !== target.id).slice(0, limit);
   const links = mcpRecord(record).links;
   const linksTotal = record.truncated?.includes("links") ? null : links.length;
   const resourcesTotal = record.truncated?.includes("resources") ? null : record.resources.length;
@@ -624,6 +625,7 @@ async function linkData(outlines: McpOutlines, args: Record<string, unknown>): P
     links: links.slice(0, limit),
     resources: record.resources.slice(0, limit),
     backlinks: sources,
+    away: backlinks.away ?? [],
     completeness: {
       links: groupCompleteness(Math.min(limit, links.length), linksTotal),
       resources: groupCompleteness(Math.min(limit, record.resources.length), resourcesTotal),
