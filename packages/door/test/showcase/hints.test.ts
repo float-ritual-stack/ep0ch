@@ -83,11 +83,11 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       expect(actions.at(-1)).toBe("hint.show");
       expect(declaredKeys(d.dispatch.defOf("hint.show")?.keys)).toContain("?");
       h.press({ kind: "esc" });
+      // A hover over the menu control opens nothing: no card, no menu (Evan, Oct 19 12:30 PM).
       h.press({ kind: "mouse", action: "drag", button: 3, x: h.screen().split("\n")[stage.row + r.row]!.indexOf("\u2261", stage.col + r.col), y: stage.row + r.row });
-      expect(d.hintGet().cards[0]?.tile).toBe("reader");
-      expect(actions.at(-1)).toBe("hint.show");
-      expect(declaredKeys(d.dispatch.defOf("hint.show")?.keys)).toContain("hover");
-      h.press({ kind: "esc" });
+      expect(d.hintGet().cards).toEqual([]);
+      expect(d.overlays.top()).toBeFalsy();
+      expect(declaredKeys(d.dispatch.defOf("hint.show")?.keys)).not.toContain("hover");
       expect(declaredKeys(d.dispatch.defOf("xray")?.keys)).toContain("ctrl");
     } finally { off(); }
     const control = await startControl({ app: h.app, mirror: new Mirror(200, 60), info: () => info }, join(h.scratch.root, "door", "xray.sock"));

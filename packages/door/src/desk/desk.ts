@@ -3983,11 +3983,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (act) { void (this.linking && act.action === "tile.link" ? this.linking.desk : this).dispatch.press(act.action, act.args, act.tile); return; }
       }
       const b = this.menuButtons.find(b => k.y === b.row && k.x >= b.from && k.x < b.to);
-      if (b && (k.action === "drag" && k.button === 3 || (k.action === "down" && k.button === 0))) {
-        if (k.action === "drag") {
-          if (this.hintCard?.tile !== this.nameOf(b.id)) this.run("hint.show", {}, this.nameOf(b.id));
-          return;
-        }
+      // Only a click opens the menu. A hover over the control opens nothing (Evan, Oct 19 12:30 PM: "the menu is coming
+      // up just on hovering? that's distracting"); the controls card is x-ray's and ?'s.
+      if (b && k.action === "down" && k.button === 0) {
         if (b.id !== this.focus) this.run("tile.focus", {}, this.nameOf(b.id));
         return this.run("tile.menu", {}, this.nameOf(b.id));
       }
@@ -6881,7 +6879,7 @@ interface DeskOn { d: Desk; reader?: string }
 
 
 export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
-  "hint.show": def({ summary: "show a hint beside a tile without taking its keys", keys: "click; hover; ? on a frame", touches: "nothing", replay: "safe",
+  "hint.show": def({ summary: "show a hint beside a tile without taking its keys", keys: "? on a frame", touches: "nothing", replay: "safe",
     args: { text: { type: "string", optional: true, about: "words to show; absent lists the tile's controls" }, for: { type: "string", optional: true, kind: "tile", about: "the tile to anchor beside" } },
     examples: [{ act: 'hint.show text="Select a destination" for=reader', does: "shows an attributed hint beside the reader" }],
     run: (a, h, actor) => h.d.hintShow(a.for ?? h.reader, a.text, actor) }),
