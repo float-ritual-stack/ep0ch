@@ -77,7 +77,7 @@ export { DRAWER_TILE_ID };
 export const HOST_TILES = "drawer.tiles";
 /**
  * The drawer's own tile's kind: a terminal the drawer owns (EP0CH_DAILY_AGENT, else a shell), its first tab. It never
- * closes; it may leave (^W a, a drag out), onto the screen as an ordinary terminal tile, its tab holding the place
+ * loses its slot; an exited program clears to empty. It may leave (^W a, a drag out), onto the screen as an ordinary terminal tile, its tab holding the place
  * until it comes back (PIE-892).
  */
 export const DRAWER_KIND = "drawer.own";
@@ -92,9 +92,23 @@ export function hostSpec(persist = true): ScreenSpec {
 class DrawerTile extends PtyPane {
   override kind: string = DRAWER_KIND;
   constructor(spec: PtySpec, public shows: string) { super(spec); }
-  /** It never closes: its exit line doesn't offer ^W x. */
+  empty = false;
+  onEmpty: ((empty: boolean) => void) | null = null;
+  private ownDesk: DeskApi | null = null;
+  private controls: { from: number; to: number; row: number; action: string }[] = [];
+  override init(desk: DeskApi) { super.init(desk); this.ownDesk = desk; }
+  clearsOnClose() { return this.kind === DRAWER_KIND && !this.away && !this.empty && this.exited !== null; }
+  clearContent() { this.dispose(); this.empty = true; this.onEmpty?.(true); }
+  private emptyLine() { return `nothing running · alt+s a shell · alt+g an agent · ◄ run ${basename(this.run.cmd[0] ?? "shell")} again`; }
+  override get pid() { return this.empty ? undefined : super.pid; }
+  override describe() { return { ...super.describe(), ...(this.empty ? { state: "empty", exited: null } : {}) }; }
+  override restart(keep = false) { this.empty = false; this.onEmpty?.(false); super.restart(keep); }
+  /** The own slot draws its exit controls below; a released terminal uses the ordinary exit line. */
   protected override closesBy = "";
-  headName() { return this.shows; }
+  headName() { return this.empty ? "empty" : this.shows; }
+  override title() { return this.empty ? "nothing running" : super.title(); }
+  override hint() { return this.empty ? "alt+s a shell · alt+g an agent · ⏎ runs it again" : this.clearsOnClose() ? "⏎ runs it again · x clears" : super.hint(); }
+  override headStatus(now?: number) { return this.empty ? null : super.headStatus(now); }
   /** It leaves the drawer for a screen: from now on an ordinary terminal tile there (its program running on), never the drawer's. */
   release() { this.kind = "pty"; this.closesBy = " · ^W x closes"; this.next = null; }
   /** Back in the drawer as its own tile again (PIE-892), the same program running on. */
@@ -106,14 +120,38 @@ class DrawerTile extends PtyPane {
    */
   away: { says: string; back: () => void } | null = null;
   override render(w: number, h: number, focused: boolean, desk: DeskApi, cursor = focused): PaneView {
-    if (!this.away) return super.render(w, h, focused, desk, cursor);
+    this.controls = [];
+    if (this.kind !== DRAWER_KIND) return super.render(w, h, focused, desk, cursor);
+    if (!this.away) {
+      if (!this.empty && this.exited === null) return super.render(w, h, focused, desk, cursor);
+      const view = this.empty ? { lines: Array.from({ length: Math.max(0, h) }, () => "") } : super.render(w, h, focused, desk, cursor);
+      const row = this.empty ? 0 : h - 1;
+      const line = this.empty ? this.emptyLine() : `[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ◄ runs it again · x clears`;
+      if (h > 0) {
+        view.lines[row] = fg(C.yellow) + pad(line, w) + RESET;
+        for (const [label, action] of this.empty ? [["alt+s a shell", "host.shell"], ["alt+g an agent", "agents.open"], ["◄ run", "tile.restart"]] : [["◄ runs it again", "tile.restart"], ["x clears", "tile.close"]]) {
+          const from = line.indexOf(label!);
+          this.controls.push({ from, to: Math.min(w, action === "tile.restart" && this.empty ? line.length : from + label!.length), row, action: action! });
+        }
+      }
+      return view;
+    }
     const lines = Array.from({ length: Math.max(0, h) }, () => "");
     if (h > 0) lines[0] = fg(C.lcyan) + pad(`${this.away.says} · ⏎ or a click brings it back`, w) + RESET;
     return { lines };
   }
   override typed(k: Key): boolean { if (!this.away) return super.typed(k); if (k.kind === "enter") this.away.back(); return true; }
-  override mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number): boolean { if (!this.away) return super.mouse(k, x, y); if (k.action === "down" && k.button === 0) this.away.back(); return true; }
-  override text(): string[] { return this.away ? [`${this.away.says} · ⏎ or a click brings it back`] : super.text(); }
+  override mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number): boolean {
+    if (this.kind === DRAWER_KIND && !this.away && (this.empty || this.exited !== null)) {
+      const hit = this.controls.find(c => y === c.row && x >= c.from && x < c.to);
+      if (hit && k.action === "down" && k.button === 0) {
+        if (hit.action.startsWith("tile.")) void this.ownDesk?.perform?.(hit.action, {}, USER, this);
+        else void this.ownDesk?.ctx.press?.(hit.action, {});
+      }
+      return true;
+    }
+    if (!this.away) return super.mouse(k, x, y); if (k.action === "down" && k.button === 0) this.away.back(); return true; }
+  override text(): string[] { if (this.empty) return [this.emptyLine()]; return this.away ? [`${this.away.says} · ⏎ or a click brings it back`] : super.text(); }
   /**
    * The agent chosen now runs at its next start (agent.restart, or the next door): never in place of one running. Kept
    * aside until then: what runs now is still read as what it was started as (its exit line, its header).
@@ -124,9 +162,9 @@ class DrawerTile extends PtyPane {
   }
   private next: { cmd: string[]; cwd: string; label: string; inShell: boolean; shows: string } | null = null;
   private takeNext() { if (!this.next) return; const { shows, ...run } = this.next; Object.assign(this.run, run); this.shows = shows; this.next = null; }
-  protected override start(cols: number, rows: number) { if (this.away) return; this.takeNext(); super.start(cols, rows); }
+  protected override start(cols: number, rows: number) { if (this.away || this.empty) return; this.takeNext(); super.start(cols, rows); }
 }
-/** The drawer's own kind, registered once: a terminal's actions and keys; it doesn't close (its policy), said in a person's words. */
+/** The drawer's own kind, registered once: a terminal's actions and keys; a running program stays (its policy), said in a person's words. */
 function registerDrawerKind() {
   if (tileKind(DRAWER_KIND)) return;
   // The terminal kind's own hooks (its keys, its views, what it holds), all but how one is made, its ^W o keys and its
@@ -136,6 +174,12 @@ function registerDrawerKind() {
     ...pty,
     kind: DRAWER_KIND, about: "the drawer's own program (EP0CH_DAILY_AGENT, else a shell): the drawer's first tab, the host layer's", noun: "a terminal tile",
     make: () => new UnavailableTile(DRAWER_KIND, "the drawer's own tab is the drawer's (alt+a pulls it up)"),
+    press: (p, k) => {
+      const t = p as DrawerTile;
+      if (k.kind === "char" && !k.ctrl && k.ch === "x" && t.clearsOnClose()) return { action: "tile.close" };
+      if (k.kind === "enter" && (t.empty || t.exited !== null)) return { action: "tile.restart" };
+      return pty.press?.(p, k) ?? null;
+    },
     inherits: [PTY_ACTIONS], policy: { ...(pty.policy ?? {}), closable: false },
     stays: "your drawer's own program doesn't close · ^W a takes it out onto the screen, or exit it to end it",
   });
@@ -158,14 +202,14 @@ const KNOWS_POLL_MS = 15_000;
 const RESTART_IDLE_MS = 10_000;
 
 /** What drawer.json keeps: whether it's up, its height, and how many own programs have left it (`gen`, its key's). */
-export interface DrawerSaved { open: boolean; share: number; gen?: number; out?: string }
+export interface DrawerSaved { open: boolean; share: number; gen?: number; out?: string; empty?: boolean }
 /**
  * What the chip says: not started, working, idle, waiting on the person, done (a result the person hasn't seen),
  * failed, exited, or `watching`: the Herdr launcher found another door attached to the agent's pane and only watches it
  * (a second ssh session's door), where ⏎ would take the pane from that door. What its program reports (OSC 7501:
  * src/desk/program-status.ts) comes first; without that, Herdr's status, then whether it wrote anything lately.
  */
-export type AgentState = "off" | "working" | "idle" | "blocked" | "done" | "failed" | "exited" | "watching";
+export type AgentState = "empty" | "off" | "working" | "idle" | "blocked" | "done" | "failed" | "exited" | "watching";
 
 /** What the drawer needs from the App. */
 export interface DrawerHost {
@@ -200,6 +244,7 @@ export class AgentDrawer {
   rect: Rect | null = null;
   chipAt: { from: number; to: number; row: number } | null = null;
   private p: DrawerTile | null = null;
+  private empty = false;
   /** The drawer's tiles, on a desk of their own (made the first time it's needed, with the App as its ctx). */
   private d: Desk | null = null;
   /** What the drawer's own tile runs, read when it's made. */
@@ -231,6 +276,7 @@ export class AgentDrawer {
     const share = s && typeof s.share === "number" && Number.isFinite(s.share) ? clamp(s.share) : 0.5;
     this.gen = s && typeof s.gen === "number" && Number.isInteger(s.gen) && s.gen > 0 ? s.gen : 0;
     this.out = s && typeof s.out === "string" && s.out ? s.out : null;
+    this.empty = s?.empty === true;
     this.layer = hostLayer({ tabs: [HOST_TILES], names: new Map([[HOST_TILES, HOST_TILES]]), share, open });
     this.prog = this.program();
     registerDrawerKind();
@@ -723,6 +769,8 @@ export class AgentDrawer {
     if (this.out) return this.p = this.holder(a.name, "a screen");
     // An agent starts inside the person's login shell (PtyPane: no dead tile when it exits); a shell is just the shell.
     const p = new DrawerTile({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true, inShell: a.name !== "shell" && !a.herdr }, a.name);
+    p.empty = this.empty;
+    p.onEmpty = empty => { this.empty = empty; this.knows = null; this.save(); };
     p.tileId = DRAWER_TILE_ID;
     p.place = "drawer";
     // The drawer's own program is the drawer's (drawer.json): a session's next daemon adopts it by that. One that left
@@ -748,6 +796,7 @@ export class AgentDrawer {
 
   state(now = Date.now()): AgentState {
     const p = this.p;
+    if (this.empty) return "empty";
     if (!p || (!p.running && p.exited === null)) return "off";
     if (p.exited !== null || p.agentExit !== null) return "exited";
     if (p.programTitle === WATCH_TITLE) return "watching";
@@ -789,11 +838,11 @@ export class AgentDrawer {
     // A drag that ended by a key (esc, f, p, a) leaves no mouse event here: the light goes out with it.
     if (this.dropHover && !tilesOf(this.host.screen?.())?.draggedTile()) this.dropHover = null;
     const s = this.state(now);
-    if (s !== "off" && s !== "exited") this.pollKnows(now);
+    if (s !== "off" && s !== "exited" && s !== "empty") this.pollKnows(now);
     // What it reported says it in its own words (needs you, asks you, working 40%); else the state's.
     const said = this.p?.status.urgent();
     const what = this.restarting ? "restarting" : s === "off" ? "" : said && s !== "exited" && s !== "watching" ? statusMark(said).word : s === "blocked" ? "needs you" : s === "exited" ? (this.p?.exited === null && this.p?.agentExit !== null ? `exited ${this.p.agentExit} · shell` : `exited ${this.p?.exited ?? ""}`.trim()) : s;
-    const knows = this.restarting || s === "off" || s === "exited" ? "" : knowsLabel(this.knows);
+    const knows = this.restarting || s === "off" || s === "exited" || s === "empty" ? "" : knowsLabel(this.knows);
     // The drawer's own name, then how many more tiles it holds (`▲ claude +2`): a drag over it says it goes in there.
     const more = this.d ? this.tabs().length - 1 : 0;
     const out = { head: `${this.open ? "▼" : "▲"} ${this.name}${more > 0 ? ` +${more}` : ""}${what ? ` · ${what}` : ""}`, knows: knows ? ` · ${knows}` : "" };
@@ -912,7 +961,7 @@ export class AgentDrawer {
     this.d?.shownAs(this.shown);
     this.save();
     // Pulled up by the person with no agent chosen for this session yet: the picker is offered (once a door).
-    if (open && actor.kind !== "agent" && this.prog.from === "none" && !this.offered && this.persist && this.host.ctx?.()) { this.offered = true; void this.run?.("host.agent", {}); }
+    if (open && !this.empty && actor.kind !== "agent" && this.prog.from === "none" && !this.offered && this.persist && this.host.ctx?.()) { this.offered = true; void this.run?.("host.agent", {}); }
     this.host.redraw();
   }
   private offered = false;
@@ -924,7 +973,7 @@ export class AgentDrawer {
     const p = d.pane(t.name);
     if (d.focusedName() !== t.name) d.run("tile.focus", {}, t.name);
     // A terminal not started yet starts as it's first drawn: the keys go into it then (render).
-    if (p instanceof PtyPane && !p.running && p.exited === null) { this.wantIn = { send }; return; }
+    if (p instanceof PtyPane && !(p instanceof DrawerTile && p.empty) && !p.running && p.exited === null) { this.wantIn = { send }; return; }
     this.wantIn = null;
     if (p instanceof PtyPane && p.running) d.run("tile.enter", send ? { send } : {}, t.name);
   }
@@ -939,7 +988,7 @@ export class AgentDrawer {
     this.host.redraw();
   }
 
-  private save() { if (this.persist) writeState("drawer.json", { open: this.open, share: this.share, ...(this.gen ? { gen: this.gen } : {}), ...(this.out ? { out: this.out } : {}) } satisfies DrawerSaved); }
+  private save() { if (this.persist) writeState("drawer.json", { open: this.open, share: this.share, ...(this.empty ? { empty: true } : {}), ...(this.gen ? { gen: this.gen } : {}), ...(this.out ? { out: this.out } : {}) } satisfies DrawerSaved); }
   /** The key (`home`) of the drawer's own program while it's out on a screen (PIE-892), kept across a handover; else null. */
   private out: string | null = null;
   /** How many own programs have left the drawer for a screen: the next one's key (`home`) says it. */
@@ -1220,6 +1269,8 @@ export class AgentDrawer {
       ? `${fg(C.lmagenta)}${d.linkHint()}`
       : this.entered && d?.overlaid()
       ? `${fg(C.yellow)}the picker has the keys · ↑↓ ⏎ chooses · esc leaves it as it is`
+      : name === DRAWER_TILE_ID && this.empty
+      ? `${fg(C.yellow)}nothing running · alt+s a shell · alt+g an agent · ⏎ runs it again · Esc or alt+a puts it away`
       : this.entered && d?.waitsOnExit()
       ? `${fg(C.yellow)}${d.exitedSay(name, name === DRAWER_TILE_ID ? this.name : name, `the ${screen}`)} · alt+a puts it away`
       : this.entered && d?.rawKeys()
@@ -1326,6 +1377,7 @@ export class AgentDrawer {
     this.d?.stopTyping();
     this.wantIn = null;
     this.leftAt = Date.now();
+    if (this.empty && this.tabs().length === 1) { this.set(false, USER); return { entered: false }; }
     if (said) this.host.flash(`back to the ${screen?.title ?? "screen"} · ${ESCAPE_CHORD} or a click goes back in (${ESCAPE_CHORD} again now sends it to ${this.name}) · Esc or alt+a puts it away`);
     this.host.redraw();
     return { entered: false };

@@ -101,6 +101,8 @@ export interface TileFacts {
   /** It takes notes: a link or an opens-into may name it. */
   notes?: boolean;
   held?: boolean;
+  /** Close clears the content, leaving the slot in place. */
+  clearsOnClose?: boolean;
   /** Why it stays: a tile source supplies it (the board's lanes), so a close would come back. */
   keeps?: string;
   /** Its kind's own words for why its kind's policy keeps it (closable or draggable off), said whole in place of the policy's. */
@@ -851,13 +853,13 @@ class Step<I> {
       if (f.editing) refuse(`not closed: it holds ${f.editing} · e or ⏎ enters it`);
       // A tab set of one holding the rule is the tile's own place (the board's preview, the river's library).
       const own = chainOf(this.d.tree, id).find(c => c.id === e.by.closable && c.t === "tabs" && c.ids.length === 1);
-      if (!e.closable) refuse(own ? `${name} stays: its place (${own.id}) keeps it${fold} · ^W P there turns closable on` : this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles${fold} · ^W P there turns closable on`));
+      if (!e.closable && !(f.clearsOnClose && e.by.closable === `${f.kind} tiles`)) refuse(own ? `${name} stays: its place (${own.id}) keeps it${fold} · ^W P there turns closable on` : this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles${fold} · ^W P there turns closable on`));
       if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
-      if (!this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse("the screen's last tile stays");
-      if (this.agent && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't close it`);
+      if (!f.clearsOnClose && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse("the screen's last tile stays");
+      if (this.agent && id === this.d.focus && (!f.clearsOnClose || this.ctx.person.here !== false)) refuse(`${name} has the person's keys; an agent doesn't close it`);
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
     }
-    this.lift(id);
+    if (!f.clearsOnClose) this.lift(id);
     this.d.answer = { tile: name };
   }
   /**
