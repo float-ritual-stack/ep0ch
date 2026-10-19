@@ -241,7 +241,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     return { id, s, h, d, type };
   }
 
-  test("anchored append through the agent CLI lands in a held draft or proposes at its cursor", async () => {
+  test("anchored append through the agent CLI lands in a held draft even at its cursor", async () => {
     const e = await editing("Garden\n\nLog entry. ^log\n\nTyping here.");
     const saved = (await board.get(e.id))!;
     e.type(" More words.");
@@ -260,7 +260,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(e.d.text).toContain("Typing here. More words.");
     expect((await board.get(e.id))!.text).toBe(saved.text);
     await NOTE_ACTIONS.run("draft.place", { line: e.d.lines.findIndex(l => l.includes("Another entry")) + 1, col: 5 }, { surface: e.s, host: e.h }, USER);
-    expect(await append(`^${first.anchor}`)).toMatchObject({ outcome: "proposed" });
+    expect(await append(`^${first.anchor}`)).toMatchObject({ outcome: "applied" });
     e.s.dispose();
   });
 
@@ -543,6 +543,22 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     e.d.place(e.d.lines.length - 1, 0);
     return r.proposalId as string;
   }
+
+  test("PIE-1065: an append proposal offers apply and lands at the end of the draft", async () => {
+    const e = await editing("Garden\nMy words.");
+    const result = await agent.request("draft.patch", { blockId: e.id, revision: e.d.base,
+      patches: [{ observed: "", replacement: "\nA proposed addition." }], propose: "always",
+      mutation: { author: "agent", actorId: "tidy" } });
+    const proposal = (await board.get(result.proposalId))!;
+    const reader = new NoteSurface(), h = host();
+    reader.show(proposal, h);
+    expect(reader.render(100, 40, h).lines.map(visible).join("\n")).toContain("[apply]");
+    expect(proposal.text).toContain("at the end of the block");
+    reader.key(char("A"), h);
+    await until(() => e.d.text.endsWith("\nA proposed addition."), "the append applied");
+    expect(e.d.text).toBe("Garden\nMy words.\nA proposed addition.");
+    e.s.dispose();
+  });
 
   test("an edit at the cursor fails cleanly into a proposal beside the note, and A applies it anyway in the draft", async () => {
     const e = await editing(`Allotment\nThe peas   climb  the net.\n\n${tidyMark}\n`);

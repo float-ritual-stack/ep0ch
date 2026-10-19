@@ -166,7 +166,6 @@ describe("the compare", () => {
     expect(locateSpan(text.replace("beans", "peas"), span)).toEqual({ reason: "the observed text isn't there any more" });
     expect(locateSpan("x".repeat(600) + text, span)).toEqual({ reason: "the observed text has moved away from its range" });
     expect(locateSpan("ab ab", { observed: "ab", replacement: "c" })).toEqual({ reason: "the observed text is in the note more than once; give its range" });
-    expect(locateSpan(text, { observed: "", replacement: "x" })).toHaveProperty("reason");
   });
 
   test("reads a byte range as UTF-8 and refuses one inside a character", () => {

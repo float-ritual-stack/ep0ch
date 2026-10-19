@@ -415,7 +415,7 @@ export class DraftSession {
     const a = d.applyPatch(r, by);
     if (a.applied) {
       if (r.replyTo) this.env.answered?.(r.replyTo, by);
-      this.env.agentDid?.(by, r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.proposal || r.force ? "applied a proposal in your draft" : "edited text above your cursor");
+      this.env.agentDid?.(by, r.proposal?.op === "dismiss" ? "took a dismissed proposal's line out of your draft" : r.output ? "placed output in your draft" : r.proposal || r.force ? "applied a proposal in your draft" : "edited text above your cursor");
       setTimeout(redraw, PATCH_FLASH_MS + 50);
       redraw();
     }

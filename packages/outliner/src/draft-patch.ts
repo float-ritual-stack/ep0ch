@@ -144,7 +144,7 @@ export type DraftHolderRequest =
   | {
       kind: "patch"; undoPatches?: string[]; requestId: string; holdId: string; blockId: string; targetClientId: string;
       patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance;
-      replyTo?: string; replyGroup?: string; mark?: string; force?: boolean;
+      replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean;
       /** Set when the patch applies or dismisses a proposal, so the door says which it was, not guessing from the patch. */
       proposal?: DraftHolderProposal;
     }
@@ -453,6 +453,7 @@ export function proposalText(proposal: DraftProposal, names: (blockId: string) =
   for (const edit of proposal.edits) {
     for (const span of edit.patches) {
       change += 1;
+      if (!span.observed) lines.push("", "This addition goes at the end of the block.");
       lines.push("", many ? `Change ${change} of ${changes}, in ${labelOf(names(edit.blockId))}: this` : `In ${labelOf(names(edit.blockId))}, this:`,
         ...shownSpan(span));
     }

@@ -50,7 +50,7 @@ export interface Step { before: string; after: string; by: Actor; what: string; 
 /** A patch's new text, lit for a moment and labelled with who made it. Offsets are the draft's (UTF-16). */
 export interface PatchFlash { start: number; end: number; label: string; until: number }
 /** What the service asks a draft to patch (the `draft` event's patch, src/socket.ts DraftRequest). */
-export interface DraftPatchRequest { patchId: string; patches: DraftPatchSpan[]; revision: number; replyTo?: string; replyGroup?: string; mark?: string; force?: boolean }
+export interface DraftPatchRequest { patchId: string; patches: DraftPatchSpan[]; revision: number; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean }
 export type DraftPatchAnswer = { applied: true } | { applied: false; reason: string };
 
 /**
@@ -732,7 +732,7 @@ export class Draft {
       const mark = markStart(text, p.mark);
       if (mark >= 0 && located.spans.some(sp => sp.end > mark)) return no("it reaches the mark or below it; a patch changes only text above the mark");
     }
-    if (!p.force) {
+    if (!p.force && !p.output) {
       const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
       if (p.replyTo && located.spans.some(sp => sp.start <= c && c <= sp.end)) return no("the cursor is on the ask being answered");
       if (located.spans.some(sp => (sp.start < c && c < sp.end) || (sp.start < a && a < sp.end))) return no("the cursor is in that passage");
