@@ -6841,7 +6841,7 @@ export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
   "hint.get": def({ summary: "read the hint cards, or every tile's controls with xray=true", touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
   "hint.pin": def({ summary: "keep the current hint through the next action", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintPin(h.reader) }),
   "hint.scroll": def({ summary: "scroll a card whose controls do not fit", keys: "wheel", touches: "nothing", replay: "safe", args: { by: { type: "number", about: "rows to scroll" } }, examples: [{ act: "hint.scroll by=1", does: "shows the next row of controls" }], run: (a, h) => h.d.hintScroll(a.by, h.reader) }),
-  "hint.dismiss": def({ summary: "put away hint cards", keys: "esc", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintDismiss() }),
+  "hint.dismiss": def({ summary: "put away hint cards", keys: "esc, click", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintDismiss() }),
   "xray": def({ summary: "show every tile's controls; hold ctrl or toggle with ctrl+] then ?", keys: "ctrl, ctrl+] then ?", touches: "nothing", replay: "safe", args: { on: { type: "boolean", optional: true, about: "true shows, false hides, absent toggles" } }, examples: [{ act: "xray on=true", does: "shows every tile's card" }], run: (a, h) => h.d.xraySet(a.on) }),
 });
 

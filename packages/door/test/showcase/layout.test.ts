@@ -375,7 +375,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const title = async (name: string): Promise<[number, number]> => { const r = (await tile(name)).rect; return [at().col + r.col + 3, at().row + r.row]; };
     sc.render(app);
     // The mounts test above left a group in the reader's tab: it comes out of the tab set (^W T) and spills, so the stage is as laid out.
-    for (const g of await groups()) { await stage().dispatch.press("layout.move", { to: g, where: "right" }, g); await stage().dispatch.press("tile.group", { on: false }, g); }
+    for (const g of (await groups()).filter(g => g !== "a" && g !== "b")) { await stage().dispatch.press("layout.move", { to: g, where: "right" }, g); await stage().dispatch.press("tile.group", { on: false }, g); }
     sc.render(app);
     const focus0 = (await get()).focus;
     mouse("down", ...(await title("lanes")), 4); mouse("up", ...(await title("lanes")), 4);
@@ -424,7 +424,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   test("groups (PIE-1073): act and a click choose the same cross-group wire, including a tile outside and in the drawer", async () => {
     (app as any).lastInput = 0;
     await sc.dispatch.press("section.leave");
-    await app.act({ action: "section", args: { name: "groups" }, as: "test-agent" });
+    await app.act({ action: "section", args: { name: "screen" }, as: "test-agent" });
     screen();
     const d = S().stages.get(S().sel).top;
     const group = (name: string) => d.pane(name).inner;
