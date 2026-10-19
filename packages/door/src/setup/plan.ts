@@ -282,6 +282,7 @@ export function unitChanges(f: Facts): string | null {
 export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step {
   const title = "Restart the outline host on the new code";
   const h = f.host, u = h.unit;
+  if (!f.databases.length && !h.running) return { id: "host", title: "Host and back up local outlines", status: "skip", why: "this machine serves no outlines; nothing to host or back up", commands: [] };
   // The schema step stops it to migrate the outlines (its unit runs it, or it wouldn't): this starts it again.
   if (stopped && u) {
     const after = u.kind === "launchd" ? { ...u, state: { active: false, detail: "not loaded in launchd" } } : u;
@@ -309,7 +310,7 @@ export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step 
     if (u.state?.active && u.state.pid) return { id: "host", title, status: "do", why: `${u.kind} ${u.name} runs (pid ${u.state.pid}) but nothing answers at ${h.socket}; ${u.kind} restarts it`, commands: [hostUnitCommand(u, "restart")] };
     return { id: "host", title: "Start the outline host", status: "do", why: `${u.kind} ${u.name} is set up but nothing answers at ${h.socket}${u.state ? ` (${u.state.detail})` : ""}`, commands: [hostUnitCommand(u, "start")] };
   }
-  if (!after) return { id: "host", title, status: "skip", why: `the host runs the current code (${u.kind} ${u.name}${h.protocol ? `, protocol ${h.protocol}` : ""})`, commands: [] };
+  if (!after) return { id: "host", title, status: "skip", why: `already installed and running; the host runs the current code (${u.kind} ${u.name}${h.protocol ? `, protocol ${h.protocol}` : ""})`, commands: [] };
   return { id: "host", title, status: "do", why: `${after}; ${u.kind} restarts it, and every door and pane on it reconnects`, commands: [hostUnitCommand(u, "restart")] };
 }
 
@@ -433,7 +434,7 @@ export function mcpStep(f: Facts, codeUpdates: boolean): Step {
 export function planNotes(f: Facts): string[] {
   const notes: string[] = [];
   const h = f.host;
-  if (!h.unit) {
+  if (!h.unit && (f.databases.length || h.running)) {
     const run = `bun ${hostMainOf(f)}`;
     notes.push(f.platform === "linux"
       ? `No systemd user unit runs the outline host for ${h.folder}; install doesn't create units. One with ExecStart=${run} (WorkingDirectory=${f.repo.outliner}, Restart=always) serves every outline there.`
@@ -529,7 +530,7 @@ export function sessionStep(f: Facts, repo: Pick<Step, "status">): Step {
  * settings file naming this machine. restic and the secrets are the person's: said, with the commands.
  */
 export function backupsStep(f: Facts): Step | null {
-  if (!f.restic) return null;
+  if (!f.restic || !f.databases.length) return null;
   const p = backupPlan(f.restic);
   return { id: "backups", title: "Back up the outlines to restic every 15 minutes", status: p.status, why: p.why, commands: p.commands, ...(p.writes.length ? { writes: p.writes } : {}) };
 }
@@ -599,7 +600,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
     commands: clients.names.map(name => `ssh -- ${name} 'ep0ch install --apply --as-client'`) }] : [];
   // The MCP gateway after the host it talks to.
   const mcp = f.mcp ? [mcpStep(f, updates)] : [];
-  const machineLink = linkInstallStep(f);
+  const machineLink = linkInstallStep(f, updates);
   // After the update (it reads the new built-ins), with the optional steps at the end: one that fails stops nothing else.
   const builtins = builtinsStep(f, updates);
   const session = sessionStep(f, repo);

@@ -294,12 +294,12 @@ export function systemdState(shown: string | null): UnitState {
 }
 
 /** What launchd or systemd says about the host's unit now. Read-only. */
-export async function unitState(unit: HostUnit, uid = process.getuid?.() ?? 0): Promise<UnitState> {
+export async function unitState(unit: HostUnit, uid = process.getuid?.() ?? 0, env?: Env): Promise<UnitState> {
   if (unit.kind === "launchd") {
-    const r = await run(["launchctl", "print", `gui/${uid}/${unit.name}`], { timeoutMs: 5000 });
+    const r = await run(["launchctl", "print", `gui/${uid}/${unit.name}`], { env, timeoutMs: 5000 });
     return launchdState(r.code === 0 ? r.out : null);
   }
-  const r = await run(["systemctl", "--user", "show", unit.name, "-p", "ActiveState,SubState,MainPID,ExecMainStatus"], { timeoutMs: 5000 });
+  const r = await run(["systemctl", "--user", "show", unit.name, "-p", "ActiveState,SubState,MainPID,ExecMainStatus"], { env, timeoutMs: 5000 });
   return systemdState(r.code === 0 ? r.out : null);
 }
 
@@ -423,10 +423,10 @@ export async function hostAnswers(socket: string, tries = 3, gapMs = 400, live: 
 }
 
 /** The outline host over `folder`: its socket, whether it answers, its outlines, its protocol, its unit. */
-export async function hostFacts(folder: string, platform: Facts["platform"], home: string): Promise<HostFacts> {
+export async function hostFacts(folder: string, platform: Facts["platform"], home: string, env?: Env): Promise<HostFacts> {
   const socket = hostSocketOf({ EP0CH_OUTLINES: folder, HOME: home });
   const found = hostUnit(platform, home, folder);
-  const [live, state] = await Promise.all([hostAnswers(socket), found ? unitState(found) : Promise.resolve(undefined)]);
+  const [live, state] = await Promise.all([hostAnswers(socket), found ? unitState(found, undefined, env) : Promise.resolve(undefined)]);
   const unit = found && state ? { ...found, state } : found;
   if (!live) return { folder, socket, running: false, outlines: [], unit };
   const list = await hostRequest<{ outlines: HostedOutline[] }>(socket, "outlines.list", {}, 3000).catch(() => ({ outlines: [] as HostedOutline[] }));
@@ -554,6 +554,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const repoRoot = o.repoRoot ?? repoRootOf();
   const folder = outlinesDir({ ...env, HOME: home });
 
+  const linkConfig = readLinkConfig(folder);
   const bunPath = which("bun", pathDirs);
   const herdrPath = env.HERDR_BIN_PATH && existsSync(env.HERDR_BIN_PATH) ? env.HERDR_BIN_PATH : which("herdr", pathDirs);
   const configPath = env.HERDR_CONFIG_PATH || join(env.XDG_CONFIG_HOME || join(home, ".config"), "herdr/config.toml");
@@ -571,7 +572,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
     part("the Outliner plugin", herdrPath ? pluginFacts({ ...env, HERDR_BIN_PATH: herdrPath }, fetch, lines("plugin")) : null),
     part("the ep0ch checkout", repoFacts(repoRoot, fetch, env, lines("ep0ch"))),
-    part("the outline host", hostFacts(folder, platform, home)),
+    part("the outline host", hostFacts(folder, platform, home, env)),
     part("door agents", doorAgents(env).catch(() => undefined)),
     part("the door sessions", doorSessions(env).catch(() => [])),
     part("the MCP gateway", mcpFacts(platform, home, repoRoot).catch(() => null)),
@@ -610,7 +611,19 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   return {
     outlineFiles: outlineFiles(o.cwd ?? process.cwd(), folder),
     withSecrets: withSecretsFacts(home, repoRoot),
-    linkConfig: readLinkConfig(folder),
+    linkConfig,
+    linkState: await (async () => {
+      if (!linkConfig || platform === "other") return;
+      if (platform === "macos") {
+        const r = await run(["launchctl", "print", `gui/${process.getuid?.() ?? 0}/io.ep0ch.link`], { env, timeoutMs: 5000 });
+        return { loaded: r.code === 0, running: launchdState(r.code === 0 ? r.out : null).active === true, enabled: r.code === 0 };
+      }
+      const [active, enabled] = await Promise.all([
+        run(["systemctl", "--user", "is-active", "ep0ch-link"], { env, timeoutMs: 5000 }),
+        run(["systemctl", "--user", "is-enabled", "ep0ch-link"], { env, timeoutMs: 5000 }),
+      ]);
+      return { loaded: active.code === 0, running: active.code === 0, enabled: enabled.code === 0 };
+    })(),
     platform, home, pathDirs,
     bun: { path: bunPath, version: bunVersion },
     herdr: { path: herdrPath, version: herdrVersion, server, configPath, keys: herdrKeys(configPath), hyperChords: herdrHyperChords(configPath) },

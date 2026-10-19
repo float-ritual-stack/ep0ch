@@ -349,7 +349,7 @@ describe("install and doctor", () => {
     expect(p.status).toBe("do");
     expect(p.writes.map(w => w.path)).toEqual([...facts().units.map(u => u.path), "/fictional/home/.config/ep0ch/backup.env"]);
     expect(p.writes.at(-1)!.text).toContain("EP0CH_BACKUP_MACHINE=garden-shed");
-    expect(p.commands).toContain("systemctl --user enable --now ep0ch-backup.timer");
+    expect(p.commands).toContain("systemctl --user restart ep0ch-backup.timer");
   });
 
   test("a machine not named yet: asked for in the plan, never taken from the host name silently", () => {

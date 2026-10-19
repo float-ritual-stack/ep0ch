@@ -1355,3 +1355,88 @@ test("the binding backup survives its migration install and is retired by the ne
   expect(existsSync(join(home, ".ep0ch.bak"))).toBe(false);
   expect(readFileSync(join(home, ".ep0ch/config.toml"), "utf8")).toBe('ws = "garden"\n');
 });
+
+for (const platform of ["darwin", "linux"]) for (const kind of ["link", "backup"]) test(`${platform}: repeated install leaves the ${kind} running without reloading it`, async () => {
+  const home = mkdtempSync(join(scratch, "units-")), bin = join(home, ".local/bin"), repo = join(home, "repo");
+  const outlines = join(home, "outlines");
+  for (const dir of [bin, join(outlines, ".host"), join(home, ".config/secrets"), join(repo, "packages/door/src")]) mkdirSync(dir, { recursive: true });
+  writeFileSync(join(repo, "packages/door/src/main.ts"), "");
+  if (kind === "link") writeFileSync(join(outlines, ".host/link.json"), JSON.stringify({ mode: "connect", server: "https://link.example.test", machine: "garden" }));
+  writeFileSync(join(home, ".config/secrets/link-garden.env"), "LINK_KEY=fictional-key\n", { mode: 0o600 });
+  symlinkSync(join(import.meta.dir, "../scripts"), join(repo, "packages/door/scripts"));
+  mkdirSync(join(repo, "packages/outliner/scripts"), { recursive: true });
+  writeFileSync(join(repo, "packages/outliner/scripts/install-claude-mod.ts"), "process.exit(0);\n");
+  if (kind === "backup") {
+    const db = new Database(join(outlines, "garden.sqlite"));
+    db.run("CREATE TABLE notes (text TEXT)"); db.close();
+    symlinkSync(join(import.meta.dir, "../../../scripts"), join(repo, "scripts"));
+    symlinkSync(join(import.meta.dir, "../scripts/with-secrets"), join(bin, "with-secrets"));
+    writeFileSync(join(bin, "restic"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    for (const group of ["hetzner-s3", "restic"]) writeFileSync(join(home, `.config/secrets/${group}.env`), "KEY=fictional\n", { mode: 0o600 });
+  }
+  const fake = `#!${process.execPath}
+import { existsSync, writeFileSync, unlinkSync, appendFileSync } from 'node:fs';
+const args = process.argv.slice(2), home = process.env.HOME, state = home + '/loaded', enabled = home + '/enabled';
+const command = args[0] === '--user' ? args[1] : args[0];
+appendFileSync(home + '/commands', command + '\\n');
+if (existsSync(home + '/fail') && ['bootout', 'restart', 'kickstart'].includes(command)) { console.error('Permission denied'); process.exit(1); }
+if (command === 'print' || command === 'is-active') { if (existsSync(state)) { console.log('job = {\\n\\tstate = running\\n}'); process.exit(0); } process.exit(3); }
+if (command === 'is-enabled') process.exit(existsSync(enabled) ? 0 : 1);
+if (command === 'enable') writeFileSync(enabled, 'yes');
+if (command === 'bootout') { if (!existsSync(state)) { console.error('Boot-out failed: 3: No such process'); process.exit(3); } unlinkSync(state); }
+if (command === 'bootstrap') { if (existsSync(state)) { console.error('Bootstrap failed: 5: Input/output error'); process.exit(5); } writeFileSync(state, 'yes'); }
+if (command === 'restart' || command === 'kickstart') writeFileSync(state, 'yes');
+`;
+  for (const name of ["launchctl", "systemctl"]) writeFileSync(join(bin, name), fake, { mode: 0o755 });
+  const env = { EP0CH_BACKUP_MACHINE: "garden", HOME: home, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, EP0CH_OUTLINES: outlines, EP0CH_STATE: join(home, "state"), XDG_CONFIG_HOME: join(home, ".config") };
+  const lines: string[] = [];
+  const io = { env, platform, repoRoot: repo, cwd: home, out: (s: string) => lines.push(s), err: (s: string) => lines.push(s) };
+  for (let pass = 0; pass < 3; pass++) {
+    lines.length = 0;
+    expect({ code: await setupCommand(["install", "--apply", "--json"], io), errors: lines.filter(l => l.includes('"ok": false')) }).toEqual({ code: 0, errors: [] });
+    expect(existsSync(join(home, "loaded"))).toBe(true);
+    if (pass) expect(lines.join('\n')).toContain("already installed and running");
+  }
+  const commands = readFileSync(join(home, "commands"), "utf8").split('\n');
+  expect(commands.filter(c => c === (platform === "darwin" ? "bootstrap" : "restart"))).toHaveLength(1);
+  expect(commands).not.toContain("bootout");
+  const result = JSON.parse(lines.at(-1)!);
+  if (kind === "link") {
+    expect(result.steps.find((s: any) => s.id === "host").status).toBe("skip");
+    expect(result.steps.some((s: any) => s.id === "backups")).toBe(false);
+    expect(lines.join('\n')).toContain("this machine serves no outlines; nothing to host or back up");
+  }
+  const unit = platform === "darwin" ? join(home, `Library/LaunchAgents/io.ep0ch.${kind}.plist`) : join(home, `.config/systemd/user/ep0ch-${kind}.${kind === "backup" ? "timer" : "service"}`);
+  writeFileSync(unit, readFileSync(unit, "utf8") + "\n");
+  lines.length = 0;
+  expect(await setupCommand(["install", "--apply", "--json"], io)).toBe(0);
+  expect(existsSync(join(home, "loaded"))).toBe(true);
+  writeFileSync(unit, readFileSync(unit, "utf8") + "\n");
+  writeFileSync(join(home, "fail"), "yes");
+  lines.length = 0;
+  expect(await setupCommand(["install", "--apply"], io)).toBe(1);
+  expect(lines.join('\n')).toContain("Permission denied");
+  expect(lines.join('\n')).toContain("recover:");
+  expect(lines.join('\n')).toContain("nothing after");
+}, 30_000);
+
+test("install records a deploy in the host's default outline from an unnamed folder", async () => {
+  const { ScratchHost } = await import("./scratch");
+  const { startDeployRecord } = await import("../src/setup/deploy-record");
+  const { hostRequest } = await import("../src/socket");
+  const h = new ScratchHost();
+  try {
+    await h.start("garden");
+    await h.create("garden");
+    await h.create("workshop");
+    const f = current();
+    f.home = h.env.HOME!;
+    f.host = { ...f.host, folder: h.outlines, socket: h.sock };
+    const record = await startDeployRecord(f, h.env, h.folder("unnamed"), now, () => {});
+    await record.local("finished");
+    const result = await hostRequest<{ blocks: { id: string; text: string }[] }>(h.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
+    expect(result.blocks.find(b => b.id === record.id)?.text).toContain("Local: finished");
+    const other = await hostRequest<{ blocks: unknown[] }>(h.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=install" } });
+    expect(other.blocks).toEqual([]);
+  } finally { await h.dispose(); }
+}, 30_000);

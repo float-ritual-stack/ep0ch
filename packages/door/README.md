@@ -446,6 +446,11 @@ commands look after it, on macOS and Linux alike:
     ep0ch install                    the plan: what would change, step by step (a dry run; nothing changes)
     ep0ch install --apply            run it
 
+Repeated installs leave unchanged, running link and backup units alone ("already installed and running").
+Changed launchd units are unloaded before bootstrap; systemd reloads its definitions and restarts the unit.
+A machine with no local outline databases skips hosting and backups without asking for bucket keys.
+Deploy records use the local host's configured default outline when the invoking folder names none.
+
 Its `backups` group reads each Litestream unit (`litestream replicate`, and float-2's mirror followers,
 `litestream restore -f`): ✓ while it runs (pid, up since), ✗ for ERROR lines its log has had in the last hour since
 it started (a lost file of its local state gets the fresh-start commands: its state moved aside and the replica's old

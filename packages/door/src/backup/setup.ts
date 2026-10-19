@@ -80,9 +80,9 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
   const file = configFileOf(env);
   const units = o.bun ? unitFiles({ ...o, bun: o.bun, env }) : [];
   const loaded = o.platform === "linux"
-    ? await o.run(["systemctl", "--user", "is-active", "ep0ch-backup.timer"], { timeoutMs: 5000 }).then(r => r.out.trim() === "active" ? true : r.out.trim() ? false : null, () => null)
+    ? await o.run(["systemctl", "--user", "is-active", "ep0ch-backup.timer"], { env, timeoutMs: 5000 }).then(async r => r.code === 0 && (await o.run(["systemctl", "--user", "is-enabled", "ep0ch-backup.timer"], { env, timeoutMs: 5000 })).code === 0, () => null)
     : o.platform === "macos"
-      ? await o.run(["launchctl", "print", `gui/${process.getuid?.() ?? 0}/${LAUNCHD_LABEL}`], { timeoutMs: 5000 }).then(r => r.code === 0, () => null)
+      ? await o.run(["launchctl", "print", `gui/${process.getuid?.() ?? 0}/${LAUNCHD_LABEL}`], { env, timeoutMs: 5000 }).then(r => r.code === 0, () => null)
       : null;
   const ws = o.which("with-secrets");
   const groups = ws ? await o.run([ws, "--list"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.split("\n").map(l => l.split(/\s+/)[0]!).filter(Boolean) : null, () => null) : null;
@@ -114,8 +114,8 @@ export interface BackupPlan {
 }
 
 const loadCommands = (f: BackupSetupFacts) => f.platform === "linux"
-  ? ["systemctl --user daemon-reload", "systemctl --user enable --now ep0ch-backup.timer"]
-  : [`launchctl bootout gui/$(id -u)/${LAUNCHD_LABEL} 2>/dev/null; launchctl bootstrap gui/$(id -u) ${f.units[0]?.path ?? ""}`];
+  ? ["systemctl --user daemon-reload", "systemctl --user enable ep0ch-backup.timer", "systemctl --user restart ep0ch-backup.timer"]
+  : [...(f.loaded ? [`launchctl bootout gui/$(id -u)/${LAUNCHD_LABEL}`] : []), `launchctl bootstrap gui/$(id -u) ${f.units[0]?.path ?? ""}`];
 
 export function backupPlan(f: BackupSetupFacts): BackupPlan {
   if (f.platform === "other") return { status: "skip", why: "backups run from a systemd timer or a launchd agent; this platform has neither", commands: [], writes: [], missing: [] };
@@ -159,7 +159,7 @@ export function backupPlan(f: BackupSetupFacts): BackupPlan {
   if (foreign.length) missing.push(`${foreign.join(", ")} ${foreign.length === 1 ? "is" : "are"} yours (no "${UNIT_MARK}" line); move ${foreign.length === 1 ? "it" : "them"} away and rerun to let install write ${foreign.length === 1 ? "it" : "them"}`);
   if (missing.length) return { status: "manual", why: `first: ${missing.join("; ")}`, commands: [], writes: [], missing };
   const units = writes.filter(w => w.path !== f.config.path);
-  if (!writes.length && f.loaded) return { status: "skip", why: `${f.platform === "linux" ? "ep0ch-backup.timer is active" : `${LAUNCHD_LABEL} is loaded`}; ${f.config.machine} backs up to ${f.repo}`, commands: [], writes: [], missing };
+  if (!writes.length && f.loaded) return { status: "skip", why: `already installed and running; ${f.platform === "linux" ? "ep0ch-backup.timer is active" : `${LAUNCHD_LABEL} is loaded`}; ${f.config.machine} backs up to ${f.repo}`, commands: [], writes: [], missing };
   const said = [...(units.length ? [`${units.length === f.units.length && f.units.every(u => u.have === null) ? "write" : "update"} ${units.map(w => w.path).join(", ")}`] : []),
     ...(!f.config.exists ? [`write ${f.config.path} naming this machine ${f.config.machine} (its backups: ${f.repo})`]
       : changedSettings.length ? [`update ${f.config.path}: ${changedSettings.join(", ")} (the job reads the file; the next run backs up every outline to ${f.repo})`] : []),
@@ -188,8 +188,8 @@ export function settingsText(existing: string | null, set: Record<string, string
 /** The argv install runs to load the units after writing them. */
 export function loadArgv(f: BackupSetupFacts, uid: number): string[][] {
   return f.platform === "linux"
-    ? [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", "ep0ch-backup.timer"]]
-    : [["launchctl", "bootout", `gui/${uid}/${LAUNCHD_LABEL}`], ["launchctl", "bootstrap", `gui/${uid}`, f.units[0]!.path]];
+    ? [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "ep0ch-backup.timer"], ["systemctl", "--user", "restart", "ep0ch-backup.timer"]]
+    : [...(f.loaded ? [["launchctl", "bootout", `gui/${uid}/${LAUNCHD_LABEL}`]] : []), ["launchctl", "bootstrap", `gui/${uid}`, f.units[0]!.path]];
 }
 
 type Status = "ok" | "behind" | "missing" | "info" | "unknown";
