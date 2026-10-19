@@ -12,6 +12,7 @@ import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block } from "../src/types";
+import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -97,9 +98,10 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   expect(page.parentId).toBe(hub.id);
   expect(page.text.split("\n")[0]).toBe("Runbook [ext.page::runbook] [page::ext-runbook]");
   expect(page.text).toContain("A note is a runbook.");
+  expect(codeBlocks(page.text.split("\n")).fences.filter(f => !f.closed)).toEqual([]);
   expect(page.text).not.toContain("# Runbook");
   expect(page.text).toContain("- Action **Run this step** (`ext.runbook.run-step`, on a `run::` line, key `x`, writes)");
-  expect(page.text).toContain("### 4 (2026-10-17)");
+  expect(page.text).toContain("### 5 (2026-10-19)");
   expect(page.text).not.toContain("### 1 (2026-10-10)");
   const [runbook] = await children(page.id);
   expect(runbook!.text.split("\n")[0]).toBe("Ship the demo widget [type::runbook] [env::scratch]");
@@ -176,7 +178,7 @@ test("install from the repo, reinstall keeps your edits and adds nothing twice, 
   expect(after.pages.runbook).toBeUndefined();
   expect(store.require(runbookPage).effectiveDeletedRootId).toBeString();
   // Back among the available ones.
-  expect(store.require(after.hub!).text).toContain("- **Runbook** `runbook` v4");
+  expect(store.require(after.hub!).text).toContain("- **Runbook** `runbook` v5");
   expect(store.require(after.hub!).text).not.toContain("|Runbook))");
 });
 

@@ -140,7 +140,12 @@ export interface Handover { run(argv: string[], o?: HandoverOpts): Promise<numbe
  * own settings for it (`own`: EP0CH_* too; null unsets one); `shows` what its title calls the program; `wide`: it wants width
  * more than height (a picker's list), so it may go below the reader rather than beside it.
  */
-export interface TileProgram { cmd: string[]; name: string; cwd?: string; file?: string; own?: Record<string, string | null>; shows?: string; wide?: boolean }
+export interface TileJob {
+  start(cmd: string[], env: Record<string, string>, output: (data: Uint8Array) => void, done: (code: number | null) => void): void;
+  stop(): void;
+  dismiss(): void;
+}
+export interface TileProgram { retain?: boolean; actor?: import("./socket").Actor; output?: (data: Uint8Array) => void; ready?: (job: TileJob) => void; cmd: string[]; name: string; cwd?: string; file?: string; own?: Record<string, string | null>; shows?: string; wide?: boolean }
 
 /** `argv` with this process's terminal as its stdio, `banner` printed first: its exit code. */
 export async function runProgram(argv: string[], o: HandoverOpts = {}): Promise<number | null> {

@@ -459,6 +459,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     const sock = await scratch.start();
     const b = new SocketBoard(sock);
     await b.info();
+    await b.installExtension("runbook");
     plot = (await b.request<{ id: string }>("create", { parentId: null, text: "Allotment plot 7\nWater the leeks before noon", author: "agent" })).id;
     b.close();
     state = join(scratch.root, "door");
@@ -606,6 +607,23 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect((await said({ nest: `shell:${pid}` })).message).toMatch(/inside the session already/);
     expect((await said(null, { t: "input", text: "j" })).message).toBe("say hello first");
   }, 30_000);
+
+  test("an install's session restart cannot kill the runbook that invoked it", async () => {
+    const b = new SocketBoard(scratch.sock);
+    const a = await RawClient.attach(sessionSocket(dir), 150, 44);
+    try {
+      const step = await b.createBlock(null, "Wait through install\nrun::\n```sh\nprintf 'WAIT\\n'; read -r line; printf 'DONE\\n'\n```");
+      await control({ cmd: "act", action: "ext.runbook.run-step", args: { block: step.id }, as: "runbook-test" });
+      await until(() => a.screen().includes("WAIT"), "the runbook's terminal", 10000);
+      const cli = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), "session", "restart", "--all"], { env: { ...process.env, EP0CH_OUTLINES: scratch.outlines }, stdout: "pipe", stderr: "pipe" });
+      const [output, error, code] = await Promise.all([new Response(cli.stdout).text(), new Response(cli.stderr).text(), cli.exited]);
+      pid = JSON.parse(readFileSync(sessionFile(dir), "utf8")).pid;
+      expect(code).toBe(1);
+      expect(output + error).toContain("finish or stop the runbook");
+      await control({ cmd: "act", action: "tile.type", tile: "Runbook", args: { text: "done\\n" }, as: "runbook-test" });
+      await until(() => a.screen().includes("DONE"), "the command survives the upgrade request", 10000);
+    } finally { a.close(); b.close(); }
+  }, 45000);
 
   test("ending asks while programs run in its tiles, then ends: every client told, the files gone", async () => {
     const a = await RawClient.attach(sessionSocket(dir), 100, 30);

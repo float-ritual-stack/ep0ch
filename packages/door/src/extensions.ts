@@ -1,3 +1,4 @@
+import type { RunbookPlan, RunbookResult } from "@ep0ch/outline-core/runbook";
 // Extensions in the door (PIE-512): what the outline service's extension registry offers (`extensions.list`,
 // pi-herdr-outliner PIE-507, docs/extensions/README.md) bound into the door's shared parts, never drawn or run
 // here by a path of the door's own:
@@ -132,6 +133,7 @@ export interface ExtensionInstalled { id: string; lines: string[]; page?: string
 /** What `extensions.uninstall` answers: whether a folder went, and what became of its demo notes. */
 export interface ExtensionUninstalled { id: string; lines: string[]; removed: boolean; demo: { trashed: number; kept: string[]; left: number } }
 export interface ExtensionActResult {
+  runbook?: RunbookPlan; runbookResult?: RunbookResult;
   /** Scripts write as their author and keep run undo on their source (or their run note for files). */
   writtenAs?: string;
   undoOn?: string;
@@ -357,6 +359,7 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
   try {
     // Who asked goes with it (`mutation`): the writes stay the extension's, the feed records this as `requestedBy`.
     const r = await ctx.board.actExtension(extension, a.id, target, actor);
+    if (r.runbook) await (await import("./runbook")).runBook(ctx, r.runbook, actor);
     // The extension's own words (its message) are drawn as text, never as escapes.
     const message = r.message !== undefined ? oneLine(r.message) : undefined;
     const said = `${name}: ${message || a.label}${r.written.length ? ` · written as ${oneLine(r.writtenAs ?? `ext:${extension}`)}` : ""}${r.undo ? " · ctrl+z undoes it" : ""}`;

@@ -1,3 +1,6 @@
+import { readdir } from "node:fs/promises";
+import { dirname, basename, resolve, join } from "node:path";
+import { homedir } from "node:os";
 // The values of each kind of thing an action's argument names (PIE-1031, ArgKind in src/surface/actions.ts), for the
 // power bar's form (src/bar/ask.ts): typed words filter them, ↑ ↓ pick one. None keeps a list of its own: a tile is the
 // layout's (the screen shown's tiles, as `tile=` reaches them), a note the service's one search, a page the service's
@@ -82,4 +85,12 @@ registerArgKind("value", async (typed, host, { of }) => {
 registerArgKind("tile-kind", async typed => {
   const { tileKinds } = await import("../desk/tile-kinds");
   return filtered(tileKinds().map(k => ({ value: k.kind, label: k.kind, detail: k.about })), typed, r => [r.label, r.detail ?? ""]);
+});
+
+registerArgKind("file", async typed => {
+  const path = resolve(typed.replace(/^~(?=\/|$)/, homedir()) || ".");
+  const folder = !typed || typed.endsWith("/") ? path : dirname(path);
+  const prefix = !typed || typed.endsWith("/") ? "" : basename(path);
+  const entries = await readdir(folder, { withFileTypes: true });
+  return entries.filter(e => e.name.startsWith(prefix)).map(e => ({ value: join(folder, e.name) + (e.isDirectory() ? "/" : ""), label: e.name + (e.isDirectory() ? "/" : "") }));
 });

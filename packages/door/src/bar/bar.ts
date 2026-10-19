@@ -29,7 +29,7 @@ import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 import "./sources";
-import { formOpen } from "./ask";
+import { formOpen, maskedQuestion, clearPrivateForm } from "./ask";
 
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
 export interface BarItem { source: BarSource; row: BarRow; heading?: string }
@@ -50,7 +50,7 @@ export function barRect(cols: number, rows: number): Rect {
 export class PowerBar {
   /** The source it's scoped to, or null: the main list. */
   scope: string | null;
-  readonly input: Draft;
+  input: Draft;
   private readonly gesture = new Gesture();
   private readonly picker: ListPicker<BarItem, PowerBar>;
   items: BarItem[] = [];
@@ -101,7 +101,7 @@ export class PowerBar {
   }
 
   /** Put away: nothing it asked for is waited on. */
-  close() { this.done = true; this.seq++; if (this.timer) clearTimeout(this.timer); this.timer = null; this.surface.dispose(); }
+  close() { this.input = new Draft("power-bar", 0, ""); this.done = true; this.seq++; if (this.timer) clearTimeout(this.timer); this.timer = null; this.surface.dispose(); }
   ended(): boolean { return this.done || this.picker.ended(); }
   get query(): string { return this.input.text; }
   get selected(): number { return this.picker.sel; }
@@ -118,6 +118,7 @@ export class PowerBar {
 
   /** Change to scope `s` (null: the main list). */
   setScope(s: string | null) {
+    if (this.scope === "ask" && maskedQuestion() && s !== "ask") { this.input = new Draft("power-bar", 0, ""); clearPrivateForm(); }
     this.scope = s ? barSource(s)?.id ?? null : null;
     this.picker.sel = 0; this.litKey = null;
     this.refresh();
@@ -154,7 +155,8 @@ export class PowerBar {
     }
     if (k.kind === "paste") { void this.host.dispatch.press("bar.edit", { op: "paste", text: k.text }); return true; }
     const before = this.query;
-    const took = editorLineKey(this.input, k, text => this.host.ctx.copy?.(text));
+    const took = editorLineKey(this.input, k, text => { if (!(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(text); });
+    if (this.scope === "ask" && maskedQuestion()) { this.input.undos = []; this.input.redos = []; }
     if (this.query !== before) this.refresh();
     return took;
   }
@@ -165,13 +167,15 @@ export class PowerBar {
     else if (op === "clear") this.clear();
     else if (op !== "select") {
       const k: Key = op === "paste" ? { kind: "paste", text: o.text ?? "" } : { kind: "char", ctrl: true, ch: op === "cut" ? "x" : op === "delete-word" ? "w" : "z" };
-      editorLineKey(this.input, k, text => { if (clipboard) this.host.ctx.copy?.(text); });
+      editorLineKey(this.input, k, text => { if (clipboard && !(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(text); });
+      if (this.scope === "ask" && maskedQuestion()) { this.input.undos = []; this.input.redos = []; }
       this.refresh();
     }
     this.host.ctx.redraw();
   }
 
   complete() {
+    if (this.scope === "ask" && maskedQuestion()) return;
     const it = this.items[this.picker.sel];
     if (!it) return;
     const typed = this.query;
@@ -194,7 +198,7 @@ export class PowerBar {
     this.refresh();
   }
 
-  clear() { this.input.splice(0, this.query.length, ""); this.refresh(); }
+  clear() { if (this.scope === "ask" && maskedQuestion()) this.input = new Draft("power-bar", 0, ""); else this.input.splice(0, this.query.length, ""); this.refresh(); }
 
   /** A key or a click while it's open: everything is the bar's. Mouse reports are made relative to where it was drawn. */
   key(k: Key, ctx: Ctx) {
@@ -219,7 +223,7 @@ export class PowerBar {
         } else if (k.action === "drag" && this.gesture.drag(k.x, k.y)) {
           const p = d.posAt(x, 0); select(d.anchor?.col ?? d.col, p.col);
         } else if (k.action === "up" && this.gesture.release(k.x, k.y).copy) {
-          const text = d.selectedText(); if (text) ctx.copy?.(text);
+          const text = d.selectedText(); if (text && !(this.scope === "ask" && maskedQuestion())) ctx.copy?.(text);
         }
         ctx.redraw(); return;
       }
@@ -353,7 +357,7 @@ export class PowerBar {
     const busy = this.asking.size ? `${[...this.asking].map(id => barSource(id)?.title ?? id).join(", ")}…` : "";
     const said = [...this.problems].map(([id, why]) => `${barSource(id)?.title ?? id}: ${why}`).join(" · ");
     const count = [`${this.items.length} row${this.items.length === 1 ? "" : "s"}`, ...this.said.values()].join(" · ");
-    const line = paint("|14› ") + this.input.render(Math.max(10, w - 30), 1)[0] + paint(` |08${busy || count}`);
+    const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, Math.max(10, w - 30))) : this.input.render(Math.max(10, w - 30), 1)[0]) + paint(` |08${busy || count}`);
     const scoped = this.scope ? barSource(this.scope) : undefined;
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
     const head = [tabs, line, ...this.sourceHead, fg(C.blue) + "─".repeat(w) + RESET];
@@ -434,7 +438,7 @@ export class PowerBar {
   /** What `peek` and `bar.open` say: the scope, the query and the rows, numbered from 1, the lit one marked. */
   describe(): Record<string, unknown> {
     return {
-      scope: this.scope ?? "all", query: this.query, selected: this.items.length ? this.picker.sel + 1 : null,
+      scope: this.scope ?? "all", query: this.scope === "ask" && maskedQuestion() ? "[hidden]" : this.query, selected: this.items.length ? this.picker.sel + 1 : null,
       ...(() => { const st = this.scope ? barSource(this.scope)?.state?.() : null; return st ? { form: st } : {}; })(),
       ...(this.asking.size ? { asking: [...this.asking] } : {}), ...(this.said.size ? { said: Object.fromEntries(this.said) } : {}), ...(this.problems.size ? { problems: Object.fromEntries(this.problems) } : {}),
       rows: this.items.map((it, i) => rowFacts(it, i + 1)),

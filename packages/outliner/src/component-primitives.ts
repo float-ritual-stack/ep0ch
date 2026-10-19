@@ -102,6 +102,7 @@ export type Primitive =
   | { type: "image"; src: string; alt?: string; size?: string; fit?: "cover" | "contain"; height?: number; caption?: boolean };
 
 export interface ComponentOutput {
+  readonly placement?: "replace";
   /** The truth: what `json` (and `csv`, for rows) returns. */
   readonly data: unknown;
   readonly view: Primitive;
@@ -368,7 +369,8 @@ export function validateComponent(value: unknown): ComponentOutput {
       targets[target as RenderTarget] = cleanExtensionText(body, true);
     }
   }
-  return { data: raw.data ?? null, view, ...(targets ? { targets } : {}) };
+  if (raw.placement !== undefined && raw.placement !== "replace") throw new ComponentError("placement must be replace (draw in the handler line\'s place)");
+  return { data: raw.data ?? null, view, ...(raw.placement === "replace" ? { placement: "replace" as const } : {}), ...(targets ? { targets } : {}) };
 }
 
 // ── Renderers ────────────────────────────────────────────────────────────

@@ -785,6 +785,24 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "runbook", need: "run a note's steps in a terminal and answer a masked form",
+    part: "runbook extension plans and records; argument forms; PtyPane through PtyBackend in the desk",
+    files: "src/runbook.ts, src/bar/ask.ts, src/desk/pty.ts, outliner/extensions/runbook",
+    aside: "run all, answer the terminal's prompt, then enter a made-up token in the masked form; the saved output hides the token",
+    stage(_n, show) {
+      const reader = new ReaderPane();
+      const d = stageDesk({ title: "showcase · runbook", panes: [reader], layout: ([a]) => leaf(a!) });
+      show(ctx => void (async () => {
+        const listed = extensionList() ?? await ctx.board.listExtensions();
+        const page = listed.pages?.runbook;
+        const book = page && (await ctx.board.children(page)).find(b => b.text.startsWith("Try a terminal runbook"));
+        if (book) reader.show(book, d);
+        ctx.redraw();
+      })());
+      return d;
+    },
+  },
+  {
     key: "ext-pages", need: "give an extension a page in the outline that explains and demonstrates it (its README, what it adds, its demo notes), list what's installed and what isn't, install or remove one", part: "the extensions' pages (outliner src/extension-pages.ts, src/extension-demo.ts): the service writes the Extensions hub and a page per installed extension from its folder (README drawn as the note, what its manifest adds, its CHANGELOG's head), and its demo/ notes under the page once, as ext:<id>, with fresh ids; extensions.list says the hub, each page and what's available; extensions.install and extensions.uninstall (demo=keep|remove, never silently) are actions in EXTENSION_INSTALL_ACTIONS, reached by the power bar's extensions scope (&: ⏎ or a click on a row) and act; the pages are notes, read by the note surface; structure's extract of a line ending in ^s5 takes the anchor with it (a move-anchor in its write group, PIE-829): the Garden diary's link points at the new child, no forwarding line, one undo", files: "outliner src/extension-pages.ts, outliner src/extension-demo.ts, src/extensions.ts (EXTENSION_INSTALL_ACTIONS), src/bar/sources.ts (EXTENSIONS)",
     aside: "the notifications hub (on made-up Gmail, Jira and Slack, pulled once) and the runbook extension, copied into the showcase's own config dir when try-it names the checkout; without them there is no hub, and the readers stay empty",
     stage(_n, show) {
@@ -1391,6 +1409,8 @@ export class Showcase implements Screen {
       stage: f?.top.describe?.() ?? null,
     };
   }
+
+  inTile(p: import("../term").TileProgram, done: (code: number | null) => void): boolean { return this.stage(this.sel)?.top.inTile?.(p, done) ?? false; }
 
   /**
    * The showcase's dispatcher: its own actions (which section), then the shown section's stage: its screen's own

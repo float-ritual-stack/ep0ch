@@ -57,6 +57,14 @@ async function setup(timeoutSeconds = 20) {
 }
 const PERSON = { author: "user" as const };
 
+test("a new step hands its terminal command to the door without running it in the host", async () => {
+  const { create, book, client } = await setup();
+  const step = await create('Ask in a terminal\nrun::\n```sh\nread -r answer; printf "%s" {{secret.token}}\n```', book.id);
+  const result = await client.request<any>({ action: "extensions.act", extension: "runbook", extensionAction: "run-step", blockId: step.id, mutation: PERSON });
+  expect(result.runbook?.steps[0]).toMatchObject({ block: step.id, mode: "terminal", command: 'read -r answer; printf "%s" "${RUNBOOK_SECRET_token}"', fields: [{ name: "token", secret: true }] });
+  expect(findOutputRegions((await client.request<Block>({ action: "get", blockId: step.id })).text)).toEqual([]);
+});
+
 test("a step runs, and the run is recorded under it: status, exit code, who, when, the output tail", async () => {
   const { check, act, client } = await setup();
   const done = await act(check.id, "run-step", PERSON);
@@ -130,13 +138,14 @@ test("a missing parameter is recorded as not run, saying which property to write
   expect((await kids(step.id))[0]).toContain("[run.status::refused]");
 });
 
-test("a handler line draws the step: its filled command and its last run", async () => {
+test("a handler line draws a run control and its last status", async () => {
   const { check, act, client } = await setup();
   await act(check.id, "run-step", PERSON);
   await client.request({ action: "resources.projection.refresh", blockId: check.id });
-  const read = await client.request<{ projections?: Array<{ provider: string; output?: { component?: { view: { badge: { label: string } } } } }> }>({ action: "resources.projection.read", blockId: check.id });
-  const view = read.projections?.find((p) => p.provider === "runbook")?.output?.component?.view;
-  expect(view?.badge.label).toBe("ok");
+  const read = await client.request<{ projections?: Array<{ provider: string; output?: { markdown: string } }> }>({ action: "resources.projection.read", blockId: check.id });
+  const view = read.projections?.find((p) => p.provider === "runbook")?.output?.markdown;
+  expect(view).toContain("ok");
+  expect(view).toContain("run");
 });
 
 test("a run-time value that could build a command is refused; a secret split by terminal escapes is still scrubbed; the nearest runbook's parameters win", async () => {

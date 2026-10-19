@@ -3,7 +3,6 @@
 // (src/session/pty-host.ts), a small process of its own that outlives the daemon: when the daemon is upgraded or
 // restarted, the new one adopts the programs it left (`adopt`), with what they wrote meanwhile, and nothing a tile
 // runs notices. PtyPane (src/desk/pty.ts) draws the program either way; only this seam knows which.
-import type { Subprocess } from "bun";
 
 /** A running program in a pty, as the tile drives it. */
 export interface PtyProc {
@@ -65,17 +64,21 @@ export interface PtyBackend {
 export const localPtys: PtyBackend = {
   kind: "local",
   spawn(s, onData) {
-    const pty = new Bun.Terminal({ cols: s.cols, rows: s.rows, name: "xterm-256color", data: (_t, d) => onData(d) });
-    let proc: Subprocess;
-    try { proc = Bun.spawn(s.argv, { terminal: pty, cwd: s.cwd, env: s.env }); }
-    catch (e) { try { pty.close(); } catch { /* never opened */ } throw e; }
+    let drained!: () => void;
+    const eof = new Promise<void>(resolve => { drained = resolve; });
+    // Let spawn own the slave descriptor so the stream reaches EOF after the child's last write.
+    const proc = Bun.spawn(s.argv, { cwd: s.cwd, env: s.env, terminal: {
+      cols: s.cols, rows: s.rows, name: "xterm-256color", data: (_t, d) => onData(d), exit: () => drained(),
+    } });
+    const pty = proc.terminal!;
     return {
       get pid() { return proc.pid; },
-      exited: proc.exited.then(code => code ?? 0),
+      // waitpid can beat the last PTY read; recording or closing on it loses the command's output.
+      exited: Promise.all([proc.exited, eof]).then(([code]) => code ?? 0),
       write: d => { pty.write(d); },
       resize: (c, r) => { pty.resize(c, r); },
       kill: sig => { proc.kill(sig); },
-      close: () => { try { pty.close(); } catch { /* closed */ } },
+      close: () => { try { pty.close(); } catch { /* closed */ } finally { drained(); } },
     };
   },
   adopt: () => null,

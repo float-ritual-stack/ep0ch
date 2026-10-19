@@ -1,3 +1,4 @@
+import type { RunbookStep, RunbookField } from "@ep0ch/outline-core/runbook";
 // Runbooks as an extension (PIE-732). A note with [type::runbook] is the runbook; each step is a block with a
 // `run::` line and a command in its first code fence:
 //
@@ -30,8 +31,9 @@ interface Context { block: Block; line?: { index: number; text: string }; childr
 type Config = { timeoutSeconds?: number };
 type Asker = { author: string; actorId?: string };
 type Request =
+  | { operation: "decorate"; input: { context: Context } }
   | { operation: "run"; input: { options: Record<string, string>; context: Context } }
-  | { operation: "act"; input: { action: "run-step" | "run-all"; args?: Record<string, string>; target?: { blockId: string; line?: number }; context: Context; requestedBy?: Asker }; config: Config };
+  | { operation: "act"; input: { action: "run-step" | "run-all" | "record" | "host-step"; args?: Record<string, string>; target?: { blockId: string; line?: number }; context: Context; requestedBy?: Asker }; config: Config };
 
 const say = (value: unknown) => process.stdout.write(JSON.stringify({ ok: true, value }));
 const fail = (message: string) => say({ message });
@@ -60,14 +62,14 @@ function commandOf(text: string): string | null {
   const end = lines.findIndex((line, index) => index > start && line.trim().startsWith(mark));
   return lines.slice(start + 1, end < 0 ? undefined : end).join("\n").trim() || null;
 }
-interface RunLine { mode: "dry" | "apply"; secrets: string[]; confirm?: string }
+interface RunLine { mode: "terminal" | "host" | "dry" | "apply"; secrets: string[]; confirm?: string; on?: string; keep: boolean; close: boolean }
 const RUN_LINE = /^\s*(?:[-*]\s+)?run::/;
 function runLine(text: string): RunLine | null {
   const line = outsideFences(text).find((candidate) => RUN_LINE.test(candidate));
   if (line === undefined) return null;
   const options = new Map<string, string>();
   for (const [, key, value] of line.replace(RUN_LINE, "").matchAll(/--([a-z]+)=(\S+)/g)) options.set(key!, value!);
-  return { mode: options.get("mode") === "apply" ? "apply" : "dry", secrets: (options.get("secrets") ?? "").split(",").filter(Boolean), ...(options.get("confirm") ? { confirm: options.get("confirm")! } : {}) };
+  return { mode: (options.get("mode") ?? "terminal") as RunLine["mode"], on: options.get("on") ?? /--on\s+(\S+)/.exec(line)?.[1], keep: /--keep(?:\s|$)/.test(line), close: options.get("close") === "on-success", secrets: (options.get("secrets") ?? "").split(",").filter(Boolean), ...(options.get("confirm") ? { confirm: options.get("confirm")! } : {}) };
 }
 const titleOf = (text: string) => outsideFences(text).find((line) => line.trim() && !RUN_LINE.test(line))?.replace(/^\s*(?:[-*]\s+(?:\[[ x]\]\s+)?)/, "").replace(/\[[\w.-]+::[^\]]*\]/g, "").trim() || "step";
 /** Every value a block has for a property, from the service's parse (never a scan of its text). */
@@ -97,13 +99,47 @@ async function fillCommand(template: string, step: Block, root: { id: string } |
   return { command: answer.interpolated?.text ?? template, missing, ...(why ? { unsafe: why } : {}) };
 }
 
+async function terminalStep(step: Block, context: Context, args: Record<string, string>): Promise<RunbookStep> {
+  const line = runLine(step.text);
+  if (!line) throw new Error("this block has no run:: line");
+  const template = commandOf(step.text);
+  if (!template) throw new Error("put the command in a code fence under run::");
+  const root = runbookOf(step, context.ancestors);
+  const fields: RunbookField[] = [];
+  const commandTemplate = template.replace(/\{\{(ask|secret)\.([A-Za-z_][A-Za-z0-9_]*)\}\}/g, (_, kind: string, name: string) => {
+    const previous = fields.find(f => f.name === name);
+    if (previous && previous.secret !== (kind === "secret")) throw new Error(`use different names for ask.${name} and secret.${name}`);
+    if (!previous) fields.push({ name, secret: kind === "secret" });
+    return '"${RUNBOOK_' + kind.toUpperCase() + '_' + name + '}"';
+  });
+  const filled = await fillCommand(commandTemplate, step, root, args);
+  if (filled.missing.length || filled.unsafe) throw new Error(filled.unsafe ?? filled.missing.join("; "));
+  const book = root ? await outline<Block>({ action: "get", blockId: root.id }) : step;
+  for (const field of fields) {
+    const choices = valuesOf(step, "choices").find(v => v.startsWith(field.name + " "));
+    if (choices) field.choices = choices.slice(field.name.length + 1).split(",").map(v => v.trim());
+    field.file = valuesOf(step, "form-field").some(v => v.startsWith(field.name + " file"));
+    if (!field.secret) field.value = valuesOf(book, field.name)[0];
+  }
+  return { block: step.id, ...(root ? { root: root.id } : {}), title: titleOf(step.text), mode: line.mode === "terminal" ? "terminal" : "host",
+    command: filled.command, fields, secrets: line.secrets, confirm: line.mode === "apply" ? line.confirm ?? "apply" : line.confirm, on: line.on, keep: line.keep, close: line.close };
+}
+
+async function recordStep(step: Block, args: Record<string, string>, by: string) {
+  const outcome: Outcome = { status: args.status as Outcome["status"], by, at: new Date().toISOString(), excerpt: args.status === "waiting" ? args.output ?? "" : tail(args.output ?? ""),
+    ...(args.exit !== undefined ? { exit: Number(args.exit) } : {}), why: args.why };
+  await outline({ action: "outputs.place", blockId: step.id, producer: { id: step.id, name: titleOf(step.text) }, content: recordText(titleOf(step.text), outcome), here: "end" });
+  await mark(step.id, outcome.status);
+  return outcome;
+}
+
 // ── The record of a run ──────────────────────────────────────────────────
 
-interface Outcome { status: "ok" | "failed" | "refused"; exit?: number; by: string; at: string; ms?: number; excerpt: string; why?: string }
+interface Outcome { status: "ok" | "failed" | "refused" | "waiting"; exit?: number; by: string; at: string; ms?: number; excerpt: string; why?: string }
 const tail = (output: string) => { const kept = output.trimEnd().split("\n").slice(-15).join("\n"); return kept.length > 1200 ? `…${kept.slice(-1200)}` : kept; };
 const inertFence = (text: string) => text.replaceAll("```", "'''");
 function recordText(title: string, outcome: Outcome): string {
-  const head = outcome.status === "ok" ? `Ran ${title}: ok, exit 0` : outcome.status === "failed" ? `Ran ${title}: FAILED, exit ${outcome.exit}` : `Did not run ${title}: ${(outcome.why ?? "").replace(/\n/g, " ")}`;
+  const head = outcome.status === "ok" ? `Ran ${title}: ok, exit 0` : outcome.status === "failed" ? `Ran ${title}: FAILED, exit ${outcome.exit}` : outcome.status === "waiting" ? `Waiting to run ${title}` : `Did not run ${title}: ${(outcome.why ?? "").replace(/\n/g, " ")}`;
   const props = [`run.status::${outcome.status}`, ...(outcome.exit !== undefined ? [`run.exit::${outcome.exit}`] : []), `run.at::${outcome.at}`, `run.by::${outcome.by}`, ...(outcome.ms !== undefined ? [`run.ms::${outcome.ms}`] : [])];
   return `${head} ${props.map((prop) => `[${prop}]`).join(" ")}${outcome.excerpt ? `\n\`\`\`text\n${inertFence(outcome.excerpt)}\n\`\`\`` : ""}`;
 }
@@ -117,6 +153,13 @@ async function mark(stepId: string, status: string) {
   const [first = "", ...rest] = current.text.split("\n");
   const next = `${first.replace(/\s*\[run\.last::\w+\]/g, "")} [run.last::${status}]`;
   if (next !== first) await outline({ action: "update", blockId: stepId, expectedRevision: current.revision, text: [next, ...rest].join("\n") });
+}
+
+function confirmationWhy(line: RunLine, args: Record<string, string>, by: string, command: string): string | null {
+  if (line.mode !== "apply" && !line.confirm) return null;
+  if (line.mode === "apply" && by !== "person") return `apply steps are the person's to run${by === "unknown" ? " (who asked isn't known)" : ` (${by} asked)`}. The command: ${command}`;
+  const word = line.confirm ?? "apply";
+  return args.confirm === word ? null : `an apply step needs its confirmation: run it again with confirm=${word}. The command: ${command}`;
 }
 
 interface StepResult { title: string; outcome: Outcome }
@@ -144,11 +187,8 @@ async function runStep(step: Block, context: Context, args: Record<string, strin
   if (missing.length) return refuse(`${missing.join("; ")}. Write [name::value] on the runbook note and use {{self.name}}, or pass the value (act ext.runbook.run-step … with='{"name":"value"}') and use {{props.name}}`);
   if (unsafe) return refuse(unsafe);
 
-  if (line.mode === "apply") {
-    if (by !== "person") return refuse(`apply steps are the person's to run${by === "unknown" ? " (who asked isn't known)" : ` (${by} asked)`}. The command: ${command}`);
-    const word = line.confirm ?? "apply";
-    if (args.confirm !== word) return refuse(`an apply step needs its confirmation: run it again with confirm=${word}. The command: ${command}`);
-  }
+  const denied = confirmationWhy(line, args, by, command);
+  if (denied) return refuse(denied);
   // A started record first, so a run that is cut off still shows it began.
   const started = await place(`Running ${title} [run.status::running] [run.at::${at}]`);
   const settle = async (outcome: Outcome): Promise<StepResult> => {
@@ -173,47 +213,61 @@ async function runStep(step: Block, context: Context, args: Record<string, strin
       return settle({ status: "refused", by, at, excerpt: "", why: (error as Error).message });
     }
   }
-  const timeout = String((config.timeoutSeconds ?? 120) * 1000);
   const began = Date.now();
+  const result = await runCommand(command, env, config);
+  return settle({ status: result.exit === 0 ? "ok" : "failed", exit: result.exit, by, at, ms: Date.now() - began, excerpt: tail(result.output) });
+}
+
+async function runCommand(command: string, env: Record<string, string>, config: Config): Promise<{ exit: number; output: string }> {
+  const timeout = String((config.timeoutSeconds ?? 120) * 1000);
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "wrap.ts"), timeout, command], { env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  const ms = Date.now() - began;
-  let result: { exit: number; output: string };
-  try { result = JSON.parse(stdout); } catch { result = { exit: code || 1, output: stderr.trim() || "(the runner gave no output)" }; }
-  return settle({ status: result.exit === 0 ? "ok" : "failed", exit: result.exit, by, at, ms, excerpt: tail(result.output) });
+  try { return JSON.parse(stdout); } catch { return { exit: code || 1, output: stderr.trim() || "(the runner gave no output)" }; }
 }
 
 // ── The two operations ───────────────────────────────────────────────────
 
 const request = (await Bun.stdin.json()) as Request;
 try {
-if (request.operation === "run") {
+if (request.operation === "decorate") {
+  say({ view: { type: "button", label: "run all", act: `ext.runbook.run-all block=${request.input.context.block.id}` } });
+} else if (request.operation === "run") {
   const { context } = request.input;
   const line = runLine(context.block.text);
   const template = commandOf(context.block.text);
   const root = runbookOf(context.block, context.ancestors);
   const status = valuesOf(context.block, "run.last")[0];
   const ok = status === "ok";
-  const filled = template ? await fillCommand(template, context.block, root, {}) : null;
   say({
     title: titleOf(context.block.text),
-    data: { mode: line?.mode ?? "dry", secrets: line?.secrets ?? [], status: status ?? "not-run" },
-    view: {
-      type: "card", title: titleOf(context.block.text),
-      subtitle: `${line?.mode ?? "dry"} step${line?.secrets.length ? ` · secrets from ${line.secrets.join(", ")} (by name)` : ""}`,
-      badge: { label: status ?? "not run", tone: ok ? "good" : status ? "bad" : "dim" },
-      children: [
-        { type: "text", text: !template ? "No command: put one in a code fence." : filled!.missing.length ? `${filled!.command}\nStill needs: ${filled!.missing.join("; ")}` : filled!.unsafe ? `${filled!.command}\nWill not run: ${filled!.unsafe}` : filled!.command },
-        { type: "checklist", items: [{ label: ok ? "ran ok" : "run it", done: ok }] },
-      ],
-    },
+    data: { mode: line?.mode ?? "terminal", secrets: line?.secrets ?? [], status: status ?? "not-run" },
+    placement: "replace",
+    view: { type: "row", minWidth: 4, children: [
+      { type: "text", text: "run::" },
+      { type: "button", label: "run", act: `ext.runbook.run-step block=${context.block.id}` },
+      { type: "badge", label: status ?? "not run", tone: ok ? "good" : status ? "bad" : "dim" },
+    ] },
   });
 } else {
   const { input, config } = request;
-  if (input.action === "run-step") {
+  if (input.action === "record") {
+    await recordStep(input.context.block, input.args ?? {}, askedBy(input.requestedBy));
+    fail("recorded the terminal run");
+  } else if (input.action === "run-step" || input.action === "host-step") {
     const step = input.target?.blockId && input.target.blockId !== input.context.block.id ? await outline<Block>({ action: "get", blockId: input.target.blockId }) : input.context.block;
+    if (input.action === "host-step") {
+      const plan = await terminalStep(step, input.context, input.args ?? {});
+      const denied = confirmationWhy(runLine(step.text)!, input.args ?? {}, askedBy(input.requestedBy), plan.command);
+      if (denied) throw new Error(denied);
+      const env = { ...process.env, ...JSON.parse(input.args?.environment ?? "{}") };
+      for (const group of plan.secrets) Object.assign(env, (await outline<{ values: Record<string, string> }>({ action: "secrets.group", group })).values);
+      say({ runbookResult: await runCommand(plan.command, env, config) });
+    } else if (runLine(step.text)?.mode === "terminal" || runLine(step.text)?.mode === "host") {
+      say({ runbook: { steps: [await terminalStep(step, input.context, input.args ?? {})] } });
+    } else {
     const result = await runStep(step, input.context, input.args ?? {}, config, askedBy(input.requestedBy));
     fail(`${result.title}: ${result.outcome.status}${result.outcome.exit !== undefined ? ` (exit ${result.outcome.exit})` : ""}${result.outcome.why ? `: ${result.outcome.why}` : ""}`);
+    }
   } else {
     const root = input.context.block;
     if (!valuesOf(root, "type").includes("runbook")) fail("this note is not a runbook: write [type::runbook] on it");
@@ -223,6 +277,9 @@ if (request.operation === "run") {
         for (const child of await outline<Block[]>({ action: "children", parentId })) { if (runLine(child.text)) steps.push({ block: child, ancestors }); await walk(child.id, [...ancestors, { id: child.id, title: "", ...(child.properties ? { properties: child.properties } : {}) }]); }
       };
       await walk(root.id, [...input.context.ancestors, { id: root.id, title: "", ...(root.properties ? { properties: root.properties } : {}) }]);
+      if (steps.some(({ block }) => (runLine(block.text)?.mode === "terminal" || runLine(block.text)?.mode === "host"))) {
+        say({ runbook: { steps: await Promise.all(steps.map(({ block, ancestors }) => terminalStep(block, { ...input.context, ancestors }, input.args ?? {}))) } });
+      } else {
       const done: string[] = [];
       let stopped = "";
       const began = Date.now(), budget = 280_000;   // the call's deadline is 5 m: settle before it, never leave a record "running"
@@ -235,6 +292,7 @@ if (request.operation === "run") {
       const summary = stopped || `all ${steps.length} steps ran ok`;
       if (steps.length) await outline({ action: "create", parentId: root.id, text: `Run of this runbook: ${summary.replace(/\n/g, " ")} [machine::runbook] [run.status::${stopped ? "failed" : "ok"}] [run.at::${new Date().toISOString()}]\n${done.map((item) => `- ${item}`).join("\n")}` });
       fail(steps.length ? summary : "no steps: a step is a block with a run:: line");
+      }
     }
   }
 }
