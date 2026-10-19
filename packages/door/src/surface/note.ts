@@ -22,7 +22,7 @@ import { elementEdit, type ElementOperation } from "./element-editor";
 import { savedReferenceWarning } from "../reference-warnings";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
-import { listFieldsTuned, listTarget, lookFor, pageOf as lookPage, type Look } from "../look";
+import { componentRowFields, listFieldsTuned, listTarget, lookFor, pageOf as lookPage, type Look } from "../look";
 import { fencedLines, LIST_ITEM, listLayers, listOwners, listStart, type StyleLayer } from "@ep0ch/outline-core/style-cascade";
 import { onlyScrolled, overscrollRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
@@ -108,7 +108,7 @@ import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
-import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLine, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
+import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLines, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
 import { ListPicker } from "./picker";
@@ -605,7 +605,7 @@ export { leaveSaid, propertyChange, type LeaveResult };
 interface Choice { id: string; label: string; key: string }
 interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
-type ReplyLinksMode = ReaderMode<SurfaceHost> & { dragFrom?: { block: Msg; y: number }; truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[] };
+type ReplyLinksMode = ReaderMode<SurfaceHost> & { dragFrom?: { block: Msg; y: number }; truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[]; drawnItems: number[] };
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; reply?: Msg; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
 /** Moving and sizing the floating composer by keys (ctrl+g, PIE-785): arrows or h j k l move it, shift with them sizes it. */
@@ -692,13 +692,19 @@ export class NoteSurface {
    * save goes (its lead-in line, else its section's heading: `list:<note>:<line>`, null when it has neither), its own
    * layers (with the tuning over them), and its first item's line. Null outside a list.
    */
-  listAt(): { target: string | null; layers: StyleLayer[]; first: number; revision?: number } | null {
+  listAt(): { target: string | null; layers: StyleLayer[]; first: number; revision?: number; component?: boolean } | null {
     const d = this.drawn, m = this.msg;
     if (!d || !m) return null;
     const cur = this.elems.find(e => e.key === this.cur);
     const at = d.doc.source[cur ? cur.row - d.top : this.readingRows()?.[0] ?? this.scroll];
     if (at === undefined) return null;
     const { text, lines } = this.foldsIn(m), body = text.split("\n");
+    const component = componentBlocks(body).find(c => at >= c.start && at <= c.end && (c.name.startsWith("graph-") || ["links", "outlinks", "backlinks", "resources"].includes(c.name)));
+    if (component) {
+      const line = lines[component.start] ?? component.start;
+      const fields = listFieldsTuned(this.src, m.id, line, componentRowFields(component.attrs ?? ""));
+      return { component: true, target: listTarget(m.id, line), first: line, revision: m.revision, layers: [{ level: "block", label: "this list", block: m.id, line, fields }] };
+    }
     // In a list; else on what owns one (its section's heading, or its lead-in line): the list below it.
     let first = listStart(body, at);
     const code = fencedLines(body);
@@ -1168,12 +1174,16 @@ export class NoteSurface {
       if (mode.truncated && mode.group === "children" && data[0]?.kind === "group") data[0].note = "first 1000 replies";
       mode.rowsAt = data;
       mode.selected = Math.min(mode.selected, Math.max(0, data.length - 1));
-      // The view moves only to keep the selection in it, so the row a click selected stays under the pointer for a second click.
-      mode.top = Math.max(0, Math.min(mode.top, data.length - (rows - 1)));
-      if (mode.selected < mode.top) mode.top = mode.selected;
-      else if (mode.selected > mode.top + rows - 2) mode.top = mode.selected - (rows - 2);
-      const top = mode.top;
-      return { lines: [pad(`THREAD · T full list · b links · Esc close${mode.truncated ? " · cut short" : ""}`, cols), ...data.slice(top, top + rows - 1).map((r, i) => linkRowLine(r, { cols, selected: i + top === mode.selected, focused: true }))] };
+      const drawn = data.map((r, i) => linkRowLines(r, { cols, selected: i === mode.selected, focused: true, lines: this.lastLook?.values["rows.lines"] }));
+      const flat = drawn.flatMap((lines, i) => lines.map(text => ({ text, i })));
+      const first = drawn.slice(0, mode.selected).reduce((n, lines) => n + lines.length, 0);
+      const last = first + (drawn[mode.selected]?.length ?? 1);
+      mode.top = Math.max(0, Math.min(mode.top, flat.length - (rows - 1)));
+      if (first < mode.top) mode.top = first;
+      else if (last > mode.top + rows - 1) mode.top = Math.min(first, last - rows + 1);
+      const shown = flat.slice(mode.top, mode.top + rows - 1);
+      mode.drawnItems = shown.map(r => r.i);
+      return { lines: [pad(`THREAD · T full list · b links · Esc close${mode.truncated ? " · cut short" : ""}`, cols), ...shown.map(r => r.text)] };
     });
     // The Sources inspector (PIE-956 S6b): beside the note when the reader is wide, under it when not.
     const sm = this.sourcesMode;
@@ -2759,7 +2769,7 @@ export class NoteSurface {
     y += this.drawn?.heroRows ?? 0;
     const r = mode.rect;
     if (x < r.x || x >= r.x + r.w || y <= r.y || y >= r.y + r.h) return;
-    return mode.rowsAt[y - r.y - 1 + mode.top];
+    return mode.rowsAt[mode.drawnItems[y - r.y - 1] ?? -1];
   }
 
   closeReplyLinks() { this.modes.drop("replies"); }
@@ -2788,7 +2798,7 @@ export class NoteSurface {
     const mode: ReplyLinksMode = {
       name: "replies", of: m, word: "replies", holdsKeys: true, editing: () => false, covers: () => false,
       data, thread, unfolded: new Set(), presses: new RowPresses(), picked: false, top: 0, truncated: replies.truncated || thread.truncated,
-      selected: Math.max(0, threadRows(thread).findIndex(r => r.kind === "child" && r.thread?.here)), group: "thread", rect: { x: 0, y: 0, w: 0, h: 0 }, rowsAt: [],
+      selected: Math.max(0, threadRows(thread).findIndex(r => r.kind === "child" && r.thread?.here)), group: "thread", rect: { x: 0, y: 0, w: 0, h: 0 }, rowsAt: [], drawnItems: [],
       key: k => {
         const c = ch(k);
         const step = k.kind === "alt-up" || c === "K" ? "up" : k.kind === "alt-down" || c === "J" ? "down" : c === "I" ? "in" : c === "O" ? "out" : undefined;
@@ -2813,7 +2823,7 @@ export class NoteSurface {
         const r = mode.rect;
         if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
         if (y === r.y) { run(x < r.x + 22 ? "note.thread.full" : x < r.x + 32 ? "note.thread.groups" : "note.thread.close"); return true; }
-        const i = y - r.y - 1 + mode.top;
+        const i = mode.drawnItems[y - r.y - 1] ?? -1;
         if (i < 0 || i >= mode.rowsAt.length) return true;
         // One rule for every list's rows (RowPresses): a click selects (the one that gave the reader the keys only does that),
         // a double click opens, and an alt-click uses the alt wire.
@@ -10061,7 +10071,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "figure.density": def({
-    summary: "draw a live table or tabs figure's rows compact (one line a title, cut with …), cozy (titles up to two lines, cut with …) or comfortable (the whole title, however many lines, a blank line between rows): to= sets it, else the next one round; a wrapped title hangs under its text, past a work id. figure= as figure.tab. Reading state: the figure's density: line is only where it starts, and the note never changes",
+    summary: "draw a live table or tabs figure's rows compact (one line a title, cut with …), cozy (titles up to two lines, cut with …) or comfortable (up to three lines, a blank line between rows): to= sets it, else the next one round; a wrapped title hangs under its text, past a work id. figure= as figure.tab. Reading state: the figure's density: line is only where it starts, and the note never changes",
     keys: "= while a figure's tab or row is the [ ] position, ⏎ on its ≡ control, click it",
     touches: "tile", while: "typing", replay: "safe", way: "an agent changes the density in a reader the person isn't typing in",
     args: {

@@ -11,7 +11,7 @@
 //   ::
 import { exampleRow } from "@ep0ch/outline-core/figure-props";
 import { fg, pad, RESET, width as vwidth } from "../style";
-import { wrap } from "../text";
+import { rowLines } from "../text";
 import { ACCENT, DIM, HI, INK, records, rowLink, type Props, type RowLink } from "./palette";
 
 /** One example: the command, what it does, whether an agent may run it as it is. */
@@ -31,13 +31,13 @@ export function drawExample(p: Props, w: number, link?: RowLink): string[] {
     if (n) out.push("");
     const mark = r.safe ? SAFE : "";
     const room = Math.max(8, w - vwidth(prompt) - (mark ? vwidth(mark) + 2 : 0));
-    const lines = wrap(String(r.act ?? ""), room, { code: true });
+    const lines = rowLines(rowLink(link, r.block, String(r.act ?? "")), room);
     lines.forEach((l, i) => {
       const lead = i ? " ".repeat(vwidth(prompt)) : fg(DIM) + prompt;
-      const text = fg(HI) + (i ? l : rowLink(link, r.block, l));
+      const text = fg(HI) + l;
       out.push(lead + text + RESET + (i === 0 && mark ? " ".repeat(Math.max(2, room - vwidth(l) + 2)) + fg(ACCENT) + mark + RESET : ""));
     });
-    if (r.does) wrap(String(r.does), Math.max(8, w - 4)).forEach((l, i) => out.push((i ? "    " : "  " + fg(DIM) + "→ ") + fg(INK) + l + RESET));
+    if (r.does) rowLines(String(r.does), Math.max(8, w - 4)).forEach((l, i) => out.push((i ? "    " : "  " + fg(DIM) + "→ ") + fg(INK) + l + RESET));
   });
   return out.map(l => (vwidth(l) > w ? pad(l, w) : l));
 }

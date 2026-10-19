@@ -1,3 +1,5 @@
+import { Canvas } from "../src/canvas";
+import { visible } from "../src/style";
 // PIE-815/917: a note's whole title reads in its reader's header, wrapped, never cut; the border identifies the tile,
 // and says the title whole in the status line when the person's keys come to the tile. Scratch outline, made-up titles.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -114,4 +116,12 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     }
     D().dispose(); app.quit();
   }, 30_000);
+});
+
+test("a frame title stays in its one-line band and marks the omitted words", () => {
+  const canvas = new Canvas(30, 6);
+  canvas.box({ col: 0, row: 0, cols: 30, rows: 6 }, "", "Carry the tables across the garden before dusk");
+  const rows = canvas.lines().map(visible);
+  expect(rows[0]).toContain("…");
+  expect(rows[1]).not.toContain("garden");
 });

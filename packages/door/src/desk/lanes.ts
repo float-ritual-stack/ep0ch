@@ -25,7 +25,7 @@ import { pickInto, type Picked } from "../pick";
 import { completerFor, completerOf } from "../surface/completer";
 import { copyOnSelect } from "../surface/selection";
 import { Modes } from "../surface/modes";
-import { ListPicker, pickRow } from "../surface/picker";
+import { ListPicker, pickRows, pickRow } from "../surface/picker";
 import { changedSinceRead, Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
 import { pickParent, titleOf, type ParentPick } from "./writes";
 import { trashAtRevision } from "../note-trash";
@@ -545,7 +545,7 @@ export class Lanes implements SourceModel {
   private hubList(items: { hub: Msg; lanes: number }[]): HubPicker {
     return new ListPicker({
       name: "hubs", items: () => items, closers: "q", stays: true,             // useHub puts it away once the board is shown
-      row: (it, _i, on, w) => [pickRow(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, on, w)],
+      row: (it, _i, on, w) => [...pickRows(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, on, w)],
       choose: it => void this.run("board.hub", { id: it.hub.id }),
       // q with no board shown yet leaves the screen, as q does everywhere; esc or a click away only puts the picker away.
       closed: (_h, how) => void this.run("board.hub", { close: true, ...(how === "letter" && !this.hub ? { leave: true } : {}) }),
@@ -741,7 +741,7 @@ export class Lanes implements SourceModel {
           : p.kind === "patch" ? fg(C.lgreen) + "-> " + describeChanges(p.changes)
           : p.kind === "already" ? fg(C.dark) + "already matches · nothing to change"
           : fg(C.lred) + "can't: " + p.reason;
-        return [pickRow(` ${on ? ">" : " "} ${l.name}  ${fg(C.dark)}${l.read?.status === "ready" ? prop(l.def, "query") ?? "" : l.read?.status ?? "loading"}`, on, w, C.white), pad(`     ${what}`, w) + RESET];
+        return [...pickRows(` ${on ? ">" : " "} ${l.name}  ${fg(C.dark)}${l.read?.status === "ready" ? prop(l.def, "query") ?? "" : l.read?.status ?? "loading"}`, on, w, C.white), pad(`     ${what}`, w) + RESET];
       },
       choose: (_, i) => {
         if (this.card()?.id !== card.id || this.lane !== from) return this.host.ctx.flash("the selection changed · not moved");
@@ -1075,7 +1075,7 @@ export class Lanes implements SourceModel {
     };
     const S: Steps = Object.assign(new ListPicker<ChecklistStep, Lanes>({
       name: "steps", items: () => S.read?.items ?? [], closers: "qs", stays: true,
-      row: (it, _i, on, w) => [pickRow(` ${"  ".repeat(it.depth)}${STEP_BOXES[it.status]} ${stepText(it.text)}`, on, w, COLOR[it.status])],
+      row: (it, _i, on, w) => [...pickRows(` ${"  ".repeat(it.depth)}${STEP_BOXES[it.status]} ${stepText(it.text)}`, on, w, COLOR[it.status])],
       choose: () => set(),
       keys: k => { const c = ch(k), to = ({ " ": undefined, x: "done", w: "waiting", "!": "problem", "+": "approved", "-": "rejected" } as Record<string, StepStatus | undefined>)[c]; if (!(c in { " ": 1, x: 1, w: 1, "!": 1, "+": 1, "-": 1 })) return false; set(to); return true; },
       frame: (a, n) => {

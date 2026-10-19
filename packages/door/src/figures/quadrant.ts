@@ -15,7 +15,7 @@
 // `xs:` and `ys:` give the axes' order (first y at the top); values not listed follow in the order seen. Narrow, a
 // cell shows a dot per point and the labels move to a legend beneath.
 import { BOLD, ellipsize, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
-import { wrap } from "../text";
+import { rowLines, wrap } from "../text";
 import { ACCENT, DIM, HI, INK, ordered, records, rowLink, tier, type Props, type RowLink } from "./palette";
 
 export interface Point { x: string; y: string; label: string; accent?: boolean; muted?: boolean; block?: string }
@@ -40,20 +40,16 @@ export function drawQuadrant(p: Props, w: number, link?: RowLink): string[] {
   const ink = (q: Point) => (q.accent ? fg(ACCENT) + BOLD : q.muted ? fg(DIM) : fg(INK));
   for (const y of ys) {
     const cells = xs.map(x => points.filter(q => q.x === x && q.y === y));
-    const lines = narrow ? 1 : Math.max(1, ...cells.map(c => Math.min(3, c.length)));
-    for (let r = 0; r < lines; r++) {
-      let line = (r ? " ".repeat(yw) : fg(HI) + pad(ellipsize(y, yw), yw)) + fg(DIM) + (r ? "  " : " │") + RESET;
-      for (const c of cells) {
-        let cell: string;
-        if (narrow) {
-          cell = c.map(q => { legend.push({ n: legend.length + 1, point: q }); return ink(q) + rowLink(link, q.block, "●") + UNBOLD + RESET; }).join("");
-          cell = c.length > cw - 1 ? fg(INK) + ellipsize(`●${c.length}`, cw) + RESET : cell;
-        } else if (r === 2 && c.length > 3) { cell = fg(DIM) + ellipsize(`+${c.length - 2} more`, cw - 1) + RESET; for (const q of c.slice(2)) legend.push({ n: legend.length + 1, point: q }); }
-        else { const q = c[r]; cell = q ? ink(q) + rowLink(link, q.block, ellipsize(`·${q.label}`, cw - 1)) + UNBOLD + RESET : ""; }
-        line += pad(cell, cw);
-      }
-      out.push(line);
-    }
+    const drawn = cells.map(c => {
+      if (narrow) return [c.map(q => { legend.push({ n: legend.length + 1, point: q }); return ink(q) + rowLink(link, q.block, "●") + UNBOLD + RESET; }).join("")];
+      const shown = c.length > 3 ? c.slice(0, 2) : c;
+      const rows = shown.flatMap(q => rowLines(rowLink(link, q.block, `·${q.label}`), cw - 1, undefined, { hang: 1 }).map(line => ink(q) + line + UNBOLD + RESET));
+      if (c.length > 3) { rows.push(fg(DIM) + rowLines(`+${c.length - 2} more`, cw - 1, 0)[0]! + RESET); for (const q of c.slice(2)) legend.push({ n: legend.length + 1, point: q }); }
+      return rows;
+    });
+    const labels = rowLines(y, yw);
+    const lines = Math.max(1, labels.length, ...drawn.map(c => c.length));
+    for (let r = 0; r < lines; r++) out.push(fg(HI) + pad(labels[r] ?? "", yw) + fg(DIM) + (r ? "  " : " │") + drawn.map(c => pad(c[r] ?? "", cw)).join("") + RESET);
   }
   out.push(" ".repeat(yw) + fg(DIM) + " └" + "─".repeat(plotW) + RESET);
   out.push(" ".repeat(yw + 2) + xs.map(x => fg(HI) + pad(ellipsize(x, cw - 1), cw)).join("") + RESET);
@@ -61,7 +57,7 @@ export function drawQuadrant(p: Props, w: number, link?: RowLink): string[] {
   if (dropped) out.push(fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET);
   if (legend.length) {
     out.push("");
-    for (const { point: q } of legend) { const where = ellipsize(` (${q.x}, ${q.y})`, w >> 1); out.push(ink(q) + rowLink(link, q.block, ellipsize(q.label, Math.max(4, w - vwidth(where)))) + UNBOLD + fg(DIM) + where + RESET); }
+    for (const { point: q } of legend) { const text = rowLink(link, q.block, q.label + ` (${q.x}, ${q.y})`); out.push(...rowLines(text, w).map(line => ink(q) + line + UNBOLD + RESET)); }
   }
   return out;
 }

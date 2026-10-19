@@ -21,7 +21,7 @@ import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { NOTE_ACTIONS, NoteSurface, navNote, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost, type TagList } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ago, wrap } from "../text";
+import { rowLines, ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
 import { newNoteOffer, type KeySpot } from "../new-note";
@@ -681,6 +681,7 @@ export class Entered {
 export class ActivityPane implements Pane {
   readonly kind = "activity";
   private rows: Activity[] | null = null;
+  private drawnItems: number[] = [];
   private sel = 0;
   private view = new RowView();
   private timer: Timer | null = null;
@@ -695,16 +696,15 @@ export class ActivityPane implements Pane {
   onEvent(desk: DeskApi) { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(desk), 1500); }
   render(w: number, h: number, focused: boolean): PaneView {
     if (!this.rows) return { lines: [dim("listening…")] };
-    this.view.place(this.sel, this.rows.length, h);
-    return {
-      lines: this.rows.slice(this.view.top, this.view.top + h).map((r, i) => {
-        const aw = Math.max(6, Math.min(16, Math.floor(w / 4), Math.max(...this.rows!.map(x => authorName(x.actor).length))));
-        const when = ago(r.at).padStart(4), actor = pad(authorName(r.actor), aw), subj = subject(r.block);
-        if (this.view.top + i === this.sel) return selectedRow(`${when} ${actor} ${subj}`, w, focused);
-        const who = r.author === "agent" ? C.lmagenta : r.author === "user" ? C.yellow : C.cyan;
-        return fg(C.dark) + when + " " + fg(who) + actor + " " + fg(C.grey) + pad(subj, Math.max(1, w - aw - 6)) + RESET;
-      }),
-    };
+    const drawn = this.rows.flatMap((r, i) => {
+      const text = `${ago(r.at).padStart(4)} ${authorName(r.actor)} ${subject(r.block)}`;
+      return rowLines(text, w, undefined, { hang: 5 }).map(text => ({ text: i === this.sel ? selectedRow(text, w, focused) : fg(C.grey) + text + RESET, i }));
+    });
+    const first = drawn.findIndex(r => r.i === this.sel), last = drawn.findLastIndex(r => r.i === this.sel);
+    this.view.place(this.sel, drawn.length, h, [first, last]);
+    const shown = drawn.slice(this.view.top, this.view.top + h);
+    this.drawnItems = shown.map(r => r.i);
+    return { lines: shown.map(r => r.text) };
   }
   key(k: Key, desk: DeskApi): boolean {
     const n = this.rows?.length ?? 0, on = { pane: this, desk };
@@ -714,7 +714,7 @@ export class ActivityPane implements Pane {
     if (ch(k) === "r") { runOwn(ACTIVITY_ACTIONS, "activity.reload", {}, on); return true; }
     return false;
   }
-  click(_x: number, y: number, desk: DeskApi) { const i = this.view.top + y; if (i < (this.rows?.length ?? 0) && i !== this.sel) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
+  click(_x: number, y: number, desk: DeskApi) { const i = this.drawnItems[y] ?? -1; if (i >= 0 && i < (this.rows?.length ?? 0) && i !== this.sel) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
   headControls(_w: number, desk: DeskApi) { return [{ text: "r reload", sgr: fg(C.grey), press: () => runOwn(ACTIVITY_ACTIONS, "activity.reload", {}, { pane: this, desk }) }]; }
   wheel(dir: 1 | -1, desk: DeskApi) { const i = this.sel + dir; if (i >= 0 && i < (this.rows?.length ?? 0)) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
 }
@@ -745,10 +745,10 @@ export class WhoPane implements Pane {
   render(w: number, _h: number, _f: boolean, desk: DeskApi): PaneView {
     if (!this.callers) return { lines: [dim("polling nodes…")] };
     return {
-      lines: [...this.callers.map((c, i) => {
+      lines: [...this.callers.flatMap((c, i) => {
         const you = c.id === desk.ctx.board.clientId;
         const act = c.target ? this.names.get(c.target) ?? (this.asking.has(c.target) ? "…" : c.activity || c.target.slice(0, 8)) : c.activity;
-        return `${fg(C.lcyan)}${String(i + 1).padStart(2)} ${fg(you ? C.yellow : C.white)}${pad(you ? "you" : c.name, 9)}${fg(C.grey)}${pad(act, w - 12)}${RESET}`;
+        return rowLines(`${fg(C.lcyan)}${String(i + 1).padStart(2)} ${fg(you ? C.yellow : C.white)}${you ? "you" : c.name}  ${fg(C.grey)}${act}${RESET}`, w, undefined, { hang: 3 });
       }), ...(desk.ctx.agentPointers?.list() ?? []).map(p => dim(`@${p.agent} · ${p.screen} / ${p.name}${p.line ? ` · line ${p.line}` : ""}`))],
     };
   }

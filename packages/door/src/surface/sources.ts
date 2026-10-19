@@ -7,7 +7,7 @@
 import type { SourceEntry, SourcesAnswer } from "@ep0ch/outline-core/sources";
 import { relativeAge } from "../projection";
 import { BOLD, C, ellipsize, fg, pad, RESET, UNBOLD, width } from "../style";
-import { wrap } from "../text";
+import { rowLines, wrap } from "../text";
 
 export type SourcesFold = "query" | "transform" | "result";
 export const FOLDS: readonly SourcesFold[] = ["query", "transform", "result"];
@@ -59,7 +59,7 @@ const dim = (s: string) => fg(C.dark) + s + RESET;
 const age = (iso: string | undefined, now: number) => (iso ? relativeAge(iso, now) : "");
 
 /** One text cell row per line: `text` cut to `w`. */
-const cut = (s: string, w: number) => (width(s) > w ? ellipsize(s, w) : s);
+const cut = (s: string, w: number) => rowLines(s, w, 1)[0]!;
 
 /** The panel at `w` x `h` rows, its click targets, its items and the focused row. */
 export function drawSources(p: SourcesPanel, w: number, h: number, now: number): PanelDraw {
@@ -88,16 +88,18 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
     head(`Sources · ${a.sources.length} generated region${a.sources.length === 1 ? "" : "s"}`);
     put(dim(" ".repeat(1) + "─".repeat(Math.max(0, w - 2))));
     if (!a.sources.length) put(` ${dim("nothing on this note is generated: no handler line, ::=, ::use, figure, ::fields, ::if or written output")}`);
+    let focus = 2;
     a.sources.forEach((x, i) => {
+      if (i === p.sel) focus = lines.length;
       const on = i === p.sel, when = age(x.readAt, now) || (x.kind === "output" ? "written" : ""), kind = KIND_WORDS[x.kind];
       const left = ` ${on ? fg(C.yellow) + "▸" : " "} ${on ? fg(C.white) + BOLD : fg(C.lcyan)}${x.name}${UNBOLD}${RESET}${x.problem ? fg(C.yellow) + " !" + RESET : ""}`;
       const right = `${dim(kind)}  ${dim(when)}`;
       const gap = Math.max(1, w - width(left) - width(visibleOf(right)) - 1);
-      put(`${left}${" ".repeat(gap)}${right}`, [{ from: 0, to: w, action: "sources.enter", args: { n: i + 1 } }]);
+      for (const text of rowLines(`${left}  ${right}`, w, undefined, { hang: 3 })) put(text, [{ from: 0, to: w, action: "sources.enter", args: { n: i + 1 } }]);
     });
     put("");
     put(` ${dim("j k select · ⏎ open · r read again · esc close")}`);
-    return { lines, hits, items: [], focus: 2 + Math.min(p.sel, Math.max(0, a.sources.length - 1)) };
+    return { lines, hits, items: [], focus };
   }
 
   // One source, three folds.
@@ -105,7 +107,7 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
   const at = Math.min(p.item, items.length - 1);
   let focus = 0;
   const mark = (i: number) => (i === at ? fg(C.yellow) + "▸" + RESET : " ");
-  const row = (i: number, text: string, hit?: PanelHit["action"], args: Record<string, unknown> = {}) => { if (i === at) focus = lines.length; put(`${mark(i)} ${text}`, [{ from: 0, to: w, action: hit ?? "sources.item", args: hit ? args : { n: i + 1 } }]); };
+  const row = (i: number, text: string, hit?: PanelHit["action"], args: Record<string, unknown> = {}) => { if (i === at) focus = lines.length; for (const line of rowLines(`${mark(i)} ${text}`, w, undefined, { hang: 2 })) put(line, [{ from: 0, to: w, action: hit ?? "sources.item", args: hit ? args : { n: i + 1 } }]); };
   put(` ${fg(C.lcyan)}← ${RESET}${fg(C.yellow)}${BOLD}${s.name}${UNBOLD}${RESET} ${dim(`· ${KIND_WORDS[s.kind]} · line ${s.line + 1}${s.endLine > s.line ? `–${s.endLine + 1}` : ""}`)}${" ".repeat(0)}`, [{ from: 0, to: 3, action: "sources.back" }]);
   if (s.readAt) put(` ${dim(`read ${age(s.readAt, now)} · ${s.live ? "live: drawn again when what it read changes" : "as written"}`)}`);
   else if (s.live === false) put(` ${dim("as written: its text is the note's")}`);
@@ -119,7 +121,7 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
   };
   fold("query", "Query", `${s.query.params.length} parameter${s.query.params.length === 1 ? "" : "s"}`);
   if (p.folds.query) {
-    for (const x of s.query.params) { row(i, `  ${fg(C.grey)}${pad(x.key, 12)}${RESET} ${fg(C.white)}${cut(x.value, Math.max(4, w - 28))}${RESET}${s.query.editable ? "  " + fg(C.lcyan) + "[e edit]" + RESET : ""}`, "sources.item", { n: i + 1 }); i++; }
+    for (const x of s.query.params) { row(i, `  ${fg(C.grey)}${pad(x.key, 12)}${RESET} ${fg(C.white)}${x.value}${RESET}${s.query.editable ? "  " + fg(C.lcyan) + "[e edit]" + RESET : ""}`, "sources.item", { n: i + 1 }); i++; }
     if (!s.query.params.length) put(`    ${dim("takes no parameters")}`);
     for (const l of wrap(s.query.text, w - 6)) put(`    ${fg(C.grey)}${l}${RESET}`);
     row(i, `  ${fg(C.lcyan)}[y copy query]${RESET}`, "sources.copy", { part: "query" }); i++;

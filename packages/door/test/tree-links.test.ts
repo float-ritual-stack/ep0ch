@@ -146,11 +146,15 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
   };
   /** A click on row `n` (as peek numbers them): on its mark, or on its text. */
   const clickRow = (n: number, mark = false) => {
-    const r = treeRect(), row = rows()[n - 1]!;
-    // Inside the frame: its first row and column are the border's. A mouse x counts from 1, as `where` gives it.
-    const at = { x: r.col + 1 + row.depth * 2 + (mark ? 0 : 3) + 1, y: r.row + 1 + n - 1 - (tree() as any).view.top };
-    press({ kind: "mouse", action: "down", button: 0, x: at.x, y: at.y });
-    press({ kind: "mouse", action: "up", button: 0, x: at.x, y: at.y });
+    const row = rows()[n - 1]!;
+    tree().selectRow(n - 1, desk);
+    lines();
+    const r = treeRect(), shown = lines();
+    const y = shown.findIndex((line, y) => y > r.row && y < r.row + r.rows && line.slice(r.col + 1, r.col + r.cols - 1).startsWith("▌"));
+    expect(y).toBeGreaterThan(r.row);
+    const x = r.col + 1 + row.depth * 2 + (mark ? 0 : 3) + 1;
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
   };
   const shows = (id: string) => until(() => reader().msg?.id === id, `the reader on ${id}`, 8000);
 

@@ -13,10 +13,10 @@
 //   (date: date, state: status,          count: created|updated                ::
 //   last: 30), or source: backups                                              live: query + date: <property>
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
-import { wrap } from "../text";
+import { rowLines, wrap } from "../text";
 import { DAY, dayOf, dayState, isoOf, localDay, MONTH_ABBREVIATIONS, MONTH_NAMES, monthOf, today, uptimeDays, WEEKDAY_NAMES, weekday, weekStart, worse, type DayState } from "@ep0ch/outline-core/figure-props";
 export { dayOf, dayState, isoOf, localDay, monthOf, today, uptimeDays, weekStart, worse, type DayState };
-import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink, SHADES } from "./palette";
+import { ACCENT, DIM, HI, INK, rowLink, rowLinks, type Props, type RowLink, SHADES } from "./palette";
 
 const WEEKDAYS = WEEKDAY_NAMES, MONTHS = MONTH_ABBREVIATIONS;
 
@@ -139,8 +139,8 @@ export function drawCalendar(p: Props, w: number, link?: RowLink): string[] {
   if (marks.length) {
     out.push("");
     for (const m of [...marks].sort((a, b) => a.day - b.day)) {
-      const label = wrap(m.label, Math.max(6, w - 5));
-      label.forEach((l, i) => out.push((i ? "     " : (m.muted ? fg(DIM) : fg(ACCENT)) + String(m.day).padStart(2) + RESET + "   ") + (m.strong ? fg(HI) + BOLD : m.muted ? fg(DIM) : fg(INK)) + (i ? l : rowLink(link, m.block, l)) + UNBOLD + RESET));
+      const label = rowLinks(link, m.block, rowLines(m.label, Math.max(6, w - 5)));
+      label.forEach((l, i) => out.push((i ? "     " : (m.muted ? fg(DIM) : fg(ACCENT)) + String(m.day).padStart(2) + RESET + "   ") + (m.strong ? fg(HI) + BOLD : m.muted ? fg(DIM) : fg(INK)) + l + UNBOLD + RESET));
     }
   }
   return out.map(l => (vwidth(l) > w ? pad(l, w) : l));

@@ -1,3 +1,4 @@
+import { rowLines } from "./text";
 // A cell grid the desk composes into: panes, borders and floating overlays all write here,
 // then it becomes one styled line per row. Blank cells keep the default background so the
 // CRT underlay shows through.
@@ -162,7 +163,7 @@ export class Canvas {
     for (let x = r.col + 1; x < right; x++) { put(x, r.row, g.top); put(x, bottom, g.bottom); }
     for (let y = r.row + 1; y < bottom; y++) { put(r.col, y, g.side); put(right, y, g.side); }
     put(r.col, r.row, g.tl); put(right, r.row, g.tr); put(r.col, bottom, g.bl); put(right, bottom, g.br);
-    if (title) this.text(r.col + 2, r.row, ` ${title} `, r.cols - 4);
+    if (title) this.text(r.col + 2, r.row, rowLines(` ${title} `, r.cols - 4, 1)[0]!, r.cols - 4);
     // A hint too long for the edge is cut between its parts (or at a space), ending " …", never mid-word.
     if (hint) this.text(r.col + 2, bottom, ` ${fitHint(hint, r.cols - 6).text} `, r.cols - 4);
   }

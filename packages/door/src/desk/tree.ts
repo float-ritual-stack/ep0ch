@@ -1,3 +1,4 @@
+import { rowLines } from "../text";
 // The outline tree (a desk tile, the board's outline dock), with the authored links the outliner's Tree
 // shows under a block (PIE-259, PIE-324, PIE-329): `L` (`tree.links`) opens, under the selected row, its
 // Outlinks and Resources (the service's `blocks.authored-links`) and its Backlinks (`references.backlinks`,
@@ -17,7 +18,7 @@
 import { subject, type Msg } from "../board";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS, backlinkView, type BacklinkCollection } from "../backlinks";
 import type { AuthoredLinksSnapshot } from "../authored";
-import { linkBlock, linkNote, linkRowLine, linkRows, linkWords, SEP, type LinkGroupName, type LinkRow, type Load } from "../links";
+import { linkBlock, linkNote, linkRowLines, linkRows, linkWords, SEP, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { shortId } from "../refs";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -105,6 +106,7 @@ export class TreePane implements Pane {
   private viaPressed = false;
   private drawnW = 0;
   private drawnH = 0;
+  private drawnItems: number[] = [];
   private timer: Timer | null = null;
   private reload: Timer | null = null;
   title() { return "outline"; }
@@ -589,13 +591,12 @@ export class TreePane implements Pane {
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.drawnW = w; this.drawnH = h;
     if (!this.roots) return { lines: [dim("dialing the outline…")] };
-    this.view.place(this.sel, this.rows.length, h);
-    const lines = this.rows.slice(this.view.top, this.view.top + h).map((r, i) => {
-      const on = this.view.top + i === this.sel;
+    const drawn = this.rows.map((r, i) => {
+      const on = i === this.sel;
       const indent = "  ".repeat(r.depth);
       if (r.kind === "branch-note") {
         const text = `${indent}${r.role === "results" ? "◇ " : r.role === "more" ? "▸ " : "  "}${r.text}`;
-        return on ? selectedRow(text, w, focused) : fg(r.role === "more" ? C.lcyan : C.dark) + pad(text, w) + RESET;
+        return rowLines(text, w - 1, undefined, { hang: indent.length + 2 }).map(line => on ? selectedRow(line, w, focused) : fg(r.role === "more" ? C.lcyan : C.dark) + pad(line, w) + RESET);
       }
       if (r.kind === "block") {
         const k = this.fold.kids.get(r.foldId);
@@ -606,16 +607,24 @@ export class TreePane implements Pane {
         const branch = !r.via && isBranch(r.m) ? this.branches.get(r.m.id) : undefined;
         const found = branch && branch.read !== "loading" && branch.read.status === "ready" ? `V:${branch.read.total ?? branch.items.length}` : "";
         const tag = (found || (prop(r.m, "work-id") ?? prop(r.m, "status") ?? prop(r.m, "type") ?? "")).slice(0, 14);
-        const room = Math.max(4, w - (tag ? tag.length + 1 : 0));
-        if (on) return selectedRow(pad(`${indent}${mark} ${subject(r.m)}`, room - (indent ? 0 : 1)) + (tag ? " " + tag : ""), w, focused);
+        const room = Math.max(4, w - (tag ? tag.length + 1 : 0) - (on && !indent ? 1 : 0));
         const here = desk.current?.id === r.m.id;
-        return pad(`${indent}${fg(C.lcyan)}${mark} ${fg(here ? C.yellow : r.via !== undefined && r.rel === 0 ? C.lgreen : C.grey)}${subject(r.m)}`, room) + (tag ? " " + fg(C.brown) + tag : "") + RESET;
+        return rowLines(`${indent}${mark} ${subject(r.m)}`, room - 1, undefined, { hang: indent.length + 2 }).map((line, j) => {
+          const tail = !j && tag ? " " + (on ? "" : fg(C.brown)) + tag : "";
+          return on ? selectedRow(pad(line, room) + tail, w, focused) : pad(fg(here ? C.yellow : C.grey) + line, room) + tail + RESET;
+        });
       }
-      return linkRowLine(r, { cols: w, selected: on, focused, nest: this.panels.has(r.key) });
+      return linkRowLines(r, { cols: w, selected: on, focused, nest: this.panels.has(r.key) });
     });
+    const flat = drawn.flatMap((lines, i) => lines.map(text => ({ text, i })));
+    const first = drawn.slice(0, this.sel).reduce((n, rows) => n + rows.length, 0);
+    this.view.place(this.sel, flat.length, h, [first, first + (drawn[this.sel]?.length ?? 1) - 1]);
+    const shown = flat.slice(this.view.top, this.view.top + h);
+    this.drawnItems = shown.map(r => r.i);
+    const lines = shown.map(r => r.text);
     // A note being dragged (PIE-943): the row it would land on says how, and which note it is.
     const d = this.drag;
-    const at = d?.over != null ? d.over - this.view.top : -1;
+    const at = d?.over != null ? this.drawnItems.indexOf(d.over) : -1;
     if (d && d.moved && at >= 0 && at < lines.length) {
       const target = this.rows[d.over!], dragged = this.rows.find(x => x.kind === "block" && x.m.id === d.id);
       if (target?.kind === "block" && dragged?.kind === "block") {
@@ -687,7 +696,7 @@ export class TreePane implements Pane {
     if (d && (k.action === "drag" || k.action === "up")) {
       // Let go outside the tile (over the reader beside it) moves nothing.
       const inside = x >= 0 && x < this.drawnW && y >= 0 && y < this.drawnH;
-      const over = this.view.top + y, target = inside ? this.rows[over] : undefined;
+      const over = this.drawnItems[y] ?? -1, target = inside ? this.rows[over] : undefined;
       d.over = target?.kind === "block" && target.m.id !== d.id && !this.under(over, d.from) ? over : null;
       // Dropped on the row: under it. On its ▸ mark (the left edge): beside it, above it when it's above where the note started, else below.
       d.beside = !!target && x <= (target.depth * 2 + 1);
@@ -701,7 +710,7 @@ export class TreePane implements Pane {
       return true;
     }
     if (k.action !== "down") return true;
-    const i = this.view.top + y, row = this.rows[i];
+    const i = this.drawnItems[y] ?? -1, row = this.rows[i];
     if (!row) return true;
     // A match of a view is a copy of the note, not the note: only the note's own row drags.
     this.viaPressed = row.kind === "block" && !!row.via;

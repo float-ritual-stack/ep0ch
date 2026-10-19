@@ -10,7 +10,7 @@
 //   - where: left, right, tabs · right — which side of it
 //   ::
 import { ellipsize, fg, pad, RESET, width as vwidth } from "../style";
-import { wrap } from "../text";
+import { rowLines, wrap } from "../text";
 import { ACCENT, DIM, HI, INK, records, rowLink, tier, type Props, type RowLink } from "./palette";
 
 /** One row of a properties table. */
@@ -34,14 +34,14 @@ export function drawProps(p: Props, w: number, link?: RowLink): string[] {
   out.push(fg(DIM) + pad("name", nw) + "  " + (ww ? pad(String(p.where ?? "where"), ww) + "  " : "") + pad("values", vw) + (dw ? "  " + pad("default", dw) : "") + RESET);
   for (const r of rows) {
     const values = narrow && dflt(r) ? `${r.values ?? ""} · ${dflt(r)}` : r.values ?? "";
-    const name = (r.needed ? fg(ACCENT) : fg(HI)) + rowLink(link, r.block, pad(ellipsize(r.name, nw), nw)) + RESET;
-    const vlines = wrap(values, vw);
-    vlines.forEach((v, i) => {
-      out.push((i ? " ".repeat(nw) : name) + "  " + (ww ? fg(INK) + pad(i ? "" : ellipsize(r.where ?? "", ww), ww) + "  " : "") + fg(HI) + pad(v, vw) + (dw ? "  " + (r.needed ? fg(ACCENT) : fg(INK)) + (i ? "" : ellipsize(dflt(r), dw)) : "") + RESET);
-    });
+    const names = rowLines(rowLink(link, r.block, r.name), nw), valuesRows = rowLines(values, vw);
+    const where = ww ? rowLines(r.where ?? "", ww) : [], defaults = dw ? rowLines(dflt(r), dw) : [];
+    for (let i = 0; i < Math.max(names.length, valuesRows.length, where.length, defaults.length); i++) {
+      out.push((r.needed ? fg(ACCENT) : fg(HI)) + pad(names[i] ?? "", nw) + "  " + (ww ? fg(INK) + pad(where[i] ?? "", ww) + "  " : "") + fg(HI) + pad(valuesRows[i] ?? "", vw) + (dw ? "  " + (r.needed ? fg(ACCENT) : fg(INK)) + pad(defaults[i] ?? "", dw) : "") + RESET);
+    }
     // What it means under its values, as the library's table had it; from the left edge when narrow.
     const at = narrow ? 2 : nw + 2;
-    if (r.meaning) for (const l of wrap(String(r.meaning), Math.max(8, w - at))) out.push(" ".repeat(at) + fg(DIM) + l + RESET);
+    if (r.meaning) for (const l of rowLines(String(r.meaning), Math.max(8, w - at))) out.push(" ".repeat(at) + fg(DIM) + l + RESET);
   }
   return out;
 }

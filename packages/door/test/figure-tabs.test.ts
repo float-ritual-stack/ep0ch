@@ -1,8 +1,9 @@
+import { rowLines } from "../src/text";
 // Live tabs figures (`::graph-tabs`) and a table's density: how the results are grouped and ordered, how a title
 // wraps with a hanging indent, and how `ep0ch show` prints every tab. The reader's switching (figure.tab,
 // figure.density by keys, click and act) is driven in the showcase's tabs section (test/showcase/).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { renderGraph, titleLines, type FigureInfo } from "../src/graphs";
+import { renderGraph, type FigureInfo } from "../src/graphs";
 import { setLiveSource } from "../src/live";
 import { drawNote } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
@@ -14,29 +15,29 @@ const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000
 describe("a title's lines (density)", () => {
   test("cozy wraps to two lines, hanging past a work id; only the last line is cut", () => {
     const t = "PIE-541 — this is a long title and stuff and its two lines and then some more words";
-    const out = titleLines(t, 30, 2);
+    const out = rowLines(t, 30, 2);
     expect(out).toHaveLength(2);
     expect(out[0]).toBe("PIE-541 — this is a long title");
     expect(out[1]!.startsWith(" ".repeat(width("PIE-541 — ")))).toBe(true);
     expect(out[1]!.endsWith("…")).toBe(true);
     expect(out.every(l => width(l) <= 30)).toBe(true);
     // Fits in one: one line, whatever the density.
-    expect(titleLines("PIE-1 — short", 30, 3)).toEqual(["PIE-1 — short"]);
+    expect(rowLines("PIE-1 — short", 30, 3)).toEqual(["PIE-1 — short"]);
     // Compact: one line, cut.
-    expect(titleLines(t, 30, 1)).toEqual([t.slice(0, 29) + "…"]);
+    expect(rowLines(t, 30, 1)).toEqual([t.slice(0, 29) + "…"]);
   });
-  test("comfortable (no limit) draws the whole title however many lines it takes, never cut (PIE-815)", () => {
+  test("an explicit larger limit keeps the whole title when it fits", () => {
     const q = "PLOT-12 — When the seed swap moves to the hall, who carries the trestle tables, who brings the urn, and does the borrowed kettle go back to the church hall before Sunday's service starts?";
-    const out = titleLines(q, 30, Infinity);
+    const out = rowLines(q, 30, 20);
     expect(out.length).toBeGreaterThan(3);
     expect(out.join("")).not.toContain("…");
     expect(out.map(l => l.trim()).join(" ")).toBe(q);
     expect(out.every(l => width(l) <= 30)).toBe(true);
-    expect(titleLines(q, 30, 2)[1]!.endsWith("…")).toBe(true);
+    expect(rowLines(q, 30, 2)[1]!.endsWith("…")).toBe(true);
   });
   test("a title with no id prefix continues at the column's edge; wide glyphs count as two cells", () => {
-    expect(titleLines("plain words that wrap onto another line", 20, 2)[1]!.startsWith("wrap")).toBe(true);
-    const wide = titleLines("KEY-9 · 漢字漢字漢字漢字漢字漢字漢字漢字漢字漢字", 16, 3);
+    expect(rowLines("plain words that wrap onto another line", 20, 2)[1]!.startsWith("wrap")).toBe(true);
+    const wide = rowLines("KEY-9 · 漢字漢字漢字漢字漢字漢字漢字漢字漢字漢字", 16, 3);
     expect(wide.every(l => width(l) <= 16)).toBe(true);
     expect(wide.length).toBeGreaterThan(1);
   });
@@ -72,7 +73,7 @@ describe("::graph-tabs from the outline", () => {
     const seen: FigureInfo[] = [];
     const out = await draw({ seen: (f: FigureInfo) => seen.push(f) });
     expect(out.join("\n")).toContain("doing 1 · review 0 · blocked 1 · queued 3 · — 1");
-    expect(seen.at(-1)).toMatchObject({ key: "Jobs#0", kind: "tabs", tab: "doing", density: "compact" });
+    expect(seen.at(-1)).toMatchObject({ key: "Jobs#0", kind: "tabs", tab: "doing", density: "cozy" });
     // The first tab's rows only.
     expect(out.join("\n")).toContain("Sow beans");
     expect(out.join("\n")).not.toContain("Fix the gate");
@@ -123,6 +124,23 @@ describe.skipIf(!outliner)("ep0ch show prints a tabs figure's every group", () =
   let board: SocketBoard;
   beforeAll(async () => { await scratch.start(); board = new SocketBoard(scratch.sock); await board.info(); }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
+
+  test.each(["links", "graph-table"])("%s row titles wrap by default and accept a line limit", async (component) => {
+    const title = "Carry the trestle tables across the garden before the evening gathering";
+
+      for (const lines of [undefined, 0, 1, 2, 3]) {
+        const source = component === "links"
+          ? `::links{groups=children${lines === undefined ? "" : ` lines=${lines}`}}`
+          : `::graph-table\n---\nheaders: [Title]\nrows:\n  - ["${title}"]${lines === undefined ? "" : `\nlines: ${lines}`}\n---\n::`;
+        const note = await board.createBlock(null, `Rows\n${source}`);
+        if (component === "links") await board.createBlock(note.id, title);
+        const drawn = (await drawNote(board, note.id, 38))!.map(strip);
+        const at = drawn.findIndex(l => l.includes("Carry the trestle"));
+        expect(at).toBeGreaterThan(-1);
+        if (lines === undefined || lines! > 1) expect(drawn[at + 1]).toContain("garden");
+        else expect(drawn[at]).toContain("…");
+      }
+  }, 20_000);
 
   test("each stage's rows under its own heading", async () => {
     for (const [t, s] of [["Paint the fence", "doing"], ["Fix the tap", "queued"], ["Sweep the yard", "done"]]) await board.createBlock(null, `${t} [type::yard-job] [stage::${s}]`, { kind: "user" });

@@ -15,7 +15,7 @@ import { printable } from "../props";
 import { RowView } from "../scroll";
 import { selectedRow, bg, C, ellipsize, fg, pad, RESET, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
-import { rule } from "../text";
+import { rowLines, rule } from "../text";
 
 /**
  * One field of the card: a property a schema says the declaring note takes, its value on the note (null: unset), and
@@ -212,22 +212,20 @@ export class SettingsCard {
       if (this.schemas.length > 1 && (rows.length === 0 || f.section !== fields[f.n - 2]?.section)) rows.push({ heading: this.schemas[f.section]!.title });
       rows.push({ field: f });
     }
-    const at = rows.findIndex(r => "field" in r && r.field.n - 1 === this.sel);
-    // A section's first field brings its heading into view with it.
-    const from = at > 0 && "heading" in rows[at - 1]! ? at - 1 : at;
-    this.view.place(at < 0 ? null : at, rows.length, room, at < 0 ? null : [from, at]);
     const keyW = Math.min(18, Math.max(4, ...fields.map(f => width(f.prop.key))));
-    this.at = [];
-    for (const r of rows.slice(this.view.top, this.view.top + room)) {
-      if ("heading" in r) { out.push(fg(C.lcyan) + pad(`  ${r.heading}`, w) + RESET); continue; }
-      const f = r.field, on = f.n - 1 === this.sel;
+    const drawn = rows.flatMap(r => {
+      if ("heading" in r) return [{ text: fg(C.lcyan) + `  ${r.heading}` + RESET, n: 0 }];
+      const f = r.field;
       const value = f.value !== null ? fg(C.yellow) + printable(f.value)
         : f.prop.default !== undefined ? fg(C.dark) + `${f.prop.default} (default)` : fg(C.dark) + "—";
-      const tag = fg(C.dark) + f.prop.type;
-      const valW = Math.max(1, w - keyW - 4 - width(f.prop.type) - 1);
-      const line = "  " + fg(C.brown) + pad(f.prop.key, keyW) + "  " + pad(ellipsize(value, valW), valW) + " " + tag + RESET;
-      if (out.length < h) this.at.push({ y: out.length, n: f.n });
-      out.push(on ? selectedRow(line, w) : pad(line, w));
+      return rowLines("  " + fg(C.brown) + f.prop.key + "  " + value + " " + fg(C.dark) + f.prop.type + RESET, w, undefined, { hang: 2 }).map(text => ({ text, n: f.n }));
+    });
+    const at = drawn.findIndex(r => r.n - 1 === this.sel), end = drawn.findLastIndex(r => r.n - 1 === this.sel);
+    this.view.place(at < 0 ? null : at, drawn.length, room, at < 0 ? null : [at, end]);
+    this.at = [];
+    for (const r of drawn.slice(this.view.top, this.view.top + room)) {
+      if (r.n) this.at.push({ y: out.length, n: r.n });
+      out.push(r.n - 1 === this.sel ? selectedRow(r.text, w) : pad(r.text, w));
     }
     if (foot) out.push(fg(/not saved|can't|refused|failed|isn't|is one of|is a /.test(this.note) ? C.lred : this.note ? C.yellow : C.dark) + pad(ellipsize(foot, w), w) + RESET);
     return out.slice(0, h);

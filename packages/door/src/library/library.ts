@@ -14,7 +14,7 @@ import { Gesture, Selection, isCopyKey, rowsOf, wordAt, lineAt, paintRange, SELE
 import { draftPreview } from "../surface/note";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { ch, type Key } from "../term";
-import { wrap } from "../text";
+import { rowLines, wrap } from "../text";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind } from "../desk/tile-kinds";
@@ -128,9 +128,10 @@ export class LibraryPane implements Pane {
   private block(v: Variation, i: number, label: string, W: number, src: ListSource | null, cut = W): Row[] {
     const sel = i === this.selectedV, out: Row[] = [];
     const copy = " copy ", room = Math.max(4, cut - width(copy) - 3);
-    const head = `  ${ellipsize(label, room)}`;
+    for (const head of rowLines(`  ${label}`, room + 2, undefined, { hang: 2 })) {
     out.push({ text: (sel ? selectedRow(head, cut - width(copy)) : fg(C.lcyan) + pad(head, cut - width(copy)) + RESET) + fg(C.dark) + copy + RESET, v: i,
       hits: [{ from: 0, to: cut - width(copy), action: "library.select", args: { n: i + 1 } }, { from: cut - width(copy), to: cut, action: "library.copy", args: { n: i + 1 } }] });
+    }
     for (const cols of this.allWidths ? WIDTHS : [this.width]) {
       const drawn = drawVariation(v, cols, src);
       const wider = cols + 2 > cut;

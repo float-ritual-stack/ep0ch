@@ -1,3 +1,4 @@
+import { COMPONENT_OPEN, componentAttrs, splitWords } from "@ep0ch/outline-core/component-block";
 // The look (PIE-673): spacing and list density from the outline's style notes, resolved for where something is
 // drawn by outline-core's one cascade (style-cascade.ts), never by a rule of the door's own.
 //
@@ -465,11 +466,20 @@ export async function writeLine(board: StyleWriteBoard, tuning: Tuning, note: st
   if (expected !== null && m.revision !== expected) throw new Error(`note ${note.slice(0, 8)} changed since (by another door or an agent): refused, nothing written`);
   const lines = m.text.split("\n"), was = lines[line];
   if (was === undefined) throw new Error(`note ${note.slice(0, 8)} has no line ${line + 1} any more`);
-  const tokens = liveTokensInLine(was), keys = Object.keys(want).map(k => k.toLowerCase());
+  const component = COMPONENT_OPEN.exec(was);
+  const attrs = component?.[3]?.slice(1, -1);
+  const componentFields = component && !component[2] ? componentRowFields(attrs ?? "") : null;
+  const tokens = componentFields ? liveTokensInLine(Object.entries(componentFields).map(([k, v]) => `[style.${k}::${v}]`).join(" ")) : liveTokensInLine(was), keys = Object.keys(want).map(k => k.toLowerCase());
   const before: Record<string, string[]> = {}, after: Record<string, string[]> = {};
   for (const k of Object.keys(want)) { before[k] = tokens.filter(x => x.key.toLowerCase() === k.toLowerCase()).map(x => x.value); after[k] = valuesOf(want[k]!); }
   const kept = withoutTokens(was, tokens.filter(x => keys.includes(x.key.toLowerCase())));
-  const now = [kept, ...Object.entries(after).flatMap(([k, vs]) => vs.map(v => `[${k}::${v}]`))].filter(Boolean).join(" ");
+  let now = [kept, ...Object.entries(after).flatMap(([k, vs]) => vs.map(v => `[${k}::${v}]`))].filter(Boolean).join(" ");
+  if (componentFields && component) {
+    const keyOf = (key: string) => key === "lines" ? "style.rows.lines" : `style.${key}`;
+    const words = splitWords(attrs ?? "", false, false).flat().filter(w => !keys.includes(keyOf(w.value.split("=")[0]!)));
+    const values = Object.entries(after).flatMap(([key, vs]) => vs.map(v => `${key === "style.rows.lines" ? "lines" : key.replace(/^style\./, "")}=${JSON.stringify(v)}`));
+    now = `::${component[1]}{${[...words.map(w => w.raw), ...values].join(" ")}}`;
+  }
   if (now === was) return null;
   const base = `${note}:${line}`;
   const baseline = tuning.lineBaseline.has(base) ? null : Object.fromEntries([...new Set(tokens.filter(x => x.key.toLowerCase().startsWith("style.")).map(x => x.key))].map(k => [k, tokens.filter(x => x.key === k).map(x => x.value)]));
@@ -654,3 +664,14 @@ export async function revertAll(board: StyleWriteBoard, tuning: Tuning, actor: A
 }
 
 export type { ResolvedStyle };
+
+/** Component row fields use the same line target as an inline list. */
+export function componentRowFields(attrs: string): Record<FieldKey, string> {
+  const pairs = componentAttrs(attrs).pairs;
+  const fields: Record<string, string> = {};
+  for (const p of pairs) {
+    if (p.key === "lines") fields["rows.lines"] = p.value;
+    else if (p.key.endsWith("rows.lines")) fields[p.key] = p.value;
+  }
+  return fields;
+}

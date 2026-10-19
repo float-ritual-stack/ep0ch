@@ -90,6 +90,7 @@ export const STYLE_TOKENS = {
   "pad.y": { base: 0, what: "blank rows inside a tile's frame", type: { kind: "int", min: 0, max: 8, step: 1 }, axis: "y" },
   "margin.x": { base: 1, what: "columns either side of a note's text", type: { kind: "int", min: 0, max: 24, step: 2 }, axis: "x" },
   "margin.y": { base: 0, what: "blank rows above a note's text (a box's: above and below it)", type: { kind: "int", min: 0, max: 8, step: 1 }, axis: "y" },
+  "rows.lines": { base: 2, what: "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", type: { kind: "int", min: 0, max: Number.MAX_SAFE_INTEGER, step: 1 } },
   "list.gap": { base: 0, what: "blank rows between a list's items", type: { kind: "int", min: 0, max: 3, step: 1 } },
   "list.zebra": { base: false, what: "every other item on a quiet tint", type: { kind: "bool" } },
   "list.divider": { base: "none", what: "a line between a list's items (the links tile: between its groups): line, dots, dashed, double, fade, or the glyph", type: { kind: "enum", values: LIST_DIVIDERS } },
@@ -129,6 +130,7 @@ export const STYLE_TOKEN_NAMES = Object.keys(STYLE_TOKENS) as StyleToken[];
 export interface StyleValues {
   "hints": "full" | "brief" | "off";
   "measure": number; "pad.x": number; "pad.y": number; "margin.x": number; "margin.y": number;
+  "rows.lines": number;
   "list.gap": number; "list.zebra": boolean; "list.divider": ListDivider; "list.divider.glyph": string; "list.divider.align": DividerAlign;
   "list.zebra.bg": Exclude<Surface, "none">; "list.zebra.strength": number;
   "bg": Surface; "bg.strength": number; "tone": CalloutTone; "border": Border; "edge": Edge;
@@ -512,7 +514,7 @@ const HEADING_LINE = /^ {0,3}#{1,6}\s/;
 const indentOf = (l: string) => l.length - l.trimStart().length;
 
 /** Whether a field is a list's (`list.gap`, `narrow.list.divider`): the only fields a list's own lines set. */
-export const isListField = (k: FieldKey) => { const f = parseFieldKey(k); return !!f && f.token.startsWith("list."); };
+export const isListField = (k: FieldKey) => { const f = parseFieldKey(k); return !!f && (f.token.startsWith("list.") || f.token === "rows.lines"); };
 
 /**
  * The first item of the list line `at` is in (an item, or a line inside one), as a reader runs a list: blank lines

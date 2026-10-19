@@ -10,6 +10,8 @@ import { siteProduced, type LiveSite } from "./live";
 import type { LinkTarget } from "./refs";
 import { C, ellipsize, fg, RESET } from "./style";
 
+import { rowLines } from "./text";
+
 /** One `::fields` as the reader last drew it: the note it read, that note's revision, and its rows. */
 export interface DrawnFields { from: string; revision: number; key: string; of: string | null; rows: FieldRow[] }
 
@@ -44,13 +46,13 @@ export function renderFields(spec: FieldsSpec, note: string | undefined, W: numb
   if (a.problem) return frame(title, problemLines(a.problem.message, a.problem.didYouMean), W, "live");
   drawn?.set(`${note}\0${spec.key.toLowerCase()}\0${spec.of ?? ""}`, { from: a.from, revision: a.revision, key: spec.key, of: spec.of, rows: a.rows });
   const inner = Math.max(10, W - 4);
-  const body = a.rows.map((row, n) => {
-    const words = ellipsize(row.link ? row.link.title : row.value, Math.max(6, inner - 14));
+  const body = a.rows.flatMap((row, n) => {
+    const words = row.link ? row.link.title : row.value;
     const to: LinkTarget = { block: a.from, role: "row", ...(row.offset !== undefined ? { at: row.offset, ...(row.token ? { atLabel: row.token } : {}), atSays: "the line it was written on" } : {}) };
     const anchor: LinkTarget = { block: a.from, role: "row", anchor: { key: spec.key, n: n + 1 } };
     const text = (tag ? tag(to, words) : words);
     const control = tag ? tag(anchor, "¶") : "¶";
-    return fg(C.white) + "∙ " + RESET + text + fg(C.dark) + ` · line ${row.line + 1} ` + RESET + control;
+    return rowLines(fg(C.white) + "∙ " + RESET + text + fg(C.dark) + ` · line ${row.line + 1} ` + RESET + control, inner);
   });
   if (!body.length) {
     body.push(fg(C.dark) + `no ${spec.key} written in ${spec.of ? "that note" : "this note"}'s lines yet` + RESET);

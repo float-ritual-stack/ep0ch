@@ -3,11 +3,11 @@
 //   ::graph-<kind>          Comark block with YAML props between --- lines, drawn here natively
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
 import { BOLD, C, ellipsize, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
-import { wrap } from "./text";
+import { rowLines, withRowLimit, wrap } from "./text";
 import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from "./live";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
 import { FIGURES } from "./figures/index";
-import { ACCENT, DIM, HI, INK, inlineRows, rowLink, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
+import { ACCENT, DIM, HI, INK, inlineRows, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
 export type { RowInline, RowLink } from "./figures/palette";
 import { colourInline } from "./text";
 import { STEP_BOXES } from "./steps";
@@ -45,7 +45,7 @@ export function frame(title: string, body: string[], W: number, footer = "", con
   const w = Math.max(16, W);
   const inner = w - 4;
   // The title shrinks before the frame does: keep at least one dot each side.
-  const t = ellipsize(title.toUpperCase(), w - 10);
+  const t = rowLines(title.toUpperCase(), w - 10, 1)[0]!;
   const label = t ? ` [ ${t} ] ` : "";
   const lw = vwidth(label);
   const left = Math.max(1, Math.floor((w - 2 - lw) / 2)), right = Math.max(1, w - 2 - lw - left);
@@ -68,28 +68,17 @@ function bar(frac: number, n: number, on: number = ACCENT): string {
   return fg(on) + rep("█", k) + fg(DIM) + rep("-", n - k) + RESET;
 }
 
-// rowLinks splits what `link` returns around a placeholder: a RowLink only wraps its text in tags, never records it.
-/**
- * Every line of a row that stands for one note, tagged as that one link: a row a density wraps over two or three
- * lines is one element, opened from any of them.
- */
-function rowLinks(link: RowLink | undefined, block: unknown, lines: string[], figure?: string): string[] {
-  if (!link || typeof block !== "string") return lines;
-  const [open, close] = link(block, "\u0000", figure).split("\u0000");
-  return lines.map(l => open + l + close);
-}
-
 // ── a figure's reading state (the reader's, never the note's) ─────────────────────────────────────────────
 
 /**
- * How many lines a table row's title may take: compact one (cut with …, the default, as figures always drew), cozy
- * two (cut with … past them), comfortable the whole title however many lines it takes, with a blank line between rows
+ * How many lines a table row's title may take: compact one (cut with …), cozy (the default)
+ * two (cut with … past them), comfortable three, with a blank line between rows
  * (PIE-815: a question's title is the question). Named for how much room each gives, as mail and list views name theirs.
  */
 export const DENSITIES = ["compact", "cozy", "comfortable"] as const;
 export type Density = (typeof DENSITIES)[number];
 export const isDensity = (s: unknown): s is Density => DENSITIES.includes(s as Density);
-const TITLE_LINES: Record<Density, number> = { compact: 1, cozy: 2, comfortable: Infinity };
+const TITLE_LINES: Record<Density, number> = { compact: 1, cozy: 2, comfortable: 3 };
 
 /** A figure's control a reader draws: one of a tabs figure's tabs, or its density (a table's too). */
 export interface FigureControl { figure: string; tab?: string; density?: true }
@@ -113,32 +102,10 @@ export interface FiguresEnv {
   tag?(c: FigureControl, text: string): string;
   seen?(info: FigureInfo): void;
   all?: boolean;
+  lines?: number;
 }
 /** One figure's share of that, as the drawing code gets it; `rows`: what the reader lends its rows (PIE-864). */
-interface FigureUI { key: string; density: Density; tab?: string; tag?: (c: FigureControl, text: string) => string; all?: boolean; rows?: RowInline }
-
-const HANG = /^[A-Z][A-Z0-9]*-\d+\s*(?:[—–·:|-]\s*)?/;
-
-/**
- * A title in at most `lines` lines of `w` cells: wrapped by cells (a wide glyph is two), only the last line cut with
- * …, and each line after the first indented past a work id or key prefix (`PIE-541 — `) so the text hangs under
- * itself, not under the id.
- */
-export function titleLines(text: string, w: number, lines: number): string[] {
-  if (lines <= 1 || vwidth(text) <= w) return [ellipsize(text, w)];
-  const pre = text.match(HANG)?.[0] ?? "";
-  const indent = vwidth(pre) <= w / 2 ? vwidth(pre) : 0;
-  const out: string[] = [];
-  let rest = text;
-  for (let i = 0; i < lines && rest; i++) {
-    const room = i ? Math.max(1, w - indent) : w, lead = i ? rep(" ", indent) : "";
-    if (i === lines - 1 || vwidth(rest) <= room) { out.push(lead + ellipsize(rest, room)); break; }
-    const row = wrap(rest, room)[0] ?? "";
-    out.push(lead + row);
-    rest = rest.slice(row.length).trimStart();
-  }
-  return out;
-}
+interface FigureUI { lines: number; key: string; density: Density; tab?: string; tag?: (c: FigureControl, text: string) => string; all?: boolean; rows?: RowInline }
 
 const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI) => string[]> = {
   // The kinds in src/figures/ (decision, chat, keys, uptime, activity, calendar, annotate).
@@ -153,7 +120,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const ink = stepDone(status) ? HI : stepClosed(status) ? DIM : INK;
     const lines = inlineRows(String(it.label ?? ""), w - 6, ink, ui?.rows, typeof it.block === "string");
     const note = it.note ? inlineRows(String(it.note), w - 6, DIM, ui?.rows) : [];
-    return lines.map((l, i) => (i ? "      " : box + "  ") + (i ? l : rowLink(link, it.block, l)))
+    return rowLinks(link, it.block, lines).map((l, i) => (i ? "      " : box + "  ") + l)
       .concat(note.map(l => "      " + l));
   }),
 
@@ -198,7 +165,9 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     for (let i = 0; i < cells.length; i += per) {
       const row = cells.slice(i, i + per);
       if (i) out.push("");
-      out.push(row.map(c => fg(c.accent ? ACCENT : HI) + BOLD + pad(c.v, cw) + UNBOLD).join("") + RESET, row.map(c => fg(DIM) + pad(c.l, cw)).join("") + RESET);
+      out.push(row.map(c => fg(c.accent ? ACCENT : HI) + BOLD + pad(c.v, cw) + UNBOLD).join("") + RESET);
+      const labels = row.map(c => rowLines(c.l, cw));
+      for (let line = 0; line < Math.max(...labels.map(l => l.length)); line++) out.push(labels.map(l => fg(DIM) + pad(l[line] ?? "", cw)).join("") + RESET);
     }
     return out;
   },
@@ -207,17 +176,17 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
 
   rank: (p, w) => {
     const items: Props[] = p.items ?? [];
-    const lw = Math.max(...items.map(i => String(i.label).length)), vw = Math.max(...items.map(i => fmt(i.value).length));
+    const lw = Math.min(Math.max(...items.map(i => vwidth(String(i.label)))), Math.max(1, Math.floor(w / 3))), vw = Math.max(...items.map(i => fmt(i.value).length));
     const max = Math.max(...items.map(i => num(i.value)), 1), bw = Math.max(6, Math.min(40, w - lw - vw - 6));
     // A bold row (Markdown) or `accent: true` is the accent; an italic one (`muted: true`) recedes.
-    return items.map(i => `${fg(i.accent ? ACCENT : i.muted ? DIM : HI)}${String(i.label).padEnd(lw)}  ${fg(DIM)}[${bar(num(i.value) / max, bw - 2, i.muted ? INK : ACCENT).replace(/█/g, "=")}${fg(DIM)}]  ${fg(i.accent ? ACCENT : INK)}${fmt(i.value).padStart(vw)}${RESET}`);
+    return items.flatMap(i => rowLines(String(i.label), lw).map((label, n) => `${fg(i.accent ? ACCENT : i.muted ? DIM : HI)}${pad(label, lw)}${n ? "" : `  ${fg(DIM)}[${bar(num(i.value) / max, bw - 2, i.muted ? INK : ACCENT).replace(/█/g, "=")}${fg(DIM)}]  ${fg(i.accent ? ACCENT : INK)}${fmt(i.value).padStart(vw)}`}${RESET}`));
   },
 
   funnel: (p, w) => KINDS.rank!({ items: (p.steps ?? []).map((s: Props) => ({ label: s.label, value: s.display ?? s.value, raw: s.value })) }, w),
 
   waterfall: (p, w) => {
     const items: Props[] = p.items ?? [];
-    const lw = Math.max(...items.map(i => String(i.label).length));
+    const lw = Math.min(Math.max(...items.map(i => vwidth(String(i.label)))), Math.max(1, Math.floor(w / 3)));
     // The scale holds the highest the running total gets to, not just the largest step (a rise past the first bar's
     // height would draw past the bar's end).
     let peak = 0, sum = 0;
@@ -230,8 +199,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       let row: string;
       if (first || last) { row = fg(last ? ACCENT : HI) + rep("█", cells(v)) + fg(DIM) + rep("-", bw - cells(v)); run = v; }
       else { const end = cells(run), start = cells(run + v); row = fg(DIM) + rep("-", Math.min(start, end)) + fg(v < 0 ? C.lblue : ACCENT) + rep("█", Math.abs(end - start)) + fg(DIM) + rep("-", bw - Math.max(start, end)); run += v; }
-      const out = `${fg(HI)}${String(it.label).padEnd(lw)}  ${row}${fg(last ? ACCENT : v < 0 ? C.lblue : INK)}  ${String(v).padStart(4)}${RESET}`;
-      return last ? [fg(DIM) + rep("·", lw + bw + 8) + RESET, out] : [out];
+      const out = rowLines(String(it.label), lw).map((label, n) => `${fg(HI)}${pad(label, lw)}${n ? "" : `  ${row}${fg(last ? ACCENT : v < 0 ? C.lblue : INK)}  ${String(v).padStart(4)}`}${RESET}`);
+      return last ? [fg(DIM) + rep("·", lw + bw + 8) + RESET, ...out] : out;
     });
   },
 
@@ -261,10 +230,12 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     for (const it of items) {
       const v = Math.max(0, num(it.value)), over = v > limit, k = Math.max(0, Math.min(bw, Math.round((Math.min(v, limit) / limit) * bw)));
       const fill = fg(over ? C.lred : it.accent ? ACCENT : HI) + rep("█", k) + fg(DIM) + rep("-", bw - k) + fg(over ? C.lred : DIM) + "┃" + RESET;
-      const label = lw ? fg(it.accent ? ACCENT : HI) + pad(ellipsize(String(it.label ?? ""), lw), lw) + "  " : "";
+      const labels = rowLines(String(it.label ?? ""), lw);
+      const label = lw ? fg(it.accent ? ACCENT : HI) + pad(labels[0]!, lw) + "  " : "";
       // Narrow: `90/150` and the unit beneath, so the bar keeps its room.
       const said = tier(w) === "narrow" ? `${fmt(v)}/${fmt(limit)}` : `${fmt(v).padStart(vw)}${fg(DIM)} / ${fmt(limit)}${unit}`;
       out.push(`${label}${fill}  ${fg(over ? C.lred : INK)}${said}${RESET}`);
+      out.push(...labels.slice(1).map(l => fg(it.accent ? ACCENT : HI) + pad(l, lw) + RESET));
       const room = Math.abs(limit - v);
       out.push(rep(" ", lw ? lw + 2 : 0) + (over ? fg(C.lred) + `${fmt(room)}${unit} over` : fg(DIM) + `${fmt(room)}${unit} left`) + RESET);
     }
@@ -273,12 +244,12 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
   },
 
   gantt: (p, w) => {
-    const items: Props[] = p.items ?? [], lw = Math.max(...items.map(i => String(i.label).length));
+    const items: Props[] = p.items ?? [], lw = Math.min(Math.max(...items.map(i => vwidth(String(i.label)))), Math.max(1, Math.floor(w / 3)));
     const bw = Math.max(10, Math.min(56, w - lw - 3));
-    const rows = items.map(it => {
+    const rows = items.flatMap(it => {
       const s = Math.round(num(it.start) * bw), e = Math.max(s + 1, Math.round(num(it.end) * bw)), c = s + Math.round((e - s) * num(it.complete ?? 0));
       const active = num(it.complete) > 0 && num(it.complete) < 1;
-      return `${fg(active ? ACCENT : HI)}${String(it.label).padEnd(lw)}  ${fg(DIM)}${rep("-", s)}${fg(active ? ACCENT : HI)}${rep("█", c - s)}${fg(active ? C.blue : DIM)}${rep("░", e - c)}${fg(DIM)}${rep("-", bw - e)}${RESET}`;
+      return rowLines(String(it.label), lw).map((label, n) => `${fg(active ? ACCENT : HI)}${pad(label, lw)}${n ? "" : `  ${fg(DIM)}${rep("-", s)}${fg(active ? ACCENT : HI)}${rep("█", c - s)}${fg(active ? C.blue : DIM)}${rep("░", e - c)}${fg(DIM)}${rep("-", bw - e)}`}${RESET}`);
     });
     const ticks: string[] = p.ticks ?? [];
     const axis = rep(" ", lw + 2) + ticks.map((t, i) => t.padEnd(i === ticks.length - 1 ? 0 : Math.floor(bw / Math.max(1, ticks.length - 1)))).join("");
@@ -286,11 +257,11 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     return [...marker, ...rows, fg(DIM) + axis + RESET];
   },
 
-  tree: (p) => {
+  tree: (p, w) => {
     const out: string[] = [];
     const walk = (nodes: Props[], lead: string) => nodes.forEach((n, i) => {
       const last = i === nodes.length - 1;
-      out.push(fg(DIM) + lead + (last ? "└─ " : "├─ ") + fg(n.accent ? ACCENT : HI) + n.label + (n.meta ? fg(DIM) + "  " + n.meta : "") + RESET);
+      out.push(...rowLines(lead + (last ? "└─ " : "├─ ") + n.label + (n.meta ? "  " + n.meta : ""), w, undefined, { hang: vwidth(lead) + 3 }).map(line => fg(n.accent ? ACCENT : HI) + line + RESET));
       if (n.children) walk(n.children, lead + (last ? "   " : "│  "));
     });
     walk(p.nodes ?? [], "");
@@ -320,13 +291,12 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const cell = (s: string, k: number) => { const t = ellipsize(s, cw[k]!), gap = rep(" ", Math.max(0, cw[k]! - vwidth(t))); return align[k] === "right" ? gap + t : t + gap; };
     const line = (r: string[], style: string) => r.map((c, k) => style + cell(c, k)).join(fg(DIM) + " ┊ ") + RESET;
     const rule = fg(DIM) + rep("·", Math.min(w, cw.reduce((a, b) => a + b, 0) + (n - 1) * 3)) + RESET;
-    // The density (the reader's choice, else the YAML's): the title column wraps over that many lines, hanging past
-    // a work id; the other columns stay on the row's first line. A row's lines are one link, to its note.
-    const density = ui?.density ?? (isDensity(p.density) ? p.density : "compact"), most = TITLE_LINES[density];
+    // Each cell shares the row limit; every physical line belongs to the same note.
+    const density = ui?.density ?? (isDensity(p.density) ? p.density : "cozy"), most = ui?.lines ?? 2;
     const tc = dropped ? 0 : Math.min(n - 1, Math.max(0, Number(p.titleColumn) || 0));
     const drawRow = (r: string[]) => {
-      const t = titleLines(r[tc] ?? "", cw[tc]!, most);
-      return t.map((tl, i) => line(i ? r.map((_, k) => (k === tc ? tl : "")) : r.map((c, k) => (k === tc ? tl : c)), fg(INK)));
+      const cells = r.map((c, k) => rowLines(c, cw[k]!, most));
+      return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, i) => line(cells.map(c => c[i] ?? ""), fg(INK)));
     };
     const blocks: unknown[] = p.blocks ?? [];
     const body = rows.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...rowLinks(link, blocks[i], drawRow(r), ui?.key)]);
@@ -397,7 +367,10 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   count.titles.set(title, same + 1);
   const key = `${title}#${same}`;
   const chosen = figures?.ui?.(key);
-  const ui: FigureUI = { key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "compact"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}), ...(rows ? { rows } : {}) };
+  const writtenLines = props.lines === undefined ? undefined : Number(props.lines);
+  const validLines = writtenLines === undefined || Number.isSafeInteger(writtenLines) && writtenLines >= 0;
+  if (!validLines) warn.push(fg(C.yellow) + "lines needs a whole number: 0 truncates, 1 or more wraps" + RESET);
+  const ui: FigureUI = { lines: chosen?.density ? TITLE_LINES[chosen.density] : writtenLines !== undefined && validLines ? writtenLines : isDensity(props.density) ? TITLE_LINES[props.density] : figures?.lines ?? 2, key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "cozy"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}), ...(rows ? { rows } : {}) };
   // A block with query:/view: is answered from the outline now, not from copied values.
   const live = resolveLive(kind, props, src.note, liveSiteOf(src, read.args));
   if (live) {
@@ -408,7 +381,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
     const tabs: { value: string; count: number }[] | undefined = kind === "tabs" ? (props.tabs ?? []).map((t: Props) => ({ value: t.value, count: t.count })) : undefined;
     const tab = tabs ? (tabs.find(t => t.value === ui.tab) ?? tabs[0])?.value : undefined;
     figures?.seen?.({ key, n, kind, title, density: ui.density, ...(tabs ? { tabs } : {}), ...(tab !== undefined ? { tab } : {}) });
-    const body = draw ? draw(props, Math.max(10, W - 4), link, { ...ui, ...(tab !== undefined ? { tab } : {}) }) : [];
+    const body = draw ? withRowLimit(ui.lines, () => draw(props, Math.max(10, W - 4), link, { ...ui, ...(tab !== undefined ? { tab } : {}) })) : [];
     if (live.error) body.push(fg(C.lred) + live.error + RESET);
     if (!body.length) body.push(fg(DIM) + "no results" + RESET);
     body.push(...warn);
@@ -418,7 +391,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   if (!draw) return frame(props.title ?? kind, [fg(DIM) + `graph-${kind} isn't drawn in the terminal yet` + RESET], W);
   if (kind === "table") figures?.seen?.({ key, n, kind, title, density: ui.density });
   const footer = read.waiting ? "asking for its child notes…" : read.children ? "live · child notes" : "";
-  try { return frame(String(props.title ?? ""), [...draw(props, Math.max(10, W - 4), link, ui), ...warn], W, footer, kind === "table" ? densityControl(kind, ui) : ""); }
+  try { return frame(String(props.title ?? ""), [...withRowLimit(ui.lines, () => draw(props, Math.max(10, W - 4), link, ui)), ...warn], W, footer, kind === "table" ? densityControl(kind, ui) : ""); }
   catch (e) { return frame(kind, [fg(C.lred) + `couldn't draw: ${(e as Error).message}` + RESET], W); }
 }
 

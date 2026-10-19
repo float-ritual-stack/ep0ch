@@ -11,6 +11,7 @@ import type { TreePane } from "../src/desk/tree";
 import { MainMenu, MessageList } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
+import { visible } from "../src/style";
 import { outliner, Scratch, until as untilQuick } from "./scratch";
 
 const until = (ok: () => boolean, what: string, ms = 15_000) => untilQuick(ok, what, Math.max(ms, 15_000));
@@ -105,7 +106,14 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
 
   test("a drag onto a row moves the note under it; with alt held, beside it", async () => {
     D().render(D().ctx);
-    const origin = (id: string, x = 4) => { const r = D().rectsNow().get(D().idNamed(treeName())); return { x: r.col + 1 + x, y: r.row + 1 + row(id).n - 1 }; };
+    const origin = (id: string, x = 4) => {
+      const lines: string[] = D().render(D().ctx).lines.map(visible);
+      const r = D().rectsNow().get(D().idNamed(treeName()));
+      // A preceding title can wrap, so locate the note in the drawn tree.
+      const y = lines.findIndex((line, y) => y > r.row && y < r.row + r.rows - 1 && line.slice(r.col + 1, r.col + r.cols - 1).includes(row(id).text));
+      expect(y).toBeGreaterThan(r.row);
+      return { x: r.col + 1 + x, y };
+    };
     select(squash.id);
     const from = origin(squash.id), to = origin(shed.id);
     mouse("down", from.x, from.y); mouse("drag", to.x, to.y); mouse("up", to.x, to.y);
@@ -254,7 +262,12 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     await waitFor(async () => (await board.get(alpha.id))?.parentId === parent.id, "reply out");
     await pick(beta.id);
     const mode = reader.surface.replyLinks!;
-    const rowY = (id: string) => mode.rect.y + 1 + mode.rowsAt.findIndex(r => r.kind === "child" && r.child.block.id === id) - mode.top;
+    const rowY = (id: string) => {
+      const item = mode.rowsAt.findIndex(r => r.kind === "child" && r.child.block.id === id);
+      const line = mode.drawnItems.indexOf(item);
+      expect(line).toBeGreaterThanOrEqual(0);
+      return mode.rect.y + 1 + line;
+    };
     const x = mode.rect.x + 12, y = rowY(beta.id), target = rowY(alpha.id);
     reader.surface.press(x, y, reader.host(desk));
     reader.surface.drag(x, target, reader.host(desk));

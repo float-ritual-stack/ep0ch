@@ -1,5 +1,5 @@
+import { lookFor } from "../look";
 import { outlineBoards } from "../desk/outline-boards";
-import { subtitleSuffix } from "../text";
 // The power bar (PIE-656): one palette over every screen, opened by ctrl+k (cmd+k where the terminal sends it), the
 // status bar's `^K`, the desk's `/` and the river's `g` (those two in its notes scope), and `act bar.open`. A list on
 // the left, what the lit row is on the right, scopes along the top.
@@ -24,7 +24,7 @@ import { NoteSurface, draftPreview, type SurfaceHost } from "../surface/note";
 import { keyCaption } from "../surface/actions";
 import { MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
 import { C, chip, dim, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, width } from "../style";
-import { paintable, wrap } from "../text";
+import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
@@ -89,7 +89,7 @@ export class PowerBar {
     this.picker = new ListPicker<BarItem, PowerBar>({
       name: "power bar", items: () => this.items,
       heading: (it, _i, w) => (it.heading ? fg(C.dark) + ` ${it.heading} ${"─".repeat(Math.max(0, w - width(it.heading) - 2))}` + RESET : null),
-      row: (it, _i, on, w) => [this.rowText(it, on, w)],
+      row: (it, _i, on, w) => this.rowText(it, on, w),
       // ⏎ and a double click (an alt-click: the alternate) are `bar.pick`, an action, as an agent's is.
       choose: (_it, i) => this.pick(i + 1, this.alt),
       closed: () => this.close(),
@@ -325,20 +325,12 @@ export class PowerBar {
   }
 
   /** A row: its indent and mark, its words, then dim what it is and its key, as wide as the list. */
-  private rowText(it: BarItem, on: boolean, w: number): string {
-    const r = it.row, indent = "  ".repeat(Math.min(6, r.depth ?? 0)), cap = r.keycap ? ` ${keyCaption(r.keycap)} ` : "";
-    const left = ` ${indent}${r.mark ? `${r.mark} ` : ""}${r.label}`, detail = r.refused ? `✕ ${r.refused}` : r.detail ?? "";
-    const subtitle = subtitleSuffix(left, r.subtitle, w - width(cap));
-    if (r.subtitle) {
-      const context = detail && width(left + subtitle) + width(detail) + 2 <= w - width(cap) ? fg(C.dark) + `  ${detail}` : "";
-      const text = left + subtitle + context;
-      return (on ? pickRow(text, true, w - width(cap)) : pad(fg(C.grey) + text, w - width(cap)) + RESET) + cap;
-    }
-    const room = Math.max(1, w - width(cap)), lw = Math.min(width(left), Math.max(Math.floor(room * 0.6), room - width(detail) - 2));
-    const rest = room - lw > 3 && detail ? `  ${detail}` : "";
-    const capChip = cap ? chip(C.dark) + cap + RESET : "";
-    if (on) return pickRow(pad(left, lw) + rest, true, room) + capChip;
-    return fg(r.refused ? C.dark : C.grey) + pad(left, lw) + fg(C.dark) + pad(rest, room - lw) + RESET + capChip;
+  private rowText(it: BarItem, on: boolean, w: number): string[] {
+    const r = it.row, head = ` ${"  ".repeat(Math.min(6, r.depth ?? 0))}${r.mark ? `${r.mark} ` : ""}`;
+    const detail = r.refused ? ` · ${r.refused}` : r.subtitle ? ` · ${r.subtitle}` : r.detail ? ` · ${r.detail}` : "";
+    const cap = r.keycap ? ` ${keyCaption(r.keycap)} ` : "";
+    return rowLines(head + r.label + detail, w - width(cap), undefined, { hang: width(head) }).map((line, i) =>
+      pickRow(line, on, w - width(cap), r.refused ? C.dark : C.grey) + (i ? " ".repeat(width(cap)) : cap));
   }
 
   /** Its frame over `a`: the scopes, the line, the rows and (wide enough) the lit row's preview. */
@@ -431,7 +423,7 @@ export class PowerBar {
   draw(cols: number, rows: number): { rect: Rect; lines: string[] } {
     const r = (this.rect = barRect(cols, rows));
     const canvas = new Canvas(r.cols, r.rows);
-    this.picker.draw(canvas, { col: 0, row: 0, cols: r.cols, rows: r.rows });
+    withRowLimit(lookFor(this.host.ctx, { screen: this.host.screens().at(-1)?.title }, r.cols).values["rows.lines"], () => this.picker.draw(canvas, { col: 0, row: 0, cols: r.cols, rows: r.rows }));
     return { rect: r, lines: canvas.lines() };
   }
 

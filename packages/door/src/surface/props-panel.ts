@@ -12,7 +12,7 @@ import { MISSING_MARK, pageOf, refView, referencesIn, shortId } from "../refs";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { selectedRow, ellipsize, bg, C, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { rule } from "../text";
+import { rowLines, rule } from "../text";
 import { RowView } from "../scroll";
 import { LineInput } from "./line";
 import type { SettingsCard } from "./settings-card";
@@ -151,25 +151,26 @@ export class PropertyPanel {
       entries.push({ row: r });
       previous = group;
     }
-    const selected = entries.findIndex(entry => "row" in entry && entry.row.n - 1 === this.sel);
-    this.view.place(Math.max(0, selected), entries.length, room);
     const keyW = Math.min(16, Math.max(3, ...rows.map(r => width(r.key))));
-    this.at = [];
-    for (const entry of entries.slice(this.view.top, this.view.top + room)) {
-      if ("heading" in entry) { out.push(fg(C.dark) + pad(entry.heading, w) + RESET); continue; }
-      const r = entry.row;
-      const i = r.n - 1, on = i === this.sel;
+    const drawn = entries.flatMap<{ text: string; row: PropRow | null }>(entry => {
+      if ("heading" in entry) return [{ text: fg(C.dark) + pad(entry.heading, w) + RESET, row: null }];
+      const r = entry.row, f = this.field?.row.n === r.n ? this.field : null;
       const mark = info.summary.includes(r.key.toLowerCase()) ? fg(C.yellow) + "■" : " ";
-      const scope = r.scope === "block" ? "" : `(${r.scope})`;
-      const f = this.field && this.field.row.n === r.n ? this.field : null;
-      const valW = Math.max(1, w - keyW - 5 - (scope ? scope.length + 1 : 0));
-      let value: string;
-      if (f) value = f.input.show(valW, "block");
-      else value = (r.target ? fg(C.lcyan) : fg(C.yellow)) + valueView(r, info.src, info.text);
-      const shown = pad(value, valW);
-      const line = " " + mark + " " + fg(C.brown) + pad(printable(r.key), keyW) + "  " + (scope && !f ? value + RESET + " " + fg(C.dark) + scope : shown) + RESET;
+      const scope = r.scope === "block" ? "" : ` (${r.scope})`;
+      const valW = Math.max(1, w - keyW - 5 - scope.length);
+      const value = f ? f.input.show(valW, "block") : (r.target ? fg(C.lcyan) : fg(C.yellow)) + valueView(r, info.src, info.text);
+      const line = " " + mark + " " + fg(C.brown) + pad(printable(r.key), keyW) + "  " + value + RESET + fg(C.dark) + scope + RESET;
+      return rowLines(line, w, f ? 1 : undefined, { hang: keyW + 5 }).map(text => ({ text, row: r }));
+    });
+    const selected = drawn.findIndex(r => r.row?.n === this.sel + 1), end = drawn.findLastIndex(r => r.row?.n === this.sel + 1);
+    this.view.place(this.sel, drawn.length, room, [Math.max(0, selected), Math.max(0, end)]);
+    this.at = [];
+    for (const entry of drawn.slice(this.view.top, this.view.top + room)) {
+      const r = entry.row;
+      if (!r) { out.push(entry.text); continue; }
+      const on = r.n - 1 === this.sel, f = this.field?.row.n === r.n ? this.field : null;
       if (out.length < h) this.at.push({ y: out.length, n: r.n, from: keyW + 5, target: !!r.target });
-      out.push(on ? selectedRow(line, w) : pad(line, w));
+      out.push(on ? selectedRow(entry.text, w) : pad(entry.text, w));
       // The value being typed completes as a draft does: the popup opens under it, and a click on a candidate chooses it.
       if (f) {
         const c = completerOf(f.input), pop = completionOf(f.input);

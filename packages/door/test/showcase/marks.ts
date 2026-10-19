@@ -63,6 +63,7 @@ export const marks: Record<string, string[]> = {
   children: ["Seed swap thread", "children · Seed swap", "↓ children (4)", "Ana: runner beans to swap"],
   // The leek thread, opened on a reply three deep: the panel's tree with the note marked and a level folded around it.
   thread: ["Who has spare leek seedlings?", "THREAD", "► Ben: mine are still in modules", "2 more earlier", "1 more later"],
+  "links-rows": ["One line", "Two lines", "Truncate", "Carry the trestle tables"],
   // The day's plan with its outbox: the waiting letters listed, the first one previewed beside the list.
   "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
   "agent-focus": ["Plan for Saturday", "@fern:3", "@moss:5", "who's online"],
@@ -77,7 +78,7 @@ export const marks: Record<string, string[]> = {
   "page-figure": ["Lego night", "Garden club", "TICKETS FOR THIS PROJECT", "Sort the bricks", "Water the beans"],
   // The plot calendar's dates, written four ways, asked as any property (PIE-769); the lanes are saved views.
   dates: ["Plot calendar", "DUE IN THREE DAYS", "DONE WAITING", "IN ITS WINDOW TODAY", "Due in th"],
-  tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
+  tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ cozy"],
   // The build log: its two open calls under Needs you, the decided ones drawn as their marks.
   steps: ["Shed roof build log", "Needs you", "felt from the merchant", "screws, not nails"],
   values: ["Vent rail demo", "Owner: Ada", "did you mean owner?", "Spring sowing jobs"],

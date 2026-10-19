@@ -1,3 +1,4 @@
+import { rowLines } from "../text";
 // Query tiles (PIE-511): one saved view's cards (a virtual branch, as the service reads it with `views.read`),
 // with its own cursor. A board lane is one; so is a query tile opened on the desk (`^W o q`, `tile.open
 // kind=query view=<id>`). Where its cards open is the desk's rule (its link, its container's opens-into); the
@@ -197,39 +198,49 @@ export class QueryPane implements Pane {
   }
   dispose() { if (this.reload) clearTimeout(this.reload); }
 
-  /** How many cards fit in `rows` (two rows each). */
-  fits(rows: number) { return Math.max(1, Math.floor(rows / 2)); }
+  private drawnItems: number[] = [];
+  private cardHeight = 2;
+  /** A page step, using the average height of the cards last painted. */
+  fits(rows: number) { return Math.max(1, Math.floor(rows / this.cardHeight)); }
 
   render(w: number, h: number, focused: boolean): PaneView {
     const items = this.items ?? [];
-    const fit = this.fits(h);
-    this.cursor.place(this.sel, items.length, fit);
+
     const lines: string[] = [];
     // The view's [summary-properties::…] say what a card shows after its Work ID and priority (a reading list's
     // author); without them, whatever its cards carry: stage fields, or outbox fields (to · channel · waiting on).
     const keys = viewSummaryKeys(this.def)?.filter(k => k !== "work-id" && k !== "priority") ?? null;
-    items.slice(this.cursor.top, this.cursor.top + fit).forEach((m, j) => {
-      const sel = this.cursor.top + j === this.sel;
+    const at: number[] = [];
+    const owners: number[] = [];
+    items.forEach((m, j) => {
+      at.push(lines.length);
+      const sel = j === this.sel;
       const wid = prop(m, "work-id") ?? prop(m, "ticket") ?? "";
       const title = wid ? subject(m).replace(new RegExp(`^${wid}\\s*[—:-]?\\s*`), "") : subject(m);
       const pri = PRIORITY[prop(m, "priority") ?? ""] ?? C.dark;
       const extra = (keys ? summarySegments(m.properties, keys).map(x => x.value) : [prop(m, "track"), prop(m, "to") && `→ ${prop(m, "to")}`, prop(m, "channel"), prop(m, "waiting-on") && `waiting on ${prop(m, "waiting-on")}`]).filter(Boolean).join(" · ");
       if (sel) {
         lines.push(selectedRow(` ${wid} ${prop(m, "priority") ?? ""} ${extra} · ${ago(m.updatedAt)}`, w, focused, "idleRow"));
-        lines.push(selectedRow(` ${title}`, w, focused, "idleRow"));
+        lines.push(...rowLines(` ${title}`, w, undefined, { hang: 1 }).map(line => selectedRow(line, w, focused, "idleRow")));
       } else {
         lines.push(pad(` ${fg(pri)}● ${fg(C.lcyan)}${wid}${wid ? " " : ""}${fg(C.dark)}${extra} · ${ago(m.updatedAt)}`, w) + RESET);
-        lines.push(fg(C.grey) + pad(` ${title}`, w) + RESET);
+        lines.push(...rowLines(` ${title}`, w, undefined, { hang: 1 }).map(line => fg(C.grey) + pad(line, w) + RESET));
       }
+      owners.push(...Array.from({ length: lines.length - at[j]! }, () => j));
     });
+    this.cardHeight = lines.length / Math.max(1, items.length) || 2;
+    this.cursor.place(this.sel, lines.length, h, [at[this.sel] ?? 0, (at[this.sel + 1] ?? lines.length) - 1]);
+    this.drawnItems = owners.slice(this.cursor.top, this.cursor.top + h);
+    lines.splice(this.cursor.top + h);
+    lines.splice(0, this.cursor.top);
     if (!this.items) lines.push(fg(C.dark) + " loading…" + RESET);
     else if (this.read && this.read.status !== "ready") for (const e of this.read.errors) lines.push(fg(C.lred) + " " + e + RESET);
     else if (!items.length) lines.push(fg(C.dark) + ` nothing in ${this.name || "this view"} yet: no note matches what it asks for` + RESET);
     return { lines };
   }
 
-  /** The card drawn at row `y` of the tile (its two rows), or -1. */
-  rowAt(y: number): number { const i = this.cursor.top + Math.floor(y / 2); return y >= 0 && i < (this.items?.length ?? 0) ? i : -1; }
+  /** The card owning physical row `y` of the tile, or -1. */
+  rowAt(y: number): number { return this.drawnItems[y] ?? -1; }
 
   /**
    * Pick card `i`: the person's cursor moves there and it becomes what the tile shows (a preview follows it; with a

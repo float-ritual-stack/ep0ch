@@ -14,7 +14,7 @@
 // A cell is the text between `|`s; a bold row is the accent. Under 60 columns the block stacks: each row is its
 // label, then one line per column.
 import { BOLD, ellipsize, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
-import { wrap } from "../text";
+import { rowLines, wrap } from "../text";
 import { ACCENT, DIM, HI, INK, records, rowLink, tier, type Props, type RowLink } from "./palette";
 
 export interface Entry { label: string; cells: string[]; accent?: boolean; muted?: boolean; block?: string }
@@ -33,8 +33,8 @@ export function drawCompare(p: Props, w: number, link?: RowLink): string[] {
     const cl = Math.min(Math.max(...columns.map(vwidth)), Math.max(4, w >> 1));
     return entries.flatMap((e, i) => [
       ...(i ? [""] : []),
-      ...wrap(e.label, w).map((l, j) => ink(e) + (j ? l : rowLink(link, e.block, l)) + UNBOLD + RESET),
-      ...columns.flatMap((c, k) => wrap(e.cells[k] || " ", Math.max(4, w - cl - 4)).map((l, j) => "  " + fg(HI) + pad(j ? "" : ellipsize(c, cl), cl) + "  " + fg(INK) + l + RESET)),
+      ...rowLines(rowLink(link, e.block, e.label), w).map(l => ink(e) + l + UNBOLD + RESET),
+      ...columns.flatMap((c, k) => rowLines(e.cells[k] || " ", Math.max(4, w - cl - 4)).map((l, j) => "  " + fg(HI) + pad(j ? "" : ellipsize(c, cl), cl) + "  " + fg(INK) + l + RESET)),
     ]);
   }
   const lw = Math.min(Math.max(...entries.map(e => vwidth(e.label))), Math.max(8, Math.floor(w * 0.3)));
@@ -42,10 +42,10 @@ export function drawCompare(p: Props, w: number, link?: RowLink): string[] {
   const head = pad("", lw) + columns.map(c => fg(DIM) + " ┊ " + fg(HI) + pad(ellipsize(c, cw), cw)).join("") + RESET;
   const rule = fg(DIM) + "·".repeat(Math.min(w, lw + (cw + 3) * n)) + RESET;
   const body = entries.flatMap(e => {
-    const labels = wrap(e.label, lw), cells = columns.map((_, k) => wrap(e.cells[k] ?? "", cw));
+    const labels = rowLines(rowLink(link, e.block, e.label), lw), cells = columns.map((_, k) => rowLines(e.cells[k] ?? "", cw));
     const lines = Math.max(labels.length, ...cells.map(c => c.length));
     return Array.from({ length: lines }, (_, i) =>
-      ink(e) + pad(i ? labels[i] ?? "" : rowLink(link, e.block, labels[0] ?? ""), lw) + UNBOLD + RESET
+      ink(e) + pad(labels[i] ?? "", lw) + UNBOLD + RESET
       + cells.map(c => fg(DIM) + " ┊ " + fg(INK) + pad(c[i] ?? "", cw)).join("") + RESET);
   });
   return [head, rule, ...body];

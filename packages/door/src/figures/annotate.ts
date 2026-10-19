@@ -13,7 +13,7 @@
 //   2. encrypted, to the storage box
 //   ::
 import { ellipsize, fg, RESET } from "../style";
-import { wrap } from "../text";
+import { rowLines } from "../text";
 import { ACCENT, DIM, HI, INK, type Props } from "./palette";
 
 const MARKER = /\s*(?:\/\/|#|--|;)\s*\((\d+)\)\s*$/;
@@ -22,14 +22,13 @@ export function drawAnnotate(p: Props, w: number): string[] {
   const code = String(p.code ?? "").replace(/\n$/, "").split("\n");
   const notes: string[] = (p.notes ?? []).map(String);
   const gw = 4;
-  const out = code.map(line => {
+  const out = code.flatMap(line => {
     const m = MARKER.exec(line);
-    const text = ellipsize(m ? line.slice(0, m.index) : line, Math.max(4, w - gw));
-    return m ? fg(ACCENT) + `[${m[1]}]`.padEnd(gw) + fg(HI) + text + RESET : " ".repeat(gw) + fg(DIM) + text + RESET;
+    return rowLines(m ? line.slice(0, m.index) : line, Math.max(4, w - gw)).map((text, i) => m && !i ? fg(ACCENT) + `[${m[1]}]`.padEnd(gw) + fg(HI) + text + RESET : " ".repeat(gw) + fg(DIM) + text + RESET);
   });
   if (notes.length) {
     out.push("");
-    notes.forEach((n, i) => wrap(n, Math.max(6, w - gw)).forEach((l, j) => out.push((j ? " ".repeat(gw) : fg(ACCENT) + `[${i + 1}]`.padEnd(gw)) + fg(INK) + l + RESET)));
+    notes.forEach((n, i) => rowLines(n, Math.max(6, w - gw)).forEach((l, j) => out.push((j ? " ".repeat(gw) : fg(ACCENT) + `[${i + 1}]`.padEnd(gw)) + fg(INK) + l + RESET)));
   }
   return out;
 }
