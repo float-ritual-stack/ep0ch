@@ -47,7 +47,8 @@ function figureChecklistItems(text: string, properties: PropertyRecord[]): Check
 function listChecklistItems(text: string, properties: PropertyRecord[]): ChecklistItem[] {
   const lists = markdownListItems(text);
   const anchors = fragmentAnchors(text);
-  const anchorByLine = new Map(anchors.filter(anchor => anchor.kind === "list-item").map(anchor => [anchor.lineIndex, anchor]));
+  // The final task in a callout can carry the callout's anchor; it still identifies that task for updates.
+  const anchorByLine = new Map(anchors.map(anchor => [anchor.lineIndex, anchor]));
   const counts = new Map<string, number>();
   for (const anchor of anchors) counts.set(anchor.id, (counts.get(anchor.id) ?? 0) + 1);
   const items: ChecklistItem[] = [];

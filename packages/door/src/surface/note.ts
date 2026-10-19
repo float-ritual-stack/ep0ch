@@ -35,7 +35,7 @@ import { splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
-import { foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
+import { codeSpans, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
@@ -1787,7 +1787,7 @@ export class NoteSurface {
       const row = top - 1;
       lines[row] = dim(pad(`reading line ${above ? "↑" : "↓"} ${this.readingSourceLine() + 1}`, w));
     }
-    if (mcols) this.drawMargin(lines, laid, top, room, bodyW, mcols);
+    if (mcols) this.drawMargin(lines, laid, top, room, bodyW, mcols, itemRows);
     // A picture is placed under the text, and a terminal may draw it under every cell with a background of its own
     // (Tern does; Kitty draws it over them): its cells keep the terminal's own background, whatever tinted the rows
     // (an extension's region, the ruler, a box's surface), as the desk's surface yields there (PIE-839).
@@ -1797,8 +1797,10 @@ export class NoteSurface {
     const blockNow = current ? this.blockOf(current) : null;
     doc.blocks.forEach((b, n) => {
       if (b.kind === "span") {
-        const row = b.row - this.scroll;
-        if (row >= 0 && row < room && b.col + bx < w) this.hits.push({ row: top + row, from: b.col + bx, to: Math.min(w, (b.to ?? b.col) + bx), block: n });
+        for (const cell of b.cells!) {
+          const row = cell.row - this.scroll;
+          if (row >= 0 && row < room && cell.from + bx < w) this.hits.push({ row: top + row, from: cell.from + bx, to: Math.min(w, cell.to + bx), block: n });
+        }
         return;
       }
       if (b.col + bx >= w) return;
@@ -2015,7 +2017,6 @@ export class NoteSurface {
       body[row] = fg(marks.some(k => k.row === row && k.open) ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
     this.regionInfo = regionInfo;
     this.regionSpans = (doc.regions ?? []).map(r => ({ key: r.key, from: top + r.row, to: top + r.row + r.rows }));
-    const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow, this.imageRefOf(m, noteLines));
     // Both placements use the same card and controls; width alone chooses beside or below the passage.
     const cards = mcols ? placeCards(cardThreads.flatMap(c => {
       const k = marks.find(x => x.thread === c.id);
@@ -2023,6 +2024,14 @@ export class NoteSurface {
       const card = this.threadCard(c, mcols - 2, host, drawn);
       return [{ thread: c.id, row: k.row, rows: card.lines, controls: card.controls, images: card.images, links: card.links }];
     })) : [];
+    for (const card of cards) {
+      const dx = w - mcols + 2 - this.bx;
+      for (const b of codeSpans(card.rows, card.rows.map(() => -1))) doc.blocks.push({
+        ...b, row: card.at + b.row, col: dx + b.col, to: dx + b.to!,
+        cells: b.cells!.map(c => ({ row: card.at + c.row, from: dx + c.from, to: dx + c.to })),
+      });
+    }
+    const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow, this.imageRefOf(m, noteLines));
     for (const card of cards) {
       const cardDoc: Doc = { lines: card.rows, links: card.links, images: [], media: [], heads: [], trims: new Map(), blocks: [], source: card.rows.map(() => -1) };
       const offset = w - mcols + 2 - this.bx;
@@ -2319,7 +2328,7 @@ export class NoteSurface {
     const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : [{ row: h.row, cols: h.cols, n: n + 1 }]; });
     const placements = imagePlacements(doc.images, 0, ...cellOf(host));
     onGround(lines, placements);
-    return { lines, links, folds, placements, current: current ? current.row : null, key: current?.key ?? null, trims: doc.trims, blocks: doc.blocks.map((b, n) => ({ row: b.row, rows: b.rows, col: b.col, ...(b.to !== undefined ? { to: b.to } : {}), kind: b.kind, n })) };
+    return { lines, links, folds, placements, current: current ? current.row : null, key: current?.key ?? null, trims: doc.trims, blocks: doc.blocks.flatMap<ReturnType<NoteSurface["digest"]>["blocks"][number]>((b, n) => b.kind === "span" ? b.cells!.map(c => ({ row: c.row, rows: 1, col: c.from, to: c.to, kind: b.kind, n })) : [{ row: b.row, rows: b.rows, col: b.col, kind: b.kind, n }]) };
   }
 
   /** A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section. */
@@ -3819,7 +3828,7 @@ export class NoteSurface {
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
   private hitAt(x: number, y: number): Hit | undefined {
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    return at.find(h => "copy" in h || "block" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "crumbs" in h || "start" in h || ("follow" in h && h.follow)) ?? at[0];
+    return at.find(h => "block" in h) ?? at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || "crumbs" in h || "start" in h || ("follow" in h && h.follow)) ?? at[0];
   }
 
   // ── keys: each one is an action, the same ones an agent calls ─────────────
@@ -4741,7 +4750,7 @@ export class NoteSurface {
     doc.blocks.forEach((b, n) => {
       if (b.kind === "callout") return;
       if (b.kind === "span") {
-        out.push({ key: `block:span:${b.row}:${b.col}`, kind: "block", row: top + b.row, from: b.col + this.bx, to: (b.to ?? b.col) + this.bx, ruler: [top + b.row, top + b.row + b.rows], label: `code · ${ellipsize(b.text, 40)}`, block: n });
+        out.push({ key: `block:span:${b.row}:${b.col}`, kind: "block", row: top + b.row, from: b.col + this.bx, to: (b.to ?? b.col) + this.bx, ruler: [top + b.row, top + b.row + b.rows], item: [top + b.row, top + b.row + b.rows], label: `code · ${ellipsize(b.text, 40)}`, block: n });
         return;
       }
       const lines = b.text.split("\n").length;
@@ -6868,13 +6877,14 @@ export class NoteSurface {
    * The margin's side column, `cols` wide, beside the body rows shown: each card at its passage's row (placed in the
    * layout so none overlap), a dim rule where there's none. A click on a card expands its thread inline.
    */
-  private drawMargin(lines: string[], laid: Laid, top: number, room: number, bodyW: number, cols: number) {
+  private drawMargin(lines: string[], laid: Laid, top: number, room: number, bodyW: number, cols: number, itemRows: [number, number] | null) {
     const byRow = new Map<number, { thread: string; text: string }>();
     for (const c of laid.margin.cards) c.rows.forEach((t, j) => byRow.set(c.at + j, { thread: c.thread, text: t }));
     for (let i = top; i < lines.length && i - top < room; i++) {
       const r = i - top + this.scroll, card = byRow.get(r);
       // Only a card's rows have the column's edge: the margin is quiet where it holds nothing.
-      lines[i] = pad(lines[i]!, bodyW) + (card ? fg(C.dark) + "│" + RESET + " " + card.text : " ".repeat(cols));
+      const text = card && itemRows && top + r >= itemRows[0] && top + r < itemRows[1] ? paintRange(pad(card.text, cols - 2), 0, cols - 2, ITEM_BG) : card?.text;
+      lines[i] = pad(lines[i]!, bodyW) + (card ? fg(C.dark) + "│" + RESET + " " + text : " ".repeat(cols));
     }
     for (const card of laid.margin.cards) for (const l of card.links) {
       const row = top + card.at + l.line, from = bodyW + 2 + l.from, to = bodyW + 2 + l.to;
@@ -7615,7 +7625,12 @@ function withRows(doc: Doc, inserts: readonly { at: number; lines: readonly stri
       ...(doc.regions ? { regions: doc.regions.map(r => ({ ...r, row: mv(r.row), rows: mv(r.row + r.rows - 1) + 1 - mv(r.row) })) } : {}),
       trims: new Map([...doc.trims].map(([r, t]) => [mv(r), t])),
       // A block that rows were put inside (a thread under a quote's passage) grows with them.
-      blocks: doc.blocks.map(b => ({ ...b, row: mv(b.row), rows: mv(b.row + b.rows - 1) + 1 - mv(b.row), col: b.col })),
+      blocks: [
+        ...doc.blocks.map(b => ({ ...b, row: mv(b.row), rows: mv(b.row + b.rows - 1) + 1 - mv(b.row), ...(b.cells ? { cells: b.cells.map(c => ({ ...c, row: mv(c.row) })) } : {}) })),
+        ...inserts.flatMap((p, i) => codeSpans(p.lines, p.lines.map(() => -1)).map(b => ({
+          ...b, row: starts[i]! + b.row, cells: b.cells!.map(c => ({ ...c, row: starts[i]! + c.row })),
+        }))),
+      ],
     },
     starts,
   };

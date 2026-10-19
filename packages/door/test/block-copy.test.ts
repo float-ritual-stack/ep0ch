@@ -1,6 +1,11 @@
 // PIE-638: a code block, a quote and a callout copy their content as written (the ⧉ control, y on the current element, `act
 // block.copy`), and a selection across them copies the words, not the drawn bars, frames and bullets. Fictional notes, no service.
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { SPAN_COPY } from "../src/showcase/seed/media";
+import { Scratch, until as waitUntil } from "./scratch";
+import { SocketBoard } from "../src/socket";
 import type { Msg } from "../src/board";
 import type { Actor } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
@@ -191,3 +196,91 @@ describe("copying the whole note", () => {
 });
 
 const until = async (ok: () => boolean) => { for (let i = 0; i < 100 && !ok(); i++) await Bun.sleep(10); };
+
+// The real terminal path owns container coverage: SGR mouse input to OSC 52 output.
+describe("code span clicks in a scratch terminal", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard, note: Msg;
+  const socket = join(scratch.root, "tmux.sock"), output = join(scratch.root, "terminal.out");
+  const env = { ...process.env, ...scratch.env, EP0CH_STATE: join(scratch.root, "door"), EP0CH_CONTROL: join(scratch.root, "door.sock"), EP0CH_DAEMON: "0", EP0CH_DAILY_AGENT: "sh" };
+  const tmux = (...args: string[]) => {
+    const r = Bun.spawnSync(["tmux", "-S", socket, ...args], { env, stdout: "pipe", stderr: "pipe" });
+    if (r.exitCode) throw new Error(r.stderr.toString());
+    return r.stdout.toString();
+  };
+  const capture = () => tmux("capture-pane", "-p", "-t", "spans");
+  const copied = () => [...readFileSync(output, "utf8").matchAll(/\x1b\]52;c;([A-Za-z0-9+/=]*)\x07/g)].map(m => Buffer.from(m[1]!, "base64").toString());
+  const click = (text: string, offset = 0) => {
+    const lines = capture().split("\n"), y = lines.findIndex(l => l.includes(text));
+    expect(y, `${text} is drawn\n${lines.join("\n")}`).toBeGreaterThanOrEqual(0);
+    const x = lines[y]!.indexOf(text) + offset;
+    tmux("send-keys", "-t", "spans", "-l", `\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
+    return y;
+  };
+  beforeAll(async () => {
+    board = new SocketBoard(await scratch.start());
+    await board.info();
+    note = await board.request<Msg>("create", { parentId: null, author: "agent", text: SPAN_COPY });
+    await board.comment("span-comment", note.id, note.revision!, "Try `comment-copy`.", { quote: "Paragraph `paragraph-copy`.", start: SPAN_COPY.indexOf("Paragraph `paragraph-copy`.") });
+    writeFileSync(output, "");
+    tmux("new-session", "-d", "-s", "spans", "-x", "120", "-y", "65", "bun", join(import.meta.dir, "../src/main.ts"), "--here", "--ws", "scratch", "--screen", "detail", note.id);
+    tmux("pipe-pane", "-t", "spans", `cat > ${output}`);
+    await waitUntil(() => capture().includes("figure-copy"), "the scratch note", 15000);
+  }, 30000);
+  afterAll(async () => {
+    tmux("kill-session", "-t", "spans");
+    board?.close();
+    await scratch.dispose();
+  });
+  for (const text of ["paragraph-copy", "bullet-copy", "step-copy", "callout-copy", "callout-list-copy", "callout-task-copy", "nested-copy", "table-copy", "figure-copy", "wrapped-tail", "callout-tail", "comment-copy"]) {
+    test(`${text} copies on its drawn cell`, async () => {
+      tmux("send-keys", "-t", "spans", "Escape");
+      if (text === "comment-copy") {
+        tmux("send-keys", "-t", "spans", "M");
+        await waitUntil(() => capture().includes(text), "the comment", 3000);
+      }
+      const before = copied().length;
+      const row = click(text, 2);
+      await waitUntil(() => copied().length > before, `${text} OSC 52`, 1500);
+      expect(copied().at(-1)).toBe(text.endsWith("-tail") ? `garden link setup --host garden.example --name shed --label brass watering can --finish ${text}` : text);
+      await waitUntil(() => capture().includes("copied"), "the copied status painted", 1500);
+      await waitUntil(() => tmux("capture-pane", "-e", "-p", "-t", "spans").split("\n")[row]!.includes("48;2;"), "the copied row highlighted", 1500);
+      tmux("send-keys", "-t", "spans", "y");
+      await waitUntil(() => copied().length > before + 1, "y on the selected span", 1500);
+      expect(copied().at(-1)).toBe(text.endsWith("-tail") ? `garden link setup --host garden.example --name shed --label brass watering can --finish ${text}` : text);
+    });
+  }
+  test("the expanded comment copies in the side margin too", async () => {
+    tmux("send-keys", "-t", "spans", "Escape");
+    click("comment ·", 2);
+    tmux("resize-window", "-t", "spans", "-x", "200", "-y", "65");
+    await waitUntil(() => capture().split("\n")[0]!.length > 150, "the wider terminal");
+    tmux("send-keys", "-t", "spans", "Home");
+    await waitUntil(() => capture().includes("[Reply]") && capture().includes("comment-copy"), "the expanded comment");
+    const before = copied().length;
+    const row = click("comment-copy", 2);
+    await waitUntil(() => copied().length > before, "the side comment copied", 1500);
+    expect(copied().at(-1)).toBe("comment-copy");
+    await waitUntil(() => tmux("capture-pane", "-e", "-p", "-t", "spans").split("\n")[row]!.includes("48;2;"), "the copied row highlighted", 1500);
+    tmux("resize-window", "-t", "spans", "-x", "120", "-y", "65");
+    await waitUntil(() => capture().split("\n")[0]!.length < 150, "the narrow terminal");
+  });
+  test("the nested callout task mark opens its choices", async () => {
+    tmux("send-keys", "-t", "spans", "Escape", "M");
+    click("[ ] Task nested-copy", 1);
+    await waitUntil(() => capture().includes("Mark done"), "nested task choices", 1500);
+    tmux("send-keys", "-t", "spans", "x");
+    let saved = "";
+    for (let i = 0; i < 100; i++) { saved = (await board.get(note.id))!.text; if (saved.includes("> > > - [x] Task `nested-copy`")) break; await Bun.sleep(20); }
+    expect(saved).toContain("> > > - [x] Task `nested-copy`");
+  });
+  test("the task mark still toggles on its own cell", async () => {
+    tmux("send-keys", "-t", "spans", "Escape");
+    click("[ ] Task step-copy", 1);
+    await waitUntil(() => capture().includes("Mark done"), "the task choices");
+    tmux("send-keys", "-t", "spans", "x");
+    let saved = "";
+    for (let i = 0; i < 100; i++) { saved = (await board.get(note.id))!.text; if (saved.includes("- [x] Task `step-copy`")) break; await Bun.sleep(20); }
+    expect(saved).toContain("- [x] Task `step-copy`");
+  });
+});
