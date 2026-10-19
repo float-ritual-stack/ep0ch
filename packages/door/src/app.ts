@@ -1,3 +1,4 @@
+import { useFloatLook } from "./theme";
 import { WaitingAsks } from "./waiting-asks";
 import { RUNBOOK_ACTIONS } from "./runbook";
 import { outlineBoards, readNote } from "./desk/outline-boards";
@@ -1425,6 +1426,7 @@ export class App implements Ctx {
     this.drawer.active = !s.noDrawer;
     // What this frame draws stays in the media module's memory while it's on screen (nextFrame).
     nextFrame();
+    useFloatLook(lookFor(this, { screen: s.title }, cols).values);
     const frame = withRowLimit(lookFor(this, { screen: s.title }, cols).values["rows.lines"], () => s.render(this));
     let lines = frame.lines.slice(0, rows - 1);
     while (lines.length < rows - 1) lines.push("");

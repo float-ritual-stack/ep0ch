@@ -191,6 +191,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     const s = spine("detail0");
     expect(s.col + s.cols).toBe(180);                                   // the preview took the width
     expect(rect("preview").cols).toBe(180 - 3);
+    key({ kind: "esc" }); // dismiss the fold hint
     key({ kind: "esc" });
     expect(BV.where(b)).toBe("lanes");
     click(s);
@@ -344,6 +345,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     await other.comment(crypto.randomUUID(), m.id, m.revision!, "Mulch around them first.", { quote: m.text.slice(0, 10), start: 0 }, { kind: "agent", id: "someone-else" });
     await until(() => (d.comments?.length ?? 0) > 0, "the new comment", 5000);
     expect((app.describe() as any).state.readers.find((r: any) => r.name === "detail1").newComments).toBe(1);
+    await act("hint.dismiss");
     // Under its × (PIE-794: a spine that closes has one on its top row), its marks: what it holds, then ■.
     const s = spine("detail0");
     expect(frame()[s.row]![s.col]).toBe("x");
@@ -361,6 +363,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     // One tile with nothing to call itself yet (a title that is empty until its first read).
     D.panes.get(D.idNamed("k1")).spine = () => ({ title: " \x1b[33m \x1b[0m" });
     for (const [i] of kinds.entries()) if (i > 0) await d.dispatch.act({ action: "tile.collapse", tile: `k${i}`, args: { on: true } }, USER);
+    await d.dispatch.press("hint.dismiss");
     const lines = d.render(D.ctx).lines.map(plain);
     for (const [i, kind] of kinds.entries()) {
       if (i === 0) continue;
@@ -378,6 +381,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
   test("under Kitty graphics, lane and reader spines are rotated titles placed on screen", async () => {
     await withDetail();
     key(char("c")); key({ kind: "tab" }); key(char("c"));
+    await act("hint.dismiss");
     (app as any).video = "kitty";
     try {
       const keys = b.render(B().ctx).placements!.map(p => p.key);

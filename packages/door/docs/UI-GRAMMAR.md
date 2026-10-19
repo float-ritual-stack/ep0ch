@@ -13,7 +13,7 @@ three layout models and four searches (§4).
 
 | The feature needs to… | Use | Where |
 |---|---|---|
-| explain a mode or reveal a frame's controls without taking keys | `HintCard`, composed in the desk float layer with `Canvas.box`, `RowView` and the `graph-keys` keycaps. `ActionDef.hint` or a mode's card declares its words. `Dispatcher.menu` supplies control choices; the dispatcher owns execution. `hint.show/get/pin/dismiss`, `hint.scroll` and `xray` share one ActionSet. | `src/surface/hint-card.ts`, `src/desk/desk.ts`; showcase `hints` |
+| explain a mode or reveal a frame's controls without taking keys | `HintCard`, composed in the desk float layer with `Canvas.box`, `RowView` and the `graph-keys` keycaps. `ActionDef.hint` or a mode's card declares its words. `menuRow` formats the interaction choices; the dispatcher owns execution. `hint.show/get/pin/dismiss`, `hint.scroll` and `xray` share one ActionSet. | `src/surface/hint-card.ts`, `src/desk/desk.ts`; showcase `hints` |
 | reply to a note and read its conversation | `NoteSurface` owns the temporary split and source position; `DraftSession` with `noteReplyTarget` keeps a reply unsaved until submit. The existing editor draws it. `readReplies`, `linkRows` and `linkRowLines` share the children/replies group with the links model; the thread drawer is a reader mode. | `src/surface/note.ts`, `src/draft-session.ts`, `src/links.ts`; showcase `replies` |
 | read a thread as a tree, and pick a post without leaving the one you're reading (PIE-944) | the reader's THREAD panel (`note.thread`, a reader mode): `readThread` (`src/links.ts`) reads the note's ancestors from the service once (`blocks.context`) and follows `replyTo` through them (a moved reply's parent is asked for singly), and, for each level, the replies the service lists for that parent (`readReplies`, the one membership query); `threadRows` lays them out as the links model's rows (`child` rows with `thread`, `fold` rows), `linkRowLines` draws them: the root, the parents down to the note (marked ►, its author and age on every row), the posts beside each, the note's replies; a busy level, a long chain and a long run of replies fold around the note with a count, and ⏎ (or a double click) on the fold shows them. A click selects, a double click or ⏎ opens (`RowPresses`, `RowPress.selected`); `T` is the full list, `b` the outlinks and backlinks | `src/links.ts`, `src/surface/note.ts`, `src/scroll.ts` (`pressOn`); showcase `thread` |
 | keep a reading line and move by blocks, sections or actions | `NoteSurface` uses its `ReaderPosition.reading` source offset and `Doc.source` for the whole wrapped block; the fixed gutter shares folds and comments. | `src/surface/note.ts`, `src/surface/selection.ts`; showcase `reading-line` |
@@ -865,11 +865,12 @@ came from geometry kept from the start of a drag).
 X-ray uses bare Ctrl press/release reports from Kitty, a press-only Ctrl toggle,
 or `ctrl+]` then `?`. Traditional terminals cannot report bare Ctrl: use the
 leader. A terminal tile keeps its existing `ctrl+]` escape and double-press path.
-Frame wires use magenta `s o a` for select, open and alt-open, with destinations when room permits.
+Frame wires use magenta `○ » ^` for select, open and alt-open, with destinations when room permits.
 The controls are CP437-native: `◄`/`▼` fold, `≡` menu, `x` close, `◘` float or put back,
-and `○`/`•` follow or hold. `«` names the reader a list follows; `*`/`!` name its agent policy.
-The frame card names each control and where each wire lands.
-A frame's controls chip opens a hint card by click or hover; `?` while the pointer
+and `°`/`•` follow or hold. `«` names the reader a list follows; `*`/`!` name its agent policy.
+The frame card names only frame controls. The linking card puts the current wire target first.
+`Canvas.float` gives HintCard, ListPicker, completion, the power bar, the keys box and floating composers their raised panel, accent border and half-tone shadow. Theme tokens `float.bg`, `float.border`, `float.shadow` and `backdrop.dim` are tunable through the style cascade; only floats taking keys darken their backdrop.
+A frame's menu chip opens the searchable tile menu on click and the controls hint on hover; `?` while the pointer
 is on a frame opens that card. Elsewhere `?` retains its existing meaning. Cards
 never own keys or focus, and non-choice clicks pass through. Esc dismisses them;
 a mode ending or the next action dismisses an unpinned card.

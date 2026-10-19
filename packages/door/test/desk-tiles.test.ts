@@ -236,9 +236,9 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     const header = visible(render().lines[tr.row]!).slice(tr.col, tr.col + tr.cols);
     mouse("down", tr.col + header.indexOf("\u2261"), tr.row);
     const cardLines = render().lines.map(visible);
-    const wireRow = cardLines.findIndex((line: string) => line.includes("s where a select lands:"));
+    const wireRow = cardLines.findIndex((line: string) => line.includes("○ where a select lands:"));
     expect(wireRow).toBeGreaterThan(tr.row);
-    mouse("down", cardLines[wireRow]!.indexOf("s where a select lands:"), wireRow);
+    mouse("down", cardLines[wireRow]!.indexOf("○ where a select lands:"), wireRow);
     mouse("down", tr.col + 3, tr.row + tr.rows - 3);
     expect(tile("tree").wires.some((w: any) => w.verb === "select")).toBe(false);
     key(ctrl("w")); key(char("P")); render();

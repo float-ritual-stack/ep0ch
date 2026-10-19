@@ -78,6 +78,21 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     expect(get().focus).toBe("activity");
   });
 
+  test("a menu is raised above a dimmed screen and has a shadow; a hint leaves the screen undimmed", async () => {
+    fresh();
+    const before = render().lines;
+    await mine("tile.menu", {}, "activity");
+    const opened = render().lines;
+    expect(opened.map(visible).join("\n")).toContain("▒");
+    expect(opened[0]).not.toBe(before[0]);
+    key({ kind: "esc" });
+    await mine("hint.show", { text: "Pick a destination" }, "activity");
+    const hinted = render().lines;
+    expect(hinted.map(visible).join("\n")).toContain("▒");
+    expect(hinted[0]).toBe(before[0]);
+    await mine("hint.dismiss");
+  });
+
   test("in an edit, the menu's edit in $EDITOR is ctrl+x ctrl+e (edit.external), the person's only", async () => {
     fresh();
     await until(() => !!D().pane("reader")?.msg, "the reader shows a note");

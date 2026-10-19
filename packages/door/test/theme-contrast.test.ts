@@ -42,6 +42,9 @@ function pairsOf(m: Mirror, where: string, theme: ThemeName): { text: Pair[]; bo
   m.cells.forEach((row, y) => row.forEach(c => {
     if (!c.ch || c.ch === " " || c.ch === "\u200b") return;
     const { fg, bg } = m.colours(c);
+    // Inactive content behind a modal is deliberately dimmed; contrast applies to the active float.
+    const t = THEMES[theme], dimGround = (t.ground ?? t.palette[0]!).map(v => Math.round(v * t.backdrop.dim));
+    if (bg.join() === dimGround.join()) return;
     const p: Pair = { fg: fg as unknown as Rgb, bg: bg as unknown as Rgb, ratio: contrast(fg as unknown as Rgb, bg as unknown as Rgb), text: row.map(x => x.ch).join("").trim().slice(0, 60), where: `${where} row ${y}` };
     (isBorder(c.ch, p.fg, theme) ? border : text).push(p);
   }));

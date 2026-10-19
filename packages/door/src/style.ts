@@ -33,6 +33,11 @@ export function selectedRow(text: string, cols: number, keys = true, idle: "idle
   const body = text.replace(/^((?:\x1b\[[\d;]*m)*) /, "$1");
   return style + (keys ? itemBar() : " ") + style + (cols > 1 ? pad(body, cols - 1) : "").split(RESET).join(RESET + style) + RESET;
 }
+/** A float's selected row is one solid dark accent band, including its key caption. */
+export function floatSelectedRow(text: string, cols: number): string {
+  const style = selected();
+  return style + pad(text, cols).split(RESET).join(RESET + style) + RESET;
+}
 /** A chip lighter than this (relative luminance) would be a bright patch: calm and night draw it as coloured text instead. */
 export const CHIP_MAX_LUMINANCE = 0.3;
 /**

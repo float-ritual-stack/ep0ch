@@ -20,7 +20,7 @@ describe("the focus levels are theme tokens", () => {
       for (const [a, b] of [[item.bg, container], [item.bg, selection], [container, selection], [item.bg, ground], [container, ground], [selection, ground]] as const)
         expect(apart(a, b)).toBeGreaterThan(30);
     });
-    for (const [level, bg] of [["container", container], ["item", item.bg], ["selection", selection]] as const)
+    for (const [level, bg] of [["container", container], ["item", item.bg], ["selection", selection], ["float", t.float.bg]] as const)
       if (t.ground || level === "item") test(`${name}: every text colour reads on the ${level} level (4.5:1)`, () => {
         for (const i of TEXT_INKS) expect(contrast(level === "item" ? item.fg ?? t.palette[i]! : t.palette[i]!, bg), `ink ${i}`).toBeGreaterThanOrEqual(4.5);
       });

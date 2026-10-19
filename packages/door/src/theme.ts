@@ -10,7 +10,7 @@
 // - `night`: calm, dimmer: the brightest text near 10:1, for working past midnight.
 // - `classic`: the exact VGA palette and the tints the door has always used.
 import { VGA_RGB } from "./ansi";
-import { SURFACE_STEPS, type Surface } from "@ep0ch/outline-core/style-cascade";
+import { SURFACE_STEPS, type Surface, type StyleValues } from "@ep0ch/outline-core/style-cascade";
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
 
 export type Rgb = readonly [number, number, number];
@@ -73,6 +73,8 @@ export interface Theme {
    * (`((id))`, `[[page]]`, a Work ID): a muted blue-violet, 4.5:1 or better on the ground, dark-capped.
    */
   external: Rgb;
+  float: { bg: Rgb; border: Rgb; shadow: Rgb };
+  backdrop: { dim: number };
   /** The CRT underlay (kitty+crt): its dark base and the bloom added in the middle of the tube. */
   crt: { base: Rgb; bloom: Rgb };
   /** The heatmap's lowest step (the rest climb the palette's blue, cyan, light cyan, white). */
@@ -86,6 +88,8 @@ export interface Theme {
 
 const CLASSIC: Theme = {
   name: "classic",
+  float: { bg: [28, 28, 48], border: [85, 255, 255], shadow: [4, 5, 7] },
+  backdrop: { dim: 0.38 },
   about: "the exact VGA palette: bright cyan, magenta and phosphor green on blue bars",
   palette: VGA_RGB,
   ground: null,
@@ -106,6 +110,8 @@ const CLASSIC: Theme = {
 /** Every number here is checked by test/theme-contrast.test.ts; the README's table is its output. */
 const CALM: Theme = {
   name: "calm",
+  float: { bg: [28, 33, 44], border: [128, 206, 214], shadow: [4, 5, 7] },
+  backdrop: { dim: 0.38 },
   about: "the default: a near-black ground, ink-slate bars, off-white text and softened accents, easy on the eyes for long sessions",
   palette: [
     [13, 16, 22],     // 0 black: the ground, a near-black with a little blue in it
@@ -142,6 +148,8 @@ const CALM: Theme = {
 
 const NIGHT: Theme = {
   name: "night",
+  float: { bg: [22, 25, 33], border: [110, 176, 184], shadow: [4, 5, 7] },
+  backdrop: { dim: 0.38 },
   about: "calm, dimmer: the brightest text near 10:1, for late hours and sensitive eyes",
   palette: [
     [10, 11, 14],     // 0 black: the ground
@@ -276,3 +284,16 @@ export function surfaceMix(role: Surface, share: number, over?: Rgb, t: Theme = 
 
 /** Surface `role` at `strength` (1 to SURFACE_STEPS, as the look's `bg.strength` and `list.zebra.strength` say). */
 export const surfaceRgb = (role: Surface, strength: number, t: Theme = active): Rgb | null => surfaceMix(role, strength / SURFACE_STEPS, undefined, t);
+
+let floatLook: Pick<StyleValues, "float.bg" | "float.border" | "float.shadow" | "backdrop.dim"> | undefined;
+/** The application's style cascade supplies one surface for every float it draws. */
+export function useFloatLook(values: StyleValues): void { floatLook = values; }
+export function floatTheme() {
+  const t = theme(), v = floatLook;
+  return {
+    bg: v && v["float.bg"] !== "theme" ? surfaceRgb(v["float.bg"], SURFACE_STEPS)! : t.float.bg,
+    border: v && v["float.border"] !== "theme" ? t.palette[TONE_INDEX[v["float.border"]]]! : t.float.border,
+    shadow: v?.["float.shadow"] === "sunken" ? t.surface.sunken : t.float.shadow,
+    dim: v ? v["backdrop.dim"] / 100 : t.backdrop.dim,
+  };
+}

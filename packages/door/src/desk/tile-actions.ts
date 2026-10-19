@@ -1,3 +1,4 @@
+import { FRAME_GLYPHS } from "./frame-controls";
 import { GATHER_HINT } from "../surface/hint-card";
 import { ALT_RULES, type AltRule } from "./layout";
 // Tiles and layouts as actions (PIE-413, PIE-473, PIE-474): every change to the layout is one of these
@@ -7,7 +8,7 @@ import { ALT_RULES, type AltRule } from "./layout";
 // takes the person's focus or keys: a tile it opens or moves leaves their focus where it is, and what the
 // person is typing in (an edit, a terminal) is never closed, moved into, or typed into by an agent.
 import { TXN } from "../surface/txn";
-import type { Actor } from "../socket";
+import { USER, type Actor } from "../socket";
 import { ActionRefused, actionSet, asActor, def, type ArgsOf } from "../surface/actions";
 import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { EDGE_WORD, isDir, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
@@ -252,9 +253,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.link": def({
     menu: [
-      { label: "select wire", group: TILE, key: "alt+l s", args: { ask: true, verb: "select" }, now: ({ d, reader }) => ({ label: `s where a select lands: ${d.wireDescription(reader, "select")}` }) },
-      { label: "open wire", group: TILE, key: "alt+l o", args: { ask: true, verb: "open" }, now: ({ d, reader }) => ({ label: `o where an open lands: ${d.wireDescription(reader, "open")}` }) },
-      { label: "alt wire", group: TILE, key: "alt+l a", args: { ask: true, verb: "alt" }, now: ({ d, reader }) => ({ label: `a where an alt-open lands: ${d.wireDescription(reader, "alt")}` }) },
+      { label: "select wire", group: TILE, key: "alt+l s", args: { ask: true, verb: "select" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.select} where a select lands: ${d.wireDescription(reader, "select")}` }) },
+      { label: "open wire", group: TILE, key: "alt+l o", args: { ask: true, verb: "open" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.open} where an open lands: ${d.wireDescription(reader, "open")}` }) },
+      { label: "alt wire", group: TILE, key: "alt+l a", args: { ask: true, verb: "alt" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.alt} where an alt-open lands: ${d.wireDescription(reader, "alt")}` }) },
     ],
     hint: (a, { d }) => a.ask ? d.linkingHint() : null,
     summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there. Select may have several targets. No to= removes that verb's wires; remove=true removes just the named target. ask=true picks on screen; ask=false dismisses the controls without changing wires.",
@@ -311,6 +312,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.collapse": def({
+    hint: (_a, { d, reader }) => reader !== "all" && d.tileNow(reader, USER).collapsed ? { title: "Folded tile", lines: ["A spine keeps the tile and its contents. Click its title to open it again."], keys: [{ keys: "ctrl+w c", does: "fold or open" }] } : null,
     summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. dir=v is a vertical spine (a column the title is written down, for a tile side by side with others), dir=h a horizontal one (one row with the title, for a tile stacked with others: its height goes to its neighbours); no dir takes the way its split runs. A tab set folds as one; opening a spine gives the tile back its size. Only a tile in a row or a column of others folds (a lane, a reader in a row). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
     keys: "alt+h (alt+H a horizontal spine); bare - folds and + or = opens the focused tile where it takes no text (a tile's own - + = win: the tune inspector, an image, a figure), either opens a spine, ✦- ✦= (hyper); the frame card's fold row; ^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
     // On the board, tile=all opens every spine (its own word for every one of them).

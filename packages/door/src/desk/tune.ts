@@ -78,6 +78,10 @@ export const TUNE_ROWS: readonly TuneRow[] = [
   { name: "bp.narrow", tokens: ["bp.narrow"] },
   { name: "bp.wide", tokens: ["bp.wide"] },
   { name: "hints", tokens: ["hints"] },
+  { name: "float.bg", tokens: ["float.bg"] },
+  { name: "float.border", tokens: ["float.border"] },
+  { name: "float.shadow", tokens: ["float.shadow"] },
+  { name: "backdrop.dim", tokens: ["backdrop.dim"] },
 ];
 const rowNamed = (name: string) => TUNE_ROWS.find(r => r.name === name.trim().toLowerCase());
 

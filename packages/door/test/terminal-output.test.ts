@@ -180,6 +180,7 @@ describe("terminal cells, not code points", () => {
 
 describe("CP437 on the wire", () => {
   test("frame controls have distinct CP437 glyphs without substitutions", () => {
+    expect([FRAME_GLYPHS.select, FRAME_GLYPHS.open, FRAME_GLYPHS.alt].some(g => /[a-z]/i.test(g))).toBe(false);
     const glyphs = [...Object.values(FRAME_GLYPHS), ...Object.values(EDGE_GLYPH), ...Object.values(AGENT_GLYPH).filter(Boolean)];
     expect(glyphs.every(inCp437)).toBe(true);
     expect(glyphs.map(toCp437Glyphs)).toEqual(glyphs);

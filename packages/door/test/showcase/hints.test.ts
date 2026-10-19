@@ -19,8 +19,10 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     await d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source");
     expect((await get()).cards[0].lines.join(" ")).toContain("select wire");
     h.screen();
-    // One card, on the tile the wire starts from; the other tiles only say "click to link here" on their frames.
-    expect((await get()).cards.map((c: any) => c.tile)).toEqual(["source"]);
+    expect((await get()).cards).toHaveLength(1);
+    expect((await get()).cards[0].tile).toBe("source");
+    d.key({ kind: "char", ch: "~" }, h.app);
+    expect((await get()).cards).toHaveLength(1);
     const focus = d.layoutGet().focus;
     await d.dispatch.press("hint.pin");
     await d.dispatch.press("tile.title", { text: "Garden notes" }, "reader");
@@ -38,7 +40,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     const wires = d.layoutGet().tiles.find(t => t.name === "source")!;
     expect(JSON.stringify(wires)).toContain("reader");
   });
-  test("Ctrl reports, a tap and the leader toggle the same menu rows without moving focus; peek reads them through the CLI", async () => {
+  test("Ctrl reports, a tap and the leader toggle the frame controls without moving focus; peek reads them through the CLI", async () => {
     const d = h.S().stages.get(h.S().sel).top as Desk;
     await d.dispatch.press("hint.dismiss");
     h.screen();
@@ -53,11 +55,12 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       decoder.feed("\x1b[?15u\x1b[57442;5u");
       expect(d.hintGet().xray).toBe(true);
       const card = d.hintGet().cards.find(c => c.tile === "reader")!;
-      expect(card.choices?.find(c => c.act.action === "tile.collapse")?.key).toBe("ctrl+w c");
-      expect(card.choices?.find(c => c.act.action === "tile.link" && c.act.args?.verb === "select")).toBeDefined();
+      expect(card.lines.join(" ")).toContain("fold");
+      expect(card.lines.join(" ")).toContain("where a select lands");
+      expect(card.choices).toBeUndefined();
       const controls = h.screen().split("\n");
-      expect(controls.some(l => /zoom\s+\^W z/.test(l))).toBe(true);
-      expect(controls.some(l => /Tile ─/.test(l))).toBe(true);
+      expect(controls.some(l => /zoom\s+\^W z/.test(l))).toBe(false);
+      expect(controls.some(l => /where a select lands/.test(l))).toBe(true);
       expect(d.layoutGet().focus).toBe(focus);
       decoder.feed("\x1b[57442;1:3u");
       expect(d.hintGet().xray).toBe(false);
@@ -93,7 +96,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       expect(await proc.exited, stderr).toBe(0);
-      expect(stdout).toContain('s where a select lands:');
+      expect(stdout).toContain('where a select lands');
       expect(d.hintGet().xray).toBe(false);
       expect(d.layoutGet().focus).toBe(focus);
     } finally { control.close(); }
@@ -113,14 +116,14 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     expect(new Set(glyphs.map(toCp437Glyphs)).size).toBe(glyphs.length);
     await d.dispatch.press("hint.show", {}, "reader");
     const legend = d.hintGet().cards[0]!.lines.join(" ");
-    for (const meaning of ["s where a select lands", "o where an open lands", "a where an alt-open lands", "fold", "menu", "close"]) expect(legend).toContain(meaning);
+    for (const meaning of ["○ where a select lands", "» where an open lands", "^ where an alt-open lands", "fold", "menu", "close"]) expect(legend).toContain(meaning);
     await d.dispatch.press("hint.dismiss");
   });
 
   test("each short wire changes its destination through its frame click", async () => {
     const d = h.S().stages.get(h.S().sel).top as Desk;
     for (const [tile, text] of [["source", "Source"], ["reader", "Target"]]) await d.dispatch.press("tile.title", { text }, tile);
-    for (const [letter, verb] of [["s", "select"], ["o", "open"], ["a", "alt"]]) {
+    for (const [letter, verb] of [["○", "select"], ["»", "open"], ["^", "alt"]]) {
       const rows = h.screen().split("\n"), stage = h.S().stageRect;
       const source = d.layoutGet().tiles.find(t => t.name === "source")!.rect!;
       const header = rows[stage.row + source.row]!.slice(stage.col + source.col, stage.col + source.col + source.cols);
@@ -144,7 +147,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       await d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source");
       const text = h.screen();
       expect(text.includes("Click this tile again")).toBe(detailed);
-      expect(text.includes("Linking from source")).toBe(value !== "off");
+      expect(text.includes("Now: a select")).toBe(value !== "off");
     }
     await d.dispatch.press("tune.set", { row: "hints", value: "full", level: "global" }, "hint-tune");
     await d.dispatch.press("tile.link", { ask: false }, "source");

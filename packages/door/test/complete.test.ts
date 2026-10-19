@@ -263,7 +263,7 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     expect(c.state!.items[c.state!.index]!.blockId).toBe("b2");          // still Party lights
     expect(asked.filter(a => a.semantic)).toEqual([{ query: "party hats", semantic: true, near: "note-1" }]);
     expect(asked.every(a => a.near === "note-1")).toBe(true);
-    expect(renderCompletion(c.state!, 60, 8).map(visible).at(-1)).toContain("jev ranked");
+    expect(renderCompletion(c.state!, 60, 8).map(visible).join("\n")).toContain("jev ranked");
   });
 
   test("typing more selects the best match again; a re-ask of the same query keeps the pick", async () => {

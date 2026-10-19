@@ -10,7 +10,7 @@ import { ListPicker } from "../surface/picker";
 import { LineInput } from "../surface/line";
 import { filtered, litCells } from "../bar/filter";
 import { refused } from "../shell-keys";
-import { C, chip, fg, pad, RESET, selectedRow, width } from "../style";
+import { C, chip, fg, pad, RESET, floatSelectedRow, width } from "../style";
 
 /** What the menu runs a row on: the person's press on the screen's dispatcher, and the status bar for a refusal. */
 export interface MenuHost {
@@ -42,7 +42,8 @@ export function menuRow(r: { label: string; key?: string; refused?: string }, on
   const lit = litCells(r.label, query);
   const label = [...r.label].map((c, j) => (lit.has(j) ? fg(C.yellow) + c + fg(on ? C.white : r.refused ? C.dark : C.grey) : c)).join("");
   const capCell = cap ? (r.refused ? fg(C.dark) : chip(C.dark)) + cap + RESET : "";
-  return (on ? selectedRow(`  ${label}`, w - width(cap)) : fg(r.refused ? C.dark : C.grey) + pad(` ${label}`, w - width(cap)) + RESET) + capCell;
+  if (on) return floatSelectedRow(pad(`  ${label}`, w - width(cap)) + cap, w);
+  return fg(r.refused ? C.dark : C.grey) + pad(` ${label}`, w - width(cap)) + RESET + capCell;
 }
 
 /**

@@ -85,9 +85,39 @@ if (scenario === "frames") {
   await app.act({ action: "tile.link", tile: "source", args: { ask: false }, as: "snap-agent" });
   await app.act({ action: "tile.title", tile: "source", args: { text: "Source" }, as: "snap-agent" });
   await app.act({ action: "tile.title", tile: "reader", args: { text: "Target" }, as: "snap-agent" });
-  await snap("cp437");
-  await app.act({ action: "hint.show", tile: "reader", as: "snap-agent" });
-  await snap("card-cp437");
+  const d = (sc as any).stages.get((sc as any).sel).top as Desk;
+  for (const name of ["night", "calm"] as const) for (const video of ["kitty+crt", "kitty"] as const) {
+    app.setTheme(name); while (app.video !== video) app.cycleVideo();
+    const label = `${name}-${video === "kitty+crt" ? "cp437" : "kitty"}`;
+    await d.dispatch.press("hint.dismiss");
+    await snap(`${label}-frame`);
+    await d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source");
+    await snap(`${label}-link`);
+    await d.dispatch.press("tile.link", { ask: false }, "source");
+    await d.dispatch.press("hint.show", {}, "reader");
+    await snap(`${label}-controls`);
+    await d.dispatch.press("hint.dismiss");
+    await d.dispatch.press("tile.menu", {}, "reader");
+    await snap(`${label}-menu`);
+    d.key({ kind: "esc" }, app);
+    d.screenPicker();
+    await snap(`${label}-picker`);
+    d.key({ kind: "esc" }, app);
+    d.key({ kind: "char", ch: "w", ctrl: true }, app);
+    await snap(`${label}-keys`);
+    d.key({ kind: "esc" }, app);
+    press({ kind: "char", ch: "k", ctrl: true });
+    await snap(`${label}-bar`);
+    press({ kind: "esc" });
+  }
+  await app.dispatch.press("section", { name: "composer" });
+  await Bun.sleep(800);
+  const composer = (sc as any).stages.get((sc as any).sel).top as Desk;
+  await composer.dispatch.press("tile.focus", {}, "floating");
+  for (const name of ["night", "calm"] as const) for (const video of ["kitty+crt", "kitty"] as const) {
+    app.setTheme(name); while (app.video !== video) app.cycleVideo();
+    await snap(`${name}-${video === "kitty+crt" ? "cp437" : "kitty"}-composer`);
+  }
   app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "titles") {
@@ -547,8 +577,15 @@ if (scenario === "complete") {
   app.push(new MainMenu()); app.push(B);
   await Bun.sleep(2500);
   ch("e"); await Bun.sleep(600);
+  press({ kind: "enter" });
+  const { until } = await import("../test/scratch");
+  await until(() => !!(B as any).focusedPane()?.draft, "the editor is ready");
   press({ kind: "end" }); press({ kind: "down" }); press({ kind: "end" }); press({ kind: "enter" });
   type("see [[HOME");
+  for (const name of ["night", "calm"] as const) for (const video of ["kitty+crt", "kitty"] as const) {
+    app.setTheme(name); while (app.video !== video) app.cycleVideo();
+    await snap(`${name}-${video === "kitty+crt" ? "cp437" : "kitty"}-completion`, 800);
+  }
   await snap("1-work-ids", 800);
   press({ kind: "down" }); await snap("2-chosen", 500);
   // The mouse: the wheel over the popup moves the choice back, a click on the last candidate inserts it.

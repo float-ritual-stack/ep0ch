@@ -1,3 +1,4 @@
+import { Canvas } from "../canvas";
 import { CONFIRM_HINT } from "./hint-card";
 import { heroLook } from "./hero-look";
 import { withFigureBoard } from "../graphs";
@@ -61,7 +62,7 @@ import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, has
 import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { compareDraft, dayOf, hunksOf, linesOf, verdictWords } from "../unsent-compare";
 import { inWindow, type Placement } from "../kitty";
-import { theme, type Rgb } from "../theme";
+import { floatTheme, theme, type Rgb } from "../theme";
 import { ALIGNS, fileName, imagePrimitiveSpec, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
 import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
@@ -74,14 +75,14 @@ import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
-import { visible, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
+import { visible, headOf, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, wheelTarget, writtenBy, type EditFrame } from "./editor";
-import { clampFloat, COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, frameZone, nextPlace, overlayBox, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox, type FloatRect } from "./composer";
+import { clampFloat, COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, frameZone, nextPlace, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox, type FloatRect } from "./composer";
 import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, threadAgents } from "../extensions";
@@ -1238,7 +1239,7 @@ export class NoteSurface {
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
     // A split that doesn't fit the reader (too narrow or short to share) is drawn as a popup meanwhile.
-    if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" || writing.cs.place === "tile" ? "popup" : writing.cs.place);
+    if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" || writing.cs.place === "tile" ? "popup" : writing.cs.place, host?.focused !== false);
     if (!hero || !shown) return v;
     const cut = this.hero?.pinned ? 0 : Math.min(this.scroll, hero.box.rows), lines = Array.from({ length: shown }, () => "");
     if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
@@ -1252,7 +1253,7 @@ export class NoteSurface {
    * reader with the passage quoted: laid over the note's rows `v`, in the reader's `w` × `h` cells under its header
    * image. A picture under the box isn't drawn while it's there.
    */
-  private overComposer(v: SurfaceView, w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>, place: "floating" | "popup"): SurfaceView {
+  private overComposer(v: SurfaceView, w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>, place: "floating" | "popup", focused: boolean): SurfaceView {
     const lines = [...v.lines], room = Math.max(lines.length, h);
     let box: ComposerBox, row: number, col: number;
     if (place === "popup") {
@@ -1272,10 +1273,16 @@ export class NoteSurface {
     }
     this.boxRect = { row, col, cols: box.width, rows: box.lines.length };
     this.boxRoom = { w, h: room };
-    overlayBox(lines, box.lines, row, col, w);
+    const canvas = new Canvas(w, room);
+    lines.forEach((line, y) => canvas.text(0, y, line, w));
+    canvas.float(this.boxRect, place === "floating" ? "≡ move" : "", "", () => {
+      box.lines.slice(1, -1).forEach((line, y) => canvas.text(col + 1, row + 1 + y, headOf(tailFrom(line, 1), box.width - 2), box.width - 2));
+      if (place === "floating") canvas.text(col + box.width - 1, row + box.lines.length - 1, fgRgb(floatTheme().border) + "◢" + RESET, 1);
+    }, focused);
+
     placeBox(c.d, box, row, col);
     const under = (p: Placement) => p.row < row + box.lines.length && p.row + p.rows > row && p.col < col + box.width && p.col + p.cols > col;
-    return { ...v, lines, placements: [...(v.placements ?? []).filter(p => !under(p)), ...previewPictures(c.d, 0, room)] };
+    return { ...v, lines: canvas.lines(), placements: [...(focused ? [] : (v.placements ?? []).filter(p => !under(p))), ...previewPictures(c.d, 0, room)] };
   }
 
   /**

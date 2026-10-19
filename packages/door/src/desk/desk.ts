@@ -1,4 +1,5 @@
 import { COMPLETION_ROWS, type Completer } from "../surface/completer";
+import { floatTheme } from "../theme";
 import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
 import { HintCard, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
 import { revealOn, type Reveal } from "../reveal";
@@ -48,7 +49,7 @@ import { outlineState, readState, writeState } from "../state";
 import { hyperOn } from "../hyper";
 import { containerKeys, leafNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
-import { visible as visibleText, bg, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
+import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme, themed } from "../theme";
 import { ch, type Key, type TileProgram } from "../term";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
@@ -2337,16 +2338,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw(); return this.hintGet();
   }
   private controlsHint(id: number): Hint {
-    return { title: `${this.numLabel(id)}${this.displayTitle(id)}`, lines: [], choices: this.dispatch.menu(this.nameOf(id), USER).map(r => ({ label: r.label, key: r.key, group: r.group, refused: r.refused, act: { action: r.action, tile: r.tile, args: r.args } })) };
+    return { title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND] };
   }
   linkingHint(): Hint | null {
     if (!this.linking) return null;
     const { desk, from, verb } = this.linking, tile = desk.nameOf(from);
-    return { title: "Linking", lines: [`Linking from ${tile}'s ${verb} wire. Click a tile to send ${verb === "select" ? "selects" : "opens"} there.`, "Alt+click an edge or gap opens beside. Click this tile again to unlink."],
-      keys: [{ keys: "h j k l / 1-9", does: "choose a tile" }, { keys: "esc", does: "cancel" }],
-      choices: [ ...(["select", "open", "alt"] as const).map(v => ({ label: v, key: v === "select" ? "s" : v === "open" ? "o" : "a", act: { action: "tile.link", tile, args: { ask: true, verb: v } } })),
-        { label: "unlink", act: { action: "tile.link", tile, args: { verb } } }, { label: "cancel", key: "esc", act: { action: "tile.link", tile, args: { ask: false } } } ] };
+    return { title: `Linking ${verb}`, lines: [
+      `Now: ${verb === "select" ? "a select here previews in" : verb === "alt" ? "an alt-open here opens in" : "an open here opens in"} ${desk.wireWords(from, verb)}.`,
+      `Linking from ${tile}'s ${verb} wire. Click a tile to send ${verb === "select" ? "selects" : "opens"} there.`,
+      "Alt+click an edge or gap opens beside. Click this tile again to unlink.",
+    ], keys: [{ keys: "h j k l / 1-9", does: "choose a tile" }],
+      choices: [ ...(["select", "open", "alt"] as const).map(v => ({ label: `change ${v} wire`, key: v === "select" ? "s" : v === "open" ? "o" : "a", act: { action: "tile.link", tile, args: { ask: true, verb: v } } })),
+        { label: `unlink ${verb} wire`, act: { action: "tile.link", tile, args: { verb } } }, { label: "cancel", key: "esc", act: { action: "tile.link", tile, args: { ask: false } } } ] };
   }
+
   private syncModeHint() {
     const overlay = this.overlays.top();
     const mode = this.ctx?.armed?.() ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.verb}` : this.drag ? "resize" : this.dragging || this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";
@@ -3130,10 +3135,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const [id, r] of floats) {
       const shade: Rect = { ...r, cols: r.cols + 1, rows: r.rows + 1 };
       placements = placements.filter(p => !overlaps(p, shade));
-      // A drop shadow on the right and below, then the tile, then its ◢ corner (drag it to size the float).
-      for (let y = r.row + 1; y <= Math.min(area.row + area.rows - 1, r.row + r.rows); y++) canvas.text(r.col + r.cols, y, fg(C.dark) + "▒" + RESET, 1);
-      if (r.row + r.rows < area.row + area.rows) canvas.text(r.col + 1, r.row + r.rows, fg(C.dark) + "▒".repeat(Math.max(0, Math.min(r.cols, cols - r.col - 1))) + RESET, cols);
+      if (id === this.focus && this.keysHere()) canvas.backdrop();
+      canvas.shadow(r);
       lay(id, r, false, true);
+      canvas.under(r, bgRgb(floatTheme().bg));
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     }
     // In flight, a tile is drawn as it is, at the rectangle it is in (its contents move with it: nothing goes dark and comes
@@ -3187,7 +3192,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const rect = { col: area.col, row: Math.max(area.row, Math.min(origin.row + completion.drawn.row, area.row + area.rows - height)), cols: area.cols, rows: height };
       completion.drawn.row = rect.row - origin.row;
       const lines = withRowLimit(this.lookAt(this.panes.get(this.focus)!, rect.cols).values["rows.lines"], () => completion.inFrame(rect.cols, rect.col - origin.col, height));
-      canvas.clear(rect, bg(C.black));
+      canvas.backdrop();
+      canvas.clear(rect);
       lines.forEach((line, i) => canvas.text(rect.col, rect.row + i, line, rect.cols));
       this.completionFloat = { completer: completion, rect, origin };
       placements = uncover(placements, rect);
@@ -3342,7 +3348,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Its surface (PIE-675, the look's `bg`): under its content, inside its frame; a dock or a float slides over on it.
     // A joined tile's tint runs to its edges, with no frame to stop at (dark, capped as every surface is).
     const surface = lv.bg !== "none" ? surfaceBg(lv.bg, lv["bg.strength"]) : joined ? surfaceBg("raised", lv["bg.strength"]) : "";
-    canvas.clear(r, dock || float ? surface || bg(C.black) : "");
+    canvas.clear(r, float ? "" : dock ? surface || bg(C.black) : "");
     this.looks.set(pane, look);
     const reader = pane instanceof ReaderPane ? pane : null;
     const gutter = this.readerGutter(pane, framed.cols);
@@ -3420,7 +3426,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
     const foot = armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint;
-    canvas.box(r, frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
+    canvas.box(r, float ? fgRgb(floatTheme().border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
     let markerX = r.col + 3;
     for (const p of pointers) {
       const label = `@${p.agent}${p.line ? `:${p.line}` : ""}`;
@@ -3458,7 +3464,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       canvas.text(holdX, r.row, `${fg(listHeld ? C.yellow : focused ? C.grey : C.dark)}${listHeld ? FRAME_GLYPHS.held : FRAME_GLYPHS.hold}${RESET}`, 1);
       this.holdButtons.push({ id, row: r.row, from: holdX, to: holdX + 1 });
     }
-    // The frame card and the menu read the same rows from the dispatcher.
     if (menus) {
       const x = menuX;
       canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}${FRAME_GLYPHS.menu}${RESET}`, 1);
@@ -3786,13 +3791,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private drawHintMore(canvas: Canvas, cols: number, rows: number) {
     const lines = this.hintBox ? this.hintBox.flatMap(l => wrapHint(paint(l), Math.max(10, cols - 4))) : wrapHint(this.hintFull!, Math.max(10, cols - 4));
     const h = Math.min(lines.length + 2, Math.max(3, rows - 4));
-    const r: Rect = { col: 0, row: rows - 2 - h, cols, rows: h };
-    canvas.clear(r, bg(C.black));
-    canvas.box(r, fg(C.brown), `${fg(C.yellow)}keys`, this.prefix ? "" : fg(C.dark) + "any key closes");
-    lines.slice(0, h - 2).forEach((l, i) => {
-      canvas.text(r.col + 2, r.row + 1 + i, l, cols - 4);
-      this.keySpots.push(...hintSpots(l, keyStyles()).map(p => ({ y: r.row + 1 + i, from: r.col + 2 + p.from, to: r.col + 2 + p.to, key: p.key })));
-    });
+    const r: Rect = { col: 0, row: rows - 3 - h, cols: cols - 1, rows: h };
+    canvas.float(r, "keys", this.prefix ? "" : fg(C.dark) + "any key closes", () => {
+      lines.slice(0, h - 2).forEach((l, i) => {
+        canvas.text(r.col + 2, r.row + 1 + i, l, r.cols - 4);
+        this.keySpots.push(...hintSpots(l, keyStyles()).map(p => ({ y: r.row + 1 + i, from: r.col + 2 + p.from, to: r.col + 2 + p.to, key: p.key })));
+      });
+    }, true);
   }
 
   /** The hint part pressed, if `k` is a press on one: its key is pressed as typed. */
@@ -4294,8 +4299,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   linkHint(): string {
     if (!this.linking) return "";
-    const { desk, from, verb } = this.linking;
-    return `${desk.nameOf(from)} · ${verb === "open" ? "⏎" : verb} → ${desk.wireWords(from, verb)} · s select · o open · a alt · click a tile / h j k l / 1-9 · alt: edge or gap = beside · self unlinks · esc cancels`;
+    return "linking";
   }
 
   private otherDesk(): Desk | undefined {
