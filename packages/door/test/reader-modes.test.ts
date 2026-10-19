@@ -12,6 +12,7 @@ import { register } from "../src/desk/screen-notes";
 import { canonSpec } from "../src/desk/tiles";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
+import { visible } from "../src/style";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -233,18 +234,22 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     await mine("tile.close", {}, made().name);
   });
 
-  test("the mode chip is on the frame, says the mode, and a click on it opens the Shows and page-lock controls", async () => {
+  test("the frame card opens the Shows and page-lock controls", async () => {
     await act("reader.mode", { mode: "follows" }, "follower");
     D().setCurrent(notes.plan, {});
     expect(pane("follower").msg?.id).toBe(notes.plan.id);
     render();
-    const chips = () => D().headPresses as { id: number; row: number; from: number; to: number }[];
+    const chips = () => D().menuButtons as { id: number; row: number; from: number; to: number }[];
     const idOf = (name: string) => [...D().names].find(([, n]: any) => n === name)[0] as number;
     const chipOf = (name: string) => { render(); return chips().find(c => c.id === idOf(name))!; };
     /** A click on the chip, then the picker's row that reads `row` (↓ to it, ⏎). */
     const pick = (row: RegExp) => {
       const c = chipOf("follower");
       mouse("down", c.from, c.row); mouse("up", c.from, c.row);
+      const lines = render().lines.map(visible);
+      const y = lines.findIndex((l: string) => l.includes("shows…"));
+      expect(y).toBeGreaterThan(c.row);
+      mouse("down", lines[y]!.indexOf("shows…"), y);
       const p = D().overlays.top();
       expect(p).toBeTruthy();
       const at = (p.items as { label: string }[]).findIndex(x => row.test(x.label));

@@ -11,8 +11,8 @@
 import { hyperOn } from "./hyper";
 import type { Key } from "./term";
 
-/** What the door asks for: 1 disambiguate escape codes, 4 report alternate keys (alt+shift+1 says `!`). */
-export const KBD_FLAGS = 5;
+/** Disambiguation, press/release, alternate keys, and bare modifiers for x-ray. */
+export const KBD_FLAGS = 15;
 /** The support query: a terminal with the protocol answers `CSI ? flags u` (before its DA reply). */
 export const KBD_QUERY = "\x1b[?u";
 export const KBD_PUSH = `\x1b[>${KBD_FLAGS}u`;
@@ -26,7 +26,7 @@ export function kbdWanted(env: Record<string, string | undefined> = process.env)
 }
 
 /** One key report. `mods`: the modifier bits (1 shift, 2 alt, 4 ctrl, 8 super, 64 caps lock, 128 num lock); 0 none. */
-export interface KeyReport { code: number; shifted?: number; base?: number; mods: number; event: number }
+export interface KeyReport { code: number; shifted?: number; base?: number; mods: number; event: number; eventType?: true }
 
 /**
  * A key report: `CSI code[:shifted[:base]] [; mods[:event] [; text]] u`, or xterm's modifyOtherKeys form
@@ -42,7 +42,7 @@ export function parseReport(seq: string): (KeyReport & { length: number }) | nul
   if (!m) return null;
   if (m[6] !== undefined) return { code: Number(m[7]), mods: Math.max(0, Number(m[6]) - 1), event: 1, length: m[0].length };
   const num = (s: string | undefined) => (s ? Number(s) : undefined);
-  return { code: Number(m[1]), shifted: num(m[2]), base: num(m[3]), mods: Math.max(0, (num(m[4]) ?? 1) - 1), event: num(m[5]) ?? 1, length: m[0].length };
+  return { code: Number(m[1]), shifted: num(m[2]), base: num(m[3]), mods: Math.max(0, (num(m[4]) ?? 1) - 1), event: num(m[5]) ?? 1, ...(m[5] ? { eventType: true as const } : {}), length: m[0].length };
 }
 
 const SHIFT = 1, ALT = 2, CTRL = 4, SUPER = 8;
@@ -70,9 +70,10 @@ const KP_INSERT = 57425;
  * A report as the door's key. Shift+Enter is Enter with `shift` (Enter wherever nothing binds it; a plain line
  * break in a draft); ctrl+[ i m j h keep their legacy meanings (esc, tab, enter, backspace), which the door has
  * always read them as. Super (cmd) with a printable key is its own kind, whatever else is held: cmd+c is the
- * door's copy, never a `c` typed. A release, a lone modifier or a key the door has no name for is null.
+ * door's copy, never a `c` typed. Ctrl has press/release events; other releases and unnamed keys are null.
  */
 export function reportKey(r: KeyReport): Key | null {
+  if (r.code === 57442 || r.code === 57448) return r.event === 2 ? null : { kind: "modifier", key: "ctrl", event: r.event === 3 ? "release" : r.eventType ? "press" : "tap" };
   if (r.event === 3) return null;
   const kp = KEYPAD[r.code];
   if (typeof kp === "object") return kp;

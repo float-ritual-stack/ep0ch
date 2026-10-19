@@ -76,6 +76,7 @@ export const TUNE_ROWS: readonly TuneRow[] = [
   { name: "heading.padding", tokens: ["heading.padding"] },
   { name: "bp.narrow", tokens: ["bp.narrow"] },
   { name: "bp.wide", tokens: ["bp.wide"] },
+  { name: "hints", tokens: ["hints"] },
 ];
 const rowNamed = (name: string) => TUNE_ROWS.find(r => r.name === name.trim().toLowerCase());
 

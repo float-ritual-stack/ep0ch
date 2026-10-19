@@ -1221,7 +1221,7 @@ async function runDoorTool(
       return compact(await ep0ch(['ep0ch', 'where', '--json']))
     }
     case 'door_peek':
-      return JSON.stringify(peekOf(await ep0ch(['ep0ch', 'peek'])))
+      return JSON.stringify(peekOf(await ep0ch(['ep0ch', 'peek', ...(input.xray === true ? ['--xray'] : [])])))
     case 'door_act': {
       const command = doorActArgv(input, await actorFor($, input))
       if (typeof command === 'string') throw Error(command)

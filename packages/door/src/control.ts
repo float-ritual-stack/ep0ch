@@ -101,7 +101,7 @@ export interface ControlDeps { app: App; mirror: Mirror; info: () => TermInfo }
 async function handle(req: any, d: ControlDeps): Promise<unknown> {
   // A session nobody watches renders no frames: the one skipped is drawn before anything reads the screen.
   d.app.catchUp();
-  if (req.cmd === "peek") return { screen: d.app.describe(), text: d.mirror.text() };
+  if (req.cmd === "peek") return { screen: req.xray ? { ...d.app.describe(), xray: await d.app.dispatch.act({ action: "hint.get", args: { xray: true } }, { kind: "agent", id: "peek" }) } : d.app.describe(), text: d.mirror.text() };
   if (req.cmd === "snap") {
     // Render at the VGA font's own 9×16 cell, whatever the real terminal's cell size is.
     const png = () => d.mirror.snapshot({ ...d.info(), cellW: 9, cellH: 16 });
@@ -276,7 +276,7 @@ export async function controlClient(args: string[]): Promise<number> {
     req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
       : fileTarget !== null ? { cmd: "act", ...(await parseActArgs(["open", `file=${fileTarget}`, ...commandArgs.slice(2)])) }
       : cmd === "open" ? { cmd: "act", ...(openTarget!.address ? { address: openTarget!.address } : {}), ...(await parseActArgs(["open", `id=${openTarget!.blockId}`, ...(openTarget!.fragment ? [`fragment=${openTarget!.fragment}`] : []), ...commandArgs.slice(2)])) }
-      : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd };
+      : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd, ...(cmd === "peek" && args.includes("--xray") ? { xray: true } : {}) };
   } catch (e) { console.error((e as Error).message); return 1; }
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open), or its folder's .ep0ch does.
   if (req.cmd === "act") { const as = actAs(req.as, process.env, process.cwd()); if (as) req.as = as; }

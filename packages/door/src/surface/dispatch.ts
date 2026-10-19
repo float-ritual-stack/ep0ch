@@ -1,3 +1,4 @@
+import type { Hint } from "./hint-card";
 // The dispatcher (PIE-514): one per screen host, the one door every action goes through. A screen registers its
 // action sets; its keys and clicks (`press`), the control socket (`act`) and a tile holding a whole screen all call
 // the dispatcher, which:
@@ -143,6 +144,8 @@ export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req:
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
+  beforeAction?(name: string): void;
+  hint?(hint: Hint, tile: string | undefined, actor: Actor): void;
   /** Dispatchers for a screen's kinds share that screen's pointer identity. */
   pointerScope?: object;
   bindings?(): readonly KeyBinding[];
@@ -495,6 +498,7 @@ export class Dispatcher {
     const seen = reg.set.defArgs(req.action, args, typed);
     const no = this.refusal(reg, def, req.action, at, args, seen, actor);
     if (no) throw new ActionRefused(no);
+    this.host.beforeAction?.(req.action);
     const confirmation = ++this.nextConfirmation;
     const ctx = this.host.ctx();
     const on = reg.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
@@ -511,6 +515,8 @@ export class Dispatcher {
     // What it did, said on the status bar: an agent's always, with who it is; the person's when the screen doesn't
     // show it. Said as soon as it's done: at once for an action that answers at once (a key's flash is there to read).
     const done = (out: unknown) => {
+      const hint = typeof def.hint === "function" ? def.hint(seen, on) : def.hint;
+      if (hint) this.host.hint?.(hint, at.name, actor);
       if (def.says && (actor.kind === "agent" || (def.confirms && confirmation >= this.saidConfirmation))) {
         const s = def.says(out, seen as never), said = typeof s === "string" ? s : s?.text, ms = typeof s === "object" && s ? s.ms : undefined;
         if (said) {

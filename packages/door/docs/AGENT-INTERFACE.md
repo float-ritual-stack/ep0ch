@@ -853,3 +853,10 @@ a screen's own on the first scenario of that screen; a prefix no action opened, 
 What the probe doesn't reach: a terminal tile's own keys (they're its program's), the logon and logoff, the
 message a key flashes on the status bar (it runs out on a timer), the drawer's own rows (its terminal's), and
 ctrl+e in a tile beside the note (the probe edits over the whole door; `desk-tiles.test.ts` covers the tile).
+
+`peek --xray` includes `screen.xray.cards`: each visible tile's title, lines,
+keys and pressable choices (`act`, `key`, and any refusal), read from the same
+`Dispatcher.menu` rows the hint cards display. This read does not turn x-ray on.
+The `door_peek` tool accepts `xray: true` for the same result. `hint.show` accepts
+`text=` and `for=<tile>`; the card names the agent and leaves the person's keys
+where they are. `hint.get`, `hint.pin`, and `hint.dismiss` inspect or manage it.

@@ -84,6 +84,7 @@ const BASE_HEADING = BUILTIN_HEADING_STYLES[0]!;
 
 /** Every token, in the order a tool lists them. */
 export const STYLE_TOKENS = {
+  "hints": { base: "full", what: "hint cards: full instructions, brief, or off", type: { kind: "enum", values: ["full", "brief", "off"] as const } },
   "measure": { base: 0, what: "the widest a note's text runs (0: the whole tile), centred when the tile is wider", type: { kind: "int", min: 0, max: 400, step: 4 } },
   "pad.x": { base: 0, what: "blank columns inside a tile's frame", type: { kind: "int", min: 0, max: 16, step: 2 }, axis: "x" },
   "pad.y": { base: 0, what: "blank rows inside a tile's frame", type: { kind: "int", min: 0, max: 8, step: 1 }, axis: "y" },
@@ -126,6 +127,7 @@ export const STYLE_TOKEN_NAMES = Object.keys(STYLE_TOKENS) as StyleToken[];
 
 /** The resolved values, typed. */
 export interface StyleValues {
+  "hints": "full" | "brief" | "off";
   "measure": number; "pad.x": number; "pad.y": number; "margin.x": number; "margin.y": number;
   "list.gap": number; "list.zebra": boolean; "list.divider": ListDivider; "list.divider.glyph": string; "list.divider.align": DividerAlign;
   "list.zebra.bg": Exclude<Surface, "none">; "list.zebra.strength": number;

@@ -1,3 +1,4 @@
+import type { Hint } from "./hint-card";
 // A list to pick from, as a mode (src/surface/modes.ts): the desk's layout picker, policy panel and search, the
 // board's hub picker, mover and steps, a reader's status choice. It holds every key while open: ↑ ↓ (j k when
 // nothing is typed), Tab, Home End, PgUp PgDn and the wheel move the cursor (a RowView); ⏎ or a double click on a row
@@ -19,6 +20,7 @@ export interface PickerFrame { rect: Rect; title: string; foot: string; head?: s
 export type PickerClose = "esc" | "letter" | "click";
 
 export interface PickerSpec<T, H> {
+  hint?: Hint;
   name: string;
   items(): readonly T[];
   /** An item's rows, `w` cells wide; `on`: the cursor is on it (`pickRow` lights it). */
@@ -51,6 +53,7 @@ export interface PickerSpec<T, H> {
 }
 
 export class ListPicker<T, H> implements Mode<H> {
+  get hintCard(): Hint | undefined { return this.spec.hint; }
   sel = 0;
   readonly view = new RowView();
   /** Where the last draw put each item's rows (screen rows), and the box. */

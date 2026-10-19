@@ -131,7 +131,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     await until(() => screen().includes("Jam jars") && screen().includes("Bread tins"), "the checklist over the saved view", 8000);
     const s = screen();
     // The brief has the keys: its frame is the focused tile's, double-lined.
-    expect(s).toContain("═ 1 daily brief · 2026-01-07 ═");
+    expect(s).toContain("═ 1 Brief B ═");
     expect(s).toContain("Brief B");
     expect(s).toMatch(/║ *Wed 2026-01-07 · 3 of 3 briefs · , earlier · \. later +║\n║ *Brief B +║/);
     expect(s).not.toContain("needs a ((block-ref))");

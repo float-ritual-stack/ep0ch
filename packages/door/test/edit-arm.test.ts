@@ -73,9 +73,9 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     const runs = traced(() => key(char("e")));
     expect(runs.map(r => r.name)).toEqual(["edit.arm"]);
     expect(app.armed()?.of).toBe(rd.surface);
-    expect(message()).toBe("edit Trim the hedge? ⏎ · any other key cancels");
-    expect(rows().join("\n")).toContain("✎ edit? ");
-    expect(rows().join("\n")).toContain("⏎ opens it · any other key cancels");
+    expect(message()).toBe("confirm");
+    expect(rows().join("\n")).toContain("Open this note for editing?");
+    expect(rows().join("\n")).toContain("Any other key keeps reading.");
     expect(app.person().busy).toBe(true);
     await Bun.sleep(50);
     expect(rd.surface.draft).toBeNull();

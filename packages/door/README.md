@@ -1229,6 +1229,8 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `alt+z`, `alt+Z` in a reader | route the note shown by the outline's routing rules (`note.route`, PIE-1010): the first rule note (`[type::route] [query::…] [route-to::((id))]`, listed in the Routing view) whose query holds for it moves it there, as `ext:route`, in one revision; the status bar says which rule; `ctrl+z` puts it back. `alt+Z` says what would move, moving nothing. The tile menu's "route by rules" is the same. A note being written is never moved under you: it routes when the draft closes. `ep0ch route <note>` and `ep0ch route --all [--dry-run]` do the same from a shell |
 | `?`, a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it (`keys.more`, the person's); a `^W` chord's row shows it at once |
 | `alt+k` | lock or unlock the screen: its shape is fixed (no moves, drops, new tiles, closes, resizes, docks in or out, links, layout loads), its contents stay live (reading, editing, terminals, docks sliding, tabs, zoom) |
+| Hold `Ctrl`; `Ctrl+]` then `?` | Show every tile's hint card (x-ray). Release Ctrl or toggle again to hide. Bare Ctrl needs Kitty modifier reports; press-only reports toggle. |
+| Click or hover a frame's controls chip; `?` over a frame | Show that tile's controls without taking its keys. Choices use the tile menu's actions; wheel scrolls a long card. `[pin]` keeps it, `[dismiss]` or Esc closes it. |
 | `Ctrl+W` then `g` | what an agent may do to this tile: free, edit only (its note, not navigating, closing or retargeting it), hands off (peek only); cycles (`tile.agent`) |
 | `Ctrl+W` then `h j k l` | focus by direction |
 | `Ctrl+W` then `m` + `h j k l` | move beside the tile that way (none that way: to that edge) |
@@ -2842,7 +2844,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem\|approved\|rejected` (default toggles done) | `s`, `j k`, `space x + - w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`; without it the person's first `d` arms, an agent's is refused), `card`; `id` (default the card trashed last) | `d d`, `u` |
 | `tile.widen` | `tile=<tile>` in a flow | desk `^W W`, a click on a flow column's spine |
-| `tile.collapse` | `tile=preview\|detail1\|detail2` or a lane's tile (the focused one by default), `on=true\|false` (default toggles), `dir=v\|h` (vertical or horizontal spine); `tile=all` opens everything (board) | `c`, `⏎` or a click on a spine, `alt+c`; desk `^W c`, `alt+h` (alt+H horizontal), bare `-` folds and `+` `=` open the focused tile where it takes no text, `✦-` `✦=` (hyper), the ◂ ▾ on a tile's frame (alt+click horizontal) |
+| `tile.collapse` | `tile=preview\|detail1\|detail2` or a lane's tile (the focused one by default), `on=true\|false` (default toggles), `dir=v\|h` (vertical or horizontal spine); `tile=all` opens everything (board) | `c`, `⏎` or a click on a spine, `alt+c`; desk `^W c`, `alt+h` (alt+H horizontal), bare `-` folds and `+` `=` open the focused tile where it takes no text, `✦-` `✦=` (hyper), the frame card's fold row |
 | `tile.expand` | `tile` | a click on a spine; dragging a tile onto it |
 | `tile.resize` | `tile=<tile>` (`lanes`, a reader, `tree`, `backlinks`, a float; default the focused one), `by` (steps, `-20`…`20`), `axis=row\|col` (width, default; or height) | board `{ } < >`, desk `^W < > + -`, dragging a border |
 | `tile.close`, `tile.float`, `tile.dock` | `tile=<tile>`; `on=true\|false` for `dock` (true docks it to an edge, false undocks it; default toggles). `close` takes a detail, a float or a dock's tile (it shuts the dock); the lanes and the preview stay and say why. `float` pops a reader out or puts a float back, `dock` on the board's `tree` and `backlinks` undocks or docks the whole dock. An agent can't close or float the tile that has your keys | board `x`, `esc`, `o`, a click on a float's `⧉`, `T`, `B`; desk `^W x`, `^W f`, `^W p` |
@@ -3107,3 +3109,13 @@ Enter opens, alt+Enter opens beside. `elements` reports each visible row's `list
 `list.total` and `list.top`; `element.select n=<element> row=<1-based row>` reveals
 any row in that list. These are the reader's existing keys on every screen; editor,
 picker, terminal and screen-level bindings keep their own precedence.
+
+Hint cards use the existing desk float layer and keycap component. A calm frame puts
+its number and title first, then one state word and its controls chip. Extra wire,
+follow and scroll details appear only in a focused frame with room. `hints` in the
+tune inspector is `full`, `brief`, or `off`; cards use the tile's tone on a dark
+surface. The showcase's `hints` section demonstrates linking live.
+
+`ep0ch peek --xray` reads every visible tile's card as data without displaying it.
+`hint.show text="Choose a destination" for=reader` shows an attributed card;
+`hint.get`, `hint.pin`, and `hint.dismiss` read, keep, or close it.

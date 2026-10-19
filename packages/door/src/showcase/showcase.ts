@@ -316,8 +316,16 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "hints", need: "x-ray and hint cards", part: "HintCard in the desk float layer, ActionDef hints, Dispatcher.menu and keycaps", files: "src/surface/hint-card.ts, src/desk/desk.ts",
+    aside: "Linking has its instructions beside the tile. Click a destination; the card leaves the keys with you. The frame's controls chip shows its actions. Hold ctrl for every tile's card, or ctrl+] then ? to toggle. hint.pin keeps a card; esc dismisses it.",
+    stage(n, show) {
+      const source = new ReaderPane(), reader = new ReaderPane();
+      return deskOf({ title: "x-ray and hint cards", panes: [source, reader], names: ["source", "reader"] }, show, [[source, n.notebook], [reader, n.shed]], d => { void d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source"); });
+    },
+  },
+  {
     key: "panes", need: "open, split, zoom, close tiles; docks; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, docks, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a dock, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
-    aside: "^W n or double click a title to rename; ^W N or [name]/[sys] toggles without losing it. Reading {{this.title}} follows the notebook; Visitors is a written tab title. A click on a tile's × closes it (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
+    aside: "^W n or double click a title to rename; ^W N toggles without losing it. Reading {{this.title}} follows the notebook; Visitors is a written tab title. The frame card's close row closes the tile (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
       // The replies (a links tile with Children alone) and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
@@ -965,7 +973,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "newnotes", need: "make a new note or page from anywhere", part: "note.new (ctrl+n on every screen, in an edit too, + on the menu, act) asks the service's notes.create, whose placement rule puts it (under the note in the reader you're in, else the top of the Inbox), then opens it where the screen spec's newNote says (PIE-591): a float over the screen by default, by the layout engine's own float (as many as you like, cascaded; its title drags it, onto a header or the edge docks it; × or esc on it still empty trashes it), a tab, your drawer, or the board's lanes' card.new; a missing [[page]] is offered, then made by page.create (pages.follow, the same rule); a lone [page::x] titles itself (outline-core's page-title rule, on ⏎ and on every save)", files: "src/new-note.ts, src/desk/desk.ts (editNew, openNoteTile, floatDock), src/desk/screen-spec.ts (newNote), outline-core/src/page-title.ts, outliner src/note-placement.ts, src/surface/note.ts",
-    aside: "go in (⏎), then ctrl+n, ctrl+n, ctrl+n: a floating note each, under this one, the newest with your keys · type, ctrl+n again: what you typed is saved, the next floats · drag a float's title onto this reader's header: it docks as a tab, while you write in it too, and its ⋯ opens its menu · its → row says where it lands, a click moves it (note.move) · × or esc on an empty one puts it in the trash · ] to [[Seed swap ledger]], ⏎ offers it, ⏎ again makes it in the Inbox · type [page::2026-03-12] and ⏎ on the first line of a new note",
+    aside: "go in (⏎), then ctrl+n, ctrl+n, ctrl+n: a floating note each, under this one, the newest with your keys · type, ctrl+n again: what you typed is saved, the next floats · drag a float's title onto this reader's header: it docks as a tab, while you write in it too, and its controls chip opens its hint card · its → row says where it lands, a click moves it (note.move) · the close row or esc on an empty one puts it in the trash · ] to [[Seed swap ledger]], ⏎ offers it, ⏎ again makes it in the Inbox · type [page::2026-03-12] and ⏎ on the first line of a new note",
     stage(n, show) {
       const a = new ReaderPane();
       return deskOf({ title: "showcase · new notes", panes: [a] }, show, [[a, n.newNotes]]);
@@ -973,7 +981,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "menu", need: "show a tile's actions as a menu (its ⋯, a right-click in it)", part: "the tile menu: tile.menu lists the rows each action declares (ActionDef.menu) in the sets the dispatcher would run there (Dispatcher.menu): the tile operations, its kind's, a reader's note actions, a board lane's; a ListPicker on the desk's overlays, each row its label and its key as a keycap, one click, ⏎ or that key runs it as you", files: "src/desk/tile-menu.ts, src/surface/dispatch.ts, src/surface/actions.ts, src/desk/tile-actions.ts",
-    aside: "click a tile's ⋯ (top right, beside the ×), or right-click anywhere in it, or ^W . in it: its menu, grouped Tile, then its kind's (Note, Reader, Terminal), each row with its key · type to filter it (the power bar's matcher: the query on its top row, the letters that match lit, empty groups gone; backspace widens, esc clears the query, then closes; ⏎ runs the top row) · a dimmed row says why it can't run now (its foot) · the terminal's program asked for the mouse, so a right-click there is its own: its ⋯ still opens the menu · `act tile.menu tile=reader` answers the same rows to an agent and draws nothing",
+    aside: "click a tile's controls chip for a hint card; right-click anywhere in it, or ^W . in it, opens the searchable menu, grouped Tile, then its kind's (Note, Reader, Terminal), each row with its key · type to filter it (the power bar's matcher: the query on its top row, the letters that match lit, empty groups gone; backspace widens, esc clears the query, then closes; ⏎ runs the top row) · a dimmed row says why it can't run now (its foot) · the terminal's program asked for the mouse, so a right-click there is its own: its controls chip still opens the hint card · `act tile.menu tile=reader` answers the same rows to an agent and draws nothing",
     stage(n, show) {
       // A program that asks for the mouse (as vim's mouse=a and claude do), so its right-clicks stay its own.
       const term = new PtyPane({ cmd: ["sh", "-c", "printf '\\033[?1000h\\033[?1006h'; echo 'this program asked for the mouse: a right-click here is its own; the ⋯ above opens the tile menu'; exec cat >/dev/null"], label: "clicks" }), r = new ReaderPane(true);
@@ -1343,6 +1351,10 @@ export class Showcase implements Screen {
     const inStage = k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows;
     const f = this.notes ? this.stage(this.sel) : null;
     const rel = { ...k, x: k.x - r.col, y: k.y - r.row };
+    if (k.action === "drag" && k.button === 3) {
+      if (inStage && f) f.key(rel);
+      return this.ctx.redraw();
+    }
     if (k.action === "up" || k.action === "drag") {
       if (this.pressed && f) f.key(rel);
       if (k.action === "up") this.pressed = false;

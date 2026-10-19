@@ -51,4 +51,4 @@ export function confirms(a: Arm, k: Key): boolean {
 }
 
 /** A key that lets an armed edit go: anything but a mouse button's release (the press before it already did). */
-export const disarms = (k: Key) => !(k.kind === "mouse" && k.action === "up");
+export const disarms = (k: Key) => !(k.kind === "mouse" && (k.action === "up" || (k.action === "drag" && k.button === 3)));

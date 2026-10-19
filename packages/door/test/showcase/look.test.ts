@@ -587,7 +587,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   }, 30_000);
 
 
-  test("title (PIE-657): the header leads with the breadcrumb and the title; the frame bar doesn't repeat it; the focused tile's title is brighter", async () => {
+  test("title (PIE-657): the header leads with the breadcrumb and the title; the frame names the note; the focused tile's title is brighter", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "title" }, as: "test-agent" })).toMatchObject({ key: "title" });
     await until(() => screen().includes("Before:") && !screen().includes("reading the note"), "the title note, read", 8000);
@@ -603,10 +603,9 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     // Where the terminal does not scale text (this one, like Herdr or tmux), the title is one bold row and the byline is the very next: no blank row.
     expect(rows[at + 1]).toMatch(/i \d+ properties/);
     expect(readers().map((p: any) => p.showing?.title ?? p.title)).toContain("A title you can find");
-    // The header owns the full title; the frame keeps its Work ID and tile facts.
-    const frames = rows.flatMap(l => [...l.matchAll(/[╔┌][─═] \d+ HOME-042 · [^─═]*/g)].map(x => x[0]));
+    // The calm frame names the note too, so a card identifies its tile.
+    const frames = rows.flatMap(l => [...l.matchAll(/[╔┌][─═] \d+ A title you can find[^─═]*/g)].map(x => x[0]));
     expect(frames.length).toBe(2);
-    for (const f of frames) expect(f).toMatch(/[╔┌][─═] \d HOME-042 · (reader|detail)/);
     // The tile with the keys has the brighter title: the same title, the same row, two shades.
     // The note's own header row carries both copies, one in each reader.
     const row = raw().find(l => (plain(l).match(/A title you can find/g) ?? []).length === 2 && !/[┌╔]/.test(plain(l)))!;

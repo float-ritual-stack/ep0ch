@@ -1,5 +1,4 @@
-// PIE-642: collapse any tile to a spine with one click. A dim glyph on the frame (◂ for a tile side by side with
-// others, ▾ for a stacked one) folds it; alt+click folds it to a horizontal spine (one row), a click on a spine
+// PIE-642 and PIE-925: the frame card folds a tile; a click on a spine
 // opens it at the size it had; alt+h and alt+H are the keys; tile.collapse dir=v|h and tile.expand are the actions
 // an agent calls, which never fold the tile the person has. The fold is layout state: it saves and comes back.
 // Scratch services and fictional notes only.
@@ -28,9 +27,13 @@ describe.skipIf(!outliner)("tile spines: one click folds a tile, a click on the 
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, tile: reader, as: AS });
   const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, tile: reader }, { kind: "user" });
   const click = (x: number, y: number, mods?: number) => { key({ kind: "mouse", action: "down", button: 0, x, y, ...(mods ? { mods } : {}) }); key({ kind: "mouse", action: "up", button: 0, x, y, ...(mods ? { mods } : {}) }); render(); };
-  /** The fold glyph drawn on tile `name`'s frame. */
-  const glyph = (name: string) => { render(); const id = [...D().names].find(([, n]: [number, string]) => n === name)![0]; return D().foldButtons.find((b: any) => b.id === id) as { from: number; row: number } | undefined; };
-  const clickGlyph = (name: string, mods?: number) => { const g = glyph(name)!; click(g.from, g.row, mods); };
+  const clickFold = async (name: string) => {
+    await mine("hint.show", {}, name);
+    const lines = render().lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
+    const y = lines.findIndex(l => l.includes("fold to a spine"));
+    expect(y).toBeGreaterThan(-1);
+    click(lines[y]!.indexOf("fold to a spine"), y);
+  };
   const names = () => get().tiles.map((t: any) => t.name);
 
   beforeAll(async () => {
@@ -55,37 +58,16 @@ describe.skipIf(!outliner)("tile spines: one click folds a tile, a click on the 
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EDITOR"]) delete process.env[k];
   });
 
-  test("every tile that can fold wears a glyph: ◂ side by side, ▾ stacked; a click folds it to the spine its split allows, a click on the spine opens it at its size", () => {
-    const [a, b] = names().filter(n => glyph(n));
-    expect(a).toBeDefined();
-    expect(names().filter(n => glyph(n)).length).toBeGreaterThan(2);
-    const side = names().find(n => glyph(n) && D().foldDirOf([...D().names].find(([, x]: [number, string]) => x === n)![0]) === "v")!;
+  test("the frame card folds a tile; clicking the spine restores its size", async () => {
+    const side = names().find(n => D().foldDirOf([...D().names].find(([, x]: [number, string]) => x === n)![0]) === "v")!;
     const before = rect(side);
-    clickGlyph(side);
+    await clickFold(side);
     expect(tile(side).collapsed).toBe(true);
-    expect(tile(side).collapsedDir).toBeUndefined();
     expect(rect(side).cols).toBe(3);
-    // Its neighbours took the room; a click on the spine opens it where it was, at the size it had.
+    await mine("hint.dismiss");
     click(rect(side).col + 1, rect(side).row + 3);
     expect(tile(side).collapsed).toBeUndefined();
     expect(rect(side)).toEqual(before);
-    expect(b).toBeDefined();
-  });
-
-  test("alt+click folds to a horizontal spine: one row with the title, its height to its neighbour; where nothing is stacked it says why", () => {
-    const stacked = names().find(n => glyph(n) && D().foldDirOf([...D().names].find(([, x]: [number, string]) => x === n)![0]) === "h")!;
-    const before = rect(stacked);
-    clickGlyph(stacked, 8);
-    expect(tile(stacked)).toMatchObject({ collapsed: true, collapsedDir: "h" });
-    expect(rect(stacked).rows).toBe(1);
-    expect(rect(stacked).cols).toBe(before.cols);
-    click(rect(stacked).col + 2, rect(stacked).row);
-    expect(tile(stacked).collapsed).toBeUndefined();
-    expect(rect(stacked)).toEqual(before);
-    const side = names().find(n => glyph(n) && D().foldDirOf([...D().names].find(([, x]: [number, string]) => x === n)![0]) === "v")!;
-    clickGlyph(side, 8);
-    expect(tile(side).collapsed).toBeUndefined();
-    expect((app as any).message).toMatch(/isn't stacked with other tiles/);
   });
 
   test("keys: alt+h folds the focused tile and opens it again, alt+H folds it to a horizontal spine", () => {

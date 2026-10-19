@@ -172,7 +172,6 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect(focus()).toBe("detail");
     const tabs = at("1 Start here");
     expect(lines()[tabs.y]).toMatch(/\[=.*1 Start here =.*2 House rules =.*3 Apple notes =+\]/);
-    expect(screen()).toContain("welcome 1");
     expect(plain(tileOf<WelcomeDetail>("detail").render(100, 30, true, top()).lines.join("\n"))).toContain("Start here");
   });
 

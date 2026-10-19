@@ -52,7 +52,7 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     press({ kind: "mouse", action: "down", button: 0, x: or.col + 3, y: or.row + 3 }); press({ kind: "mouse", action: "up", button: 0, x: or.col + 3, y: or.row + 3 });
     expect(desk().focus).toBe(other);
     expect(desk().describe().panes[0].editing?.dirty).toBe(true);
-    expect(sc.render(app).lines.map(plain).join("\n")).toContain("(kept open)");
+    expect(sc.render(app).lines.map(plain).join("\n")).toContain("Kitchen whiteboard editing");
     const [mine, mr] = tiles().find(([id]) => id !== other)!;
     press({ kind: "mouse", action: "down", button: 0, x: mr.col + 3, y: mr.row + 3 }); press({ kind: "mouse", action: "up", button: 0, x: mr.col + 3, y: mr.row + 3 });
     expect(desk().focus).toBe(mine);

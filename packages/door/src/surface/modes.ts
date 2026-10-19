@@ -1,3 +1,4 @@
+import type { Hint } from "./hint-card";
 // The reader's modes (PIE-516, part 2): what takes a reader's keys while the person or an agent is doing
 // something in it besides reading: a step's status choice, the property panel, an edit, a comment session.
 // Each is a mode behind one seam, kept in a small stack whose order is their precedence, stated once
@@ -66,6 +67,7 @@ export interface ReaderMode<H> extends Mode<H> {
  * policy panel). A stack of them (`Modes`) gives the key (the mouse's too) to the first.
  */
 export interface Mode<H> {
+  readonly hintCard?: Hint;
   readonly name: string;
   key(k: Key, host: H): boolean;
   /** It ended by itself: the stack lets it go. */
