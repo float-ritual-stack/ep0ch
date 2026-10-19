@@ -67,22 +67,29 @@ describe.skipIf(!outliner)("the showcase screen: Fantasia", () => {
   test("no frame of the dance goes sparse: every frame from the press to the settle holds the tiles (a tile vanishing for a frame would be a flash)", async () => {
     await openSection();
     desk().settle();
-    const ink = () => [...desk().render(desk().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")].filter(c => c !== " " && c !== "\n").length;
-    const rest = ink();
-    const b = button();
-    click(b.x, b.y);
+    const stage = desk();
+    const ink = (lines: string[]) => [...lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")].filter(c => c !== " " && c !== "\n").length;
+    const rest = ink(stage.render(stage.ctx).lines);
     const seen: number[] = [];
-    const end = Date.now() + 40_000;
     let started = false;
-    while (Date.now() < end) {
-      seen.push(ink());
+    const render = stage.render;
+    // Observe the frames the door actually produces, including frames between host answers. Timer samples
+    // skipped them on busy runners and could not promise that a flash between samples was caught.
+    stage.render = function (...args: unknown[]) {
+      const frame = render.apply(this, args);
+      seen.push(ink(frame.lines));
       if (tiles().some(t => t.float)) started = true;
-      if (started && desk().history.openIds().length === 0) break;
-      await Bun.sleep(15);
-    }
-    desk().settle();
+      return frame;
+    };
+    try {
+      const b = button();
+      click(b.x, b.y);
+      await untilAsync(() => started && stage.history.openIds().length === 0, "the dance's frames through its end", 40_000);
+      stage.settle();
+      app.flush();
+    } finally { stage.render = render; }
     expect(started).toBe(true);
-    expect(seen.length).toBeGreaterThan(20);
+    expect(seen.length).toBeGreaterThan(0);
     const low = Math.min(...seen);
     expect(low).toBeGreaterThan(rest * 0.5);
   }, 90_000);

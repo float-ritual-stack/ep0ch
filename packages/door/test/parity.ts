@@ -7,13 +7,9 @@
 // A key that only puts the screen into an input state (`holdsKeys`: a prefix, a palette, an edit) is the
 // start of a chord: what the state ends in is checked the same way. Scratch services, fictional notes.
 //
-// The screens are probed in six parts, a test file each (test/parity-*.test.ts), each with its own door and
-// scratch service. A part runs its scenarios one after another in one worker, so the longest part is the door suite's
-// longest file, and CI's run waits for it: in three parts, two took 8½ minutes of a 9-minute green run, and a runner
-// that slowed every parity test 2-3x ran past the 12-minute stop (PIE-831). In five, with the shell's states probed once
-// (below), the longest takes 231 s on float-box where the longest of three took 331 s. The showcase now runs
-// separately so its long walks don't wait behind the desk and its tiles (PIE-901). PARITY_ONLY=<label,…> narrows
-// any of them (it splits on commas; `-t` picks a label holding one).
+// Each parity-*.test.ts is one worker; parity-parts.ts distributes the labels so no long serial walk
+// holds up an otherwise idle CI runner. PARITY_ONLY=<label,...> still narrows a file for diagnosis
+// (it splits on commas; `-t` picks a label holding one).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -35,6 +31,7 @@ import { external } from "../src/open";
 import { DEFAULT_THEME, setTheme } from "../src/theme";
 import { outliner, Scratch } from "./scratch";
 import { watchHosts } from "./settle";
+import { PARITY_PARTS } from "./parity-parts";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
@@ -67,8 +64,10 @@ interface Finding { screen: string; keys: string; problem: string }
  */
 export type ParityPart = "screens" | "readers" | "board" | "desk" | "desk-tiles" | "showcase";
 
-export function parity(part: ParityPart) {
-describe.skipIf(!outliner)(`agent parity: every key a screen handles is an action (PIE-506), ${part}`, () => {
+export function parity(worker: keyof typeof PARITY_PARTS) {
+const { part, labels }: { part: ParityPart; labels: readonly string[] } = PARITY_PARTS[worker];
+const probeShell = labels.includes("desk: tree");
+describe.skipIf(!outliner)(`agent parity: every key a screen handles is an action (PIE-506), ${worker}`, () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App;
   let press: (k: Key) => void = () => {};
@@ -340,7 +339,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       // The shell's states are the same on every screen: probed in the desk part only (its first scenario, the tree,
       // opens them all: ctrl+n, alt+a, alt+g, alt+o, alt+s, alt+w), never again in each other part's first scenario
       // that opens them (a minute or two a part).
-      if (GLOBAL_SCOPES.has(first.scope) && part !== "desk") return true;
+      if (GLOBAL_SCOPES.has(first.scope) && !probeShell) return true;
       const where = GLOBAL_SCOPES.has(first.scope) ? "" : ((A().stack.at(-1) as Screen | undefined)?.constructor.name ?? "?");
       const id = `${where}\0${named(k)}\0${first.scope}.${first.name}`;
       if (sharedStates.has(id)) return true;
@@ -369,7 +368,14 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         if (opened && !shared(k, runs)) states.push(k);
         continue;
       }
-      if (after.holds && after.top === base.top) { if (log && k.kind !== "mouse") require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} holds, no action\n`); if (k.kind !== "mouse") states.push(k); continue; }
+      if (after.holds && after.top === base.top) {
+        // Navigation inside an already-open picker didn't enter another input state.
+        if (opened) {
+          if (log) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} holds, no action\n`);
+          states.push(k);
+        }
+        continue;
+      }
       const changed = await bare(label, make, setup, k);
       if (!changed) continue;
       findings.push({ screen: label, keys: named(k), problem: `${after.top !== base.top || after.depth !== base.depth ? "moved the screen stack without an action" : "changed the screen without an action"} (${changed})` });
@@ -552,9 +558,20 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["reader: a view that is an EchoNet area: a two-section card", reading(SEED.echoArea), [k(",")]],
   ];
 
-  const ALL = { screens: SCREENS, readers: [...OTHERS, ...READER], board: [...BOARD, ...RIVER], desk: DESK, "desk-tiles": DESK_TILES, showcase: SHOWCASE }[part];
+  const scenarios = { screens: SCREENS, readers: [...OTHERS, ...READER], board: [...BOARD, ...RIVER], desk: DESK, "desk-tiles": DESK_TILES, showcase: SHOWCASE };
+  const ALL = scenarios[part];
   const only = process.env.PARITY_ONLY?.split(",");
+  if (worker === "screens") test("the split files cover every scenario exactly once", () => {
+    for (const [part, all] of Object.entries(scenarios)) {
+      const assigned: string[] = Object.values(PARITY_PARTS).filter(p => p.part === part).flatMap(p => [...p.labels]);
+      expect(assigned.sort()).toEqual(all.map(([label]) => label).sort());
+    }
+    // A label in the plan without a file silently loses its CI worker.
+    const files = readdirSync(import.meta.dir).filter(f => /^parity-.*\.test\.ts$/.test(f));
+    expect(files.sort()).toEqual(Object.keys(PARITY_PARTS).map(name => `parity-${name}.test.ts`).sort());
+  });
   for (const [label, make, setup] of ALL) {
+    if (!labels.includes(label)) continue;
     if (only && !only.includes(label)) continue;
     test(`${label}: every key and click it handles runs an action that names it`, async () => {
       const before = found.length + hintFound.length, t0 = Date.now();
@@ -566,7 +583,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     }, 600_000);
   }
   // The other parts leave the shell's states to this one: a desk that stopped opening one would leave it unprobed.
-  if (part === "desk" && !only) test("the shell's input states were probed here, as no other part probes them", () => {
+  if (probeShell && !only) test("the shell's input states were probed here, as no other part probes them", () => {
     const probed = new Set([...sharedStates].filter(id => id.startsWith("\0")).map(id => id.split("\0")[1]));
     expect([...probed].sort()).toEqual(["alt+a", "alt+g", "alt+o", "alt+s", "alt+w", "ctrl+n"]);
   });

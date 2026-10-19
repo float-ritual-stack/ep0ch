@@ -36,10 +36,14 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
   const jump = async (title: string) => {
     key(char("g"));
     for (const c of title) key(char(c));
-    await until(() => plain(draw().join("\n")).includes(title), `${title} found`);
-    await Bun.sleep(400);
+    // The query itself draws the title before search answers. Enter must wait for a result, not a delay.
+    await until(() => {
+      const rows = app.bar?.describe().rows as { label: string }[] | undefined;
+      return rows?.some(row => row.label === title) ?? false;
+    }, `${title} found`, 20_000);
     key({ kind: "enter" });
-    await until(() => focusedTitle() === title, `the ${title} column`);
+    // Opening hydrates the column from the scratch host too; a busy worker can take longer than 5 s.
+    await until(() => focusedTitle() === title, `the ${title} column`, 20_000);
   };
 
   beforeAll(async () => {
@@ -62,7 +66,7 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     await jump("Harbour log");
     await jump("How the Mailroom works");
     draw();
-  }, 30_000);
+  }, 90_000);
 
   afterAll(async () => {
     board?.close();

@@ -10,7 +10,17 @@ set -u
 file=$1
 cpu() { awk '/^cpu /{ print $2+$3, $4, $5+$6, $9, $2+$3+$4+$5+$6+$7+$8+$9 }' /proc/stat; }
 throttled() { awk '/^throttled_usec/{ print $2 }' /sys/fs/cgroup/cpu.stat 2>/dev/null || echo 0; }
-printf '%-8s %5s %5s %5s %5s %5s %9s  %s\n' time load1 user% sys% idle% steal% thr_ms "busiest (%cpu command)" > "$file"
+# One core's fixed arithmetic loop makes runner speed comparable even when steal and throttling are zero.
+bun -e '
+  let iterations = 0, checksum = 0;
+  const start = performance.now();
+  while (performance.now() - start < 1000) {
+    for (let i = 0; i < 1024; i++) checksum = (Math.imul(checksum, 1664525) + 1013904223) | 0;
+    iterations += 1024;
+  }
+  console.log(`cpu_bench_1s iterations=${iterations} checksum=${checksum} elapsed_ms=${(performance.now() - start).toFixed(1)}`);
+' > "$file"
+printf '%-8s %5s %5s %5s %5s %5s %9s  %s\n' time load1 user% sys% idle% steal% thr_ms "busiest (%cpu command)" >> "$file"
 read -r u0 s0 i0 st0 t0 < <(cpu); th0=$(throttled)
 while sleep 30; do
   read -r u s i st t < <(cpu); th=$(throttled)
