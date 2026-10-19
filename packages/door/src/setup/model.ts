@@ -1,3 +1,4 @@
+import type { withSecretsFacts } from "@ep0ch/outliner/with-secrets";
 // `ep0ch doctor` and `ep0ch install` (PIE-450): what a machine's stack looks like, as plain data. `facts.ts`
 // gathers it (read-only: git, Herdr, the outline host's socket, the file system); `doctor.ts` and `plan.ts` only
 // read it, so the tests describe a machine instead of needing one.
@@ -186,6 +187,7 @@ export interface Facts {
   /** The link directories in preference order, whether each is on PATH and writable. */
   linkDirs: { dir: string; onPath: boolean; writable: boolean; existing?: "link" | "broken-link" | "file" }[];
   host: HostFacts;
+  withSecrets?: ReturnType<typeof withSecretsFacts>;
   installClients?: { file: string; names: string[]; changed: boolean };
   /**
    * This machine's own name (`<outlines>/.host/machine-name`): what `ep0ch://` URIs and EchoNet call it, so other

@@ -10,6 +10,8 @@
 // The store is `with-secrets`' (`~/.config/secrets`, `WITH_SECRETS_DIR`); a value is read only into a process, by the
 // service or by `with-secrets`. Nothing here reads one out. `set`, `grant` and `revoke` need a terminal: they are the
 // person's, an agent runs `list`, `check` and `who`.
+import { withSecretsFacts } from "./with-secrets";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { keyRows, readScopes, scopesFor, scopesPath, writeScopes, checkScope, type KeyRow } from "./secret-keys";
 import { secretsDirectory } from "./extension-secrets";
@@ -88,8 +90,11 @@ export async function runKeysCommand(args: readonly string[]): Promise<number> {
     if (operation === "set") {
       const [group, key, ...extra] = rest;
       if (!group || !key || extra.length) throw new Error(KEYS_USAGE);
-      const run = Bun.spawn(["with-secrets", "--add", group, key], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
-      return await run.exited;
+      out(`Writes the env file ${join(secretsDirectory(), `${group}.env`)} (mode 600), not the Keychain.`);
+      const run = Bun.spawn([withSecretsFacts().command, "--add", group, key], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+      const code = await run.exited;
+      if (code === 2) throw new Error(`with-secrets rejected ep0ch keys set ${group} ${key}; check the group and key names, then run ep0ch install --apply to update with-secrets.`);
+      return code;
     }
     if (operation === "grant" || operation === "revoke") {
       const { values, positionals } = parseArgs({ args: [...rest], allowPositionals: true, strict: true, options: { outline: { type: "string" } } });

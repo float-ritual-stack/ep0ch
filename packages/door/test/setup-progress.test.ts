@@ -219,6 +219,7 @@ describe("the whole command, in a scratch home", () => {
     mkdirSync(join(h, ".local/bin"), { recursive: true });
     mkdirSync(join(h, "ep0ch/packages/door/src"), { recursive: true });
     writeFileSync(join(h, "ep0ch/packages/door/src/main.ts"), "");
+    symlinkSync(join(import.meta.dir, "../scripts"), join(h, "ep0ch/packages/door/scripts"));
     symlinkSync(join(import.meta.dir, "../../outliner"), join(h, "ep0ch/packages/outliner"));
     mkdirSync(join(h, ".claude"), { recursive: true });
     writeFileSync(join(h, ".claude/settings.json"), JSON.stringify({enabledPlugins: {"pi-outliner@inline": true}}));

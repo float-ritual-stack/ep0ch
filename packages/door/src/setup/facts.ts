@@ -1,3 +1,4 @@
+import { withSecretsFacts } from "@ep0ch/outliner/with-secrets";
 import { readLinkConfig } from "@ep0ch/outliner/link-config";
 import { outlineFiles } from "./outline-files";
 // What this machine's stack looks like (model.ts's Facts), gathered read-only: git (fetch and ls-remote
@@ -608,6 +609,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const record = join(env.EP0CH_STATE ?? defaultStateDir(env), "install-links.json");
   return {
     outlineFiles: outlineFiles(o.cwd ?? process.cwd(), folder),
+    withSecrets: withSecretsFacts(home, repoRoot),
     linkConfig: readLinkConfig(folder),
     platform, home, pathDirs,
     bun: { path: bunPath, version: bunVersion },

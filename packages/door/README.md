@@ -495,6 +495,12 @@ exits 1), and · for information:
   `.ep0ch` names), a folder list with no mode (the mod then feeds nothing until the mode is set), and
   `FORCE_HYPERLINK`, a known issue (PIE-486).
 
+`install` also owns `~/.local/bin/with-secrets` on Linux and macOS. After the checkout update, it copies
+`packages/door/scripts/with-secrets` when the installed `# with-secrets vN` is missing or older, and keeps mode 755.
+`doctor` reports a missing or stale helper with `ep0ch install --apply` as the fix. `ep0ch keys set` uses the
+repo's script directly until that copy catches up and says which env file it writes (mode 600), including on
+macOS; it does not write the Keychain. `keys list` and `keys check` read the shared secret store directly.
+
 `install` runs these steps in order, each skipped when it's already current, each saying what it did:
 
 1. **Back up** every outline (`<outlines>/*.sqlite`) with SQLite's `VACUUM INTO`, a consistent copy even while
