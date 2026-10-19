@@ -31,6 +31,12 @@ export function doctorChecks(f: Facts): Check[] {
   const out: Check[] = [];
   const add = (group: string, name: string, status: CheckStatus, detail: string, fix?: string) => out.push({ group, name, status, detail, ...(fix ? { fix } : {}) });
 
+  if (f.withSecrets) {
+    const w = f.withSecrets;
+    const status = w.installedVersion === null ? "missing" : w.older || w.mode !== 0o755 ? "behind" : "ok";
+    add("ep0ch", "with-secrets", status, `${w.installed}: ${w.installedVersion === null ? "missing" : `v${w.installedVersion}`}; repo v${w.shippedVersion}; mode ${w.mode?.toString(8) ?? "missing"}`, status === "ok" ? undefined : "ep0ch install --apply");
+  }
+
   // bun
   if (!f.bun.path) add("bun", "bun", "missing", "not on PATH", f.platform === "macos" ? "brew install oven-sh/bun/bun" : "curl -fsSL https://bun.sh/install | bash");
   else if (f.bun.version && !versionAtLeast(f.bun.version, MIN_BUN)) add("bun", "bun", "behind", `${f.bun.path} ${f.bun.version}; the Outliner needs ${MIN_BUN} or newer`, f.platform === "macos" && f.bun.path.startsWith("/opt/homebrew") ? "brew upgrade bun" : "bun upgrade");

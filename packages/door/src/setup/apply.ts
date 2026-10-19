@@ -1,15 +1,16 @@
+import { withSecretsFacts } from "@ep0ch/outliner/with-secrets";
 import { fixOutlineFiles, outlineFiles } from "./outline-files";
 // `ep0ch doctor` and `ep0ch install [--apply]` (PIE-450). The dry run (the default) prints the plan; --apply runs
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Deploy notes go
 // through the host; no outline is created; no unit, Herdr config or plugin link is changed.
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
 import { databases, depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, outlineSchema, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
 import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
 import { type Facts, type OutlineSchema, PLUGIN_SOURCE, short, staleness } from "./model";
-import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Migration, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
+import { withSecretsStep, backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Migration, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
 import { hostLive } from "../discover";
 import type { Handover } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
@@ -153,6 +154,14 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
   const say = (s: string) => { record(s); show(`    ✓ ${s}`); };
   const child = task.child;
   switch (step.id) {
+    case "with-secrets": {
+      const w = f.withSecrets!;
+      mkdirSync(dirname(w.installed), { recursive: true });
+      if (w.older) copyFileSync(w.source, w.installed);
+      chmodSync(w.installed, 0o755);
+      say(`${w.installed}: with-secrets v${w.older ? w.shippedVersion : w.installedVersion}, mode 755`);
+      return;
+    }
     case "client-list": {
       for (const w of step.writes!) { mkdirSync(dirname(w.path), { recursive: true }); writeFileSync(w.path, w.text); }
       say(step.why);
@@ -614,6 +623,11 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   let current = facts;
   for (const [i, planned] of plan.steps.entries()) {
     let step = planned;
+    // The repo step may have brought a newer script even when the original plan called it current.
+    if (step.id === "with-secrets") {
+      current = { ...current, withSecrets: withSecretsFacts(current.home, current.repo.root) };
+      step = withSecretsStep(current);
+    }
     // The host: asked again after the checkout updated (its code may speak a new protocol), and restarted because of it.
     // After a migration too: the schema step stopped it, and it's started.
     if (step.id === "host" && plan.steps.some(s => (s.id === "repo" || s.id === "schema" || s.id === "sweep") && s.status === "do")) {
