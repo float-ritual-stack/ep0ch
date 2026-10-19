@@ -18,7 +18,8 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     await d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source");
     expect((await get()).cards[0].lines.join(" ")).toContain("select wire");
     h.screen();
-    expect((await get()).cards.find((c: any) => c.tile === "reader")?.lines.join(" ")).toContain("select wire");
+    // One card, on the tile the wire starts from; the other tiles only say "click to link here" on their frames.
+    expect((await get()).cards.map((c: any) => c.tile)).toEqual(["source"]);
     const focus = d.layoutGet().focus;
     await d.dispatch.press("hint.pin");
     await d.dispatch.press("tile.title", { text: "Garden notes" }, "reader");
