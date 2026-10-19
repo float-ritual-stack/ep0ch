@@ -25,3 +25,29 @@ Morning plan
 - A `@tidy` line written by an agent lands held (`held: <agent> may not wake @tidy · r to send`) and waits for a person's `r`, so agents can't set each other off.
 
 Install: `outliner ext add tidy`. See [the four kinds](../../docs/extensions/README.md#agents-in-the-note).
+
+## Resolving a stale proposal
+
+`outline_proposal_resolve` (service: `draft.proposal.resolve`) hands the proposal, including its author's
+note, the original revision, and the current note to this responder. It uses the same `config.answer`
+command as an instructed tidy. The model returns the full rewritten note and a short message; returning
+the current text unchanged leaves the proposal open with that message and the two conflicting readings.
+The router compares the answer against the text read for this call, writes as `ext:tidy` with `[from::]`
+the proposer, and marks the proposal resolved with a link. `extensions.undo` takes its receipt back in one
+step; the door records that receipt for Ctrl+Z in the reader. Receipts last for this host process.
+
+Automatic resolution is off until the outline contains this rule note:
+
+```text
+Resolve stale proposals [rule-name::resolve-stale-proposals] [rule-on::proposal/resolve] [rule-match::type=proposal stale=true]
+```
+
+Proposal creation and target edits maintain the proposal's `stale` property. The rule engine supplies its
+ordinary quiet wait and loop guard; resolution writes carry `trigger:` attribution and rule-driven target
+edits carry `[via-trigger::]`. A failed resolution leaves the existing proposal open, never another proposal.
+For deployment, enable this note in pie and float-hub after updating their hosts and clients together.
+This change does not modify either live outline. A wire change requires a protocol bump at final rebase.
+
+A text resolution in an extension write group retains its structural operations: the existing group writer
+checks and lands them in the same transaction and undo receipt. A proposal with no text passage has nothing
+for the resolver to rewrite; it stays open for apply or dismiss.

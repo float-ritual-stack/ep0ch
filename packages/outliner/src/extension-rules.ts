@@ -135,6 +135,7 @@ export interface Decoration {
 
 /** What the engine needs of the service around it. */
 export interface ExtensionRulesOptions {
+  readonly resolveProposal?: (id: string, by: MutationProvenance, rule: string) => Promise<{ message: string }>;
   readonly now?: () => number;
   /** A block's decorations changed without a content change (a code rule ran): readers read it again. */
   readonly changed?: (blockId: string) => void;
@@ -317,6 +318,7 @@ export class ExtensionRules {
     if (!rule.on) return undefined;
     for (const [when, ref] of [["rule-on", rule.on.start], ["rule-on-stop", rule.on.stop], ["rule-on-change", rule.on.change]] as const) {
       if (!ref) continue;
+      if (ref.extension === "proposal" && ref.action === "resolve") continue;
       const name = `${ref.extension}/${ref.action}`;
       if (!this.registry.extension(ref.extension)) return `${when} names ${name}, but ${ref.extension} isn't installed here (ep0ch ext ls lists what is)`;
       const action = this.registry.action(ref.extension, ref.action);
@@ -798,7 +800,9 @@ export class ExtensionRules {
       return;
     }
     try {
-      const result = await this.options.act!({
+      const result = action.extension === "proposal" && action.action === "resolve"
+        ? await this.options.resolveProposal!(blockId, requestedBy ?? { author: "user" }, rule.name)
+        : await this.options.act!({
         extension: action.extension, action: action.action, blockId, ...(requestedBy ? { requestedBy } : {}),
         trigger: { rule: rule.name, ...(batch ? { blocks } : {}) },
       });

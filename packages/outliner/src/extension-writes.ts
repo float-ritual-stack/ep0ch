@@ -285,7 +285,7 @@ export class ExtensionWrites {
    * A group a proposal holds, applied anyway (the router's `groups`): its writes checked against the outline now and
    * written by `write` in the router's transaction; `done` keeps the undo step.
    */
-  forProposal(group: DraftGroup, by: MutationProvenance): { write(): void; done(applied: DraftPatchApplied["edits"]): void } {
+  forProposal(group: DraftGroup, by: MutationProvenance): { write(): void; done(applied: DraftPatchApplied["edits"], drafts?: DraftPatchEdit[]): Pick<GroupOutcome, "undo" | "undoNote"> } {
     for (const write of group.writes) {
       if (write.op === "create" && this.store.get(write.id)) throw new Error("it was applied already: its new block is there");
       const parent = write.op === "netmail" ? write.blockId : write.parentId;
@@ -296,7 +296,7 @@ export class ExtensionWrites {
     }
     // The blocks it makes are still the extension's; who applied it moves and orders.
     const writer = this.writer(group.extension, group.writes, by);
-    return { write: writer.write, done: (applied) => void this.keep(group.extension, group.action, writer.steps, applied) };
+    return { write: writer.write, done: (applied, drafts) => this.keep(group.extension, group.action, writer.steps, applied, drafts) };
   }
 
   /**
@@ -565,10 +565,11 @@ export class ExtensionWrites {
   }
 
   /** The group as one undo step, when every part of it is the service's to undo. */
-  private keep(extension: string, action: string, structure: readonly UndoStep[], edits: DraftPatchApplied["edits"]): Pick<GroupOutcome, "undo" | "undoNote"> {
-    if (edits.some((edit) => edit.route === "draft")) return { undoNote: "it went into a live draft: ctrl+z there undoes it" };
+  keep(extension: string, action: string, structure: readonly UndoStep[], edits: DraftPatchApplied["edits"], drafts?: DraftPatchEdit[]): Pick<GroupOutcome, "undo" | "undoNote"> {
+    if (!drafts && edits.some((edit) => edit.route === "draft")) return { undoNote: "it went into a live draft: ctrl+z there undoes it" };
     const steps: UndoStep[] = [...structure];
     for (const edit of edits) {
+      if (edit.route === "draft") continue;
       if (edit.revision === undefined) return {};
       let before: string;
       try {
@@ -589,7 +590,7 @@ export class ExtensionWrites {
       if (step.kind === "create") children.set(step.blockId, this.liveChildren(step.blockId));
     }
     const id = crypto.randomUUID();
-    this.receipts.set(id, { id, extension, action, steps, revisions, children });
+    this.receipts.set(id, { id, extension, action, steps, revisions, children, ...(drafts ? { drafts } : {}) });
     this.prune();
     return { undo: id };
   }

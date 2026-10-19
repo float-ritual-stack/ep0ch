@@ -1762,6 +1762,10 @@ export class SocketBoard implements Board {
    * "Apply anyway": a proposal's patch as an ordinary edit by `actor` (`draft.proposal.apply`). `warning`: the
    * edit landed, but something after it didn't (the proposal couldn't be marked applied).
    */
+  async resolveProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "resolved" | "open"; proposalId: string; message: string; undo?: string }> {
+    return this.request("draft.proposal.resolve", { proposalId, mutation: requesterOf(actor) }, 120_000);
+  }
+
   async applyProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "applied"; edits: { blockId: string; route: "draft" | "saved" }[]; warning?: string }> {
     return this.request("draft.proposal.apply", { proposalId, mutation: requesterOf(actor) });
   }

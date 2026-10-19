@@ -142,6 +142,7 @@ TypeError (there is no such function): `Object.keys(tools)` lists the ones there
 | `tools.outline_patch` | writes | **ref**, **revision**, **patches**, mark, policy, allowStructural | Small edits to the note `ref` the person may be typing in, without waiting for their save (draft.patch); for rewriting your own pages, such as a… | `packages/outline-core/src/agent-tool-definitions.ts:365` |
 | `tools.outline_proposal_apply` | writes | **ref** | Apply draft proposal the note `ref` by id, without a reader, under the agent's normal patch comparison and policy. | `packages/outline-core/src/agent-tool-definitions.ts:418` |
 | `tools.outline_proposal_dismiss` | writes | **ref** | Dismiss your own draft proposal the note `ref` by id, without a reader: mark it dismissed and put it in Trash. | `packages/outline-core/src/agent-tool-definitions.ts:418` |
+| `tools.outline_proposal_resolve` | writes | **ref** | Ask the outline agent to resolve a stale proposal against the current note, preserving other edits. | `packages/outline-core/src/agent-tool-definitions.ts:418` |
 | `tools.outline_set_property` | writes | **ref**, **key**, **value**, **revision** | Set one [key::value] property on the header line of the note `ref` (the chips that end its first line): the value replaced where the key is, or the… | `packages/outline-core/src/agent-tool-definitions.ts:434` |
 | `tools.outline_assign_id` | writes | **ref**, **revision** | Give the note `ref` the outline's next work id (outliner work-id-allocate), against the `revision` outline_read returned: the id is stamped on the… | `packages/outline-core/src/agent-tool-definitions.ts:458` |
 | `tools.outline_move` | writes | **ref**, parent, before, after, position, **revision** | Move the note `ref` (with what is under it) to a new place: under `parent` (a ref, or `root`) at `position` among its children (0 is first; default… | `packages/outline-core/src/agent-tool-definitions.ts:477` |
@@ -307,10 +308,10 @@ examples lean on:
 |---|---|
 | `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:196` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:721` |
-| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1601` |
+| `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1605` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4302` |
-| `viaYolo` | `packages/outliner/src/server.ts:4332` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4313` |
+| `viaYolo` | `packages/outliner/src/server.ts:4343` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:327` |
 
 ## Lifecycle
@@ -333,7 +334,7 @@ examples lean on:
 | `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:205` |
 | `stopRun` | `packages/outliner/src/script-runs.ts:186` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:255` |
-| `scripts.stop` | `packages/outliner/src/server.ts:1994` |
+| `scripts.stop` | `packages/outliner/src/server.ts:1998` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2494` |
 
 ## Traps

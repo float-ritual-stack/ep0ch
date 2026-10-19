@@ -2432,7 +2432,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       },
       {
         set: PROPOSAL_ACTIONS, takes: "screen",
-        claims: req => req.tile === undefined && typeof req.args?.id === "string" && PROPOSAL_ACTIONS.has(req.action),
+        claims: req => req.tile === undefined && (typeof req.args?.id === "string" || typeof req.args?.block === "string") && PROPOSAL_ACTIONS.has(req.action),
         on: (_at, how) => ({ host: { ctx: how.ctx, redraw: () => this.ctx?.redraw() } }),
       },
       { set: HINT_ACTIONS, takes: "screen", on: at => ({ d: this, reader: at.name }) },

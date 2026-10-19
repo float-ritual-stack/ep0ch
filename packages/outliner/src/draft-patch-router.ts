@@ -96,13 +96,15 @@ export interface DraftPatchRouterDeps {
    * (PIE-888) before it lands, so the person's later save or typing doesn't send them.
    */
   heldInDraft?(blockId: string, patches: readonly DraftPatchSpan[], by: MutationProvenance): (landed: boolean) => void;
-  /** A proposal was applied or dismissed: whatever answered with it (an `@name` request) says so now. */
+  keepResolution?(edits: DraftPatchApplied["edits"], inverse: DraftPatchEdit[]): { undo?: string; undoNote?: string };
+  resolve?(input: { proposal: string; original: { text: string; revision: number }; current: { id: string; text: string; revision: number } }, by: MutationProvenance): Promise<{ patches: DraftPatchSpan[]; message?: string }>;
+  /** A proposal was settled: whatever answered with it says so now. */
   proposalSettled?(proposalId: string, status: Exclude<DraftProposalStatus, "open">, by: MutationProvenance): void;
   /**
    * An extension's write group a proposal holds, applied anyway: its structural writes checked against the outline
    * as it is now (`write` runs inside the transaction that writes the saved notes), and `done` told what landed.
    */
-  groups?(group: DraftGroup, by: MutationProvenance): { write(): void; done(applied: DraftPatchApplied["edits"]): void };
+  groups?(group: DraftGroup, by: MutationProvenance): { write(): void; done(applied: DraftPatchApplied["edits"], drafts?: DraftPatchEdit[]): { undo?: string; undoNote?: string } };
 }
 
 /** An extension's write group as the router takes it (src/extension-calls.ts builds it): its text edits and the rest. */
@@ -419,6 +421,63 @@ export class DraftPatchRouter {
     } catch {
       // The request row is a note about the proposal; the proposal's own status is the truth.
     }
+  }
+
+  /** A saved target changed: its open proposals expose staleness to ordinary property queries and rules. */
+  targetChanged(blockId: string, actor: MutationProvenance): void {
+    const store = this.deps.store;
+    for (const block of store.children(blockId)) {
+      if (!isDraftProposal(block) || proposalStatus(block.properties) !== "open") continue;
+      const proposal = parseProposal(block.text);
+      if (!proposal) continue;
+      const stale = block.properties.some(p => p.key === "proposal-applies" && p.value === "no") || proposal.edits.some(edit => store.get(edit.blockId)?.revision !== edit.revision);
+      const text = block.text.replace(/^[^\n]*/, header =>
+        `${header.replace(/ \[stale::(?:true|false)\]/g, "").replace(/ \[type::proposal\]/g, "")} [type::proposal] [stale::${stale}]`);
+      if (text !== block.text) store.update(block.id, text, block.revision, actor);
+    }
+  }
+
+  async resolveProposal(proposalId: string, requestedBy: MutationProvenance, trigger?: string): Promise<{ outcome: "resolved" | "open"; proposalId: string; message: string; undo?: string; undoNote?: string }> {
+    return this.settle(proposalId, async () => {
+      const { store } = this.deps;
+      const { block, proposal } = this.openProposal(proposalId);
+      const actor: MutationProvenance = { author: "agent", actorId: "ext:tidy", taskId: `trigger:${trigger ?? "proposal/resolve"}` };
+      const edits: DraftPatchEdit[] = [];
+      const from = proposal.actor.actorId ?? proposal.actor.author;
+      const messages: string[] = [];
+      const inverse: DraftPatchEdit[] = [];
+      const leaveOpen = (message: string) => {
+        const current = store.requireActive(proposalId);
+        store.update(proposalId, `${current.text}\n\nResolution: ${message.replace(/\s+/g, " ")}`, current.revision, actor);
+        return { outcome: "open" as const, proposalId, message };
+      };
+      if (!proposal.edits.length) return leaveOpen("This proposal has no text passage to resolve; apply or dismiss its structural changes.");
+      try {
+        for (const edit of proposal.edits) {
+          const current = await this.read(edit.blockId);
+          const original = store.revisionText(edit.blockId, edit.revision);
+          const answer = await this.deps.resolve!({ proposal: block.text, original: { text: original.text, revision: edit.revision }, current: { id: edit.blockId, text: current.text, revision: current.revision } }, requestedBy);
+          if (!answer.patches.length) return leaveOpen(answer.message ?? "The agent could not determine the intended change.");
+          messages.push(answer.message ?? "Resolved the intended change.");
+          const patches = answer.patches.map(patch => wholeTextSpan(patch.observed,
+            patch.replacement.replace(/(\n|$)/, ` [from::${from}]${trigger ? ` [via-trigger::${trigger}]` : ""}$1`))!);
+          edits.push({ blockId: edit.blockId, revision: current.revision, patches });
+          if (current.route === "draft") inverse.push({ blockId: edit.blockId, revision: current.revision,
+            patches: patches.map(patch => ({ observed: patch.replacement, replacement: patch.observed })) });
+        }
+        const status = withProposalStatus(block.text, "resolved").replace("\n", ` [from::${from}]\n`) + `\n\nResolved: ${messages.join(" ")}\n` + edits.map(edit => `((${edit.blockId}|Resolved edit))`).join("\n");
+        const prepared = proposal.group ? this.deps.groups!(proposal.group, actor) : undefined;
+        const outcome = await store.changes.run(store.changes.attribution({ action: "draft.proposal.resolve", actor, requestedBy }), () => this.run([
+          ...edits,
+          { blockId: proposalId, revision: block.revision, patches: [{ observed: block.text, replacement: status }] },
+        ], { mutation: actor, policy: "edit", ...(prepared ? { alongside: prepared.write, told: toldBy(proposal.group), made: madeBy(proposal.group) } : {}) }));
+        if (!outcome.ok) return leaveOpen(outcome.reason);
+        this.settled(proposalId, "resolved", actor);
+        return { outcome: "resolved", proposalId, message: messages.join(" "), ...(prepared ? prepared.done(outcome.applied, inverse) : this.deps.keepResolution?.(outcome.applied, inverse)) };
+      } catch (error) {
+        return leaveOpen(error instanceof Error ? error.message : String(error));
+      }
+    });
   }
 
   /**
@@ -861,9 +920,10 @@ export class DraftPatchRouter {
     const created = store.database.transaction(() => {
       const raced = this.openProposalLike(hostId, dedupe);
       if (raced) return { id: raced, deduped: true };
+      const text = proposalText(proposal, names, { applies }).replace("\n", ` [type::proposal] [stale::${!applies || edits.some(edit => store.get(edit.blockId)?.revision !== edit.revision)}]\n`);
       const block = mutation.author === "agent"
-        ? store.create(proposalText(proposal, names, { applies }), hostId, "agent", { actorId: mutation.actorId!, ...(mutation.sessionId ? { sessionId: mutation.sessionId } : {}) })
-        : store.create(proposalText(proposal, names, { applies }), hostId, "user");
+        ? store.create(text, hostId, "agent", { actorId: mutation.actorId!, ...(mutation.sessionId ? { sessionId: mutation.sessionId } : {}) })
+        : store.create(text, hostId, "user");
       return { id: block.id, deduped: false };
     })();
     return { outcome: "proposed", reason, proposalId: created.id, beside: hostId, ...(created.deduped ? { deduped: true as const } : {}) };

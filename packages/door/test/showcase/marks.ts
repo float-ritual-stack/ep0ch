@@ -23,7 +23,7 @@ export const marks: Record<string, string[]> = {
   // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
   kept: ["Greenhouse watering rota", "from your edit yesterday", "[add them]", "was already in the note", "1 old edit"],
   // The guide two agents raced on: @fern's words in it, @moss's proposal drawn after its last line with its controls.
-  proposals: ["Seed sowing guide", "beans in late May", "proposed edit from @moss", "[dismiss]"],
+  proposals: ["Seed sowing guide", "beans in late May", "proposed edit from @moss", "[resolve]", "[dismiss]"],
   // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
   undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
   hints: ["source: select wire", "select wire", "HintCard"],

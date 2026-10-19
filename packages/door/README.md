@@ -64,6 +64,12 @@ component primitives, drawn through the same component renderer. The reply links
 Bindings live in `.ep0ch/config.toml`. `ep0ch doctor --fix` repairs old `.ep0ch` files, preserving
 `.ep0ch.bak`; old scripts move only with an explicit `ep0ch doctor --fix --move-scripts`.
 
+An open proposal offers `A` apply, `r` resolve, and `X` dismiss in its reader and the waiting-on-you tile.
+Resolve asks the outline's tidy agent to apply the intent to the current note, keeping unrelated edits.
+Conflicting readings stay open with a one-line reason. Agents use `act proposal.resolve block=<id>` or
+`outline_proposal_resolve`; the power bar lists the same action. Ctrl+Z in the reader undoes a resolution.
+Outside a proposal, `r` still refreshes the note's projections or sends a held request.
+
 ## Getting started
 
 One walk through the door, in the order you meet things. Each step has its own section below.

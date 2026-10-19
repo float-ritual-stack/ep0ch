@@ -455,7 +455,7 @@ export const COPY_ROWS = 4;
 const verbOf = (e: Element, open: boolean) =>
   e.link?.ext ? extVerb(e.link.ext)
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
-  : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
+  : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : e.link.proposal.op === "resolve" ? "resolve it" : "dismiss it")
   : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
   : e.kind === "control" && e.link?.use ? "ask for what the ::use needs"
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.control === "edit" ? (e.value ? "edit the reply" : "edit the comment") : e.control === "card" ? "expand its thread" : e.control === "quote" ? "quote it into a new block" : e.control === "quoted" ? "open the block quoting it" : e.control === "tldr" ? "ask @margin for its TL;DR" : e.label.toLowerCase())
@@ -1043,7 +1043,7 @@ export class NoteSurface {
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
     const back = this.peek(-1) ? "alt← back · " : "";
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
-    const proposal = this.msg && isOpenProposal(this.msg) ? (proposalApplies(this.msg) ? "A apply anyway · X dismiss · " : "X dismiss · ") : "";
+    const proposal = this.msg && isOpenProposal(this.msg) ? (proposalApplies(this.msg) ? "A apply anyway · r resolve · X dismiss · " : "r resolve · X dismiss · ") : "";
     return `${extra}${proposal}${back}↑↓ j k blocks/rows · ( ) sections · [ ] elements · f fold · M comments mode · R reply · t thread · i properties · z callouts · u up · C comment · m comments`;
   }
 
@@ -1599,7 +1599,7 @@ export class NoteSurface {
     const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
-    const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · X dismiss" : " · X dismiss · it can't be applied: its passage was already gone"), w) + RESET]) } : null;
+    const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · r resolve · X dismiss" : " · r resolve · X dismiss"), w) + RESET]) } : null;
     const head = [
       ...headerBlock,
       ...(proposalHead ? proposalHead.lines : []),
@@ -3923,6 +3923,7 @@ export class NoteSurface {
     // c collapses where a pane can (the board's readers and lanes, which take it first); comment is C.
     if (c === "c") { host.ctx.flash("nothing collapses here · C comments on a passage"); return true; }
     // A: apply anyway (PIE-501), on the proposal shown, or the one whose embed or control is the current element.
+    if (c === "r" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("resolve", undefined, host); return true; }
     if (c === "A" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("apply", undefined, host); return true; }
     // X: dismiss it (the proposal shown, or the one whose embed or control is the current element).
     if (c === "X" && this.msg && (isOpenProposal(this.msg) || this.currentProposal())) { void this.proposalControl("dismiss", undefined, host); return true; }
@@ -7385,12 +7386,12 @@ export class NoteSurface {
   }
 
   private proposalKeys(id: string): string {
-    return this.elems.some(x => x.link?.proposal?.op === "apply" && x.link.proposal.id === id) ? "A apply anyway · X dismiss · " : "X dismiss · ";
+    return this.elems.some(x => x.link?.proposal?.op === "apply" && x.link.proposal.id === id) ? "A apply anyway · r resolve · X dismiss · " : "r resolve · X dismiss · ";
   }
 
   /** The person's `A`, `X`, or a click or ⏎ on a proposal's control: `proposal.apply` or `proposal.dismiss`, its refusal flashed. */
-  private proposalControl(op: "apply" | "dismiss", id: string | undefined, host: SurfaceHost): Promise<unknown> {
-    return this.runKey(op === "apply" ? "proposal.apply" : "proposal.dismiss", id ? { id } : {}, host).then(r => r ?? null);
+  private proposalControl(op: "apply" | "dismiss" | "resolve", id: string | undefined, host: SurfaceHost): Promise<unknown> {
+    return this.runKey(`proposal.${op}`, id ? { id } : {}, host).then(r => r ?? null);
   }
 
 
@@ -8088,6 +8089,24 @@ async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
 
 const proposalDef = def<{ id: { type: "string"; optional: true; about: string } }, { surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }>;
 const PROPOSAL_DEFS = {
+  "proposal.resolve": def({
+    summary: "ask the outline agent to resolve this proposal against the current note", keys: "r, a click on [resolve]",
+    touches: "nothing", replay: "ask",
+    args: { block: { type: "string", optional: true, about: "proposal block id" }, id: { type: "string", optional: true, about: "proposal block id" } },
+    examples: [{ act: "proposal.resolve block=5c2e8b17-4a90-4d3f-b6e1-9f07a3d2c845", does: "resolves the intended edit against the current text" }],
+    async run({ block, id }, { surface, host }: { surface?: NoteSurface; host: Pick<SurfaceHost, "ctx" | "redraw"> }, actor) {
+      const target = proposalTarget(block ?? id, surface);
+      host.ctx.flash("asking the agent to resolve the proposal");
+      try {
+        const result = await host.ctx.board.resolveProposal(target, actor);
+        if (result.undo) EXT_UNDO.push({ undo: result.undo, label: "Resolve proposal", by: partyOf(actor), context: surface?.msg?.id ?? target });
+        outlineChanged([target, ...(surface?.msg ? [surface.msg.id] : [])]);
+        host.ctx.flash(result.message, 8000);
+        surface?.noteAgent(actor, result.outcome === "resolved" ? "resolved a proposal" : "asked to resolve a proposal");
+        return result;
+      } finally { host.redraw(); }
+    },
+  }),
   "proposal.apply": proposalDef({
     summary: "apply anyway (PIE-501): the edit an agent's draft.patch proposed when it couldn't apply, as an ordinary edit by whoever runs this; on the proposal whose embed or control is the current element, the proposal shown, or id. Refused, with why, on one whose passage was already gone when it was proposed ([proposal-applies::no]: only dismiss is offered)", keys: "A, a click on [apply]",
     touches: "nothing", replay: "ask",
@@ -8873,7 +8892,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       }
       // A proposal's [apply] [dismiss] run its action as whoever asks, attributed to them.
       if (e.kind === "control" && e.link?.proposal?.op) {
-        const r: unknown = await NOTE_ACTIONS.run(e.link.proposal.op === "apply" ? "proposal.apply" : "proposal.dismiss", { id: e.link.proposal.id }, on, actor);
+        const r: unknown = await NOTE_ACTIONS.run(`proposal.${e.link.proposal.op}`, { id: e.link.proposal.id }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // A `::fields` row's ¶ anchors its line, as whoever asks.

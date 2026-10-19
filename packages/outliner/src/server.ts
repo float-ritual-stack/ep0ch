@@ -479,6 +479,8 @@ export class OutlinerServer {
           return response.result as T;
         },
       },
+      keepResolution: (edits, inverse) => this.extensionCalls.writes.keep("tidy", "draft.proposal.resolve", [], edits, inverse),
+      resolve: (input, by) => this.agentRequests.resolveProposal(input, by),
       // An `@name` request answered with a proposal says what became of it.
       proposalSettled: (proposalId, status, by) => this.agentRequests.proposalSettled(proposalId, status, by),
       // An agent's patch is about to put an `@name` line in a draft: held for a person's `r`, never refused.
@@ -599,6 +601,7 @@ export class OutlinerServer {
       });
     }, ended => this.broadcast({ id: crypto.randomUUID(), domain: "script", action: "scripts.ended", sequence: store.sequence, ended }));
     this.extensionRules = new ExtensionRules(store, this.extensionRegistry, extensionRuntime, {
+      resolveProposal: (id, by, rule) => this.draftPatches.resolveProposal(id, by, rule),
       // A trigger's action runs where any action runs: extensions.act, attributed to the extension, with who asked.
       act: (request) => this.extensionCalls.act(request),
       changed: (blockId) => this.broadcast({
@@ -2109,12 +2112,14 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
     }
-    if (request.action === "outputs.place" || request.action === "draft.patch" || request.action === "draft.proposal.apply" || request.action === "draft.proposal.dismiss" || request.action === "drafts.read") {
+    if (request.action === "outputs.place" || request.action === "draft.patch" || request.action === "draft.proposal.apply" || request.action === "draft.proposal.dismiss" || request.action === "draft.proposal.resolve" || request.action === "drafts.read") {
       try {
         const result = request.action === "outputs.place"
           ? await placeOutput(this.draftPatches, request)
           : request.action === "draft.patch"
           ? await this.draftPatches.patch(request)
+          : request.action === "draft.proposal.resolve"
+            ? await this.draftPatches.resolveProposal(request.proposalId, request.mutation)
           : request.action === "draft.proposal.apply"
             ? await this.draftPatches.applyProposal(request.proposalId, request.mutation)
             : request.action === "draft.proposal.dismiss"
@@ -3216,6 +3221,7 @@ export class OutlinerServer {
           break;
         case "outputs.place":
         case "draft.patch":
+        case "draft.proposal.resolve":
         case "draft.proposal.apply":
         case "draft.proposal.dismiss":
         case "drafts.read":
@@ -3918,6 +3924,7 @@ export class OutlinerServer {
     for (const event of events) this.broadcast(event);
     for (const event of events) {
       if (event.domain === "content" && event.blockId) this.refreshAttentionForBlock(event.blockId);
+      if (event.change?.kind === "edit" && event.blockId) this.draftPatches.targetChanged(event.blockId, event.change.actor ?? { author: "user" });
       // A saved provider line fetches its ticket in the background; the extension's own writes don't loop
       // (they run nothing), but what they leave is still the request lines a later save is compared with.
       if (event.domain === "content" && event.blockId && (event.change?.kind === "create" || event.change?.kind === "edit")) {
