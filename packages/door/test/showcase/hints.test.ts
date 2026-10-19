@@ -53,6 +53,9 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       const card = d.hintGet().cards.find(c => c.tile === "reader")!;
       expect(card.choices?.find(c => c.act.action === "tile.collapse")?.key).toBe("ctrl+w c");
       expect(card.choices?.find(c => c.act.action === "tile.link" && c.act.args?.verb === "select")).toBeDefined();
+      const controls = h.screen().split("\n");
+      expect(controls.some(l => /zoom\s+\^W z/.test(l))).toBe(true);
+      expect(controls.some(l => /Tile ─/.test(l))).toBe(true);
       expect(d.layoutGet().focus).toBe(focus);
       decoder.feed("\x1b[57442;1:3u");
       expect(d.hintGet().xray).toBe(false);

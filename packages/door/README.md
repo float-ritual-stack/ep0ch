@@ -1213,7 +1213,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | click a dock's handle (`⇤ tree`, hint row) | slide it open |
 | click the `⧉` before a float's title | put it back in the layout (`tile.float`, as `^W f` and the board's `o`); the cell either side of it counts |
 | click the `⧉` in the focused tile's top right corner | float it (`tile.float`, as `^W f`) |
-| click the `⋯` in a tile's top right corner (left of its `×`), or right-click anywhere in the tile | its menu (`tile.menu`, as `^W .`): the tile's actions, grouped (Tile: close, zoom, float, dock, spine, drawer, preview; then its kind's: a reader's Note and Reader rows, a terminal's, a board lane's), each with its key as a keycap. One click, `⏎` or the row's own key runs it as you; a dimmed row says in the menu's foot why it can't run now; `esc` or a click outside puts it away. A terminal whose program asked for the mouse (vim's `mouse=a`, claude) keeps its right-clicks, and its `⋯` still opens the menu; so does a step's box, whose right-click opens its status choice |
+| click the `⋯` in a tile's top right corner, or right-click anywhere in the tile | its menu (`tile.menu`, as `^W .`): the tile's actions, grouped (Tile: close, zoom, float, dock, spine, drawer, preview; then its kind's: a reader's Note and Reader rows, a terminal's, a board lane's), each with its key as a keycap. One click, `⏎` or the row's own key runs it as you; a dimmed row says in the menu's foot why it can't run now; `esc` or a click outside puts it away. A terminal whose program asked for the mouse (vim's `mouse=a`, claude) keeps its right-clicks, and its `⋯` still opens the menu; so does a step's box, whose right-click opens its status choice |
 | click the `×` in a tile's top right corner | close it (`tile.close`, as `^W x`), your keys staying where they are; a tile with a running program asks twice. A tile its container keeps (the board's lanes, the river's library) has none, and a dock's tile closes by the dock's `[×]` |
 | drag a tile's header onto the status bar's drawer chip (`▲ claude`) or the open drawer | put it in your drawer: it joins the drawer as a tab and travels with you across screens (`tile.drawer`); the chip lights up `into your drawer: travels with you` while you're over it |
 | drag a drawer tab's title out over the screen | take it out there, by the same drop zones as any tile (`tile.drawer on=false to= where=`) |
@@ -3125,7 +3125,9 @@ Enter opens, alt+Enter opens beside. `elements` reports each visible row's `list
 any row in that list. These are the reader's existing keys on every screen; editor,
 picker, terminal and screen-level bindings keep their own precedence.
 
-Hint cards use the existing desk float layer and keycap component. A calm frame puts
+Hint cards use the existing desk float layer. Controls share the tile menu's grouped rows,
+with labels first and key captions aligned at the right. Click `⋯` or right-click for the
+searchable menu; hold Ctrl, press `Ctrl+]` then `?`, or press `?` over a frame for controls. A calm frame puts
 its number, title and state before the controls. The right cluster gets its space
 first, even for a long title or a following reader. The scroll thumb stays; a frame
 never shows a percentage. Extra wire details appear only where there is room. `hints` in the

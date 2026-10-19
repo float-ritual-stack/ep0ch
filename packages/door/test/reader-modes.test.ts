@@ -234,7 +234,7 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     await mine("tile.close", {}, made().name);
   });
 
-  test("the frame card opens the Shows and page-lock controls", async () => {
+  test("the tile menu opens the Shows and page-lock controls", async () => {
     await act("reader.mode", { mode: "follows" }, "follower");
     D().setCurrent(notes.plan, {});
     expect(pane("follower").msg?.id).toBe(notes.plan.id);

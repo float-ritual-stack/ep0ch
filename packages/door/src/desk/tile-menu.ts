@@ -33,6 +33,18 @@ function wrap(s: string, w: number): string[] {
   return out;
 }
 
+export function menuHeading(group: string, w: number): string {
+  return fg(C.dark) + ` ${group} ${"─".repeat(Math.max(0, w - width(group) - 2))}` + RESET;
+}
+
+export function menuRow(r: { label: string; key?: string; refused?: string }, on: boolean, w: number, query = ""): string {
+  const cap = r.key ? ` ${keyCaption(r.key)} ` : "";
+  const lit = litCells(r.label, query);
+  const label = [...r.label].map((c, j) => (lit.has(j) ? fg(C.yellow) + c + fg(on ? C.white : r.refused ? C.dark : C.grey) : c)).join("");
+  const capCell = cap ? (r.refused ? fg(C.dark) : chip(C.dark)) + cap + RESET : "";
+  return (on ? selectedRow(`  ${label}`, w - width(cap)) : fg(r.refused ? C.dark : C.grey) + pad(` ${label}`, w - width(cap)) + RESET) + capCell;
+}
+
 /**
  * The menu of tile `title`'s rows, its top left corner at `at` (its top right with `right`: under the ⋯), kept on the
  * screen. Typing filters the rows (PIE-879) with the power bar's matcher (`filtered`, src/bar/filter.ts): the query shows
@@ -57,14 +69,8 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
   const p: ListPicker<MenuRow, H> = new ListPicker<MenuRow, H>({
     name: "tile menu", items: sync, clickChooses: true, scrolls: true, input, escClears: true,
     typed: () => { chord = false; sync(); p.sel = 0; },
-    heading: (r, i, w) => (i === 0 || rows[i - 1]!.group !== r.group ? fg(C.dark) + ` ${r.group} ${"─".repeat(Math.max(0, w - width(r.group) - 2))}` + RESET : null),
-    row: (r, i, on, w) => {
-      const cap = caps(rows)[i] ?? "";
-      const lit = litCells(r.label, input.text);
-      const label = [...r.label].map((c, j) => (lit.has(j) ? fg(C.yellow) + c + fg(on ? C.white : r.refused ? C.dark : C.grey) : c)).join("");
-      const capCell = cap ? (r.refused ? fg(C.dark) : chip(C.dark)) + cap + RESET : "";
-      return [(on ? selectedRow(`  ${label}`, w - width(cap)) : fg(r.refused ? C.dark : C.grey) + pad(` ${label}`, w - width(cap)) + RESET) + capCell];
-    },
+    heading: (r, i, w) => (i === 0 || rows[i - 1]!.group !== r.group ? menuHeading(r.group, w) : null),
+    row: (r, _i, on, w) => [menuRow(r, on, w, input.text)],
     choose: (r, _i, h) => run(r, h),
     // A row's own chord runs it (the first that isn't refused; a refused one says why), unless it's a key the list moves by.
     keys: (k, h) => {

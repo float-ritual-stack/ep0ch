@@ -1,4 +1,5 @@
 import { Canvas, type Rect } from "../canvas";
+import { menuHeading, menuRow } from "../desk/tile-menu";
 import { RowView } from "../scroll";
 import { keycaps } from "../figures/keys";
 import { bg, C, fg, pad, RESET } from "../style";
@@ -9,7 +10,7 @@ export interface Hint {
   title: string;
   lines: readonly string[];
   keys?: readonly { keys: string; does: string }[];
-  choices?: readonly { label: string; act: ActRequest; key?: string; refused?: string }[];
+  choices?: readonly { label: string; act: ActRequest; key?: string; group?: string; refused?: string }[];
 }
 
 /** A float's contents and pressable rows; never a mode that owns the person's keys. */
@@ -26,7 +27,12 @@ export class HintCard {
     const lines = (brief ? this.hint.lines.slice(0, 1) : this.hint.lines).flatMap(l => wrap(l, w));
     if (!brief) for (const k of this.hint.keys ?? []) lines.push(keycaps(k.keys) + fg(C.grey) + ` ${k.does}` + RESET);
     const choices = this.hint.choices ?? [];
-    const rows = Math.min(area.rows, lines.length + choices.length + 2);
+    const content: { text: string; act?: ActRequest }[] = lines.map(text => ({ text }));
+    choices.forEach((choice, i) => {
+      if (choice.group && (i === 0 || choices[i - 1]!.group !== choice.group)) content.push({ text: menuHeading(choice.group, w) });
+      content.push({ text: menuRow(choice, false, w), act: choice.act });
+    });
+    const rows = Math.min(area.rows, content.length + 2);
     let col = Math.max(area.col, Math.min(anchor.col + 1, area.col + area.cols - cols));
     let row = Math.max(area.row, Math.min(anchor.row + 1, area.row + area.rows - rows));
     // Leave the control just pressed uncovered, without chasing a pointer entering a choice.
@@ -41,10 +47,6 @@ export class HintCard {
     this.hits = [
       { rect: { col: col + 3, row: row + rows - 1, cols: this.pinned ? 0 : 5, rows: 1 }, act: { action: "hint.pin", tile: this.tile } },
       { rect: { col: col + (this.pinned ? 11 : 10), row: row + rows - 1, cols: 9, rows: 1 }, act: { action: "hint.dismiss", tile: this.tile } },
-    ];
-    const content = [
-      ...lines.map(text => ({ text, act: undefined as ActRequest | undefined })),
-      ...choices.map(choice => ({ text: (choice.key ? keycaps(choice.key) + " " : "") + fg(choice.refused ? C.dark : C.grey) + choice.label, act: choice.act })),
     ];
     const top = this.view.place(null, content.length, Math.max(0, rows - 2));
     content.slice(top, top + rows - 2).forEach((line, i) => {

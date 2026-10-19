@@ -2334,7 +2334,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw(); return this.hintGet();
   }
   private controlsHint(id: number): Hint {
-    return { title: `${this.numLabel(id)}${this.displayTitle(id)}`, lines: [], choices: this.dispatch.menu(this.nameOf(id), USER).map(r => ({ label: r.label, key: r.key, refused: r.refused, act: { action: r.action, tile: r.tile, args: r.args } })) };
+    return { title: `${this.numLabel(id)}${this.displayTitle(id)}`, lines: [], choices: this.dispatch.menu(this.nameOf(id), USER).map(r => ({ label: r.label, key: r.key, group: r.group, refused: r.refused, act: { action: r.action, tile: r.tile, args: r.args } })) };
   }
   linkingHint(): Hint | null {
     if (!this.linking) return null;
@@ -3948,8 +3948,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
       const b = this.menuButtons.find(b => k.y === b.row && k.x >= b.from && k.x < b.to);
       if (b && (k.action === "drag" && k.button === 3 || (k.action === "down" && k.button === 0))) {
-        if (this.hintCard?.tile !== this.nameOf(b.id)) this.run("hint.show", {}, this.nameOf(b.id));
-        return;
+        if (k.action === "drag") {
+          if (this.hintCard?.tile !== this.nameOf(b.id)) this.run("hint.show", {}, this.nameOf(b.id));
+          return;
+        }
+        if (b.id !== this.focus) this.run("tile.focus", {}, this.nameOf(b.id));
+        return this.run("tile.menu", {}, this.nameOf(b.id));
       }
     }
     if (k.kind === "mouse" && k.action === "drag" && k.button === 3) return;

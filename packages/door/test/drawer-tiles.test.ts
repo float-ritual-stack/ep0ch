@@ -227,7 +227,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
-  test("the drawer's frame card closes a running program after two presses and an exited program at once", async () => {
+  test("the drawer's tile menu closes a running program after two presses and an exited program at once", async () => {
     const d = await door();
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
@@ -238,7 +238,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         const chip = lines[row]!.lastIndexOf("⋯");
         expect(chip).toBeGreaterThan(0);
         d.key(mouse("down", chip, row)); d.key(mouse("up", chip, row));
-        const card = d.paint(), close = card.findIndex(l => l.includes("[x] close"));
+        const card = d.paint(), close = card.findIndex(l => l.includes("close"));
         expect(close).toBeGreaterThan(row);
         const col = card[close]!.indexOf("close");
         d.key(mouse("down", col, close)); d.key(mouse("up", col, close));
