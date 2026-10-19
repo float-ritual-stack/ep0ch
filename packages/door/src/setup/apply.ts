@@ -472,7 +472,6 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       const logs = u.kind === "launchd" ? `launchctl print gui/${process.getuid?.() ?? 0}/${u.name} (and its StandardErrorPath)` : `journalctl --user -u ${u.name}`;
       // Its process now, just before the command: the one a new process replaces.
       const was = u.state.pid;
-      if (u.kind === "systemd") await must(["systemctl", "--user", "daemon-reload"], "run ep0ch install --apply again", { env });
       await must(hostUnitArgv(u, verb, process.getuid?.() ?? 0), `the host wasn't ${verb}ed; ${hostUnitCommand(u, verb)} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
       // The host answering (hostReady, with a slower grace after 30s before it's called a failure).
       if (!(await hostReady(f, verb, was, 30_000, hostLive, async () => (await unitState(u, undefined, env)).pid))) throw new StepFailed(`${u.kind} ${verb}ed ${u.name}, but nothing answers at ${f.host.socket} after 40s`, `see ${logs}; the doors on it wait and reconnect once it answers`);
