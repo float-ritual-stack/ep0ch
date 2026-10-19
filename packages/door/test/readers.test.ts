@@ -279,7 +279,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     const fr = frame(), R = B().rect(f)!;
     const line = fr[R.row]!.slice(R.col, R.col + R.cols);
     expect(line).not.toMatch(/ · \d+%/);
-    expect(line).toContain("⋯");
+    expect(line).toContain("\u2261");
     expect(Array.from({ length: R.rows - 2 }, (_, i) => fr[R.row + 1 + i]![R.col + R.cols - 1]).join("")).toContain("█");
     expect(line).toContain("Rebuild the potting bench");
     expect(fr.join("\n")).toContain("Rebuild the potting bench");

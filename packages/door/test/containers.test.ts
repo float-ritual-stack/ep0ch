@@ -76,7 +76,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(tile("preview").dock).toBe("open");
     expect(tile("preview").edge).toBe("up");                       // the middle of a column: from its top
     expect(shape()).toContain("dock<up>(preview)");
-    expect(D().render(D().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("⤒ dock");
+    expect(D().render(D().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("\u2191 dock");
     key(ctrl("w")); key(char("p"));
     expect(tile("preview").dock).toBeUndefined();
     expect(shape()).toBe(before);
@@ -107,7 +107,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     key({ kind: "tab" });
     expect(tile("now").dock).toBe("shut");
     render();
-    expect(D().render(D().ctx).lines[HINT]!.replace(/\x1b\[[\d;]*m/g, "")).toContain("⇤ claude+now");                // what it shows: claude's tab, and now
+    expect(D().render(D().ctx).lines[HINT]!.replace(/\x1b\[[\d;]*m/g, "")).toContain("\u2190 claude+now");                // what it shows: claude's tab, and now
     for (let i = 0; i < 6; i++) { key({ kind: "tab" }); expect(["tree", "claude", "now"]).not.toContain(get().focus); }
   });
 

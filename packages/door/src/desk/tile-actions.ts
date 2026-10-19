@@ -252,9 +252,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.link": def({
     menu: [
-      { label: "select wire", group: TILE, key: "alt+l s", args: { ask: true, verb: "select" }, now: ({ d, reader }) => ({ label: `select wire: ${d.wireDescription(reader, "select")}` }) },
-      { label: "open wire", group: TILE, key: "alt+l o", args: { ask: true, verb: "open" }, now: ({ d, reader }) => ({ label: `open wire: ${d.wireDescription(reader, "open")}` }) },
-      { label: "alt wire", group: TILE, key: "alt+l a", args: { ask: true, verb: "alt" }, now: ({ d, reader }) => ({ label: `alt wire: ${d.wireDescription(reader, "alt")}` }) },
+      { label: "select wire", group: TILE, key: "alt+l s", args: { ask: true, verb: "select" }, now: ({ d, reader }) => ({ label: `s where a select lands: ${d.wireDescription(reader, "select")}` }) },
+      { label: "open wire", group: TILE, key: "alt+l o", args: { ask: true, verb: "open" }, now: ({ d, reader }) => ({ label: `o where an open lands: ${d.wireDescription(reader, "open")}` }) },
+      { label: "alt wire", group: TILE, key: "alt+l a", args: { ask: true, verb: "alt" }, now: ({ d, reader }) => ({ label: `a where an alt-open lands: ${d.wireDescription(reader, "alt")}` }) },
     ],
     hint: (a, { d }) => a.ask ? d.linkingHint() : null,
     summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there. Select may have several targets. No to= removes that verb's wires; remove=true removes just the named target. ask=true picks on screen; ask=false dismisses the controls without changing wires.",

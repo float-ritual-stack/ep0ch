@@ -97,7 +97,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     const b = (D().menuButtons as any[]).find(x => D().nameOf(x.id) === "activity");
     // Left of the ×: ⋯ ×.
     expect(b).toMatchObject({ row: r.row, from: r.col + r.cols - 4 });
-    expect(screen().split("\n")[r.row]!.slice(r.col + r.cols - 4, r.col + r.cols - 1)).toBe("⋯─×");
+    expect(screen().split("\n")[r.row]!.slice(r.col + r.cols - 4, r.col + r.cols - 1)).toBe("≡─x");
     press(b.from, b.row);
     await until(() => menu()?.name === "tile menu", "the menu opens");
     expect(get().focus).toBe("activity");

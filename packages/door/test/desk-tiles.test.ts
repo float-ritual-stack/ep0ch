@@ -234,11 +234,11 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await until(() => tile("side").showing?.id === notes.beans.id, "selection lands in the mouse-wired reader");
     const tr = rect("tree");
     const header = visible(render().lines[tr.row]!).slice(tr.col, tr.col + tr.cols);
-    mouse("down", tr.col + header.indexOf("⋯"), tr.row);
+    mouse("down", tr.col + header.indexOf("\u2261"), tr.row);
     const cardLines = render().lines.map(visible);
-    const wireRow = cardLines.findIndex((line: string) => line.includes("select wire:"));
+    const wireRow = cardLines.findIndex((line: string) => line.includes("s where a select lands:"));
     expect(wireRow).toBeGreaterThan(tr.row);
-    mouse("down", cardLines[wireRow]!.indexOf("select wire:"), wireRow);
+    mouse("down", cardLines[wireRow]!.indexOf("s where a select lands:"), wireRow);
     mouse("down", tr.col + 3, tr.row + tr.rows - 3);
     expect(tile("tree").wires.some((w: any) => w.verb === "select")).toBe(false);
     key(ctrl("w")); key(char("P")); render();

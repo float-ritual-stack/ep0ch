@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join, resolve } from "node:path";
 import { startControl } from "../../src/control";
+import { inCp437, toCp437Glyphs } from "../../src/ansi";
 import { Mirror } from "../../src/mirror";
 import { KeyDecoder } from "../../src/term";
 import { declaredKeys, traceActions } from "../../src/surface/actions";
@@ -79,7 +80,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       expect(actions.at(-1)).toBe("hint.show");
       expect(declaredKeys(d.dispatch.defOf("hint.show")?.keys)).toContain("?");
       h.press({ kind: "esc" });
-      h.press({ kind: "mouse", action: "drag", button: 3, x: h.screen().split("\n")[stage.row + r.row]!.indexOf("⋯", stage.col + r.col), y: stage.row + r.row });
+      h.press({ kind: "mouse", action: "drag", button: 3, x: h.screen().split("\n")[stage.row + r.row]!.indexOf("\u2261", stage.col + r.col), y: stage.row + r.row });
       expect(d.hintGet().cards[0]?.tile).toBe("reader");
       expect(actions.at(-1)).toBe("hint.show");
       expect(declaredKeys(d.dispatch.defOf("hint.show")?.keys)).toContain("hover");
@@ -92,10 +93,47 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       expect(await proc.exited, stderr).toBe(0);
-      expect(stdout).toContain('select wire:');
+      expect(stdout).toContain('s where a select lands:');
       expect(d.hintGet().xray).toBe(false);
       expect(d.layoutGet().focus).toBe(focus);
     } finally { control.close(); }
+  });
+
+  test("frame controls stay distinct in CP437 and the frame card explains the wires", async () => {
+    const d = h.S().stages.get(h.S().sel).top as Desk;
+    await d.dispatch.press("hint.dismiss");
+    const rows = h.screen().split("\n");
+    const stage = h.S().stageRect;
+    const r = d.layoutGet().tiles.find(t => t.name === "reader")!.rect!;
+    const controls = rows[stage.row + r.row]!.slice(stage.col + r.col + r.cols - 7, stage.col + r.col + r.cols - 1);
+    const glyphs = [...controls].filter(c => !" ─═".includes(c));
+    expect(glyphs.length).toBeGreaterThan(1);
+    expect(glyphs.map(toCp437Glyphs)).toEqual(glyphs);
+    expect(glyphs.every(inCp437)).toBe(true);
+    expect(new Set(glyphs.map(toCp437Glyphs)).size).toBe(glyphs.length);
+    await d.dispatch.press("hint.show", {}, "reader");
+    const legend = d.hintGet().cards[0]!.lines.join(" ");
+    for (const meaning of ["s where a select lands", "o where an open lands", "a where an alt-open lands", "fold", "menu", "close"]) expect(legend).toContain(meaning);
+    await d.dispatch.press("hint.dismiss");
+  });
+
+  test("each short wire changes its destination through its frame click", async () => {
+    const d = h.S().stages.get(h.S().sel).top as Desk;
+    for (const [tile, text] of [["source", "Source"], ["reader", "Target"]]) await d.dispatch.press("tile.title", { text }, tile);
+    for (const [letter, verb] of [["s", "select"], ["o", "open"], ["a", "alt"]]) {
+      const rows = h.screen().split("\n"), stage = h.S().stageRect;
+      const source = d.layoutGet().tiles.find(t => t.name === "source")!.rect!;
+      const header = rows[stage.row + source.row]!.slice(stage.col + source.col, stage.col + source.col + source.cols);
+      const x = header.indexOf(` ${letter} `);
+      expect(x, header).toBeGreaterThan(0);
+      d.key({ kind: "mouse", action: "down", button: 0, x: source.col + x + 1, y: source.row }, h.app);
+      expect(d.hintGet().cards[0]!.lines.join(" ")).toContain(`${verb} wire`);
+      h.screen();
+      const target = d.layoutGet().tiles.find(t => t.name === "reader")!.rect!;
+      d.key({ kind: "mouse", action: "down", button: 0, x: target.col + 2, y: target.row + target.rows - 3 }, h.app);
+      await until(() => !d.linkingHint(), "wire destination chosen");
+      expect(d.layoutGet().tiles.find(t => t.name === "source")).toMatchObject({ wires: expect.arrayContaining([{ verb, to: "reader" }]) });
+    }
   });
 
   test("the tune inspector changes hint detail without changing the mode", async () => {

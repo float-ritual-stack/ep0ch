@@ -11,6 +11,9 @@ import { App } from "../src/app";
 import { Canvas } from "../src/canvas";
 import { Painter } from "../src/display";
 import { PtyPane } from "../src/desk/pty";
+import { AGENT_GLYPH } from "../src/surface/agent-level";
+import { EDGE_GLYPH } from "../src/desk/layout";
+import { FRAME_GLYPHS } from "../src/desk/frame-controls";
 import { Desk } from "../src/desk/desk";
 import { Draft, wrapRows } from "../src/edit";
 import { renderCompletion } from "../src/surface/completer";
@@ -176,6 +179,13 @@ describe("terminal cells, not code points", () => {
 });
 
 describe("CP437 on the wire", () => {
+  test("frame controls have distinct CP437 glyphs without substitutions", () => {
+    const glyphs = [...Object.values(FRAME_GLYPHS), ...Object.values(EDGE_GLYPH), ...Object.values(AGENT_GLYPH).filter(Boolean)];
+    expect(glyphs.every(inCp437)).toBe(true);
+    expect(glyphs.map(toCp437Glyphs)).toEqual(glyphs);
+    expect(new Set(glyphs.map(cp437Code)).size).toBe(glyphs.length);
+  });
+
   test("every glyph the door draws is in the VGA font or has a lookalike in it", () => {
     // Characters only read, never drawn: keys macOS types with Option, key names, a paste's markers, a
     // terminal tile's zero-width second cell.

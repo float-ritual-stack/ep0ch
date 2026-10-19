@@ -1,4 +1,5 @@
 import { COMPLETION_ROWS, type Completer } from "../surface/completer";
+import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
 import { HintCard, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
 import { revealOn, type Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
@@ -3374,7 +3375,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const titleModeX = menus && pane.writtenTitle && r.cols >= 28 ? (listHeld !== null ? holdX : foldDir ? foldX : menuX) - 7 : null;
     const fits = Math.max(1, (titleModeX ?? (listHeld !== null ? holdX : foldDir ? foldX : menuX)) - r.col - 4);
 
-    const head = (float ? `${fg(C.yellow)}⧉ ${RESET}` : "") + this.header(id, r, keys, !joined && lv.border !== "none", float ? 2 : 0, r.col + 3 + fits);
+    const head = (float ? `${fg(C.yellow)}${FRAME_GLYPHS.float} ${RESET}` : "") + this.header(id, r, keys, !joined && lv.border !== "none", float ? 2 : 0, r.col + 3 + fits);
     if (float) this.floatButtons.push({ id, row: r.row, from: r.col + 2, to: r.col + 5 });
     const view = inner.cols >= 1 && inner.rows >= 1 ? this.drawn(id, pane, inner, focused, typing) : null;
     // A kept session still needs an entry point when its reader is not taking keys.
@@ -3437,15 +3438,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tab in the drawer has one too (the drawer's own exited program clears to an empty slot).
     if (closes) {
       const x = r.col + r.cols - 2;
-      canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}×${RESET}`, 1);
+      canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}${FRAME_GLYPHS.close}${RESET}`, 1);
       this.closeButtons.push({ id, row: r.row, from: x, to: x + 1 });
     }
     if (floats) {
-      canvas.text(floatX, r.row, `${fg(C.dark)}⧉${RESET}`, 1);
+      canvas.text(floatX, r.row, `${fg(C.dark)}${FRAME_GLYPHS.float}${RESET}`, 1);
       this.floatButtons.push({ id, row: r.row, from: floatX, to: floatX + 1 });
     }
     if (foldDir) {
-      canvas.text(foldX, r.row, `${fg(focused ? C.grey : C.dark)}${foldDir === "h" ? "▾" : "◂"}${RESET}`, 1);
+      canvas.text(foldX, r.row, `${fg(focused ? C.grey : C.dark)}${foldDir === "h" ? FRAME_GLYPHS.foldDown : FRAME_GLYPHS.foldLeft}${RESET}`, 1);
       this.foldButtons.push({ id, row: r.row, from: foldX, to: foldX + 1 });
     }
     if (titleModeX !== null) {
@@ -3454,13 +3455,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.headPresses.push({ id, row: r.row, from: titleModeX, to: titleModeX + label.length, press: () => this.run("tile.title.mode", {}, this.nameOf(id)) });
     }
     if (listHeld !== null) {
-      canvas.text(holdX, r.row, `${fg(listHeld ? C.yellow : focused ? C.grey : C.dark)}${listHeld ? "●" : "○"}${RESET}`, 1);
+      canvas.text(holdX, r.row, `${fg(listHeld ? C.yellow : focused ? C.grey : C.dark)}${listHeld ? FRAME_GLYPHS.held : FRAME_GLYPHS.hold}${RESET}`, 1);
       this.holdButtons.push({ id, row: r.row, from: holdX, to: holdX + 1 });
     }
     // The frame card and the menu read the same rows from the dispatcher.
     if (menus) {
       const x = menuX;
-      canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}⋯${RESET}`, 1);
+      canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}${FRAME_GLYPHS.menu}${RESET}`, 1);
       this.menuButtons.push({ id, row: r.row, from: x, to: x + 1, right: r.col + r.cols - x });
     }
     const out: Placement[] = [];
@@ -3589,7 +3590,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const sp = visibleText(own.title).trim() ? own : { ...own, title: `${this.numLabel(id)}${this.nameOf(id)}` };
     // A spine of a tile that closes has its × (PIE-794): a click closes it without opening it (tile.close, as ^W x).
     const closes = this.closesByMouse(id) && (this.collapsed.get(id)?.dir === "h" ? r.cols >= 6 : r.rows >= 3);
-    const x = (col: number, row: number) => { canvas.text(col, row, `${fg(focused ? C.grey : C.dark)}×${RESET}`, 1); this.closeButtons.push({ id, row, from: col, to: col + 1 }); };
+    const x = (col: number, row: number) => { canvas.text(col, row, `${fg(focused ? C.grey : C.dark)}${FRAME_GLYPHS.close}${RESET}`, 1); this.closeButtons.push({ id, row, from: col, to: col + 1 }); };
     if (this.collapsed.get(id)?.dir === "h") {
       const at = closes ? { ...r, cols: r.cols - 2 } : r;
       drawHSpine(canvas, at, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? selected() : undefined });
@@ -3693,10 +3694,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pane = this.panes.get(id)!;
     const { names, across } = this.linkedFrom(pane);
     let out = names.length ? ` ← ${names.join(", ")}` : "";
-    if (pane instanceof ReaderPane && !across && (names.length > 0 || (wireTarget(this.layout, id) !== undefined)) && this.openLandingReader(USER)?.id === id) out += " ⏎ opens land here";
+    if (pane instanceof ReaderPane && !across && (names.length > 0 || (wireTarget(this.layout, id) !== undefined)) && this.openLandingReader(USER)?.id === id) out += " opens land here";
     if (kindOf(pane)?.opensOnScreen && this.ctx?.hostLayer?.isDrawer(this) && !this.routes(pane)) {
       const to = this.otherDesk()?.landingName();
-      if (to) out += ` ⏎ → ${to}`;
+      if (to) out += ` open → ${to}`;
     }
     return out;
   }
@@ -3710,23 +3711,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private headerTail(id: number, put: (text: string, sgr: string, hit?: number) => void, xNow: () => number, row: number, max: number, focused: boolean, framed: boolean): string {
     // A list a #tag opened (PIE-855) follows its reader's tags until held: ◄ and the reader, a click opens ^W P's follows row.
     const p = this.panes.get(id)!, home = kindOf(p)?.home?.(p);
-    if (home && kindOf(p)?.hold?.held(p) === false) { const from = xNow(); put(` ◄ ${home}`, fg(C.lmagenta)); this.wireChips.push({ id, row, from: from + 1, to: xNow(), wire: "follows" }); }
+    if (home && kindOf(p)?.hold?.held(p) === false) { const from = xNow(); put(` ${FRAME_GLYPHS.follows} ${home}`, fg(C.lmagenta)); this.wireChips.push({ id, row, from: from + 1, to: xNow(), wire: "follows" }); }
     const dr = dockOf(this.root, id);
     // A click on it undocks it where it is (tile.dock on=false).
     if (dr) {
       const from = xNow(); put(` ${EDGE_GLYPH[dr.edge]} docked`, fg(C.brown)); this.dockLabels.push({ id, row, from: from + 1, to: xNow() });
       // A dock that slides shut says how, by mouse: [×] closes it as Esc in it does.
-      if (dr.open && policyOfNode(this.layout, dr).collapsible) { const x = xNow(); put(" [×]", fg(C.grey)); this.dockCloses.push({ id, row, from: x + 1, to: xNow() }); }
+      if (dr.open && policyOfNode(this.layout, dr).collapsible) { const x = xNow(); put(` [${FRAME_GLYPHS.close}]`, fg(C.grey)); this.dockCloses.push({ id, row, from: x + 1, to: xNow() }); }
     }
     const verbs = ["select", "open", "alt"] as const;
-    const glyphs = { select: "s", open: "o", alt: "a" };
+    const glyphs = FRAME_GLYPHS;
     const words = verbs.map(verb => this.wireWords(id, verb));
-    const wide = verbs.map((verb, i) => ` ${verb === "open" ? "⏎" : verb} → ${words[i]}`);
+    const wide = verbs.map((verb, i) => ` ${verb} → ${words[i]}`);
     const short = verbs.map((verb, i) => ` ${glyphs[verb]} ${words[i]}`);
     const chain = this.chainWords(id);
-    const room = max - xNow() - 14 - width(chain);
+    const ag = this.agentOf(id).level;
+    const room = max - xNow() - 14 - width(chain) - (ag === "free" ? 0 : width(AGENT_WORDS[ag]) + 3);
     const labels = wide.reduce((n, x) => n + width(x), 0) <= room ? wide : short.reduce((n, x) => n + width(x), 0) <= room ? short : verbs.map(verb => ` ${glyphs[verb]}`);
-    if (framed && room > 60 && (kindOf(p)?.previews || kindOf(p)?.accepts?.notes)) {
+    if (framed && room >= 6 && (kindOf(p)?.previews || kindOf(p)?.accepts?.notes)) {
       // Wire controls are separate from the tile's identity and dock state.
       put(focused ? " ═" : " ─", fg(C.dark));
       verbs.forEach((verb, i) => {
@@ -3739,7 +3741,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // what-changed list, `ep0ch open`) lands in, that it is that one: "reader10 ← reader9", "reader9 ⏎ drawer → reader10".
     if (chain && xNow() + width(chain) < max) put(chain, fg(C.lmagenta));
     // What an agent may do here (PIE-639): free says nothing; a click cycles it (tile.agent), as ^W g does.
-    const ag = this.agentOf(id).level;
     if (ag !== "free") {
       const room = max - xNow() - (dockOf(this.root, id) ? 14 : 0) - 8, full = ` ${AGENT_GLYPH[ag]} ${AGENT_WORDS[ag]}`, text = full.length <= room ? full : ` ${AGENT_GLYPH[ag]}`;
       const from = xNow(); put(text, fg(ag === "off" ? C.lred : C.yellow)); this.agentChips.push({ id, row, from: from + 1, to: xNow() });

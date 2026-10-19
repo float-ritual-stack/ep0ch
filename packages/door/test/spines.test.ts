@@ -346,7 +346,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect((app.describe() as any).state.readers.find((r: any) => r.name === "detail1").newComments).toBe(1);
     // Under its × (PIE-794: a spine that closes has one on its top row), its marks: what it holds, then ■.
     const s = spine("detail0");
-    expect(frame()[s.row]![s.col]).toBe("×");
+    expect(frame()[s.row]![s.col]).toBe("x");
     expect(frame()[s.row + 2]![s.col]).toBe("■");
     await act("tile.collapse", { on: false }, "detail1");
   });

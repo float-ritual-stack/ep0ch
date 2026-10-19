@@ -430,8 +430,8 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       const moved = desk.rectsNow().get(desk.idNamed(tile));
       expect([moved.col, moved.row]).toEqual([r.col + 10, r.row + 4]);
       expect(pane().surface.draft?.text).toBe("Bean poles");
-      // Its ⋯: the tile's menu opens over it (#766), and the draft stays as it was.
-      const rows = screen(), hx = rows[moved.row]!.indexOf("⋯", moved.col);
+      // Its menu control: the tile's menu opens over it (#766), and the draft stays as it was.
+      const rows = screen(), hx = rows[moved.row]!.indexOf("\u2261", moved.col);
       expect(hx).toBeGreaterThan(moved.col);
       mouse("down", hx, moved.row); mouse("up", hx, moved.row);
       expect(desk.overlays.get("tile menu")).toBeTruthy();

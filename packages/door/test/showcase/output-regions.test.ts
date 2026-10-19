@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
+import { Desk } from "../../src/desk/desk";
 import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
 
@@ -52,7 +53,11 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     const first = (await board.get(id))!;
     await until(() => screen().includes("Sam sows beans") && /Owner\s.*Week/.test(screen()) && screen().includes("Sam waters the beans"), "the three regions drawn", 15_000);
     // Zero chrome until the cursor is in a region (PIE-956 S6b): no mark is drawn yet.
-    expect(screen()).not.toContain("≡");
+    const d = h.S().stages.get(h.S().sel).top as Desk;
+    const r = d.layoutGet().tiles.find(t => t.name === "notes")!.rect!, stage = h.S().stageRect;
+    const body = screen().split("\n").slice(stage.row + r.row + 1, stage.row + r.row + r.rows - 1)
+      .map(line => line.slice(stage.col + r.col + 1, stage.col + r.col + r.cols - 1)).join("\n");
+    expect(body).not.toContain("\u2261");
     expect(screen()).not.toMatch(/ran (just now|\d+ min ago)|\[keep\]|run again|\[!output\]|╭─ ▾ .*output/);
     // The way in: the header's [sources], S, or a selection's "Where from" opens the Sources inspector beside the note.
     expect(screen()).toContain("[sources]");

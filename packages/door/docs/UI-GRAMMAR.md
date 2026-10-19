@@ -865,6 +865,10 @@ came from geometry kept from the start of a drag).
 X-ray uses bare Ctrl press/release reports from Kitty, a press-only Ctrl toggle,
 or `ctrl+]` then `?`. Traditional terminals cannot report bare Ctrl: use the
 leader. A terminal tile keeps its existing `ctrl+]` escape and double-press path.
+Frame wires use magenta `s o a` for select, open and alt-open, with destinations when room permits.
+The controls are CP437-native: `◄`/`▼` fold, `≡` menu, `x` close, `◘` float or put back,
+and `○`/`•` follow or hold. `«` names the reader a list follows; `*`/`!` name its agent policy.
+The frame card names each control and where each wire lands.
 A frame's controls chip opens a hint card by click or hover; `?` while the pointer
 is on a frame opens that card. Elsewhere `?` retains its existing meaning. Cards
 never own keys or focus, and non-choice clicks pass through. Esc dismisses them;

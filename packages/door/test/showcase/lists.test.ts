@@ -289,14 +289,14 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     const L2 = lists().find(t => t.name !== L).name as string;
     expect(await app.act({ action: "tile.info", tile: L2, as: "test-agent" })).toMatchObject({ follows: "the #tags opened in detail", opens: expect.stringMatching(/^detail, its reader/) });
     expect(await app.act({ action: "tile.info", tile: L, as: "test-agent" })).toMatchObject({ follows: expect.stringMatching(/^nothing: held on its tag/) });
-    // The following list's header says ◄ detail; a click on it opens ^W P at its follows row, and the unlink row holds it.
+    // The following list's header says \u00ab detail; a click on it opens ^W P at its follows row, and the unlink row holds it.
     const rows = () => sc.render(app).lines.map(plain);
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
-    const mark = () => { const r = rows(), y = r.findIndex(l => l.includes("#frost-jobs") && l.includes("◄ deta")); return { y, x: y >= 0 ? r[y]!.indexOf("◄ deta") : -1 }; };
-    await until(() => mark().y >= 0, "◄ detail on the following list's header", 5000);
+    const mark = () => { const r = rows(), y = r.findIndex(l => l.includes("#frost-jobs") && l.includes("\u00ab deta")); return { y, x: y >= 0 ? r[y]!.indexOf("\u00ab deta") : -1 }; };
+    await until(() => mark().y >= 0, "\u00ab detail on the following list's header", 5000);
     click(mark().x + 1, mark().y);
     const panel = () => stage().overlays.top();
-    await until(() => panel()?.name === "policy", "^W P from the ◄ mark", 5000);
+    await until(() => panel()?.name === "policy", "^W P from the follows mark", 5000);
     expect(panel().items[panel().sel].label).toBe(`${L2} follows: the #tags opened in detail`);
     expect(rows().join("\n")).toContain("⏎ opens in: detail");
     press({ kind: "char", ch: "j" }); press({ kind: "enter" });
