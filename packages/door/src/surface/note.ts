@@ -109,7 +109,7 @@ import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
 import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLine, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
-import { RowPresses } from "../scroll";
+import { MOUSE_ALT, RowPresses } from "../scroll";
 import { ListPicker } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
@@ -2781,8 +2781,8 @@ export class NoteSurface {
         const at = previous.group === "thread" && keep ? previous.rowsAt.findIndex(r => r.key === keep) : -1;
         if (at >= 0) previous.selected = at; previous.truncated = replies.truncated || thread.truncated; } host.redraw(); return out; }
     const row = (n?: number) => mode.rowsAt[n === undefined ? mode.selected : n - 1];
-    // ⏎ and a second click: a fold row shows its posts, any other row is read.
-    const go = (n?: number) => run(row(n)?.kind === "fold" ? "note.thread.unfold" : "note.thread.open", n === undefined ? {} : { n });
+    // Folds expand in place; note rows use the reader tile's open or alt wire.
+    const go = (n?: number, fresh = false) => run(row(n)?.kind === "fold" ? "note.thread.unfold" : "note.thread.open", { ...(n === undefined ? {} : { n }), ...(fresh && row(n)?.kind !== "fold" ? { fresh: true } : {}) });
     const run = (action: "note.thread.close" | "note.thread.pick" | "note.thread.open" | "note.thread.unfold" | "note.thread.groups" | "note.thread.full", args: Record<string, unknown> = {}) => { void this.runKey(action, args, host); };
     const mode: ReplyLinksMode = {
       name: "replies", of: m, word: "replies", holdsKeys: true, editing: () => false, covers: () => false,
@@ -2802,7 +2802,7 @@ export class NoteSurface {
         if (k.kind === "esc" || c === "t" || c === "q") run("note.thread.close");
         else if (isDown(k)) run("note.thread.pick", { by: 1 });
         else if (isUp(k)) run("note.thread.pick", { by: -1 });
-        else if (k.kind === "enter") go();
+        else if (k.kind === "enter" || k.kind === "alt-enter") go(undefined, k.kind === "alt-enter");
         else if (c === "b") run("note.thread.groups");
         else if (c === "T") run("note.thread.full");
         return true;
@@ -2815,14 +2815,14 @@ export class NoteSurface {
         const i = y - r.y - 1 + mode.top;
         if (i < 0 || i >= mode.rowsAt.length) return true;
         // One rule for every list's rows (RowPresses): a click selects (the one that gave the reader the keys only does that),
-        // a second on the selected row, a double click or ⏎ opens, an alt- or ctrl-click is the same open here.
-        const g = mode.presses.press(i, { focusing: !!host.focusing, selected: mode.picked && i === mode.selected });
-        if (g === "open" || g === "fresh") go(i + 1); else run("note.thread.pick", { n: i + 1 });
+        // a double click opens, and an alt-click uses the alt wire.
+        const g = mode.presses.press(i, { focusing: !!host.focusing, selected: mode.picked && i === mode.selected, mods: host.freshClick ? MOUSE_ALT : 0 });
+        if (g === "open" || g === "fresh") go(i + 1, g === "fresh"); else run("note.thread.pick", { n: i + 1 });
         return true;
       },
       wheel: (dir, _host, at) => { if (!at || at.x < mode.rect.x || at.y < mode.rect.y) return false; run("note.thread.pick", { by: dir }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("replies"); return { left: "nothing" }; },
-      hint: () => "j k select · K/J reorder · I/O in/out · Z move · ⏎ open · b links · T full · Esc close", state: () => "replies",
+      hint: () => "j k select · K/J reorder · I/O in/out · Z move · ⏎ open · alt+⏎ alt-open · b links · T full · Esc close", state: () => "replies",
       describe: () => ({ replies: mode.data.children?.kind === "ready" ? mode.data.children.value.map(c => c.block.id) : [], truncated: mode.truncated, group: mode.group, rows: mode.rowsAt.map((r, i) => describeLinkRow(r, i + 1, i === mode.selected)) }),
     };
     this.modes.push(mode); host.redraw(); return out;
@@ -8481,7 +8481,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (_, { surface, host }, actor) => surface.openReplyLinks(host, actor),
   }),
   "note.thread.close": def({
-    summary: "close the replies drawer", keys: "Esc, q, t in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
+    summary: "close the replies drawer", keys: "Esc, q, t in the replies, a click on close", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
     run(_, { surface, host }) { surface.closeReplyLinks(); host.redraw(); return { closed: true }; },
   }),
   "note.thread.pick": def({
@@ -8490,10 +8490,15 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "note.thread.pick by=1", does: "moves the thread's selection down one row" },
       { act: "note.thread.pick n=3", does: "selects the third row of the thread" },
     ],
-    run({ by, n }, { surface, host }, actor) {
+    async run({ by, n }, { surface, host }, actor) {
       const m = surface.replyLinks;
-      // Only the person's own pick arms the second click (an agent's never takes their first selection).
+      // The panel keeps the person's selected row while its note is read for a preview.
       if (m) { m.selected = Math.max(0, Math.min(m.rowsAt.length - 1, n !== undefined ? n - 1 : m.selected + (by ?? 0))); m.picked = actor.kind === "user"; }
+      const row = m?.rowsAt[m.selected], target = row && linkTargetOf(row);
+      if (target?.block && host.preview) {
+        const note = await host.ctx.board.get(target.block);
+        if (note && surface.replyLinks === m && m?.rowsAt[m.selected]?.key === row?.key) host.preview(note);
+      }
       host.redraw(); return { selected: m?.selected };
     },
   }),
@@ -8502,15 +8507,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run(_, { surface, host }) { const m = surface.replyLinks; if (m) { m.top = 0; m.group = m.group === "thread" ? "children" : m.group === "children" ? "outlinks" : m.group === "outlinks" ? "backlinks" : "thread"; m.selected = m.group === "thread" ? Math.max(0, threadRows(m.thread, m.unfolded).findIndex(r => r.kind === "child" && r.thread?.here)) : 1; m.picked = false; } host.redraw(); return { group: m?.group }; },
   }),
   "note.thread.open": def({
-    summary: "read the selected post of the thread (a fold row opens its posts, the note you are on closes the panel)", keys: "enter, a second click on the selected row or a double click in the thread", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
+    summary: "read the selected post through the tile's open wire, or its alt wire with fresh=true (a fold row opens its posts)", keys: "enter, alt+enter, a double click or alt-click in the thread", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" }, fresh: { type: "boolean", optional: true, about: "use the alt wire, as alt+Enter does" } },
     examples: [
       { act: "note.thread.open", does: "opens the selected post of the thread in the reader" },
       { act: "note.thread.open n=2", does: "opens the second row's post of the thread in the reader" },
     ],
-    async run({ n }, { surface, host }) { const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1];
+    async run({ n, fresh }, { surface, host }) { const m = surface.replyLinks, row = m?.rowsAt[n === undefined ? m.selected : n - 1];
       if (row?.kind === "fold") throw new ActionRefused("that row is a fold, not a post: note.thread.unfold shows what it hides");
-      if (m && row?.kind === "child" && row.thread?.here) { surface.closeReplyLinks(); host.redraw(); return { opened: null }; }
-      const target = row && linkTargetOf(row); if (!target) return { opened: null }; surface.closeReplyLinks(); const note = await surface.followFromDraft(target, host); return { opened: note && "id" in note ? note.id : null }; },
+      const target = row && linkTargetOf(row); if (!target) return { opened: null }; surface.closeReplyLinks(); const note = await surface.open(target, host, fresh); return { opened: note && "id" in note ? note.id : null }; },
   }),
   "note.thread.unfold": def({
     summary: "show the posts a fold row of the thread hides", keys: "enter, a second click or a double click on a fold row", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
@@ -8525,7 +8529,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "note.thread.full": def({
-    summary: "open the full THREAD message list", keys: "T or the replies header", touches: "screen", replay: "safe", person: "the person's screen", args: {},
+    summary: "open the full THREAD message list", keys: "T or a click on the replies header", touches: "screen", replay: "safe", person: "the person's screen", args: {},
     async run(_, { surface, host }) {
       const m = surface.requireNote(), { MessageList } = await import("../screens");
       surface.closeReplyLinks();

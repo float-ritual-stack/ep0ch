@@ -18,7 +18,7 @@ import type { DeskApi, Pane, PaneView } from "./panes";
 import type { HeldAsk } from "../socket";
 import type { HeldAsks } from "../held-asks";
 import type { KindHost, TileKind } from "./tile-kinds";
-import { RowView } from "../scroll";
+import { RowView, pressOn, type RowPress } from "../scroll";
 import { onStatusChange, recordFacts, recordText, statusMark, waitingOnYou, type WaitingRow } from "./program-status";
 
 export const WAITING_YOU_KIND_NAME = "waiting-you";
@@ -53,7 +53,7 @@ export class WaitingYouPane implements Pane {
   /** Every row: the terminals' programs, then the held requests. */
   private total(): number { return this.rows().length + this.held().length; }
   title() { const n = this.total(); return n ? `waiting on you · ${n}` : "waiting on you · nothing"; }
-  hint() { return this.at >= this.rows().length && this.held().length ? "j k pick · ⏎ opens the note · r sends the request" : "j k pick · ⏎ or click goes to it · x seen"; }
+  hint() { return this.at >= this.rows().length && this.held().length ? "j k pick · click selects · ⏎ opens · alt+⏎ alt-opens · r sends the request" : "j k pick · click selects · ⏎ goes to it · x seen"; }
   private offHeld: (() => void) | null = null;
   init(desk: DeskApi) {
     this.door = desk.ctx.hostLayer ?? desk.ctx; this.off?.(); this.off = onStatusChange(() => desk.redraw(), this.door);
@@ -95,16 +95,23 @@ export class WaitingYouPane implements Pane {
     if (isUp(k)) { if (this.at > 0) this.run(desk, "status.pick", { n: this.at }); return true; }
     if (isDown(k)) { if (this.at + 1 < n) this.run(desk, "status.pick", { n: this.at + 2 }); return true; }
     const onHeld = this.at >= terminals && this.at < n;
-    if (k.kind === "enter" && n) { this.run(desk, onHeld ? "held.open" : "status.go", { n: this.at + 1 }); return true; }
+    if ((k.kind === "enter" || k.kind === "alt-enter") && n) { this.run(desk, onHeld ? "held.open" : "status.go", { n: this.at + 1, ...(onHeld && k.kind === "alt-enter" ? { fresh: true } : {}) }); return true; }
     if (ch(k) === "r" && onHeld) { this.run(desk, "held.send", { n: this.at + 1 }); return true; }
     if (ch(k) === "x" && n && !onHeld) { this.run(desk, "status.seen", { n: this.at + 1 }); return true; }
     return false;
   }
 
-  click(x: number, y: number, desk: DeskApi) {
-    const n = this.view.top + y, terminals = this.rows().length;
-    if (n < terminals) this.run(desk, "status.go", { n: n + 1 });
-    else if (n < this.total()) { this.at = n; this.run(desk, x >= this.width - SEND.length ? "held.send" : "held.open", { n: n + 1 }); }
+  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+    if (k.action === "wheel-up" || k.action === "wheel-down") { this.wheel(k.action === "wheel-up" ? -1 : 1, desk); return true; }
+    if (k.action !== "down") return true;
+    const n = this.view.top + y;
+    if (n >= this.total()) return true;
+    const held = n >= this.rows().length;
+    if (held && x >= this.width - SEND.length) { this.run(desk, "held.send", { n: n + 1 }); return true; }
+    const gesture = this.view.press(n, pressOn(k, press, n === this.at));
+    if (gesture === "select") this.run(desk, "status.pick", { n: n + 1 });
+    else this.run(desk, held ? "held.open" : "status.go", { n: n + 1, ...(held && gesture === "fresh" ? { fresh: true } : {}) });
+    return true;
   }
 
   wheel(dir: 1 | -1, desk: DeskApi) {
@@ -153,21 +160,27 @@ const which = {
 export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
   "status.pick": def({
     summary: "pick a row of the waiting-on-you list (n from 1, or tile=<the terminal's id or name>)",
-    keys: "j k ↑ ↓, the wheel",
+    keys: "j k ↑ ↓, the wheel, a click",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's row (peek lists the rows)",
     args: which,
     examples: [
       { act: "status.pick n=1", does: "selects the first terminal waiting on you in the list" },
     ],
-    run(a, { pane, desk }) {
+    async run(a, { pane, desk }, actor) {
       const w = pane as WaitingYouPane, terminals = w.rows().length;
-      if (a.tile === undefined && a.n !== undefined && a.n > terminals && a.n <= terminals + w.held().length) { w.at = a.n - 1; desk.redraw(); return { n: a.n, held: true }; }
+      if (a.tile === undefined && a.n !== undefined && a.n > terminals && a.n <= terminals + w.held().length) {
+        w.at = a.n - 1;
+        const m = await desk.ctx.board.get(w.held()[a.n - terminals - 1]!.blockId);
+        if (m && w.at === a.n - 1) desk.showFrom?.(w, m, actor);
+        desk.redraw();
+        return { n: a.n, held: true };
+      }
       const { row, n } = rowOf(w, a); w.at = n - 1; desk.redraw(); return { n, tile: row.tile, name: row.name };
     },
   }),
   "status.go": def({
     summary: "go to the terminal tile a row of the waiting-on-you list is about (n from 1, or tile=): on the screen, the drawer put away and the keys given to it; in the drawer, its tab shown and the keys in it. Its done and failed records go once the person is in it. The person's only: going takes their keys",
-    keys: "⏎, a click on a row",
+    keys: "⏎, alt+⏎, a double click on a row",
     touches: "screen", replay: "ask",
     person: "going to a tile takes the person's keys; an agent reads the rows (peek) and types with tile.type",
     args: which,
@@ -185,16 +198,18 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
   }),
   "held.open": def({
     summary: "open the note a held request is in (n: its row in the list, as peek numbers it, the terminals first, or id=<the note's id>; left out, the selected row): where the waiting list's opens go. The request is not sent (held.send does that); the person's keys stay where they are for an agent",
-    keys: "⏎, a click on a held row",
-    touches: "screen", replay: "safe", says: r => `opened ${r.title}`,
-    args: { n: { type: "number", optional: true, about: "its row in the list, from 1, as peek lists them" }, id: { type: "string", optional: true, about: "the note's id, instead of n" } },
+    keys: "⏎, alt+⏎, a double click or alt-click on a held row",
+    touches: "nothing", replay: "safe", says: r => `opened ${r.title}`,
+    args: { n: { type: "number", optional: true, about: "its row in the list, from 1, as peek lists them" }, id: { type: "string", optional: true, about: "the note's id, instead of n" }, fresh: { type: "boolean", optional: true, about: "use the alt wire, as alt+Enter does" } },
     examples: [
       { act: "held.open n=2", does: "opens the note the second held request is in, where the list's opens go" },
       { act: "held.open id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "opens that note, the request still held" },
     ],
     async run(a, { pane, desk }, actor) {
       const w = pane as WaitingYouPane, ask = heldOf(w, a);
-      await desk.perform?.("open", { id: ask.blockId }, actor);
+      const m = await desk.ctx.board.get(ask.blockId);
+      if (!m) throw new ActionRefused("that note is gone");
+      await desk.setCurrent(m, { from: w, link: true, fresh: a.fresh, by: actor });
       return { n: w.rows().length + w.held().indexOf(ask) + 1, id: ask.blockId, title: ask.title };
     },
   }),
@@ -235,7 +250,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
 
 /** The list as a tile kind: its rows, its actions, and what `peek` says. */
 export const WAITING_YOU_KIND: TileKind = {
-  kind: WAITING_YOU_KIND_NAME, about: "what the programs in terminal tiles say waits on you (blocked, failed, done unseen; OSC 7501)", noun: "the waiting-on-you list",
+  kind: WAITING_YOU_KIND_NAME, previews: true, opensOnScreen: true, about: "what the programs in terminal tiles say waits on you (blocked, failed, done unseen; OSC 7501)", noun: "the waiting-on-you list",
   make: () => new WaitingYouPane(), actions: WAITING_YOU_ACTIONS,
   peek: p => ({ waitingOnYou: (p as WaitingYouPane).describe() }),
   describe: p => ({ rows: (p as WaitingYouPane).describe() }),

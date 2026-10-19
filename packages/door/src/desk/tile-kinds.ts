@@ -87,9 +87,9 @@ export interface TileKind {
    * names no tile (an agent's `open <id>`) never lands in it.
    */
   readonly follower?: boolean;
-  /** Its selection drives previews (it calls `desk.showFrom`): its frame says where selections land. */
+  /** Its note rows are wire sources: the frame offers select, open and alt through the desk's shared routing. */
   readonly previews?: true;
-  /** In the drawer its picks open notes on the screen shown (it has no reader of its own): alt+l links it to one, else its header says which reader an open lands in now (PIE-700). */
+  /** In the drawer, opens without a wire use the screen shown. Local and cross-edge wires take precedence. */
   readonly opensOnScreen?: true;
   /**
    * Its home (PIE-794): the reader it belongs to (the links tile's: the reader it was opened beside). Its opens land

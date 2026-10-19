@@ -1397,6 +1397,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile whose opens go beside it (its policy's open rule, `beside`: a pinned page, the brief): a reader beside it
     // follows the note (the one there, or one split off to its right); the tile itself stays on its own.
     const at = this.idOf(opts.from);
+    // Drawer lists use the screen's open rule only when no wire gives the open a destination.
+    if (m && at !== undefined && (opts.link || opts.reveal || opts.fresh) && kindOf(opts.from)?.opensOnScreen && this.ctx.hostLayer?.isDrawer(this) && !this.routes(opts.from!, opts.fresh ? "alt" : "open")) {
+      return this.ctx.hostLayer.openOnScreen(m.id, !!opts.fresh, by).then(() => this.redraw());
+    }
     const beside = !!m && !opts.fresh && at !== undefined && this.policyAt(at).opens === "beside";
     if (beside) this.readerBeside(opts.from!, by);
     if (m && at !== undefined && !beside && (opts.link || opts.reveal || opts.fresh)) { if (this.landFrom(at, m, opts, by)) return this.redraw(); }
@@ -1657,9 +1661,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
 
   /** Opens from `pane` land somewhere else (a link, a container, a flow's next column, a link across an edge). */
-  routes(pane: Pane): boolean {
+  routes(pane: Pane, verb: "open" | "alt" = "open"): boolean {
     const id = this.idOf(pane);
-    return id !== undefined && (landing(this.layout, id, "open", this.facts(id)) !== null || this.extTarget(id) !== undefined);
+    return id !== undefined && (verb === "alt"
+      ? this.layout.wires.some(w => w.from === id && (w.verb === "alt" || w.verb === "open")) || this.extTarget(id, "alt") !== undefined || this.routes(pane)
+      : landing(this.layout, id, verb, this.facts(id)) !== null || this.extTarget(id, verb) !== undefined);
   }
 
   /**
@@ -3619,7 +3625,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const { names, across } = this.linkedFrom(pane);
     let out = names.length ? ` ← ${names.join(", ")}` : "";
     if (pane instanceof ReaderPane && !across && (names.length > 0 || (wireTarget(this.layout, id) !== undefined)) && this.openLandingReader(USER)?.id === id) out += " ⏎ opens land here";
-    if (kindOf(pane)?.opensOnScreen && this.ctx?.hostLayer?.isDrawer(this) && !this.ext.has(id)) {
+    if (kindOf(pane)?.opensOnScreen && this.ctx?.hostLayer?.isDrawer(this) && !this.routes(pane)) {
       const to = this.otherDesk()?.landingName();
       if (to) out += ` ⏎ → ${to}`;
     }

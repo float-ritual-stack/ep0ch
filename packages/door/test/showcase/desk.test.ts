@@ -271,6 +271,37 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
   }, 20_000);
 
 
+  test("drawer list wires select and open into a drawer detail", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
+    const note = await board.createBlock(null, "A changed garden note");
+    await board.update(note.id, "A changed garden note\nWater the seedlings", note.revision!, { kind: "agent", id: "garden-helper" });
+    await until(() => app.whatChanged.list().some(r => r.blockId === note.id), "the change arrives");
+    await app.act({ action: "changes.open", as: "test-agent" });
+    const second = await board.createBlock(null, "Another changed garden note", { kind: "agent", id: "garden-helper" });
+    await until(() => app.whatChanged.list().some(r => r.blockId === second.id), "another change arrives");
+    const drawer = app.drawer.desk!;
+    const list = app.drawer.tabs().find(t => t.kind === "what-changed")!.name;
+    const user = { kind: "user" } as const;
+    await drawer.dispatch.act({ action: "tile.open", tile: list, args: { kind: "detail", name: "drawer-detail", note: seeded.notes.notebook.id } }, user);
+    await drawer.dispatch.act({ action: "tile.link", tile: list, args: { to: "drawer-detail", verb: "select" } }, user);
+    await drawer.dispatch.act({ action: "changes.pick", tile: list, args: { id: note.id } }, user);
+    await until(() => (drawer.pane("drawer-detail") as ReaderPane).msg?.id === note.id, "selection previews in the drawer detail");
+    await drawer.dispatch.act({ action: "tile.link", tile: list, args: { verb: "select" } }, user);
+    await drawer.dispatch.act({ action: "tile.link", tile: list, args: { to: "drawer-detail", verb: "open" } }, user);
+    await drawer.dispatch.act({ action: "changes.go", tile: list, args: { id: second.id } }, user);
+    expect((drawer.pane("drawer-detail") as ReaderPane).msg?.id).toBe(second.id);
+    await drawer.dispatch.act({ action: "tile.link", tile: list, args: { to: "drawer-detail", verb: "alt" } }, user);
+    await drawer.dispatch.act({ action: "changes.go", tile: list, args: { id: note.id, fresh: true } }, user);
+    expect((drawer.pane("drawer-detail") as ReaderPane).msg?.id).toBe(note.id);
+    const stage = S().stages.get(S().sel).top as Desk;
+    await drawer.dispatch.act({ action: "tile.link", tile: list, args: { to: drawer.pathTo(stage.pane("reader")!), verb: "open" } }, user);
+    await drawer.dispatch.act({ action: "changes.go", tile: list, args: { id: second.id } }, user);
+    expect((stage.pane("reader") as ReaderPane).msg?.id).toBe(second.id);
+    await drawer.dispatch.act({ action: "tile.close", tile: "drawer-detail" }, user);
+  });
+
   test("the drawer section, driven through act: the kettle goes in, a section switch keeps it (the same pid), and it comes out into another section", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
@@ -382,6 +413,14 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     // An agent opens it, never sends it.
     await expect(app.act({ action: "held.send", tile: "waiting", args: { id: held()[0].block }, as: "test-agent" })).rejects.toThrow("waits for a person");
     expect(app.heldAsks.count()).toBe(1);
+    const request = held()[0];
+    await stage().dispatch.press("tile.open", { kind: "detail", name: "held-preview", note: seeded.notes.notebook.id }, "waiting");
+    await stage().dispatch.press("tile.link", { to: "held-preview", verb: "select" }, "waiting");
+    await stage().dispatch.press("status.pick", { n: request.n }, "waiting");
+    await until(() => stage().pane("held-preview").msg?.id === request.block, "held request selects into its preview");
+    await stage().dispatch.press("tile.link", { to: "held-preview", verb: "alt" }, "waiting");
+    await stage().dispatch.press("held.open", { id: request.block, fresh: true }, "waiting");
+    expect(stage().pane("held-preview").msg?.id).toBe(request.block);
     // The person sends it (r on its row): its agent tidies the line, and the request leaves the list.
     await stage().dispatch.press("held.send", { id: held()[0].block }, "waiting");
     await until(() => app.heldAsks.count() === 0, "sent: nothing held", 15_000);
