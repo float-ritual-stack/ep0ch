@@ -80,8 +80,15 @@ let waiting: { title: string; questions: BarQuestion[]; answers: Record<string, 
 
 /** The question asked now, or null (a form's act line). */
 export const maskedQuestion = () => !!question()?.masked;
-export function clearPrivateForm() { if (waiting && (waiting.questions.some(q => q.masked) || waiting.form?.cancel)) { const cancel = waiting.form?.cancel; waiting = null; unregisterBarSource(ASK_SCOPE); cancel?.(); } }
+export function clearPrivateForm() { if (waiting && (!waiting.form || waiting.questions.some(q => q.masked) || waiting.form?.cancel)) { const cancel = waiting.form?.cancel; waiting = null; unregisterBarSource(ASK_SCOPE); cancel?.(); } }
 const question = () => (waiting?.form ? waiting.questions[waiting.focus] ?? null : waiting?.questions.find(q => waiting!.answers[q.name] === undefined) ?? null);
+
+/** Simple in-note questions share the bar's editor and picker in a small frame by the status bar. */
+export function compactQuestion(): { title: string; choice: boolean } | null {
+  const q = question();
+  if (!waiting || waiting.form || !q || q.suggest || q.kind || !["text", "number", "choice"].includes(q.type)) return null;
+  return { title: `${waiting.title}${q.label === "" ? "" : ` ${q.label ?? q.name}`}:`, choice: q.type === "choice" };
+}
 
 /** The bar's host as asking needs it: the person's dispatcher, to open the bar. */
 interface AskCtx { dispatch?: { act(req: { action: string; args: Record<string, unknown> }, actor: Actor): Promise<unknown> } }
@@ -281,7 +288,7 @@ const ASK_SOURCE: BarSource = {
     }
     if (q.type === "text" || q.type === "number") {
       const value = typed || q.value;
-      if (value !== undefined) return [{ key: `answer:${value}`, label: value, detail: head, group: head, data: value }];
+      if (value !== undefined) return [{ key: q.masked ? "private-answer" : `answer:${value}`, label: q.masked ? "********" : value, detail: head, group: head, data: value }];
       // Nothing typed and nothing now: one that isn't needed can be left out (the action takes its default, or none).
       // A needed one says it's waiting on what's typed, so the person sees what's asked.
       return [q.required === false ? { key: "answer:", label: "leave it empty", detail: `${head} · type to answer`, group: head, data: "" }

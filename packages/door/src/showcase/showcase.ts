@@ -810,10 +810,10 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "runbook", need: "run a note's steps in a terminal and answer a masked form",
-    part: "runbook extension plans and records; argument forms; PtyPane through PtyBackend in the desk",
+    key: "runbook", need: "run a note's steps in a terminal and answer a masked prompt",
+    part: "runbook extension plans and records; compact asks through askInBar and ListPicker; PtyPane through PtyBackend in the desk",
     files: "src/runbook.ts, src/bar/ask.ts, src/desk/pty.ts, outliner/extensions/runbook",
-    aside: "run all, answer the terminal's prompt, then enter a made-up token in the masked form; the saved output hides the token",
+    aside: "run each fence by mouse or keyboard; context flows down the note, prompts stay private, and the Runs table keeps each result",
     stage(_n, show) {
       const reader = new ReaderPane();
       const d = stageDesk({ title: "showcase · runbook", panes: [reader], layout: ([a]) => leaf(a!) });

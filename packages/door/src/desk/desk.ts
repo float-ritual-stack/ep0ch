@@ -5487,7 +5487,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
       this.save(); this.redraw();
     };
+    if (pane.startError) throw new Error(pane.startError);
     p.ready?.({
+      focus: actor => this.dispatch.act({ action: "tile.focus", tile: this.nameOf(id) }, actor),
       start: (cmd, env, output, finished) => {
         pane.onExit = code => finished(this.panes.has(id) ? code : null);
         pane.replaceProgram(cmd, env, output);

@@ -1,47 +1,20 @@
 {
   "contract": 2,
   "id": "runbook",
-  "version": 5,
+  "version": 6,
   "name": "Runbook",
-  "description": "Run commands from a note in your terminal, answer prompts, and keep the result under each step.",
+  "description": "Run a fence at a time with context and a separate run record.",
   "demo": "demo",
   "run": [
     "bun",
     "runbook.ts"
   ],
   "deadline": "5m",
-  "secretGroups": [
-    "*"
-  ],
   "handlers": [
     {
       "key": "run",
       "kind": "component",
-      "effects": "read",
-      "options": {
-        "mode": {
-          "type": "string",
-          "pattern": "^(terminal|host|dry|apply)$",
-          "default": "terminal"
-        },
-        "secrets": {
-          "type": "string",
-          "pattern": "^[a-z0-9._-]+(,[a-z0-9._-]+)*$"
-        },
-        "confirm": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9._-]+$"
-        },
-        "on": {
-          "type": "string"
-        },
-        "close": {
-          "type": "string"
-        },
-        "keep": {
-          "type": "boolean"
-        }
-      }
+      "effects": "read"
     }
   ],
   "actions": [
@@ -50,67 +23,13 @@
       "label": "Run this step",
       "on": "handler:run",
       "key": "x",
-      "effects": "write",
-      "description": "Runs this step in a terminal tile by default. Its values and confirmation are asked in the argument form.",
-      "args": [
-        {
-          "name": "confirm",
-          "type": "text",
-          "label": "Confirm",
-          "description": "Confirmation for a host apply step; terminal steps ask in their own form."
-        }
-      ]
-    },
-    {
-      "id": "run-all",
-      "label": "Run the runbook",
-      "on": "block",
-      "effects": "write",
-      "description": "Walks the runbook in order, reusing one terminal tile and pausing for values or a failure.",
-      "args": [
-        {
-          "name": "confirm",
-          "type": "text",
-          "label": "Confirm",
-          "description": "Confirmation for a host apply step; terminal steps ask in their own form."
-        }
-      ],
-      "fieldsFrom": "block"
+      "effects": "write"
     },
     {
       "id": "record",
-      "label": "Record a terminal run",
+      "label": "Record a run",
       "on": "block",
       "effects": "write"
-    },
-    {
-      "id": "host-step",
-      "label": "Run a host step",
-      "on": "block",
-      "effects": "write"
-    }
-  ],
-  "configSchema": {
-    "type": "object",
-    "properties": {
-      "timeoutSeconds": {
-        "type": "integer",
-        "minimum": 1,
-        "maximum": 240,
-        "description": "How long one step may run (default 120)"
-      }
-    },
-    "additionalProperties": false
-  },
-  "rules": [
-    {
-      "id": "run-all",
-      "match": {
-        "property": "type=runbook"
-      },
-      "decorate": {
-        "place": "title"
-      }
     }
   ]
 }

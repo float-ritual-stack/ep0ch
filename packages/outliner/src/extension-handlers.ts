@@ -170,6 +170,6 @@ export function pipelineCalls(text: string): HandlerCall[] {
  * line) or an agent request (an `@name` line)? The service decides.
  */
 export function mayHaveHandlerLines(text: string): boolean {
-  return (text.includes("::") && /^[ \t]*(?:[-*+][ \t]+)?(?:[A-Za-z][A-Za-z0-9_.-]*::|::=)/m.test(text)) ||
+  return /^(?:[ \t]*)(?:`{3,}|~{3,})(?:sh|bash|zsh)\s+run\s*$/m.test(text) || (text.includes("::") && /^[ \t]*(?:[-*+][ \t]+)?(?:[A-Za-z][A-Za-z0-9_.-]*::|::=)/m.test(text)) ||
     (text.includes("@") && /^[ \t]*(?:[-*+][ \t]+)?@[a-z]/m.test(text));
 }

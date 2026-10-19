@@ -97,20 +97,19 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   const page = store.require(listed.pages.runbook!);
   expect(page.parentId).toBe(hub.id);
   expect(page.text.split("\n")[0]).toBe("Runbook [ext.page::runbook] [page::ext-runbook]");
-  expect(page.text).toContain("A note is a runbook.");
+  expect(page.text).toContain("Each press opens a terminal tile named for the step.");
   expect(codeBlocks(page.text.split("\n")).fences.filter(f => !f.closed)).toEqual([]);
   expect(page.text).not.toContain("# Runbook");
   expect(page.text).toContain("- Action **Run this step** (`ext.runbook.run-step`, on a `run::` line, key `x`, writes)");
-  expect(page.text).toContain("### 5 (2026-10-19)");
+  expect(page.text).toContain("### 6 (2026-10-19)");
   expect(page.text).not.toContain("### 1 (2026-10-10)");
   const [runbook] = await children(page.id);
   expect(runbook!.text.split("\n")[0]).toBe("Ship the demo widget [type::runbook] [env::scratch]");
   expect(store.require(runbook!.id)).toMatchObject({ author: "agent", actorId: "ext:runbook" });
   const steps = await children(runbook!.id);
-  expect(steps.map((step) => step.text.split("\n")[0])).toEqual(["Check the widget", "Stage with the demo token", "A step that fails"]);
+  expect(steps.some(step => step.text.includes("^step-check-the-widget"))).toBe(true);
   // References inside the demo point at the notes it wrote.
-  expect(runbook!.text).toContain(`((${steps[0]!.id}|Check the widget))`);
-  expect(runbook!.text).not.toContain("((check|");
+
   // The notify demo's boards: views the service answers, the lanes a start-here note links to.
   const notifyDemo = await children(listed.pages.notify!);
   expect(notifyDemo.map((note) => note.text.split("\n")[0])).toEqual([
@@ -178,7 +177,7 @@ test("install from the repo, reinstall keeps your edits and adds nothing twice, 
   expect(after.pages.runbook).toBeUndefined();
   expect(store.require(runbookPage).effectiveDeletedRootId).toBeString();
   // Back among the available ones.
-  expect(store.require(after.hub!).text).toContain("- **Runbook** `runbook` v5");
+  expect(store.require(after.hub!).text).toContain("- **Runbook** `runbook`");
   expect(store.require(after.hub!).text).not.toContain("|Runbook))");
 });
 

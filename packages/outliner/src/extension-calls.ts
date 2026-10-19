@@ -1,5 +1,7 @@
+import { runbookPlan } from "./runbook";
+import { runnableFences, isRunbook } from "@ep0ch/outline-core/runbook";
 import { parseProposal } from "./draft-patch";
-import type { RunbookPlan, RunbookResult } from "@ep0ch/outline-core/runbook";
+import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { ExtensionBarResult, ExtensionBarRow } from "@ep0ch/outline-core/protocol";
 import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
@@ -163,7 +165,7 @@ export interface ExtensionActRequest {
 }
 
 export interface ExtensionActResult {
-  runbook?: RunbookPlan; runbookResult?: RunbookResult;
+  runbook?: RunbookPlan;
   /** Scripts write as their author and keep run undo on their source (or their run note for files). */
   writtenAs?: string;
   undoOn?: string;
@@ -237,11 +239,12 @@ const recordWithin = (block: Block, max: number, children: readonly string[] = [
  * (outline-core's one shape, built from their text), never a flattened property map: an extension reads `properties`,
  * `fields` and `header` as the door and `find --json` do. One builder for every call that carries a block.
  */
-export function blockCallContext(store: Pick<OutlinerStore, "blockContext">, block: Block, line: number | undefined, now: number): Record<string, unknown> & { children: { id: string; text: string }[] } {
+export function blockCallContext(store: OutlinerStore, block: Block, line: number | undefined, now: number): Record<string, unknown> & { children: { id: string; text: string }[] } {
   const context = store.blockContext(block.id);
   const kids = context.children.slice(0, MAX_CHILDREN);
   return {
     block: recordWithin(block, MAX_CONTEXT_TEXT, kids.map((child) => child.id)),
+    ...(runnableFences(block.text).length ? { runbook: runbookPlan(store, block) } : {}),
     ...(line !== undefined ? { line: { index: line, text: block.text.split("\n")[line] ?? "" } } : {}),
     children: kids.map((child) => recordWithin(child, MAX_CHILD_TEXT)),
     ancestors: contextAncestors(context.ancestors),
@@ -347,7 +350,7 @@ export function validateRecord(value: unknown, fallbackTitle = "Collection"): Ex
   return { record, members: { records, complete: answer.complete === true } };
 }
 
-function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; runbook?: RunbookPlan; runbookResult?: RunbookResult } {
+function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; runbook?: RunbookPlan } {
   if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy?, open? }");
   // What the client opens once the action answers (PIE-754): a block, or a Resource by its ref.
   if (value.open !== undefined) {
@@ -365,7 +368,6 @@ function validateAct(value: unknown, blockOk: (id: string) => boolean): { messag
     ...(typeof value.message === "string" ? { message: cleanExtensionText(value.message) } : {}),
     ...(typeof value.copy === "string" ? { copy: cleanExtensionText(value.copy, true) } : {}),
     ...(typeof value.open === "string" ? { open: value.open } : {}),
-    ...(value.runbookResult ? { runbookResult: value.runbookResult as RunbookResult } : {}),
     ...(value.runbook ? { runbook: value.runbook as RunbookPlan } : {}),
     writes: writes.map((write, index) => {
       if (!isObject(write)) throw new Error(`writes[${index}] must be an object`);
@@ -584,7 +586,7 @@ export class ExtensionCalls {
   calls(blockId: string): { block: Block; calls: HandlerCall[] } | null {
     const block = this.store.get(blockId);
     if (!block || block.effectiveDeletedRootId || this.store.extensionOwner(blockId)) return null;
-    const calls = [...handlerCalls(block.text, this.registry), ...pipelineCalls(block.text)];
+    const calls = [...this.handlerCalls(block), ...pipelineCalls(block.text)];
     return { block, calls: calls.length > 1 ? calls.sort((a, b) => a.line - b.line) : calls };
   }
 
@@ -1160,7 +1162,6 @@ export class ExtensionCalls {
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}),
       ...(parsed.open !== undefined ? { open: parsed.open } : {}),
-      ...(parsed.runbookResult ? { runbookResult: parsed.runbookResult } : {}),
       ...(parsed.runbook ? { runbook: parsed.runbook } : {}),
       ...(applied.proposalId ? { proposalId: applied.proposalId } : {}),
       ...(applied.undo ? { undo: applied.undo } : {}), ...(applied.undoNote ? { undoNote: applied.undoNote } : {}) };
@@ -1266,7 +1267,6 @@ export class ExtensionCalls {
       change.blockId === host.id || change.parentId === host.id || change.previousParentId === host.id))) this.options.changed?.(host.id);
     return { extension: extension.id, action: action.id, ...(parsed.message ? { message: parsed.message } : {}), written,
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}), ...(parsed.open !== undefined ? { open: parsed.open } : {}),
-      ...(parsed.runbookResult ? { runbookResult: parsed.runbookResult } : {}),
       ...(parsed.runbook ? { runbook: parsed.runbook } : {}), passage,
       ...(applied.undo ? { undo: applied.undo } : {}), ...(applied.undoNote ? { undoNote: applied.undoNote } : {}) };
   }
@@ -1392,10 +1392,24 @@ export class ExtensionCalls {
     return done;
   }
 
+  private handlerCalls(block: Block): HandlerCall[] {
+    const calls = handlerCalls(block.text, this.registry).filter(c => c.extensionId !== "runbook");
+    const runbook = this.registry.handler("run");
+    if (runbook?.extension.id !== "runbook") return calls;
+    const context = this.store.blockContext(block.id);
+    if (![block, ...context.ancestors].some(b => isRunbook(b.text))) return calls;
+    for (const fence of runnableFences(block.text)) {
+      calls.push({ extensionId: "runbook", handlerKey: "run", kind: "component", effects: "read", argument: null,
+        options: {}, display: {}, unknown: [], problems: [], argumentOk: true, callKey: `runbook:${fence.anchor}`,
+        line: fence.control, start: 0, end: 0, indent: "" });
+    }
+    return calls;
+  }
+
   private callFor(block: Block, action: ExtensionActionEntry, line: number | undefined): HandlerCall | undefined {
     if (!action.on?.startsWith("handler:")) return undefined;
     const key = action.on.slice(8);
-    const calls = handlerCalls(block.text, this.registry).filter((call) => call.handlerKey === key && (line === undefined || call.line === line));
+    const calls = this.handlerCalls(block).filter((call) => call.handlerKey === key && (line === undefined || call.line === line));
     if (!calls.length) throw new Error(`${action.name} needs a ${key}:: line${line !== undefined ? ` on line ${line}` : ""} in that block`);
     if (calls.length > 1 && line === undefined) throw new Error(`${action.name}: that block has ${calls.length} ${key}:: lines; pass line`);
     return calls[0];

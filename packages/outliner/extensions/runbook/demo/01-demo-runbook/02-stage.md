@@ -1,8 +1,8 @@
 ---
 id: stage
 ---
-Stage with the demo token
-run:: --mode=dry --secrets=runbook-demo
+Stage a demo label
+run::
 ```sh
-echo "staging to {{self.env}} with a token of ${#DEMO_TOKEN} characters"
+printf 'staging to %s, label %s\n' {{self.env}} {{ask.label}}
 ```

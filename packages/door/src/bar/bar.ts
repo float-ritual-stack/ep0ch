@@ -30,7 +30,7 @@ import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 import "./sources";
-import { formOpen, maskedQuestion, clearPrivateForm } from "./ask";
+import { compactQuestion, formOpen, maskedQuestion, clearPrivateForm } from "./ask";
 
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
 export interface BarItem { source: BarSource; row: BarRow; heading?: string }
@@ -89,17 +89,20 @@ export class PowerBar {
     this.input = new Draft("power-bar", 0, o.query ?? "");
     this.picker = new ListPicker<BarItem, PowerBar>({
       name: "power bar", items: () => this.items,
-      heading: (it, _i, w) => (it.heading ? fg(C.dark) + ` ${it.heading} ${"─".repeat(Math.max(0, w - width(it.heading) - 2))}` + RESET : null),
+      heading: (it, _i, w) => (!this.compact() && it.heading ? fg(C.dark) + ` ${it.heading} ${"─".repeat(Math.max(0, w - width(it.heading) - 2))}` + RESET : null),
       row: (it, _i, on, w) => this.rowText(it, on, w),
       // ⏎ and a double click (an alt-click: the alternate) are `bar.pick`, an action, as an agent's is.
       choose: (_it, i) => this.pick(i + 1, this.alt),
-      closed: () => this.close(),
+      closed: () => { clearPrivateForm(); this.close(); },
       keys: k => this.ownKey(k),
+      clickChooses: !!this.compact(),
       clicked: (x, y) => this.clickTab(x, y),
       frame: a => this.frame(a),
     });
     this.refresh();
   }
+
+  private compact() { return this.scope === "ask" ? compactQuestion() : null; }
 
   /** Put away: nothing it asked for is waited on. */
   close() { this.input = new Draft("power-bar", 0, ""); this.done = true; this.seq++; if (this.timer) clearTimeout(this.timer); this.timer = null; this.surface.dispose(); }
@@ -130,6 +133,7 @@ export class PowerBar {
    * lit row's words, the bar stays open), a prefix typed first, backspace out of a scope, alt+⏎.
    */
   private ownKey(k: Key): boolean {
+    if (this.compact()?.choice && k.kind === "char" && !k.ctrl && (k.ch === "j" || k.ch === "k")) return false;
     // Terminals that send Option+←/→ as word jumps (ESC b, ESC f) reach the same scopes.
     const step = k.kind === "alt-left" || (k.kind === "alt" && k.ch === "b") ? -1 : k.kind === "alt-right" || (k.kind === "alt" && k.ch === "f") ? 1 : 0;
     if (step) {
@@ -204,11 +208,13 @@ export class PowerBar {
   /** A key or a click while it's open: everything is the bar's. Mouse reports are made relative to where it was drawn. */
   key(k: Key, ctx: Ctx) {
     const was = this.picker.sel;
-    if (k.kind === "esc" && this.query) { void this.host.dispatch.press("bar.edit", { op: "clear" }); return; }
+    if (k.kind === "esc" && this.query && !this.compact()) { void this.host.dispatch.press("bar.edit", { op: "clear" }); return; }
     if (k.kind === "mouse") {
       const r = this.rect;
       if (!r) return;
-      const x = k.x - r.col - 3, y = k.y - r.row - 2;
+      const compact = this.compact();
+      const inputX = compact ? 2 + width(compact.title) : 3;
+      const x = k.x - r.col - inputX, y = k.y - r.row - (compact ? 1 : 2);
       if ((k.action === "down" && y === 0 && x >= 0 && x < Math.max(10, r.cols - 32)) || this.gesture.pressed) {
         const d = this.input;
         const select = (from: number, to = from) => { void this.host.dispatch.press("bar.edit", { op: "select", from, to }); };
@@ -337,6 +343,14 @@ export class PowerBar {
   /** Its frame over `a`: the scopes, the line, the rows and (wide enough) the lit row's preview. */
   private frame(a: Rect) {
     const rect: Rect = { col: 0, row: 0, cols: a.cols, rows: a.rows }, w = rect.cols - 2;
+    const compact = this.compact();
+    if (compact) {
+      this.tabSpots = []; this.sourceHead = [];
+      const label = headOf(compact.title, Math.max(1, w - 12));
+      const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, Math.max(1, w - width(label) - 2))) + "█" : this.input.render(Math.max(1, w - width(label) - 2), 1)[0];
+      return { rect, title: "", foot: compact.choice ? "click or j k ⏎ choose · esc cancel" : "⏎ run · esc cancel",
+        head: [fg(C.lcyan) + ` ${label} ` + RESET + (compact.choice ? "" : input)] };
+    }
     // The scopes, the one shown lit; their spots for a click.
     let x = 1, tabs = "";
     this.tabSpots = [];
@@ -422,7 +436,9 @@ export class PowerBar {
 
   /** Drawn over a screen `cols` by `rows`: where, and its rows. */
   draw(cols: number, rows: number): { rect: Rect; lines: string[] } {
-    const r = (this.rect = barRect(cols, rows));
+    const compact = this.compact();
+    const height = compact ? (compact.choice ? Math.min(this.items.length, 6) : 0) + 3 : 0;
+    const r = (this.rect = compact ? { col: 1, row: Math.max(0, rows - height - 1), cols: Math.min(cols - 3, Math.max(48, width(compact.title) + 24)), rows: height } : barRect(cols, rows));
     const canvas = new Canvas(r.cols + 1, r.rows + 1);
     const values = lookFor(this.host.ctx, { screen: this.host.screens().at(-1)?.title }, r.cols).values;
     withRowLimit(values["rows.lines"], () => this.picker.draw(canvas, { col: 0, row: 0, cols: r.cols, rows: r.rows }, values));

@@ -99,7 +99,7 @@ export const marks: Record<string, string[]> = {
   gallery: ["Seed packet gallery", "Beetroot, Boltardy", "▣ seed-packet.webp", "▣ evening-beds.jpg · no Kitty graphics in this terminal"],
   // Machinery (PIE-867): one query asked twice, the people's view and the tools'.
   machinery: ["Written by people", "Written by tools"],
-  runbook: ["Try a terminal runbook", "[run all]"],
+  runbook: ["Try a terminal runbook", "[run]"],
   // The Extensions hub beside the notifications hub's page: its README, and its demo boards under it.
   "ext-pages": ["Extensions", "## Installed", "Notifications hub", "A deterministic fetcher"],
   // Two notes, each writing its own form: the reading log and the shed repairs, side by side.
