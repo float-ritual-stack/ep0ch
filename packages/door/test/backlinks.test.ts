@@ -7,7 +7,6 @@ import { linkAcross } from "../src/links";
 import { tileKind } from "../src/desk/tile-kinds";
 import type { BacklinksPane } from "../src/desk/backlinks-pane";
 import { join } from "node:path";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { App } from "../src/app";
 import {
   backlinkGroupRows, backlinkOptionsFrom, backlinkRows, backlinkRowSuffix, backlinkGroupHidden, backlinkStageSummary, backlinkStatusParts, backlinkView,
@@ -333,43 +332,6 @@ describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defa
   }, 30_000);
 
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
-
-  test("an away machine leaves local backlinks and an away line in the links tile", async () => {
-    const remote = join(scratch.outlines, ".remote");
-    mkdirSync(remote, { recursive: true });
-    const socket = join(remote, "laptop.sock"), ctl = join(remote, "laptop.ctl");
-    const ssh = join(scratch.root, "ssh");
-    writeFileSync(ssh, `#!/bin/sh\nexec "${process.execPath}" "${join(outliner!, "test/fake-ssh.ts")}" "$@"\n`, { mode: 0o700 });
-    let figure: { id: string } | undefined;
-    const forward = Bun.spawn([ssh, "--serve", socket, scratch.sock, ctl], {
-      env: { ...process.env, EP0CH_OUTLINES: scratch.outlines, EP0CH_SSH: ssh, FAKE_SSH_HOME: scratch.root, FAKE_SSH_OUTLINES: scratch.outlines },
-      stdout: "ignore", stderr: "inherit",
-    });
-    try {
-      await until(() => existsSync(ctl), "the fake ssh forward");
-      forward.kill("SIGKILL");
-      await forward.exited;
-      await openDock().catch(error => { throw new Error(B().linksTile.problem || error.message); });
-      const lines = dock().join("\n");
-      expect(lines).toContain("Offer spare onion sets");
-      expect(lines).toContain("laptop: away, not asked");
-      const figureNote = await create(null, `Chores and their links\n::backlinks ((${target.id}))`);
-      figure = figureNote;
-      const shown = Bun.spawn([process.execPath, join(import.meta.dir, "../src/main.ts"), "show", figureNote.id, "--width", "160"], {
-        env: { ...process.env, ...scratch.env, EP0CH_SOCKET: scratch.sock }, stdout: "pipe", stderr: "pipe",
-      });
-      const [output, errors, code] = await Promise.all([new Response(shown.stdout).text(), new Response(shown.stderr).text(), shown.exited]);
-      expect({ code, errors }).toEqual({ code: 0, errors: "" });
-      expect(output).toContain("Offer spare onion sets");
-      expect(output).toContain("laptop: away, not asked");
-
-    } finally {
-      if (figure) await board.trash(figure.id);
-      if (forward.exitCode === null) { forward.kill(); await forward.exited; }
-      rmSync(socket, { force: true });
-      rmSync(ctl, { force: true });
-    }
-  }, 20_000);
 
   test("it opens as Detail's panel does: this note and resolved comments hidden, groups with stage counts, open items first, one line each", async () => {
     await openDock();

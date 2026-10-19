@@ -1,4 +1,3 @@
-import type { AwayMachine } from "@ep0ch/outline-core/outline-away";
 // Backlinks as Detail presents them (PIE-442): the service's facets (kind, stage, placement, resolved
 // comment) turned into Detail's default view: this note and its descendants hidden, resolved comments
 // hidden, grouped by kind with stage counts, open items first, then by date, and a status line that makes
@@ -53,7 +52,6 @@ export interface BacklinkSource {
 }
 
 export interface BacklinkCollection {
-  away?: AwayMachine[];
   targetBlockId: string;
   targetDeletedRootId?: string;
   sources: BacklinkSource[];
