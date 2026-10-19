@@ -313,9 +313,10 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
     } finally { d.close(); }
   }, 30_000);
 
-  test("rows.lines tunes one component, saves its lines attribute and undoes the save", async () => {
+  test.each(["links", "graph-table"])("rows.lines tunes a %s component, saves its lines attribute and undoes the save", async (kind) => {
     const b = new SocketBoard(scratch.sock); await b.info();
-    const garden = await b.createBlock(null, 'Garden rows\n::links{groups=children title=Rows}\n::');
+    const component = kind === "links" ? '::links{groups=children title=Rows lines=1}\n::' : '::graph-table{lines=1}\n---\nheaders: [Title]\nrows:\n  - [Carry the trestle tables across the garden before the evening gathering]\n---\n::';
+    const garden = await b.createBlock(null, `Garden rows\n${component}`);
     await b.createBlock(garden.id, 'Carry the trestle tables across the garden before the evening gathering');
     const d = await door(160, b, { id: garden.id, drawn: "Carry the trestle" });
     try {

@@ -16,7 +16,7 @@ import { outlineBoards, readNote } from "./outline-boards";
 // open from the list landed in its home. A list whose subject follows its home (`subject=follows`: the welcome's, the
 // desk's replies) takes what its home shows as it changes, but not a note it opened there itself.
 //
-// The rows are drawn by `linkRowLine`, as the tree's links and the inline `::links` component are; the status
+// The rows are drawn by `linkRowLines`, as the tree's links and the inline `::links` component are; the status
 // line by `layoutLinksStatus`. One model and one drawing, not three.
 import { BASE_STYLE } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow, type ListSlot } from "../list-look";

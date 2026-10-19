@@ -27,7 +27,7 @@ import { artNamed } from "../packs";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { artLines, C, chip, ellipsize, fg, headOf, pad, paint, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key, type TermInfo } from "../term";
-import { bbsDate, wrap } from "../text";
+import { rowLines, bbsDate, wrap } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { OpenHow } from "../surface/note";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
@@ -419,7 +419,7 @@ export class WelcomeList implements Pane {
     const rail = fg(C.blue), items = this.items ?? [], at = this.at;
     let x = 0, s = "";
     const put = (text: string, sgr: string, hit?: { i: number } | { more: true } | { logo: true }, end = cols - 1) => {
-      if (x + width(text) > end) text = text.slice(0, Math.max(0, end - x));
+      if (x + width(text) > end) text = rowLines(text, Math.max(0, end - x), 1)[0]!;
       if (!text) return;
       if (hit) this.tabs.push({ y0: row, y1: row, from: x, to: x + width(text), ...hit } as TabHit);
       s += sgr + text + RESET; x += width(text);
@@ -435,7 +435,7 @@ export class WelcomeList implements Pane {
     shownTabs.forEach((m, i) => {
       const on = i === at;
       const t = subject(m);
-      const label = ellipsize(t, titleW);
+      const label = rowLines(t, titleW, 1)[0]!;
       put(" ", "");
       put(`${tabKey(i)} ${label}`, on ? chip(C.magenta) : fg(C.lmagenta), { i });
       put(" =", rail);

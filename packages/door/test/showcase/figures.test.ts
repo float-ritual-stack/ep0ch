@@ -179,7 +179,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(half()).not.toContain("PLOT-4");
     // An agent reads the figures, then switches the left reader's tab (a reader the person isn't typing in).
     const figs = await app.act({ action: "figures", tile: "1", as: "test-agent" }) as any;
-    expect(figs.figures).toEqual([expect.objectContaining({ n: 1, kind: "tabs", title: "Plot jobs", density: "compact", tab: "doing" })]);
+    expect(figs.figures).toEqual([expect.objectContaining({ n: 1, kind: "tabs", title: "Plot jobs", density: "cozy", tab: "doing" })]);
     expect(figs.figures[0].tabs.map((t: any) => `${t.value} ${t.count}`)).toEqual(["doing 2", "review 1", "validate 0", "done 1", "queued 2"]);
     expect(await app.act({ action: "figure.tab", tile: "1", args: { n: "queued" }, as: "test-agent" })).toMatchObject({ tab: "queued", count: 2 });
     await until(() => half().includes("PLOT-4 — Order the seed potatoes"), "the queued tab");
@@ -193,7 +193,8 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     const queued = els.elements.find((e: any) => e.kind === "figure" && e.label.startsWith("queued"));
     expect(await app.act({ action: "element.open", tile: "2", args: { n: queued.n }, as: "test-agent" })).toMatchObject({ tab: "queued" });
     expect(await app.act({ action: "figure.tab", tile: "2", args: { tab: "doing" }, as: "test-agent" })).toMatchObject({ tab: "doing" });
-    // Density: compact cuts the long title with …; cozy wraps it to two lines, hanging past "PLOT-3 — "; comfortable all of it.
+    // Density aliases choose one, two or three lines, with a hanging indent past the work id.
+    await app.act({ action: "figure.density", tile: "1", args: { to: "compact" }, as: "test-agent" });
     await until(() => half().includes("PLOT-3 — Mend"), "the review tab");
     expect(half()).toMatch(/PLOT-3 — Mend the netting[^\n]*…/);
     expect(await app.act({ action: "figure.density", tile: "1", args: { to: "cozy" }, as: "test-agent" })).toMatchObject({ density: "cozy" });
@@ -208,13 +209,13 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     await until(() => half().includes("≡ comfortable"), "comfortable");
     h = hang();
     expect(h.third.slice(textAt, textAt + 1)).toMatch(/\S/);
-    // The whole title: no … on any of its lines.
+    // This title fits in the three allowed lines.
     {
       const rows = half().split("\n"), i = rows.findIndex(r => r.includes("PLOT-3 — Mend")), at = rows[i]!.indexOf("PLOT-3");
       const cellOf = (r: string) => { const rest = r.slice(at), end = rest.search(/[┊│]/); return end < 0 ? rest : rest.slice(0, end); };
       const cells: string[] = [];
       for (let j = i; j < rows.length && cellOf(rows[j]!).trim(); j++) cells.push(cellOf(rows[j]!).trim());
-      expect(cells.length).toBeGreaterThanOrEqual(3);
+      expect(cells).toHaveLength(3);
       expect(cells.join(" ")).not.toContain("…");
     }
     await expect(app.act({ action: "figure.density", tile: "1", args: { to: "roomy" }, as: "test-agent" })).rejects.toThrow(/compact, cozy, comfortable/);

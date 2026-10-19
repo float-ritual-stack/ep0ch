@@ -26,9 +26,9 @@ describe("a title's lines (density)", () => {
     // Compact: one line, cut.
     expect(rowLines(t, 30, 1)).toEqual([t.slice(0, 29) + "…"]);
   });
-  test("comfortable (no limit) draws the whole title however many lines it takes, never cut (PIE-815)", () => {
+  test("an explicit larger limit keeps the whole title when it fits", () => {
     const q = "PLOT-12 — When the seed swap moves to the hall, who carries the trestle tables, who brings the urn, and does the borrowed kettle go back to the church hall before Sunday's service starts?";
-    const out = rowLines(q, 30, Infinity);
+    const out = rowLines(q, 30, 20);
     expect(out.length).toBeGreaterThan(3);
     expect(out.join("")).not.toContain("…");
     expect(out.map(l => l.trim()).join(" ")).toBe(q);

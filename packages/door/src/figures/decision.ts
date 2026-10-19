@@ -17,7 +17,7 @@ import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
 import { decisionState, type DecisionState } from "@ep0ch/outline-core/figure-props";
 export { decisionState, type DecisionState };
-import { ACCENT, DIM, HI, INK, inlineRows, rowLink, tier, type Props, type RowInline, type RowLink } from "./palette";
+import { ACCENT, DIM, HI, INK, inlineRows, rowLinks, tier, type Props, type RowInline, type RowLink } from "./palette";
 
 const GLYPH: Record<DecisionState, string> = { chosen: "●", rejected: "×", open: "○" };
 
@@ -32,12 +32,12 @@ export function drawDecision(p: Props, w: number, link?: RowLink, ui?: { rows?: 
     const glyph = (state === "chosen" ? fg(ACCENT) : state === "rejected" ? fg(DIM) : fg(INK)) + GLYPH[state];
     const strong = state === "chosen" ? BOLD : "";
     // Its words, reason and prose through the reader's inline drawing (PIE-864), as a check row's are.
-    const labels = inlineRows(label, lw, state === "chosen" ? HI : state === "rejected" ? DIM : INK, ui?.rows, typeof o.block === "string");
+    const labels = rowLinks(link, o.block, inlineRows(label, lw, state === "chosen" ? HI : state === "rejected" ? DIM : INK, ui?.rows, typeof o.block === "string"));
     const reason = o.reason ? inlineRows(String(o.reason), narrow ? Math.max(6, w - 6) : Math.max(6, w - lw - 6), DIM, ui?.rows) : [];
     const n = narrow ? labels.length : Math.max(labels.length, reason.length);
     for (let i = 0; i < n; i++) {
       const l = labels[i] ?? "", head = i ? "  " : glyph + RESET + " ";
-      const text = strong + (narrow ? (i ? l : rowLink(link, o.block, l)) : pad(i ? l : rowLink(link, o.block, l), lw)) + UNBOLD + RESET;
+      const text = strong + (narrow ? l : pad(l, lw)) + UNBOLD + RESET;
       out.push(head + text + (!narrow && reason[i] ? `  ${fg(DIM)}${i ? "  " : "— "}${reason[i]}${RESET}` : ""));
     }
     if (narrow) for (const [i, r] of reason.entries()) out.push(`    ${fg(DIM)}${i ? "  " : "— "}${r}${RESET}`);

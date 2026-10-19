@@ -2,7 +2,7 @@
 // figure-markdown.ts), a quote's byline, and `ep0ch export`'s ASCII twin. Pure renders: no outline.
 import { beforeEach, describe, expect, test } from "bun:test";
 import { renderDoc } from "../src/doc";
-import { C, fg } from "../src/style";
+import { C, fg, extractLinks, linkTag, LINK_END } from "../src/style";
 import { figureAscii, figureSource, reframeAscii, renderGraph } from "../src/graphs";
 import { figuresAsAscii } from "../src/export";
 import { registryKeys } from "../src/figures/keys";
@@ -391,4 +391,18 @@ describe("one width rule for every kind (PIE-581)", () => {
     // kpi is stat at the figure's width: two tiles fit on one row at 60.
     expect(body(draw("kpi", ["- a: 1", "- b: 2"], 60))).toHaveLength(2);
   });
+});
+
+test.each([
+  ["check", "items", "label"],
+  ["decision", "options", "label"],
+  ["chat", "messages", "text"],
+  ["calendar", "marks", "label"],
+])("a %s continuation belongs to the same clickable row", (kind, collection, field) => {
+  const out = renderGraph(kind!, `${collection}:\n  - ${field}: Carry the trestle tables across the garden before the evening gathering\n    block: garden-job\n    day: 12`, 38, (_id, text) => linkTag(0) + text + LINK_END);
+  const first = out.findIndex(l => plain(l).includes("Carry the trestle"));
+  expect(first).toBeGreaterThan(-1);
+  expect(plain(out[first + 1]!)).toContain("garden");
+  const { ranges } = extractLinks(out);
+  expect(ranges.some(r => r.line === first + 1 && r.n === 0)).toBe(true);
 });

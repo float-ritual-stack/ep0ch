@@ -152,7 +152,7 @@ export class PropertyPanel {
       previous = group;
     }
     const keyW = Math.min(16, Math.max(3, ...rows.map(r => width(r.key))));
-    const drawn = entries.flatMap(entry => {
+    const drawn = entries.flatMap<{ text: string; row: PropRow | null }>(entry => {
       if ("heading" in entry) return [{ text: fg(C.dark) + pad(entry.heading, w) + RESET, row: null }];
       const r = entry.row, f = this.field?.row.n === r.n ? this.field : null;
       const mark = info.summary.includes(r.key.toLowerCase()) ? fg(C.yellow) + "■" : " ";

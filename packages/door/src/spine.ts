@@ -5,6 +5,7 @@ import { cp437Code } from "./ansi";
 import type { Canvas, Rect } from "./canvas";
 import type { Placement } from "./kitty";
 import { C, fg, pad, RESET, width } from "./style";
+import { rowLines } from "./text";
 import { theme } from "./theme";
 import { rasterize, rotateCW, type Rgba } from "./vga";
 
@@ -50,13 +51,13 @@ export function drawSpine(canvas: Canvas, r: Rect, s: Spine, v: { graphics: bool
     // Rotated VGA text: 16px wide per glyph row, 9px per character down the spine.
     const t = v.t;
     const maxChars = Math.max(1, Math.floor(((room - 1) * t.cellH * 16) / (2 * t.cellW * 9)));
-    const text = s.title.length > maxChars ? s.title.slice(0, maxChars - 1) + "…" : s.title;
+    const text = rowLines(s.title, maxChars, 1)[0]!;
     const img = spineImage(text, s.colour);
     const rowsNeeded = Math.max(1, Math.ceil((img.height * (2 * t.cellW / img.width)) / t.cellH));
     return { key: s.key, image: img, col: r.col, row: top, cols: 2, rows: Math.min(rowsNeeded, room), z: -1 };
   }
   const style = s.cellStyle ?? fg(s.colour);
-  [...s.title].slice(0, room).forEach((ch, i) => canvas.text(r.col, top + i, style + ch + RESET, 1));
+  [...rowLines(s.title, room, 1)[0]!].forEach((ch, i) => canvas.text(r.col, top + i, style + ch + RESET, 1));
   return null;
 }
 

@@ -7,7 +7,7 @@ import { rowLines, withRowLimit, wrap } from "./text";
 import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from "./live";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
 import { FIGURES } from "./figures/index";
-import { ACCENT, DIM, HI, INK, inlineRows, rowLink, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
+import { ACCENT, DIM, HI, INK, inlineRows, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
 export type { RowInline, RowLink } from "./figures/palette";
 import { colourInline } from "./text";
 import { STEP_BOXES } from "./steps";
@@ -45,7 +45,7 @@ export function frame(title: string, body: string[], W: number, footer = "", con
   const w = Math.max(16, W);
   const inner = w - 4;
   // The title shrinks before the frame does: keep at least one dot each side.
-  const t = ellipsize(title.toUpperCase(), w - 10);
+  const t = rowLines(title.toUpperCase(), w - 10, 1)[0]!;
   const label = t ? ` [ ${t} ] ` : "";
   const lw = vwidth(label);
   const left = Math.max(1, Math.floor((w - 2 - lw) / 2)), right = Math.max(1, w - 2 - lw - left);
@@ -66,17 +66,6 @@ const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") :
 function bar(frac: number, n: number, on: number = ACCENT): string {
   const k = Math.max(0, Math.min(n, Math.round(frac * n)));
   return fg(on) + rep("█", k) + fg(DIM) + rep("-", n - k) + RESET;
-}
-
-// rowLinks splits what `link` returns around a placeholder: a RowLink only wraps its text in tags, never records it.
-/**
- * Every line of a row that stands for one note, tagged as that one link: a row a density wraps over two or three
- * lines is one element, opened from any of them.
- */
-function rowLinks(link: RowLink | undefined, block: unknown, lines: string[], figure?: string): string[] {
-  if (!link || typeof block !== "string") return lines;
-  const [open, close] = link(block, "\u0000", figure).split("\u0000");
-  return lines.map(l => open + l + close);
 }
 
 // ── a figure's reading state (the reader's, never the note's) ─────────────────────────────────────────────
@@ -131,7 +120,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const ink = stepDone(status) ? HI : stepClosed(status) ? DIM : INK;
     const lines = inlineRows(String(it.label ?? ""), w - 6, ink, ui?.rows, typeof it.block === "string");
     const note = it.note ? inlineRows(String(it.note), w - 6, DIM, ui?.rows) : [];
-    return lines.map((l, i) => (i ? "      " : box + "  ") + (i ? l : rowLink(link, it.block, l)))
+    return rowLinks(link, it.block, lines).map((l, i) => (i ? "      " : box + "  ") + l)
       .concat(note.map(l => "      " + l));
   }),
 
