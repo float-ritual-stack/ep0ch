@@ -73,7 +73,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       expect(actions.at(-1)).toBe("hint.show");
       expect(declaredKeys(d.dispatch.defOf("hint.show")?.keys)).toContain("?");
       h.press({ kind: "esc" });
-      h.press({ kind: "mouse", action: "drag", button: 3, x: stage.col + r.col + r.cols - 3, y: stage.row + r.row });
+      h.press({ kind: "mouse", action: "drag", button: 3, x: h.screen().split("\n")[stage.row + r.row]!.indexOf("⋯", stage.col + r.col), y: stage.row + r.row });
       expect(d.hintGet().cards[0]?.tile).toBe("reader");
       expect(actions.at(-1)).toBe("hint.show");
       expect(declaredKeys(d.dispatch.defOf("hint.show")?.keys)).toContain("hover");

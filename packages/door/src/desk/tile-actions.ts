@@ -1,4 +1,4 @@
-import { MOVE_HINT, RESIZE_HINT, GATHER_HINT } from "../surface/hint-card";
+import { GATHER_HINT } from "../surface/hint-card";
 import { ALT_RULES, type AltRule } from "./layout";
 // Tiles and layouts as actions (PIE-413, PIE-473, PIE-474): every change to the layout is one of these
 // commands. The desk's keys, its mouse drags and clicks, and the control socket (`ep0ch act`) are only
@@ -127,7 +127,6 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run(_, { d }) { return d.layouts(); },
   }),
   "layout.move": def({
-    hint: MOVE_HINT,
     summary: "move tile=<tile> beside tile to=<tile> (where=left, right, up, down), into its tabs (where=tabs, at index=<n>), or along an outer edge of the whole layout (where=edge-left, edge-right, edge-down, edge-up: a full-height column or full-width row). A docked tile moved this way is undocked. into=<group> moves it into a group whole (PIE-696: a running program, its agent policy, spine and links go with it), beside=<one of the group's tiles> where=right/left/up/down/tabs of it (default the group's focused tile, right); out=true on a tile of a group (tile=<group>/<tile>) moves it back out onto the screen holding the group, beside=<a tile there> (default the group). The person's focus stays where it is",
     keys: "drag a header (onto a group to move into it, out of a group's frame to move out); ^W m then h j k l beside, ^W t then h j k l into tabs, ^W H J K L to an edge, ^W T takes a tab out; ^W i into a group, or out of the one it's in",
     touches: "shape", replay: "safe", confirms: true,
@@ -209,7 +208,6 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.resize": def({
-    hint: RESIZE_HINT,
     summary: "grow (by>0) or shrink (by<0) tile=<tile> by steps along axis=row (width, default) or col (height), as its keys do; on the board tile=lanes is the lanes' row. layout.resize places a border exactly",
     keys: "^W < > + -; board < >; drag a border",
     touches: "shape", replay: "safe", says: (r, a) => `${a.by > 0 ? "grew" : "shrank"} ${r.tile}`,
@@ -313,7 +311,6 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.collapse": def({
-    hint: { title: "Folded", lines: ["The tile keeps its contents in the spine. Click its title to open it again."], keys: [{ keys: "alt+h", does: "fold or open" }] },
     summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. dir=v is a vertical spine (a column the title is written down, for a tile side by side with others), dir=h a horizontal one (one row with the title, for a tile stacked with others: its height goes to its neighbours); no dir takes the way its split runs. A tab set folds as one; opening a spine gives the tile back its size. Only a tile in a row or a column of others folds (a lane, a reader in a row). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
     keys: "alt+h (alt+H a horizontal spine); bare - folds and + or = opens the focused tile where it takes no text (a tile's own - + = win: the tune inspector, an image, a figure), either opens a spine, ✦- ✦= (hyper); the frame card's fold row; ^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
     // On the board, tile=all opens every spine (its own word for every one of them).

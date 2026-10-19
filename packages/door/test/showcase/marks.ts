@@ -4,7 +4,7 @@
 export const marks: Record<string, string[]> = {
   note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook", "↗"],
   // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-  detail: ["detail · stays put", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow", "↑↓ j k blocks"],
+  detail: ["Allotment notebook", "Our plot at the Elm Row allotments.", "p follow", "↑↓ j k blocks"],
   // A long note to scroll past the end of (PIE-622), a short one beside it.
   scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
   // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
@@ -26,9 +26,10 @@ export const marks: Record<string, string[]> = {
   proposals: ["Seed sowing guide", "beans in late May", "proposed edit from @moss", "[dismiss]"],
   // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
   undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
+  hints: ["Linking from source", "select wire", "HintCard"],
   panes: ["outline", "children", "Visitors", "Kitchen sink"],
   folds: ["outline", "children", "◂", "▾"],
-  screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
+  screens: ["Daily brief", "2026-03-11", "Needs you"],
   kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
   // EchoNet's message areas on the mini network: the band's rail, both areas, the nodelist's down node and the one that dials in.
   echonet: ["MESSAGE AREAS", "PLOT.CHAT", "SEED.SWAP", "society@box-a", ",DOWN", ",DIAL", "last tosses"],
@@ -42,8 +43,8 @@ export const marks: Record<string, string[]> = {
   changes: ["what changed", "garden-agent edited the three log notes"],
   // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.
   agents: ["say what an agent may do to each tile", "✎ agents: edit only", "⊘ agents: hands off"],
-  preview: ["preview · tree", "outline"],
-  "reader-modes": ["outline", "· ■", "· ▣"],
+  preview: ["outline"],
+  "reader-modes": ["outline", "stays put", "▣"],
   screen: ["board ·", "· lanes", "HOME-003", "True the front wheel"],
   spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
   entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "↓ children (2)", "Puncture kit", "← backlinks (", "resources (1)"],
@@ -59,7 +60,7 @@ export const marks: Record<string, string[]> = {
   // The frost note in a detail, its #tags drawn as links.
   tags: ["Before the first frost", "#frost-jobs", "#compost"],
   // The swap thread, its links with every group, and the same tile with Children alone (its replies).
-  children: ["Seed swap thread", "links · Seed swap thread", "children · Seed swap", "↓ children (4)", "Ana: runner beans to swap"],
+  children: ["Seed swap thread", "children · Seed swap", "↓ children (4)", "Ana: runner beans to swap"],
   // The leek thread, opened on a reply three deep: the panel's tree with the note marked and a level folded around it.
   thread: ["Who has spare leek seedlings?", "THREAD", "► Ben: mine are still in modules", "2 more earlier", "1 more later"],
   // The day's plan with its outbox: the waiting letters listed, the first one previewed beside the list.

@@ -400,8 +400,8 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
   }, 30_000);
 
   // PIE-883: the new note's float is a tile like any other while it's written: its header drags it (to an edge docks it),
-  // its ⋯ opens its menu, the edit stays open through all of it; and it says where the note lands, a click to move it.
-  test("a new note being written (PIE-883): its header drags and docks it, its ⋯ opens its menu, the edit kept; the → row says where it lands and note.move moves it", async () => {
+  // its ⋯ opens its controls card, the edit stays open through all of it; and it says where the note lands, a click to move it.
+  test("a new note being written (PIE-883): its header drags and docks it, its ⋯ opens its controls card, the edit kept; the → row says where it lands and note.move moves it", async () => {
     let key: (k: Key) => void = () => {};
     const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
     app.push(new MainMenu());
@@ -430,11 +430,12 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       const moved = desk.rectsNow().get(desk.idNamed(tile));
       expect([moved.col, moved.row]).toEqual([r.col + 10, r.row + 4]);
       expect(pane().surface.draft?.text).toBe("Bean poles");
-      // Its ⋯: the tile's menu opens over it.
+      // The controls card leaves the draft's keys and text where they were.
       const rows = screen(), hx = rows[moved.row]!.indexOf("⋯", moved.col);
       expect(hx).toBeGreaterThan(moved.col);
       mouse("down", hx, moved.row); mouse("up", hx, moved.row);
-      expect(desk.overlays.get("tile menu")).toBeTruthy();
+      expect(desk.hintGet().cards[0]?.tile).toBe(tile);
+      expect(pane().surface.draft?.text).toBe("Bean poles");
       key({ kind: "esc" });
       // Where it lands, changed: the person's click asks in the power bar; named, it's moved at once.
       expect(await desk.dispatch.press("note.move", { to: "inbox" }, tile)).toMatchObject({ moved: id, parent: inbox });

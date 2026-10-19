@@ -44,7 +44,7 @@ export class HintCard {
     ];
     const content = [
       ...lines.map(text => ({ text, act: undefined as ActRequest | undefined })),
-      ...choices.map(choice => ({ text: (choice.key ? keycaps(choice.key) + " " : "") + fg(choice.refused ? C.dark : C.grey) + choice.label, act: choice.refused ? undefined : choice.act })),
+      ...choices.map(choice => ({ text: (choice.key ? keycaps(choice.key) + " " : "") + fg(choice.refused ? C.dark : C.grey) + choice.label, act: choice.act })),
     ];
     const top = this.view.place(null, content.length, Math.max(0, rows - 2));
     content.slice(top, top + rows - 2).forEach((line, i) => {

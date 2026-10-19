@@ -3111,8 +3111,9 @@ any row in that list. These are the reader's existing keys on every screen; edit
 picker, terminal and screen-level bindings keep their own precedence.
 
 Hint cards use the existing desk float layer and keycap component. A calm frame puts
-its number and title first, then one state word and its controls chip. Extra wire,
-follow and scroll details appear only in a focused frame with room. `hints` in the
+its number, title and state before the controls. The right cluster gets its space
+first, even for a long title or a following reader. The scroll thumb stays; a frame
+never shows a percentage. Extra wire details appear only where there is room. `hints` in the
 tune inspector is `full`, `brief`, or `off`; cards use the tile's tone on a dark
 surface. The showcase's `hints` section demonstrates linking live.
 
