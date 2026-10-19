@@ -163,6 +163,7 @@ export interface HereFacts { folder: string; outline?: string; why?: string; unn
 export interface MachineFacts { machine: string; socket: string; answers: boolean; connected: boolean; outlines: string[] | null; here?: boolean }
 
 export interface Facts {
+  linkState?: { loaded: boolean; running: boolean; enabled: boolean };
   linkConfig?: import("@ep0ch/outliner/link-config").LinkConfig;
   outlineFiles?: import("./outline-files").OutlineFiles[];
   platform: Platform;

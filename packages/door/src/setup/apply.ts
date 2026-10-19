@@ -95,7 +95,22 @@ class StepFailed extends Error { constructor(message: string, readonly recover: 
 async function must(cmd: string[], recover: string, opts: { cwd?: string; env?: Env; timeoutMs?: number; onLine?: OnLine } = {}): Promise<string> {
   const r = await run(cmd, { timeoutMs: 300_000, ...opts });
   if (r.code !== 0) throw new StepFailed(`${cmd.join(" ")} failed: ${withoutProgress(r.err) || r.out || `exit ${r.code}`}`, recover);
+  if (cmd[0] === "launchctl" && cmd[1] === "bootout") await waitForLaunchdUnload(cmd[2]!, opts.env);
   return r.out;
+}
+
+async function waitForLaunchdUnload(target: string, env?: Env): Promise<void> {
+  // bootout returns before launchd releases the label; bootstrap must wait for that release.
+  // Each probe gets a full few seconds of its own (the remaining budget once shrank to 0.1 s on a loaded box, and the
+  // probe's timeout was reported instead of the unload that never came); the budget as a whole is 10 s.
+  const end = Date.now() + 10_000;
+  while (Date.now() < end) {
+    const r = await run(["launchctl", "print", target], { env, timeoutMs: 5_000 });
+    if (r.code === 3 || r.code === 113) return;
+    if (r.code !== 0 && r.code !== 124) throw new StepFailed(`launchctl print ${target} failed: ${r.err || r.out || `exit ${r.code}`}`, `run launchctl bootout ${target}, then ep0ch install --apply again`);
+    await Bun.sleep(Math.min(250, Math.max(0, end - Date.now())));
+  }
+  throw new StepFailed(`launchd did not unload ${target} within 10 seconds`, `run launchctl bootout ${target}, then ep0ch install --apply again`);
 }
 
 /** A child's stderr without the progress lines asked for with --progress (Receiving objects:  45% (90/200)). */
@@ -326,8 +341,13 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       } else {
         mkdirSync(join(f.home, "Library/Logs"), { recursive: true });
         const domain = `gui/${process.getuid?.() ?? 0}`;
-        await run(["launchctl", "bootout", `${domain}/io.ep0ch.link`], { env });
-        await must(["launchctl", "bootstrap", domain, step.writes![0]!.path], "run ep0ch install --apply again", { env });
+        const loaded = (await run(["launchctl", "print", `${domain}/io.ep0ch.link`], { env })).code === 0;
+        if (loaded && !step.writes?.length) {
+          await must(["launchctl", "kickstart", "-k", `${domain}/io.ep0ch.link`], "run ep0ch install --apply again", { env });
+        } else {
+          if (loaded) await must(["launchctl", "bootout", `${domain}/io.ep0ch.link`], "run ep0ch install --apply again", { env });
+          await must(["launchctl", "bootstrap", domain, join(f.home, "Library/LaunchAgents/io.ep0ch.link.plist")], "run ep0ch install --apply again", { env });
+        }
       }
       say("machine link installed and started; ep0ch link status reports connections");
       return;
@@ -339,11 +359,11 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         catch (e) { throw new StepFailed(`writing ${w.path} failed: ${(e as Error).message}`, `nothing was loaded; rerun ep0ch install --apply`); }
         say(`wrote ${w.path}`);
       }
-      const { loadArgv } = await import("../backup/setup");
+      if (!step.commands.length) return;
+      const { loadArgv, LAUNCHD_LABEL } = await import("../backup/setup");
       const uid = process.getuid?.() ?? 0;
-      for (const argv of loadArgv(r, uid)) {
-        // launchd's bootout of an agent that isn't loaded fails, and is nothing to stop for.
-        if (argv[1] === "bootout") { await run(argv, { env, timeoutMs: 15_000 }); continue; }
+      const loaded = r.platform === "macos" ? (await run(["launchctl", "print", `gui/${uid}/${LAUNCHD_LABEL}`], { env })).code === 0 : r.loaded;
+      for (const argv of loadArgv({ ...r, loaded }, uid)) {
         await must(argv, `the units are written; load them by hand: ${argv.join(" ")}`, { env, timeoutMs: 30_000, onLine: child });
       }
       say(r.platform === "linux" ? "ep0ch-backup.timer enabled: the first run is within 3 minutes (journalctl --user -u ep0ch-backup)" : "io.ep0ch.backup loaded: it runs now and every 15 minutes (~/Library/Logs/ep0ch-backup.log)");
@@ -353,15 +373,15 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       const m = f.mcp!, u = { ...m.unit, outlines: "", stale: [] };
       const logs = u.kind === "launchd" ? `launchctl print gui/${process.getuid?.() ?? 0}/${u.name}` : `journalctl --user -u ${u.name}`;
       // Its process now, just before the restart: the one a new process replaces.
-      const was = (await unitState(u)).pid;
+      const was = (await unitState(u, undefined, env)).pid;
       await must(hostUnitArgv(u, "restart", process.getuid?.() ?? 0), `the MCP gateway wasn't restarted; ${mcpRestartCommand(m)} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
       // A new process, running, and still running a few seconds on (one that dies on start is restarted by its unit
       // with another pid, and is no success).
-      const fresh = async () => { const st = await unitState(u); return st.active === true && !!st.pid && st.pid !== was ? st.pid : null; };
+      const fresh = async () => { const st = await unitState(u, undefined, env); return st.active === true && !!st.pid && st.pid !== was ? st.pid : null; };
       const pid = await waitFor(async () => !!(await fresh()), 30_000) ? await fresh() : null;
       if (!pid) throw new StepFailed(`${u.kind} restarted ${u.name}, but no new gateway process runs after 30s`, `see ${logs}`);
       await Bun.sleep(3000);
-      if ((await unitState(u)).pid !== pid) throw new StepFailed(`${u.kind} restarted ${u.name}, but the new gateway (pid ${pid}) didn't stay up`, `see ${logs}`);
+      if ((await unitState(u, undefined, env)).pid !== pid) throw new StepFailed(`${u.kind} restarted ${u.name}, but the new gateway (pid ${pid}) didn't stay up`, `see ${logs}`);
       say(`restarted the MCP gateway (${u.kind} ${u.name}) on the new code`);
       return;
     }
@@ -371,7 +391,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       if (m.stopsHost && u) {
         await must(hostUnitArgv(u, "stop", uid), `nothing was migrated, and the host runs on; ${hostUnitCommand(u, "stop")} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
         // Gone: its unit's job stopped and nothing answering, so the migration's ownership check finds the file free.
-        const gone = async () => (await unitState(u)).active !== true && !(await hostLive(f.host.socket));
+        const gone = async () => (await unitState(u, undefined, env)).active !== true && !(await hostLive(f.host.socket));
         if (!(await waitFor(gone, 30_000))) throw new StepFailed(`${u.kind} stopped ${u.name}, but the host still runs after 30s`, `nothing was migrated; see ${logs}, then rerun ep0ch install --apply`);
         say(`stopped the outline host (${u.kind} ${u.name}) to migrate`);
       }
@@ -427,7 +447,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       if (await hostLive(f.host.socket)) {
         if (!u) throw new StepFailed(`${todo.map(o => o.name).join(", ")} need the sweep, and the host at ${f.host.socket} runs outside a unit, so install can't stop it`, `nothing was rewritten; stop that process, then rerun ep0ch install --apply`);
         await must(hostUnitArgv(u, "stop", uid), `nothing was rewritten, and the host runs on; ${hostUnitCommand(u, "stop")} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
-        const gone = async () => (await unitState(u)).active !== true && !(await hostLive(f.host.socket));
+        const gone = async () => (await unitState(u, undefined, env)).active !== true && !(await hostLive(f.host.socket));
         if (!(await waitFor(gone, 30_000))) throw new StepFailed(`${u.kind} stopped ${u.name}, but the host still runs after 30s`, `nothing was rewritten; see ${logs}, then rerun ep0ch install --apply`);
         say(`stopped the outline host (${u.kind} ${u.name}) to rewrite`);
       }
@@ -447,16 +467,17 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       return;
     }
     case "host": {
-      const u = f.host.unit!;
+      const planned = f.host.unit!;
+      const u = { ...planned, state: await unitState(planned, undefined, env) };
       // A unit whose job runs is restarted, answering or not: starting it would do nothing.
-      const verb = hostVerb(f);
+      const verb = hostVerb({ ...f, host: { ...f.host, unit: u } });
       const logs = u.kind === "launchd" ? `launchctl print gui/${process.getuid?.() ?? 0}/${u.name} (and its StandardErrorPath)` : `journalctl --user -u ${u.name}`;
       // Its process now, just before the command: the one a new process replaces.
-      const was = (await unitState(u)).pid;
+      const was = u.state.pid;
       await must(hostUnitArgv(u, verb, process.getuid?.() ?? 0), `the host wasn't ${verb}ed; ${hostUnitCommand(u, verb)} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
       // The host answering (hostReady, with a slower grace after 30s before it's called a failure).
-      if (!(await hostReady(f, verb, was, 30_000))) throw new StepFailed(`${u.kind} ${verb}ed ${u.name}, but nothing answers at ${f.host.socket} after 40s`, `see ${logs}; the doors on it wait and reconnect once it answers`);
-      const now = await hostFacts(f.host.folder, f.platform, f.home);
+      if (!(await hostReady(f, verb, was, 30_000, hostLive, async () => (await unitState(u, undefined, env)).pid))) throw new StepFailed(`${u.kind} ${verb}ed ${u.name}, but nothing answers at ${f.host.socket} after 40s`, `see ${logs}; the doors on it wait and reconnect once it answers`);
+      const now = await hostFacts(f.host.folder, f.platform, f.home, env);
       const missing = now.running ? staleness(now, f.repo.protocol) : ["no answer"];
       if (missing.length) throw new StepFailed(`the host ${verb}ed but still runs ${missing.join(", ")}`, `check that ${u.path} runs ${hostMainOf(f)}, then ${hostUnitCommand(u, "restart")}`);
       say(`${verb}ed the outline host (${u.kind} ${u.name}${now.protocol ? `, protocol ${now.protocol}` : ""}); doors and panes on it reconnect`);
@@ -632,7 +653,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     // After a migration too: the schema step stopped it, and it's started.
     if (step.id === "host" && plan.steps.some(s => (s.id === "repo" || s.id === "schema" || s.id === "sweep") && s.status === "do")) {
       const code = await pluginCode(current.repo.outliner);
-      const host = await hostFacts(current.host.folder, current.platform, current.home);
+      const host = await hostFacts(current.host.folder, current.platform, current.home, env);
       current = { ...current, repo: { ...current.repo, protocol: code.protocol }, host };
       step = hostStep(current, current.repo.checkout.behind > 0);
     }
