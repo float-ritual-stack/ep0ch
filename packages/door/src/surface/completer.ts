@@ -1,5 +1,7 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import type { Ctx } from "../app";
 import type { NoteSurface, SurfaceHost } from "./note";
+import { Canvas } from "../canvas";
 import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 // Reference completion in the edit control (PIE-416): typing `[[`, `((` or `[file::` in a draft offers
 // pages and Work IDs, blocks and fragments, or workspace paths, from the service's lookups (`pages.complete`,
@@ -634,12 +636,12 @@ export class Completer {
   }
 
   /** Repaint in the host's frame, keeping hit columns relative to its measured text. */
-  inFrame(w: number, col: number, height = this.drawn?.items.length ?? 0): string[] {
+  inFrame(w: number, col: number, height = this.drawn?.items.length ?? 0, values?: StyleValues): string[] {
     const at = this.drawn, s = this.shown;
     if (!at || !s) return [];
     at.col = col;
     at.cols = w;
-    return renderCompletion(s, w, height, at.items, (at.anchor ?? 0) - col);
+    return renderCompletion(s, w, height, at.items, (at.anchor ?? 0) - col, values);
   }
 
   move(delta: number): void {
@@ -801,17 +803,29 @@ lineCompletionHooks.after = (i, k, took, was) => {
  * The popup as lines `w` wide, at most `h` tall: header, candidates (the selected one with its context),
  * footer. `rows`, when given, gets each line's candidate index (null for the header, context and footer).
  */
-export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], anchor = 0): string[] {
+export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], anchor = 0, values?: StyleValues): string[] {
+  if (h < 4 || w < 8) return completionLines(s, w, h, rows, anchor);
+  const body = completionLines(s, w - 3, h - 3, rows, Math.max(0, anchor - 1));
+  const canvas = new Canvas(w, body.length + 3);
+  const rect = { col: 0, row: 0, cols: w - 1, rows: body.length + 2 };
+  canvas.float(rect, "", "", () => body.forEach((line, y) => canvas.text(1, y + 1, line, w - 3)), false, values);
+  rows.unshift(null); rows.push(null, null);
+  s.listCol = (s.listCol ?? 0) + 1;
+  s.listWidth = (s.listWidth ?? w - 3) + 1;
+  return canvas.lines();
+}
+
+function completionLines(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], anchor = 0): string[] {
   rows.length = 0;
   if (h <= 0) return [];
   // Titles come from notes: text.ts's printable takes out what a terminal acts on, pad cuts by cells, and a glyph
   // the VGA font lacks goes as its lookalike at the sink (App, CP437_NEAREST).
   const line = (text: string, colour: string, back = "") => back + colour + pad(printable(text, " "), w) + RESET;
-  if (!s.items.length) { rows.push(null); return [line(` ${s.message || "no matches"}`, fg(s.loading ? C.grey : C.yellow), bg(C.blue))]; }
+  if (!s.items.length) { rows.push(null); return [line(` ${s.message || "no matches"}`, fg(s.loading ? C.grey : C.yellow))]; }
   const header = h >= 3, footer = h >= 2;
   const out: string[] = [];
   const heading = { component: "components", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
-  if (header) rows.push(null), out.push(line(` ${s.heading ?? heading} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan), bg(C.blue)));
+  if (header) rows.push(null), out.push(line(` ${s.heading ?? heading} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan)));
   const picker = completionPicker(s);
   picker.sel = s.index;
   const selected = s.items[s.index]!;
@@ -831,7 +845,7 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   const hint = s.target?.kind === "block" ? REFERENCE_HINT : COMPLETION_HINT;
   const keys = "↑↓ ⏎ tab esc";
   const fitted = cells(` ${jev}${hint}`) <= w ? hint : keys;
-  if (footer) rows.push(null), out.push(line(` ${jev}${s.message || fitted}`, fg(s.message ? C.yellow : C.grey), bg(C.blue)));
+  if (footer) rows.push(null), out.push(line(` ${jev}${s.message || fitted}`, fg(s.message ? C.yellow : C.grey)));
   rows.length = Math.min(rows.length, h);
   return out.slice(0, h);
 }

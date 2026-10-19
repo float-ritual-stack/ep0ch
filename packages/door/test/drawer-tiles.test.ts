@@ -235,7 +235,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await until(() => d.inDrawer("kettle"), "kettle in");
       const click = () => {
         const lines = d.paint(), row = d.app.drawer.rect!.row + 1;
-        const chip = lines[row]!.lastIndexOf("⋯");
+        const chip = lines[row]!.lastIndexOf("\u2261");
         expect(chip).toBeGreaterThan(0);
         d.key(mouse("down", chip, row)); d.key(mouse("up", chip, row));
         const card = d.paint(), close = card.findIndex(l => l.includes("close"));

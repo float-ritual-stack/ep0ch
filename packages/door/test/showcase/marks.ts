@@ -26,7 +26,7 @@ export const marks: Record<string, string[]> = {
   proposals: ["Seed sowing guide", "beans in late May", "proposed edit from @moss", "[dismiss]"],
   // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
   undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
-  hints: ["Linking from source", "select wire", "HintCard"],
+  hints: ["source: select wire", "select wire", "HintCard"],
   panes: ["outline", "children", "Visitors", "Kitchen sink"],
   folds: ["outline", "children", "◂", "▾"],
   screens: ["Daily brief", "2026-03-11", "Needs you"],
@@ -42,7 +42,7 @@ export const marks: Record<string, string[]> = {
   sessions: ["moss, a demo agent (made up for the showcase)", "demo-agent · moss", "demo-agent · fern"],
   changes: ["what changed", "garden-agent edited the three log notes"],
   // Three readers at the three levels of what an agent may do to a tile: the chips on the edit and hands-off tiles.
-  agents: ["say what an agent may do to each tile", "✎ agents: edit only", "⊘ agents: hands off"],
+  agents: ["say what an agent may do to each tile", "* agents: edit only", "! agents: hands off"],
   preview: ["outline"],
   "reader-modes": ["outline", "stays put", "▣"],
   screen: ["board ·", "· lanes", "HOME-003", "True the front wheel"],
@@ -131,7 +131,7 @@ export const marks: Record<string, string[]> = {
   routing: ["Notes that file themselves", "Pickled walnuts", "alt+z"],
   newnotes: ["New notes from anywhere", "Seed swap ledger", "ctrl+n"],
   // A reader and a terminal whose program asked for the mouse, each with its ⋯.
-  menu: ["Allotment notebook", "this program asked for the mouse", "⋯"],
+  menu: ["Allotment notebook", "this program asked for the mouse", "\u2261"],
   wkeys: ["Allotment notebook", "Bike shed"],
   // A blank screen: its rows, each a first step.
   made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],

@@ -1,3 +1,4 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // A tile's menu (PIE-492): the ⋯ in every tile's header, a right-click anywhere in a tile, ^W . and `tile.menu` open it.
 // Its rows are what the dispatcher would run in that tile (`Dispatcher.menu`, from each action's `menu` rows): the tile
 // actions, its kind's, a reader's note actions, a board's lane actions. It is a list picker on the desk's overlay
@@ -10,7 +11,7 @@ import { ListPicker } from "../surface/picker";
 import { LineInput } from "../surface/line";
 import { filtered, litCells } from "../bar/filter";
 import { refused } from "../shell-keys";
-import { C, chip, fg, pad, RESET, selectedRow, width } from "../style";
+import { C, chip, fg, pad, RESET, floatSelectedRow, width } from "../style";
 
 /** What the menu runs a row on: the person's press on the screen's dispatcher, and the status bar for a refusal. */
 export interface MenuHost {
@@ -42,7 +43,8 @@ export function menuRow(r: { label: string; key?: string; refused?: string }, on
   const lit = litCells(r.label, query);
   const label = [...r.label].map((c, j) => (lit.has(j) ? fg(C.yellow) + c + fg(on ? C.white : r.refused ? C.dark : C.grey) : c)).join("");
   const capCell = cap ? (r.refused ? fg(C.dark) : chip(C.dark)) + cap + RESET : "";
-  return (on ? selectedRow(`  ${label}`, w - width(cap)) : fg(r.refused ? C.dark : C.grey) + pad(` ${label}`, w - width(cap)) + RESET) + capCell;
+  if (on) return floatSelectedRow(pad(`  ${label}`, w - width(cap)) + cap, w);
+  return fg(r.refused ? C.dark : C.grey) + pad(` ${label}`, w - width(cap)) + RESET + capCell;
 }
 
 /**
@@ -52,7 +54,7 @@ export function menuRow(r: { label: string; key?: string; refused?: string }, on
  * and esc clears the query before it puts the menu away. A row's key that is a chord (ctrl+w x, alt+h, ctrl+z) still
  * runs it; a bare letter is for the query. `q`: a query to start with.
  */
-export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]; at: { col: number; row: number; right?: boolean }; q?: string }): ListPicker<MenuRow, H> {
+export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]; at: { col: number; row: number; right?: boolean }; q?: string; look?: (width: number) => StyleValues }): ListPicker<MenuRow, H> {
   const all = o.rows;
   const input = new LineInput(o.q ?? "", false, { complete: false });
   const shown = () => filtered(all, input.text, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]);
@@ -67,7 +69,7 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
   // ^W, then the key after it: a row's chord (^W x closes).
   let chord = false;
   const p: ListPicker<MenuRow, H> = new ListPicker<MenuRow, H>({
-    name: "tile menu", items: sync, clickChooses: true, scrolls: true, input, escClears: true,
+    name: "tile menu", look: o.look, items: sync, clickChooses: true, scrolls: true, input, escClears: true,
     typed: () => { chord = false; sync(); p.sel = 0; },
     heading: (r, i, w) => (i === 0 || rows[i - 1]!.group !== r.group ? menuHeading(r.group, w) : null),
     row: (r, _i, on, w) => [menuRow(r, on, w, input.text)],

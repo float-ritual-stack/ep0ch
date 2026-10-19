@@ -379,7 +379,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await me("tile.focus", {}, `${a}/tree`);
     key({ kind: "alt", ch: "l" });
     // One linking card on the whole screen, on the source tile, never one per tile or per group (Evan, Oct 19 10:55 AM).
-    expect(render().lines.filter(l => l.includes("Linking from")).length).toBe(1);
+    expect(render().lines.filter(l => l.includes(" lands in ")).length).toBe(1);
     const r = innerAt(b, "reader");
     mouse("down", r.col + 3, r.row + 3);
     expect(inner(a, "tree").wires).toContainEqual({ verb: "open", to: `../${b}/reader` });

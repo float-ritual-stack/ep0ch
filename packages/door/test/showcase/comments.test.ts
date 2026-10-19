@@ -192,6 +192,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     await until(() => cs()?.mode === "compose" && cs()?.place === "floating", "the comment open, floating");
     expect(cs()!.target).toMatchObject({ kind: "quote", passage: { quote: "before the frost" } });
     expect(rows().join("\n")).toContain("[floating ▸]");
+    expect(rows().join("\n")).toContain("▒");
     type("Frost is due on Friday night");
     press({ kind: "char", ch: "o", ctrl: true });
     await until(() => cs()?.place === "split" && rows().join("\n").includes("[split ▸]"), "moved to split");

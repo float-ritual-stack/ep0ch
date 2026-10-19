@@ -1,3 +1,4 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // The River (Quay) as a screen spec on the desk (PIE-515): its columns are tiles of one kind, `river.column`, in a
 // flow container, the layout engine's (PIE-513: full → peek → spine around the wide column, opens into the next
 // column, back and forward by the trail, held columns). A column is a reader of the shared note surface whose view
@@ -348,7 +349,7 @@ export class RiverColumn extends ReaderPane {
     if (this.surface.editing && this.surface.msg) return super.render(w, h, focused, desk);
     const head: string[] = [];
     if (this.filter.length && this.mode !== "filter") head.push(fg(C.yellow) + pad(`≡ ${filterText(this.filter)}`, w) + RESET);
-    const popup = this.mode === "filter" ? this.popupRows(w, h) : null;
+    const popup = this.mode === "filter" ? this.popupRows(w, h, desk?.lookOf?.(this)?.values) : null;
     const foot = this.mode === "filter" ? [...(popup?.lines ?? []), paint("|14/ ") + this.input.show(w - 2)] : this.mode === "tags" ? this.tagLines(w) : [];
     // A block column keeps its note's header above the scroll, as a reader does: the reader's own (the surface's
     // stickyHeader), with the backdrop of a picture that has scrolled under it (PIE-598).
@@ -371,12 +372,12 @@ export class RiverColumn extends ReaderPane {
    * The filter's completion popup (PIE-626): its keys and values from the outline's property index, drawn above the
    * line being typed, over the cards. Where it went is kept, so a click on a candidate chooses it.
    */
-  private popupRows(w: number, h: number): { lines: string[]; rows: (number | null)[] } | null {
+  private popupRows(w: number, h: number, values?: StyleValues): { lines: string[]; rows: (number | null)[] } | null {
     const pop = completionOf(this.input), c = completerOf(this.input);
     if (c) c.drawn = null;
     if (!pop || !c) return null;
     const rows: (number | null)[] = [];
-    return { lines: renderCompletion(pop, w, Math.min(COMPLETION_ROWS, Math.max(0, h - 3)), rows), rows };
+    return { lines: renderCompletion(pop, w, Math.min(COMPLETION_ROWS, Math.max(0, h - 3)), rows, 0, values), rows };
   }
 
   private tagLines(w: number): string[] {

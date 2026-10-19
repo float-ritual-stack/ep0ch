@@ -51,7 +51,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     expect(joined).toContain(`PLOT-007 · ${QUESTION}`);
     expect(joined).not.toContain("…");
     // A long title gives way to controls on the frame.
-    expect(all[rect.row]).toContain("⋯");
+    expect(all[rect.row]).toContain("\u2261");
     expect(all[rect.row]).toContain("When the allotment");
     // The keys come to the reader: the whole title in the status line.
     await D().dispatch.act({ action: "tile.focus", args: {}, tile: "reader" }, { kind: "user" });
@@ -98,7 +98,7 @@ describe.skipIf(!outliner)("a note's full title in its header (PIE-815)", () => 
     const all = (desk.render(D().ctx).lines as string[]).map(plain);
     if ("cols" in tile) expect(all[0]).toContain("stays put");
     expect(all.slice(1).join("\n").match(/The orchard gate/g)?.length).toBe(1);
-    expect(all[0]).toContain("⋯");
+    expect(all[0]).toContain("\u2261");
     const titleRow = all.findIndex((l, i) => i > 0 && l.includes("The orchard gate"));
     expect(all[titleRow + 1]).toContain("[comment]");
     if (tile.kind === "welcome.preview") {

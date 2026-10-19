@@ -146,7 +146,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
       void lines;
       expect(chain(D(), "reader10")).toContain("← reader9");
       expect(chain(D(), "reader9")).toContain("opens land here");
-      expect(chain(drawerDesk(), "what-changed")).toContain("⏎ → reader9");
+      expect(chain(drawerDesk(), "what-changed")).toContain("open → reader9");
     });
   });
 

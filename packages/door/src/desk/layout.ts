@@ -968,7 +968,7 @@ export type DockForm<L> = { t: "dock"; kid: NaryForm<L>; edge: Dir; open: boolea
 const savedId = (x: any) => ({ ...(typeof x?.id === "string" && x.id ? { id: x.id as string } : {}), ...savedPolicy(x?.policy) });
 const DIRS: readonly Dir[] = ["left", "right", "up", "down"];
 /** The glyph a dock's header, its handle and a drop into it show for the edge it slides from. */
-export const EDGE_GLYPH: Record<Dir, string> = { left: "⇤", right: "⇥", up: "⤒", down: "⤓" };
+export const EDGE_GLYPH: Record<Dir, string> = { left: "\u2190", right: "\u2192", up: "\u2191", down: "\u2193" }; // left, right, up and down arrows
 /** An edge in words, as the status bar says it: "a dock on the top". */
 export const EDGE_WORD: Record<Dir, string> = { left: "left", right: "right", up: "top", down: "bottom" };
 /** A kind name a saved layout, a screen spec or an agent may still use for another kind (PIE-705: `detail` is a reader that starts held). */

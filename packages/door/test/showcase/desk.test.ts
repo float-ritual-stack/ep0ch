@@ -328,7 +328,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     // A tab in the drawer has its × (tile.close): the kettle's program runs, so a click asks first and closes nothing yet.
     await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "kettle" }, { kind: "user" });
     (app as any).paint();
-    const row = app.drawer.rect!.row + 1, col = plain(h.painted[row] ?? "").lastIndexOf("×");
+    const row = app.drawer.rect!.row + 1, col = plain(h.painted[row] ?? "").lastIndexOf("x");
     expect(col).toBeGreaterThan(0);
     for (const action of ["down", "up"] as const) press({ kind: "mouse", action, button: 0, x: col, y: row });
     expect((app as any).message).toContain("closing ends it");
@@ -696,7 +696,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect(stage().agentNow("free")).toMatchObject({ level: "edit" });
     await stage().dispatch.press("tile.agent", { policy: "inherit" }, "free");
     // A click on the chip does the same (edit only to hands off), the keys staying where they are.
-    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("✎ agents: edit only"));
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("* agents: edit only"));
     expect(y).toBeGreaterThan(0);
     const x = rows[y]!.indexOf("agents: edit only") + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y });

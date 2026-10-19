@@ -1439,7 +1439,7 @@ export class App implements Ctx {
     // The power bar over the screen and the drawer; images under it would show through it.
     if (this.bar) {
       const b = this.bar.draw(cols, rows - 1), r = b.rect;
-      lines = overBar(lines, b);
+      lines = overBar(lines, b, lookFor(this, { screen: s.title }, cols).values);
       placements = uncover(placements, r);
     }
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);

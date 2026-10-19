@@ -1,3 +1,4 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { lookFor } from "../look";
 import { outlineBoards } from "../desk/outline-boards";
 // The power bar (PIE-656): one palette over every screen, opened by ctrl+k (cmd+k where the terminal sends it), the
@@ -422,9 +423,10 @@ export class PowerBar {
   /** Drawn over a screen `cols` by `rows`: where, and its rows. */
   draw(cols: number, rows: number): { rect: Rect; lines: string[] } {
     const r = (this.rect = barRect(cols, rows));
-    const canvas = new Canvas(r.cols, r.rows);
-    withRowLimit(lookFor(this.host.ctx, { screen: this.host.screens().at(-1)?.title }, r.cols).values["rows.lines"], () => this.picker.draw(canvas, { col: 0, row: 0, cols: r.cols, rows: r.rows }));
-    return { rect: r, lines: canvas.lines() };
+    const canvas = new Canvas(r.cols + 1, r.rows + 1);
+    const values = lookFor(this.host.ctx, { screen: this.host.screens().at(-1)?.title }, r.cols).values;
+    withRowLimit(values["rows.lines"], () => this.picker.draw(canvas, { col: 0, row: 0, cols: r.cols, rows: r.rows }, values));
+    return { rect: { ...r, cols: r.cols + 1, rows: r.rows + 1 }, lines: canvas.lines() };
   }
 
   /** What `peek` and `bar.open` say: the scope, the query and the rows, numbered from 1, the lit one marked. */
@@ -462,8 +464,11 @@ export function rowFacts(it: BarItem, n: number): Record<string, unknown> {
 }
 
 /** The bar's rows laid over a screen's `lines` (without the status bar). */
-export function overBar(lines: string[], bar: { rect: Rect; lines: string[] }): string[] {
-  const out = [...lines], { col, cols } = bar.rect;
+export function overBar(lines: string[], bar: { rect: Rect; lines: string[] }, values?: StyleValues): string[] {
+  const canvas = new Canvas(Math.max(...lines.map(width)), lines.length);
+  lines.forEach((line, y) => canvas.text(0, y, line));
+  canvas.backdrop(values);
+  const out = canvas.lines(), { col, cols } = bar.rect;
   bar.lines.forEach((l, i) => {
     const y = bar.rect.row + i;
     if (y >= out.length) return;

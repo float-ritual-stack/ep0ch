@@ -1,9 +1,11 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // The board's lanes (PIE-511, PIE-515): what the hub source keeps for a columns container it fills, its model. The
 // lanes are query tiles (src/desk/query.ts), one per view under the hub; what they share is here: the hub shown (and
 // the hub picker), the lane the cursor is in, moving cards between lanes (H L, m, a drag, `card.move`), writing new
 // cards and notes (the composer), a card's steps, trash and restore, each agent's own selected card, and the lanes'
 // refresh from the change feed. The board is a screen spec on the desk (src/desk/screen-specs.ts); its readers row,
 // docks, floats and spines are the desk's. Every key and click runs an action (BOARD_ACTIONS, the source's).
+import { lookFor } from "../look";
 import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import { byOf, recordedActorId, USER, type Actor, type Change, type OutlineEvent } from "../socket";
@@ -205,8 +207,10 @@ export class Lanes implements SourceModel {
   /** Its overlays over the screen (the hub picker, the mover, the steps, the composer): true when one took it. */
   drawOver(canvas: Canvas, area: Rect): boolean {
     const W = area.cols, H = area.rows + area.row;
-    for (const o of [...this.overlays.all()].reverse()) o.draw(canvas, { col: 0, row: 0, cols: W, rows: H });
-    if (this.composer) this.drawComposer(canvas, W, H);
+    const focused = this.host.focusedPane();
+    const values = (focused && this.host.lookOf?.(focused))?.values ?? lookFor(this.host.ctx, {}, W).values;
+    for (const o of [...this.overlays.all()].reverse()) o.draw(canvas, { col: 0, row: 0, cols: W, rows: H }, values);
+    if (this.composer) this.drawComposer(canvas, W, H, values);
     return !!(this.overlays.top() || this.composer);
   }
 
@@ -1321,7 +1325,7 @@ export class Lanes implements SourceModel {
     return hit && hit.pane instanceof QueryPane && this.lanes.includes(hit.pane) ? this.lanes.indexOf(hit.pane) : null;
   }
 
-  private drawComposer(canvas: Canvas, W: number, H: number) {
+  private drawComposer(canvas: Canvas, W: number, H: number, look: StyleValues) {
     const C0 = this.composer!, d = C0.session.draft;
     const r: Rect = { col: Math.round(W * 0.18), row: Math.round(H * 0.1), cols: Math.round(W * 0.64), rows: Math.max(10, Math.round(H * 0.6)) };
     canvas.clear(r, bg(C.black));
@@ -1343,7 +1347,7 @@ export class Lanes implements SourceModel {
       line(`a child note of ${titleOf(C0.parent, 60)}`, C.cyan),
       line(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
     ];
-    const lines = renderEditor(d, { title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, null, links), pick: true }, w, r.rows - 2);
+    const lines = renderEditor(d, { look, title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, null, links), pick: true }, w, r.rows - 2);
     this.composerAt = r;
     lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
   }

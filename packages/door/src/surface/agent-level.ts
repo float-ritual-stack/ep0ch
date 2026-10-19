@@ -15,7 +15,7 @@ export const isAgentLevel = (x: unknown): x is AgentLevel => typeof x === "strin
 /** The level in the words the tile's chip and the refusals use. */
 export const AGENT_WORDS: Record<AgentLevel, string> = { free: "agents: free", edit: "agents: edit only", off: "agents: hands off" };
 /** The glyph on the tile's frame (nothing for `free`). */
-export const AGENT_GLYPH: Record<AgentLevel, string> = { free: "", edit: "✎", off: "⊘" };
+export const AGENT_GLYPH: Record<AgentLevel, string> = { free: "", edit: "*", off: "!" };
 /** The next level when the person cycles it (^W g, a click on the chip). */
 export const nextAgentLevel = (l: AgentLevel): AgentLevel => AGENT_LEVELS[(AGENT_LEVELS.indexOf(l) + 1) % AGENT_LEVELS.length]!;
 

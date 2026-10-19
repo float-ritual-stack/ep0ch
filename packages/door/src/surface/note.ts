@@ -1,3 +1,4 @@
+import { Canvas, LINE_BOX } from "../canvas";
 import { CONFIRM_HINT } from "./hint-card";
 import { heroLook } from "./hero-look";
 import { withFigureBoard } from "../graphs";
@@ -74,14 +75,14 @@ import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
-import { visible, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
+import { visible, headOf, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, wheelTarget, writtenBy, type EditFrame } from "./editor";
-import { clampFloat, COMPOSER_PLACES, composerBox, composerPlaceOf, floatRow, frameZone, nextPlace, overlayBox, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox, type FloatRect } from "./composer";
+import { clampFloat, COMPOSER_PLACES, composerBody, composerBox, composerPlaceOf, floatRow, frameZone, nextPlace, placeBox, SPLIT_MIN_H, SPLIT_MIN_W, SPLIT_SIDE_MIN, type ComposerBox, type FloatRect } from "./composer";
 import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, threadAgents } from "../extensions";
@@ -1238,7 +1239,7 @@ export class NoteSurface {
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
     // A split that doesn't fit the reader (too narrow or short to share) is drawn as a popup meanwhile.
-    if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" || writing.cs.place === "tile" ? "popup" : writing.cs.place);
+    if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" || writing.cs.place === "tile" ? "popup" : writing.cs.place, host?.focused !== false);
     if (!hero || !shown) return v;
     const cut = this.hero?.pinned ? 0 : Math.min(this.scroll, hero.box.rows), lines = Array.from({ length: shown }, () => "");
     if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
@@ -1252,30 +1253,35 @@ export class NoteSurface {
    * reader with the passage quoted: laid over the note's rows `v`, in the reader's `w` × `h` cells under its header
    * image. A picture under the box isn't drawn while it's there.
    */
-  private overComposer(v: SurfaceView, w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>, place: "floating" | "popup"): SurfaceView {
+  private overComposer(v: SurfaceView, w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>, place: "floating" | "popup", focused: boolean): SurfaceView {
     const lines = [...v.lines], room = Math.max(lines.length, h);
     let box: ComposerBox, row: number, col: number;
     if (place === "popup") {
-      box = composerBox(c.d, c.f, Math.min(w - 2, 80), Math.max(6, room - 2));
-      row = Math.max(0, Math.floor((room - box.lines.length) / 2));
+      box = composerBody(c.d, c.f, Math.min(w - 2, 80), Math.max(6, room - 2));
+      row = Math.max(0, Math.floor((room - box.lines.length - 2) / 2));
       col = Math.max(0, Math.floor((w - box.width) / 2));
     } else if (c.cs.float) {
       // Where the person dragged or sized it (PIE-785), kept inside the reader; the passage it's on doesn't move.
       const r = clampFloat(c.cs.float, w, room);
-      box = composerBox(c.d, c.f, r.cols, r.rows, true, true);
+      box = composerBody(c.d, c.f, r.cols, r.rows, true);
       row = r.row; col = r.col;
     } else {
-      box = composerBox(c.d, c.f, Math.min(w - 2, 72), Math.max(6, Math.floor(room * 0.6)), false, true);
+      box = composerBody(c.d, c.f, Math.min(w - 2, 72), Math.max(6, Math.floor(room * 0.6)), false);
       const d = this.drawn, from = d?.top ?? 0, to = Math.min(room, from + (d?.room ?? room));
-      row = floatRow(this.composerRows, box.lines.length, from, to);
+      row = floatRow(this.composerRows, box.lines.length + 2, from, to);
       col = Math.max(0, Math.min((d?.bx ?? 1) + 2, w - box.width));
     }
-    this.boxRect = { row, col, cols: box.width, rows: box.lines.length };
+    this.boxRect = { row, col, cols: box.width, rows: box.lines.length + 2 };
     this.boxRoom = { w, h: room };
-    overlayBox(lines, box.lines, row, col, w);
+    const canvas = new Canvas(w, room);
+    lines.forEach((line, y) => canvas.text(0, y, line, w));
+    canvas.float(this.boxRect, place === "floating" ? "≡ move" : "", "", () => {
+      box.lines.forEach((line, y) => canvas.text(col + 1, row + 1 + y, line, box.width - 2));
+    }, focused, this.lastLook?.values, place === "floating" ? { ...LINE_BOX, br: "◢" } : LINE_BOX);
+
     placeBox(c.d, box, row, col);
-    const under = (p: Placement) => p.row < row + box.lines.length && p.row + p.rows > row && p.col < col + box.width && p.col + p.cols > col;
-    return { ...v, lines, placements: [...(v.placements ?? []).filter(p => !under(p)), ...previewPictures(c.d, 0, room)] };
+    const under = (p: Placement) => p.row < row + box.lines.length + 2 && p.row + p.rows > row && p.col < col + box.width && p.col + p.cols > col;
+    return { ...v, lines: canvas.lines(), placements: [...(focused ? [] : (v.placements ?? []).filter(p => !under(p))), ...previewPictures(c.d, 0, room)] };
   }
 
   /**
@@ -1579,6 +1585,7 @@ export class NoteSurface {
     if (!m) return { lines: [dim("pick something in the outline")] };
     // An edit or a comment session draws in place of the note (a reply that landed has let its session go).
     this.use(host);
+    this.lookAt(m, w, host);
     const covered = this.modes.rows(w, h, host);
     if (covered) return { lines: covered, completion: this.draft ? completerOf(this.draft) ?? undefined : undefined, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
@@ -1589,7 +1596,6 @@ export class NoteSurface {
     if (foot) h -= 1;
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
-    this.lookAt(m, w, host);
     const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
@@ -1620,7 +1626,7 @@ export class NoteSurface {
     } else if (this.panel) {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);
-      const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text, values: this.valueRows(m, src) };
+      const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text, look: this.lastLook?.values, values: this.valueRows(m, src) };
       const at = head.length;
       const panelHits = () => { for (const r of this.panel!.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false }, ...(r.target ? [{ row: at + r.y, from: r.from, to: w, prop: r.n, follow: true }] : [])); };
       if (this.panel.full) { const lines = [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)]; panelHits(); return { lines }; }
@@ -2692,6 +2698,7 @@ export class NoteSurface {
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined);
     return renderEditor(d, {
+      look: this.lastLook?.values,
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links, false, isOutlineNote(m) ? m.id : undefined), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).
       ...(this.newNotes.has(m.id) ? { lands: `→ ${this.crumbs}` } : {}),
@@ -2840,7 +2847,7 @@ export class NoteSurface {
   }
 
   private replyFrame(host?: SurfaceHost): EditFrame {
-    return { title: `reply · ${subject(this.replyParent!)}`, status: [], pick: true, follow: true,
+    return { look: host?.look?.values ?? this.lastLook?.values, title: `reply · ${subject(this.replyParent!)}`, status: [], pick: true, follow: true,
       preview: (text, w, links) => this.snippetDoc(text, w, host, links),
     };
   }
@@ -3245,7 +3252,7 @@ export class NoteSurface {
     if (!cs || cs.mode !== "compose" || !cs.composer || !m) return null;
     // Its preview draws pictures as the reader does (PIE-846), with the host's terminal.
     const f = cs.composerFrame((t, pw, links) => this.snippetDoc(t, pw, host, links, true));
-    return f ? { cs, d: cs.composer, f } : null;
+    return f ? { cs, d: cs.composer, f: { ...f, look: host?.look?.values ?? this.lastLook?.values } } : null;
   }
 
   /** The comment being written is on the whole note, or answers a thread that is (PIE-846). */

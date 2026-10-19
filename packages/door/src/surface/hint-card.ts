@@ -1,8 +1,8 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { Canvas, type Rect } from "../canvas";
 import { menuHeading, menuRow } from "../desk/tile-menu";
 import { RowView } from "../scroll";
-import { keycaps } from "../figures/keys";
-import { bg, C, fg, pad, RESET } from "../style";
+import { BOLD, UNBOLD, bg, C, fg, pad, RESET } from "../style";
 import { wrap } from "../text";
 import type { ActRequest } from "./actions";
 
@@ -21,11 +21,11 @@ export class HintCard {
   readonly view = new RowView();
   constructor(readonly hint: Hint, readonly tile: string, readonly anchor: number, readonly by?: string) {}
 
-  draw(canvas: Canvas, anchor: Rect, area: Rect, brief: boolean, pointer?: { x: number; y: number }, tone: number = C.cyan): Rect {
+  draw(canvas: Canvas, anchor: Rect, area: Rect, brief: boolean, pointer?: { x: number; y: number }, tone: number = C.cyan, values?: StyleValues): Rect {
     const cols = Math.max(4, Math.min(64, area.cols, Math.max(30, anchor.cols - 2)));
     const w = cols - 4;
-    const lines = (brief ? this.hint.lines.slice(0, 1) : this.hint.lines).flatMap(l => wrap(l, w));
-    if (!brief) for (const k of this.hint.keys ?? []) lines.push(keycaps(k.keys) + fg(C.grey) + ` ${k.does}` + RESET);
+    const lines = (brief ? this.hint.lines.slice(0, 1) : this.hint.lines).flatMap(l => wrap(l.replace(/^([^:]+:)/, BOLD + "$1" + UNBOLD), w));
+    if (!brief) for (const k of this.hint.keys ?? []) lines.push(menuRow({ label: k.does, key: k.keys }, false, w));
     const choices = this.hint.choices ?? [];
     const content: { text: string; act?: ActRequest }[] = lines.map(text => ({ text }));
     choices.forEach((choice, i) => {
@@ -42,8 +42,7 @@ export class HintCard {
       else if (pointer.y + rows + 1 <= area.row + area.rows) row = pointer.y + 1;
     }
     const rect = this.rect = { col, row, cols, rows };
-    canvas.clear(rect, bg(C.black));
-    canvas.box(rect, fg(C.dark), fg(tone) + this.hint.title + (this.by ? ` - ${this.by}` : ""), fg(C.dark) + (this.pinned ? "pinned  [dismiss]" : "[pin]  [dismiss]"));
+    canvas.float(rect, this.hint.title + (this.by ? ` - ${this.by}` : ""), fg(C.dark) + (this.pinned ? "pinned  [dismiss]" : "[pin]  [dismiss]"), () => {
     this.hits = [
       { rect: { col: col + 3, row: row + rows - 1, cols: this.pinned ? 0 : 5, rows: 1 }, act: { action: "hint.pin", tile: this.tile } },
       { rect: { col: col + (this.pinned ? 11 : 10), row: row + rows - 1, cols: 9, rows: 1 }, act: { action: "hint.dismiss", tile: this.tile } },
@@ -55,6 +54,7 @@ export class HintCard {
       if (line.act) this.hits.push({ rect: { col: col + 2, row: y, cols: w, rows: 1 }, act: line.act });
     });
     if (this.view.maxTop) canvas.thumb(rect, { top, total: content.length, room: rows - 2 }, fg(C.dark));
+    }, false, values);
     return rect;
   }
 

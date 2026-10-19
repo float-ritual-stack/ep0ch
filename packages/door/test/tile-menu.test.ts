@@ -10,7 +10,10 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { MenuRow } from "../src/surface/dispatch";
 import { declaredKeys } from "../src/surface/actions";
-import { visible } from "../src/style";
+import { bgRgb, visible } from "../src/style";
+import { tuningOf } from "../src/look";
+import { surfaceRgb } from "../src/theme";
+import { SURFACE_STEPS } from "@ep0ch/outline-core/style-cascade";
 import { litCells } from "../src/bar/filter";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -78,6 +81,44 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     expect(get().focus).toBe("activity");
   });
 
+  test("a menu is raised above a dimmed screen and has a shadow; a hint leaves the screen undimmed", async () => {
+    fresh();
+    const before = render().lines;
+    await mine("tile.menu", {}, "activity");
+    const opened = render().lines;
+    expect(opened.map(visible).join("\n")).toContain("▒");
+    expect(opened[0]).not.toBe(before[0]);
+    key({ kind: "esc" });
+    await mine("hint.show", { text: "Pick a destination" }, "activity");
+    const hinted = render().lines;
+    expect(hinted.map(visible).join("\n")).toContain("▒");
+    expect(hinted[0]).toBe(before[0]);
+    await mine("hint.dismiss");
+  });
+
+  test("a tile's float colour follows its own tune and leaves another tile's float alone", async () => {
+    fresh();
+    await until(() => !!D().pane("activity"), "the desk has its activity tile");
+    const tuning = tuningOf(board), actor = { kind: "user" } as const;
+    const target = `instance:${D().tileId(D().idNamed("activity"))}`;
+    const tint = bgRgb(surfaceRgb("amber", SURFACE_STEPS)!);
+    tuning.set(target, "float.bg", "amber", actor);
+    try {
+      await mine("hint.show", { text: "Pick a destination" }, "activity");
+      expect(render().lines.join("\n").includes(tint)).toBe(true);
+      await mine("hint.dismiss");
+      await mine("hint.show", { text: "Read this note" }, "reader");
+      expect(render().lines.join("\n").includes(tint)).toBe(false);
+      await mine("hint.dismiss");
+      await mine("tile.menu", {}, "activity");
+      expect(render().lines.join("\n").includes(tint)).toBe(true);
+      key({ kind: "esc" });
+    } finally {
+      await mine("hint.dismiss");
+      tuning.drop(target, "float.bg", actor);
+    }
+  });
+
   test("in an edit, the menu's edit in $EDITOR is ctrl+x ctrl+e (edit.external), the person's only", async () => {
     fresh();
     await until(() => !!D().pane("reader")?.msg, "the reader shows a note");
@@ -97,7 +138,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     const b = (D().menuButtons as any[]).find(x => D().nameOf(x.id) === "activity");
     // Left of the ×: ⋯ ×.
     expect(b).toMatchObject({ row: r.row, from: r.col + r.cols - 4 });
-    expect(screen().split("\n")[r.row]!.slice(r.col + r.cols - 4, r.col + r.cols - 1)).toBe("⋯─×");
+    expect(screen().split("\n")[r.row]!.slice(r.col + r.cols - 4, r.col + r.cols - 1)).toBe("≡─x");
     press(b.from, b.row);
     await until(() => menu()?.name === "tile menu", "the menu opens");
     expect(get().focus).toBe("activity");

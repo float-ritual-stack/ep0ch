@@ -1,3 +1,4 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // The property panel (Detail's property inspector): every property token of the note, repeated keys and
 // scope (block, line, inline) kept, behind one key instead of filling the top of the note. A value can be
 // copied, followed (block, page and Work-ID values) and edited in place: an edit is one `properties.patch`
@@ -135,7 +136,7 @@ export class PropertyPanel {
   }
 
   /** The panel's lines, at most `h`, `w` wide. `summary` holds the keys the summary line shows. */
-  render(rows: PropRow[], w: number, h: number, info: { origin?: number; revision?: number; summary: readonly string[]; source: string; scopes: "ready" | "loading" | "block"; src: Source | null; text?: string; values?: readonly ValueRow[] }): string[] {
+  render(rows: PropRow[], w: number, h: number, info: { look?: StyleValues; origin?: number; revision?: number; summary: readonly string[]; source: string; scopes: "ready" | "loading" | "block"; src: Source | null; text?: string; values?: readonly ValueRow[] }): string[] {
     const scopes = info.scopes === "ready" ? "" : info.scopes === "loading" ? " · reading…" : " · block only (no properties.preview here)";
     const title = `properties · ${rows.length}${info.revision !== undefined ? ` · rev ${info.revision}` : ""}${scopes}`;
     const out = [rule(w, ellipsize(title, Math.max(2, w - 8)))];
@@ -177,7 +178,7 @@ export class PropertyPanel {
         if (c) c.drawn = null;
         if (c && pop && out.length < h) {
           const at: (number | null)[] = [];
-          const popup = renderCompletion(pop, w, Math.min(COMPLETION_ROWS, h - out.length - (foot ? 1 : 0)), at);
+          const popup = renderCompletion(pop, w, Math.min(COMPLETION_ROWS, h - out.length - (foot ? 1 : 0)), at, 0, info.look);
           c.drawn = { row: (info.origin ?? 0) + out.length, items: at };
           out.push(...popup);
         }

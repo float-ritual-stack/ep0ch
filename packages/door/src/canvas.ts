@@ -1,10 +1,11 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { rowLines } from "./text";
 // A cell grid the desk composes into: panes, borders and floating overlays all write here,
 // then it becomes one styled line per row. Blank cells keep the default background so the
 // CRT underlay shows through.
 import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
-import { fitHint, glyphWidth, graphemes, RESET } from "./style";
-import { theme } from "./theme";
+import { bgRgb, fgRgb, fitHint, glyphWidth, graphemes, RESET } from "./style";
+import { floatTheme, theme } from "./theme";
 import { printable } from "./text";
 
 /** One terminal cell. A wide glyph's second cell is a spacer: `ch` "", drawn as nothing (the glyph covers it). */
@@ -153,6 +154,33 @@ export class Canvas {
         c.sgr = withSgr(c.sgr, sgr);
       }
     }
+  }
+
+  /** A modal backdrop darkens both ink and fill; it never adds light to a cell. */
+  backdrop(values?: StyleValues): void {
+    const t = theme(), dim = floatTheme(values).dim, scale = (rgb: readonly number[]) => rgb.map(v => Math.round(v * dim)).join(";");
+    for (const row of this.cells) for (const cell of row) {
+      cell.sgr = cell.sgr.replace(/\x1b\[(38|48);2;(\d+);(\d+);(\d+)m/g, (_, kind, r, g, b) => `\x1b[${kind};2;${scale([+r, +g, +b])}m`);
+      if (!/\x1b\[38;2;/.test(cell.sgr)) cell.sgr += `\x1b[38;2;${scale(t.text ?? t.palette[7]!)}m`;
+      if (!hasBackground(cell.sgr)) cell.sgr += `\x1b[48;2;${scale(t.ground ?? t.palette[0]!)}m`;
+    }
+  }
+
+  /** Floats share their depth, including the blank cells left after a row's reset. */
+  float(r: Rect, title: string, foot: string, draw: () => void, takesKeys = false, values?: StyleValues, glyphs = LINE_BOX): void {
+    if (takesKeys) this.backdrop(values);
+    const t = floatTheme(values);
+    this.shadow(r, values);
+    this.clear(r);
+    this.box(r, fgRgb(t.border), fgRgb(t.border) + title, foot, glyphs);
+    draw();
+    this.under(r, bgRgb(t.bg));
+  }
+
+  shadow(r: Rect, values?: StyleValues): void {
+    const ink = fgRgb(floatTheme(values).shadow);
+    this.text(r.col + 1, r.row + r.rows, ink + "▒".repeat(r.cols) + RESET, r.cols);
+    for (let y = r.row + 1; y < r.row + r.rows; y++) this.text(r.col + r.cols, y, ink + "▒" + RESET, 1);
   }
 
   /** A box with a title in the top edge and an optional hint in the bottom edge: single lines, or `g`'s glyphs. */
