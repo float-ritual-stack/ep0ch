@@ -28,7 +28,9 @@
     "./outline-instance": "./src/outline-instance.ts",
     "./outline-mirror": "./src/outline-mirror.ts",
     "./plain-stderr": "./src/plain-stderr.ts",
-    "./program-status-emit": "./src/program-status-emit.ts"
+    "./program-status-emit": "./src/program-status-emit.ts",
+    "./link": "./src/link.ts",
+    "./link-config": "./src/link-config.ts"
   },
   "scripts": {
     "outliner": "bun run src/outliner.ts",

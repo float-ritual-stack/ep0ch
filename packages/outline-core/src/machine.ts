@@ -146,8 +146,14 @@ export async function ensureForward(machine: string, o: ForwardOptions): Promise
   const p = forwardPaths(o.outlines, machine);
   if (await o.io.answers(p.socket)) return { socket: p.socket, how: "up" };
   o.io.privateDir(p.dir);
-  return locked(`${p.control}.lock`, o.io, async () => {
+  return withForwardLock(`${p.control}.lock`, o.io, async () => {
     if (await o.io.answers(p.socket)) return { socket: p.socket, how: "up" as const };
+    const linkText = o.io.read(`${p.dir}/${machine}.link.json`);
+    if (linkText) {
+      let link: { pid?: number } = {};
+      try { link = JSON.parse(linkText); } catch { /* An interrupted status write is not a live link. */ }
+      if (link.pid && o.io.alive(link.pid)) throw new Error(`link to ${machine} is connected, but its outline host is not answering; run ep0ch status on ${machine}`);
+    }
     if ((await o.io.run(sshArgv.check(o.ssh, p), 5000)).code === 0) {
       if (await answersWithin(p.socket, o.io, 2000)) return { socket: p.socket, how: "up" as const };
       const named = configuredRemoteSocket(p, o.io);
@@ -180,7 +186,7 @@ const LOCK_WAIT_MS = 120_000;
  * Run `f` holding the lock file at `path` (it holds the holder's pid): one start of a machine's forward at a time,
  * across processes. A lock whose holder has gone is taken over, only while it still names that holder.
  */
-async function locked<T>(path: string, io: MachineIO, f: () => Promise<T>): Promise<T> {
+export async function withForwardLock<T>(path: string, io: MachineIO, f: () => Promise<T>): Promise<T> {
   const deadline = io.now() + LOCK_WAIT_MS;
   while (!io.createExclusive(path, String(io.pid))) {
     const held = io.read(path)?.trim() ?? "", holder = Number(held);

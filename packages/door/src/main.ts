@@ -106,6 +106,7 @@ ${MCP_USAGE}
                                    --ws <name>; on another machine --create makes one it lacks); import makes a new outline from an older database (its
                                    notes, properties, pages and work ids; the file is only read); stop
                                    releases its database; delete moves it to .deleted/, after asking
+  ep0ch link setup|serve|connect|status   outbound HTTPS link for a machine
   ep0ch status [--json]            the outline host: its socket, its outlines folder, open outlines
   ep0ch doctor [--backups] [--json]
                                    every piece of the stack (bun, the ep0ch checkout, ep0ch on PATH, the plugin
@@ -269,6 +270,7 @@ if (args[0] === "web" || args[0] === "loki") {
   const run = Bun.spawn([process.execPath, cli, args[0], ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
   process.exit(await run.exited);
 }
+if (args[0] === "link") process.exit(await (await import("./link")).runLink(args.slice(1)));
 if (args[0] === "keys") {
   const at = args.indexOf("--ws");
   if (at > 0 && args[at + 1]) { process.env.EP0CH_WS = args[at + 1]; args = [...args.slice(0, at), ...args.slice(at + 2)]; }

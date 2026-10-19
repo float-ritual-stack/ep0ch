@@ -58,6 +58,18 @@ describe("--machine: an outline on another machine, through the forward", () => 
     expect(second.notice).toBeUndefined();
     expect(forwards()).toBe(1);
     first.board.close(); second.board.close();
+    const { serveLink, connectLink, linkStates } = await import("@ep0ch/outliner/link");
+    const { forwardFor } = await import("@ep0ch/outliner/machine-forward");
+    const outlines = join(here, "outlines");
+    const link = serveLink({ outlines, port: 0, keys: { "box-a": "fictional-machine-key" }, log() {} });
+    const connector = connectLink({ server: `http://127.0.0.1:${link.port}`, machine: "box-a", key: "fictional-machine-key", host: host.sock, log() {} });
+    try {
+      await until(() => linkStates(outlines).length === 1, "link takes over the SSH socket");
+      expect((await forwardFor("box-a", outlines)).how).toBe("up");
+    } finally { connector.stop(); await link.stop(); }
+    await until(() => linkStates(outlines).length === 0, "link releases the socket");
+    expect((await forwardFor("box-a", outlines)).how).toBe("started");
+    expect(forwards()).toBe(2);
     const { usedMachines } = await import("../src/machine");
     expect(usedMachines().map(m => m.name)).toEqual(["box-a"]);
   }, 30_000);

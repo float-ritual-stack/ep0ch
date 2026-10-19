@@ -1,3 +1,4 @@
+import { linkStatus } from "@ep0ch/outliner/link";
 import { writeDotEp0ch as writeBinding } from "@ep0ch/outliner/outline-binding";
 // `ep0ch outline …`, `ep0ch init` and `ep0ch status`: the outline host's outlines, like `herdr session …` (PIE-466),
 // named by folder (PIE-530). Every command asks the host itself (`outlines.*`, each on its own short connection).
@@ -183,8 +184,9 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
         const list = await hostRequest<{ defaultOutline?: string; outlines: HostedOutline[] }>(path, "outlines.list");
         const open = list.outlines.filter(o => o.open).map(o => o.name);
         const folder = cmd.machine ? (list.outlines[0] ? dirname(list.outlines[0].database) : null) : outlinesDir();
-        print({ socket: status.socket, folder, open, outlines: list.outlines, ...(cmd.machine ? { machine: cmd.machine } : {}) },
-          [`host      ${status.socket}${on}`, `outlines  ${folder ?? "?"}${on} (${list.outlines.length})`, `open      ${open.join(", ") || "none"}`].join("\n"));
+        const links = await linkStatus(outlinesDir());
+        print({ links, socket: status.socket, folder, open, outlines: list.outlines, ...(cmd.machine ? { machine: cmd.machine } : {}) },
+          [`host      ${status.socket}${on}`, `outlines  ${folder ?? "?"}${on} (${list.outlines.length})`, `open      ${open.join(", ") || "none"}`, ...links.map(l => `remote    ${l.machine}: ${l.transport} ${l.up ? "up" : "down"}${l.since ? ` since ${l.since}` : ""}`)].join("\n"));
         return 0;
       }
       case "list": {
