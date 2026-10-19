@@ -243,6 +243,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     summary: "open an outline ask where this tile's opens land", keys: "⏎ alt+⏎ double click",
     touches: "nothing", replay: "safe",
     args: { n: { type: "number", optional: true, about: "row number from peek" }, fresh: { type: "boolean", optional: true, about: "use the alt wire" } },
+    examples: [{ act: "ask.open n=1", does: "opens the first outline ask where this tile opens notes" }],
     async run(a, { pane, desk }, actor) {
       const w = pane as WaitingYouPane, ask = askOf(w, a.n);
       const m = await askNote(desk, ask, actor);
@@ -254,6 +255,7 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     summary: "clear a decision and leave a note saying cleared by you", keys: "x",
     touches: "nothing", replay: "ask", person: "only the person clears their decision; answer the note as an agent",
     args: { n: { type: "number", optional: true, about: "row number from peek" } },
+    examples: [{ act: "ask.clear n=1", does: "clears the first decision and comments cleared by you" }],
     async run(a, { pane, desk }, actor) {
       const ask = askOf(pane as WaitingYouPane, a.n);
       if (ask.kind !== "decision") throw new ActionRefused("x clears a decision; tick a call in its note");
@@ -268,6 +270,10 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     summary: "apply or dismiss an open proposal", keys: "A X, row controls",
     touches: "nothing", replay: "ask",
     args: { n: { type: "number", optional: true, about: "row number from peek" }, op: { type: "string", about: "apply or dismiss" } },
+    examples: [
+      { act: "ask.proposal n=2 op=apply", does: "applies the proposal in the second row" },
+      { act: "ask.proposal n=2 op=dismiss", does: "dismisses the proposal in the second row" },
+    ],
     async run(a, { pane, desk }, actor) {
       const ask = askOf(pane as WaitingYouPane, a.n);
       if (ask.kind !== "proposal") throw new ActionRefused("pick a proposal row");
