@@ -11,6 +11,7 @@ import { Desk } from "../src/desk/desk";
 import { PtyPane } from "../src/desk/pty";
 import { outlineState } from "../src/state";
 import { SocketBoard } from "../src/socket";
+import { traceActions, type ActionRun } from "../src/surface/actions";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -64,6 +65,57 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   }
   /** Another screen (last callers), on top: the screen switch. */
   const otherScreen = () => new Desk({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "notes" }] } as any } });
+
+  test("an exited own program clears to an empty slot and a new shell stays one key away", async () => {
+    process.env.EP0CH_DAILY_AGENT = "sh";
+    const d = await door();
+    try {
+      await d.app.act({ action: "host.toggle", args: { open: true }, as: AS });
+      d.paint();
+      await until(() => !!d.app.drawer.tile?.running, "own shell runs");
+      await d.app.act({ action: "tile.type", tile: "drawer.agent", args: { text: "exit\\n" }, as: AS });
+      await until(() => d.app.drawer.tile?.exited === 0, "own shell exits");
+      const drawer = d.app.drawer.desk!;
+      await d.app.act({ action: "tile.close", tile: "drawer.agent", as: AS });
+      expect(d.app.drawer.describe().state).toBe("empty");
+      expect(d.paint().some(l => l.includes("nothing running"))).toBe(true);
+      d.key({ kind: "alt", ch: "a" });
+      expect(d.app.drawer.open).toBe(false);
+      d.key({ kind: "alt", ch: "a" });
+      d.paint();
+      expect(d.app.drawer.describe().state).toBe("empty");
+      // Restart from the empty slot, then clear by the new key through the same action.
+      d.key({ kind: "enter" });
+      await until(() => !!d.app.drawer.tile?.running, "empty slot runs again");
+      await expect(drawer.dispatch.act({ action: "tile.close", tile: "drawer.agent" }, USER)).rejects.toThrow(/doesn't close/);
+      await drawer.dispatch.act({ action: "tile.type", tile: "drawer.agent", args: { text: "exit\\n" } }, USER);
+      await until(() => d.app.drawer.tile?.exited === 0, "restarted shell exits");
+      const runs: ActionRun[] = [];
+      const stop = traceActions(r => runs.push(r));
+      try { d.key(char("x")); await until(() => d.app.drawer.describe().state === "empty", "x clears"); }
+      finally { stop(); }
+      expect(runs.some(r => r.name === "tile.close")).toBe(true);
+      const clickText = (label: string) => {
+        const lines = d.paint(), y = lines.findIndex(l => l.includes(label));
+        expect(y).toBeGreaterThanOrEqual(0);
+        const x = lines[y]!.indexOf(label) + 1;
+        d.key(mouse("down", x, y)); d.key(mouse("up", x, y));
+      };
+      clickText("◄ run sh again");
+      await until(() => !!d.app.drawer.tile?.running, "mouse runs the empty slot again");
+      await drawer.dispatch.act({ action: "tile.type", tile: "drawer.agent", args: { text: "exit\\n" } }, USER);
+      await until(() => d.app.drawer.tile?.exited === 0, "shell exits for mouse clear");
+      clickText("x clears");
+      await until(() => d.app.drawer.describe().state === "empty", "exit line x clears");
+      d.key({ kind: "esc" });
+      expect(d.app.drawer.open).toBe(false);
+      d.key({ kind: "alt", ch: "a" });
+      d.paint();
+      expect(d.app.drawer.describe().state).toBe("empty");
+      d.key({ kind: "alt", ch: "s" });
+      await until(() => d.app.drawer.tabs().some(t => t.name !== "drawer.agent" && (d.pane(t.name) as PtyPane).running), "new shell runs");
+    } finally { d.app.quit(); }
+  });
 
   test("an agent puts a terminal tile by act: moved, not started again; said; the dock and the person's keys stay put", async () => {
     const d = await door();

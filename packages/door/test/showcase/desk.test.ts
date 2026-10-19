@@ -704,4 +704,28 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await until(() => stage().agentNow("edit").level === "off", "the chip's click");
     press({ kind: "esc" });
   }, 30_000);
+  test("the drawer showcase clears an exited own shell and starts a new shell", async () => {
+    await app.press("section.leave");
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await app.press("host.toggle", { open: true });
+    (app as any).paint();
+    if (app.drawer.isAway()) await app.press("agent.back");
+    const drawer = app.drawer.desk!;
+    await drawer.dispatch.act({ action: "tile.focus", tile: "drawer.agent" }, { kind: "user" });
+    (app as any).paint();
+    await until(() => !!app.drawer.tile?.running, "own shell runs");
+    await drawer.dispatch.act({ action: "tile.type", tile: "drawer.agent", args: { text: "exit\\n" } }, { kind: "user" });
+    await until(() => app.drawer.tile?.exited === 0, "own shell exits");
+    await drawer.dispatch.act({ action: "tile.close", tile: "drawer.agent" }, { kind: "user" });
+    (app as any).paint();
+    expect(app.drawer.describe().state).toBe("empty");
+    expect(h.painted.some(l => l.includes("nothing running"))).toBe(true);
+    const result = await app.press("host.shell") as { tile: string };
+    await until(() => !!(drawer.pane(result.tile) as import("../../src/desk/pty").PtyPane).running, "new shell runs");
+    expect(app.drawer.tabs().find(t => t.name === result.tile)?.shown).toBe(true);
+    await app.press("host.toggle", { open: false });
+  });
+
+
 });

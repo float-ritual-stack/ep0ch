@@ -1265,3 +1265,12 @@ do not change; their existing precedence applies.
 The shared part is `src/surface/inline-list.ts`, lent by NoteSurface to the existing
 Doc and embed renderers. Rows remain reader elements and use `element.select`,
 `element.open` and `element.scroll`. The `inline-lists` showcase demonstrates 60 rows.
+
+### Empty drawer slot (PIE-1067)
+
+An exited program in `drawer.own` clears with `tile.close`: `x`, `^W x`,
+the frame's close control, or the exit line's x. The tile stays as an empty
+slot; a running own program still refuses close. Enter or the run-again
+control restarts it, alt+s opens a shell and alt+g opens agents. Leaving a
+drawer with only that empty slot puts it away; reopening it starts nothing.
+Peek reports `state: "empty"`. Other screens' bare x bindings are unchanged.

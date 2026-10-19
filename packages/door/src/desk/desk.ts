@@ -574,6 +574,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const how = src ? tileSource(src.source)?.source.drop : undefined;
     const home = this.homeName(id);
     return {
+      clearsOnClose: p?.clearsOnClose?.(),
       kind: this.unregistered.get(id)?.kind ?? p?.kind ?? "tile",
       ...(k?.policy ? { policy: k.policy } : {}), ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), notes: !!k?.accepts?.notes, held: p instanceof ReaderPane && p.holding && !this.layout.altReaders.has(id),
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
@@ -2384,7 +2385,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       hint: (hint: Hint, tile: string | undefined, actor: Actor) => { if (!d.hintCard?.pinned) d.showHint(hint, tile, actor); },
       get title() { return d.title; },
       ctx: () => d.ctx,
-      ...(d.whereNow ? { where: () => d.whereNow!() } : {}),
+      get where() { return d.whereNow ? () => d.whereNow!() : undefined; },
       keys: () => d.keys(),
       bindings: () => d.spec.keys ?? [],
       tiles: () => d.tiles(),
@@ -3415,7 +3416,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // ⧉, before its title, puts it back.
     // Every tile that can close has a × in its top right corner: a click closes it (tile.close, as ^W x; a running
     // program asks twice). A dock's tile closes by its dock's [×]; one the layout keeps (the board's lanes) has none.
-    // A tab in the drawer has one too (the drawer's own tab never closes: its policy).
+    // A tab in the drawer has one too (the drawer's own exited program clears to an empty slot).
     if (closes) {
       const x = r.col + r.cols - 2;
       canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}×${RESET}`, 1);
@@ -4023,6 +4024,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!p.running) {
         const name = this.nameOf(this.focus);
         if (k.kind === "enter") this.run("tile.restart", {}, name);
+        else if (k.kind === "char" && !k.ctrl && k.ch === "x" && (p as Pane).clearsOnClose?.()) this.run("tile.close", {}, name);
         // Nothing runs to take ^W: it's the window chord again (^W x closes the tile at once).
         else if (k.kind === "char" && k.ctrl && k.ch === "w") { this.ptyIn = null; this.prefix = "wm"; }
         else ctx.flash(this.exitedSay(name));
@@ -4854,6 +4856,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Every rule (its container's, what keeps it, an edit, the last tile, the person's keys) is the module's.
     const r = this.ask({ op: "close", tile: t.id }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
+    if (nn?.clearsOnClose?.()) {
+      nn.clearContent!();
+      if (this.ptyIn === nn) this.ptyIn = null;
+      this.redraw();
+      return { tile: t.name, state: "empty" };
+    }
     // Closing a tile with a program running ends the program: the person is asked twice, as quitting does.
     const pty = this.panes.get(t.id);
     if (pty instanceof PtyPane && pty.running) {

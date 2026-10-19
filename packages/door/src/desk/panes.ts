@@ -216,6 +216,9 @@ export interface Pane {
   instanceLook?: Record<string, string>;
   writtenTitle?: string;
   systemTitle?: boolean;
+  /** Closing clears its content but keeps this slot in the layout. */
+  clearsOnClose?(): boolean;
+  clearContent?(): void;
   /** The tile is going away for good (closed, or its layout replaced): a program is ended. */
   dispose?(): void;
   /** What its header says after its name, already coloured (a lane: its count), instead of its title. */
