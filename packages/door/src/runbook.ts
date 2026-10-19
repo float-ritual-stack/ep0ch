@@ -109,6 +109,7 @@ async function stop(run: Run) {
 export const RUNBOOK_ACTIONS = actionSet<ExtOn>()("runbook", {
   "runbook.stop": def({ summary: "stop a running step and record its result", keys: "stop in the running step's form", touches: "nothing", replay: "ask",
     args: { step: { type: "string", optional: true, about: "the step anchor; defaults to this actor's latest run" } },
+    examples: [{ act: "runbook.stop step=step-start-the-server", does: "stops that step's terminal and records its result" }],
     run({ step }, _on, actor) {
       const run = [...runs.values()].reverse().find(r => step ? r.step.anchor === step : r.actor.kind === actor.kind && (actor.kind === "user" || r.actor.kind === "agent" && r.actor.id === actor.id));
       if (!run) throw new ActionRefused("No matching step is running.");
