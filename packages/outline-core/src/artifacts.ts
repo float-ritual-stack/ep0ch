@@ -1,5 +1,8 @@
 export interface ArtifactInfo { name: string; version?: number; files: string[]; bytes: number; url: string | null }
 export type ArtifactRequest =
+  | { action: "artifacts.deploy"; repo: string; mutation?: { author: "agent" | "user" | "system"; actorId?: string; sessionId?: string; taskId?: string } }
+  | { action: "artifacts.dns"; name: string; to: "vercel" | "float-2" }
+  | { action: "artifacts.backfill"; catalogue?: string }
   | { action: "artifacts.put"; name: string; files: Record<string, string> }
   | { action: "artifacts.show" | "artifacts.snapshot" | "artifacts.versions" | "artifacts.rm"; name: string }
   | { action: "artifacts.list" | "artifacts.import" }

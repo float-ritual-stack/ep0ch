@@ -1247,7 +1247,7 @@ export async function settleProposal(client: AgentToolsClient, input: { ref: str
 
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["proposal-apply", "proposal-dismiss", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file"] as const;
+export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-apply", "proposal-dismiss", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -1267,6 +1267,7 @@ export function runAgentOperation(
   if (checked && !checked.ok) return Promise.reject(new WorkToolRefusal(checked.error));
   const any = (checked?.ok ? (operation === "view-order" ? { ...checked.args, view: checked.args.ref } : checked.args) : input) as any;
   switch (operation) {
+    case "artifact-deploy": return client.request({ action: "artifacts.deploy", repo: any.repo, mutation: mutationOf(writer()) });
     case "read": return readBlock(client, any);
     case "find": return findBlocks(client, any);
     case "resolve": return resolveRef(client, any.ref);

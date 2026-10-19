@@ -8,17 +8,17 @@ import { protocolMismatch } from "@ep0ch/outline-core/protocol";
 
 export async function artifactCommand(input: string[], io: Out = { out: console.log, err: console.error }): Promise<number> {
   const args = input.slice(1), verb = args.shift();
-  const valued = ["--ws", "--machine", "--name"];
+  const valued = ["--ws", "--machine", "--name", "--to"];
   const value = (key: string) => args.includes(key) ? args[args.indexOf(key) + 1] : undefined;
   for (const [i, arg] of args.entries()) {
     if (valued.includes(arg) && (!args[i + 1] || args[i + 1]!.startsWith("--"))) { io.err(`ep0ch: ${arg} needs a value`); return 2; }
     if (arg.startsWith("--") && !valued.includes(arg) && arg !== "--json") { io.err(`ep0ch: artifact doesn't take ${arg}`); return 2; }
   }
   const words = args.filter((a,i) => !valued.includes(a) && !valued.includes(args[i-1] ?? "") && a !== "--json");
-  if (!verb || !["put", "ls", "show", "versions", "snapshot", "rm", "import"].includes(verb) || words.length > 1 || (verb !== "ls" && verb !== "import" && !words[0])) {
-    io.err("ep0ch artifact put <file-or-folder> [--name <name>] | ls | show|versions|snapshot|rm <name> | import [--ws <name>] [--machine <machine>]"); return 2;
+  if (!verb || !["put", "ls", "show", "versions", "snapshot", "rm", "import", "deploy", "dns", "backfill"].includes(verb) || words.length > 1 || (verb !== "ls" && verb !== "import" && verb !== "backfill" && !words[0])) {
+    io.err("ep0ch artifact put <file-or-folder> [--name <name>] | deploy <repo> | dns <name> --to vercel|float-2 | backfill [catalogue] | ls | show|versions|snapshot|rm <name> | import [--ws <name>] [--machine <machine>]"); return 2;
   }
-  const board = verb === "import" ? await boardFor(args) : await artifactHost(value("--machine"));
+  const board = ["import", "deploy", "dns", "backfill"].includes(verb!) || value("--ws") ? await boardFor(args) : await artifactHost(value("--machine"));
   if ("error" in board) { io.err(board.error); return 1; }
   try {
     let result: unknown;
@@ -35,7 +35,10 @@ export async function artifactCommand(input: string[], io: Out = { out: console.
         if (await tar.exited !== 0) throw new Error(await errors);
         result = await board.request("artifacts.upload.finish", { upload }, 240_000);
       } catch (error) { tar.kill(); await tar.exited; await board.request("artifacts.upload.abort", { upload }); throw error; }
-    } else result = await board.request(`artifacts.${verb === "ls" ? "list" : verb}`, { name: words[0] }, 240_000);
+    } else if (verb === "deploy") result = await board.request("artifacts.deploy", { repo: words[0] }, 900_000);
+    else if (verb === "backfill") result = await board.request("artifacts.backfill", { catalogue: words[0] }, 900_000);
+    else if (verb === "dns") result = await board.request("artifacts.dns", { name: words[0], to: value("--to") }, 240_000);
+    else result = await board.request(`artifacts.${verb === "ls" ? "list" : verb}`, { name: words[0] }, 240_000);
     io.out(JSON.stringify(result, null, 2)); return 0;
   } catch (error) { io.err(`ep0ch: ${(error as Error).message}`); return 1; }
   finally { board.close(); }

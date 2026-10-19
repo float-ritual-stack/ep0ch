@@ -8,6 +8,8 @@ import type { OutlinerStore } from "./store";
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 
+export const scriptSourceId = (identity: string) => `script-${hash(identity).slice(0, 24)}`;
+
 const FENCES = ["js", "javascript", "ts", "typescript", "actions"];
 
 /** The script a note holds: the code of its first closed js, ts or actions fence (empty when there is none). */
@@ -31,7 +33,7 @@ const scriptStamp = (script: ScriptSource) => hash(JSON.stringify({ ...script, r
 export async function scriptSources(store: OutlinerStore): Promise<ManifestSource[]> {
   const sources: ManifestSource[] = [];
   const add = (identity: string, name: string, script: ScriptSource, error?: string) => {
-    const id = `script-${hash(identity).slice(0, 24)}`;
+    const id = scriptSourceId(identity);
     sources.push({
       ...(error ? { error } : {}), expectedId: id, idFrom: identity, origin: "outline", directory: store.workspaceRoot ?? "",
       manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, ...(/^[a-z][a-z0-9-]{0,31}$/.test(name) ? { agents: [{ name, effects: script.effects }] } : {}),

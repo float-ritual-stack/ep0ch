@@ -1168,7 +1168,8 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
     await until(() => a.closed, "the old daemon to let the terminal go", 5000);
     const b = await HandoffClient.attach(sessionSocket(dir), 140, 40);
-    await until(() => b.screen().includes("your comment is as you left it"), "the handover said", 15_000).catch(e => { console.log(b.screen()); throw e; });
+    // Status chips can clip the sentence; the composer assertions below prove what was restored.
+    await until(() => b.screen().includes("handed over to a new daemon"), "the handover said", 15_000);
     await until(() => b.screen().includes("onions by the gate") && b.screen().includes("and a sign for the leeks"), "the comment's text", 10_000);
     const after = await commenting();
     expect(after).toMatchObject({ mode: "compose", place: "floating", dirty: true, float: before.float, cursor: before.cursor, whole: true });

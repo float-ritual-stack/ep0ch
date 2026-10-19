@@ -12,12 +12,18 @@ export function artifactResponse(root: string, request: Request, ancestors: stri
   if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405, headers });
   try {
     const parts = decodeURIComponent(new URL(request.url).pathname).split("/").slice(1);
-    const [id, ref, ...rest] = parts;
+    const url = new URL(request.url);
+    const hostName = url.hostname.endsWith(".ep0ch.sh") && url.hostname !== "artifacts.ep0ch.sh" ? url.hostname.slice(0, -9) : undefined;
+    const deploymentsFile = join(root, "deployments.json");
+    let published: { name: string; where: string }[] = [];
+    try { published = JSON.parse(readFileSync(deploymentsFile, "utf8")); } catch { /* No deployed repos yet. */ }
+    const named = published.find(row => row.where === "float-2" && row.name === (hostName ?? parts[0]));
+    const [id, ref, ...rest] = named ? ["deployed", named.name, ...(hostName ? parts : parts.slice(1))] : parts;
     if (!id || !ref || parts.some(p => p === "." || p === ".." || p.includes("\\") || p.includes("\0"))) return missing();
     const parsed = artifactReference(ref);
     if (!parsed) return missing();
     const { name, version } = parsed;
-    if (readFileSync(join(root, "ids", ref), "utf8") !== id) return missing();
+    if (!named && readFileSync(join(root, "ids", ref), "utf8") !== id) return missing();
     const folder = version ? join(root, "snapshots", name, String(version), "files") : join(root, "live", name);
     const relative = rest.filter(Boolean);
     let file = join(folder, ...relative);

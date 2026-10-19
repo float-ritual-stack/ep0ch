@@ -1,3 +1,4 @@
+import { deployArtifact, artifactDns, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
 import { ArtifactStore } from "./artifact-store";
 import { moveNote } from "./note-move";
 import { isSqliteBusy } from "./sqlite-busy";
@@ -762,7 +763,7 @@ export class OutlinerServer {
     this.agentRequests.start();
     this.extensionSync.start();
     this.extensionRules.start();
-    this.routing.ensureHub();
+    this.routing.ensureHub(); seedArtifactRule(this.store);
     this.extensionSchedules.start();
     // Its resource providers once its folders are read (and again on every reload).
     void this.extensionRegistry.watch().catch(() => {}).then(() => this.refreshResourceProviders());
@@ -800,7 +801,7 @@ export class OutlinerServer {
     }
     this.extensionSync.start();
     this.extensionRules.start();
-    if (!this.readOnly) { this.routing.ensureHub(); this.extensionSchedules.start(); }
+    if (!this.readOnly) { this.routing.ensureHub(); seedArtifactRule(this.store); this.extensionSchedules.start(); }
     await this.extensionRegistry.watch().catch(() => {});
     // Its resource providers once its folders are read: a note saved as soon as it answers reads its `key::` lines.
     await this.refreshResourceProviders();
@@ -1938,7 +1939,10 @@ export class OutlinerServer {
       try {
         if (this.readOnly && !["artifacts.show", "artifacts.list", "artifacts.versions"].includes(request.action)) throw new Error("This outline is read-only.");
         this.artifactStore ??= new ArtifactStore(this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename));
-        const result = await this.artifactStore.request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot);
+        const result = request.action === "artifacts.deploy" ? await deployArtifact(this.artifactStore, this.store, request.repo, request.mutation)
+          : request.action === "artifacts.dns" ? await artifactDns(request.name, request.to)
+          : request.action === "artifacts.backfill" ? await backfillArtifacts(this.artifactStore, this.store, request.catalogue)
+          : await this.artifactStore.request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot);
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) { return { id: request.id, ok: false, error: (error as Error).message, sequence: this.store.sequence }; }
     }
@@ -3483,6 +3487,9 @@ export class OutlinerServer {
         case "navigation.forward":
           result = this.store.navigateHistory("forward");
           break;
+        case "artifacts.deploy":
+        case "artifacts.dns":
+        case "artifacts.backfill":
         case "artifacts.put":
         case "artifacts.show":
         case "artifacts.snapshot":

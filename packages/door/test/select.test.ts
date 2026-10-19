@@ -615,13 +615,11 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
       await until(() => !!R().column(1)?.items, "the Library", 10_000);
       await app.act({ action: "open", args: { id: draft.id }, as: "test-agent-419" });
       const lines = () => river.render(river.ctx).lines;
-      await until(() => plain(lines().join("\n")).includes("Clippings are by the gate."), "the note's column");
-      await Bun.sleep(500);
-      lines();
+      await until(() => R().byNote(draft.id)?.root?.id === draft.id, "the note's column");
       const col = R().byNote(draft.id)!;
-      // Held full (p), so the column isn't squeezed past its copy control.
+      // A peek clips the quote; widen its own tile before checking or clicking the copy control.
       await app.act({ action: "tile.hold", tile: (river as any).nameOfPane(col), as: "test-agent-419" });
-      lines();
+      await until(() => plain(lines().join("\n")).includes("Clippings are by the gate."), "the widened note");
       const rect = river.rectOf(col)!;
       const copyAt = (y: number) => ({ x: [...plain(lines()[y]!)].indexOf("⧉"), y });
       const quoteRow = where(lines(), "Hi Sam", rect).y, codeRow = where(lines(), "cd ~/garden", rect).y - 1;
