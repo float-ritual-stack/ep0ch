@@ -298,6 +298,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `ep0ch --showcase` (or `ep0ch try --showcase`, `scripts/try-it.sh --showcase`) opens it on its
   own seeded outline, whatever this folder names. `X` on the main menu (its key line; the menu art has twelve
   slots) opens the screen on the outline you're on: on one without the seed it says so and writes nothing.
+- **Groups:** `ep0ch act section name=groups` shows a source in group A wired to a detail in group B; Alt+L can retarget it across groups, outside them or into the drawer.
 - **Agents:** `ep0ch act section name=<n|key>` shows a section (by its key, or its number in the list) (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
@@ -1205,7 +1206,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | drag a tile's header | move it: onto a header or a tile's centre makes **tabs**; onto one of a tile's four triangles **splits** it that way; onto the window's outer left, right or bottom edge makes a **full-height column** or **full-width row**. The drop is outlined while you drag; `esc` lets go |
 | click a tab; drag a tab | show it; move it out, or to another place among its tabs |
 | drag a border | resize |
-| `alt+l`, then click a tile | pick this tile's open target on screen. In link mode, `s` picks select, `o` open, `a` alt; click a tile, use `h j k l` or its number. An edge or gap in alt mode sets beside that tile. Clicking the source clears only that verb; Esc cancels. |
+| `alt+l`, then click a tile | pick this tile's open target anywhere on screen, across groups or in the drawer. Numbers cover the visible tiles screen-wide and h j k l cross group edges. In link mode, `s` picks select, `o` open, `a` alt; click a tile, use `h j k l` or its number. An edge or gap in alt mode sets beside that tile. Clicking the source clears only that verb; Esc cancels. |
 | frame's `select →`, `⏎ →`, `alt →` chip | pick that verb's target in the same link mode. Narrow frames shorten to `○ ⏎ ⤴` and then glyphs alone; link mode names the targets in the hint row and draws a connecting line. |
 | `^W P` | Select shows in, ⏎ opens in, alt opens: click or Enter picks on screen; × or `x` clears that row's wire. A select with no target says current note. |
 | ctrl-click or alt-click a link | open it beside, not in the link target |

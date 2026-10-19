@@ -481,6 +481,19 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "groups", need: "wire tiles across groups and the drawer", part: "one link mode on the top desk; pathTo, paneAtPath and linkAcross keep the wire across group edges", files: "src/desk/desk.ts, src/drawer.ts",
+    aside: "source in group A opens into detail in group B · enter A, then alt+l: every target lights up, including outside and the drawer · click detail in B, press its screen-wide number, or l across the edge · s select, o open, a alt; esc cancels, clicking source unlinks · act tile.link tile=a/source to=../b/detail makes the same wire",
+    stage(n, show) {
+      const source = new ReaderPane(true), detail = new ReaderPane(true), outside = new ReaderPane(true);
+      return deskOf({ title: "showcase · groups", panes: [source, detail, outside], names: ["source", "detail", "outside"],
+        layout: ([a, b, c]) => pair("row", 0.72, row(0.5, a!, b!), leaf(c!)) }, show, [[source, n.shed], [detail, n.notebook], [outside, n.shed]], d => {
+        d.linkTile("source", "detail", USER);
+        d.groupTile("source", { name: "a", label: "Group A" }, USER);
+        d.groupTile("detail", { name: "b", label: "Group B" }, USER);
+      });
+    },
+  },
+  {
     key: "spine", need: "squeeze a tile to a title strip", part: "the spine part: drawSpine, SPINE (c collapses a lane or a reader, alt+c opens all)", files: "src/spine.ts, on the board: src/desk/delivery.ts",
     aside: "the board's lanes take a sideways wheel or a trackpad swipe as h and l, one lane a swipe (SidewaysWheel); a click selects a card, a double click opens it, an alt-, ctrl- or middle-click opens it in a new detail; alt+↑ alt+↓, or a card dragged up or down its lane, puts it in the lane's hand-set order (card.reorder, as `act` does; `ep0ch view order <view> <id>…` from a shell)",
     stage(n) { return openScreen("board", { hub: n.hub?.id, persist: false }); },
@@ -1322,6 +1335,7 @@ export class Showcase implements Screen {
     else {
       const f = this.stage(this.sel)!;
       const r = this.stageRect;
+      if (f.top instanceof Desk) f.top.screenOrigin = { col: r.col, row: r.row };
       const frame = f.render(r.cols, r.rows, `s${this.sel}`);
       frame.lines.forEach((l, i) => canvas.text(r.col, r.row + i, l, r.cols));
       placements = (frame.placements ?? []).map(p => ({ ...p, col: p.col + r.col, row: p.row + r.row }));

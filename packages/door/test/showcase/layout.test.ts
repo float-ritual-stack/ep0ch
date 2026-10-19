@@ -421,6 +421,44 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   }, 40_000);
 
 
+  test("groups (PIE-1073): act and a click choose the same cross-group wire, including a tile outside and in the drawer", async () => {
+    (app as any).lastInput = 0;
+    await sc.dispatch.press("section.leave");
+    await app.act({ action: "section", args: { name: "groups" }, as: "test-agent" });
+    screen();
+    const d = S().stages.get(S().sel).top;
+    const group = (name: string) => d.pane(name).inner;
+    const source = () => group("a").layoutGet().tiles.find((t: any) => t.name === "source");
+    const act = (action: string, args = {}, tile?: string) => d.dispatch.act({ action, args, tile }, { kind: "user" });
+    const click = (x: number, y: number) => press({ kind: "mouse", action: "down", button: 0, x, y });
+    expect(source().wires).toContainEqual({ verb: "open", to: "../b/detail" });
+    expect(screen()).toContain("◄ ../b/detail");
+    await act("tile.link", {}, "a/source");
+    await act("tile.link", { ask: true }, "a/source");
+    expect(screen()).toContain("click to link here");
+    const at = S().stageRect, b = d.layoutGet().tiles.find((t: any) => t.name === "b").rect;
+    const detail = group("b").layoutGet().tiles.find((t: any) => t.name === "detail").rect;
+    click(at.col + b.col + 1 + detail.col + 3, at.row + b.row + 1 + detail.row + detail.rows - 3);
+    expect(source().wires).toContainEqual({ verb: "open", to: "../b/detail" });
+    await group("a").dispatch.act({ action: "open", args: { id: seeded.notes.hub.id, from: "source" } }, { kind: "agent", id: "test-agent" });
+    expect(group("b").pane("detail").msg.id).toBe(seeded.notes.hub.id);
+    await act("tile.link", { ask: true }, "a/source");
+    screen();
+    const outside = d.layoutGet().tiles.find((t: any) => t.name === "outside").rect;
+    click(at.col + outside.col + 3, at.row + outside.row + outside.rows - 3);
+    expect(source().wires).toContainEqual({ verb: "open", to: "../outside" });
+    await act("tile.drawer", { on: true }, "outside");
+    await app.dispatch.press("host.toggle", { open: true });
+    await app.drawer.desk!.dispatch.press("tab.select", {}, "outside");
+    (app as any).paint();
+    await act("tile.link", { ask: true }, "a/source");
+    (app as any).paint();
+    const drawer = app.drawer.desk!.layoutGet().tiles.find(t => t.name === "outside")!.rect!;
+    click(drawer.col + 3, app.drawer.rect!.row + 1 + drawer.row + drawer.rows - 3);
+    expect(source().wires).toContainEqual({ verb: "open", to: "@drawer/outside" });
+    await app.dispatch.press("host.toggle", { open: false });
+  }, 30_000);
+
   test("on an outline without the showcase it says so and writes nothing", async () => {
     const other = new Scratch();
     const b = new SocketBoard(await other.start());
