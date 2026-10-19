@@ -63,6 +63,7 @@ async function execute(ctx: Context, step: RunbookStep, actor: Actor, answers: R
   const collect = (data: Uint8Array) => { output = (output + decoder.decode(data, { stream: true })).slice(-64000); };
   try {
     if (!(await stat(cwd).catch(() => null))?.isDirectory()) throw new ActionRefused(`Folder ${scrubCredentials(cwd, secrets)} does not exist. Set cwd:: to a folder before this step.`);
+    const interrupted = (): boolean => run.state === "stopping" || run.state === "lost";
     const cancelled = async () => {
       if (run.state === "lost") { await run.writes; secrets.length = 0; runs.delete(run.key); return true; }
       if (run.state !== "stopping") return false;
@@ -70,11 +71,11 @@ async function execute(ctx: Context, step: RunbookStep, actor: Actor, answers: R
       secrets.length = 0; runs.delete(run.key);
       return true;
     };
-    if (run.state === "stopping" || run.state === "lost") { await cancelled(); return { stopped: run.record }; }
+    if (interrupted()) { await cancelled(); return { stopped: run.record }; }
     await record(run, "starting");
-    if (run.state === "stopping" || run.state === "lost") { await cancelled(); return { stopped: run.record }; }
+    if (interrupted()) { await cancelled(); return { stopped: run.record }; }
     await record(run, "running");
-    if (run.state === "stopping" || run.state === "lost") { await cancelled(); return { stopped: run.record }; }
+    if (interrupted()) { await cancelled(); return { stopped: run.record }; }
     const done = (code: number | null) => {
       if (run.state === "lost") { secrets.length = 0; runs.delete(run.key); return; }
       const clean = plainText(scrubCredentials(output + decoder.decode(), secrets) as string);
