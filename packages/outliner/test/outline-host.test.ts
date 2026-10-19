@@ -1,6 +1,7 @@
+import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { createConnection } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -554,4 +555,118 @@ test("UUID links and backlinks cross forwarded host sockets without switching ou
   expect(links.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "garden", machine: "near", occurrenceCount: 2 }));
   const embeds = await ok<import("../src/transclusions").TransclusionRead>(near.socketPath, { action: "transclusions.read", outline: "garden", targets: [{ blockId: target.id }] });
   expect(embeds.results[0]).toMatchObject({ status: "ready", outline: "orchard", machine: "far" });
+});
+
+
+test("away machines answer links from a read-only copy while silent forwards time out together", async () => {
+  const root = scratch(), mirrorRoot = join(root, "copies");
+  const previous = process.env.EP0CH_MCP_MIRROR_DIR;
+  process.env.EP0CH_MCP_MIRROR_DIR = mirrorRoot;
+  cleanups.push(() => { if (previous === undefined) delete process.env.EP0CH_MCP_MIRROR_DIR; else process.env.EP0CH_MCP_MIRROR_DIR = previous; });
+  const host = await startHost(root, "garden");
+  await host.create("garden");
+  const target = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: "Water the beans" });
+  const local = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: `Morning chores\n((${target.id}))` });
+  mkdirSync(join(mirrorRoot, "laptop"), { recursive: true });
+  const farRoot = scratch(), far = await startHost(farRoot, "orchard");
+  await far.create("orchard");
+  const source = await ok<Block>(far.socketPath, { action: "create", outline: "orchard", text: `Orchard chores\n((${target.id}))` });
+  const pear = await ok<Block>(far.socketPath, { action: "create", outline: "orchard", text: "Prune the pear" });
+  const index = await ok<{ blocks: { updatedAt: string }[] }>(far.socketPath, { action: "tree.index", outline: "orchard" });
+  const asOf = new Date(Math.max(...index.blocks.map(b => Date.parse(b.updatedAt)))).toISOString();
+  const database = new Database(layoutOf(farRoot).database("orchard"), { readonly: true });
+  database.run("VACUUM INTO ?", [join(mirrorRoot, "laptop", "orchard.sqlite")]);
+  database.close();
+  const before = readFileSync(join(mirrorRoot, "laptop", "orchard.sqlite"));
+  const layout = layoutOf(root);
+  mkdirSync(layout.remoteDir, { recursive: true });
+  // Real sockets that accept but never answer exercise the whole machine deadline.
+  for (const machine of ["laptop", "travel"]) {
+    const sockets = new Set<import("node:net").Socket>();
+    const listener = createServer(socket => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
+    await new Promise<void>(resolve => listener.listen(layout.remote(machine).socket, resolve));
+    cleanups.push(async () => { for (const socket of sockets) socket.destroy(); await new Promise<void>(resolve => listener.close(() => resolve())); });
+  }
+  const started = Date.now();
+  const links = await ok<import("../src/types").BacklinkCollection>(host.socketPath, { action: "references.backlinks", outline: "garden", query: { targetBlockId: target.id, limit: 20 } });
+  expect(Date.now() - started).toBeLessThan(2900);
+  expect(links.sources).toContainEqual(expect.objectContaining({ blockId: local.id }));
+  expect(links.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "orchard", machine: "laptop" }));
+  expect(links.away).toContainEqual({ machine: "laptop", asOf });
+  expect(links.away).toContainEqual({ machine: "travel" });
+  const resolved = await ok<import("../src/types").ResolvedBlockReferences>(host.socketPath, { action: "references.resolve", outline: "garden", text: `((${pear.id})) ((${source.id}))` });
+  expect(resolved.references[1]).toMatchObject({ status: "resolved", blockId: source.id, outline: "orchard", machine: "laptop" });
+  expect(resolved.references[0]).toMatchObject({ status: "resolved", blockId: pear.id, outline: "orchard", machine: "laptop" });
+  expect(resolved.away).toContainEqual({ machine: "laptop", asOf });
+  expect(readFileSync(join(mirrorRoot, "laptop", "orchard.sqlite"))).toEqual(before);
+}, 15_000);
+
+test("failed laptop mirror snapshots cannot close local outlines or crash the host", async () => {
+  const root = scratch(), layout = layoutOf(root), copies = join(root, "copies");
+  // Seven generations reproduce the restart threshold; garden also exists locally to check ownership.
+  const names = ["garden", "orchard", "attic", "cellar", "shed", "barn", "field"];
+  const seed = new OutlinerStore(layout.database("garden"));
+  const target = seed.create("Water the beans");
+  const source = seed.create(`Morning chores\n((${target.id}))`);
+  seed.close();
+  mkdirSync(join(copies, "laptop"), { recursive: true });
+  const database = new Database(layout.database("garden"));
+  database.transaction(() => {
+    const insert = database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, NULL, ?, ?, 'user', '2026-01-01', '2026-01-01')");
+    for (let i = 0; i < 30000; i++) insert.run(crypto.randomUUID(), i + 100, `Fictional planting record ${i}`);
+  })();
+  for (const name of names) database.run("VACUUM INTO ?", [join(copies, "laptop", `${name}.sqlite`)]);
+  database.close();
+  const ssh = join(root, "ssh");
+  writeFileSync(ssh, `#!/bin/sh\nexec '${process.execPath}' '${join(import.meta.dir, "fake-ssh.ts")}' "$@"\n`, { mode: 0o700 });
+  const env = { ...process.env, EP0CH_OUTLINES: layout.root, EP0CH_MCP_MIRROR_DIR: copies,
+    EP0CH_MCP_MIRRORS: names.map(name => `${name}@laptop`).join(","), EP0CH_SSH: ssh,
+    FAKE_SSH_HOME: join(root, "laptop-home"), FAKE_SSH_OUTLINES: join(root, "laptop-outlines"), FAKE_SSH_REFUSE: "laptop",
+    XDG_CONFIG_HOME: join(root, "config"), HERDR_SOCKET_PATH: "", EP0CH_DEFAULT_WS: "" };
+  const { forwardFor } = await import("../src/machine-forward");
+  await expect(forwardFor("laptop", layout.root, env)).rejects.toThrow("refused");
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/host-main.ts")], { env, stdout: "pipe", stderr: "pipe" });
+  let errors = "", output = "";
+  const collect = async (stream: ReadableStream<Uint8Array>, append: (text: string) => void) => {
+    for await (const chunk of stream) append(new TextDecoder().decode(chunk));
+  };
+  const drained = Promise.all([collect(child.stderr, text => { errors += text; }), collect(child.stdout, text => { output += text; })]);
+  try {
+    await eventually(() => output.includes('"status":"ready"'), "scratch host ready");
+    const client = new OutlinerClient(layout.socket, 30000, "garden");
+    const links = client.request<import("../src/types").BacklinkCollection>({ action: "references.backlinks", query: { targetBlockId: target.id, limit: 20 } });
+    await eventually(() => names.every(name => existsSync(join(copies, ".serve", "laptop", name, String(child.pid), "1", ".host", "host.sock"))), "mirror generation sockets");
+    // Keep real readers queued on generations while their initial attach requests time out.
+    const mirrorReads = names.flatMap(name => {
+      const socket = join(copies, ".serve", "laptop", name, String(child.pid), "1", ".host", "host.sock");
+      const reader = new OutlinerClient(socket, 5000, name);
+      return Array.from({ length: 12 }, () => reader.request({ action: "tree.index" }).catch(() => undefined));
+    });
+    const reads = Array.from({ length: 8 }, () => client.request<Block>({ action: "get", blockId: target.id }));
+    const result = await links;
+    expect(result.sources).toContainEqual(expect.objectContaining({ blockId: source.id }));
+    await Promise.all([...reads, ...mirrorReads]);
+    await Bun.sleep(1000);
+    expect(errors).toContain("can't take a snapshot: Outliner request timed out after 1000ms");
+    expect(errors).not.toContain("unhandled rejection");
+    expect(errors).not.toContain("Cannot use a closed database");
+    expect(child.exitCode).toBeNull();
+    expect((await client.request<Block>({ action: "create", text: "Still planting" })).text).toBe("Still planting");
+  } finally {
+    child.kill("SIGTERM");
+    await child.exited;
+    await drained;
+    if (errors.includes("Cannot use a closed database")) console.error(errors);
+  }
+}, 60000);
+
+
+test("a closed store answers an error without breaking another outline", async () => {
+  const host = await startHost(scratch());
+  await host.create("garden");
+  await host.create("orchard");
+  (await host.open("garden")).store.close();
+  const client = new OutlinerClient(host.socketPath, 1000, "garden");
+  await expect(client.request({ action: "ping" })).rejects.toThrow("Cannot use a closed database");
+  expect((await ok<Block>(host.socketPath, { action: "create", outline: "orchard", text: "Still planting" })).text).toBe("Still planting");
 });

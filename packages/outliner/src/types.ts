@@ -1,3 +1,4 @@
+import type { AwayMachine } from "@ep0ch/outline-core/outline-away";
 import type { Block, BlockAuthor, BlockProperty, McpAccessLevel, NotePlacement, OutlineAbout, QueryChange, QuestionAnswerFields } from "@ep0ch/outline-core/protocol";
 export type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/protocol";
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
@@ -1821,6 +1822,7 @@ export interface BacklinkQuery {
 }
 
 export interface BacklinkCollection {
+  away?: AwayMachine[];
   targetBlockId: string;
   targetDeletedRootId?: string;
   sources: BacklinkSource[];
@@ -1914,6 +1916,7 @@ export interface BlockReferenceResolution {
 }
 
 export interface ResolvedBlockReferences {
+  away?: AwayMachine[];
   text: string;
   references: BlockReferenceResolution[];
   workIdPrefix?: string;

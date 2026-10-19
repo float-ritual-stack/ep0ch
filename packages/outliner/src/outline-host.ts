@@ -269,6 +269,7 @@ export class OutlineHost {
     else listenerClosed.resolve();
     await Promise.allSettled(this.opening.values());
     const failures: unknown[] = [];
+    try { await this.links?.close(); } catch (error) { failures.push(error); }
     try { await this.artifactStore?.close(); } catch (error) { failures.push(error); }
     for (const outline of this.opened.values()) {
       try { await outline.server.close(); } catch (error) { failures.push(error); }
