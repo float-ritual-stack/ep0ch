@@ -93,13 +93,34 @@ export const ADORN = "\uE00A";
 export const stripMarks = (s: string) => s.replace(MARKS, "");
 /** Inline Markdown style marks, on and off, as Detail's styles: strong, emphasis, strikethrough. */
 export const STYLE = { bold: ["\uE003", "\uE004"], italic: ["\uE005", "\uE006"], strike: ["\uE007", "\uE008"] } as const;
-const SGR: Record<string, string> = { "\uE003": "\x1b[1m", "\uE004": "\x1b[22m", "\uE005": "\x1b[3m", "\uE006": "\x1b[23m", "\uE007": "\x1b[9m", "\uE008": "\x1b[29m" };
+const SGR: Record<string, string> = { "\uE003": BOLD, "\uE004": UNBOLD, "\uE005": "\x1b[3m", "\uE006": "\x1b[23m", "\uE007": "\x1b[9m", "\uE008": "\x1b[29m" };
 /**
  * Style marks as SGR. `bold: false` keeps the text's own weight (a heading, already bold), so a strong span
- * inside it doesn't switch the rest of the heading off.
+ * inside it doesn't switch the rest of the heading off. Links keep their ink; elsewhere strong text borrows
+ * the theme's brighter tone until its off mark restores the underlying foreground.
  */
 export function styleMarks(s: string, { bold = true } = {}): string {
-  return s.replace(/[\uE003-\uE008]/g, m => (!bold && (m === "\uE003" || m === "\uE004") ? "" : SGR[m]!));
+  let colour = fg(C.grey), link = false, strong = false;
+  const tone = fgRgb(theme().text.strong);
+  let beforeStrong = colour;
+  return s.replace(/\x1b\[[\d;]*m|[\uE000-\uE009]/g, m => {
+    if (m.startsWith("\x1b[")) {
+      if (m.startsWith("\x1b[38;2;") || m === "\x1b[39m" || m === RESET) {
+        colour = m === RESET ? "\x1b[39m" : m;
+        return m + (strong && !link && colour === beforeStrong ? tone : "");
+      }
+      return m;
+    }
+    if (m === "\uE000" || m === "\uE002" || m === "\uE009") { link = true; return m; }
+    if (m === "\uE001") { link = false; return m + (strong ? tone : ""); }
+    if (m === STYLE.bold[0] || m === STYLE.bold[1]) {
+      if (!bold) return "";
+      strong = m === STYLE.bold[0];
+      if (strong) beforeStrong = colour;
+      return (link ? "" : strong ? tone : colour) + SGR[m];
+    }
+    return SGR[m]!;
+  });
 }
 /**
  * Rows cut from one marked text, each standing alone: a style still on at the end of a row is switched on

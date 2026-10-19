@@ -2,6 +2,20 @@
 import { SEED, WORK_PREFIX } from "./names";
 import { SHOWCASE_ASSETS } from "./media";
 
+export const BOLD_DEMO = [
+  "**Done when**",
+  "- Before **bold in a list** returns to body text.",
+  "",
+  "Before **inline bold** returns to body text.",
+  "[A link with **bold words** and its usual colour](https://example.org/garden)",
+  "**Bold around [a link](https://example.org/garden) returns to strong** then body text.",
+  "",
+  "### A heading with **bold words** keeps its look",
+  "",
+  "> [!note] A callout with emphasis",
+  "> Before **bold in a callout** returns to body text.",
+].join("\n");
+
 export function notebookText(whiteboardId: string, kettleId: string, tapId: string): string {
   return [
     `${SEED.notebook} [page::${SEED.notebook}] [subtitle::Growing together through the seasons]`,
@@ -33,6 +47,8 @@ export function notebookText(whiteboardId: string, kettleId: string, tapId: stri
     `**Bold**, *italic*, ~~struck out~~ and \`code\`, as Detail draws them. Ask [the allotment society](https://example.org/allotments), or open [the shed page](pi-outliner://page/${encodeURIComponent(SEED.shed)}).`,
     "copies of ~/.claude/~/projects/x at the same paths",
     "~178 orphaned … ~ stays as written; only ~~this~~ is struck through.",
+    "",
+    BOLD_DEMO,
     "",
     "## Quoting the syntax",
     "Code is opaque (PIE-764): `((transcript^t0817|at 08:17))`, `[[Compost heap]]`, `!((transcript))` and `[key::value]` in backticks are text, never a link, a property, a warning or a popup; so is a fence:",

@@ -128,7 +128,7 @@ export class Canvas {
    */
   dim(r: Rect, by = 0.5): void {
     const scale = (m: string) => m.replace(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g, (_, a, b, c) => `\x1b[38;2;${[a, b, c].map(v => Math.round(Number(v) * by)).join(";")}m`);
-    const plain = `\x1b[38;2;${(theme().text ?? [170, 170, 170]).map(v => Math.round(v * by)).join(";")}m`;
+    const plain = `\x1b[38;2;${(theme().text.body ?? [170, 170, 170]).map(v => Math.round(v * by)).join(";")}m`;
     for (let y = r.row; y < r.row + r.rows; y++) {
       const line = this.cells[y];
       if (!line) continue;
@@ -161,7 +161,7 @@ export class Canvas {
     const t = theme(), dim = floatTheme(values).dim, scale = (rgb: readonly number[]) => rgb.map(v => Math.round(v * dim)).join(";");
     for (const row of this.cells) for (const cell of row) {
       cell.sgr = cell.sgr.replace(/\x1b\[(38|48);2;(\d+);(\d+);(\d+)m/g, (_, kind, r, g, b) => `\x1b[${kind};2;${scale([+r, +g, +b])}m`);
-      if (!/\x1b\[38;2;/.test(cell.sgr)) cell.sgr += `\x1b[38;2;${scale(t.text ?? t.palette[7]!)}m`;
+      if (!/\x1b\[38;2;/.test(cell.sgr)) cell.sgr += `\x1b[38;2;${scale(t.text.body ?? t.palette[7]!)}m`;
       if (!hasBackground(cell.sgr)) cell.sgr += `\x1b[48;2;${scale(t.ground ?? t.palette[0]!)}m`;
     }
   }

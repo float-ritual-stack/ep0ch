@@ -209,10 +209,11 @@ describe("the palettes themselves (every background, not only the ones these scr
       const t = THEMES[name], lim = LIMITS[name]!, ground = t.ground!;
       const backs: [string, Rgb][] = [["ground", ground], ["bar", t.palette[1]!], ...Object.entries(t.tint) as [string, Rgb][]];
       const low: string[] = [];
-      for (const i of TEXT) for (const [b, c] of backs) if (contrast(t.palette[i]!, c) < lim.min) low.push(`${i} on ${b}: ${contrast(t.palette[i]!, c).toFixed(2)}`);
+      for (const ink of [...TEXT.map(i => t.palette[i]!), t.text.strong]) for (const [b, c] of backs) if (contrast(ink, c) < lim.min) low.push(`${ink} on ${b}: ${contrast(ink, c).toFixed(2)}`);
       for (const i of STATUS) if (contrast(t.palette[i]!, ground) < lim.min) low.push(`${i} on the ground: ${contrast(t.palette[i]!, ground).toFixed(2)}`);
       expect(low).toEqual([]);
-      for (const i of [...TEXT, ...STATUS]) expect(contrast(t.palette[i]!, ground)).toBeLessThanOrEqual(lim.max);
+      for (const ink of [...TEXT, ...STATUS].map(i => t.palette[i]!).concat([t.text.strong])) expect(contrast(ink, ground)).toBeLessThanOrEqual(lim.max);
+      expect(luminance(t.text.strong)).toBeGreaterThan(luminance(t.palette[7]!));
       // Body text (grey): calm 11-13:1 and at least 7:1 on the bars; night lower, under its cap.
       if (name === "calm") {
         expect(contrast(t.palette[7]!, ground)).toBeGreaterThanOrEqual(11);
@@ -284,7 +285,7 @@ describe("the palettes themselves (every background, not only the ones these scr
         expect(luminance(c), `${t.name} ${what}`).toBeLessThanOrEqual(SURFACE_MAX_LUMINANCE);
         expect(contrast(c, [0, 0, 0]), `${t.name} ${what}`).toBeLessThan(3);
         const lim = LIMITS[t.name];
-        if (lim) for (const i of TEXT_INKS) if (contrast(t.palette[i]!, c) < lim.min) low.push(`${t.name} ${i} on ${what}: ${contrast(t.palette[i]!, c).toFixed(2)}`);
+        if (lim) for (const ink of [...TEXT_INKS.map(i => t.palette[i]!), t.text.strong]) if (contrast(ink, c) < lim.min) low.push(`${t.name} ${ink} on ${what}: ${contrast(ink, c).toFixed(2)}`);
       }
       // Stronger is never lighter than weaker, and full strength is off the ground (a role you can see).
       const ls = Array.from({ length: SURFACE_STEPS }, (_, k) => luminance(surfaceRgb(role, k + 1, t)!));
