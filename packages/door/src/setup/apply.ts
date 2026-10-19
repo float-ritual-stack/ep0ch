@@ -298,6 +298,31 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       linkSummary(step.links).forEach(show);
       return;
     }
+    case "machine-link": {
+      const { linkKey, linkKeyGroup } = await import("@ep0ch/outliner/link-config");
+      const config = f.linkConfig!;
+      for (const machine of config.mode === "serve" ? config.machines : [config.machine]) {
+        try { await linkKey(machine, env); }
+        catch {
+          const command = [process.execPath, f.repo.entry, "keys", "set", linkKeyGroup(machine), "LINK_KEY"];
+          if (!process.stdin.isTTY) throw new StepFailed("The link key is missing or unreadable", `run ep0ch keys set ${linkKeyGroup(machine)} LINK_KEY in a terminal, then ep0ch install --apply`);
+          const child = Bun.spawn(command, { env, stdio: ["inherit", "inherit", "inherit"] });
+          if (await child.exited !== 0) throw new StepFailed("The link key was not saved", "rerun ep0ch install --apply");
+          await linkKey(machine, env);
+        }
+      }
+      for (const w of step.writes ?? []) { mkdirSync(dirname(w.path), { recursive: true, mode: 0o700 }); writeFileSync(w.path, w.text, { mode: 0o600 }); }
+      if (f.platform === "linux") {
+        for (const cmd of [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "ep0ch-link"], ["systemctl", "--user", "restart", "ep0ch-link"]]) await must(cmd, "run ep0ch install --apply again", { env });
+      } else {
+        mkdirSync(join(f.home, "Library/Logs"), { recursive: true });
+        const domain = `gui/${process.getuid?.() ?? 0}`;
+        await run(["launchctl", "bootout", `${domain}/io.ep0ch.link`], { env });
+        await must(["launchctl", "bootstrap", domain, step.writes![0]!.path], "run ep0ch install --apply again", { env });
+      }
+      say("machine link installed and started; ep0ch link status reports connections");
+      return;
+    }
     case "backups": {
       const r = f.restic!;
       for (const w of step.writes ?? []) {

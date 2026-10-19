@@ -56,6 +56,8 @@ Pi/OMP users can invoke `/outliner`; supported coding clients can use the projec
 
 ## Source boundaries
 
+- `src/link.ts`, `link-streams.ts` and `link-frame.ts` own the outbound machine transport. They expose the existing shared forward socket, reuse `machine.ts`'s lock and `extension-secrets.ts`'s key storage, and never interpret outline requests. See [Outbound machine links](docs/machine-link.md).
+
 The pinned Pi TUI patch in `patches/` supplies rendered lines and exact normalized
 selection ranges to `copySelection`. Its third argument identifies the originating
 ScrollView, the exact layout output and a snapshot of its lines. Reader copy uses

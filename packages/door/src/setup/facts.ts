@@ -1,3 +1,4 @@
+import { readLinkConfig } from "@ep0ch/outliner/link-config";
 import { outlineFiles } from "./outline-files";
 // What this machine's stack looks like (model.ts's Facts), gathered read-only: git (fetch and ls-remote
 // only), Herdr's own answers, the outline host's socket (`ping`, `outlines.list`), the file system. Nothing
@@ -607,6 +608,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const record = join(env.EP0CH_STATE ?? defaultStateDir(env), "install-links.json");
   return {
     outlineFiles: outlineFiles(o.cwd ?? process.cwd(), folder),
+    linkConfig: readLinkConfig(folder),
     platform, home, pathDirs,
     bun: { path: bunPath, version: bunVersion },
     herdr: { path: herdrPath, version: herdrVersion, server, configPath, keys: herdrKeys(configPath), hyperChords: herdrHyperChords(configPath) },

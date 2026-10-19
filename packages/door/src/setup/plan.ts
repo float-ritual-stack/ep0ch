@@ -1,3 +1,4 @@
+import { linkInstallStep } from "./link";
 // `ep0ch install`'s plan: from the facts (model.ts), which steps run, in order, and which are already current.
 // Pure: the dry run prints it, `--apply` runs it (apply.ts), the tests check it against described machines.
 //
@@ -14,7 +15,7 @@ import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Fac
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "claude-mod" | "outline-files" | "backup" | "repo" | "schema" | "sweep" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "session" | "backups" | "clients" | "client-list";
+export type StepId = "machine-link" | "claude-mod" | "outline-files" | "backup" | "repo" | "schema" | "sweep" | "plugin" | "link" | "name" | "dials" | "ext" | "skills" | "builtins" | "host" | "mcp" | "session" | "backups" | "clients" | "client-list";
 
 export interface Step {
   id: StepId;
@@ -598,6 +599,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
     commands: clients.names.map(name => `ssh -- ${name} 'ep0ch install --apply --as-client'`) }] : [];
   // The MCP gateway after the host it talks to.
   const mcp = f.mcp ? [mcpStep(f, updates)] : [];
+  const machineLink = linkInstallStep(f);
   // After the update (it reads the new built-ins), with the optional steps at the end: one that fails stops nothing else.
   const builtins = builtinsStep(f, updates);
   const session = sessionStep(f, repo);
@@ -611,5 +613,5 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   }
   const mod: Step = { id: "claude-mod", title: "Install the Claude mod and rename its settings", status: "do", why: "load ep0ch and allow its tools; report launch commands that still name pi-outliner", commands: [`bun ${sh(join(f.repo.outliner, "scripts/install-claude-mod.ts"))} --project ${sh(f.repo.root)}`] };
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [...clientList, backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding || e.backup) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak until the next install; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), ...(sweep ? [sweep] : []), host, mod, ...clientLegs, ...mcp, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
+  return { steps: [...clientList, backup, repo, ...((f.outlineFiles ?? []).some(e => e.binding || e.backup) ? [{ id: "outline-files" as const, title: "Outline bindings", status: "do" as const, why: "Move old bindings to .ep0ch/config.toml, keeping .ep0ch.bak until the next install; leave scripts for explicit review", commands: ["ep0ch doctor --fix"] }] : []), plugin, link, ...(name ? [name] : []), ...(dials ? [dials] : []), ...(schema ? [schema] : []), ...(sweep ? [sweep] : []), host, mod, ...(machineLink ? [machineLink] : []), ...clientLegs, ...mcp, session, ...(backups ? [backups] : []), ...(builtins ? [builtins] : []), ...ext], notes: planNotes(f) };
 }
