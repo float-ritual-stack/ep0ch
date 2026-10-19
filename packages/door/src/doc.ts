@@ -251,8 +251,10 @@ export interface DocTrim { cuts: [number, number, string?][]; edge?: true }
  * `row` its copy control `⧉` sits in (drawn when that cell is blank or a rule).
  */
 export interface DocBlock { kind: "code" | "quote" | "callout" | "span"; row: number; rows: number; line: number; end: number; inner: [number, number]; strip: number; text: string; col: number;
-  /** An inline code span (`kind: "span"`, one row, `col` to `to`): `text` its contents without the backticks. It has no control; a click on it copies. */
-  to?: number }
+  /** An inline code span (`kind: "span"`, first row `col` to `to`): `text` its contents without the backticks. It has no control; a click on it copies. */
+  to?: number;
+  /** Each painted segment of a span, including its wrapped continuation rows. */
+  cells?: { row: number; from: number; to: number }[] }
 
 /**
  * A place the reader can fold: a heading (hiding everything through the next heading of the same or a
@@ -694,7 +696,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const off = i + 1, inside = (n: number) => n > i && n < cb.end;
       const body = src.slice(i + 1, cb.end).map(l => stripQuotes(l, cb.depth));
       const sub = renderDoc(body.join("\n"), {
-        ...env, nested: true, width: W, keepTags: true, embed: undefined, after: undefined, use: undefined, regions: undefined, outputs: undefined, task: undefined, decorate: undefined,
+        ...env, nested: true, width: W, keepTags: true, embed: undefined, after: undefined, use: undefined, regions: undefined, outputs: undefined, task: env.task && ((n, box) => env.task!(n + off, box)), decorate: undefined,
         literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
         folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: p.end - off })) },
         callout: env.callout && ((n, b) => env.callout!(n + off, { ...b, line: b.line + off, end: b.end + off, depth: b.depth + cb.depth })),
@@ -789,7 +791,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         if (body.length) {
           const off = i + 1, inside = (n: number) => n > i && n < cb.end;
           const sub = renderDoc(body.join("\n"), {
-            ...env, nested: true, width: inner, graphics: false, keepTags: true, embed: undefined, after: undefined, task: undefined, decorate: undefined,
+            ...env, nested: true, width: inner, graphics: false, keepTags: true, embed: undefined, after: undefined, task: env.task && ((n, box) => env.task!(n + off, box)), decorate: undefined,
             literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
             folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: p.end - off })) },
             callout: env.callout && ((n, b) => env.callout!(n + off, { ...b, line: b.line + off, end: b.end + off, depth: b.depth + cb.depth })),
@@ -1180,9 +1182,9 @@ const CODE_ON = fg(C.lmagenta), CODE_OFF = fg(C.grey), TAG_CHAR = /[\u{100000}-\
  * The inline code spans in drawn `lines`, as colourBody draws them (magenta, then back to grey: nothing else ends that way), one block
  * each (`kind: "span"`). A span the wrap cut across rows is one: its text joined with a space.
  */
-function codeSpans(lines: readonly string[], source: readonly number[]): DocBlock[] {
+export function codeSpans(lines: readonly string[], source: readonly number[]): DocBlock[] {
   const out: DocBlock[] = [];
-  const cellsOfRow = (l: string) => l.split(/\x1b\[[\d;]*m/).join("").split("").filter(c => !TAG_CHAR.test(c));
+  const cellsOfRow = (l: string) => [...l.split(/\x1b\[[\d;]*m/).join("")].filter(c => !TAG_CHAR.test(c));
   lines.forEach((line, row) => {
     const parts = line.split(/(\x1b\[[\d;]*m)/);
     let col = 0;
@@ -1192,7 +1194,7 @@ function codeSpans(lines: readonly string[], source: readonly number[]): DocBloc
         const text = parts[i + 1] ?? "";
         if (p === CODE_ON && parts[i + 2] === CODE_OFF && text.replace(TAG_CHAR, "").trim()) {
           const t = [...text].filter(c => !TAG_CHAR.test(c)).join("");
-          out.push({ kind: "span", row, rows: 1, line: source[row] ?? 0, end: (source[row] ?? 0) + 1, inner: [0, 0], strip: 0, text: t, col, to: col + [...t].length });
+          out.push({ kind: "span", row, rows: 1, line: source[row] ?? 0, end: (source[row] ?? 0) + 1, inner: [0, 0], strip: 0, text: t, col, to: col + [...t].length, cells: [{ row, from: col, to: col + [...t].length }] });
         }
         continue;
       }
@@ -1204,9 +1206,10 @@ function codeSpans(lines: readonly string[], source: readonly number[]): DocBloc
   for (const b of out) {
     const prev = merged.at(-1);
     if (prev && prev.row + prev.rows === b.row) {
-      const before = cellsOfRow(lines[b.row]!).slice(0, b.col).join(""), after = cellsOfRow(lines[prev.row]!).slice(prev.to!).join("");
-      const firstOnRow = !out.some(o => o !== b && o.row === b.row && o.col < b.col), lastOnRow = !out.some(o => o !== prev && o.row === prev.row && o.col > prev.col);
-      if (firstOnRow && lastOnRow && /^[\s│▌∙]*$/.test(before) && /^[\s│]*$/.test(after)) { prev.text += " " + b.text; prev.rows += 1; continue; }
+      const last = prev.cells!.at(-1)!;
+      const before = cellsOfRow(lines[b.row]!).slice(0, b.col).join(""), after = cellsOfRow(lines[last.row]!).slice(last.to).join("");
+      const firstOnRow = !out.some(o => o !== b && o.row === b.row && o.col < b.col), lastOnRow = !out.some(o => o !== prev && o.row === prev.row + prev.rows - 1 && o.col > prev.cells!.at(-1)!.from);
+      if (firstOnRow && lastOnRow && /^[\s│▌∙]*$/.test(before) && /^[\s│]*$/.test(after)) { prev.text += " " + b.text; prev.rows += 1; prev.cells!.push(...b.cells!); continue; }
     }
     merged.push({ ...b });
   }

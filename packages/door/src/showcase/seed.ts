@@ -24,7 +24,7 @@ import { PROJECT_FIGURE, PROJECT_TICKETS, VENT_RAIL } from "./seed/self";
 import { BRIEF_BEFORE, BUILD_LOG, CARDS, CHORES, LANES, PLOT_DATES, PLOT_DATES_NOTE, PLOT_DATE_LANES, PLOT_JOBS, PLOT_JOBS_NOTE, SOCIETY_LINKED_BACK, SOCIETY_NOTES, TEST_PLAN, TEST_PLAN_JOBS, briefText, laneQuery, societyText } from "./seed/work";
 import { BACKUP_RUNS, DECISIONS, FIGURE_BLOCK, FIGURE_BLOCK_ROWS, KEYS_TEXT, figuresText, markdownFiguresText } from "./seed/figures";
 import { DEEP_LINKS, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRITTEN, KEPT, LABELS, LABELS_BEFORE, LOGS, MARGIN, MEETING, MOVING_NOTES, NEW_NOTES, OVERSCROLL, RACE, RACE_AGENTS, RACE_PATCH, RECIPE, ROUTING_NOTES, WHITEBOARD, WHOLE_NOTE, WHOLE_NOTE_COMMENT, notebookText, shedText, titleText } from "./seed/notes";
-import { CALLOUTS, CALLOUT_TYPE, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
+import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
 import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
 import { HEADINGS, LOOKS_LAB, SPACING_LAB, DISPATCH_SKIN } from "./seed/looks";
@@ -337,6 +337,8 @@ if (request.input.request === "describe the beds") {
   await make(notes.errand.id, "Ask the neighbour about netting\nShe has a spare roll.");
   notes.calloutType = await make(notes.root.id, CALLOUT_TYPE);
   notes.callouts = await make(notes.root.id, CALLOUTS);
+  const spanCopy = await make(notes.callouts.id, SPAN_COPY);
+  await board.comment("showcase-span-copy", spanCopy.id, spanCopy.revision!, "Try `comment-copy`.", { quote: "Paragraph `paragraph-copy`.", start: SPAN_COPY.indexOf("Paragraph `paragraph-copy`.") }, SEED_AGENT);
   notes.images = await make(notes.root.id, imagesText());
   notes.hero = await make(notes.root.id, heroText());
   notes.artifacts = await make(notes.root.id, artifactsText(await placeArtifacts(board)));

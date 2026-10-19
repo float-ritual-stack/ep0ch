@@ -165,3 +165,13 @@ export const CALLOUT_TYPE = [
   "",
   "Declares a callout type: `> [!recipe]` (or `> [!dish]`) draws with this icon and tone, and offers it wherever types are offered.",
 ].join("\n");
+
+/** The same command-copy journey used by the real terminal regression. */
+export const SPAN_COPY = [
+      "Span copy garden [page::Span copy garden]", "Paragraph `paragraph-copy`.", "- List `bullet-copy`.", "- [ ] Task `step-copy`.", "",
+      "> [!todo] Garden setup", "> Paragraph `callout-copy`.", "> - List `callout-list-copy`.", "> - [ ] Task `callout-task-copy`.", "> - [ ] Run `garden link setup --host garden.example --name shed --label brass watering can --finish callout-tail`",
+      "> > [!note] Nested", "> > > [!tip] Deep", "> > > - [ ] Task `nested-copy`.", "",
+      "| Place | Command |", "| --- | --- |", "| Shed | `table-copy` |", "",
+      "- [ ] Run `garden link setup --host garden.example --name shed --label brass watering can --finish wrapped-tail`", "",
+      "::graph-check", "- [ ] Run `figure-copy`", "::",
+    ].join("\n");

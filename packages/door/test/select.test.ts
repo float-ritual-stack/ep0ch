@@ -607,7 +607,8 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
   });
 
   test("a river column copies a quote and a code block by their ⧉ and by y, and a drag across a quote copies the words (PIE-638)", async () => {
-    const draft = await create(null, "Draft to Sam\n> Hi Sam, the hedge is cut.\n> Clippings are by the gate.\n\n```sh\ncd ~/garden\ntrim --all\n```");
+    const command = "garden ".repeat(32) + "river-tail";
+    const draft = await create(null, "Draft to Sam\n> Hi Sam, the hedge is cut.\n> Clippings are by the gate.\n\n```sh\ncd ~/garden\ntrim --all\n```\nRun `" + command + "`");
     const river = openScreen("river") as Desk, R = () => riverView(river);
     app.push(river);
     try {
@@ -659,6 +660,11 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
       drag({ x: a.x, y: a.y }, { x: z.x + 11, y: z.y });
       await Bun.sleep(150);
       expect(copied()).toEqual(["Hi Sam, the hedge is cut.\nClippings are by the gate."]);
+      key({ kind: "esc" });
+      writes.length = 0;
+      click(where(lines(), "river-tail", rect));
+      await until(() => copied().length > 0, "the river's wrapped span copied", 1500);
+      expect(copied().at(-1)).toBe(command);
     } finally { app.pop(); }
   });
 });
