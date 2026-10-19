@@ -311,7 +311,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
   }, 30_000);
 
 
-  test("thread (PIE-944): the panel draws the thread as a tree around the note; a click only selects, a second opens, ⏎ on a fold shows its posts", async () => {
+  test("thread (PIE-944): the panel draws the thread as a tree around the note; a click selects through a wire, Enter and alt+Enter open through wires, ⏎ on a fold shows its posts", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "thread" } })).toMatchObject({ key: "thread" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "thread")).top; };
@@ -328,7 +328,11 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(here.context).toMatch(/^you are here · .+ · \d/);
     // A click selects the row, and only that: the reader stays where it was.
     const n = rows().findIndex(r => r.text === "Eli: not this year, sorry") + 1;
+    await (stage() as any).dispatch.press("tile.open", { kind: "detail", name: "thread-preview", note: seeded.notes.threadHere.id }, "reader");
+    await (stage() as any).dispatch.press("tile.link", { to: "thread-preview", verb: "select" }, "reader");
     await (stage() as any).dispatch.press("note.thread.pick", { n }, "reader");
+    await until(() => stage().layoutGet().tiles.find((t: any) => t.name === "thread-preview")?.showing?.id === rows().find(r => r.n === n)?.id, "the thread selection previews through its reader wire");
+
     expect(rows().find(r => r.selected)!.text).toBe("Eli: not this year, sorry");
     expect(reader().showing.id).toBe(seeded.notes.threadHere.id);
     // ⏎ (or a second click) on the fold shows the posts it hid.
@@ -343,7 +347,13 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     // ⏎ reads the selected post, as the key does (Eli, picked above and still the one the panel was left on).
     const eli = rows().find(r => r.text === "Eli: not this year, sorry")!.n;
     await (stage() as any).dispatch.press("note.thread.pick", { n: eli }, "reader");
-    await (stage() as any).dispatch.press("note.thread.open", {}, "reader");
+    await (stage() as any).dispatch.press("tile.link", { to: "thread-preview", verb: "alt" }, "reader");
+    await (stage() as any).dispatch.press("note.thread.open", { fresh: true }, "reader");
+    expect(reader().showing.id).toBe(seeded.notes.threadHere.id);
+    expect(stage().layoutGet().tiles.find((t: any) => t.name === "thread-preview")?.showing?.title).toBe("Eli: not this year, sorry");
+    await (stage() as any).dispatch.press("note.thread", {}, "reader");
+    const reopened = rows().find(r => r.text === "Eli: not this year, sorry")!.n;
+    await (stage() as any).dispatch.press("note.thread.open", { n: reopened }, "reader");
     await until(() => reader()?.showing?.title === "Eli: not this year, sorry", "Eli's post read", 8000);
   }, 30_000);
 

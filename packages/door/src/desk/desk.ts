@@ -1397,6 +1397,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile whose opens go beside it (its policy's open rule, `beside`: a pinned page, the brief): a reader beside it
     // follows the note (the one there, or one split off to its right); the tile itself stays on its own.
     const at = this.idOf(opts.from);
+    // Drawer lists use the screen's open rule only when no wire gives the open a destination.
+    if (m && at !== undefined && (opts.link || opts.reveal || opts.fresh) && kindOf(opts.from)?.opensOnScreen && this.ctx.hostLayer?.isDrawer(this) && !this.routes(opts.from!, opts.fresh ? "alt" : "open")) {
+      return this.ctx.hostLayer.openOnScreen(m.id, !!opts.fresh, by).then(() => this.redraw());
+    }
     const beside = !!m && !opts.fresh && at !== undefined && this.policyAt(at).opens === "beside";
     if (beside) this.readerBeside(opts.from!, by);
     if (m && at !== undefined && !beside && (opts.link || opts.reveal || opts.fresh)) { if (this.landFrom(at, m, opts, by)) return this.redraw(); }
@@ -1501,7 +1505,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The tile the current note comes from: the one with a selection that moved it last, else the first such tile (a tree). */
   private currentSource(): { source?: number } {
-    const selects = (id: number | undefined) => id !== undefined && !!kindOf(this.panes.get(id))?.previews;
+    // Readers can select inline rows without becoming the list that drives following readers.
+    const selects = (id: number | undefined) => {
+      const p = id === undefined ? undefined : this.panes.get(id);
+      return !!p && !!kindOf(p)?.previews && (kindOf(p)?.lists?.(p) ?? !(p instanceof ReaderPane));
+    };
     const at = selects(this.currentBy) ? this.currentBy : [...this.panes.keys()].find(selects);
     return at !== undefined ? { source: at } : {};
   }
@@ -1657,9 +1665,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
 
   /** Opens from `pane` land somewhere else (a link, a container, a flow's next column, a link across an edge). */
-  routes(pane: Pane): boolean {
+  routes(pane: Pane, verb: "open" | "alt" = "open"): boolean {
     const id = this.idOf(pane);
-    return id !== undefined && (landing(this.layout, id, "open", this.facts(id)) !== null || this.extTarget(id) !== undefined);
+    return id !== undefined && (verb === "alt"
+      ? this.layout.wires.some(w => w.from === id && (w.verb === "alt" || w.verb === "open")) || this.extTarget(id, "alt") !== undefined || this.routes(pane)
+      : landing(this.layout, id, verb, this.facts(id)) !== null || this.extTarget(id, verb) !== undefined);
   }
 
   /**
@@ -3619,7 +3629,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const { names, across } = this.linkedFrom(pane);
     let out = names.length ? ` ← ${names.join(", ")}` : "";
     if (pane instanceof ReaderPane && !across && (names.length > 0 || (wireTarget(this.layout, id) !== undefined)) && this.openLandingReader(USER)?.id === id) out += " ⏎ opens land here";
-    if (kindOf(pane)?.opensOnScreen && this.ctx?.hostLayer?.isDrawer(this) && !this.ext.has(id)) {
+    if (kindOf(pane)?.opensOnScreen && this.ctx?.hostLayer?.isDrawer(this) && !this.routes(pane)) {
       const to = this.otherDesk()?.landingName();
       if (to) out += ` ⏎ → ${to}`;
     }
@@ -3648,7 +3658,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const words = verbs.map(verb => this.wireWords(id, verb));
     const wide = verbs.map((verb, i) => ` ${verb === "open" ? "⏎" : verb} → ${words[i]}`);
     const short = verbs.map((verb, i) => ` ${glyphs[verb]} ${words[i]}`);
-    const room = max - xNow() - 14;
+    const chain = this.chainWords(id);
+    const room = max - xNow() - 14 - width(chain);
     const labels = wide.reduce((n, x) => n + width(x), 0) <= room ? wide : short.reduce((n, x) => n + width(x), 0) <= room ? short : verbs.map(verb => ` ${glyphs[verb]}`);
     if (framed && (kindOf(p)?.previews || kindOf(p)?.accepts?.notes)) {
       // Wire controls are separate from the tile's identity and dock state.
@@ -3661,7 +3672,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     // The chain it is in (PIE-700): the tiles whose links end here, and, for the reader an open from outside (the drawer's
     // what-changed list, `ep0ch open`) lands in, that it is that one: "reader10 ← reader9", "reader9 ⏎ drawer → reader10".
-    const chain = this.chainWords(id);
     if (chain) put(chain, fg(C.lmagenta));
     // What an agent may do here (PIE-639): free says nothing; a click cycles it (tile.agent), as ^W g does.
     const ag = this.agentOf(id).level;

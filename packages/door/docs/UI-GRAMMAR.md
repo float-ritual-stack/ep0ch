@@ -143,6 +143,13 @@ three layout models and four searches (§4).
   beside it until consolidation removes it.
 - Name things with the glossary's canonical words (§1).
 
+List tiles declare `previews: true` on their tile kind to show select, open and alt wires.
+The tree, links, query, what-changed, waiting-on-you and river column (including the library) use Desk routing;
+figure rows and the thread panel use the containing reader tile's wires through NoteSurface.
+Drawer tiles link to each other on the drawer's own desk, or across its edge to a screen tile.
+Waiting-on-you's terminal rows select before Enter takes the keys to that terminal; its held-note rows use note wires.
+
+
 ## TL;DR
 
 - **One reader.** Board, desk, river and the BBS message reader (`MessageReader` `scr:273`, PIE-426)

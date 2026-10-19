@@ -233,7 +233,7 @@ export class WhatChangedPane implements Pane {
 
   rows(): ChangedRow[] { return this.store?.list() ?? []; }
   title() { const n = this.store?.count() ?? 0; return n ? `what changed · ${n} new` : "what changed"; }
-  hint() { return "j k pick · ⏎ or click opens · alt+⏎ in a new detail · d the change · x seen"; }
+  hint() { return "j k pick · click selects · ⏎ opens · alt+⏎ alt-opens · d the change · x seen"; }
   init(desk: DeskApi) {
     const door = desk.ctx as unknown as { whatChanged?: WhatChanged; board: SocketBoard };
     this.store = door.whatChanged ?? null;
@@ -326,7 +326,7 @@ export class WhatChangedPane implements Pane {
     const gesture = this.view.press(n, pressOn(k, press, n === this.at));
     if (gesture === "open") this.run(desk, "changes.go", { n: n + 1 });
     else if (gesture === "fresh") this.run(desk, "changes.go", { n: n + 1, fresh: true });
-    else if (n !== this.at) this.run(desk, "changes.pick", { n: n + 1 });
+    else this.run(desk, "changes.pick", { n: n + 1 });
     return true;
   }
 
@@ -357,13 +357,20 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
     examples: [
       { act: "changes.pick n=1", does: "selects the newest change in the list" },
     ],
-    run(a, { pane, desk }) { const w = pane as WhatChangedPane, { row, n } = rowOf(w, a); w.at = n - 1; desk.redraw(); return { n, id: row.blockId }; },
+    async run(a, { pane, desk }, actor) {
+      const w = pane as WhatChangedPane, { row, n } = rowOf(w, a);
+      w.at = n - 1;
+      const m = await desk.ctx.board.get(row.blockId);
+      if (m && w.at === n - 1) desk.showFrom?.(w, m, actor);
+      desk.redraw();
+      return { n, id: row.blockId };
+    },
   }),
   "changes.go": def({
-    summary: "open the note a row of the what-changed list is about (n from 1, or id=), where opens land; fresh=true in a new detail, as alt+⏎ does. An agent's open never takes the person's focus or keys",
+    summary: "open the note a row of the what-changed list is about (n from 1, or id=), where opens land; fresh=true uses its alt wire, as alt+⏎ does. An agent's open never takes the person's focus or keys",
     keys: "⏎, a double click · alt+⏎, an alt-click",
     touches: "nothing", replay: "safe", says: r => `opened ${r.title ?? r.id}`,
-    args: { ...which, fresh: { type: "boolean", optional: true, about: "open it in a new detail, as alt+⏎ does" } },
+    args: { ...which, fresh: { type: "boolean", optional: true, about: "use its alt wire, as alt+⏎ does" } },
     examples: [
       { act: "changes.go n=1", does: "opens the note the newest change is about, where opens land" },
       { act: "changes.go id=7d9a1f40 fresh=true", does: "opens that note in a new detail, as alt+enter does" },
@@ -373,10 +380,7 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
       const m = await desk.ctx.board.get(row.blockId);
       if (!m) throw new ActionRefused("that note is gone (trashed notes open from the trash)");
       if (actor.kind !== "agent") w.at = n - 1;
-      // In the drawer a tile has no reader of its own: the open lands on the screen shown, as its details open.
-      const host = desk.ctx.hostLayer;
-      if (host?.isDrawer(desk)) { const landed = await host.openOnScreen(m.id, !!fresh, actor, desk.nameOfPane?.(w)); desk.redraw(); return { n, id: row.blockId, title: subject(m), reader: landed.reader }; }
-      desk.setCurrent(m, { from: w, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
+      await desk.setCurrent(m, { from: w, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
       desk.redraw();
       return { n, id: row.blockId, title: subject(m) };
     },
@@ -413,7 +417,7 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
 
 /** The list as a tile kind: its rows, its actions, and what `peek` says. */
 export const WHAT_CHANGED_KIND: TileKind = {
-  kind: WHAT_CHANGED_KIND_NAME, opensOnScreen: true, about: "the notes others changed since you last looked: who, when, what (from the service's change feed)", noun: "the what-changed list",
+  kind: WHAT_CHANGED_KIND_NAME, previews: true, opensOnScreen: true, about: "the notes others changed since you last looked: who, when, what (from the service's change feed)", noun: "the what-changed list",
   make: () => new WhatChangedPane(), actions: WHAT_CHANGED_ACTIONS,
   peek: p => ({ whatChanged: (p as WhatChangedPane).describe() }),
   describe: p => ({ rows: (p as WhatChangedPane).describe() }),

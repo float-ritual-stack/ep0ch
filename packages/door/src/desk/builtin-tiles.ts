@@ -32,7 +32,8 @@ import { recordFacts } from "./program-status";
 import { prop } from "../props";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
-const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take" | "describe"> = {
+const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "view" | "take" | "describe"> = {
+  previews: true,
   accepts: { notes: true },
   // Its header's backdrop (PIE-598), when it draws one or the setting turned it off.
   describe: p => { const h = (p as ReaderPane).surface.headerBackdrop(); return h.backdrop || !h.on ? { header: h } : {}; },
@@ -180,14 +181,14 @@ const builtins = (): TileKind[] => [
     },
   },
   // The thread tile is the links tile with Children alone (PIE-693): a layout saved with one gets that, and saves it so.
-  { kind: "thread", about: "a links tile listing the children (replies) of what the reader shows: kind backlinks, linkGroups=children", make: s => new BacklinksPane(sourceTile(s.source), false, ["children"], s.subject !== "held"), actions: BACKLINKS_ACTIONS },
+  { kind: "thread", previews: true, about: "a links tile listing the children (replies) of what the reader shows: kind backlinks, linkGroups=children", make: s => new BacklinksPane(sourceTile(s.source), false, ["children"], s.subject !== "held"), actions: BACKLINKS_ACTIONS },
   { kind: "activity", about: "recent edits by people and agents", keys: [{ key: "a", label: "activity" }], make: () => new ActivityPane(), actions: ACTIVITY_ACTIONS },
   { kind: "who", about: "who's attached to the outline", keys: [{ key: "w", label: "who" }], make: () => new WhoPane(), actions: WHO_ACTIONS },
   { kind: "art", about: "ANSI art from the packs", keys: [{ key: "b", label: "art" }], make: () => new ArtPane(), actions: ART_ACTIONS },
   // A screen mounted in a tile (PIE-651): any screen, a part of one, a group; the board and river by their older kinds.
   ...mountKinds(),
   {
-    kind: "query", about: "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"#garden\", source=tile:<its home reader>: a #tag opened in a reader, PIE-800); a board lane is one",
+    kind: "query", previews: true, about: "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"#garden\", source=tile:<its home reader>: a #tag opened in a reader, PIE-800); a board lane is one",
     // ^W o q on a tile showing a saved view (the outline's row on a lane's block): a tile of its cards.
     keys: [{ key: "q", label: "query", spec: at => { const m = showing(at.pane); return m && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch" ? { view: m.id, name: laneTileName(subject(m)) } : {}; } }],
     make: s => { const src = s.source && sourceOf(s.source); return new QueryPane(s.view ?? "", s.query ?? null, src && "tile" in src ? src.tile : null, s.mode === "held"); }, actions: QUERY_ACTIONS,

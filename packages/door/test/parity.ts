@@ -512,6 +512,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["desk: thread", desk, [k("3")]],
     ["desk: activity", desk, [k("4")]],
     ["desk: reader on a note", desk, [k("1"), { kind: "down" }, { kind: "enter" }, k("2")]],
+    ["desk: reader thread panel", desk, [k("1"), { kind: "down" }, { kind: "enter" }, k("2"), k("t")]],
     ["drawer: pulled up", () => new MainMenu(), [ALT("a")]],
   ];
   const DESK_TILES: Scenario[] = [
