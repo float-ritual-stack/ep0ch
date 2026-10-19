@@ -142,6 +142,7 @@ export interface Handover { run(argv: string[], o?: HandoverOpts): Promise<numbe
  * more than height (a picker's list), so it may go below the reader rather than beside it.
  */
 export interface TileJob {
+  focus(actor: import("./socket").Actor): Promise<unknown>;
   start(cmd: string[], env: Record<string, string>, output: (data: Uint8Array) => void, done: (code: number | null) => void): void;
   stop(): void;
   dismiss(): void;

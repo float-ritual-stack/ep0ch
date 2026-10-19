@@ -1,256 +1,209 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, writeFileSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
-import { traceActions } from "../../src/surface/actions";
 import { ReaderPane } from "../../src/desk/panes";
 import { PtyPane } from "../../src/desk/pty";
 import { formState } from "../../src/bar/ask";
-import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
 const USER = { kind: "user" } as const;
-const TOKEN = "fictional-runbook-token-1061";
+const TOKEN = "fictional-runbook-token-1098";
 const files = (dir: string): string[] => readdirSync(dir).flatMap(name => {
   const path = join(dir, name), st = statSync(path);
   return st.isDirectory() ? files(path) : st.isFile() ? [path] : [];
 });
+const waitFor = async (ok: () => Promise<boolean>, what: string) => {
+  const end = Date.now() + 10000;
+  while (!(await ok())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(30); }
+};
 
 describe.skipIf(!outliner)("the runbook showcase", () => {
   const h = useShowcaseScreen();
+  const act = (action: string, args = {}, tile?: string) => h.app.dispatch.act({ action, args, ...(tile ? { tile } : {}) }, USER);
+  const reader = () => h.sc.tilesHere()!.pane("reader") as ReaderPane;
+  const records = async (root: string) => (await h.board.children(root)).filter(b => b.text.includes("[type::run]"));
+  const waitRecord = async (root: string, status: string, n = 1) => {
+    await waitFor(async () => (await records(root)).filter(b => b.text.includes(`[run.status::${status}]`)).length >= n, `record ${status}`);
+    return (await records(root)).filter(b => b.text.includes(`[run.status::${status}]`)).at(-1)!;
+  };
+  let shown = false;
+  const show = async (text: string) => {
+    await act("section", { name: "runbook" });
+    if (!shown) await until(() => h.screen().includes("Try a terminal runbook"), "the showcase reader");
+    shown = true;
+    h.screen();
+    await act("section.try");
+    const book = await h.board.createBlock(null, text);
+    reader().show(book, h.sc.tilesHere()!);
+    h.screen();
+    return book;
+  };
+  const controls = () => { h.screen(); return reader().surface.describeElements().filter(e => e.kind === "control" && e.label === "[run]"); };
+  const run = async (index: number, keyboard = false) => {
+    await act("tile.focus", {}, "reader");
+    await until(() => controls().length > index, "runnable fence control");
+    if (keyboard) {
+      await act("element.select", { n: controls()[index]!.n }, "reader");
+      h.press({ kind: "enter" });
+    } else {
+      const painted = h.screen().split("\n"), rows = painted.map((line, y) => ({ line, y })).filter(r => r.line.includes("[run]"));
+      const { line, y } = rows[index]!, x = line.indexOf("[run]") + 2;
+      h.press({ kind: "mouse", action: "down", button: 0, x, y });
+      h.press({ kind: "mouse", action: "up", button: 0, x, y });
+    }
+  };
+  const answer = async (field: string, value: string) => {
+    await until(() => formState()?.focus === field, `field ${field}`);
+    await act("bar.form", { op: "set", field, value });
+  };
   afterEach(async () => {
-    await h.app.dispatch.act({ action: "runbook.stop" }, USER).catch(() => {});
-    if (h.app.bar && !h.app.bar.ended()) await h.app.dispatch.act({ action: "bar.close" }, USER);
-    const tile = h.sc.tilesHere()?.pane("Runbook") as PtyPane | undefined;
-    if (tile) {
-      await until(() => !tile.running, "the stopped terminal exits");
-      await h.app.dispatch.act({ action: "tile.close", tile: "Runbook" }, USER);
+    if (h.app.bar && !h.app.bar.ended()) await act("bar.close");
+    const desk = h.sc.tilesHere();
+    for (const name of desk?.dispatch.list().tiles ?? []) {
+      const tile = desk!.pane(name);
+      if (!(tile instanceof PtyPane)) continue;
+      if (tile.running) await act("tile.close", {}, name).catch(() => {});
+      await act("tile.close", {}, name);
     }
   });
-  test("run all prompts in a real terminal, masks its form, records redacted output and leaves the tile", async () => {
-    const { app, board, sc } = h;
-    await app.dispatch.act({ action: "section", args: { name: "runbook" } }, USER);
-    await until(() => h.screen().includes("Try a terminal runbook"), "the runbook reader", 10000);
-    const listed = await board.listExtensions();
-    const book = (await board.children(listed.pages!.runbook!)).find(b => b.text.startsWith("Try a terminal runbook"))!;
-    const steps = await board.children(book.id);
-    await until(() => h.screen().includes("[run all]"), "the run-all control");
-    expect(h.screen().split("\n").find(line => line.includes("[run all]"))).toContain("Try a terminal runbook");
-    const painted = h.screen().split("\n"), row = painted.findIndex(line => line.includes("[run all]"));
-    const x = painted[row]!.indexOf("run all") + 2;
-    const actions: string[] = [], untrace = traceActions(r => { actions.push(r.name); });
-    h.press({ kind: "mouse", action: "down", button: 0, x, y: row });
-    h.press({ kind: "mouse", action: "up", button: 0, x, y: row });
-    await until(() => actions.includes("ext.runbook.run-all"), "the click dispatches run all").catch(e => { throw new Error(`${e.message}\n${h.screen()}\n${JSON.stringify(actions)}`); });
-    untrace();
-    const desk = sc.tilesHere()!;
-    await until(() => desk.pane("Runbook") instanceof PtyPane, "the terminal tile");
-    const tile = desk.pane("Runbook") as PtyPane;
-    await until(() => tile.text().join("\n").includes("Which herb?"), "the terminal prompt");
-    await app.dispatch.act({ action: "tile.type", tile: "Runbook", args: { text: "sage\r" } }, USER);
-    await until(() => formState()?.focus === "token", "the masked field", 10000);
-    await desk.dispatch.press("hint.show", { text: "Keep the runbook open" }, "reader");
-    await desk.dispatch.press("hint.pin");
-    h.press({ kind: "modifier", key: "ctrl", event: "press" });
-    expect(desk.hintGet().xray).toBe(false);
-    h.press({ kind: "modifier", key: "ctrl", event: "release" });
-    expect(formState()?.focus).toBe("token");
-    h.press({ kind: "char", ch: "]", ctrl: true }); h.ch("?");
-    expect(desk.hintGet().xray).toBe(false);
-    expect(app.bar!.query).toBe("?");
-    h.press({ kind: "backspace" });
+
+  test("the README pasted as one note runs each fence by mouse or keyboard and leaves examples plain", async () => {
+    const book = await show("Draft runbook");
+    const readme = readFileSync(join(outliner!, "extensions/runbook/README.md"), "utf8");
+    const example = /````text\n([\s\S]*?)\n````/.exec(readme)![1]!;
+    await act("edit.text", { text: "" }, "reader");
+    h.press({ kind: "paste", text: example });
+    await act("edit.save", {}, "reader");
+    if (reader().surface.editing) await act("edit.save", {}, "reader");
+    await until(() => controls().length === 3, "a control for every README step");
+    const saved = (await h.board.get(book.id))!.text;
+    expect(saved).toContain("^step-print-the-label");
+    await run(0);
+    expect((await waitRecord(book.id, "ok")).text).toContain("The herb garden: sage");
+    await run(1, true);
+    await answer("ask.pot", "clay"); h.press({ kind: "enter" });
+    expect((await waitRecord(book.id, "ok", 2)).text).toContain("Pot: clay");
+    await run(2);
+    await until(() => formState()?.focus === "secret.token", "masked token prompt");
     for (const ch of TOKEN) h.ch(ch);
-    await until(() => !!app.bar?.items.some(i => i.row.key === "private-answer"), "masked answer row");
-    expect(JSON.stringify(app.bar!.describe())).not.toContain(TOKEN);
-    expect(app.bar!.draw(200, 60).lines.join("\n")).not.toContain(TOKEN);
+    expect(JSON.stringify(h.app.bar!.describe())).not.toContain(TOKEN);
+    expect(h.app.bar!.draw(200, 60).lines.join("\n")).not.toContain(TOKEN);
+    await until(() => h.app.bar?.items.some(i => i.row.key === "private-answer") ?? false, "the typed masked answer");
     h.press({ kind: "enter" });
-    await until(() => formState()?.focus === "run", "the form's run control");
+    await until(() => formState()?.focus === "run", "run the masked form");
     h.press({ kind: "enter" });
-    await until(() => tile.exited === 0, "the masked command exits", 10000);
-    let saved = "";
-    for (let i = 0; i < 100; i++) {
-      saved = (await board.get(steps[1]!.id))!.text;
-      if (saved.includes("[run.last::ok]")) break;
-      await Bun.sleep(50);
-    }
-    expect(saved).toContain("Token received: [redacted]");
-    expect(saved).not.toContain(TOKEN);
-    const first = (await board.get(steps[0]!.id))!.text;
-    expect(first).toContain("Planting sage");
-    expect(findOutputRegions(first)[0]!.body).toContain("[run.exit::0]");
-    expect(desk.pane("Runbook")).toBe(tile);
-    expect(formState()).toBeNull();
-    await expect(app.dispatch.act({ action: "tile.restart", tile: "Runbook" }, USER)).rejects.toThrow("from the note");
+    const last = await waitRecord(book.id, "ok", 3);
+    expect(last.text).toContain("Token received");
+    expect(last.text).toContain("Masking is best-effort");
+    expect(h.screen()).not.toContain(TOKEN);
+    expect((await h.board.get(book.id))!.text).toContain("::graph-table");
     for (const path of files(h.scratch.root)) expect(readFileSync(path).includes(Buffer.from(TOKEN))).toBe(false);
-    await app.dispatch.act({ action: "tile.close", tile: "Runbook" }, USER);
-    const reader = desk.pane("reader") as ReaderPane;
-    await until(() => { h.screen(); return reader.surface.describeElements().some(e => e.kind === "control" && e.label === "[run]"); }, "the embedded step control").catch(e => { throw new Error(`${e.message}\n${JSON.stringify(reader.surface.describeElements())}`); });
-    const stepControl = reader.surface.describeElements().find(e => e.kind === "control" && e.label === "[run]")!;
-    await app.dispatch.act({ action: "element.select", tile: "reader", args: { n: stepControl.n } }, USER);
-    const keyed: string[] = [], done = traceActions(r => { keyed.push(r.name); });
-    h.ch("x");
-    await until(() => keyed.includes("ext.runbook.run-step"), "x dispatches the step action");
-    done();
-    await until(() => (desk.pane("Runbook") as PtyPane | undefined)?.text().join("\n").includes("Which herb?") ?? false, "the step runs from its key");
-  }, 30000);
-  test("a failed step pauses; continue uses the same tile and stop ends the next command", async () => {
-    const { app, board, sc } = h;
-    await app.dispatch.act({ action: "section", args: { name: "runbook" } }, USER);
-    const book = await board.createBlock(null, "A walk with a failure [type::runbook]");
-    const failed = await board.createBlock(book.id, "Fail visibly\nrun::\n```sh\nprintf 'the first failed\\n'; exit 7\n```");
-    const last = await board.createBlock(book.id, "Wait for a line\nrun::\n```sh\nprintf 'waiting for a line\\n'; read -r line\n```");
-    await app.dispatch.act({ action: "ext.runbook.run-all", args: { block: book.id } }, USER);
-    await until(() => app.bar?.items.some(i => i.row.label === "continue") ?? false, "continue after failure");
-    const tile = sc.tilesHere()!.pane("Runbook") as PtyPane;
-    expect((await board.get(failed.id))!.text).toContain("[run.exit::7]");
-    expect((await board.get(last.id))!.text).not.toContain("[run.last::");
-    const ran: string[] = [];
-    const untrace = traceActions(r => { ran.push(r.name); });
-    h.press({ kind: "enter" });
-    await until(() => tile.text().join("\n").includes("waiting for a line"), "continue starts the next step");
-    untrace();
-    expect(ran).toContain("runbook.continue");
-    expect(sc.tilesHere()!.pane("Runbook")).toBe(tile);
-    await app.dispatch.act({ action: "runbook.stop" }, USER);
-    await until(() => tile.exited !== null, "stop ends the process");
-    await app.dispatch.act({ action: "tile.close", tile: "Runbook" }, USER);
-  }, 30000);
-
-  test("each step's run is its own: a step left running never blocks running the next one by hand (Evan, Oct 19)", async () => {
-    const { app, board, sc } = h;
-    const book = await board.createBlock(null, "Two steps by hand [type::runbook]");
-    const server = await board.createBlock(book.id, "Start the stub\nrun::\n```sh\nprintf 'stub up\\n'; sleep 60\n```");
-    const client = await board.createBlock(book.id, "Ask the stub\nrun::\n```sh\nprintf 'asked\\n'\n```");
-    await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: server.id } }, USER);
-    await until(() => (sc.tilesHere()!.pane("Runbook") as PtyPane | undefined)?.text().join("\n").includes("stub up") ?? false, "the first step is running");
-    await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: client.id } }, USER);
-    let recorded = false;
-    await until(() => { void board.get(client.id).then(b => { recorded = !!b?.text.includes("[run.exit::0]"); }); return recorded; }, "the second step ran and recorded", 10000);
-    await expect(app.dispatch.act({ action: "ext.runbook.run-step", args: { block: server.id } }, USER)).rejects.toThrow("this step is already running");
-    await app.dispatch.act({ action: "runbook.stop" }, USER).catch(() => {});
-    await app.dispatch.act({ action: "runbook.stop" }, USER).catch(() => {});
-  }, 30000);
-
-  test("a kept value remains literal shell data, confirmation is a form field, and successful close removes the tile", async () => {
-    const { app, board, sc } = h;
-    const book = await board.createBlock(null, "Remember a label [type::runbook]");
-    const step = await board.createBlock(book.id, "Print the label\nrun:: --keep --confirm=print --close=on-success\n```sh\nprintf '%s\\n' {{ask.label}}; test -t 0\n```");
-    await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: step.id } }, USER);
-    expect(formState()?.focus).toBe("label");
-    const label = "sage; $(printf injected)";
-    await app.dispatch.act({ action: "bar.form", args: { op: "set", field: "label", value: label } }, USER);
-    expect(formState()?.focus).toBe("confirm");
-    await app.dispatch.act({ action: "bar.form", args: { op: "set", field: "confirm", value: "wrong" } }, USER);
-    await expect(app.dispatch.act({ action: "bar.form", args: { op: "run" } }, USER)).rejects.toThrow("type print");
-    await app.dispatch.act({ action: "bar.form", args: { op: "set", field: "confirm", value: "print" } }, USER);
-    await app.dispatch.act({ action: "bar.form", args: { op: "run" } }, USER);
-    await until(() => !sc.tilesHere()!.pane("Runbook"), "close on success", 10000);
-    expect((await board.get(book.id))!.properties).toContainEqual({ key: "label", value: label });
-    expect((await board.get(step.id))!.text).toContain(label);
-    expect((await board.get(step.id))!.text).toContain("[run.exit::0]");
-  }, 30000);
-
-  test("a step's choices and file picker pass selected values as literal environment data", async () => {
-    const { app, board, scratch, sc } = h;
-    const path = join(scratch.root, "garden seeds.txt");
-    writeFileSync(path, "basil seeds");
-    const step = await board.createBlock(null, "Pick seeds [choices::herb basil,mint] [form-field::path file]\nrun::\n```sh\nprintf '%s: ' {{ask.herb}}; cat {{ask.path}}\n```");
-    await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: step.id } }, USER);
-    await until(() => app.bar?.items.some(i => i.row.label === "basil") ?? false, "the choice list");
-    h.press({ kind: "enter" });
-    await until(() => formState()?.focus === "path", "the file picker");
-    for (const ch of scratch.root + "/") h.ch(ch);
-    await until(() => app.bar?.items.some(i => i.row.label === "garden seeds.txt") ?? false, "the scratch file is listed");
-    await app.dispatch.act({ action: "bar.pick", args: { n: app.bar!.items.findIndex(i => i.row.label === "garden seeds.txt") + 1 } }, USER);
-    await until(() => formState()?.focus === "run", "the file has been chosen");
-    h.press({ kind: "enter" });
-    await until(() => (sc.tilesHere()!.pane("Runbook") as PtyPane | undefined)?.exited === 0, "the file command exits");
-    let saved = "";
-    for (let i = 0; i < 100; i++) { saved = (await board.get(step.id))!.text; if (saved.includes("[run.last::ok]")) break; await Bun.sleep(50); }
-    expect(saved).toContain("basil: basil seeds");
-  }, 30000);
-
-  test("host mode uses the same masked form and records no secret in SQLite or door state", async () => {
-    const { app, board, sc } = h;
-    const step = await board.createBlock(null, "Print on the host\nrun:: --mode=host\n```sh\nprintf 'host: %s\\n' {{secret.token}}\n```");
-    await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: step.id } }, USER);
-    for (const ch of TOKEN) h.ch(ch);
-    await app.dispatch.act({ action: "bar.close" }, USER);
-    expect(formState()).toBeNull();
-    expect((await board.get(step.id))!.text).not.toContain("[run.last::");
-    await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: step.id } }, USER);
-    for (const ch of TOKEN) h.ch(ch);
-    await until(() => !!app.bar?.items.some(i => i.row.key === "private-answer"), "host token field");
-    h.press({ kind: "enter" });
-    await until(() => formState()?.focus === "run", "host run control");
-    h.press({ kind: "enter" });
-    let saved = "";
-    for (let i = 0; i < 100; i++) { saved = (await board.get(step.id))!.text; if (saved.includes("[run.last::ok]")) break; await Bun.sleep(50); }
-    expect(saved).toContain("host: [redacted]");
-    expect(sc.tilesHere()!.pane("Runbook")).toBeUndefined();
-    for (const path of files(h.scratch.root)) expect(readFileSync(path).includes(Buffer.from(TOKEN))).toBe(false);
-  }, 30000);
-
-  test("a host restart leaves the terminal running and Continue saves its result without rerunning the command", async () => {
-    const { app, board, sc, scratch } = h;
-    const count = join(scratch.root, "ran-once");
-    const step = await board.createBlock(null, `Survive the host restart\nrun::\n\`\`\`sh\nprintf x >> '${count}'; printf 'ready for host restart\\n'; read -r line; printf 'finished once\\n'\n\`\`\``);
-    await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: step.id } }, USER);
-    const tile = sc.tilesHere()!.pane("Runbook") as PtyPane;
-    await until(() => tile.text().join("\n").includes("ready for host restart"), "the command started");
-    await scratch.stop();
-    await app.dispatch.act({ action: "tile.type", tile: "Runbook", args: { text: "done\r" } }, USER);
-    await until(() => app.bar?.items.some(i => i.row.label === "continue") ?? false, "the unsaved result offers Continue", 15000);
-    await scratch.start();
-    await board.info();
-    h.press({ kind: "enter" });
-    let saved = "";
-    for (let i = 0; i < 100; i++) { saved = (await board.get(step.id))!.text; if (saved.includes("[run.last::ok]")) break; await Bun.sleep(50); }
-    expect(saved).toContain("finished once");
-    expect(readFileSync(count, "utf8")).toBe("x");
   }, 45000);
 
-  test("SSH receives values through its terminal input, and an unreachable machine leaves a pasteable waiting step without secrets", async () => {
-    const { app, board, sc, scratch } = h;
-    const bin = join(scratch.root, "remote-bin"), home = join(scratch.root, "remote-home");
-    mkdirSync(bin); mkdirSync(home);
-    const ssh = join(bin, "ssh");
-    writeFileSync(ssh, `#!/bin/sh\nexec ${process.execPath} ${join(outliner!, "test/fake-ssh.ts")} "$@"\n`);
-    chmodSync(ssh, 0o755);
-    const env = { EP0CH_SSH: ssh, EP0CH_OUTLINES: scratch.outlines, FAKE_SSH_HOME: home, FAKE_SSH_OUTLINES: scratch.outlines, FAKE_SSH_BIN: bin, FAKE_SSH_LOG: join(scratch.root, "ssh.log"), FAKE_SSH_DOWN: "0" };
-    const old = Object.fromEntries(Object.keys(env).map(k => [k, process.env[k]]));
-    Object.assign(process.env, env);
+  test("inline context with seven literal env lines lets a client run while its stub server stays up; stop records stopped", async () => {
+    const book = await show([
+      "Garden service [type::runbook] [herb::sage]", "", "Context", `cwd:: ${h.scratch.root}`,
+      "```env", "HERB={{self.herb}}", "LABEL=the garden", "ONE=1", "TWO=2", "THREE=3", "FOUR=4", "TOKEN={{secret.token}}", "```", "",
+      "Start the stub", "```sh run", `bun -e 'const server=Bun.serve({port:0,fetch:()=>new Response(process.env.HERB+":"+process.env.LABEL)}); await Bun.write("stub-port", String(server.port)); console.log("stub up");'`, "```", "",
+      "Ask the stub", "run::", "```sh", 'curl -fsS "http://127.0.0.1:$(cat stub-port)"; test "$ONE$TWO$THREE$FOUR" = 1234; test -n "$TOKEN"', "```", "",
+      "Example", "```sh", "exit 91", "```",
+    ].join("\n"));
+    await until(() => controls().length === 2, "only the two command fences run");
+    await run(0);
+    await answer("secret.token", TOKEN); h.press({ kind: "enter" });
+    await until(() => (h.sc.tilesHere()!.pane("Start the stub") as PtyPane | undefined)?.text().join("\n").includes("stub up") ?? false, "stub server");
+    await run(1);
+    await answer("secret.token", TOKEN); h.press({ kind: "enter" });
+    const client = await waitRecord(book.id, "ok");
+    expect(client.text).toContain("sage:the garden");
+    expect(client.text).toContain(`[run.cwd::${h.scratch.root}]`);
+    expect(client.text).toContain("ONE,TWO,THREE,FOUR");
+    expect((h.sc.tilesHere()!.pane("Start the stub") as PtyPane).running).toBe(true);
+    await run(0);
+    await until(() => h.app.bar?.items.some(i => i.row.label === "stop it") ?? false, "focus or stop choices");
+    await act("bar.pick", { n: h.app.bar!.items.findIndex(i => i.row.label === "stop it") + 1 });
+    expect((await waitRecord(book.id, "stopped")).text).not.toContain(TOKEN);
+    expect(h.screen()).not.toContain(TOKEN);
+  }, 45000);
+
+  test("editing a failed command preserves its anchor; rerunning makes two rows and leaves Go templates literal", async () => {
+    const book = await show("Garden check [type::runbook]\n\nCheck the pot\nrun::\n```sh\nprintf '\\033[31mempty pot\\033[0m\\r\\n'; exit 7\n```");
+    await run(0, true);
+    const failed = await waitRecord(book.id, "failed");
+    expect(failed.text).toContain("[run.exit::7]");
+    expect(failed.text).not.toContain("\x1b");
+    expect(failed.text).not.toContain("\r");
+    await act("tile.focus", {}, "reader");
+    const was = (await h.board.get(book.id))!;
+    const anchor = /\^step-[a-z0-9-]+/.exec(was.text)![0];
+    await act("edit.text", { text: was.text.replace("empty pot", "{{.Names}}").replace("exit 7", "exit 0").replace("Check the pot", "Check the planted pot") }, "reader");
+    await act("edit.save", {}, "reader");
+    await run(0);
+    expect((await waitRecord(book.id, "ok")).text).toContain("{{.Names}}");
+    expect((await records(book.id)).map(r => r.text)).toHaveLength(2);
+    expect((await h.board.get(book.id))!.text).toContain(anchor);
+    await act("tile.focus", {}, "reader");
+    await until(() => h.screen().includes("run.status") && h.screen().includes("failed") && h.screen().includes("ok"), "both results in the live table");
+  }, 30000);
+
+  test("asked values stay data inside every shell quote style, and records scrub terminal escapes and encoded secrets", async () => {
+    const book = await show("Literal values [type::runbook]\n\nPrint data\n```sh run\nprintf '%s\\n' {{ask.label}} \"{{ask.label}}\" '{{ask.label}}'; printf '%s' {{secret.token}} | base64; printf '\\033[31mplain\\033[0m\\r\\n'\n```");
+    const value = 'spaces "quotes" \'apostrophe\' $(printf INJECTED) `printf INJECTED` *\na second line';
+    await run(0);
+    await answer("ask.label", value);
+    await answer("secret.token", TOKEN); h.press({ kind: "enter" });
+    const done = await waitRecord(book.id, "ok");
+    expect(done.text.split(value)).toHaveLength(4);
+    expect(done.text).toContain("[redacted]");
+    expect(done.text).not.toContain(Buffer.from(TOKEN).toString("base64"));
+    expect(done.text).not.toContain("\x1b");
+    expect(done.text).not.toContain("\r");
+    for (const path of files(h.scratch.root)) expect(readFileSync(path).includes(Buffer.from(TOKEN))).toBe(false);
+  }, 30000);
+
+  test("cancelling a masked prompt creates no run, and an agent's supplied answer is attributed", async () => {
+    const book = await show("Private prompt [type::runbook]\n\nCheck the answer\n```sh run\ntest -n {{secret.token}}; printf '%s\\n' {{ask.label}}\n```");
+    await run(0);
+    await until(() => formState()?.focus === "secret.token", "the private prompt");
+    h.press({ kind: "paste", text: TOKEN });
+    await act("bar.close");
+    expect(await records(book.id)).toHaveLength(0);
+    await expect(h.app.dispatch.act({ action: "ext.runbook.run-step", args: { block: book.id } }, { kind: "agent", id: "garden-agent" })).rejects.toThrow("Supply");
+    await h.app.dispatch.act({ action: "ext.runbook.run-step", args: { block: book.id, with: JSON.stringify({ "secret.token": TOKEN, "ask.label": "agent answer" }) } }, { kind: "agent", id: "garden-agent" });
+    const done = await waitRecord(book.id, "ok");
+    expect(done.text).toContain("[run.by::garden-agent]");
+    expect(done.text).toContain("agent answer");
+    for (const path of files(h.scratch.root)) expect(readFileSync(path).includes(Buffer.from(TOKEN))).toBe(false);
+  }, 30000);
+  test.skipIf(!existsSync("/bin/zsh"))("child fences inherit document-order context and PATH from a real login-shell startup file", async () => {
+    const bin = join(h.scratch.root, "garden-bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "garden-profile"), "#!/bin/sh\nprintf 'profile loaded: '\n");
+    chmodSync(join(bin, "garden-profile"), 0o755);
+    writeFileSync(join(h.scratch.root, ".zprofile"), `export PATH="${bin}:$PATH"\n`);
+    const book = await show(`Child context [type::runbook] [cwd::${h.scratch.root}]`);
+    const context = await h.board.createBlock(book.id, `Garden context\n\`\`\`env\nLABEL=child value\nZDOTDIR=${h.scratch.root}\n\`\`\``);
+    const step = await h.board.createBlock(context.id, "Read the context\nrun::\n```sh\ngarden-profile; printf '%s' \"$LABEL\"\n```".replaceAll('\\"', '"'));
+    const current = (await h.board.get(book.id))!;
+    await h.board.update(book.id, `${current.text}\n\n!((${step.id}))`, current.revision!);
+    const savedShell = process.env.SHELL;
+    process.env.SHELL = "/bin/zsh";
     try {
-      const book = await board.createBlock(null, "Run on the other machine [type::runbook]");
-      const step = await board.createBlock(book.id, "A remote token\nrun:: --on=box-garden\n```sh\nprintf 'remote: %s\\n' {{secret.token}}; test -t 0\n```");
-      const start = async () => {
-        await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: step.id } }, USER);
-        for (const ch of TOKEN) h.ch(ch);
-        await until(() => !!app.bar?.items.some(i => i.row.key === "private-answer"), "remote token field");
-        h.press({ kind: "enter" });
-        await until(() => formState()?.focus === "run", "remote run control");
-        h.press({ kind: "enter" });
-      };
-      await start();
-      await until(() => (sc.tilesHere()!.pane("Runbook") as PtyPane | undefined)?.exited === 0, "remote terminal exits", 10000);
-      let text = "";
-      for (let i = 0; i < 100; i++) { text = (await board.get(step.id))!.text; if (text.includes("remote: [redacted]")) break; await Bun.sleep(50); }
-      expect(text).toContain("remote: [redacted]");
-      expect(readFileSync(env.FAKE_SSH_LOG, "utf8")).not.toContain(TOKEN);
-      await app.dispatch.act({ action: "tile.close", tile: "Runbook" }, USER);
-      process.env.FAKE_SSH_DOWN = "1";
-      await start();
-      await until(() => app.bar?.items.some(i => i.row.label === "continue") ?? false, "waiting for remote machine", 10000);
-      text = (await board.get(step.id))!.text;
-      expect(text).toContain("[run.last::waiting]");
-      expect(text).toContain("Shown to paste on box-garden:");
-      expect(text).not.toContain(TOKEN);
-      await app.dispatch.act({ action: "runbook.stop" }, USER);
-      await app.dispatch.act({ action: "bar.close" }, USER);
-      await app.dispatch.act({ action: "tile.close", tile: "Runbook" }, USER);
-    } finally {
-      for (const [k, v] of Object.entries(old)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
-    }
+      await run(0);
+      expect((await waitRecord(book.id, "ok")).text).toContain("profile loaded: child value");
+    } finally { if (savedShell === undefined) delete process.env.SHELL; else process.env.SHELL = savedShell; }
+  }, 30000);
+
+  test("bad context is saved and warned inline; a missing folder refuses only the requested step", async () => {
+    const book = await show("Bad garden context [type::runbook]\n\nContext\n```env\nnot an assignment\n```\n\nCheck the beds\n```sh run\nprintf beds\n```");
+    await until(() => h.screen().includes("Invalid env line"), "an inline context warning");
+    expect((await h.board.get(book.id))!.text).toContain("not an assignment");
+    await expect(act("ext.runbook.run-step", { block: book.id })).rejects.toThrow("Invalid env line");
+    const current = (await h.board.get(book.id))!;
+    await h.board.update(book.id, current.text.replace("not an assignment", "LABEL=literal $(printf untouched)").replace("Context\n", `Context\ncwd:: ${h.scratch.root}/missing-folder\n`), current.revision!);
+    await expect(act("ext.runbook.run-step", { block: book.id })).rejects.toThrow("Set cwd::");
+    expect(await records(book.id)).toHaveLength(0);
   }, 30000);
 
 });

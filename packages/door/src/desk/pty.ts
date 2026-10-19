@@ -245,6 +245,7 @@ export class PtyPane implements Pane {
   readonly status = new TileStatus();
   /** Called once when the program exits (an editor opened for a draft reads its file back then). */
   onExit: ((code: number) => void) | null = null;
+  startError: string | null = null;
   /** An nvim tile's socket and the door's connection to it (the cursor, the buffer's file, marks). */
   nvim: NvimClient | null = null;
   socket: string | null = null;
@@ -446,6 +447,7 @@ export class PtyPane implements Pane {
     } catch (e) {
       if (this.socket) { void unlink(this.socket).catch(() => {}); this.socket = null; }
       this.exited = 127;
+      this.startError = (e as Error).message;
       term.write(`\r\ncan't start ${this.run.cmd.join(" ")}: ${(e as Error).message}\r\n`);
       return;
     }

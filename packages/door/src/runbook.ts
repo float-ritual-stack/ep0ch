@@ -1,136 +1,137 @@
-import type { RunbookPlan, RunbookStep } from "@ep0ch/outline-core/runbook";
-import { readGroupSecrets } from "@ep0ch/outliner/extension-secrets";
-import { scrubCredentials } from "@ep0ch/outline-core/secret-scrub";
-import { keychainItem } from "@ep0ch/outliner/keychain";
-import { clearPrivateForm, askInBar, type BarQuestion } from "./bar/ask";
+import { hostname } from "node:os";
+import { stat } from "node:fs/promises";
+import type { RunbookPlan, RunbookStep, RunbookStatus } from "@ep0ch/outline-core/runbook";
+import { plainText, scrubCredentials } from "@ep0ch/outline-core/secret-scrub";
+import { askInBar, type BarQuestion } from "./bar/ask";
+import { alive } from "./state";
+import { prop } from "./props";
 import type { ExtOn } from "./extensions";
-import { sshBin } from "./machine";
 import type { Actor } from "./socket";
 import { ActionRefused, actionSet, asActor, def } from "./surface/actions";
 import type { TileJob, TileProgram } from "./term";
 
 type Context = ExtOn["ctx"] & { inTile?(p: TileProgram, done: (code: number | null) => void): boolean };
-interface Walk { key: string; ctx: Context; actor: Actor; steps: RunbookStep[]; at: number; job?: TileJob; stopped: boolean; paused: boolean; pending?: () => Promise<void> }
-const walks = new Map<string, Walk>();
-/** Plans and private form answers are in this daemon only; a handover would lose them. */
-export const runbookActive = () => walks.size > 0;
-const keyOf = (actor: Actor) => actor.kind === "user" ? "person" : actor.id;
-/** One walk per run: a single step's [run] is its own walk (its own terminal tile), "run all" one walk for the runbook.
- *  The person orchestrates; only the same step (or the same runbook's run-all) running twice is refused. */
-const walkKey = (actor: Actor, plan: RunbookPlan) => `${keyOf(actor)}:${plan.steps.length === 1 ? plan.steps[0]!.block : `all:${plan.steps[0]?.root ?? plan.steps[0]?.block}`}`;
-/** The actor's walk an action without a step means: the paused one, else the newest. */
-const walkOf = (actor: Actor) => { const mine = [...walks.values()].filter(w => keyOf(w.actor) === keyOf(actor)); return mine.find(w => w.paused) ?? mine.at(-1); };
-const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+interface Run { key: string; ctx: Context; actor: Actor; step: RunbookStep; record: string; at: string; cwd: string; state: RunbookStatus; secrets: string[]; writes: Promise<void>; job?: TileJob }
+const runs = new Map<string, Run>();
+let closing = false;
+const keyOf = (step: RunbookStep) => `${step.root}:${step.anchor}`;
 
-export async function runBook(ctx: Context, plan: RunbookPlan, actor: Actor) {
-  const key = walkKey(actor, plan);
-  if (walks.has(key)) throw new ActionRefused(plan.steps.length === 1 ? "this step is already running; runbook.stop stops it" : "this runbook is already running; runbook.stop stops it");
-  const walk: Walk = { key, ctx, actor, steps: plan.steps, at: 0, stopped: false, paused: false };
-  walks.set(key, walk);
-  try { return await next(walk); } catch (e) { walks.delete(key); throw e; }
+export async function runBook(ctx: Context, plan: RunbookPlan, actor: Actor, given: Record<string, string> = {}) {
+  if (closing) throw new ActionRefused("The door is restarting; run this step again after it reconnects.");
+  const step = plan.steps[0]!;
+  const running = runs.get(keyOf(step));
+  if (running) return askInBar(ctx, `${step.title} is running`, [{ name: "run", type: "choice", choices: ["focus its tile", "stop it"], required: true }], {}, actor, async answers => {
+    if (answers.run === "stop it") return stop(running);
+    return running.job?.focus(actor);
+  });
+  const questions: BarQuestion[] = step.fields.map(f => ({ name: f.name, type: f.choices ? "choice" : "text", required: true, free: !f.choices, masked: f.secret,
+    ...(f.choices ? { choices: f.choices } : {}), description: f.secret ? "secret, passed only in the environment" : f.name }));
+  if (actor.kind === "agent" && questions.some(q => given[q.name] === undefined)) throw new ActionRefused(`Supply ${questions.filter(q => given[q.name] === undefined).map(q => q.name).join(", ")} in with= before running this step.`);
+  return askInBar(ctx, step.title, questions, given, actor, answers => execute(ctx, step, actor, answers), questions.length ? { action: "ext.runbook.run-step" } : undefined);
 }
 
-async function record(w: Walk, step: RunbookStep, status: string, output: string, exit?: number) {
-  await w.ctx.board.actExtension("runbook", "record", { blockId: step.block, args: { status, output, ...(exit === undefined ? {} : { exit: String(exit) }) } }, w.actor);
+function record(run: Run, status: RunbookStatus, output = "", exit?: number): Promise<void> {
+  run.state = status;
+  run.writes = run.writes.then(async () => {
+    const { step } = run;
+    const result = await run.ctx.board.actExtension("runbook", "record", { blockId: step.block, args: {
+      step: JSON.stringify({ root: step.root, block: step.block, anchor: step.anchor, title: step.title, variables: step.variables }),
+      status, owner: `${hostname()}:${process.pid}`, at: run.at, cwd: scrubCredentials(run.cwd, run.secrets) as string, ...(run.record ? { record: run.record } : {}), output,
+      ...(!["starting", "running", "stopping"].includes(status) ? { end: new Date().toISOString() } : {}), ...(exit !== undefined ? { exit: String(exit) } : {}),
+    } }, run.actor);
+    if (result.proposalId) throw new ActionRefused("The run record was proposed because its note is being edited; finish that edit before running the step.");
+    if (!run.record) run.record = result.written.find(id => id !== step.root)!;
+  });
+  return run.writes;
 }
 
-async function next(w: Walk): Promise<unknown> {
-  if (w.stopped) return { stopped: true };
-  const step = w.steps[w.at];
-  if (!step) { walks.delete(w.key); asActor(w.ctx, w.actor).flash("Runbook: finished"); return { complete: true }; }
-  const questions: BarQuestion[] = step.fields.map(f => ({ name: f.name, type: f.choices ? "choice" : "text", required: true, free: !f.choices,
-    masked: f.secret, ...(f.file ? { kind: "file" } : {}), ...(f.choices ? { choices: f.choices } : {}), description: f.secret ? "secret, passed only in the environment" : f.name }));
-  if (step.confirm) questions.push({ name: "confirm", type: "text", required: true, free: true, description: `type ${step.confirm} to run this step` });
-  const given = Object.fromEntries(step.fields.filter(f => f.value !== undefined && !f.secret).map(f => [f.name, f.value!]));
-  const check = (answers: Record<string, string>) => questions.find(q => answers[q.name] === undefined) ? "answer each required field" : step.confirm && answers.confirm !== step.confirm ? `type ${step.confirm} to confirm` : null;
-  return askInBar(w.ctx, step.title, questions, given, w.actor, async answers => {
-    const why = check(answers);
-    if (why) throw new ActionRefused(why);
-    try { return await execute(w, step, answers); }
-    catch (error) { walks.delete(w.key); throw error; }
-  }, questions.length ? { action: "ext.runbook.run-step", check, cancel: () => { w.stopped = true; walks.delete(w.key); } } : undefined);
-}
-
-async function execute(w: Walk, step: RunbookStep, answers: Record<string, string>) {
-  if (w.stopped) return { stopped: true };
-  const env: Record<string, string> = {};
-  const secrets: string[] = [];
+async function execute(ctx: Context, step: RunbookStep, actor: Actor, answers: Record<string, string>) {
+  if (runs.has(keyOf(step))) throw new ActionRefused("This step started while its prompt was open; press run again to focus or stop it.");
+  const own = { ...step.env }, secrets: string[] = [];
   for (const f of step.fields) {
-    const value = answers[f.name]!;
-    env[`RUNBOOK_${f.secret ? "SECRET" : "ASK"}_${f.name}`] = value;
-    if (f.secret) secrets.push(value);
+    own[f.variable] = answers[f.name]!;
+    if (f.secret) secrets.push(answers[f.name]!);
   }
-  for (const group of step.mode === "terminal" ? step.secrets : []) {
-    const values = await readGroupSecrets(group, "runbook", undefined, keychainItem);
-    Object.assign(env, values); secrets.push(...Object.values(values));
-  }
-  if (step.keep && step.root) {
-    for (const field of step.fields.filter(f => !f.secret)) {
-      const { revision, tokens } = await w.ctx.board.propertyTokens(step.root, field.name);
-      const token = tokens.find(t => t.scope === "block");
-      await w.ctx.board.patchProperties(step.root, revision, [token ? { op: "replace", ordinal: token.ordinal, value: answers[field.name]! } : { op: "append", key: field.name, value: answers[field.name]! }], w.actor);
-    }
-  }
+  const literal = (value: string) => value.replace(/\{\{(RUNBOOK_[A-Za-z0-9_]+)\}\}/g, (_, name: string) => own[name]!);
+  // Expand against only the reference bindings; env lines are literal and never shell programs.
+  const env = Object.fromEntries(Object.entries(own).map(([k, v]) => [k, literal(v)]));
+  const cwd = step.cwd === undefined ? process.cwd() : literal(step.cwd);
+  const run: Run = { key: keyOf(step), ctx, step, actor, record: "", at: new Date().toISOString(), cwd, state: "starting", secrets, writes: Promise.resolve() };
+  runs.set(run.key, run);
   let output = "";
   const decoder = new TextDecoder();
-  const collect = (data: Uint8Array) => { output += decoder.decode(data, { stream: true }); };
-  const cmd = step.on
-    ? Object.keys(env).length ? [process.execPath, new URL("./runbook-ssh.ts", import.meta.url).pathname, step.on] : [sshBin(), "-tt", "--", step.on, step.command]
-    : [process.env.SHELL || "/bin/sh", "-c", step.command];
-  if (step.on) { env.RUNBOOK_COMMAND = step.command; env.RUNBOOK_ENV = JSON.stringify(env); }
-  const finish = async (code: number | null) => {
-    const clean = scrubCredentials(output + decoder.decode(), secrets) as string;
-    output = ""; secrets.length = 0;
-    w.pending = async () => {
-      if (step.on && code === 255) {
-        const shown = step.command.replace(/"\$\{RUNBOOK_(ASK|SECRET)_([A-Za-z_][A-Za-z0-9_]*)\}"/g, (_, kind: string, name: string) => kind === "SECRET" ? `'<enter ${name} in the terminal>'` : quote(answers[name]!));
-        await record(w, step, "waiting", `Shown to paste on ${step.on}:\n${shown}\n${clean}`);
-        w.pending = undefined;
-        await pause(w, `Waiting for ${step.on}; the command is under the step. Continue tries it there again.`, false);
-        return;
-      }
-      await record(w, step, code === 0 ? "ok" : "failed", clean, code ?? 130);
-      w.pending = undefined;
-      if (w.stopped) return;
-      if (code !== 0) { await pause(w, `${step.title}: exit ${code ?? 130}`, true); return; }
-      w.at++;
-      if (step.close && w.at === w.steps.length) w.job?.dismiss();
-      await next(w);
+  const collect = (data: Uint8Array) => { output = (output + decoder.decode(data, { stream: true })).slice(-64000); };
+  try {
+    if (!(await stat(cwd).catch(() => null))?.isDirectory()) throw new ActionRefused(`Folder ${scrubCredentials(cwd, secrets)} does not exist. Set cwd:: to a folder before this step.`);
+    const cancelled = async () => {
+      if (run.state === "lost") { await run.writes; secrets.length = 0; runs.delete(run.key); return true; }
+      if (run.state !== "stopping") return false;
+      await record(run, "stopped", "Stopped before the command started.", 130);
+      secrets.length = 0; runs.delete(run.key);
+      return true;
     };
-    await savePending(w);
-  };
-  const ended = (code: number | null) => { void finish(code).catch(e => { asActor(w.ctx, w.actor).flash(`Runbook: ${e.message}; runbook.stop ends the walk`); }); };
-  if (step.mode === "host") {
-    const result = await w.ctx.board.actExtension("runbook", "host-step", { blockId: step.block, args: { ...answers, environment: JSON.stringify(env) } }, w.actor);
-    output = result.runbookResult!.output;
-    await finish(result.runbookResult!.exit);
-    return { ran: step.block };
+    if (run.state === "stopping" || run.state === "lost") { await cancelled(); return { stopped: run.record }; }
+    await record(run, "starting");
+    if (run.state === "stopping" || run.state === "lost") { await cancelled(); return { stopped: run.record }; }
+    await record(run, "running");
+    if (run.state === "stopping" || run.state === "lost") { await cancelled(); return { stopped: run.record }; }
+    const done = (code: number | null) => {
+      if (run.state === "lost") { secrets.length = 0; runs.delete(run.key); return; }
+      const clean = plainText(scrubCredentials(output + decoder.decode(), secrets) as string);
+      output = "";
+      void record(run, run.state === "stopping" || code === null ? "stopped" : code === 0 ? "ok" : "failed", clean, code ?? 130)
+        .catch(e => asActor(ctx, actor).flash(`Run record could not be saved: ${e.message}`))
+        .finally(() => { secrets.length = 0; runs.delete(run.key); void ctx.board.refreshProjections(step.block, undefined, actor).catch(e => asActor(ctx, actor).flash(e.message)); ctx.redraw(); });
+    };
+    if (!ctx.inTile?.({ cmd: [process.env.SHELL || "/bin/sh", "-lc", step.command], cwd, own: env,
+      name: step.title, shows: step.title, retain: true, actor, output: collect, ready: job => { run.job = job; } }, done)) {
+      throw new Error("Open the runbook in a desk reader with room for a terminal tile, then run the step again.");
+    }
+    asActor(ctx, actor).flash(`Running ${step.title}`);
+    return { running: run.record };
+  } catch (error) {
+    try { if (run.record) await record(run, "failed-to-start", scrubCredentials((error as Error).message, secrets) as string); }
+    finally { secrets.length = 0; runs.delete(run.key); }
+    throw error;
   }
-  if (w.job) w.job.start(cmd, env, collect, ended);
-  else if (!w.ctx.inTile?.({ cmd, name: "Runbook", own: env, retain: true, actor: w.actor, output: collect, ready: job => { w.job = job; } }, ended)) {
-    throw new ActionRefused("open the runbook in a desk reader with room for a terminal tile, then run the step again");
-  }
-  return { running: step.block };
 }
 
-async function savePending(w: Walk) {
-  try { await w.pending?.(); }
-  catch (error) { if (!w.pending) throw error; await pause(w, `The command ended, but its record could not be saved: ${(error as Error).message}. Continue saves the record without running it again`, false); }
-}
-
-async function pause(w: Walk, message: string, advance: boolean) {
-  if (w.stopped) return { stopped: true };
-  w.paused = true;
-  if (advance) w.at++;
-  asActor(w.ctx, w.actor).flash(`${message}; runbook.continue or runbook.stop`);
-  if (w.actor.kind !== "user") return { paused: true, message };
-  return askInBar(w.ctx, message, [{ name: "next", type: "choice", choices: ["continue", "stop"], required: true }], {}, w.actor,
-    answers => w.ctx.dispatch!.act({ action: `runbook.${answers.next}`, args: {} }, w.actor));
+async function stop(run: Run) {
+  if (!["starting", "running"].includes(run.state)) return { stopping: run.record };
+  const saved = record(run, "stopping");
+  run.job?.stop();
+  await saved;
+  return { stopping: run.record };
 }
 
 export const RUNBOOK_ACTIONS = actionSet<ExtOn>()("runbook", {
-  "runbook.continue": def({ summary: "continue a runbook after a failed or waiting step", keys: "enter or a click on continue in the runbook form", touches: "nothing", replay: "ask", args: {},
-    async run(_, _on, actor) { const w = walkOf(actor); if (!w?.paused) throw new ActionRefused("no runbook is paused"); w.paused = false; return w.pending ? savePending(w) : next(w); } }),
-  "runbook.stop": def({ summary: "stop this actor's runbook walk and its running command", keys: "enter or a click on stop in the runbook form", touches: "nothing", replay: "ask", args: {},
-    run(_, _on, actor) { const w = walkOf(actor); if (!w) throw new ActionRefused("no runbook is running"); w.stopped = true; if (actor.kind === "user") clearPrivateForm(); w.job?.stop(); walks.delete(w.key); return { stopped: true }; } }),
+  "runbook.stop": def({ summary: "stop a running step and record its result", keys: "stop in the running step's form", touches: "nothing", replay: "ask",
+    args: { step: { type: "string", optional: true, about: "the step anchor; defaults to this actor's latest run" } },
+    run({ step }, _on, actor) {
+      const run = [...runs.values()].reverse().find(r => step ? r.step.anchor === step : r.actor.kind === actor.kind && (actor.kind === "user" || r.actor.kind === "agent" && r.actor.id === actor.id));
+      if (!run) throw new ActionRefused("No matching step is running.");
+      return stop(run);
+    } }),
 });
+
+export async function recoverRuns(ctx: Context): Promise<void> {
+  const { notes } = await ctx.board.queryNotes('type=run (run.status=starting OR run.status=running OR run.status=stopping)', 1000, "show");
+  for (const note of notes) {
+    const owner = prop(note, "run.owner") ?? "";
+    const prefix = `${hostname()}:`;
+    if (!owner.startsWith(prefix) || alive(Number(owner.slice(prefix.length)))) continue;
+    const current = await ctx.board.get(note.id);
+    if (!current) continue;
+    await ctx.board.update(note.id, current.text.replace(/\[run.status::(?:starting|running|stopping)\]/, "[run.status::lost]") + `\nEnded: ${new Date().toISOString()}\nThe door restarted and this run's terminal was lost.`, current.revision!, { kind: "agent", id: "runbook" });
+  }
+}
+
+/** Temporary run tiles end at handover; settle their records before giving the daemon's socket up. */
+export async function loseRuns(): Promise<void> {
+  closing = true;
+  for (const run of runs.values()) {
+    if (!["starting", "running", "stopping"].includes(run.state)) { await run.writes; continue; }
+    await record(run, "lost", "The door restarted; this run's temporary terminal was closed.");
+    run.job?.stop();
+  }
+}

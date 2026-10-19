@@ -1,3 +1,5 @@
+import { coerceActionArgs } from "./actions";
+import { mentionsExtension as mentionsExtensionLine } from "../extensions";
 import { Canvas, LINE_BOX } from "../canvas";
 import { CONFIRM_HINT } from "./hint-card";
 import { heroLook } from "./hero-look";
@@ -540,7 +542,7 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
   // The title may come from a later line (a marker or a props-only line first): what's above it isn't body.
   const title = Math.max(0, titleLine(m.text).line);
   const all = m.text.split("\n"), code = codeFenceLines(all);
-  const rows = all.map((l, i) => ({ l, i })).filter(({ i }) => i > title && !hidden.has(i) && !lit.markers.has(i))
+  const rows = all.map((l, i) => ({ l, i })).filter(({ i }) => i > title && (!hidden.has(i) || mentionsExtensionLine(all[i]!)) && !lit.markers.has(i))
     // A stable fragment anchor (`## Beds ^beds`) is an address, not prose: read mode hides it, as Detail does.
     .map(({ l, i }) => {
       const a = code[i]! >= 0 ? null : fragmentAnchorMatch(l);
@@ -4067,7 +4069,7 @@ export class NoteSurface {
       const home = p.block || this.msg?.id;
       if (home) args.via ??= `${home}:${p.line}`;
     }
-    const result: unknown = actor.kind === "user" ? await d.press(action, args, req.tile) : await d.act({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, actor);
+    const result: unknown = actor.kind === "user" ? await d.press(action, coerceActionArgs(action, d.defOf(action)!.args, args), req.tile) : await d.act({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, actor);
     // The run it started: the invitation belongs to it from here (and is spent when it ends).
     if (typeof args.invitation === "string" && result && typeof result === "object" && typeof (result as { undo?: unknown }).undo === "string") INVITES.bind(args.invitation, (result as { undo: string }).undo);
     host.redraw();

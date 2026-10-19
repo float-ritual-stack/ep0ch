@@ -104,7 +104,7 @@ doesn't have the environment variable: the service reads the group when a call s
 
 - **A fixed key:** name it in the manifest's `secrets` (`"jev": { "group": "typesafe", "key": "JEV_API_KEY" }`). It reaches the
   call as `credentials.jev` and as `JEV_API_KEY`.
-- **A group chosen at run time** (a runbook's `--secrets=deploy-demo`): `secretGroups: ["deploy-demo"]` (or `"*"`), then
+- **A group chosen at run time** (a note's chosen group): `secretGroups: ["deploy-demo"]` (or `"*"`), then
   `secrets.group` over the connection.
 - **Setting one is the person's:** `ep0ch keys set <group> <KEY>` prompts for the value (it wraps `with-secrets --add`).
   Ask them to run it; you never see what they type.
@@ -990,14 +990,12 @@ actions yet; `r` is its path today.
 - `act` may also return `open` (PIE-754): a block id, or a [Resource ref](#opening-a-resource) (`file:/path`,
   `web:https://…`, `resource:<id>`). The door opens it where the asker's opens land (a Resource registered first when
   it must be); `outliner ext act` prints `open <ref>`.
-- Runbook actions may return `runbook: { steps: RunbookStep[] }` (PIE-1061; the shared types are in
-  `outline-core/runbook.ts`). The extension owns the grammar and records; the door owns the argument form,
-  terminal tile and execution. Its ordinary view buttons call the extension's ActionSet actions. This extends the
-  existing action-result path rather than adding a second reader or a terminal inside the host. A component
-  result can use `placement: "replace"` to draw its view in its handler line's place; runbook uses that for
-  `run:: [run]` and the last status, including inside transclusions. `host-step`
-  returns `runbookResult: { exit, output }` to that coordinator, which scrubs supplied secrets before calling
-  `record`. These values are transient action results, never handler projections saved in the outline.
+- Runbook actions return `runbook: { steps: RunbookStep[] }` (PIE-1098; `outline-core/runbook.ts`).
+  The service parses runnable fences and supplies their document-order context and bindings in `context.runbook`.
+  The door owns private prompts and one terminal tile per press, using the shared PtyBackend. The extension records
+  each result as an attributed child block and inserts the existing live-table figure once. Primitive view buttons
+  use the same ActionSet path as keys and agents. Private answers remain in the door; records contain variable names
+  and masked plain-text output. There is no walk, host runner, SSH mode or props form.
 - `effects`: `read` (the default) answers only; `write` may return writes, and lets its process write over its
   connection. `effects` is about the outline, never about the outside world: an action that only writes to an outside
   service (sends a note to Reader, posts a message) and writes nothing in the outline is `read`; one that also writes
@@ -1091,7 +1089,7 @@ actions yet; `r` is its path today.
   `author`/`provenance` as on `create` work too. The action gets it as its input's `requestedBy`
   (`{ "author": "user" }` or `{ "author": "agent", "actorId": "loki" }`; absent for a scheduled run, or a request
   that named no one), so a step that is the person's alone checks `input.requestedBy?.author === "user"` and refuses
-  an agent, as runbook's apply steps do. The writes stay `ext:<id>`'s; each change in
+  an agent. The writes stay `ext:<id>`'s; each change in
   `changes.since` (and its live event) carries `requestedBy` with who asked. `outliner ext act` asks
   as the person, or as an agent with `--actor <id>`; a tile's program passes the person at its keys.
 - `keep` is built in for every output and component handler.
@@ -1441,12 +1439,9 @@ example, plus `head` (which part of the Site answered: `self`, `props`, `this`, 
 values were read from) and `route`. `fences: "template"` reads placeholders inside code fences too (a step's command lives in
 one); by default a fence is literal.
 
-What an extension does with that is its own: the **runbook** is the proof. It asks with the step as `this`, the runbook note
-as `self` and the run's arguments as `props`; refuses a step when any value has a `problem`; trusts a value whose `head` is
-`self` and whose `from` is the runbook note (its author's); and holds every other value (a prop, a parent, a `((id))`, a
-clock, a link followed from `self`) to the shell check, refusing the step otherwise. Nothing in outline-core, the service or
-the door names the runbook; everything it uses (`site.answer`, `children`, `create`, `update`, `secrets.group`) is this
-contract, and a new extension gets the same.
+The runbook has a deliberately narrower shell-value grammar in outline-core: `self`, `ask` and `secret` references
+become quoted environment bindings, and unrelated brace expressions remain literal. General Site interpolation remains
+available to other extensions through `site.answer`.
 
 ### Writes anywhere, through the normal paths
 
@@ -1622,7 +1617,7 @@ returned (the answer is scrubbed). A group file others can read is refused (`run
 
 ### Secrets chosen at run time
 
-When the note says which group a run needs (a runbook step's `--secrets=deploy-demo`), the manifest can't name it
+When the note says which group a run needs (a note's chosen group), the manifest can't name it
 ahead. Declare which groups a call may ask for, by name or `"*"` for any:
 
 ```json

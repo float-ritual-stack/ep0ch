@@ -1,5 +1,11 @@
 # Changelog
 
+## 6 (2026-10-19)
+
+- Runnable fences run independently with document-order context, private prompts, login shells and separate run records (PIE-1098).
+- Removes walks, modes, host execution, SSH flags, kept answers and the props form.
+
+
 ## 5 (2026-10-19)
 
 - Steps default to the door's terminal tile, with run controls, masked argument forms, SSH execution and a sequential run-all walk (PIE-1061). Host mode keeps the noninteractive runner.

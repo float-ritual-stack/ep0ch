@@ -1018,6 +1018,7 @@ export class App implements Ctx {
     const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} removed` : ""].filter(Boolean);
     if (said.length && this.extensionsSeen) this.flash(`extensions: ${said.join(" · ")}`);
     if (r.problems.length) this.flash(`extensions: ${r.problems.join(" · ")}`, 12_000);
+    if (!this.extensionsSeen) await (await import("./runbook")).recoverRuns(this).catch(e => this.flash(`Run recovery: ${e.message}`));
     this.extensionsSeen = true;
     this.redraw();
   }

@@ -1,3 +1,4 @@
+import { anchorRunbookSteps, isRunbook, runnableFences } from "@ep0ch/outline-core/runbook";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
 import { isSqliteBusy } from "./sqlite-busy";
@@ -1034,6 +1035,20 @@ export class OutlinerStore {
     return new Date(at).toISOString();
   }
 
+  private runbookText(text: string, parentId: string | null, id?: string): string {
+    const ancestors = parentId ? this.blockContext(parentId) : null;
+    const root = isRunbook(text) ? null : [...(ancestors?.ancestors ?? []), ...(ancestors?.selected ? [ancestors.selected] : [])].reverse().find(b => isRunbook(b.text));
+    if (!isRunbook(text) && !root) return text;
+    const used = new Set<string>();
+    const collect = (block: Block) => {
+      if (block.id !== id) for (const fence of runnableFences(block.text)) if (fence.anchor) used.add(fence.anchor);
+      for (const child of this.children(block.id)) collect(child);
+    };
+    if (root) collect(root);
+    else if (id) for (const child of this.children(id)) collect(child);
+    return anchorRunbookSteps(text, used);
+  }
+
   private createAt(
     text: string,
     parentId: string | null,
@@ -1049,7 +1064,7 @@ export class OutlinerStore {
     const id = minted ?? crypto.randomUUID();
 
     this.database.transaction(() => {
-      text = this.withTicketStage("", text);
+      text = this.runbookText(this.withTicketStage("", text), parentId);
       this.validateRoadmapText(text);
       const siblingCount = this.database
         .query("SELECT COUNT(*) AS count FROM blocks WHERE parent_id IS ?")
@@ -1982,12 +1997,22 @@ export class OutlinerStore {
     const provenance = normalizeMutationProvenance(mutation);
     this.database.transaction(() => {
       const before = this.requireActive(id);
-      const next = this.withTicketStage(before.text, stageMoveText(before.text, text, doneDay(new Date())));
+      const next = this.runbookText(this.withTicketStage(before.text, stageMoveText(before.text, text, doneDay(new Date()))), before.parentId, id);
       const savedAt = this.writeBlockText(id, next, expectedRevision, editedAt, identityChanges);
       this.replaceProperties(id, parsePropertyRecords(next));
       this.recordActivity(id, provenance, kind, savedAt);
       this.bumpSequence({ kind: "edit", blockId: id });
       this.followTicketStage(before.text, next, mutation);
+      if (!isRunbook(before.text) && isRunbook(next)) {
+        const anchorChildren = (parent: string) => {
+          for (const child of this.children(parent)) {
+            const anchored = this.runbookText(child.text, child.parentId, child.id);
+            if (anchored !== child.text) this.update(child.id, anchored, child.revision, mutation);
+            anchorChildren(child.id);
+          }
+        };
+        anchorChildren(id);
+      }
     })();
     return this.require(id);
   }
