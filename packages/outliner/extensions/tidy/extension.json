@@ -24,7 +24,7 @@
         "items": {
           "type": "string"
         },
-        "description": "Prompt on stdin, JSON replacement and message on stdout; resolution returns patches and message, or ambiguous. Default: claude -p --model haiku --tools \"\"."
+        "description": "Prompt on stdin, JSON replacement and message on stdout; resolution returns a conflict-region replacement, or ambiguous. Default: claude -p --model haiku --tools \"\"."
       }
     },
     "additionalProperties": false

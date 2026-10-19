@@ -28,15 +28,19 @@ Install: `outliner ext add tidy`. See [the four kinds](../../docs/extensions/REA
 
 ## Resolving a stale proposal
 
-`outline_proposal_resolve` (service: `draft.proposal.resolve`) hands the proposal, including its author's
-note, the original revision, and the current note to this responder. It uses the same `config.answer`
-command as an instructed tidy. The model returns `{ "patches": [{ "observed": "exact short current passage", "replacement": "intended change" }], "message": "one line" }`,
-or `{ "ambiguous": "both conflicting readings in one line" }`. Each observed passage must occur exactly
-once in the current note; missing or repeated passages leave the proposal open with the reason.
-Each pair must stay within a sentence containing one of the proposal's original observed spans, mapped onto the current note. Resolution also keeps the proposal's request-line boundary.
-The router applies the pairs through `draft.patch` with policy `prose`, preserving links, anchors and
-properties. It writes as `ext:tidy` and marks the proposal resolved with a link and `[from::]` the proposer. `extensions.undo` takes its receipt back in one
-step; the door records that receipt for Ctrl+Z in the reader. Receipts last for this host process.
+`outline_proposal_resolve` (service: `draft.proposal.resolve`) merges the proposal's original revision,
+the current note, and the original with the proposal's patches applied. The shared outline-core diff
+compares lines, then words within overlapping line changes. Independent changes merge without a model call.
+Only conflicts go to the responder, as `{ region_base, region_ours, region_theirs, proposal_note }`.
+The added author note accompanies the conflict; the rest of the note and proposal do not.
+The same `config.answer` command as an instructed tidy returns `{ "replacement": "merged region" }`
+or `{ "ambiguous": "both conflicting readings in one line" }`. A replacement occupies only that region;
+an ambiguous answer leaves the entire proposal open with its reason and the target unchanged.
+
+The router applies the merged text through `draft.patch` with policy `prose`, preserving links, anchors,
+properties and the proposal's request-line boundary. It writes as `ext:tidy` and marks the proposal resolved
+with a link and `[from::]` the proposer. `extensions.undo` takes its receipt back in one step; the door
+records that receipt for Ctrl+Z in the reader. Receipts last for this host process.
 
 Automatic resolution is off until the outline contains this rule note:
 

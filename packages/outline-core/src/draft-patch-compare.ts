@@ -176,26 +176,15 @@ interface Hunk {
 /** Longest line-by-line diff the rebase works out; a longer pair is compared as one rewritten window. */
 const REBASE_DIFF_CELLS = 4_000_000;
 
-/** What changed between two texts, as hunks of the old text: lines by LCS, then each hunk narrowed to the characters that differ. */
-function hunksBetween(base: string, current: string): Hunk[] {
-  if (base === current) return [];
-  // Each text ends in a sentinel newline for the diff, so every real line has one; it is taken off the hunks below.
-  const oldLines = `${base}\n`.split("\n");
-  const newLines = `${current}\n`.split("\n");
+/** Token ranges changed on each side, using the same bounded LCS for lines and words. */
+function changedRanges(oldLines: string[], newLines: string[]): Array<[number, number, number, number]> {
   let head = 0;
   while (head < oldLines.length && head < newLines.length && oldLines[head] === newLines[head]) head += 1;
   let tail = 0;
   while (tail < oldLines.length - head && tail < newLines.length - head && oldLines[oldLines.length - 1 - tail] === newLines[newLines.length - 1 - tail]) tail += 1;
   const midOld = oldLines.slice(head, oldLines.length - tail);
   const midNew = newLines.slice(head, newLines.length - tail);
-  const offsets = (lines: string[]) => {
-    const out = [0];
-    for (const line of lines) out.push(out[out.length - 1]! + line.length + 1);
-    return out;
-  };
-  const oldAt = offsets(oldLines);
-  const newAt = offsets(newLines);
-  // Line ranges [oldFrom, oldTo) -> [newFrom, newTo), in whole-array line numbers.
+  // Ranges [oldFrom, oldTo) -> [newFrom, newTo) in whole-array token indexes.
   const ranges: Array<[number, number, number, number]> = [];
   if (midOld.length * midNew.length > REBASE_DIFF_CELLS) {
     ranges.push([head, oldLines.length - tail, head, newLines.length - tail]);
@@ -228,6 +217,23 @@ function hunksBetween(base: string, current: string): Hunk[] {
     }
     close(rows, cols);
   }
+  return ranges;
+}
+
+/** What changed between two texts, as whole-line hunks of the old text. */
+function hunksBetween(base: string, current: string): Hunk[] {
+  if (base === current) return [];
+  // Each text ends in a sentinel newline for the diff, so every real line has one; it is taken off the hunks below.
+  const oldLines = `${base}\n`.split("\n");
+  const newLines = `${current}\n`.split("\n");
+  const offsets = (lines: string[]) => {
+    const out = [0];
+    for (const line of lines) out.push(out[out.length - 1]! + line.length + 1);
+    return out;
+  };
+  const oldAt = offsets(oldLines);
+  const newAt = offsets(newLines);
+  const ranges = changedRanges(oldLines, newLines);
   const hunks: Hunk[] = [];
   for (const [oldFrom, oldTo, newFrom, newTo] of ranges) {
     // Whole lines, each with its newline (the last line of a text has none).
@@ -260,6 +266,63 @@ function hunksBetween(base: string, current: string): Hunk[] {
   let back = 0;
   while (back < base.length - skip && back < current.length - skip && base[base.length - 1 - back] === current[current.length - 1 - back]) back += 1;
   return [{ start: skip, end: base.length - back, replacement: current.slice(skip, current.length - back) }];
+}
+
+/** Only these bytes are offered to the conflict responder. */
+export interface MergeConflict {
+  region_base: string;
+  region_ours: string;
+  region_theirs: string;
+}
+
+export type MergePart = string | MergeConflict;
+
+function wordHunks(base: string, changed: string): Hunk[] {
+  const tokens = (text: string) => text.match(/[\p{L}\p{N}_]+|[^\p{L}\p{N}_]/gu) ?? [];
+  const oldWords = tokens(base), newWords = tokens(changed);
+  const offsets = [0];
+  for (const word of oldWords) offsets.push(offsets.at(-1)! + word.length);
+  return changedRanges(oldWords, newWords).map(([from, to, addedFrom, addedTo]) => ({
+    start: offsets[from]!, end: offsets[to]!, replacement: newWords.slice(addedFrom, addedTo).join(""),
+  }));
+}
+
+/** Lines merge first; overlapping line changes are compared by words, with whitespace retained verbatim. */
+export function mergeText(base: string, ours: string, theirs: string): MergePart[] {
+  return mergeParts(base, ours, theirs, false);
+}
+
+function mergeParts(base: string, ours: string, theirs: string, words: boolean): MergePart[] {
+  if (ours === theirs) return [ours];
+  if (ours === base) return [theirs];
+  if (theirs === base) return [ours];
+  const diff = words ? wordHunks : hunksBetween;
+  const changes = [
+    ...diff(base, ours).map(hunk => ({...hunk, side: "ours" as const})),
+    ...diff(base, theirs).map(hunk => ({...hunk, side: "theirs" as const})),
+  ].sort((a, b) => a.start - b.start || a.end - b.end);
+  const overlaps = (a: Hunk, b: Hunk) =>
+    (a.start < b.end && b.start < a.end) || (a.start === a.end && b.start === b.end && a.start === b.start);
+  const parts: MergePart[] = [];
+  let cursor = 0;
+  for (let index = 0; index < changes.length;) {
+    const group = [changes[index++]!];
+    while (index < changes.length && group.some(hunk => overlaps(hunk, changes[index]!))) group.push(changes[index++]!);
+    const start = group[0]!.start, end = Math.max(...group.map(hunk => hunk.end));
+    parts.push(base.slice(cursor, start));
+    const region = base.slice(start, end);
+    const version = (side: "ours" | "theirs") => applyLocated(region, group.filter(hunk => hunk.side === side)
+      .map(hunk => ({start: hunk.start - start, end: hunk.end - start, replacement: hunk.replacement})));
+    const left = version("ours"), right = version("theirs");
+    if (left === right) parts.push(left);
+    else if (left === region) parts.push(right);
+    else if (right === region) parts.push(left);
+    else if (!words) parts.push(...mergeParts(region, left, right, true));
+    else parts.push({region_base: region, region_ours: left, region_theirs: right});
+    cursor = end;
+  }
+  parts.push(base.slice(cursor));
+  return parts;
 }
 
 /**

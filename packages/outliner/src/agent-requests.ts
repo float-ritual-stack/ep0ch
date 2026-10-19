@@ -1,3 +1,4 @@
+import type { MergeConflict } from "@ep0ch/outline-core/draft-patch-compare";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import { createHash } from "node:crypto";
@@ -219,15 +220,17 @@ export class AgentRequests {
     private readonly deps: AgentRequestDeps,
   ) {}
 
-  async resolveProposal(input: { proposal: string; original: { text: string; revision: number }; current: { id: string; text: string; revision: number } }, requestedBy: MutationProvenance): Promise<RespondValue> {
+  async resolveProposal(input: MergeConflict & { proposal_note: string }, requestedBy: MutationProvenance): Promise<{replacement: string} | {ambiguous: string}> {
     const bound = this.registry.agent("tidy");
     if (!bound) throw new Error("Install the tidy extension to resolve proposals: ep0ch ext add tidy");
     const { extension, agent } = bound;
     const result = await this.runtime.invokeLoaded(extension, "respond", {
-      agent: "tidy", request: "Resolve this proposal", mark: "", note: input.current, resolution: input,
-      context: { ancestors: contextAncestors(this.store.blockContext(input.current.id).ancestors) },
+      agent: "tidy", request: "Resolve this conflict", resolution: input,
     }, durationMs(agent.deadline) ?? DEFAULT_DEADLINE_MS, { requestedBy, label: "ext.tidy.agent.resolve" });
-    return validateRespond(result.value);
+    const value = result.value;
+    if (isObject(value) && typeof value.ambiguous === "string") return {ambiguous: cleanExtensionText(value.ambiguous)};
+    if (isObject(value) && typeof value.replacement === "string") return {replacement: value.replacement};
+    throw new Error("The conflict responder must return replacement or ambiguous text");
   }
 
   private get now(): number {

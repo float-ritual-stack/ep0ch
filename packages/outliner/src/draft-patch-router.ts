@@ -1,4 +1,4 @@
-import { diffChars } from "diff";
+import { diffLines } from "diff";
 import { isSqliteBusy } from "./sqlite-busy";
 import { wholeTextSpan } from "./extension-writes";
 /**
@@ -24,7 +24,8 @@ import {
   locateSpans,
   locateSpanForced,
   markStart,
-  mapOffset,
+  mergeText,
+  type MergeConflict,
   rebaseSpans,
   spanContext,
   type DraftPatchSpan,
@@ -99,7 +100,7 @@ export interface DraftPatchRouterDeps {
    */
   heldInDraft?(blockId: string, patches: readonly DraftPatchSpan[], by: MutationProvenance): (landed: boolean) => void;
   keepResolution?(edits: DraftPatchApplied["edits"], inverse: DraftPatchEdit[]): { undo?: string; undoNote?: string };
-  resolve?(input: { proposal: string; original: { text: string; revision: number }; current: { id: string; text: string; revision: number } }, by: MutationProvenance): Promise<{ patches: DraftPatchSpan[]; message?: string }>;
+  resolve?(input: MergeConflict & { proposal_note: string }, by: MutationProvenance): Promise<{ replacement: string } | { ambiguous: string }>;
   /** A proposal was settled: whatever answered with it says so now. */
   proposalSettled?(proposalId: string, status: Exclude<DraftProposalStatus, "open">, by: MutationProvenance): void;
   /**
@@ -160,34 +161,6 @@ const madeBy = (group: DraftGroup | undefined) => (group?.writes ?? []).flatMap(
 
 /** `refused`: the `edit` policy's guard said no; the patch is an error, never a proposal. */
 type Outcome = { ok: true; applied: DraftPatchApplied["edits"]; inverse: DraftPatchEdit[] } | { ok: false; reason: string; refused?: boolean };
-
-/** The proposal's observed passages, with their sentences, carried onto the current text. */
-function resolutionScope(original: string, current: string, patches: readonly DraftPatchSpan[]): LocatedSpan[] {
-  const observed = locateSpans(original, patches);
-  if (!observed.ok) return [];
-  const changes: LocatedSpan[] = [];
-  let offset = 0;
-  let pending: LocatedSpan | undefined;
-  for (const part of diffChars(original, current)) {
-    if (!part.added && !part.removed) {
-      if (pending) changes.push(pending);
-      pending = undefined;
-      offset += part.value.length;
-    } else {
-      pending ??= {start: offset, end: offset, replacement: ""};
-      if (part.removed) { offset += part.value.length; pending.end = offset; }
-      else pending.replacement += part.value;
-    }
-  }
-  if (pending) changes.push(pending);
-  const boundaries = [...original.matchAll(/[.!?](?=\s|$)|\n/g)].map(match => match.index! + 1);
-  return observed.spans.map(span => {
-    const start = boundaries.filter(at => at <= span.start).at(-1) ?? 0;
-    const end = boundaries.find(at => at >= span.end) ?? original.length;
-    // Text inserted at the sentence's end belongs to what follows it.
-    return {start: mapOffset(start, changes), end: mapOffset(end, changes.filter(change => change.start < end)), replacement: ""};
-  });
-}
 
 /** A write group's own writes failed inside the saved notes' transaction: the group is refused, not proposed. */
 class AlongsideFailure extends Error {
@@ -487,17 +460,24 @@ export class DraftPatchRouter {
         for (const edit of proposal.edits) {
           const current = await this.read(edit.blockId);
           const original = store.revisionText(edit.blockId, edit.revision);
-          const answer = await this.deps.resolve!({ proposal: block.text, original: { text: original.text, revision: edit.revision }, current: { id: edit.blockId, text: current.text, revision: current.revision } }, requestedBy);
-          if (!answer.patches.length) return leaveOpen(answer.message ?? "The agent could not determine the intended change.");
-          messages.push(answer.message ?? "Resolved the intended change.");
-          const patches = answer.patches;
-          const scope = resolutionScope(original.text, current.text, edit.patches);
-          const located = locateSpans(current.text, patches);
+          const located = locateSpans(original.text, edit.patches);
           if (!located.ok) return leaveOpen(located.reason);
-          if (located.spans.some(span => !scope.some(allowed => span.start >= allowed.start && span.end <= allowed.end))) {
-            return leaveOpen("would change text the proposal didn't touch");
+          const theirs = applyLocated(original.text, located.spans);
+          const parts = mergeText(original.text, current.text, theirs);
+          let merged = "";
+          for (const part of parts) {
+            if (typeof part === "string") { merged += part; continue; }
+            // The generated proposal carries other passages too; only its added note accompanies a conflict.
+            const first = store.revisionText(block.id, 1).text;
+            const proposal_note = diffLines(first.slice(first.indexOf("\n")), block.text.slice(block.text.indexOf("\n")))
+              .filter(part => part.added).map(part => part.value).join("").trim();
+            const answer = await this.deps.resolve!({...part, proposal_note}, requestedBy);
+            if ("ambiguous" in answer) return leaveOpen(answer.ambiguous);
+            merged += answer.replacement;
           }
-          edits.push({ blockId: edit.blockId, revision: current.revision, patches });
+          messages.push("Merged the proposed change.");
+          const patch = wholeTextSpan(current.text, merged);
+          edits.push({ blockId: edit.blockId, revision: current.revision, patches: patch ? [patch] : [] });
         }
         const status = withProposalStatus(block.text, "resolved").replace("\n", ` [from::${from}]${trigger ? ` [via-trigger::${trigger}]` : ""}\n`) + `\n\nResolved: ${messages.join(" ")}\n` + edits.map(edit => `((${edit.blockId}|Resolved edit))`).join("\n");
         const prepared = proposal.group ? this.deps.groups!(proposal.group, actor) : undefined;
