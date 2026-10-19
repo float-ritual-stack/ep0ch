@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { drawNote } from "../src/notes-cli";
-import { outlineChanged, siteAnswerOf } from "../src/refs";
+import { outlineChanged, presentLinks, siteAnswerOf, type LinkTarget } from "../src/refs";
 import { sourceSpanOf } from "../src/surface/source-map";
 import { SocketBoard } from "../src/socket";
 import { visible } from "../src/style";
@@ -83,6 +83,20 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
     const text = await drawn(note.id);
     expect(text).toContain("For lego-night: Ada, Bo");
     expect(text).toContain("none");
+  });
+
+  test("a Markdown link whose destination is a value opens what the value reads (Evan, Oct 19)", async () => {
+    const note = await create("Thread [src::https://example.test/archives/C01/p1792]\n- [plain](https://example.test/archives/C01/p1792)\n- [pew]({{this.src}})\n- [gone]({{this.nope}})");
+    await drawn(note.id);
+    const text = (await board.get(note.id))!.text;
+    const src = { board, redraw() {} };
+    let sink: LinkTarget[] = [];
+    const byLabel = (label: string) => sink.find(t => t.label === label) as { url?: string } | undefined;
+    // The service answers the note's values asynchronously: draw until they are in.
+    await until(() => { sink = []; presentLinks(text, false, src, text, sink, [], { block: note.id }); return byLabel("pew")?.url !== "{{this.src}}"; }, "the values answered", 4000).catch(() => {});
+    expect(byLabel("plain")?.url).toBe("https://example.test/archives/C01/p1792");
+    expect(byLabel("pew")?.url).toBe("https://example.test/archives/C01/p1792");
+    expect(byLabel("gone")?.url).toBe("{{this.nope}}");
   });
 
   test("an edit's preview reads the draft as typed, before it is saved; the editor itself is source", async () => {

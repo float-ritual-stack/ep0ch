@@ -441,8 +441,20 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
         // `[review layout](act: layout.load name=review)` (PIE-957) is a press: its text runs the action line as the person.
         const act = /^act:\s*(\S.*)$/.exec(l.url.trim())?.[1]?.trim();
         if (act) spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { role: "control", label: l.text, press: { act, block: site?.block ?? "", line: i } }) });
-        // A Markdown link reads as its text and opens its destination (a web page, or a pi-outliner:// link).
-        else spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { url: l.url, label: l.text }, isExternalUrl(l.url)) });
+        // A Markdown link reads as its text and opens its destination (a web page, or a pi-outliner:// link). A `{{ }}`
+        // in its destination (`[pew]({{this.src}})`) is filled from the note's values first: the link opens what the
+        // value reads; one that has no single value yet is drawn missing, with the value's words as its label.
+        else {
+          const inner = pairs.filter(p => p.start >= from + l.start && p.end <= from + l.end && p.value);
+          let url = l.url, unresolved = false;
+          for (const p of inner) {
+            const raw = line.slice(p.start - from, p.end - from), vals = p.value!.values ?? [];
+            if (!url.includes(raw)) continue;
+            if (vals.length !== 1 || !hasWords(p.value!)) { unresolved = true; continue; }
+            url = url.replace(raw, vals[0]!);
+          }
+          spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: unresolved }, { url, label: l.text }, !unresolved && isExternalUrl(url)) });
+        }
       } else if (l.kind === "page") {
         spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) });
       } else if (!l.embed || !embeds) {
