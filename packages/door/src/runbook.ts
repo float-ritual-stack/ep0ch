@@ -10,17 +10,22 @@ import { ActionRefused, actionSet, asActor, def } from "./surface/actions";
 import type { TileJob, TileProgram } from "./term";
 
 type Context = ExtOn["ctx"] & { inTile?(p: TileProgram, done: (code: number | null) => void): boolean };
-interface Walk { ctx: Context; actor: Actor; steps: RunbookStep[]; at: number; job?: TileJob; stopped: boolean; paused: boolean; pending?: () => Promise<void> }
+interface Walk { key: string; ctx: Context; actor: Actor; steps: RunbookStep[]; at: number; job?: TileJob; stopped: boolean; paused: boolean; pending?: () => Promise<void> }
 const walks = new Map<string, Walk>();
 /** Plans and private form answers are in this daemon only; a handover would lose them. */
 export const runbookActive = () => walks.size > 0;
 const keyOf = (actor: Actor) => actor.kind === "user" ? "person" : actor.id;
+/** One walk per run: a single step's [run] is its own walk (its own terminal tile), "run all" one walk for the runbook.
+ *  The person orchestrates; only the same step (or the same runbook's run-all) running twice is refused. */
+const walkKey = (actor: Actor, plan: RunbookPlan) => `${keyOf(actor)}:${plan.steps.length === 1 ? plan.steps[0]!.block : `all:${plan.steps[0]?.root ?? plan.steps[0]?.block}`}`;
+/** The actor's walk an action without a step means: the paused one, else the newest. */
+const walkOf = (actor: Actor) => { const mine = [...walks.values()].filter(w => keyOf(w.actor) === keyOf(actor)); return mine.find(w => w.paused) ?? mine.at(-1); };
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 
 export async function runBook(ctx: Context, plan: RunbookPlan, actor: Actor) {
-  const key = keyOf(actor);
-  if (walks.has(key)) throw new ActionRefused("a runbook is already running; runbook.stop stops it");
-  const walk: Walk = { ctx, actor, steps: plan.steps, at: 0, stopped: false, paused: false };
+  const key = walkKey(actor, plan);
+  if (walks.has(key)) throw new ActionRefused(plan.steps.length === 1 ? "this step is already running; runbook.stop stops it" : "this runbook is already running; runbook.stop stops it");
+  const walk: Walk = { key, ctx, actor, steps: plan.steps, at: 0, stopped: false, paused: false };
   walks.set(key, walk);
   try { return await next(walk); } catch (e) { walks.delete(key); throw e; }
 }
@@ -32,7 +37,7 @@ async function record(w: Walk, step: RunbookStep, status: string, output: string
 async function next(w: Walk): Promise<unknown> {
   if (w.stopped) return { stopped: true };
   const step = w.steps[w.at];
-  if (!step) { walks.delete(keyOf(w.actor)); asActor(w.ctx, w.actor).flash("Runbook: finished"); return { complete: true }; }
+  if (!step) { walks.delete(w.key); asActor(w.ctx, w.actor).flash("Runbook: finished"); return { complete: true }; }
   const questions: BarQuestion[] = step.fields.map(f => ({ name: f.name, type: f.choices ? "choice" : "text", required: true, free: !f.choices,
     masked: f.secret, ...(f.file ? { kind: "file" } : {}), ...(f.choices ? { choices: f.choices } : {}), description: f.secret ? "secret, passed only in the environment" : f.name }));
   if (step.confirm) questions.push({ name: "confirm", type: "text", required: true, free: true, description: `type ${step.confirm} to run this step` });
@@ -42,8 +47,8 @@ async function next(w: Walk): Promise<unknown> {
     const why = check(answers);
     if (why) throw new ActionRefused(why);
     try { return await execute(w, step, answers); }
-    catch (error) { walks.delete(keyOf(w.actor)); throw error; }
-  }, questions.length ? { action: "ext.runbook.run-step", check, cancel: () => { w.stopped = true; walks.delete(keyOf(w.actor)); } } : undefined);
+    catch (error) { walks.delete(w.key); throw error; }
+  }, questions.length ? { action: "ext.runbook.run-step", check, cancel: () => { w.stopped = true; walks.delete(w.key); } } : undefined);
 }
 
 async function execute(w: Walk, step: RunbookStep, answers: Record<string, string>) {
@@ -125,7 +130,7 @@ async function pause(w: Walk, message: string, advance: boolean) {
 
 export const RUNBOOK_ACTIONS = actionSet<ExtOn>()("runbook", {
   "runbook.continue": def({ summary: "continue a runbook after a failed or waiting step", keys: "enter or a click on continue in the runbook form", touches: "nothing", replay: "ask", args: {},
-    async run(_, _on, actor) { const w = walks.get(keyOf(actor)); if (!w?.paused) throw new ActionRefused("no runbook is paused"); w.paused = false; return w.pending ? savePending(w) : next(w); } }),
+    async run(_, _on, actor) { const w = walkOf(actor); if (!w?.paused) throw new ActionRefused("no runbook is paused"); w.paused = false; return w.pending ? savePending(w) : next(w); } }),
   "runbook.stop": def({ summary: "stop this actor's runbook walk and its running command", keys: "enter or a click on stop in the runbook form", touches: "nothing", replay: "ask", args: {},
-    run(_, _on, actor) { const w = walks.get(keyOf(actor)); if (!w) throw new ActionRefused("no runbook is running"); w.stopped = true; if (actor.kind === "user") clearPrivateForm(); w.job?.stop(); walks.delete(keyOf(actor)); return { stopped: true }; } }),
+    run(_, _on, actor) { const w = walkOf(actor); if (!w) throw new ActionRefused("no runbook is running"); w.stopped = true; if (actor.kind === "user") clearPrivateForm(); w.job?.stop(); walks.delete(w.key); return { stopped: true }; } }),
 });
