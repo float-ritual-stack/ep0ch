@@ -14,21 +14,21 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
   let board!: typeof h.board, app!: typeof h.app, seeded!: typeof h.seeded;
   beforeAll(() => { ({ board, app, seeded } = h); });
 
-  test.each([false, true])("PIE-1065: a runbook record lands with its step open (editing=%s)", async editing => {
+  test.each([false, true])("PIE-1065: an attributed output lands with its note open (editing=%s)", async editing => {
     await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
-    const book = await board.createBlock(null, "Check the garden [type::runbook]");
-    const step = await board.createBlock(book.id, "Check seeds\nrun:: --mode=dry\n```sh\necho seeds-ready\n```\n");
+    const book = await board.createBlock(null, "Check the garden");
+    const step = await board.createBlock(book.id, "Check seeds\n\nCurrent notes\n");
     await app.dispatch.act({ action: "open", tile: "notes", args: { id: step.id } }, USER);
     if (editing) {
       await app.dispatch.act({ action: "edit", tile: "notes" }, USER);
       await app.dispatch.act({ action: "edit", tile: "notes" }, USER);
       await until(() => !!board.heldDraft(step.id)?.holdId, "the step's draft held");
-      await app.dispatch.act({ action: "draft.place", tile: "notes", args: { line: 6, col: 1 } }, USER);
+      await app.dispatch.act({ action: "draft.place", tile: "notes", args: { line: 2, col: 1 } }, USER);
     }
-    await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: step.id, line: 1 } }, USER);
+    await board.request("outputs.place", { blockId: step.id, producer: { id: step.id, name: "Seed check" }, here: "end", content: "seeds-ready",
+      mutation: { author: "agent", actorId: "seed-check" } });
     const read = await board.readDraft(step.id);
     expect(read.text).toContain("[!output]");
-    expect(read.text).toContain("[run.status::ok]");
     expect(read.text).toContain("seeds-ready");
     expect((await board.children(step.id)).filter(b => b.text.includes("[type::draft-proposal]"))).toEqual([]);
     if (editing) {
