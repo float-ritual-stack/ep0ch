@@ -1,3 +1,4 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { Canvas, type Rect } from "../canvas";
 import { menuHeading, menuRow } from "../desk/tile-menu";
 import { RowView } from "../scroll";
@@ -20,7 +21,7 @@ export class HintCard {
   readonly view = new RowView();
   constructor(readonly hint: Hint, readonly tile: string, readonly anchor: number, readonly by?: string) {}
 
-  draw(canvas: Canvas, anchor: Rect, area: Rect, brief: boolean, pointer?: { x: number; y: number }, tone: number = C.cyan): Rect {
+  draw(canvas: Canvas, anchor: Rect, area: Rect, brief: boolean, pointer?: { x: number; y: number }, tone: number = C.cyan, values?: StyleValues): Rect {
     const cols = Math.max(4, Math.min(64, area.cols, Math.max(30, anchor.cols - 2)));
     const w = cols - 4;
     const lines = (brief ? this.hint.lines.slice(0, 1) : this.hint.lines).flatMap(l => wrap(l.replace(/^([^:]+:)/, BOLD + "$1" + UNBOLD), w));
@@ -53,7 +54,7 @@ export class HintCard {
       if (line.act) this.hits.push({ rect: { col: col + 2, row: y, cols: w, rows: 1 }, act: line.act });
     });
     if (this.view.maxTop) canvas.thumb(rect, { top, total: content.length, room: rows - 2 }, fg(C.dark));
-    });
+    }, false, values);
     return rect;
   }
 

@@ -1,3 +1,4 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import type { Ctx } from "../app";
 import type { NoteSurface, SurfaceHost } from "./note";
 import { Canvas } from "../canvas";
@@ -635,12 +636,12 @@ export class Completer {
   }
 
   /** Repaint in the host's frame, keeping hit columns relative to its measured text. */
-  inFrame(w: number, col: number, height = this.drawn?.items.length ?? 0): string[] {
+  inFrame(w: number, col: number, height = this.drawn?.items.length ?? 0, values?: StyleValues): string[] {
     const at = this.drawn, s = this.shown;
     if (!at || !s) return [];
     at.col = col;
     at.cols = w;
-    return renderCompletion(s, w, height, at.items, (at.anchor ?? 0) - col);
+    return renderCompletion(s, w, height, at.items, (at.anchor ?? 0) - col, values);
   }
 
   move(delta: number): void {
@@ -802,12 +803,12 @@ lineCompletionHooks.after = (i, k, took, was) => {
  * The popup as lines `w` wide, at most `h` tall: header, candidates (the selected one with its context),
  * footer. `rows`, when given, gets each line's candidate index (null for the header, context and footer).
  */
-export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], anchor = 0): string[] {
+export function renderCompletion(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], anchor = 0, values?: StyleValues): string[] {
   if (h < 4 || w < 8) return completionLines(s, w, h, rows, anchor);
   const body = completionLines(s, w - 3, h - 3, rows, Math.max(0, anchor - 1));
   const canvas = new Canvas(w, body.length + 3);
   const rect = { col: 0, row: 0, cols: w - 1, rows: body.length + 2 };
-  canvas.float(rect, "", "", () => body.forEach((line, y) => canvas.text(1, y + 1, line, w - 3)));
+  canvas.float(rect, "", "", () => body.forEach((line, y) => canvas.text(1, y + 1, line, w - 3)), false, values);
   rows.unshift(null); rows.push(null, null);
   s.listCol = (s.listCol ?? 0) + 1;
   s.listWidth = (s.listWidth ?? w - 3) + 1;

@@ -1,4 +1,3 @@
-import { useFloatLook } from "./theme";
 import { WaitingAsks } from "./waiting-asks";
 import { RUNBOOK_ACTIONS } from "./runbook";
 import { outlineBoards, readNote } from "./desk/outline-boards";
@@ -1426,7 +1425,6 @@ export class App implements Ctx {
     this.drawer.active = !s.noDrawer;
     // What this frame draws stays in the media module's memory while it's on screen (nextFrame).
     nextFrame();
-    useFloatLook(lookFor(this, { screen: s.title }, cols).values);
     const frame = withRowLimit(lookFor(this, { screen: s.title }, cols).values["rows.lines"], () => s.render(this));
     let lines = frame.lines.slice(0, rows - 1);
     while (lines.length < rows - 1) lines.push("");
@@ -1441,7 +1439,7 @@ export class App implements Ctx {
     // The power bar over the screen and the drawer; images under it would show through it.
     if (this.bar) {
       const b = this.bar.draw(cols, rows - 1), r = b.rect;
-      lines = overBar(lines, b);
+      lines = overBar(lines, b, lookFor(this, { screen: s.title }, cols).values);
       placements = uncover(placements, r);
     }
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);

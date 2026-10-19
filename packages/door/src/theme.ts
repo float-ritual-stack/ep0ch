@@ -285,11 +285,9 @@ export function surfaceMix(role: Surface, share: number, over?: Rgb, t: Theme = 
 /** Surface `role` at `strength` (1 to SURFACE_STEPS, as the look's `bg.strength` and `list.zebra.strength` say). */
 export const surfaceRgb = (role: Surface, strength: number, t: Theme = active): Rgb | null => surfaceMix(role, strength / SURFACE_STEPS, undefined, t);
 
-let floatLook: Pick<StyleValues, "float.bg" | "float.border" | "float.shadow" | "backdrop.dim"> | undefined;
-/** The application's style cascade supplies one surface for every float it draws. */
-export function useFloatLook(values: StyleValues): void { floatLook = values; }
-export function floatTheme() {
-  const t = theme(), v = floatLook;
+/** Float colours resolved from the same look as their owning tile or reader. */
+export function floatTheme(v?: StyleValues) {
+  const t = theme();
   return {
     bg: v && v["float.bg"] !== "theme" ? surfaceRgb(v["float.bg"], SURFACE_STEPS)! : t.float.bg,
     border: v && v["float.border"] !== "theme" ? t.palette[TONE_INDEX[v["float.border"]]]! : t.float.border,

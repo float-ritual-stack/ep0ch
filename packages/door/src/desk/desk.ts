@@ -3136,10 +3136,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const [id, r] of floats) {
       const shade: Rect = { ...r, cols: r.cols + 1, rows: r.rows + 1 };
       placements = placements.filter(p => !overlaps(p, shade));
-      if (id === this.focus && this.keysHere()) canvas.backdrop();
-      canvas.shadow(r);
+      const values = this.lookAt(this.panes.get(id)!, r.cols).values;
+      if (id === this.focus && this.keysHere()) canvas.backdrop(values);
+      canvas.shadow(r, values);
       lay(id, r, false, true);
-      canvas.under(r, bgRgb(floatTheme().bg));
+      canvas.under(r, bgRgb(floatTheme(values).bg));
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     }
     // In flight, a tile is drawn as it is, at the rectangle it is in (its contents move with it: nothing goes dark and comes
@@ -3182,7 +3183,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!anchor || id === undefined) continue;
       const look = this.lookAt(this.panes.get(id)!, anchor.cols).values;
       if (look.hints === "off") { card.clearHits(); continue; }
-      const rect = card.draw(canvas, anchor, area, look.hints === "brief", this.hintPointer, TONE[look.tone]);
+      const rect = card.draw(canvas, anchor, area, look.hints === "brief", this.hintPointer, TONE[look.tone], look);
       placements = uncover(placements, rect);
     }
     this.completionFloat = null;
@@ -3192,15 +3193,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const height = Math.min(COMPLETION_ROWS, area.rows);
       const rect = { col: area.col, row: Math.max(area.row, Math.min(origin.row + completion.drawn.row, area.row + area.rows - height)), cols: area.cols, rows: height };
       completion.drawn.row = rect.row - origin.row;
-      const lines = withRowLimit(this.lookAt(this.panes.get(this.focus)!, rect.cols).values["rows.lines"], () => completion.inFrame(rect.cols, rect.col - origin.col, height));
-      canvas.backdrop();
+      const lines = withRowLimit(this.lookAt(this.panes.get(this.focus)!, rect.cols).values["rows.lines"], () => completion.inFrame(rect.cols, rect.col - origin.col, height, this.lookAt(this.panes.get(this.focus)!, rect.cols).values));
+      canvas.backdrop(this.lookAt(this.panes.get(this.focus)!, rect.cols).values);
       canvas.clear(rect);
       lines.forEach((line, i) => canvas.text(rect.col, rect.row + i, line, rect.cols));
       this.completionFloat = { completer: completion, rect, origin };
       placements = uncover(placements, rect);
     }
     // Images would bleed through an overlay.
-    for (const o of [...this.overlays.all()].reverse()) { withRowLimit(this.focusedPane() ? this.lookAt(this.focusedPane()!, cols).values["rows.lines"] : 2, () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 })); placements = []; }
+    for (const o of [...this.overlays.all()].reverse()) {
+      const p = this.focusedPane(), values = p ? this.lookAt(p, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values;
+      withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
+      placements = [];
+    }
     const hint = this.hints(cols);
     if (!this.hintFull) this.hintMoreOpen = false;            // the row fits again: nothing is left to show
     if (this.hintBox || (this.hintFull && (this.hintMoreOpen || this.prefix))) { this.drawHintMore(canvas, cols, rows); placements = []; }
@@ -3427,7 +3432,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
     const foot = armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint;
-    canvas.box(r, float ? fgRgb(floatTheme().border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
+    canvas.box(r, float ? fgRgb(floatTheme(lv).border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
     let markerX = r.col + 3;
     for (const p of pointers) {
       const label = `@${p.agent}${p.line ? `:${p.line}` : ""}`;
@@ -3798,7 +3803,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         canvas.text(r.col + 2, r.row + 1 + i, l, r.cols - 4);
         this.keySpots.push(...hintSpots(l, keyStyles()).map(p => ({ y: r.row + 1 + i, from: r.col + 2 + p.from, to: r.col + 2 + p.to, key: p.key })));
       });
-    }, true);
+    }, true, this.focusedPane() ? this.lookAt(this.focusedPane()!, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values);
   }
 
   /** The hint part pressed, if `k` is a press on one: its key is pressed as typed. */
@@ -5794,7 +5799,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const b = this.menuButtons.find(x => x.id === t.id), r = this.rectsNow().get(t.id) ?? (this.isFloat(t.id) ? this.floatRect(this.floats.find(f => f.id === t.id)!) : undefined);
       anchor = b ? { col: b.from, row: b.row + 1, right: true } : r ? { col: r.col + r.cols - 1, row: r.row + 1, right: true } : { col: 0, row: 0 };
     }
-    this.overlays.push(tileMenu<Desk>({ title: this.nameOf(t.id), rows: every, at: anchor, ...(q ? { q } : {}) }));
+    this.overlays.push(tileMenu<Desk>({ title: this.nameOf(t.id), rows: every, at: anchor, look: w => this.lookAt(this.panes.get(t.id)!, w).values, ...(q ? { q } : {}) }));
     this.redraw();
     return { tile: t.name, open: true, rows };
   }

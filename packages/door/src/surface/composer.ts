@@ -50,11 +50,11 @@ export interface ComposerBox {
 }
 
 /**
- * The composer in a box `W` cells wide: a frame line, renderEditor's rows (title with the keys and controls, status,
- * the context the placement wants, the text) and the closing line. Its height follows the text, from two rows up to
+ * The editor rows inside a composer `W` cells wide, reserving one cell around them for its frame.
+ * Hit positions include that frame. Its height follows the text, from two rows up to
  * COMPOSER_TEXT_ROWS (and the completion popup's, the preview's), within `rows`; `fill` takes all of `rows` (split).
  */
-export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number, fill = false, grips = false): ComposerBox {
+export function composerBody(d: Draft, frame0: EditFrame, W: number, rows: number, fill = false): ComposerBox {
   const iw = Math.max(4, W - 2), avail = Math.max(2, rows - 2);
   const topOf = (x: EditFrame) => 1 + x.status.length + (x.by ? 1 : 0) + (x.context?.length ?? 0) + 1;
   // A short reader keeps the text's rows: the quote goes first, then the status line.
@@ -75,21 +75,22 @@ export function composerBox(d: Draft, frame0: EditFrame, W: number, rows: number
   while (body.length < h) body.push("");
   const frame = d.frame;
   const c = completerOf(d);
-  const edge = fg(C.yellow);
-  // A floating box (PIE-785) says it moves and sizes: a grip on its top edge (drag it), its ◢ corner (drag it to size).
-  const grip = grips && iw >= 9 ? " ≡ move " : "";
-  const left = Math.floor((iw - grip.length) / 2);
-  const lines = [
-    edge + "┌" + "─".repeat(left) + (grip ? fg(C.dark) + grip + edge : "") + "─".repeat(iw - left - grip.length) + "┐" + RESET,
-    ...body.map(l => edge + "│" + RESET + pad(l, iw) + RESET + edge + "│" + RESET),
-    edge + "└" + "─".repeat(iw) + (grips ? "◢" : "┘") + RESET,
-  ];
   return {
-    lines,
+    lines: body,
     frame: frame && { ...frame, row: frame.row + 1, col: frame.col + 1, controls: frame.controls.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })), ...(frame.links ? { links: frame.links.map(x => ({ ...x, row: x.row + 1, from: x.from + 1, to: x.to + 1 })) } : {}), ...(frame.preview ? { preview: { ...frame.preview, row: frame.preview.row + 1, placements: frame.preview.placements?.map(p => ({ ...p, row: p.row + 1, col: p.col + 1 })) } } : {}) },
     popup: c?.drawn ? { ...c.drawn, row: c.drawn.row + 1, col: (c.drawn.col ?? 0) + 1 } : null,
     width: iw + 2,
   };
+}
+
+/** Inline and split composers keep their frame; floating composers give their body to Canvas.float. */
+export function composerBox(d: Draft, frame: EditFrame, W: number, rows: number, fill = false): ComposerBox {
+  const box = composerBody(d, frame, W, rows, fill), iw = box.width - 2, edge = fg(C.yellow);
+  return { ...box, lines: [
+    edge + "┌" + "─".repeat(iw) + "┐" + RESET,
+    ...box.lines.map(l => edge + "│" + RESET + pad(l, iw) + RESET + edge + "│" + RESET),
+    edge + "└" + "─".repeat(iw) + "┘" + RESET,
+  ] };
 }
 
 /**

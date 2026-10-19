@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { App, type Screen } from "../src/app";
 import type { Msg } from "../src/board";
+import { tuningOf } from "../src/look";
 import { Mirror } from "../src/mirror";
 import { artNamed } from "../src/packs";
 import { VGA_RGB } from "../src/ansi";
@@ -37,19 +38,29 @@ const LIMITS: Record<ThemeName, { min: number; max: number } | null> = { calm: {
 interface Pair { fg: Rgb; bg: Rgb; ratio: number; text: string; where: string }
 
 /** Every text and border cell the mirror shows, with its colours (an uncoloured cell sits on the ground). */
-function pairsOf(m: Mirror, where: string, theme: ThemeName): { text: Pair[]; border: Pair[] } {
+function pairsOf(m: Mirror, where: string, theme: ThemeName, undimmed?: Mirror): { text: Pair[]; border: Pair[] } {
   const text: Pair[] = [], border: Pair[] = [];
-  m.cells.forEach((row, y) => row.forEach(c => {
+  m.cells.forEach((row, y) => row.forEach((c, x) => {
     if (!c.ch || c.ch === " " || c.ch === "\u200b") return;
     const { fg, bg } = m.colours(c);
-    // Inactive content behind a modal is deliberately dimmed; contrast applies to the active float.
-    const t = THEMES[theme], dimGround = (t.ground ?? t.palette[0]!).map(v => Math.round(v * t.backdrop.dim));
-    if (bg.join() === dimGround.join()) return;
+    // Compare the same frame without backdrop dimming: black itself says nothing about whether a cell was dimmed.
+    const original = undimmed?.cells[y]?.[x];
+    if (original?.ch === c.ch) {
+      const before = undimmed!.colours(original);
+      if (before.fg.join() !== fg.join() || before.bg.join() !== bg.join()) return;
+    }
     const p: Pair = { fg: fg as unknown as Rgb, bg: bg as unknown as Rgb, ratio: contrast(fg as unknown as Rgb, bg as unknown as Rgb), text: row.map(x => x.ch).join("").trim().slice(0, 60), where: `${where} row ${y}` };
     (isBorder(c.ch, p.fg, theme) ? border : text).push(p);
   }));
   return { text, border };
 }
+
+test("the contrast scan catches low-contrast undimmed text on black", () => {
+  const mirror = new Mirror(20, 1);
+  mirror.write("\x1b[38;2;10;10;10m\x1b[48;2;0;0;0mUnreadable");
+  const low = pairsOf(mirror, "undimmed", "classic").text.filter(p => p.ratio < 4.5);
+  expect(low.length).toBeGreaterThan(0);
+});
 
 describe.skipIf(!outliner)("the themes on real screens (WCAG 2 contrast)", () => {
   const scratch = new Scratch();
@@ -115,7 +126,15 @@ describe.skipIf(!outliner)("the themes on real screens (WCAG 2 contrast)", () =>
         expect(colours.bg).toEqual([...THEMES[name].focus.item.bg]);
         expect(contrast(colours.fg as unknown as Rgb, colours.bg as unknown as Rgb)).toBeGreaterThanOrEqual(3);
       }
-      const p = pairsOf(mirror, `${name} ${where}`, name);
+      const tuning = tuningOf(board), saved = tuning.snapshot();
+      tuning.set("global", "backdrop.dim", "100", { kind: "user" });
+      A.paint();
+      const undimmed = new Mirror(cols, rows);
+      undimmed.ground = mirror.ground;
+      undimmed.cells = mirror.cells.map(row => row.map(c => ({ ...c })));
+      tuning.restore(saved);
+      A.paint();
+      const p = pairsOf(mirror, `${name} ${where}`, name, undimmed);
       out.text.push(...p.text); out.border.push(...p.border);
     };
     A.stack.push(new MainMenu());

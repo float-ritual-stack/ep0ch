@@ -1,3 +1,4 @@
+import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import type { Hint } from "./hint-card";
 import { rowLines } from "../text";
 // A list to pick from, as a mode (src/surface/modes.ts): the desk's layout picker, policy panel and search, the
@@ -22,6 +23,7 @@ export type PickerClose = "esc" | "letter" | "click";
 
 export interface PickerSpec<T, H> {
   hint?: Hint;
+  look?(width: number): StyleValues;
   name: string;
   items(): readonly T[];
   /** An item's rows, `w` cells wide; `on`: the cursor is on it (`pickRow` lights it). */
@@ -168,8 +170,9 @@ export class ListPicker<T, H> implements Mode<H> {
   itemAt(y: number): number | null { return this.hits.find(hit => hit.y === y)?.i ?? null; }
 
   /** Drawn in its frame over the screen. */
-  draw(canvas: Canvas, area: Rect) {
+  draw(canvas: Canvas, area: Rect, values?: StyleValues) {
     const f = this.spec.frame!(area, this.items.length), r = (this.box = f.rect), w = r.cols - 2, head = f.head ?? [], tail = f.tail ?? [];
+    values = this.spec.look?.(r.cols) ?? values;
     canvas.float(r, f.title, fg(C.dark) + f.foot, () => {
     head.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
     const room = Math.max(0, r.rows - 2 - head.length - tail.length), y0 = r.row + 1 + head.length;
@@ -178,7 +181,7 @@ export class ListPicker<T, H> implements Mode<H> {
     drawn.lines.forEach((line, i) => canvas.text(r.col + 1, y0 + i, line, w));
     if (this.spec.scrolls) canvas.thumb({ col: r.col, row: y0 - 1, cols: r.cols, rows: room + 2 }, { top: this.view.top, room, total: this.total }, fg(C.yellow));
     tail.forEach((l, i) => canvas.text(r.col + 1, r.row + r.rows - 1 - tail.length + i, l, w));
-    }, true);
+    }, true, values);
   }
 }
 
