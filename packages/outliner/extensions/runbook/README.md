@@ -44,6 +44,7 @@ Malformed env lines stay saved and show a warning; the affected step names what 
 
 Values use `{{self.name}}` for a runbook property, `{{ask.name}}` for a fresh answer, and `{{secret.name}}` for a
 masked answer. References pass through quoted environment bindings, including when used inside shell quotes.
+A value reaches the command as an environment variable; writing "$TOKEN" inside an argument puts it in that process's argv like any shell would, so prefer passing secrets by environment (`curl -H @-` or a config file).
 Other braces, such as Docker's `{{.Names}}`, stay literal. `[choices::pot clay,wood]` supplies fixed choices for
 `{{ask.pot}}`. Agents supply answers with `with='{"ask.pot":"clay"}'`; private values stay in the door and
 are not sent as service action arguments.

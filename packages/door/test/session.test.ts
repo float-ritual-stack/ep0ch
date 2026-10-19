@@ -624,6 +624,27 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     } finally { a.close(); b.close(); }
   }, 45000);
 
+  test("a session restart stops its runbook program even when the record writer rejects", async () => {
+    const b = new SocketBoard(scratch.sock);
+    const a = await RawClient.attach(sessionSocket(dir), 150, 44);
+    try {
+      const pidFile = join(scratch.root, "runbook-program.pid");
+      const step = await b.createBlock(null, `Wait for a refused record [type::runbook]\n\nWait here\n\`\`\`sh run\nprintf '%s' $$ > '${pidFile}'; printf 'REFUSED-WAIT\\n'; read -r line\n\`\`\``);
+      await control({ cmd: "act", action: "ext.runbook.run-step", args: { block: step.id }, as: "runbook-test" });
+      await until(() => existsSync(pidFile), "the runbook program's pid", 10000);
+      const program = Number(readFileSync(pidFile, "utf8"));
+      const previous = pid;
+      await b.uninstallExtension("runbook", "keep");
+      const cli = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), "session", "restart", "--all"], { env: { ...process.env, EP0CH_OUTLINES: scratch.outlines }, stdout: "pipe", stderr: "pipe" });
+      const [output, error, code] = await Promise.all([new Response(cli.stdout).text(), new Response(cli.stderr).text(), cli.exited]);
+      expect(code, output + error).toBe(0);
+      pid = JSON.parse(readFileSync(sessionFile(dir), "utf8")).pid;
+      expect(pid).not.toBe(previous);
+      await until(() => { try { process.kill(program, 0); return false; } catch { return true; } }, "the runbook program stopped", 5000);
+      expect(readFileSync(join(dir, "session.log"), "utf8")).toContain("Run record could not be saved");
+    } finally { await b.installExtension("runbook"); a.close(); b.close(); }
+  }, 45000);
+
   test("ending asks while programs run in its tiles, then ends: every client told, the files gone", async () => {
     const a = await RawClient.attach(sessionSocket(dir), 100, 30);
     // An attached terminal (a watcher above all) can't end it over the wire: the menu's E is how.

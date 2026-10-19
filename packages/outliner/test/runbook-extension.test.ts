@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
+import { runbookSteps } from "@ep0ch/outline-core/runbook";
 import type { Block } from "../src/types";
 
 test("designating an existing runbook saves distinct durable fence anchors before running, including copied child steps", async () => {
@@ -24,6 +25,10 @@ test("designating an existing runbook saves distinct durable fence anchors befor
     await client.request({ action: "update", mutation: { author: "user" }, blockId: root.id, text: `${root.text} [type::runbook]`, expectedRevision: root.revision });
     child = await client.request<Block>({ action: "get", blockId: child.id });
     expect(child.text).toContain("^step-water-the-pots");
+    const context = await create("Plant the seedlings\ncwd:: /tmp\nrun:: --cwd='/tmp/garden pots'\n```sh\nprintf seedlings\n```", root.id);
+    expect(context.text).toContain("Plant the seedlings ^step-plant-the-seedlings\ncwd:: /tmp\nrun:: --cwd='/tmp/garden pots'");
+    expect(context.properties.find(p => p.key === "cwd")?.value).toBe("/tmp");
+    expect(runbookSteps({ id: root.id, text: root.text + " [type::runbook]", children: [context] })[0]?.cwd).toBe("/tmp/garden pots");
     const copied = await create(child.text, root.id);
     expect(copied.text).toContain("^step-water-the-pots-2");
     const changed = await client.request<Block>({ action: "update", mutation: { author: "user" }, blockId: child.id, expectedRevision: child.revision, text: child.text.replace("Water the pots", "Water the seedlings").replace("printf water", "printf seedlings") });

@@ -129,12 +129,26 @@ export async function recoverRuns(ctx: Context): Promise<void> {
   }
 }
 
-/** Temporary run tiles end at handover; settle their records before giving the daemon's socket up. */
+/** Temporary run tiles must end even when their records cannot be saved. */
 export async function loseRuns(): Promise<void> {
   closing = true;
-  for (const run of runs.values()) {
-    if (!["starting", "running", "stopping"].includes(run.state)) { await run.writes; continue; }
-    await record(run, "lost", "The door restarted; this run's temporary terminal was closed.");
+  const pending = [...runs.values()];
+  for (const run of pending) {
+    const active = ["starting", "running", "stopping"].includes(run.state);
+    if (active) run.state = "lost";
     run.job?.stop();
   }
+  await Promise.all(pending.map(async run => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        run.state === "lost" ? record(run, "lost", "The door restarted; this run's temporary terminal was closed.") : run.writes,
+        new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("The outline did not save the run record within 2 seconds.")), 2000); }),
+      ]);
+    } catch (error) {
+      const message = `Run record could not be saved: ${scrubCredentials((error as Error).message, run.secrets)}`;
+      console.error(message);
+      asActor(run.ctx, run.actor).flash(message);
+    } finally { clearTimeout(timeout); }
+  }));
 }

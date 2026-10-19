@@ -1,5 +1,6 @@
-import { codeBlocks } from "./code-fence";
+import { codeFenceLines, codeBlocks } from "./code-fence";
 import { parsePropertyRecords } from "./property-parse";
+import { PROPERTY_KEY_SOURCE, propertyTokenMatches } from "./property-grammar";
 
 export interface RunbookNode { id: string; text: string; children?: RunbookNode[] }
 export interface RunbookField { name: string; variable: string; secret: boolean; choices?: string[] }
@@ -18,26 +19,46 @@ const property = (text: string, key: string) => parsePropertyRecords(text).find(
 export const isRunbook = (text: string) => parsePropertyRecords(text).some(p => p.scope === "block" && p.key === "type" && p.value === "runbook");
 
 export function runnableFences(text: string) {
-  const lines = text.split("\n");
-  return codeBlocks(lines).fences.filter(f => f.closed && (/^(?:sh|bash|zsh)\s+run$/.test(f.fence.info) || RUN.test(lines[f.start - 1] ?? ""))).map(f => {
+  const lines = text.split("\n"), literal = codeFenceLines(lines);
+  const fences = codeBlocks(lines).fences.filter(f => f.closed && (/^(?:sh|bash|zsh)\s+run$/.test(f.fence.info) || RUN.test(lines[f.start - 1] ?? "")));
+  const keyLine = new RegExp(`^\\s*${PROPERTY_KEY_SOURCE}::`);
+  const claimed = new Set<number>();
+  return fences.map(f => {
     const control = RUN.test(lines[f.start - 1] ?? "") ? f.start - 1 : f.start;
-    const titleLine = control - 1;
-    const title = (lines[titleLine] ?? "").replace(ANCHOR, "").replace(/^#+\s*/, "").trim() || "Step";
-    return { ...f, control, titleLine, title, anchor: ANCHOR.exec(lines[titleLine] ?? "")?.[1] };
+    const separate = /^\s*\^step-[a-z0-9-]+\s*$/.test(lines[control - 1] ?? "") ? control - 1 : -1;
+    let titleLine = -1, title = "Step";
+    for (let i = control - 1; i >= 0; i--) {
+      if (literal[i] !== -1) continue;
+      const line = lines[i]!.replace(ANCHOR, "").trim();
+      if (!line || keyLine.test(line) || RUN.test(line) || /^(?:>|[-+*]\s|\d+[.)]\s|`{3,}|~{3,})/.test(line)) continue;
+      let plain = line;
+      for (const token of propertyTokenMatches(line).reverse()) plain = plain.slice(0, token.start) + plain.slice(token.end);
+      if (!plain.trim()) continue;
+      title = line.replace(/^#{1,6}\s+/, "");
+      if (!claimed.has(i)) { titleLine = i; claimed.add(i); }
+      break;
+    }
+    const anchorLine = separate >= 0 ? separate : titleLine;
+    return { ...f, control, titleLine: anchorLine, title, anchor: ANCHOR.exec(lines[anchorLine] ?? "")?.[1] };
   });
 }
 
 /** Called by the save path: the address belongs to the authored fence, before any run exists. */
 export function anchorRunbookSteps(text: string, used: Set<string>): string {
   const lines = text.split("\n");
-  for (const f of runnableFences(text).reverse()) {
-    if (f.anchor && !used.has(f.anchor)) { used.add(f.anchor); continue; }
+  const edits = runnableFences(text).map(f => {
     const base = f.anchor ?? `step-${f.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "command"}`;
     let anchor = base, suffix = 2;
     while (used.has(anchor)) anchor = `${base}-${suffix++}`;
     used.add(anchor);
-    if (f.titleLine >= 0 && lines[f.titleLine]?.trim() && !/^```|^~~~/.test(lines[f.titleLine]!)) lines[f.titleLine] = lines[f.titleLine]!.replace(ANCHOR, "") + ` ^${anchor}`;
-    else lines.splice(f.control, 0, `Step ^${anchor}`);
+    return { ...f, anchor };
+  });
+  for (const f of edits.reverse()) {
+    if (f.titleLine >= 0) {
+      const title = lines[f.titleLine]!.replace(ANCHOR, "");
+      lines[f.titleLine] = title.trim() ? title + ` ^${f.anchor}` : `^${f.anchor}`;
+    }
+    else lines.splice(f.control, 0, `^${f.anchor}`);
   }
   return lines.join("\n");
 }
