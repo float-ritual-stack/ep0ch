@@ -278,6 +278,11 @@ one.
 
 ## Pages, welcome and the briefing
 
+- Ask the person for a go with `[needs::sysop: <one line>]` at the top of the note, loud. It appears in
+  the drawer's waiting-on-you decisions, with your attribution. When the answer lands, remove the property;
+  the person's `x` clears it with a "cleared by you" comment. Open proposals and unticked calls under
+  "Decisions for Evan" or "NEEDS A GO" in capability/design notes appear there too.
+
 - `[page::address]` names a block so `[[address]]` reaches it. Rename by editing the token; the old address
   stays an alias. An address another note owns is refused. A first line of only `[page::x]` gets `x` as its title
   on save (`2026-09-30 [page::2026-09-30]`); a title already there is kept.

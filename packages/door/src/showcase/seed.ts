@@ -400,6 +400,8 @@ if (request.input.request === "describe the beds") {
   notes.ventPerson = await make(notes.root.id, VENT_PERSON);
   notes.ventRecipe = await make(notes.root.id, VENT_RECIPE);
   notes.ventRail = await make(notes.ventProject.id, ventRailText(notes.ventRecipe.id));
+  notes.waitingDecision = await make(notes.root.id, `${SEED.waitingDecision} [needs::sysop: glass or shade cloth?]`, { kind: "agent", id: "garden-agent" });
+  notes.waitingCalls = await make(notes.root.id, `${SEED.waitingCalls} [type::capability]\n\n## Decisions for Evan\n- [ ] Choose the north wall\n- [x] Choose the door\n## Supplies\n- [ ] Buy hinges`);
   const race = await seedRace(board, await make(notes.root.id, RACE));
   notes.race = race.note;
   // What changed (PIE-647): three notes a scripted agent edits when the section opens.

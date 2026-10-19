@@ -1480,11 +1480,16 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   Protocol): working (with its progress), blocked on you (a permission, a question, a login), done, or failed. The
   tile's header and tab show it as a glyph (`◴ 40%`, `◆`, `?`, `✓`, `✗`), the chip says it (`▲ claude · needs you`), and
   the status bar counts what waits on you (`◆1 ✓2 on you`). A click on that count, or `alt+w`, opens the
-  **waiting-on-you list** as a tab in your drawer (`host.waiting`): every terminal's blocked, failed and finished work,
-  most urgent first; `⏎` or a click goes to that terminal, `x` marks it seen. Being back in a tile (a key, a click)
-  is seeing it: its done goes. After the programs the list shows the **requests held for your `r`** (`‼` in the count): an
-  `@name` line that tripped a loop guard (repeat, eight hops, budget or daily cap), with the note, agent and reason.
-  `⏎` or a click opens the note, `r` or a click on its `[r send]` sends it (`held.open`, `held.send`; an agent
+  **waiting-on-you list** as a tab in your drawer (`host.waiting`), grouped into decisions, proposals, calls,
+  held requests and programs. Decisions carry `[needs::sysop: reason]`: answer the note and remove the property,
+  or press `x` / click `[x clear]` to clear it with a "cleared by you" comment. Open proposals offer `A` apply
+  and `X` dismiss (also buttons on the row). Unticked calls under "Decisions for Evan" or "NEEDS A GO" in
+  capability/design notes open at their source line. A click selects and previews; Enter opens, alt+Enter opens
+  beside, through the tile's wires. The count includes every group, and `peek` lists their rows.
+  Programs remain most urgent first within their group: Enter goes to the terminal, `x` marks it seen. Being back
+  in a terminal (a key, a click) clears its done. **Requests held for your `r`** (`‼` in the count) are `@name`
+  lines that tripped a loop guard (repeat, eight hops, budget or daily cap), with the note, agent and reason.
+  Enter opens the note; `r` or `[r send]` sends it (`held.open`, `held.send`; an agent
   can open one, never send it). Agent and extension writes wake by default; narrowing notes tighten limits,
   and `[invoke-deny::]` leaves an ask unsent with its reason outside this queue. Claude Code reports through the ep0ch mod (a permission dialog, a question, done at its
   answer), and so do `ep0ch install --apply`, `ep0ch backup run`, `scripts/box-test` and `scripts/agent-env --test`;

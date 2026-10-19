@@ -227,7 +227,7 @@ export const isOpenProposal = (m: Msg) => prop(m, "type") === "draft-proposal" &
  * Whether "apply anyway" can place it: the service marks one whose passage was already gone when it was
  * proposed `[proposal-applies::no]` (PIE-510), and only dismiss is offered.
  */
-export const proposalApplies = (m: Msg) => prop(m, "proposal-applies") !== "no";
+export const proposalApplies = (m: Pick<Msg, "properties">) => prop(m, "proposal-applies") !== "no";
 
 /** Why `A` is refused on a proposal that can't be applied: said by the action, and by the hint instead of the key. */
 export const NOT_APPLICABLE = "the passage it changes was already gone when it was proposed, so it can't be applied; dismiss it (X) and edit the note by hand";
@@ -236,7 +236,7 @@ export const NOT_APPLICABLE = "the passage it changes was already gone when it w
 export const PROPOSAL_OPS = ["apply", "dismiss"] as const;
 
 /** The controls proposal `m` offers: `[apply] [dismiss]`, or only `[dismiss]` when it can't be applied. */
-export const proposalOps = (m: Msg) => PROPOSAL_OPS.filter(op => op !== "apply" || proposalApplies(m));
+export const proposalOps = (m: Pick<Msg, "properties">) => PROPOSAL_OPS.filter(op => op !== "apply" || proposalApplies(m));
 
 /** ` [apply] [dismiss]` for proposal `m`, each tagged as its control in `sink` (text without one). */
 export function proposalControls(m: Msg, sink: LinkTarget[] | undefined): string {

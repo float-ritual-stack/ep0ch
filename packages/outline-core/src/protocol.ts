@@ -593,3 +593,17 @@ export interface NoteMoveReceipt {
 /** A host-owned read-only Loki URL; restarting the host ends it. */
 export interface LokiLease { id: string; url: string; expiresAt: string }
 export interface LokiLeaseUse { status: number; id?: string }
+
+/** An outline ask in the waiting-on-you list; call positions are zero-based source lines and offsets. */
+export interface WaitingAsk {
+  properties: BlockProperty[];
+  kind: "decision" | "proposal" | "call";
+  block: string;
+  title: string;
+  reason: string;
+  by: string;
+  revision: number;
+  line?: number;
+  at?: number;
+  label?: string;
+}
