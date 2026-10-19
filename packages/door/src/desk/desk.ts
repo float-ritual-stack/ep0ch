@@ -2357,8 +2357,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.hintCard?.pinned) return;
     const hint = mode === "confirm" ? CONFIRM_HINT : overlay?.hintCard ?? (mode.startsWith("link:") ? this.linkingHint() : mode === "gather" ? GATHER_HINT : mode === "resize" ? RESIZE_HINT : MOVE_HINT);
     if (hint && mode.startsWith("link:")) {
-      this.linkCards = this.hits.filter(([id]) => this.linkAccepts(this.panes.get(id)!)).map(([id]) => new HintCard(hint, this.nameOf(id), id));
-      this.hintCard = this.linkCards.find(c => this.panes.get(c.anchor) === this.linkingFrom()) ?? this.linkCards[0] ?? null;
+      // One card, on the tile the wire starts from, and only on the desk that holds it. Every other tile says
+      // "click to link here" on its frame; a card on each was a wall of copies (Evan, Oct 19 10:55 AM).
+      const from = this.linkingFrom(), id = from ? this.idOf(from) : undefined;
+      this.linkCards = [];
+      this.hintCard = id !== undefined ? new HintCard(hint, this.nameOf(id), id) : null;
     } else if (hint) this.hintCard = new HintCard(hint, this.nameOf(this.focus), this.focus);
   }
 
