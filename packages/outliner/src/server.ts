@@ -751,6 +751,7 @@ export class OutlinerServer {
 
   startHosted(): void {
     if (this.running) throw new Error("Outliner service is already started");
+    this.stopping = false;
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     this.hosted = true;
     // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches.
@@ -779,6 +780,7 @@ export class OutlinerServer {
       if (await this.socketIsActive()) throw new Error(`Outliner service is already running at ${this.socketPath}`);
       unlinkSync(this.socketPath);
     }
+    this.stopping = false;
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     this.snapshots.start();
     this.agentRequests.start();
@@ -4460,11 +4462,13 @@ export class OutlinerServer {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
         ...(problem ? { problem } : {}),
-        sequence: previousSequence,
+        sequence: attribution ? this.store.sequence : previousSequence,
       };
-      // In particular, a failed sequence read must not read the same closed store to report its error.
-      socket.write(`${JSON.stringify(response)}\n`);
-      return;
+      // Before dispatch there can be no commits, and a failed sequence read must not touch the store again.
+      if (!attribution) {
+        socket.write(`${JSON.stringify(response)}\n`);
+        return;
+      }
     }
     // Changes are already durable in the feed; a failure below only costs the live event.
     const changes = attribution ? this.store.changes.committed(attribution) : [];
