@@ -1,4 +1,4 @@
-import type { MergeConflict } from "@ep0ch/outline-core/draft-patch-compare";
+import type { MergeConflict } from "@ep0ch/outline-core/edit-merge";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import { createHash } from "node:crypto";

@@ -1,3 +1,4 @@
+import {editHunks} from "./edit-merge";
 /**
  * The compare of `draft.patch` (PIE-501): where a patch's observed text is in a
  * note's text now, and what the text and a position become once it is applied.
@@ -166,165 +167,6 @@ export function locateSpans(text: string, spans: readonly DraftPatchSpan[], forc
   return { ok: true, spans: ordered };
 }
 
-/** A stretch of the base text that the newer text rewrote: `[start, end)` of the base became `replacement`. */
-interface Hunk {
-  start: number;
-  end: number;
-  replacement: string;
-}
-
-/** Longest line-by-line diff the rebase works out; a longer pair is compared as one rewritten window. */
-const REBASE_DIFF_CELLS = 4_000_000;
-
-/** Token ranges changed on each side, using the same bounded LCS for lines and words. */
-function changedRanges(oldLines: string[], newLines: string[]): Array<[number, number, number, number]> {
-  let head = 0;
-  while (head < oldLines.length && head < newLines.length && oldLines[head] === newLines[head]) head += 1;
-  let tail = 0;
-  while (tail < oldLines.length - head && tail < newLines.length - head && oldLines[oldLines.length - 1 - tail] === newLines[newLines.length - 1 - tail]) tail += 1;
-  const midOld = oldLines.slice(head, oldLines.length - tail);
-  const midNew = newLines.slice(head, newLines.length - tail);
-  // Ranges [oldFrom, oldTo) -> [newFrom, newTo) in whole-array token indexes.
-  const ranges: Array<[number, number, number, number]> = [];
-  if (midOld.length * midNew.length > REBASE_DIFF_CELLS) {
-    ranges.push([head, oldLines.length - tail, head, newLines.length - tail]);
-  } else {
-    const rows = midOld.length;
-    const cols = midNew.length;
-    const lcs: Uint32Array[] = Array.from({ length: rows + 1 }, () => new Uint32Array(cols + 1));
-    for (let row = rows - 1; row >= 0; row -= 1) {
-      for (let col = cols - 1; col >= 0; col -= 1) {
-        lcs[row]![col] = midOld[row] === midNew[col] ? lcs[row + 1]![col + 1]! + 1 : Math.max(lcs[row + 1]![col]!, lcs[row]![col + 1]!);
-      }
-    }
-    let row = 0;
-    let col = 0;
-    let open: [number, number] | null = null;
-    const close = (toRow: number, toCol: number) => {
-      if (open) ranges.push([head + open[0], head + toRow, head + open[1], head + toCol]);
-      open = null;
-    };
-    while (row < rows || col < cols) {
-      if (row < rows && col < cols && midOld[row] === midNew[col]) {
-        close(row, col);
-        row += 1;
-        col += 1;
-        continue;
-      }
-      open ??= [row, col];
-      if (col < cols && (row >= rows || lcs[row]![col + 1]! >= lcs[row + 1]![col]!)) col += 1;
-      else row += 1;
-    }
-    close(rows, cols);
-  }
-  return ranges;
-}
-
-/** What changed between two texts, as whole-line hunks of the old text. */
-function hunksBetween(base: string, current: string): Hunk[] {
-  if (base === current) return [];
-  // Each text ends in a sentinel newline for the diff, so every real line has one; it is taken off the hunks below.
-  const oldLines = `${base}\n`.split("\n");
-  const newLines = `${current}\n`.split("\n");
-  const offsets = (lines: string[]) => {
-    const out = [0];
-    for (const line of lines) out.push(out[out.length - 1]! + line.length + 1);
-    return out;
-  };
-  const oldAt = offsets(oldLines);
-  const newAt = offsets(newLines);
-  const ranges = changedRanges(oldLines, newLines);
-  const hunks: Hunk[] = [];
-  for (const [oldFrom, oldTo, newFrom, newTo] of ranges) {
-    // Whole lines, each with its newline (the last line of a text has none).
-    let from = oldAt[oldFrom]!;
-    let to = oldAt[oldTo]!;
-    let text = `${current}\n`.slice(newAt[newFrom]!, newAt[newTo]!);
-    if (from > base.length) {
-      // Lines added at the very end: the newline that ends the last line goes with them.
-      from = to = base.length;
-      text = `\n${text.slice(0, -1)}`;
-    } else if (to > base.length) {
-      to = base.length;
-      text = text.slice(0, -1);
-    }
-    // Whole lines, not the characters that differ: a patch that rewrote a sentence of a line has no record here of
-    // which words it meant, so a later patch to any other part of that line is not told apart from it.
-    hunks.push({ start: from, end: to, replacement: text });
-  }
-  // The hunks must turn the old text into the new one; if an edge case of the line diff breaks that, the whole
-  // stretch between the first and last difference counts as rewritten (coarser, never wrong).
-  let rebuilt = "";
-  let cursor = 0;
-  for (const hunk of hunks) {
-    rebuilt += base.slice(cursor, hunk.start) + hunk.replacement;
-    cursor = hunk.end;
-  }
-  if (rebuilt + base.slice(cursor) === current) return hunks;
-  let skip = 0;
-  while (skip < base.length && skip < current.length && base[skip] === current[skip]) skip += 1;
-  let back = 0;
-  while (back < base.length - skip && back < current.length - skip && base[base.length - 1 - back] === current[current.length - 1 - back]) back += 1;
-  return [{ start: skip, end: base.length - back, replacement: current.slice(skip, current.length - back) }];
-}
-
-/** Only these bytes are offered to the conflict responder. */
-export interface MergeConflict {
-  region_base: string;
-  region_ours: string;
-  region_theirs: string;
-}
-
-export type MergePart = string | MergeConflict;
-
-function wordHunks(base: string, changed: string): Hunk[] {
-  const tokens = (text: string) => text.match(/[\p{L}\p{N}_]+|[^\p{L}\p{N}_]/gu) ?? [];
-  const oldWords = tokens(base), newWords = tokens(changed);
-  const offsets = [0];
-  for (const word of oldWords) offsets.push(offsets.at(-1)! + word.length);
-  return changedRanges(oldWords, newWords).map(([from, to, addedFrom, addedTo]) => ({
-    start: offsets[from]!, end: offsets[to]!, replacement: newWords.slice(addedFrom, addedTo).join(""),
-  }));
-}
-
-/** Lines merge first; overlapping line changes are compared by words, with whitespace retained verbatim. */
-export function mergeText(base: string, ours: string, theirs: string): MergePart[] {
-  return mergeParts(base, ours, theirs, false);
-}
-
-function mergeParts(base: string, ours: string, theirs: string, words: boolean): MergePart[] {
-  if (ours === theirs) return [ours];
-  if (ours === base) return [theirs];
-  if (theirs === base) return [ours];
-  const diff = words ? wordHunks : hunksBetween;
-  const changes = [
-    ...diff(base, ours).map(hunk => ({...hunk, side: "ours" as const})),
-    ...diff(base, theirs).map(hunk => ({...hunk, side: "theirs" as const})),
-  ].sort((a, b) => a.start - b.start || a.end - b.end);
-  const overlaps = (a: Hunk, b: Hunk) =>
-    (a.start < b.end && b.start < a.end) || (a.start === a.end && b.start === b.end && a.start === b.start);
-  const parts: MergePart[] = [];
-  let cursor = 0;
-  for (let index = 0; index < changes.length;) {
-    const group = [changes[index++]!];
-    while (index < changes.length && group.some(hunk => overlaps(hunk, changes[index]!))) group.push(changes[index++]!);
-    const start = group[0]!.start, end = Math.max(...group.map(hunk => hunk.end));
-    parts.push(base.slice(cursor, start));
-    const region = base.slice(start, end);
-    const version = (side: "ours" | "theirs") => applyLocated(region, group.filter(hunk => hunk.side === side)
-      .map(hunk => ({start: hunk.start - start, end: hunk.end - start, replacement: hunk.replacement})));
-    const left = version("ours"), right = version("theirs");
-    if (left === right) parts.push(left);
-    else if (left === region) parts.push(right);
-    else if (right === region) parts.push(left);
-    else if (!words) parts.push(...mergeParts(region, left, right, true));
-    else parts.push({region_base: region, region_ours: left, region_theirs: right});
-    cursor = end;
-  }
-  parts.push(base.slice(cursor));
-  return parts;
-}
-
 /**
  * A patch read at `base`, placed in `current` (a rebase, as git does it): the spans are located in the text the
  * writer saw, and each carries over when the newer text left that passage alone. A span lands where it moved to
@@ -335,14 +177,15 @@ function mergeParts(base: string, ours: string, theirs: string, words: boolean):
 export function rebaseSpans(base: string, current: string, spans: readonly DraftPatchSpan[]): LocatedSpans {
   const seen = locateSpans(base, spans);
   if (!seen.ok) return seen;
-  const hunks = hunksBetween(base, current);
+  const hunks = editHunks(base, current);
+  if (!hunks) return {ok: false, index: 0, reason: "too large to merge safely; read the current note and propose the edit again"};
   const located: LocatedSpan[] = [];
   for (const [index, span] of spans.entries()) {
     const at = locateSpan(base, span) as { start: number; end: number };
     const touched = hunks.some(hunk => (at.start < hunk.end && hunk.start < at.end) || (hunk.start === hunk.end && at.start < hunk.start && hunk.start < at.end));
     if (touched) return { ok: false, index, reason: "someone changed that passage since it was read" };
     let delta = 0;
-    for (const hunk of hunks) if (hunk.end <= at.start) delta += hunk.replacement.length - (hunk.end - hunk.start);
+    for (const hunk of hunks) if (hunk.end <= at.start) delta += hunk.text.length - (hunk.end - hunk.start);
     const start = at.start + delta;
     const end = start + span.observed.length;
     if (current.slice(start, end) !== span.observed) return { ok: false, index, reason: "the observed text isn't there any more" };

@@ -241,6 +241,21 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     return { id, s, h, d, type };
   }
 
+  test("an empty held draft leaves a non-empty resolution open instead of losing it", async () => {
+    const e = await editing("Garden");
+    try {
+      const saved = (await board.get(e.id))!;
+      const pending = await agent.request<{proposalId: string}>("draft.patch", {blockId: e.id, revision: saved.revision, propose: "always", patches: [{observed: "", replacement: "\nNew line."}], mutation: {author: "agent", actorId: "gardener"}});
+      e.d.replace("", undefined, undefined, true);
+      const result = await board.request<{outcome: string; message: string}>("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
+      expect(result.outcome).toBe("open");
+      expect(result.message).toContain("empty draft");
+      expect(e.d.text).toBe("");
+      expect((await board.get(e.id))!.text).toBe("Garden");
+      expect(prop((await board.get(pending.proposalId))!, "proposal-status")).toBe("open");
+    } finally { e.s.dispose(); }
+  });
+
   test("resolving a sentence deletion in a held draft undoes byte for byte", async () => {
     const folder = join(scratch.workspace, "extensions", "tidy");
     cpSync(join(outliner!, "extensions", "tidy"), folder, {recursive: true});

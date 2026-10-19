@@ -1,3 +1,4 @@
+import {mergeEdits, type MergeConflict} from "@ep0ch/outline-core/edit-merge";
 import { diffLines } from "diff";
 import { isSqliteBusy } from "./sqlite-busy";
 import { wholeTextSpan } from "./extension-writes";
@@ -24,8 +25,6 @@ import {
   locateSpans,
   locateSpanForced,
   markStart,
-  mergeText,
-  type MergeConflict,
   rebaseSpans,
   spanContext,
   type DraftPatchSpan,
@@ -463,7 +462,10 @@ export class DraftPatchRouter {
           const located = locateSpans(original.text, edit.patches);
           if (!located.ok) return leaveOpen(located.reason);
           const theirs = applyLocated(original.text, located.spans);
-          const parts = mergeText(original.text, current.text, theirs);
+          if (current.route === "draft" && !current.text && theirs) return leaveOpen("the empty draft cannot receive this merge safely; save or close it, then resolve again");
+          const comparison = mergeEdits(original.text, current.text, theirs, {refine: true});
+          if (comparison.incomplete) return leaveOpen("too large to merge safely; edit the proposal by hand");
+          const parts = comparison.parts!;
           let merged = "";
           for (const part of parts) {
             if (typeof part === "string") { merged += part; continue; }
@@ -491,8 +493,9 @@ export class DraftPatchRouter {
         }));
         if (!outcome.ok) return leaveOpen(outcome.reason);
         outcome.applied.push({ blockId: proposalId, route: "saved", revision: store.requireActive(proposalId).revision });
+        const undo = prepared ? prepared.done(outcome.applied, outcome.inverse) : this.deps.keepResolution?.(outcome.applied, outcome.inverse);
         this.settled(proposalId, "resolved", actor);
-        return { outcome: "resolved", proposalId, message: messages.join(" "), ...(prepared ? prepared.done(outcome.applied, outcome.inverse) : this.deps.keepResolution?.(outcome.applied, outcome.inverse)) };
+        return { outcome: "resolved", proposalId, message: messages.join(" "), ...undo };
       } catch (error) {
         return leaveOpen(error instanceof Error ? error.message : String(error));
       }

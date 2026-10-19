@@ -30,6 +30,9 @@
     },
     "packages/outline-core": {
       "name": "@ep0ch/outline-core",
+      "dependencies": {
+        "diff": "8.0.4",
+      },
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5.9.3",

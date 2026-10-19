@@ -27,7 +27,7 @@ import { DRAFT_PROPOSAL_TYPE, type DraftGroup, type DraftGroupWrite, type DraftP
 import type { DraftGroupInput } from "./draft-patch-router";
 import { namesDemoIds, rewriteDemoReferences } from "./extension-demo";
 import { cleanExtensionText, extensionActorId } from "./extension-records";
-import type { OutlinerStore } from "./store";
+import type { AgentRequestRow, OutlinerStore } from "./store";
 // An EchoNet copy (`[from::<node>/<original id>]`) as EchoNet reads it: its text is its origin's, so a move never
 // rewrites it; its origin is told by netmail (ADR 0005).
 import { isCopy } from "../extensions/echonet/shapes";
@@ -130,7 +130,7 @@ type UndoStep =
  * A group that landed: its steps, and the outline as the group left it (each block's revision, each parent's
  * children in order), which undo finds again or refuses.
  */
-interface Receipt { id: string; extension: string; action: string; steps: UndoStep[]; revisions: Map<string, number>; children: Map<string, string[]>; running?: boolean; drafts?: DraftPatchEdit[]; problem?: string; deleted?: Map<string, boolean> }
+interface Receipt { requests?: AgentRequestRow[]; id: string; extension: string; action: string; steps: UndoStep[]; revisions: Map<string, number>; children: Map<string, string[]>; running?: boolean; drafts?: DraftPatchEdit[]; problem?: string; deleted?: Map<string, boolean> }
 
 /** What an applied group answers: the blocks it wrote, or the proposal it waits as; `undo` names the step that undoes it. */
 export interface GroupOutcome {
@@ -329,6 +329,10 @@ export class ExtensionWrites {
     const attribution = this.store.changes.attribution({ action: `${receipt.action}.undo`, actor: by });
     const written = new Set<string>();
     this.store.changes.run(attribution, () => this.store.atomically(() => {
+      for (const request of receipt.requests ?? []) {
+        this.store.putAgentRequest(request);
+        written.add(request.blockId);
+      }
       for (const step of [...receipt.steps].reverse()) {
         if (step.kind === "update") {
           const now = this.store.get(step.blockId)!;
@@ -590,7 +594,11 @@ export class ExtensionWrites {
       if (step.kind === "create") children.set(step.blockId, this.liveChildren(step.blockId));
     }
     const id = crypto.randomUUID();
-    this.receipts.set(id, { id, extension, action, steps, revisions, children, ...(drafts ? { drafts } : {}) });
+    const requests = edits.flatMap(edit => {
+      const row = this.store.agentRequestByProposal(edit.blockId);
+      return row?.status === "proposed" ? [row] : [];
+    });
+    this.receipts.set(id, { id, extension, action, steps, revisions, children, requests, ...(drafts ? { drafts } : {}) });
     this.prune();
     return { undo: id };
   }
