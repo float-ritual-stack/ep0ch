@@ -1505,7 +1505,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The tile the current note comes from: the one with a selection that moved it last, else the first such tile (a tree). */
   private currentSource(): { source?: number } {
-    const selects = (id: number | undefined) => id !== undefined && !!kindOf(this.panes.get(id))?.previews;
+    // Readers can select inline rows without becoming the list that drives following readers.
+    const selects = (id: number | undefined) => {
+      const p = id === undefined ? undefined : this.panes.get(id);
+      return !!p && !!kindOf(p)?.previews && (kindOf(p)?.lists?.(p) ?? !(p instanceof ReaderPane));
+    };
     const at = selects(this.currentBy) ? this.currentBy : [...this.panes.keys()].find(selects);
     return at !== undefined ? { source: at } : {};
   }
@@ -3654,7 +3658,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const words = verbs.map(verb => this.wireWords(id, verb));
     const wide = verbs.map((verb, i) => ` ${verb === "open" ? "⏎" : verb} → ${words[i]}`);
     const short = verbs.map((verb, i) => ` ${glyphs[verb]} ${words[i]}`);
-    const room = max - xNow() - 14;
+    const chain = this.chainWords(id);
+    const room = max - xNow() - 14 - width(chain);
     const labels = wide.reduce((n, x) => n + width(x), 0) <= room ? wide : short.reduce((n, x) => n + width(x), 0) <= room ? short : verbs.map(verb => ` ${glyphs[verb]}`);
     if (framed && (kindOf(p)?.previews || kindOf(p)?.accepts?.notes)) {
       // Wire controls are separate from the tile's identity and dock state.
@@ -3667,7 +3672,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     // The chain it is in (PIE-700): the tiles whose links end here, and, for the reader an open from outside (the drawer's
     // what-changed list, `ep0ch open`) lands in, that it is that one: "reader10 ← reader9", "reader9 ⏎ drawer → reader10".
-    const chain = this.chainWords(id);
     if (chain) put(chain, fg(C.lmagenta));
     // What an agent may do here (PIE-639): free says nothing; a click cycles it (tile.agent), as ^W g does.
     const ag = this.agentOf(id).level;
