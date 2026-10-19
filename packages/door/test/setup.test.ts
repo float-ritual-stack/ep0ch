@@ -1376,15 +1376,15 @@ for (const platform of ["darwin", "linux"]) for (const kind of ["link", "backup"
   }
   const fake = `#!${process.execPath}
 import { existsSync, writeFileSync, unlinkSync, appendFileSync } from 'node:fs';
-const args = process.argv.slice(2), home = process.env.HOME, state = home + '/loaded', enabled = home + '/enabled';
+const args = process.argv.slice(2), home = process.env.HOME, state = home + '/loaded', pending = home + '/unloading', enabled = home + '/enabled';
 const command = args[0] === '--user' ? args[1] : args[0];
 appendFileSync(home + '/commands', command + '\\n');
 if (existsSync(home + '/fail') && ['bootout', 'restart', 'kickstart'].includes(command)) { console.error('Permission denied'); process.exit(1); }
-if (command === 'print' || command === 'is-active') { if (existsSync(state)) { console.log('job = {\\n\\tstate = running\\n}'); process.exit(0); } process.exit(3); }
+if (command === 'print' || command === 'is-active') { if (existsSync(pending)) { if (!existsSync(home + '/stuck')) { unlinkSync(pending); unlinkSync(state); } console.log('state = running'); process.exit(0); } if (existsSync(state)) { console.log('job = {\\n\\tstate = running\\n}'); process.exit(0); } process.exit(3); }
 if (command === 'is-enabled') process.exit(existsSync(enabled) ? 0 : 1);
 if (command === 'enable') writeFileSync(enabled, 'yes');
-if (command === 'bootout') { if (!existsSync(state)) { console.error('Boot-out failed: 3: No such process'); process.exit(3); } unlinkSync(state); }
-if (command === 'bootstrap') { if (existsSync(state)) { console.error('Bootstrap failed: 5: Input/output error'); process.exit(5); } writeFileSync(state, 'yes'); }
+if (command === 'bootout') { if (!existsSync(state)) { console.error('Boot-out failed: 3: No such process'); process.exit(3); } writeFileSync(pending, 'yes'); }
+if (command === 'bootstrap') { if (existsSync(state)) { if (existsSync(pending)) { unlinkSync(pending); unlinkSync(state); } console.error('Bootstrap failed: 5: Input/output error'); process.exit(5); } writeFileSync(state, 'yes'); }
 if (command === 'restart' || command === 'kickstart') writeFileSync(state, 'yes');
 `;
   for (const name of ["launchctl", "systemctl"]) writeFileSync(join(bin, name), fake, { mode: 0o755 });
@@ -1407,9 +1407,15 @@ if (command === 'restart' || command === 'kickstart') writeFileSync(state, 'yes'
     expect(lines.join('\n')).toContain("this machine serves no outlines; nothing to host or back up");
   }
   const unit = platform === "darwin" ? join(home, `Library/LaunchAgents/io.ep0ch.${kind}.plist`) : join(home, `.config/systemd/user/ep0ch-${kind}.${kind === "backup" ? "timer" : "service"}`);
-  writeFileSync(unit, readFileSync(unit, "utf8") + "\n");
-  lines.length = 0;
-  expect(await setupCommand(["install", "--apply", "--json"], io)).toBe(0);
+  if (platform === "darwin") rmSync(join(home, "loaded"));
+  const runs: { code: number; errors: string[] }[] = [];
+  for (let pass = 0; pass < 3; pass++) {
+    writeFileSync(unit, readFileSync(unit, "utf8") + "\n");
+    lines.length = 0;
+    const code = await setupCommand(["install", "--apply", "--json"], io);
+    runs.push({ code, errors: lines.filter(l => l.includes('"ok": false')) });
+  }
+  expect(runs).toEqual(Array.from({ length: 3 }, () => ({ code: 0, errors: [] })));
   expect(existsSync(join(home, "loaded"))).toBe(true);
   writeFileSync(unit, readFileSync(unit, "utf8") + "\n");
   writeFileSync(join(home, "fail"), "yes");
@@ -1418,7 +1424,20 @@ if (command === 'restart' || command === 'kickstart') writeFileSync(state, 'yes'
   expect(lines.join('\n')).toContain("Permission denied");
   expect(lines.join('\n')).toContain("recover:");
   expect(lines.join('\n')).toContain("nothing after");
-}, 30_000);
+  if (platform === "darwin" && kind === "link") {
+    rmSync(join(home, "fail"));
+    writeFileSync(unit, readFileSync(unit, "utf8") + "\n");
+    writeFileSync(join(home, "stuck"), "yes");
+    lines.length = 0;
+    expect(await setupCommand(["install", "--apply", "--json"], io)).toBe(1);
+    const failure = JSON.parse(lines.at(-1)!).steps.find((s: any) => s.error);
+    expect(failure.error).toContain("did not unload");
+    expect(failure.recover).toContain(`launchctl bootout gui/${process.getuid?.() ?? 0}/io.ep0ch.link`);
+    expect(failure.recover).toContain("ep0ch install --apply");
+    expect(existsSync(join(home, "unloading"))).toBe(true);
+    expect(existsSync(join(home, "loaded"))).toBe(true);
+  }
+}, 60_000);
 
 test("install records a deploy in the host's default outline from an unnamed folder", async () => {
   const { ScratchHost } = await import("./scratch");

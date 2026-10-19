@@ -447,7 +447,9 @@ commands look after it, on macOS and Linux alike:
     ep0ch install --apply            run it
 
 Repeated installs leave unchanged, running link and backup units alone ("already installed and running").
-Changed launchd units are unloaded before bootstrap; systemd reloads its definitions and restarts the unit.
+Changed launchd units are unloaded before bootstrap. After bootout, install checks every 250 ms for up to
+10 seconds that launchd has released the label; if it has not, install stops and names the bootout command
+and `ep0ch install --apply` to run again. systemd reloads its definitions and restarts the unit.
 A machine with no local outline databases skips hosting and backups without asking for bucket keys.
 Deploy records use the local host's configured default outline when the invoking folder names none.
 

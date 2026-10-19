@@ -95,7 +95,20 @@ class StepFailed extends Error { constructor(message: string, readonly recover: 
 async function must(cmd: string[], recover: string, opts: { cwd?: string; env?: Env; timeoutMs?: number; onLine?: OnLine } = {}): Promise<string> {
   const r = await run(cmd, { timeoutMs: 300_000, ...opts });
   if (r.code !== 0) throw new StepFailed(`${cmd.join(" ")} failed: ${withoutProgress(r.err) || r.out || `exit ${r.code}`}`, recover);
+  if (cmd[0] === "launchctl" && cmd[1] === "bootout") await waitForLaunchdUnload(cmd[2]!, opts.env);
   return r.out;
+}
+
+async function waitForLaunchdUnload(target: string, env?: Env): Promise<void> {
+  // bootout returns before launchd releases the label; bootstrap must wait for that release.
+  const end = Date.now() + 10_000;
+  while (Date.now() < end) {
+    const r = await run(["launchctl", "print", target], { env, timeoutMs: end - Date.now() });
+    if (r.code === 3 || r.code === 113) return;
+    if (r.code !== 0) throw new StepFailed(`launchctl print ${target} failed: ${r.err || r.out || `exit ${r.code}`}`, `run launchctl bootout ${target}, then ep0ch install --apply again`);
+    await Bun.sleep(Math.min(250, Math.max(0, end - Date.now())));
+  }
+  throw new StepFailed(`launchd did not unload ${target} within 10 seconds`, `run launchctl bootout ${target}, then ep0ch install --apply again`);
 }
 
 /** A child's stderr without the progress lines asked for with --progress (Receiving objects:  45% (90/200)). */
