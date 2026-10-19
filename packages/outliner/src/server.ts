@@ -1939,7 +1939,7 @@ export class OutlinerServer {
       try {
         if (this.readOnly && !["artifacts.show", "artifacts.list", "artifacts.versions"].includes(request.action)) throw new Error("This outline is read-only.");
         this.artifactStore ??= new ArtifactStore(this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename));
-        const result = request.action === "artifacts.deploy" ? await deployArtifact(this.artifactStore, this.store, request.repo, request.mutation)
+        const result = request.action === "artifacts.deploy" ? await deployArtifact(this.artifactStore, this.store, request.repo, request.mutation, request.domain)
           : request.action === "artifacts.dns" ? await artifactDns(request.name, request.to)
           : request.action === "artifacts.backfill" ? await backfillArtifacts(this.artifactStore, this.store, request.catalogue)
           : await this.artifactStore.request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot);

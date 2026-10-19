@@ -1267,7 +1267,7 @@ export function runAgentOperation(
   if (checked && !checked.ok) return Promise.reject(new WorkToolRefusal(checked.error));
   const any = (checked?.ok ? (operation === "view-order" ? { ...checked.args, view: checked.args.ref } : checked.args) : input) as any;
   switch (operation) {
-    case "artifact-deploy": return client.request({ action: "artifacts.deploy", repo: any.repo, mutation: mutationOf(writer()) });
+    case "artifact-deploy": return client.request({ action: "artifacts.deploy", repo: any.repo, domain: any.domain, mutation: mutationOf(writer()) });
     case "read": return readBlock(client, any);
     case "find": return findBlocks(client, any);
     case "resolve": return resolveRef(client, any.ref);

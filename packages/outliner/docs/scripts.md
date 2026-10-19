@@ -127,7 +127,7 @@ TypeError (there is no such function): `Object.keys(tools)` lists the ones there
 
 | Tool | Effect | Arguments (**required**) | What it does | Source |
 |---|---|---|---|---|
-| `tools.artifact_deploy` | writes | **repo** | Deploy an ep0ch-artifacts repo, register it and update notes that name it. | `packages/outline-core/src/agent-tool-definitions.ts:82` |
+| `tools.artifact_deploy` | writes | **repo**, domain | Deploy an ep0ch-artifacts repo, register it and update notes that name it. | `packages/outline-core/src/agent-tool-definitions.ts:82` |
 | `tools.outline_read` | reads | **ref**, depth, limit | Read the note `ref`: its full text (never just the title), `properties` (each key once with its `values`, as `find --json` gives them) and `fields`… | `packages/outline-core/src/agent-tool-definitions.ts:88` |
 | `tools.outline_find` | reads | text, property, hasKey, query, view, under, limit, machinery | Find blocks (no `ref` needed) by text, a property (`key=value`, or `key`), a property key (hasKey), a query in the saved-view grammar… | `packages/outline-core/src/agent-tool-definitions.ts:110` |
 | `tools.outline_resolve` | reads | **ref** | Resolve `ref` ([[page]], ((id)), a Work ID or an id) to its block id, title and revision, without reading the whole note. | `packages/outline-core/src/agent-tool-definitions.ts:137` |
@@ -166,22 +166,22 @@ has. The tone is one of `default`, `good`, `warn`, `bad`, `dim`, `accent`.
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong`, `act` | `packages/outliner/src/component-primitives.ts:205` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:210` |
-| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:213` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:220` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:227` |
-| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:234` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:260` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:271` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:277` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:295` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:298` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:301` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:306` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:322` |
-| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:329` |
-| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:217` |
+| `view.text` | `text`, `tone`, `strong`, `act` | `packages/outliner/src/component-primitives.ts:206` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:211` |
+| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:214` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:221` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:228` |
+| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:235` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:261` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:272` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:278` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:296` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:299` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:302` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:307` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:323` |
+| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:330` |
+| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:218` |
 
 <!-- generated:view:end -->
 
@@ -282,7 +282,7 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:41` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:801` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:804` |
 | `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:417` |
 
 ## Effects, access and attribution
