@@ -1451,7 +1451,7 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   screen, the page, a box. `measure` holds a note's text to that many columns, centred (a reader's is 88 unless the
   outline says otherwise); `pad` is inside a tile's frame, one row and two columns per step (cells are about twice as
   tall as wide); `[style.narrow.…]` and `[style.wide.…]` apply under 60 columns and from 140. `alt+y` opens the tune
-  inspector beside a tile: each value and where it comes from, nudged with `+ −` (a click, the wheel over a value) and
+  inspector under a tile (beside it when too short to split, said on its first line): each value and where it comes from, nudged with `+ −` (a click, the wheel over a value) and
   drawn in the next frame, saved with `s` where it's set or to the level you pick (`v`), `w` for this width only, `u`
   undo and `U` redo every step, `x` resets a value to what it inherits, `X` resets the picked level and `R` reverts every style note the session wrote (both asked in place); quitting with nudges unsaved says so. Spacing is drawn, never text: a drag, `y` and `Y`, `select.copy`,
   `peek` and `ep0ch export` give the note's words. **Known limit:** a terminal's own selection (a shift-drag in kitty,
