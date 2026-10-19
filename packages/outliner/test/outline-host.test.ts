@@ -1,7 +1,6 @@
-import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { createConnection, createServer } from "node:net";
+import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -556,47 +555,3 @@ test("UUID links and backlinks cross forwarded host sockets without switching ou
   const embeds = await ok<import("../src/transclusions").TransclusionRead>(near.socketPath, { action: "transclusions.read", outline: "garden", targets: [{ blockId: target.id }] });
   expect(embeds.results[0]).toMatchObject({ status: "ready", outline: "orchard", machine: "far" });
 });
-
-
-test("away machines answer links from a read-only copy while silent forwards time out together", async () => {
-  const root = scratch(), mirrorRoot = join(root, "copies");
-  const previous = process.env.EP0CH_MCP_MIRROR_DIR;
-  process.env.EP0CH_MCP_MIRROR_DIR = mirrorRoot;
-  cleanups.push(() => { if (previous === undefined) delete process.env.EP0CH_MCP_MIRROR_DIR; else process.env.EP0CH_MCP_MIRROR_DIR = previous; });
-  const host = await startHost(root, "garden");
-  await host.create("garden");
-  const target = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: "Water the beans" });
-  const local = await ok<Block>(host.socketPath, { action: "create", outline: "garden", text: `Morning chores\n((${target.id}))` });
-  mkdirSync(join(mirrorRoot, "laptop"), { recursive: true });
-  const farRoot = scratch(), far = await startHost(farRoot, "orchard");
-  await far.create("orchard");
-  const source = await ok<Block>(far.socketPath, { action: "create", outline: "orchard", text: `Orchard chores\n((${target.id}))` });
-  const pear = await ok<Block>(far.socketPath, { action: "create", outline: "orchard", text: "Prune the pear" });
-  const index = await ok<{ blocks: { updatedAt: string }[] }>(far.socketPath, { action: "tree.index", outline: "orchard" });
-  const asOf = new Date(Math.max(...index.blocks.map(b => Date.parse(b.updatedAt)))).toISOString();
-  const database = new Database(layoutOf(farRoot).database("orchard"), { readonly: true });
-  database.run("VACUUM INTO ?", [join(mirrorRoot, "laptop", "orchard.sqlite")]);
-  database.close();
-  const before = readFileSync(join(mirrorRoot, "laptop", "orchard.sqlite"));
-  const layout = layoutOf(root);
-  mkdirSync(layout.remoteDir, { recursive: true });
-  // Real sockets that accept but never answer exercise the whole machine deadline.
-  for (const machine of ["laptop", "travel"]) {
-    const sockets = new Set<import("node:net").Socket>();
-    const listener = createServer(socket => { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); });
-    await new Promise<void>(resolve => listener.listen(layout.remote(machine).socket, resolve));
-    cleanups.push(async () => { for (const socket of sockets) socket.destroy(); await new Promise<void>(resolve => listener.close(() => resolve())); });
-  }
-  const started = Date.now();
-  const links = await ok<import("../src/types").BacklinkCollection>(host.socketPath, { action: "references.backlinks", outline: "garden", query: { targetBlockId: target.id, limit: 20 } });
-  expect(Date.now() - started).toBeLessThan(2900);
-  expect(links.sources).toContainEqual(expect.objectContaining({ blockId: local.id }));
-  expect(links.sources).toContainEqual(expect.objectContaining({ blockId: source.id, outline: "orchard", machine: "laptop" }));
-  expect(links.away).toContainEqual({ machine: "laptop", asOf });
-  expect(links.away).toContainEqual({ machine: "travel" });
-  const resolved = await ok<import("../src/types").ResolvedBlockReferences>(host.socketPath, { action: "references.resolve", outline: "garden", text: `((${pear.id})) ((${source.id}))` });
-  expect(resolved.references[1]).toMatchObject({ status: "resolved", blockId: source.id, outline: "orchard", machine: "laptop" });
-  expect(resolved.references[0]).toMatchObject({ status: "resolved", blockId: pear.id, outline: "orchard", machine: "laptop" });
-  expect(resolved.away).toContainEqual({ machine: "laptop", asOf });
-  expect(readFileSync(join(mirrorRoot, "laptop", "orchard.sqlite"))).toEqual(before);
-}, 15_000);

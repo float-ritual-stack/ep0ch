@@ -1,4 +1,3 @@
-import { awayLine } from "@ep0ch/outline-core/outline-away";
 import { addressedResource } from "./open";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { subtitleSuffix } from "./text";
@@ -175,7 +174,6 @@ export function threadRows(t: ThreadData, open: ReadonlySet<string> = new Set())
 
 /** One row of a block's links: a group's header, a backlink kind's header, or a link. `key` is stable across reads. */
 export type LinkRow =
-  | { kind: "away"; key: string; depth: number; text: string }
   | { kind: "group"; key: string; depth: number; group: LinkGroupName; open: boolean; count: number | null; note: string }
   | { kind: "kind"; key: string; depth: number; group: BacklinkViewGroup; expanded: boolean }
   | { kind: "outlink"; key: string; depth: number; link: AuthoredOutlink }
@@ -264,9 +262,6 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
     }
     const open = !view.shut.has(group);
     out.push({ kind: "group", key, depth, group, open, count, note });
-    if (group === "backlinks" && data.backlinks.kind === "ready") {
-      for (const away of data.backlinks.value.away ?? []) out.push({ kind: "away", key: `${key}${SEP}away:${away.machine}`, depth: depth + 1, text: awayLine(away) });
-    }
     if (open) out.push(...entries);
   }
   return out;
@@ -394,7 +389,6 @@ export const isLinkEntry = (r: LinkRow | undefined): r is Extract<LinkRow, { kin
  */
 export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: string; text: string; context: string; problem?: boolean } {
   switch (r.kind) {
-    case "away": return { mark: "", text: r.text, context: "" };
     case "group": {
       const g = LINK_GROUPS.find(x => x.group === r.group)!;
       return { mark: r.open ? "▾" : "▸", text: `${g.glyph} ${r.group}${r.count === null ? "" : ` (${r.count})`}`, context: r.note };
@@ -440,7 +434,7 @@ export function linkRowLine(r: LinkRow, o: { cols: number; selected?: boolean; f
   const tail = sub ? sub + fg(C.dark) + (width(head + text + sub + contextTail) <= o.cols ? contextTail : "") : contextTail;
   const shown = o.tag ? o.tag(text) : text;
   if (o.selected) return selectedRow(head + shown + tail, o.cols, o.focused ?? true, "idleRow");
-  const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : (r.kind === "fold" || r.kind === "away") ? C.dark : r.kind === "child" && r.thread?.here ? C.lcyan : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
+  const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : r.kind === "fold" ? C.dark : r.kind === "child" && r.thread?.here ? C.lcyan : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
   // A group's stage values in their family's colour (PIE-819), when the whole of them fits as drawn.
   const inks = r.kind === "kind" && tail === " " + words.context ? familyInks(r.group, words.context) : null;
   return pad(`${fg(C.lcyan)}${head}${fg(colour)}${shown}${fg(C.dark)}${inks ? " " + inks : tail}`, o.cols) + RESET;
@@ -492,7 +486,6 @@ function unregisteredNote(link: AuthoredResourceLink): Msg {
  * made on the Resource as its reference context (PIE-650).
  */
 export async function linkNote(r: LinkRow, board: LinkBoard, how: "show" | "open", actor: Actor = USER, from?: string): Promise<{ note: Msg; registered?: boolean; ticket?: string }> {
-  if (r.kind === "away") throw new ActionRefused(r.text);
   if (r.kind === "group" || r.kind === "kind") throw new ActionRefused("a group's header stands for no note: ⏎ folds it");
   if (r.kind === "backlink") {
     const m = await board.get(r.source.blockId);

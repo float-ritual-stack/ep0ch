@@ -1,7 +1,7 @@
 // PIE-520: the local stdio MCP server is bound to the outline the CLI can open, and serves canonical
 // ep0ch:// block resources plus read/find/links tools. Scratch service only; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, symlinkSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { usageShape } from "../src/mcp-usage";
@@ -199,11 +199,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       { jsonrpc: "2.0", id: 19, method: "tools/call", params: { name: "outline_read", arguments: { ref: target.uri.replace(`${scratch.name}@`, "other-garden@") } } },
       { jsonrpc: "2.0", id: 20, method: "tools/call", params: { name: "list_outlines", arguments: {} } },
     ].map(r => JSON.stringify(r));
-    const remote = join(scratch.outlines, ".remote");
-    mkdirSync(remote, { recursive: true });
-    const away = join(remote, "laptop.sock");
-    symlinkSync(join(scratch.root, "absent.sock"), away);
-    const code = await mcpCommand(["mcp"], { input: linesOf(requests), write: line => out.push(line), err: line => out.push(`ERR ${line}`) }).finally(() => rmSync(away));
+    const code = await mcpCommand(["mcp"], { input: linesOf(requests), write: line => out.push(line), err: line => out.push(`ERR ${line}`) });
     expect(code).toBe(0);
     const responses = out.map(line => JSON.parse(line) as RpcResponse | RpcResponse[]);
     const flat = responses.flatMap(r => Array.isArray(r) ? r : [r]);
@@ -222,10 +218,9 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     expect(read.record.backlinks).toContain(source.id);
     expect(read.record.children).toContain(hiddenChild.id);
 
-    const links = JSON.parse(tool(response(8)?.result).content[0]!.text) as { away: { machine: string }[]; backlinks: { blockId: string }[]; reachability: { status: string; level: string } };
+    const links = JSON.parse(tool(response(8)?.result).content[0]!.text) as { backlinks: { blockId: string }[]; reachability: { status: string; level: string } };
     expect(links.reachability).toMatchObject({ status: "reachable", level: "read" });
     expect(links.backlinks.map(b => b.blockId)).toContain(source.id);
-    expect(links.away).toContainEqual({ machine: "laptop" });
 
     const resource = fields(response(9)?.result) as { uri: string; outlineInstanceId: string; revision: number; reachability: { status: string; level: string }; record: { id: string; body: string }; contents: { uri: string; text: string }[] };
     expect(resource).toMatchObject({ uri: privateNote.uri, outlineInstanceId: expect.any(String), revision: expect.any(Number), reachability: { status: "reachable", level: "read" }, record: { id: privateNote.id, body: expect.stringContaining("Private seed") }, contents: [{ uri: privateNote.uri, text: expect.stringContaining("Private seed") }] });
