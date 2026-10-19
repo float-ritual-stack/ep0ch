@@ -10,7 +10,7 @@ import { C, fg, glyphWidth, graphemes, pad, RESET } from "./style";
 import { paintRange, zebraBg } from "./surface/selection";
 
 /** One drawn row of a spaced list: an item's, or a row of spacing (a gap or a divider). */
-export type ListSlot = { item: number } | { gap: true } | { divider: true };
+export type ListSlot = { item: number; line?: number } | { gap: true } | { divider: true };
 
 type Spacing = Pick<StyleValues, "list.gap" | "list.divider" | "list.divider.align">;
 
@@ -32,12 +32,12 @@ export function gapSlots(v: Spacing, divided: boolean): ({ gap: true } | { divid
  * Where `count` items go with the look's spacing: the drawn rows in order, and the row each item is on. `divideBefore`:
  * whether a divider goes above item `i` (every item but the first, or a list's choice: the links tile divides its groups).
  */
-export function listSlots(count: number, v: Spacing, divideBefore: (i: number) => boolean = i => i > 0): { slots: ListSlot[]; at: number[] } {
+export function listSlots(count: number, v: Spacing, divideBefore: (i: number) => boolean = i => i > 0, heights?: readonly number[]): { slots: ListSlot[]; at: number[] } {
   const slots: ListSlot[] = [], at: number[] = [];
   for (let i = 0; i < count; i++) {
     if (i > 0) slots.push(...gapSlots(v, divideBefore(i)));
     at.push(slots.length);
-    slots.push({ item: i });
+    for (let line = 0; line < (heights?.[i] ?? 1); line++) slots.push({ item: i, line });
   }
   return { slots, at };
 }

@@ -46,6 +46,7 @@ export const TUNE_ROWS: readonly TuneRow[] = [
   { name: "margin", tokens: ["margin.y", "margin.x"] },
   { name: "margin.x", tokens: ["margin.x"] },
   { name: "margin.y", tokens: ["margin.y"] },
+  { name: "rows.lines", tokens: ["rows.lines"] },
   { name: "list.gap", tokens: ["list.gap"] },
   { name: "list.zebra", tokens: ["list.zebra"] },
   { name: "list.zebra.bg", tokens: ["list.zebra.bg"] },
@@ -86,7 +87,7 @@ export interface TuneTargetInfo {
   /** The note's pictures (a reader's), by path: what a nudge of `header.image` steps through, after the hero (empty). */
   pictures?: string[];
   /** The list the reader's [ ] is in (`this list`): where its save goes, and its own layers. */
-  list?: { target: string | null; layers: StyleLayer[]; first: number; revision?: number } | null;
+  list?: { target: string | null; layers: StyleLayer[]; first: number; revision?: number; component?: boolean } | null;
 }
 
 /** The rows that are a surface (PIE-675): drawn with a swatch of it beside the value, at the strength they're shown at. */
@@ -224,7 +225,7 @@ export class TunePane implements Pane {
     // The levels a save goes to; the one picked lit. A level this tile hasn't (no page shown) is dim.
     put([{ text: "nudge ", sgr: fg(C.dark) }, ...TUNE_LEVELS.flatMap(l => {
       const target = l === "auto" ? null : tuneTarget(l, t.look.place, t.list?.target ?? null), on = l === this.level;
-      return [{ text: ` ${l === "auto" ? "where it's set" : target ? targetWords(target) : l === "instance" ? "this tile" : l === "list" ? "this list" : l} `, sgr: on ? chip(C.blue) : fg(l === "auto" || target ? C.cyan : C.dark), action: "tune.level", args: { level: l } }, sp];
+      return [{ text: ` ${l === "auto" ? "where it's set" : target ? (l === "list" && t.list?.component ? "this component" : targetWords(target)) : l === "instance" ? "this tile" : l === "list" ? "this list" : l} `, sgr: on ? chip(C.blue) : fg(l === "auto" || target ? C.cyan : C.dark), action: "tune.level", args: { level: l } }, sp];
     })]);
     put([
       { text: this.scope === "all" ? " all widths " : ` ${t.look.breakpoint ?? "normal"} only `, sgr: chip(this.scope === "all" ? C.dark : C.magenta), action: "tune.width", args: { scope: this.scope === "all" ? "this" : "all" } }, sp,
@@ -415,7 +416,7 @@ async function takeAway(pane: TunePane, desk: DeskApi, t: TuneTargetInfo, tk: St
     const line = (await board(desk).get(at))?.text.split("\n")[src.line] ?? "";
     const tokens = liveTokensInLine(line).filter(x => x.key.toLowerCase() === styleProperty(tk, src.variant ?? null));
     if (tokens.some(x => x.value.includes("|"))) throw new ActionRefused(`${tk} on line ${src.line + 1} of note ${at.slice(0, 8)} is a tier: edit the line (or set it here with + −)`);
-    if (tokens.length) return () => { if (t.list?.revision !== undefined && !tuning.listSeen.has(target)) tuning.listSeen.set(target, t.list.revision); tuning.set(target, field, UNSET, actor, at); };
+    if (tokens.length || (t.list?.component && t.list.layers.some(l => l.fields[field] !== undefined))) return () => { if (t.list?.revision !== undefined && !tuning.listSeen.has(target)) tuning.listSeen.set(target, t.list.revision); tuning.set(target, field, UNSET, actor, at); };
     if (mine && mine.value !== UNSET) return () => { tuning.drop(target, field, actor); };
     throw new ActionRefused(`${tk} on line ${src.line + 1} of note ${at.slice(0, 8)} is set by a shorthand: edit the line`);
   }
@@ -473,7 +474,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     args: {
       by: { type: "number", about: "steps: 1 up, -1 down" },
       row: { type: "string", optional: true, about: "the row (measure, pad, pad.x, margin, list.gap, …); default the picked one" },
-      level: { type: "string", optional: true, about: "global, tile, screen, page, instance (this tile) or list (this list); default the inspector's" },
+      level: { type: "string", optional: true, about: "global, tile, screen, page, instance (this tile) or list (this list or component); default the inspector's" },
       width: { type: "string", optional: true, about: "all, or this (the tile's breakpoint now); default the inspector's" },
       shadow: { type: "string", optional: true, about: "where something nearer wins: anyway, instead or clear" },
     },
@@ -540,7 +541,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     args: {
       row: { type: "string", about: "a token (measure, pad.x, list.gap, …)" },
       value: { type: "string", about: "its value" },
-      level: { type: "string", optional: true, about: "global, tile, screen, page, instance (this tile) or list (this list); default the inspector's" },
+      level: { type: "string", optional: true, about: "global, tile, screen, page, instance (this tile) or list (this list or component); default the inspector's" },
       width: { type: "string", optional: true, about: "all, or this; default the inspector's" },
     },
     examples: [
@@ -592,7 +593,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     summary: "the level a nudge goes to: auto (where the value comes from, its width variant too: a named style, the page, the tile's kind…; the tile's kind for a built-in), or global, tile (its kind), screen, page (the note it shows), instance (this tile alone, kept in its tile spec) or list (the list the reader's [ ] is in, on its lead-in line or its section's heading). Picked, each row shows what that level says itself, and a row where something nearer wins is marked",
     keys: "v, a click on a level",
     touches: "tile", replay: "safe",
-    args: { level: { type: "string", about: "auto, global, tile, screen, page, instance (this tile) or list (this list)" } },
+    args: { level: { type: "string", about: "auto, global, tile, screen, page, instance (this tile) or list (this list or component)" } },
     examples: [
       { act: "tune.level level=screen tile=tune", does: "sends the inspector's nudges to this screen's style note" },
       { act: "tune.level level=auto tile=tune", does: "sends each nudge to where its value comes from" },
@@ -711,7 +712,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     async run({ confirm }, { pane, desk }, actor) {
       const t = pane.info(desk);
       if (!t) throw new ActionRefused(`tile ${pane.source} isn't on this screen`);
-      if (pane.level === "auto") throw new ActionRefused("pick the level to reset first (v, or tune.level): global, tile, screen, page, instance (this tile) or list (this list)");
+      if (pane.level === "auto") throw new ActionRefused("pick the level to reset first (v, or tune.level): global, tile, screen, page, instance (this tile) or list (this list or component)");
       const target = tuneTarget(pane.level, t.look.place, t.list?.target ?? null);
       if (!target) throw new ActionRefused(pane.level === "list" ? "the [ ] isn't in a list with a heading or a line above it" : `${pane.source} has no ${pane.level} level`);
       const tuning = tuningOf(desk.ctx.board), src = { board: desk.ctx.board, redraw: () => desk.redraw() };

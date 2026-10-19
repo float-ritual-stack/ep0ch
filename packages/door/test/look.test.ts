@@ -313,6 +313,32 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
     } finally { d.close(); }
   }, 30_000);
 
+  test("rows.lines tunes one component, saves its lines attribute and undoes the save", async () => {
+    const b = new SocketBoard(scratch.sock); await b.info();
+    const garden = await b.createBlock(null, 'Garden rows\n::links{groups=children title=Rows}\n::');
+    await b.createBlock(garden.id, 'Carry the trestle tables across the garden before the evening gathering');
+    const d = await door(160, b, { id: garden.id, drawn: "Carry the trestle" });
+    try {
+      for (let i = 0; i < 10 && !d.reader().surface.listAt(); i++) { d.key({ kind: "char", ch: "]" }); d.lines(); }
+      expect(d.reader().surface.listAt()?.target).toBe(`list:${garden.id}:1`);
+      const act = (action: string, args: Record<string, unknown> = {}, tile = "tune") => d.app.act({ action, args, tile, as: "look-agent" });
+      await act("tile.tune", {}, "detail");
+      for (const level of ["global", "screen", "tile", "page", "instance", "list"]) {
+        await act("tune.set", { row: "rows.lines", value: "1", level });
+      }
+      d.lines();
+      const first = d.where("Carry the trestle").y;
+      expect(d.lines()[first]).toContain("…");
+      await act("tune.set", { row: "rows.lines", value: "3", level: "list" });
+      d.lines();
+      expect(d.lines().join("\n")).toContain("evening gathering");
+      await act("tune.save", { level: "list" });
+      expect((await b.get(garden.id))!.text).toContain('lines="3"');
+      await act("tune.undo");
+      expect((await b.get(garden.id))!.text).not.toContain('lines="3"');
+    } finally { d.close(); b.close(); }
+  }, 30_000);
+
   test("an edit to a style note restyles a door that's open, through the change feed", async () => {
     const d = await door(100);
     try {

@@ -32,6 +32,17 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+  test("links rows shows one, two and truncate side by side", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "links-rows" }, as: "test-agent" });
+    await until(() => screen().includes("Carry the trestle"), "the row limit exhibit");
+    const shown = screen();
+    expect(shown).toContain("Two lines");
+    expect(shown).toContain("Truncate");
+    expect(shown).toContain("garden");
+    expect(shown).toContain("…");
+  });
+
   test("inline lists: act selects a result beyond the first box of the 60-row demo", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "inline-lists" }, as: "test-agent" });

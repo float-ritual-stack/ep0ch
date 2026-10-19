@@ -14,7 +14,7 @@
 //
 // Cells are toned by their share of the largest; an empty cell is a dot. Narrow, the column heads are cut to fit.
 import { ellipsize, fg, pad, RESET, width as vwidth } from "../style";
-import { wrap } from "../text";
+import { rowLines, wrap } from "../text";
 import { addCell, cellsOf, type Cells } from "@ep0ch/outline-core/figure-props";
 export { addCell, cellsOf, type Cells };
 import { ACCENT, DIM, HI, INK, ordered, type Props, SHADES } from "./palette";
@@ -35,11 +35,11 @@ export function drawMatrix(p: Props, w: number): string[] {
   const max = Math.max(1, ...rows.flatMap(r => cols.map(c => at(r, c))));
   // A cell's number is cut to its column too (`pad` ends it with …), so a big sum never shifts its neighbours.
   const head = " ".repeat(lw + 1) + cols.map(c => fg(HI) + pad(ellipsize(c, cw - 1), cw)).join("") + RESET;
-  const body = rows.map(r => fg(HI) + pad(ellipsize(r, lw), lw) + " " + cols.map(c => {
+  const body = rows.flatMap(r => rowLines(r, lw).map((label, line) => fg(HI) + pad(label, lw) + " " + (line ? "" : cols.map(c => {
     const n = at(r, c), s = shade(n, max);
     const tone = s >= 4 ? ACCENT : s >= 2 ? HI : s ? INK : DIM;
     return fg(tone) + pad(n ? `${SHADES[s]} ${n}` : "·", cw);
-  }).join("") + RESET);
+  }).join("")) + RESET));
   const totals = cols.map(c => rows.reduce((a, r) => a + at(r, c), 0));
   const foot = fg(DIM) + pad("", lw + 1) + totals.map(t => pad(String(t), cw)).join("") + RESET;
   return [head, ...body, fg(DIM) + "·".repeat(Math.min(w, lw + 1 + cw * cols.length)) + RESET, foot, ...(dropped ? [fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET] : [])];

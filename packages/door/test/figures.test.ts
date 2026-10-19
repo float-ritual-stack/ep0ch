@@ -357,7 +357,7 @@ describe("one width rule for every kind (PIE-581)", () => {
     const label = "dig the whole bed over, then rake it level and let it settle for a fortnight before sowing anything";
     const rows = [`- Feb: ${label} — frost permitting`, "- **Mar: potatoes** — after the frost", `- *Apr: ${label}*`];
     for (const w of [40, 60, 100]) {
-      const out = body(draw("timeline", rows, w));
+      const out = body(draw("timeline", ["---", "lines: 10", "---", ...rows], w));
       expect(out.join("\n"), `at ${w}`).not.toContain("·");
       expect(out.join("\n").replace(/[│\s]+/g, " ")).toContain(label.replace(/\s+/g, " "));
       // The spine: a │ in the first column on every line between the first dot and the last event's start.

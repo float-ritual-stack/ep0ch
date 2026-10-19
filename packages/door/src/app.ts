@@ -5,7 +5,7 @@ import { INVITES } from "./surface/invite";
 import { MacroRecording, MACRO_ACTIONS } from "./macros";
 // The door: a stack of screens, one status bar, one paint per change.
 import { actorLabel } from "@ep0ch/outline-core/attribution";
-import { tuningOf } from "./look";
+import { lookFor, tuningOf } from "./look";
 import { nextFrame, onMediaChange } from "./media";
 import { onResizeEnd, resizing } from "./resize";
 import { uncover, type Placement } from "./kitty";
@@ -20,7 +20,7 @@ import { NEW_NOTE_ACTIONS } from "./new-note";
 import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
-import { printable } from "./text";
+import { printable, withRowLimit } from "./text";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
@@ -1425,7 +1425,7 @@ export class App implements Ctx {
     this.drawer.active = !s.noDrawer;
     // What this frame draws stays in the media module's memory while it's on screen (nextFrame).
     nextFrame();
-    const frame = s.render(this);
+    const frame = withRowLimit(lookFor(this, { screen: s.title }, cols).values["rows.lines"], () => s.render(this));
     let lines = frame.lines.slice(0, rows - 1);
     while (lines.length < rows - 1) lines.push("");
     let placements = this.graphics ? [...(frame.placements ?? [])] : [];

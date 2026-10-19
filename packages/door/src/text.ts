@@ -1,7 +1,7 @@
 // Text helpers shared by the BBS screens and the desk panes.
 import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
 import { pageLinkRanges, referencedBlock } from "@ep0ch/outline-core/link-syntax";
-import { balanceStyles, balanceTags, C, ellipsize, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
+import { balanceStyles, balanceTags, C, ellipsize, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width, visible } from "./style";
 import { theme } from "./theme";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
@@ -76,7 +76,14 @@ function cut(s: string, w: number): [string, string] {
 }
 
 /** Cells: link tags and presentation marks (src/style.ts) take none, a wide glyph two. */
-const len = (s: string) => Bun.stringWidth(NO_ROOM.test(s) ? stripTags(s).replace(MARKS, "") : s);
+let measures: Map<string, number> | null = null;
+const len = (s: string) => {
+  const measured = measures?.get(s);
+  if (measured !== undefined) return measured;
+  const n = Bun.stringWidth(NO_ROOM.test(s) ? stripTags(s).replace(MARKS, "") : s);
+  measures?.set(s, n);
+  return n;
+};
 /** Stands in for a space that must not break a row (inside a property token) while `wrap` cuts it. */
 const HELD = "\uE0FF";
 const NO_ROOM = /[\uE000-\uE00A\u{100000}-\u{10FFFD}]/u;
@@ -135,6 +142,35 @@ export function wrap(text: string, w: number, { code = false, joins }: { code?: 
   // A link cut by the wrap is closed at each line's end and re-opened on the next, and a bold or italic
   // span carries on, so each row stands alone.
   return balanceStyles(balanceTags(out));
+}
+
+let rowLimit = 2;
+/** A synchronous tile paint lends its resolved row limit to shared row renderers. */
+export function withRowLimit<T>(lines: number, draw: () => T): T {
+  const previous = rowLimit, previousMeasures = measures;
+  rowLimit = lines; measures ??= new Map();
+  try { return draw(); } finally { rowLimit = previous; measures = previousMeasures; }
+}
+
+/** A display row hangs under its marker; only its last allowed line is shortened. */
+export function rowLines(text: string, w: number, lines = rowLimit, { hang }: { hang?: number } = {}): string[] {
+  if (w <= 0) return [""];
+  if (lines <= 1) return [ellipsize(text, w)];
+  const prefix = visible(text).match(/^(?:\s*(?:[→←↓♦≡∙•*▸▾-] |[A-Z][A-Z0-9]*-\d+\s*(?:[—–·:|-]\s*)?))+/)?.[0] ?? "";
+  const indent = Math.min(Math.max(hang ?? 0, width(prefix)), Math.max(0, w - 1));
+  const lead = " ".repeat(indent);
+  // Wrap the marker with the first line, then reuse wrap's seams to consume source text, not balanced tags.
+  let rest = text;
+  const out: string[] = [];
+  for (let i = 0; rest && i < lines; i++) {
+    const room = w - (i ? indent : 0), before = i ? lead : "";
+    if (i === lines - 1 || width(rest) <= room) { out.push(before + ellipsize(rest, room)); break; }
+    const joins: (string | undefined)[] = [];
+    const wrapped = wrap(rest, room, { joins });
+    out.push(before + wrapped[0]!);
+    rest = wrapped.slice(1).map((l, j) => (j ? joins[j + 1] ?? "" : "") + l).join("");
+  }
+  return out.length ? out : [""];
 }
 
 /** Each `[[page link]]` of `line` in the link colour, its brackets counted (a page link may hold another, PIE-592). */

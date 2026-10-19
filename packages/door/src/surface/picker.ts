@@ -1,4 +1,5 @@
 import type { Hint } from "./hint-card";
+import { rowLines } from "../text";
 // A list to pick from, as a mode (src/surface/modes.ts): the desk's layout picker, policy panel and search, the
 // board's hub picker, mover and steps, a reader's status choice. It holds every key while open: ↑ ↓ (j k when
 // nothing is typed), Tab, Home End, PgUp PgDn and the wheel move the cursor (a RowView); ⏎ or a double click on a row
@@ -192,7 +193,7 @@ export function linePrompt<H>(o: { name: string; title: string; text: string; pr
   const input = new LineInput(o.text, o.prefilled ?? true, { complete: false });   // a name or a path, never outline text
   return new ListPicker<string, H>({
     name: o.name, input, items: () => { const t = o.verbatim ? input.text : input.text.trim(); return (o.verbatim || t) && !o.hint?.(t).warn ? [o.doing(t)] : []; },
-    row: (it, _i, on, w) => [pickRow(` ${it}`, on, w)],
+    row: (it, _i, on, w) => [...pickRows(` ${it}`, on, w)],
     choose: (_it, _i, host) => o.done(o.verbatim ? input.text : input.text.trim(), host),
     frame: a => { const w = Math.min(o.w ?? 70, a.cols - 4), head = o.head ?? [], h = o.hint?.(input.text.trim());
       // The hint under the input: dim, or in the warning colour when what's typed can't be used (⏎ then does nothing, so the prompt stays).
@@ -203,3 +204,5 @@ export function linePrompt<H>(o: { name: string; title: string; text: string; pr
 
 /** A row in the picker's colours: lit when the cursor is on it, else in `ink`. */
 export const pickRow = (text: string, on: boolean, w: number, ink: number = C.grey) => on ? selectedRow(text, w) : fg(ink) + pad(text, w) + RESET;
+
+export const pickRows = (text: string, on: boolean, w: number, ink: number = C.grey) => rowLines(text, w - (on && !text.startsWith(" ") ? 1 : 0)).map(line => pickRow(line, on, w, ink));

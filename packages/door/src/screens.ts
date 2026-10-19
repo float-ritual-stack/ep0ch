@@ -21,7 +21,7 @@ import { ARM_MS, editArmMs, useEditArm } from "./arm";
 import { hyperOn, useHyper } from "./hyper";
 import { HERO_MODES, heroHeaderMode, heroHeaderOn, useHeroHeader, type HeroMode } from "./surface/hero-header";
 import { writeState } from "./state";
-import { RowPresses, overscroll, overscrollOf, useOverscroll } from "./scroll";
+import { RowView, RowPresses, overscroll, overscrollOf, useOverscroll } from "./scroll";
 import { COMPOSER_PLACES, composerPlace, composerPlaceOf, useComposerPlace } from "./surface/composer";
 import { overflows, scrollPct } from "./canvas";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
@@ -33,7 +33,7 @@ import { madeScreen, resolveScreen, screenNames, screenTargetArg, screenTitle } 
 import { screenNoteProblems } from "./desk/screen-notes";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
-import { bbsDate, printable, rule, wrap } from "./text";
+import { bbsDate, printable, rowLines, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
@@ -41,7 +41,7 @@ import { Dispatcher, type TileRef } from "./surface/dispatch";
 import { SHELL_IDLE_MS } from "./whereabouts";
 import { authorName, type Actor, type OutlineEvent } from "./socket";
 import { parseFieldKey, parseStyleValue, type FieldKey } from "@ep0ch/outline-core/style-cascade";
-import { tuningOf, UNSET, type TuneTarget } from "./look";
+import { lookFor, tuningOf, UNSET, type TuneTarget } from "./look";
 import { prop } from "./props";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -1179,6 +1179,7 @@ function mergeOverlays(list: Overlay[]): Overlay[] {
 // ── message lists and the reader ─────────────────────────────────────────────
 
 export class MessageList extends BbsList {
+  private readonly rowsView = new RowView();
   private items: Msg[] | null = null;
   private lastMoved?: string;
   private moveDown: { msg: Msg; y: number } | null = null;
@@ -1248,14 +1249,21 @@ export class MessageList extends BbsList {
     const list = this.items ?? [];
     if (this.items && !list.length) lines.push("", center(paint("|11No new messages. |08Press |15Q|08, then |15R|08 to read the latest."), w));
     const page = h - lines.length - 2;
-    const start = Math.max(0, Math.min(this.sel - Math.floor(page / 2), list.length - page));
-    list.slice(start, start + page).forEach((m, i) => {
-      const n = start + i;
-      this.ptr.row(lines.length, n, w);
+    const limit = lookFor(ctx, { screen: this.title }, w).values["rows.lines"];
+    const drawn = list.map((m, n) => {
       const num = (prop(m, "work-id") ?? String(n + 1)).padStart(7).slice(-7);
-      const row = ` ${num}  ${pad(authorName(m.author), 17)} ${pad(subject(m), Math.max(10, w - 52))} ${bbsDate(m.updatedAt)}`;
-      lines.push(n === this.sel ? selectedRow(row, w) : fg(C.lcyan) + num.padStart(8) + fg(C.brown) + "  " + pad(authorName(m.author), 17) + " " + fg(C.grey) + pad(subject(m), Math.max(10, w - 52)) + " " + fg(C.dark) + bbsDate(m.updatedAt) + RESET);
+      const prefix = ` ${num}  ${pad(authorName(m.author), 17)} `;
+      const room = Math.max(10, w - 52);
+      return rowLines(subject(m), room, limit).map((title, line) => ({
+        text: (line ? " ".repeat(28) : prefix) + pad(title, room) + (line ? "" : ` ${bbsDate(m.updatedAt)}`), n,
+      }));
     });
+    const flat = drawn.flat(), first = drawn.slice(0, this.sel).reduce((n, r) => n + r.length, 0);
+    const top = this.rowsView.place(this.sel, flat.length, page, [first, first + (drawn[this.sel]?.length ?? 1) - 1]);
+    for (const { text, n } of flat.slice(top, top + page)) {
+      this.ptr.row(lines.length, n, w);
+      lines.push(n === this.sel ? selectedRow(text, w) : fg(C.grey) + pad(text, w) + RESET);
+    }
     while (lines.length < h - 1) lines.push("");
     lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · K/J reorder · I/O in/out · ", ["|15Z|08 move to…", char("Z")], " · ", ["|15Q|08 back", char("q")]]));
     return { lines };
@@ -1562,9 +1570,12 @@ export class Conferences extends BbsList {
     this.ptr.frame();
     const lines = [center(paint("|09─=|11[ |15CONFERENCES |11]|09=─"), w), center(paint("|08top-level blocks on the board"), w), ""];
     (this.confs ?? []).forEach((c, i) => {
-      this.ptr.row(lines.length, i, w);
-      const label = `${String(i + 1).padStart(3)}  ${pad(subject(c), w - 30)} ${fg(C.dark)}${prop(c, "type") ?? ""}`;
-      lines.push(i === this.sel ? selectedRow(label, w) : fg(C.lcyan) + label.slice(0, 5) + fg(C.grey) + label.slice(5) + RESET);
+      const prefix = `${String(i + 1).padStart(3)}  `;
+      const label = prefix + subject(c) + ` ${prop(c, "type") ?? ""}`;
+      for (const text of rowLines(label, w - 1, lookFor(ctx, { screen: this.title }, w).values["rows.lines"], { hang: prefix.length })) {
+        this.ptr.row(lines.length, i, w);
+        lines.push(i === this.sel ? selectedRow(text, w) : fg(C.grey) + pad(text, w) + RESET);
+      }
     });
     if (!this.confs) lines.push(paint("|08  dialing…"));
     lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ↑↓ select · ", ["|15ENTER|08 join", ENTER], " · ", ["|15Q|08 back", char("q")]]));
@@ -1593,12 +1604,15 @@ export class FileAreas extends BbsList {
       const size = Bun.file(p).size;
       const d = this.diz.get(p)!;
       const on = i === this.sel;
-      // The pack's row, and the description lines the selected pack shows under it, are its place for the mouse.
-      this.ptr.row(lines.length, i, w);
-      if (on) for (let j = 1; j <= Math.min(5, Math.max(0, d.length - 1)); j++) this.ptr.row(lines.length + j, i, w);
-      const head = ` ${pad(basename(p).toUpperCase(), 14)} ${String(Math.round(size / 1024)).padStart(5)}k  ${pad(d[0] ?? "", w - 32)}`;
-      lines.push(on ? selectedRow(head, w) : fg(C.lcyan) + head.slice(0, 15) + fg(C.grey) + head.slice(15, 23) + fg(C.white) + head.slice(23) + RESET);
-      if (on) for (const extra of d.slice(1, 6)) lines.push(`${" ".repeat(24)}${fg(C.dark)}${pad(extra, w - 25)}${RESET}`);
+      const prefix = ` ${basename(p).toUpperCase()}  ${Math.round(size / 1024)}k  `;
+      for (const text of rowLines(prefix + (d[0] ?? ""), w, lookFor(ctx, { screen: this.title }, w).values["rows.lines"], { hang: 2 })) {
+        this.ptr.row(lines.length, i, w);
+        lines.push(on ? selectedRow(text, w) : fg(C.grey) + text + RESET);
+      }
+      if (on) for (const extra of d.slice(1, 6)) for (const text of rowLines(extra, Math.max(1, w - 24))) {
+        this.ptr.row(lines.length, i, w);
+        lines.push(`${" ".repeat(24)}${fg(C.dark)}${text}${RESET}`);
+      }
     });
     while (lines.length < h - 1) lines.push("");
     lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 browse pack", ENTER], " · ", ["Q back", char("q")]]));

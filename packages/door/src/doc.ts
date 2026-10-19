@@ -1,3 +1,4 @@
+import { componentRowFields } from "./look";
 import { heroLook } from "./surface/hero-look";
 import { isArtifactName } from "@ep0ch/outline-core/artifacts";
 import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-core/table-shape";
@@ -433,6 +434,11 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   };
   if (env.after) inserted = -1;
   const look = env.look;
+  const componentLines = (line: number, attrs = "", lines?: number) => {
+    const own = { ...(lines !== undefined ? { "rows.lines": String(lines) } : {}), ...componentRowFields(attrs) };
+    const fields = look?.lists ? look.lists(line, own) : own;
+    return resolveStyle([...(look?.layers ?? []), { level: "block", label: "this component", fields }], look?.width ?? W).values["rows.lines"];
+  };
   // A list's run: how many items so far, and its look (the page's, with the list's own over it: PIE-675's `this list`).
   let run: { n: number; v: StyleValues; stripe: string } | null = null, zebraFrom: number | null = null;
   const tints: DocTint[] = [];
@@ -583,7 +589,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // to its `::`, drawn with the links tile's rows in a figure's frame, each row a link the reader opens.
     const lb = linkBlockAt(src, i, componentAt);
     if (lb) {
-      const rows = renderLinkBlock(lb.spec, env.note, W, frame, env.tag, env.linkBlocks);
+      const rows = renderLinkBlock({ ...lb.spec, lines: componentLines(i, componentAt.get(i)?.attrs, lb.spec.lines) }, env.note, W, frame, env.tag, env.linkBlocks, componentLines(i, componentAt.get(i)?.attrs));
       out.push(...(env.inlineList ? env.inlineList(rows, W) : rows));
       i = lb.end;
       continue;
@@ -636,7 +642,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         box: (it, box) => typeof it.line === "number" ? env.task?.(at + it.line, box) ?? null
           : typeof it.block === "string" && it.mark && env.liveStep ? env.liveStep({ block: it.block, status: it.status ?? (it.done ? "done" : "todo"), label: String(it.label ?? ""), mark: it.mark }, box) : null,
       };
-      const graph = renderGraph(gk, source, W, env.link, env.figures, rows);
+      const tunedLines = look?.lists?.(i, componentRowFields(figure.attrs ?? ""))["rows.lines"];
+      if (tunedLines !== undefined) source.yaml = source.yaml.replace(/^lines:.*$/m, "") + `\nlines: ${tunedLines}`;
+      if (env.figures) env.figures.drawn ??= { n: 0, titles: new Map() };
+      const graph = renderGraph(gk, source, W, env.link, { ...env.figures, lines: componentLines(i, figure.attrs) }, rows);
       out.push(...(env.inlineList && (gk === "table" || gk === "tabs") ? env.inlineList(graph, W) : graph));
       i = figure.end;
       continue;

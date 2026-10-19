@@ -11,7 +11,7 @@
 //   - daddy: *goes to make tea*
 //   ::
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
-import { wrap } from "../text";
+import { rowLines, wrap } from "../text";
 import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./palette";
 
 export function drawChat(p: Props, w: number, link?: RowLink): string[] {
@@ -25,7 +25,7 @@ export function drawChat(p: Props, w: number, link?: RowLink): string[] {
     const mine = t.from === you, again = t.from === last && !t.aside;
     const prompt = mine && !again && !t.aside ? fg(ACCENT) + ">" : " ";
     const name = again || !t.from ? " ".repeat(nw) : (t.aside ? fg(DIM) : mine ? fg(ACCENT) + BOLD : fg(HI)) + pad(t.from, nw) + UNBOLD;
-    const lines = wrap(String(t.text ?? ""), tw);
+    const lines = rowLines(String(t.text ?? ""), tw);
     lines.forEach((l, i) => {
       const text = t.aside ? fg(DIM) + l : fg(INK) + (i ? l : rowLink(link, t.block, l));
       out.push((i ? "  " + " ".repeat(nw) : prompt + RESET + " " + name + RESET) + "  " + text + RESET);

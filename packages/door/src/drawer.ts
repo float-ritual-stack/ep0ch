@@ -39,7 +39,7 @@ import { choiceFile, detectAgents, drawerProgram, HERDR_LAUNCHER, sessionLabel, 
 import { sessionSlug } from "./desk/herdr-agent";
 import { readPlace } from "./session/place";
 import { outlineState, stateDir } from "./state";
-import { centred, ListPicker, pickRow } from "./surface/picker";
+import { centred, ListPicker, pickRows, pickRow } from "./surface/picker";
 import { spawn as spawnDetached } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -281,7 +281,7 @@ export class AgentDrawer {
     const now = this.prog;
     d.overlay(new ListPicker<DrawerAgent, Desk>({
       name: "drawer agent", items: () => this.agents(),
-      row: (a, _i, on, w) => [pickRow(` ${a.name}${a.herdr ? " · in Herdr (outlives the door)" : ""}${a.name === now.name && a.herdr === now.herdr ? " · now" : ""}  ${a.cmd.at(-1) === a.name ? "" : a.cmd.join(" ")}`, on, w)],
+      row: (a, _i, on, w) => [...pickRows(` ${a.name}${a.herdr ? " · in Herdr (outlives the door)" : ""}${a.name === now.name && a.herdr === now.herdr ? " · now" : ""}  ${a.cmd.at(-1) === a.name ? "" : a.cmd.join(" ")}`, on, w)],
       choose: a => { void this.run?.("host.agent", { name: a.name, ...(a.herdr ? { herdr: true } : {}) }); },
       frame: (r, n) => ({ rect: centred(r, Math.min(64, r.cols - 2), Math.min(r.rows - 1, n + 2)), title: "the drawer's agent", foot: "↑↓ pick · ⏎ choose · esc · it starts in your shell" }),
     }));
@@ -562,7 +562,7 @@ export class AgentDrawer {
     this.do({ op: "focus", tile: HOST_TILES }, USER);
     d.overlay(new ListPicker<(typeof all)[number], Desk>({
       name: "new agent session", items: () => all,
-      row: (c, _i, on, w) => [pickRow(` ${c.name}${c.config ? " · from the outline" : ""}${c.persona ? ` · as ${c.persona}` : ""}  ${[c.program, ...c.args].join(" ")}${c.folder ? ` · in ${c.folder}` : ""}`, on, w)],
+      row: (c, _i, on, w) => [...pickRows(` ${c.name}${c.config ? " · from the outline" : ""}${c.persona ? ` · as ${c.persona}` : ""}  ${[c.program, ...c.args].join(" ")}${c.folder ? ` · in ${c.folder}` : ""}`, on, w)],
       choose: c => { void this.folderPicker(c.name, c.folder); },
       frame: (r, n) => ({ rect: centred(r, Math.min(72, r.cols - 2), Math.min(r.rows - 1, n + 2)), title: "a new agent session: which program", foot: "↑↓ pick · ⏎ then the folder · esc" }),
     }));
@@ -578,7 +578,7 @@ export class AgentDrawer {
     const folders = [...new Set([given ? resolvePath(untilde(given)) : null, this.prog.cwd, ...this.sessions().map(s => s.folder), home].filter((x): x is string => !!x))];
     d.overlay(new ListPicker<string, Desk>({
       name: "new agent session folder", items: () => folders,
-      row: (f, i, on, w) => [pickRow(` ${tildeOf(f)}${f === this.prog.cwd ? " · the drawer's folder" : i === 0 && given ? " · the config's" : this.sessions().some(s => s.folder === f) ? " · a session runs here" : ""}`, on, w)],
+      row: (f, i, on, w) => [...pickRows(` ${tildeOf(f)}${f === this.prog.cwd ? " · the drawer's folder" : i === 0 && given ? " · the config's" : this.sessions().some(s => s.folder === f) ? " · a session runs here" : ""}`, on, w)],
       choose: f => { void this.run?.("agent.start", { program, in: f }); },
       frame: (r, n) => ({ rect: centred(r, Math.min(72, r.cols - 2), Math.min(r.rows - 1, n + 2)), title: `${program}: in which folder`, foot: "↑↓ pick · ⏎ starts it (or goes to the one running there) · esc" }),
     }));

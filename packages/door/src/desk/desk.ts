@@ -1,5 +1,6 @@
 import { HintCard, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
 import { revealOn, type Reveal } from "../reveal";
+import { rowLines, withRowLimit } from "../text";
 import { readNote, outlineBoards } from "./outline-boards";
 import { MIN_ROWS, type AltRule } from "./layout";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
@@ -40,7 +41,7 @@ import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
-import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
+import { centred, linePrompt, ListPicker, pickRows, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
 import { hyperOn } from "../hyper";
 import { containerKeys, leafNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
@@ -3156,7 +3157,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       placements = uncover(placements, rect);
     }
     // Images would bleed through an overlay.
-    for (const o of [...this.overlays.all()].reverse()) { o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }); placements = []; }
+    for (const o of [...this.overlays.all()].reverse()) { withRowLimit(this.focusedPane() ? this.lookAt(this.focusedPane()!, cols).values["rows.lines"] : 2, () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 })); placements = []; }
     const hint = this.hints(cols);
     if (!this.hintFull) this.hintMoreOpen = false;            // the row fits again: nothing is left to show
     if (this.hintBox || (this.hintFull && (this.hintMoreOpen || this.prefix))) { this.drawHintMore(canvas, cols, rows); placements = []; }
@@ -3210,7 +3211,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const last = this.views.get(id);
     if (last && this.reflows && !this.reflows.has(id)) return last.view;
     const t0 = performance.now();
-    const view = pane.render(inner.cols, inner.rows, focused, this, typing);
+    const view = withRowLimit(this.looks.get(pane)?.values["rows.lines"] ?? 2, () => pane.render(inner.cols, inner.rows, focused, this, typing));
     const at = performance.now();
     this.views.set(id, { cols: inner.cols, rows: inner.rows, view, ms: at - t0, frame: this.frameNo, at });
     return view;
@@ -3359,7 +3360,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // One of the person's own left open here (PIE-812) is theirs again with the keys; another's takes e.
     const tail = (held ? fg(C.dark) + (pane instanceof ReaderPane && pane.surface.keepsOnFocusAway() ? " (kept open)" : " (e enters)") : "") + (pickedMe ? fg(C.lcyan) + " ◆ picked" : "") + (pickedBy.length ? fg(C.cyan) + ` ◇ picked by ${pickedBy.join(", ")}` : "");
     const bare = head.replace(/ +((?:\x1b\[[\d;]*m)*)$/, "$1");
-    const title = pad(bare + (keys && width(bare) + width(tail) <= fits ? tail : ""), fits).trimEnd();
+    const title = rowLines(bare + (keys && width(bare) + width(tail) <= fits ? tail : ""), fits, 1)[0]!;
     // A title the border cuts (it ends in …) is said whole in the status line when the person's keys come to the tile
     // (PIE-815): the header inside shows it wrapped, and tile.info gives it to an agent.
     // A ◄ or → mark cut off by the title's end isn't a click (PIE-855): past it is the border, or the corner's controls.
@@ -5970,7 +5971,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     ];
     this.overlay(new ListPicker<{ label: string; args: Record<string, unknown> }, Desk>({
       name: "gather", hint: GATHER_HINT, items: () => rows, clickChooses: true,
-      row: (it, _i, on, w) => [pickRow(` ${it.label}`, on, w)],
+      row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
       choose: (it, _i, d) => void d.run("tile.group", it.args, t.name),
       frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group", foot: "↑↓ pick · ⏎ or a click gathers · esc" }),
     }));
@@ -5989,7 +5990,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(sel);
     this.overlay(new ListPicker<string, Desk>({
       name: "into a group", items: () => groups, clickChooses: true,
-      row: (g, _i, on, w) => [pickRow(` ${g}`, on, w)],
+      row: (g, _i, on, w) => [...pickRows(` ${g}`, on, w)],
       choose: (g, _i, d) => void d.run("layout.move", { into: g }, t.name),
       frame: (a, n) => ({ rect: centred(a, Math.min(50, a.cols - 4), n + 2), title: `move ${t.name} into`, foot: "↑↓ pick · ⏎ or a click moves it · esc" }),
     }));
@@ -6668,7 +6669,7 @@ type DeskPicker = ListPicker<any, Desk>;
 function layoutPicker(items: { name: string; title: string; saved: boolean; builtin: boolean }[]): DeskPicker {
   return new ListPicker({
     name: "layouts", items: () => items,
-    row: (it, _i, on, w) => [pickRow(` ${it.title}${it.saved ? (it.builtin ? " · a screen you made, over the built-in" : " · a screen you made") : " · built-in"}`, on, w)],
+    row: (it, _i, on, w) => [...pickRows(` ${it.title}${it.saved ? (it.builtin ? " · a screen you made, over the built-in" : " · a screen you made") : " · built-in"}`, on, w)],
     choose: (it, _i, d) => d.run("layout.load", { name: it.name }),
     frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "lay this screen out as", foot: "↑↓ pick · ⏎ load · esc" }),
   });
@@ -6697,7 +6698,7 @@ function screenPicker(): DeskPicker {
   const items = screensToOpen;
   const p: DeskPicker = new ListPicker<{ name: string; title: string; made: boolean }, Desk>({
     name: "screens", items,
-    row: (it, _i, on, w) => [pickRow(` ${it.title} · ${it.made ? "a screen you made" : "built-in"}`, on, w)],
+    row: (it, _i, on, w) => [...pickRows(` ${it.title} · ${it.made ? "a screen you made" : "built-in"}`, on, w)],
     // screen.open is the App's (the shell's), as the menu's letters run it.
     choose: (it, _i, d) => void d.ctx.press?.("screen.open", { name: it.name }),
     keys: (k, d) => {
@@ -6715,7 +6716,7 @@ function screenPicker(): DeskPicker {
 function choicePicker(title: string, items: { label: string; spec: Partial<TileSpec> }[], then: (it: { label: string; spec: Partial<TileSpec> }) => void): DeskPicker {
   return new ListPicker({
     name: "choices", items: () => items,
-    row: (it, _i, on, w) => [pickRow(` ${it.label}`, on, w)],
+    row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
     choose: it => then(it),
     frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, Math.max(n, 1) + 2)), title, foot: items.length ? "↑↓ pick · ⏎ open · esc" : "none yet · esc" }),
   });
@@ -6738,9 +6739,8 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
     closed: () => { d.run("tile.link", { ask: false }); },
     row: (r, _i, on, w) => {
       wireWidth = w;
-      return [r.clear ? pickRow(` ${r.label}`, on, w - 4, C.white) + pickRow(" × ", on, 4)
-        : r.wide ? pickRow(` ${r.label}`, on, w, r.wire ? C.white : C.grey)
-        : pickRow(` ${r.label}`, on, Math.max(20, Math.min(52, w - 26))) + fg(C.lcyan) + ` ${r.value}` + RESET];
+      const text = ` ${r.label}${!r.clear && !r.wide ? ` ${r.value}` : ""}`;
+      return pickRows(text, on, r.clear ? w - 4 : w, r.clear || r.wire ? C.white : C.grey).map(line => line + (r.clear ? pickRow(" × ", on, 4) : ""));
     },
     clickedItem: (r, x) => { if (!r.clear || x < wireWidth - 4) return false; r.clear(); return true; },
     choose: r => r.run?.(),

@@ -4,7 +4,7 @@
 // The service moves a note and its subtree to Trash and keeps it there; what the door adds is what it will not do:
 // a system note (Inbox, Trash, Bookmarks) or the workspace root, a note already in the Trash, a note someone has a draft open on.
 import { ellipsize } from "./style";
-import { centred, ListPicker, pickRow } from "./surface/picker";
+import { centred, ListPicker, pickRows, pickRow } from "./surface/picker";
 import { ch, type Key } from "./term";
 import { subject, type Msg } from "./board";
 import { openDraftIds, openDraftOf } from "./draft-session";
@@ -127,7 +127,7 @@ export function trashConfirm<H>(o: { title: string; notesUnder: number; trash: (
   const yes = (k: Key) => ch(k) === "d" || k.kind === "delete";
   const p: ListPicker<string, H> = new ListPicker<string, H>({
     name: "trash", items: () => rows, clickChooses: true,
-    row: (r, _i, on, w) => [pickRow(` ${r}`, on, w)],
+    row: (r, _i, on, w) => [...pickRows(` ${r}`, on, w)],
     choose: (_r, i, h) => { if (i === 0) o.trash(h); },
     keys: (k, h) => { if (!yes(k)) return false; p.close(h, "letter"); o.trash(h); return true; },
     frame: a => ({ rect: centred(a, Math.min(a.cols, Math.max(40, ellipsize(o.title, 40).length + 10, rows[0]!.length + 4)), 5), title: `trash “${ellipsize(o.title, 40)}”?`, foot: "d again or ⏎ trashes · esc keeps" }),

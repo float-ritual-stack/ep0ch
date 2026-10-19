@@ -255,6 +255,11 @@ if (request.input.request === "describe the beds") {
   await make(notes.outbox.id, "Write to the allotment society about the gate [type::letter] [mail::waiting]\nThe latch drops when the wind gets up. Ask whether they'll pay for a new spring, or if we buy it.");
   await make(notes.outbox.id, "Order the fruit-cage netting [type::letter] [mail::waiting]\n- [ ] measure the cage\n- [ ] 2 cm mesh, not 4");
   await make(notes.outbox.id, "Thank the swap hosts [type::letter] [mail::done]\nSent on Monday.", SEED_AGENT);
+  for (const [key, lines] of [["rowsOne", 1], ["rowsTwo", 2], ["rowsTruncate", 0]] as const) {
+    notes[key] = await make(notes.root.id, `${SEED[key]}\n::links{groups=children lines=${lines}}\n::`);
+    await make(notes[key].id, "Carry the trestle tables across the garden before the evening gathering");
+    await make(notes[key].id, "Ask the allotment society to repair the gate before the autumn seed swap");
+  }
   notes.dayPlan = await make(notes.root.id, [
     `${SEED.dayPlan} [type::daily-plan]`,
     "Morning on the plot, then the letters that are waiting.",

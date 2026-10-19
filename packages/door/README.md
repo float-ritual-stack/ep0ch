@@ -2586,9 +2586,11 @@ Bodies render with `src/doc.ts`:
     `[ ]` onto a tab or a row, then `←` `→` or `Tab` `Shift+Tab` switch (`figure.tab`), `⏎` or a click on a tab
     shows it. Which tab is the reader's, like a fold: kept across repaints and live answers, never written into
     the note. `ep0ch show` prints every tab in turn under a heading.
-  - `density: compact | cozy | comfortable` on a `table` or `tabs`: a row's title takes one line (cut with `…`,
-    the default), up to two, or up to three with a blank line between rows. A wrapped title hangs under its text,
-    past a work id (`PIE-541 — `); the other columns stay on the first line. `=` while a figure's tab or row is
+  - `rows.lines` in Tune sets the row limit at global, screen, tile, page or this component: 2 by default;
+    0 truncates with `…`, N wraps up to N lines then adds `…`. A component's `lines=1` overrides the cascade.
+    `density: compact | cozy | comfortable` on a `table` or `tabs` remains an alias for 1, 2 or 3 lines
+    (comfortable also separates rows with a blank). Explicit `lines` wins over the authored density.
+    Wrapped rows hang under their marker or work id (`PIE-541 — `), and all their lines act as one row. `=` while a figure's tab or row is
     the `[ ]` position, or a click on its `≡ cozy` footer control, steps through them (`figure.density`); the
     YAML value is only where it starts.
   - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter

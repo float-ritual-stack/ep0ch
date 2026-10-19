@@ -40,6 +40,7 @@ export interface LinkBlockSpec {
    * for every value its rows carry. Rows with another value stay listed, said as "other".
    */
   stages: string[] | null;
+  lines?: number;
   problem?: string;
 }
 
@@ -90,6 +91,10 @@ export function linkBlockAt(lines: readonly string[], i: number, blocks: Readonl
   let preview: string | null = null;
   const set = (k: string, v: string) => {
     if (k === "of") { spec.of = idOf(v); if (!spec.of) spec.problem = `of: needs a ((block)) or a block id, not ${v}`; }
+    else if (k === "lines") {
+      if (/^\d+$/.test(v) && Number.isSafeInteger(Number(v))) spec.lines = Number(v);
+      else spec.problem = `lines: needs a non-negative whole number, not ${v}`;
+    }
     else if (k === "filter") words.push(v);
     else if (k === "title") spec.title = v;
     else if (k === "query") spec.query = v.trim() || null;
@@ -100,12 +105,12 @@ export function linkBlockAt(lines: readonly string[], i: number, blocks: Readonl
     return true;
   };
   // Its attributes, in braces on the first line.
-  for (const a of componentAttrs(block.attrs ?? "").pairs) if (!set(a.key.toLowerCase(), a.value)) spec.problem = `${a.key} isn't one of ::${block.name}'s keys (of, filter, title, groups, query, preview, stages)`;
+  for (const a of componentAttrs(block.attrs ?? "").pairs) if (!set(a.key.toLowerCase(), a.value)) spec.problem = `${a.key} isn't one of ::${block.name}'s keys (of, filter, title, groups, query, preview, stages, lines)`;
   // Its arguments: `::links ((id))` names whose; anything else is the filter.
   if (rest) { const id = idOf(rest); if (id) spec.of = id; else words.push(rest); }
   for (const line of lines.slice(i + 1, end)) {
     if (/^\s*---\s*$/.test(line)) continue;
-    const kv = /^\s*(of|filter|title|groups|query|preview|stages)\s*:\s*(.*?)\s*$/.exec(line);
+    const kv = /^\s*(of|filter|title|groups|query|preview|stages|lines)\s*:\s*(.*?)\s*$/.exec(line);
     if (!kv) { words.push(line.trim()); continue; }
     set(kv[1]!, kv[2]!.replace(/^["']|["']$/g, ""));
   }

@@ -22,6 +22,7 @@ function linksComponent(name: (typeof LINK_GROUPS)[number]): ComponentSchema {
   const w = GROUP_WORDS[name];
   const props: PropSchema[] = [
     { key: "filter", where: "yaml", type: "text", meaning: "only the rows holding these words (the same matcher as search); words on the opening line or lines of their own do the same", samples: ["offer", "jira", "moth"] },
+    { key: "lines", where: "yaml", type: "int", min: 0, meaning: "maximum lines per row; 0 truncates, otherwise wraps; overrides rows.lines", samples: ["0", "1", "2", "3"] },
     { key: "title", where: "yaml", type: "text", meaning: "a title over the list", samples: ["What points here", "Related"] },
     { key: "of", where: "yaml", type: "ref", meaning: "whose links: a ((block)) or a block id (the note it is written in when left out)" },
     ...(name === "links" ? [

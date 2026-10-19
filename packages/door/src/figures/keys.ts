@@ -12,7 +12,7 @@
 //   ::                                    ::
 import { allActionSets, isKeyWord } from "../surface/actions";
 import { BOLD, ellipsize, fg, RESET, UNBOLD, width as vwidth } from "../style";
-import { wrap } from "../text";
+import { rowLines, wrap } from "../text";
 import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./palette";
 
 /** A key as written (`ctrl+k`, `g then d`, `( ) or f`) drawn as keycaps, its joining words dim. */
@@ -33,12 +33,13 @@ export function drawKeys(p: Props, w: number, link?: RowLink): string[] {
   const kw = Math.min(Math.max(0, ...drawn.map(k => vwidth(k.caps))), Math.floor(w * 0.55));
   const out: string[] = [];
   for (const k of drawn) {
-    const caps = vwidth(k.caps) > kw ? ellipsize(k.caps, kw) + RESET : k.caps;
-    const lines = wrap(String(k.action ?? ""), Math.max(6, w - kw - 2));
-    lines.forEach((l, i) => {
-      const text = (k.learn ? fg(HI) + BOLD : fg(INK)) + (i ? l : rowLink(link, k.block, l)) + UNBOLD + RESET;
-      out.push((i ? " ".repeat(kw) : caps + " ".repeat(Math.max(0, kw - vwidth(caps)))) + "  " + text);
-    });
+    const caps = rowLines(k.caps, kw);
+    const lines = rowLines(rowLink(link, k.block, String(k.action ?? "")), Math.max(6, w - kw - 2));
+    for (let i = 0; i < Math.max(caps.length, lines.length); i++) {
+      const text = (k.learn ? fg(HI) + BOLD : fg(INK)) + (lines[i] ?? "") + UNBOLD + RESET;
+      const cap = caps[i] ?? "";
+      out.push(cap + " ".repeat(Math.max(0, kw - vwidth(cap))) + "  " + text);
+    }
   }
   return out;
 }

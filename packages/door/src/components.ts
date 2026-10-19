@@ -3,7 +3,7 @@
 // table, checklist, sparkline, image, and band and track for headings and dividers) in the terminal, as the service's `terminal` target lays them out, with tone as colour. The
 // service checks the view against the catalogue; this draws what it sent and nothing else.
 import { BOLD, C, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth } from "./style";
-import { printable, wrap } from "./text";
+import { printable, rowLines, wrap } from "./text";
 import { BAND_ALIGNS, BAND_PATTERNS, BAND_ROWS, BUILTIN_HEADING_STYLE_REGISTRY, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
@@ -135,14 +135,14 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       return [fg(toned(n.tone ?? "accent")) + press(n.act, `[${one(n.label)}]`) + RESET];
     case "stat": {
       const value = `${one(n.value)}${n.unit !== undefined ? ` ${one(n.unit)}` : ""}`;
-      return wrap(`${one(n.label)}  ${value}`, w).map((l, i) => (i ? fg(toned(n.tone)) + l : l.replace(/^(.*?)( {2})/, `${fg(C.grey)}$1$2${fg(toned(n.tone))}${BOLD}`) + UNBOLD) + RESET);
+      return rowLines(`${one(n.label)}  ${value}`, w).map((l, i) => (i ? fg(toned(n.tone)) + l : l.replace(/^(.*?)( {2})/, `${fg(C.grey)}$1$2${fg(toned(n.tone))}${BOLD}`) + UNBOLD) + RESET);
     }
     case "bar": {
       const value = Number(n.value), max = Number(n.max);
       if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) throw new PrimitiveUnknown("a bar needs value and max");
       const label = one(n.label), tail = `${value}/${max}`;
       const room = Math.max(4, Math.min(20, w - vwidth(label) - vwidth(tail) - 4));
-      return [pad(`${fg(C.grey)}${label}  ${meter(value, max, room, n.tone)}  ${fg(toned(n.tone))}${tail}${RESET}`, w)];
+      return rowLines(`${fg(C.grey)}${label}  ${meter(value, max, room, n.tone)}  ${fg(toned(n.tone))}${tail}${RESET}`, w);
     }
     case "button":
       return [fg(toned(n.tone ?? "accent")) + BOLD + press(n.act, `[${one(n.label)}]`) + UNBOLD + RESET];
@@ -157,7 +157,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       const items = Array.isArray(n.items) ? n.items as Node[] : [];
       return items.flatMap(it => {
         const box = it.done ? fg(C.lcyan) + "[x]" : fg(C.dark) + "[ ]";
-        return wrap(one(it.label), w - 4).map((l, i) => (i ? "    " : box + RESET + " ") + fg(it.done ? C.dark : C.white) + l + RESET);
+        return rowLines(one(it.label), w - 4).map((l, i) => (i ? "    " : box + RESET + " ") + fg(it.done ? C.dark : C.white) + l + RESET);
       });
     }
     case "table": {
@@ -176,14 +176,20 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       return [
         fg(C.grey) + BOLD + line(columns) + UNBOLD + RESET,
         fg(C.dark) + widths.map(x => "─".repeat(x)).join("  ") + RESET,
-        ...rows.map((r, k) => { const text = line(columns.map((_, i) => r[i] ?? "")); return fg(C.white) + (links[k] ? tag(links[k], text) : press(acts[k], text)) + RESET; }),
+        ...rows.flatMap((r, k) => {
+          const cells = columns.map((_, i) => rowLines(r[i] ?? "", widths[i]!));
+          return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, j) => {
+            const text = line(cells.map(c => c[j] ?? ""));
+            return fg(C.white) + (links[k] ? tag(links[k], text) : press(acts[k], text)) + RESET;
+          });
+        }),
       ];
     }
     case "card": {
       const badge = n.badge && typeof n.badge === "object" ? n.badge as Node : null;
       const title = n.link ? tag(n.link, one(n.title)) : press(n.act, one(n.title));
       const head = `${fg(C.lcyan)}▌ ${fg(C.white)}${BOLD}${title}${UNBOLD}${badge ? `  ${fg(toned(badge.tone ?? "accent"))}[${one(badge.label)}]` : ""}${RESET}`;
-      return [head, ...(n.subtitle !== undefined ? wrap(one(n.subtitle), w - 2).map(l => `${fg(C.lcyan)}▌ ${fg(C.dark)}${l}${RESET}`) : []),
+      return [...rowLines(head, w, undefined, { hang: 2 }), ...(n.subtitle !== undefined ? wrap(one(n.subtitle), w - 2).map(l => `${fg(C.lcyan)}▌ ${fg(C.dark)}${l}${RESET}`) : []),
         ...kids(n).flatMap(c => inner(c, w - 2).map(l => `  ${l}`))];
     }
     case "box": {

@@ -14,7 +14,7 @@
 // source (═ half or more, ─ a fifth or more, ┄ less); the targets' totals close the figure. The same at any width.
 import { BOLD, ellipsize, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { ACCENT, DIM, HI, INK, records, type Props } from "./palette";
-import { wrap } from "../text";
+import { rowLines, wrap } from "../text";
 
 export interface Flow { from: string; to: string; value: number; accent?: boolean }
 
@@ -30,21 +30,21 @@ export function drawFlow(p: Props, w: number): string[] {
   const bar = (v: number, tone: number) => fg(tone) + (v > 0 ? "█".repeat(Math.max(1, Math.round((v / max) * bw))) : fg(DIM) + "·") + RESET;
   const out: string[] = [];
   for (const [src, total] of sources) {
-    const names = wrap(src, lw);
+    const names = rowLines(src, lw);
     out.push(fg(HI) + BOLD + pad(names[0] ?? "", lw) + UNBOLD + " " + fg(INK) + String(total).padStart(vw) + " " + bar(total, HI));
     for (const l of names.slice(1)) out.push(fg(HI) + BOLD + l + UNBOLD + RESET);
     for (const f of flows.filter(f => f.from === src).sort((a, b) => b.value - a.value)) {
       const share = total > 0 ? f.value / total : 0, line = share >= 0.5 ? "═" : share >= 0.2 ? "─" : "┄";
       const lead = Math.max(2, Math.min(12, Math.round(share * 12)));
       // The target wraps under itself, the count on its first line.
-      const to = wrap(f.to, Math.max(4, w - lead - vw - 6)), hang = " ".repeat(lead + 4);
+      const to = rowLines(f.to, Math.max(4, w - lead - vw - 6)), hang = " ".repeat(lead + 4);
       out.push("  " + fg(f.accent ? ACCENT : DIM) + line.repeat(lead) + "▶ " + fg(f.accent ? ACCENT : INK) + to[0] + fg(DIM) + " " + String(f.value).padStart(vw) + RESET);
       for (const l of to.slice(1)) out.push(hang + fg(f.accent ? ACCENT : INK) + l + RESET);
     }
   }
-  out.push("", fg(DIM) + "→ " + ellipsize(String(p.targets ?? "where they went"), w - 2) + RESET);
+  out.push("", ...rowLines("→ " + String(p.targets ?? "where they went"), w).map(l => fg(DIM) + l + RESET));
   for (const [dst, total] of targets) {
-    const names = wrap(dst, lw);
+    const names = rowLines(dst, lw);
     out.push(fg(HI) + pad(names[0] ?? "", lw) + " " + fg(INK) + String(total).padStart(vw) + " " + bar(total, ACCENT));
     for (const l of names.slice(1)) out.push(fg(HI) + l + RESET);
   }

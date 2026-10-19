@@ -15,7 +15,7 @@ import type { FacetAnswer } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
-import { ago } from "../text";
+import { ago, rowLines } from "../text";
 import { RowView, wheelRows, type RowPress } from "../scroll";
 import { LineInput } from "../surface/line";
 import { findBoards } from "./query";
@@ -237,30 +237,29 @@ export class FacetsPane implements Pane {
         notesAt = i;
         push(fg(C.dark) + pad(` ── ${a?.truncated ? `${a.notes.length} of ${a.matched}` : a?.notes.length ?? 0} note${a?.notes.length === 1 ? "" : "s"} ${q ? "match" : ""}`, w).replace(/ +$/, "") + RESET);
       }
-      push(this.line(r, i === this.at, focused, w), i);
+      for (const text of this.line(r, i === this.at, focused, w)) push(text, i);
     });
     if (a?.hint) push(fg(C.yellow) + " " + a.hint + RESET);
     const line = Math.max(0, lineRows.indexOf(this.at));
-    this.view.place(line, lines.length, h);
+    this.view.place(line, lines.length, h, [line, lineRows.lastIndexOf(this.at)]);
     this.lineRows = lineRows;
     return { lines: lines.slice(this.view.top, this.view.top + h) };
   }
 
-  private line(r: Row, on: boolean, focused: boolean, w: number): string {
-    const style = (text: string, colour: string) => (on ? selectedRow(text.replace(/\x1b\[[\d;]*m/g, ""), w, focused, "idleRow") : colour + pad(text, w) + RESET);
+  private line(r: Row, on: boolean, focused: boolean, w: number): string[] {
+    const style = (text: string, colour: string) => rowLines(text, w).map(text => (on ? selectedRow(text.replace(/\x1b\[[\d;]*m/g, ""), w, focused, "idleRow") : colour + pad(text, w) + RESET));
     const room = Math.max(4, w - 3 - (USES + 1 + LAST));
     if (r.kind === "note") return style(` ${subject(r.note)} · ${ago(r.note.updatedAt)}`, fg(C.grey));
     if (r.kind === "clause") return style(` ${r.clause.mode === "include" ? "+" : "−"} ${clauseText({ ...r.clause, mode: "include" })}`, r.clause.mode === "include" ? fg(C.lgreen) : fg(C.lred));
     if (r.kind === "facet") {
-      const text = ` ${r.open ? "▾" : "▸"} ${pad(r.key === "tag" ? "#tags" : r.key, room)}${String(r.count).padStart(USES)}${r.more ? ` +${r.more}` : ""}`;
+      const text = ` ${r.open ? "▾" : "▸"} ${r.key === "tag" ? "#tags" : r.key}  ${r.count}${r.more ? ` +${r.more}` : ""}`;
       return style(text, fg(C.lcyan));
     }
     const v = r.node.value, mark = r.state === "include" ? "+" : r.state === "exclude" ? "−" : r.zero ? "○" : " ";
-    const label = `${"  ".repeat(r.node.depth)}${r.key === "tag" ? "#" : ""}${r.node.label}${r.node.kids.length ? "/" : ""}`.slice(0, room - 3);
+    const label = `${"  ".repeat(r.node.depth)}${r.key === "tag" ? "#" : ""}${r.node.label}${r.node.kids.length ? "/" : ""}`;
     const figs = v ? `${String(v.count).padStart(USES)} ${(v.last ? ago(v.last) : "").padStart(LAST)}` : " ".repeat(USES + 1 + LAST);
     const colour = r.state === "include" ? fg(C.lgreen) : r.state === "exclude" ? fg(C.lred) : r.zero ? fg(C.dark) : fg(C.grey);
-    return on ? selectedRow(`   ${mark} ${pad(label, room - 3)}${figs}`, w, focused, "idleRow")
-      : pad(`   ${colour}${mark} ${pad(label, room - 3)}${fg(C.dark)}${figs}`, w) + RESET;
+    return style(`   ${mark} ${label}  ${figs}`, colour);
   }
 
   /** What a click at column `x`, line `y` hits: a sort word of the header, or a row. */

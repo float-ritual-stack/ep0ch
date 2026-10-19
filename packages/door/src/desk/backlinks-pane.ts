@@ -21,7 +21,7 @@ import { outlineBoards, readNote } from "./outline-boards";
 import { BASE_STYLE } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow, type ListSlot } from "../list-look";
 import { isOutlineNote, type AuthoredLinksSnapshot } from "../authored";
-import { ALL_LINK_GROUPS, describeLinkRow, isLinkEntry, isLinkGroup, LINK_GROUPS, linkAcross, linkBlock, linkNote, linkTargetOf, linkRowLine, linkRows, readChildren, type ChildLink, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
+import { ALL_LINK_GROUPS, describeLinkRow, isLinkEntry, isLinkGroup, LINK_GROUPS, linkAcross, linkBlock, linkNote, linkTargetOf, linkRowLines, linkRows, readChildren, type ChildLink, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { subject, type Msg } from "../board";
 import {
   backlinkOptionsFrom, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
@@ -36,7 +36,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 import { pressOn, RowView, type RowPress } from "../scroll";
 import { LineInput } from "../surface/line";
-import { centred, ListPicker, pickRow } from "../surface/picker";
+import { centred, ListPicker, pickRows, pickRow } from "../surface/picker";
 
 /**
  * A tile spec's `linkGroups` (`children`, `outlinks,backlinks`) as the groups it names, in the model's order; null
@@ -207,7 +207,7 @@ export class BacklinksPane implements Pane {
       name: "links-groups", stays: true, items: () => ALL_LINK_GROUPS,
       row: (g, _i, on, w) => {
         const glyph = LINK_GROUPS.find(x => x.group === g)!.glyph, c = counts()[g];
-        return [pickRow(` [${this.groups.includes(g) ? "x" : " "}] ${glyph} ${g}${c ? ` (${c.matching})` : ""}`, on, w)];
+        return [...pickRows(` [${this.groups.includes(g) ? "x" : " "}] ${glyph} ${g}${c ? ` (${c.matching})` : ""}`, on, w)];
       },
       choose: g => void desk.press?.(this, BACKLINKS_ACTIONS, "backlinks.groups", { toggle: g }),
       frame: a => ({ rect: centred(a, Math.min(44, a.cols - 4), ALL_LINK_GROUPS.length + 4), title: "groups this tile lists", foot: "⏎ or a click switches one · esc closes" }),
@@ -358,11 +358,12 @@ export class BacklinksPane implements Pane {
     this.sel = Math.max(0, Math.min(this.sel, rows.length - 1));
     // The look's list rows (PIE-673): gaps between rows, a divider between groups (dots by default), zebra on every other.
     const v = desk.lookOf?.(this)?.values ?? BASE_STYLE;
-    const { slots, at } = listSlots(rows.length, v, i => rows[i]!.kind === "group");
+    const drawn = rows.map((r, i) => linkRowLines(r, { selected: i === this.sel, focused, cols: w, lines: v["rows.lines"] }));
+    const { slots, at } = listSlots(rows.length, v, i => rows[i]!.kind === "group", drawn.map(r => r.length));
     this.slots = slots;
-    this.view.place(at[this.sel] ?? 0, slots.length, fit);
+    this.view.place(this.sel, slots.length, fit, [at[this.sel] ?? 0, (at[this.sel] ?? 0) + (drawn[this.sel]?.length ?? 1) - 1]);
     for (const slot of slots.slice(this.view.top, this.view.top + fit)) {
-      if ("item" in slot) { const selected = slot.item === this.sel; lines.push(zebraRow(linkRowLine(rows[slot.item]!, { selected, focused, cols: w }), slot.item, w, v, selected)); }
+      if ("item" in slot) { const selected = slot.item === this.sel; lines.push(zebraRow(drawn[slot.item]![slot.line ?? 0]!, slot.item, w, v, selected)); }
       else lines.push("divider" in slot ? dividerLine(v, w) : "");
     }
     if (!rows.some(isLinkEntry) && this.opts().filter) lines.push(fg(C.dark) + " nothing matches · the status line's controls, / and esc change what shows" + RESET);

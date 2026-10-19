@@ -1,7 +1,7 @@
 // What every `::graph-*` figure draws with (src/graphs.ts and the kinds in this folder): the one accent, the dim frame
 // and muted text, the ink of a row, the bright of a chosen one. Nothing outside these four.
 import { C, fg, RESET } from "../style";
-import { colourInline, wrap } from "../text";
+import { colourInline, rowLines, wrap } from "../text";
 
 export const ACCENT = C.lcyan, DIM = C.dark, INK = C.grey, HI = C.white;
 /** The shades a figure counts in, none to most (an activity grid's days, a matrix's cells, a banner's band). */
@@ -58,6 +58,6 @@ export interface RowInline {
  * link to its note (see RowInline.present).
  */
 export function inlineRows(text: string, w: number, ink: number, inline?: RowInline, linked = false): string[] {
-  if (!inline) return wrap(text, w).map(l => fg(ink) + l + RESET);
-  return wrap(inline.present(text, linked), w, { code: true }).map(l => colourInline(l, ink));
+  if (!inline) return rowLines(text, w).map(l => fg(ink) + l + RESET);
+  return rowLines(colourInline(inline.present(text, linked), ink), w);
 }

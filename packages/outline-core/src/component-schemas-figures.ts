@@ -18,7 +18,7 @@ const SORT = yaml("sort", "text", "a live figure's sort field (updated when left
 const DIRECTION = yaml("direction", "enum", "a live figure's sort direction", { default: "desc", values: enumOf({ asc: "oldest or smallest first", desc: "newest or largest first" }) });
 const MACHINERY = yaml("machinery", "enum", "what a live figure's query holds of the notes tools write for their own bookkeeping ([machine::…]): left out unless this says show or only", { default: "hide", values: enumOf({ hide: "leave them out", show: "hold them with the rest", only: "hold just them (backup runs, tosses)" }) });
 const LIVE = [QUERY, VIEW, MACHINERY];
-const DENSITY = yaml("density", "enum", "how many lines a row's title takes (the reader's choice, `=`, goes over this)", { default: "compact", values: enumOf({ compact: "one line a row", cozy: "two lines", comfortable: "three lines, a blank between rows" }) });
+const DENSITY = yaml("density", "enum", "how many lines a row's title takes (the reader's choice, `=`, goes over this)", { default: "cozy", values: enumOf({ compact: "one line a row", cozy: "two lines", comfortable: "three lines, a blank between rows" }) });
 
 const LIVE_WORDS = "\n\nWith `query:` or `view:` the figure is live: it is drawn from the outline's blocks and refreshed as they change. The library has no outline to ask, so it shows the static form and says so here.";
 
@@ -34,7 +34,7 @@ function figure(k: Kind): ComponentSchema {
   const id = `graph-${k.kind}`;
   return {
     id, title: `${k.title} (::${id})`, intro: k.intro, where: k.where ?? `a \`::${id}\` block: its options in the YAML between \`---\` lines, its rows in Markdown after them`,
-    props: k.props, source: { use: `::${id}\n---\n{{props.yaml}}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
+    props: [...k.props, yaml("lines", "int", "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", { min: 0, samples: ["0", "1", "2", "3"] })], source: { use: `::${id}\n---\n{{props.yaml}}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
     sweep: k.sweep, grids: k.grids ?? [], space: k.space ?? k.sweep,
   };
 }

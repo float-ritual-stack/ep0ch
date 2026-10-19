@@ -27,7 +27,7 @@ import { C, fg, pad, paint, RESET, selectedRow, visible } from "./style";
 import { ch, isDown, isUp, type Key } from "./term";
 import { ActionRefused, actionSet, def } from "./surface/actions";
 import { LineInput } from "./surface/line";
-import { centred, linePrompt, ListPicker, pickRow } from "./surface/picker";
+import { centred, linePrompt, ListPicker, pickRows, pickRow } from "./surface/picker";
 import { RowView } from "./scroll";
 import type { DeskApi, Pane, PaneView } from "./desk/panes";
 import type { ScreenSpec } from "./desk/screen-spec";
@@ -343,7 +343,7 @@ function offerWrite(pane: HomePane, desk: DeskApi, outline: string, machine?: st
   ];
   desk.overlay?.(new ListPicker({
     name: "home-write", items: () => items,
-    row: (it, _i, lit, w) => [pickRow(` ${it.label}`, lit, w)],
+    row: (it, _i, lit, w) => [...pickRows(` ${it.label}`, lit, w)],
     choose: it => void desk.press?.(pane, HOME_ACTIONS, "home.open", { outline, ...(machine ? { machine } : {}), write: it.write }),
     frame: a => ({ rect: centred(a, Math.min(70, a.cols - 4), 7), title: `open ${outline}${on(machine)}`, foot: "⏎ or a double click chooses · esc closes", head: [paint(`|08 with .ep0ch naming it, the next ep0ch in ${basename(folder)} opens it directly:`), paint(`|08 ${folder}/.ep0ch`), ""] }),
   }));
@@ -413,7 +413,7 @@ function addPicker(pane: HomePane, desk: DeskApi) {
       const t = input.text.trim(), list = names.filter(n => n.toLowerCase().includes(t.toLowerCase()));
       return t && isMachineName(t) && !list.includes(t) && !pane.machines.has(t) ? [...list, t] : list;
     },
-    row: (n, _i, lit, w) => [pickRow(` ${n}${names.includes(n) ? "" : "  (not in ~/.ssh/config)"}`, lit, w)],
+    row: (n, _i, lit, w) => [...pickRows(` ${n}${names.includes(n) ? "" : "  (not in ~/.ssh/config)"}`, lit, w)],
     choose: n => void desk.press?.(pane, HOME_ACTIONS, "home.add", { machine: n }),
     frame: (a, n) => { const r = centred(a, Math.min(70, a.cols - 4), Math.min(a.rows - 4, n + 4)); return { rect: r, title: "add a machine", foot: "type to filter · ⏎ or a double click adds · esc", head: [" " + input.show(r.cols - 4)] }; },
   }));

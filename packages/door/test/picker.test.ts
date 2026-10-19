@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { Canvas } from "../src/canvas";
 import { LineInput } from "../src/surface/line";
 import { Modes } from "../src/surface/modes";
-import { ListPicker, pickRow } from "../src/surface/picker";
+import { ListPicker, pickRows, pickRow } from "../src/surface/picker";
 import { visible, width } from "../src/style";
 import type { Key } from "../src/term";
 
@@ -16,7 +16,7 @@ function picker(n: number, more: Partial<ConstructorParameters<typeof ListPicker
   const items = Array.from({ length: n }, (_, i) => `fictional item ${i + 1}`);
   const p = new ListPicker<string, null>({
     name: "test", items: () => items, closers: "q",
-    row: (it, _i, on, w) => [pickRow(` ${it}`, on, w)],
+    row: (it, _i, on, w) => [...pickRows(` ${it}`, on, w)],
     choose: it => said.push(`chose ${it}`), closed: () => said.push("closed"),
     frame: a => ({ rect: { col: 2, row: 1, cols: 30, rows: 8 }, title: "pick", foot: "⏎ · esc" }),
     ...more,
@@ -135,4 +135,13 @@ describe("a line input", () => {
     const long = new LineInput("x".repeat(50));
     expect(width(long.show(10))).toBeLessThanOrEqual(10);
   });
+});
+
+test("a long menu item wraps and its second line chooses the same item", () => {
+  const label = "Carry the trestle tables across the garden";
+  const { p, said, draw } = picker(2, { items: () => [label, "Next"], clickChooses: true });
+  const shown = draw();
+  expect(shown[3]).toContain("across the garden");
+  p.key(click(6, 3), null);
+  expect(said).toEqual([`chose ${label}`]);
 });

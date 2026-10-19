@@ -1,5 +1,4 @@
 import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
-import { subtitleSuffix } from "../text";
 // Reference completion in the edit control (PIE-416): typing `[[`, `((` or `[file::` in a draft offers
 // pages and Work IDs, blocks and fragments, or workspace paths, from the service's lookups (`pages.complete`,
 // `tree.search`: the one search, Goto's ranker, forgiving punctuation, order and typos; `fragments.candidates`,
@@ -15,7 +14,7 @@ import { subtitleSuffix } from "../text";
 // anchor offered with the one it would get. Choosing one of those adds the anchor (`fragments.ensure`, attributed)
 // and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order. The
 // triggers stay here until ADR 0004's source contract (slice 6, PIE-750) moves them into outline-core.
-import { ListPicker, pickRow } from "./picker";
+import { ListPicker, pickRows, pickRow } from "./picker";
 import { listPreview } from "../bar/list-preview";
 import { subject, type Msg } from "../board";
 import {
@@ -27,7 +26,7 @@ import { USER, type Actor, type FragmentCandidate, type SocketBoard } from "../s
 import { lineCompletionHooks, type LineCompletion, type LineInput } from "./line";
 import { bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
-import { printable } from "../text";
+import { rowLines, printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { blockReferenceOccurrences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
@@ -800,11 +799,7 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
 }
 
 function wholeWords(text: string, w: number): string {
-  const plain = printable(text, " ");
-  if (cells(plain) <= w) return plain;
-  const words = plain.split(/\s+/), kept: string[] = [];
-  for (const word of words) { if (cells([...kept, word].join(" ") + "…") > w) break; kept.push(word); }
-  return kept.join(" ") + "…";
+  return rowLines(printable(text, " "), w, 1)[0]!;
 }
 
 const pickers = new WeakMap<CompletionState, ListPicker<CompletionItem, void>>();
@@ -812,7 +807,7 @@ function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> 
   let picker = pickers.get(s);
   if (!picker) {
     picker = new ListPicker({ name: "completion", items: () => s.items,
-      row: (it, _i, on, w) => [pickRow(` ${on ? "»" : " "} ${printable(it.label, " ")}` + subtitleSuffix(`   ${printable(it.label, " ")}`, it.subtitle, w), on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])],
+      row: (it, _i, on, w) => [...pickRows(` ${on ? "»" : " "} ${printable(it.label, " ")}` + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : ""), on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])],
       heading: (it, i, w) => it.group && it.group !== s.items[i - 1]?.group ? fg(C.dark) + pad(` ${it.group}`, w) + RESET : null,
       choose: () => {},
     });

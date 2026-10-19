@@ -1,7 +1,6 @@
 import { awayLine } from "@ep0ch/outline-core/outline-away";
 import { addressedResource } from "./open";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
-import { subtitleSuffix } from "./text";
 // One links model: a block's Outlinks, Resources and Backlinks, as the outliner's Tree shows them under a block
 // (PIE-259, PIE-324, PIE-329) and Detail groups its backlinks (PIE-442), and its Children (PIE-693: the notes under
 // it; a thread's replies), which the links tile lists where the thread tile once did. Three places draw it, from
@@ -23,11 +22,11 @@ import {
   RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredOutlink, type AuthoredResourceLink, type AuthoredTargetFacets,
 } from "./authored";
 import {
-  backlinkGroupHidden, backlinkRows, backlinkRowSuffix, backlinkStageSummary, orderStageValues, stageMatches, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, isOpenBacklinkStage,
+  backlinkGroupHidden, backlinkRows, backlinkRowSuffix, backlinkStageSummary, orderStageValues, stageMatches, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, isOpenBacklinkStage,
   type BacklinkAcross, type BacklinkCollection, type BacklinkSource, type BacklinkStageBucket, type BacklinkStageFilter, type BacklinkViewGroup, type BacklinkViewOptions,
 } from "./backlinks";
 import { subject, type Msg } from "./board";
-import { ago, wrap } from "./text";
+import { ago, rowLines, wrap } from "./text";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { authorName, backlinkCollectionOf, LIST_FIELDS, USER, type Actor, type SocketBoard } from "./socket";
 import { BACKLINK_QUERY_LIMIT } from "./backlinks";
@@ -36,7 +35,7 @@ import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { watchedOn, type Watching } from "./watched";
 import type { LinkTarget } from "./refs";
 import { ActionRefused } from "./surface/actions";
-import { C, ellipsize, fg, pad, RESET, selectedRow, width } from "./style";
+import { C, fg, pad, RESET, selectedRow, width } from "./style";
 
 export { ALL_LINK_GROUPS, blockGroups, isLinkGroup, LINK_BLOCK_KINDS, LINK_GROUPS, linkBlockAt, type LinkBlockKind, type LinkBlockSpec, type LinkGroupName, type LinkPreview } from "@ep0ch/outline-core/link-blocks";
 import { ALL_LINK_GROUPS, blockGroups, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
@@ -427,24 +426,20 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
  * (`focused`: the list has the keys). `tag` wraps the row's text (the inline component tags it as a link the
  * reader steps to). The tree, the links tile and the inline component all draw a row with this.
  */
-export function linkRowLine(r: LinkRow, o: { cols: number; selected?: boolean; focused?: boolean; nest?: boolean | null; indent?: string; tag?: (text: string) => string }): string {
+export function linkRowLines(r: LinkRow, o: { cols: number; lines?: number; selected?: boolean; focused?: boolean; nest?: boolean | null; indent?: string; tag?: (text: string) => string }): string[] {
   const words = linkWords(r, o.nest ?? null);
   const head = `${o.indent ?? "  ".repeat(r.depth)}${words.mark} `;
-  let text = words.text, context = words.context;
-  const room = Math.max(4, o.cols - width(head));
-  if (r.kind === "backlink" && !r.source.subtitle) { const f = fitBacklinkRow(text, context, room); text = f.title; context = f.suffix; }
-  else if (width(text) > room) { text = ellipsize(text, room); context = ""; }
+  const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : r.kind === "fold" || r.kind === "away" ? C.dark : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
   const subtitle = r.kind === "backlink" ? r.source.subtitle : r.kind === "outlink" && r.link.resolution.kind === "ready" ? r.link.resolution.subtitle : r.kind === "child" || r.kind === "match" ? subtitleOf(r.child.block) : undefined;
-  const sub = subtitleSuffix(head + text, subtitle, o.cols);
-  const contextTail = context ? (r.kind === "backlink" ? " — " : r.kind === "kind" ? " " : " · ") + context : "";
-  const tail = sub ? sub + fg(C.dark) + (width(head + text + sub + contextTail) <= o.cols ? contextTail : "") : contextTail;
-  const shown = o.tag ? o.tag(text) : text;
-  if (o.selected) return selectedRow(head + shown + tail, o.cols, o.focused ?? true, "idleRow");
-  const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : (r.kind === "fold" || r.kind === "away") ? C.dark : r.kind === "child" && r.thread?.here ? C.lcyan : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
-  // A group's stage values in their family's colour (PIE-819), when the whole of them fits as drawn.
-  const inks = r.kind === "kind" && tail === " " + words.context ? familyInks(r.group, words.context) : null;
-  return pad(`${fg(C.lcyan)}${head}${fg(colour)}${shown}${fg(C.dark)}${inks ? " " + inks : tail}`, o.cols) + RESET;
+  const tail = subtitle ? " · " + subtitle : words.context ? (r.kind === "backlink" ? " — " : r.kind === "kind" ? " " : " · ") + words.context : "";
+  const context = r.kind === "kind" ? familyInks(r.group, tail) : tail;
+  const text = head + words.text + fg(C.dark) + context + RESET;
+  return rowLines(o.tag ? o.tag(text) : text, o.cols - (o.selected && !head.startsWith(" ") ? 1 : 0), o.lines, { hang: width(head) }).map(line => {
+    const shown = line;
+    return o.selected ? selectedRow(shown, o.cols, o.focused ?? true, "idleRow") : pad(fg(colour) + shown, o.cols) + RESET;
+  });
 }
+
 
 /** Each family's ink for its values on a group's header: waiting yellow, draft grey, active cyan, done green; a value with no family neutral. */
 const FAMILY_INK: Record<BacklinkStageBucket, number> = { waiting: C.yellow, draft: C.grey, active: C.lcyan, done: C.green };
@@ -667,7 +662,7 @@ export interface LinkBlockInfo {
  * person's, else the first) is drawn beside the list or under it, as an embed of it is. `frame` is passed in
  * (graphs.ts imports this module's caller).
  */
-export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W: number, frame: (title: string, body: string[], W: number, footer?: string, control?: string) => string[], tag?: (to: LinkTarget, text: string) => string, blocks?: LinkBlocksEnv): string[] {
+export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W: number, frame: (title: string, body: string[], W: number, footer?: string, control?: string) => string[], tag?: (to: LinkTarget, text: string) => string, blocks?: LinkBlocksEnv, lines = 2): string[] {
   const groups = blockGroups(spec);
   const title = spec.title ?? (spec.query && spec.kind === "links" && !spec.groups ? "matches" : spec.kind);
   // Its key in the reader: its title and how many before it had that title, as a figure's.
@@ -711,10 +706,10 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   const inner = Math.max(10, W - 4);
   const beside = previewing && spec.preview === "right" && W >= PREVIEW_MIN_WIDTH;
   const lw = beside ? Math.max(20, Math.floor(inner * 0.42)) : inner, pw = beside ? inner - lw - 3 : inner;
-  const list = shown.map(r => {
+  const list = shown.flatMap(r => {
     const to = linkTargetOf(r);
     const tagRow = to && blocks?.row ? (t: string) => blocks.row!(key, r.key, to, t) : to && tag ? (t: string) => tag(to, t) : undefined;
-    return linkRowLine(alone ? { ...r, depth: Math.max(0, r.depth - 1) } : r, { cols: lw, selected: r.key === sel && (previewing || entered), focused: entered, ...(tagRow ? { tag: tagRow } : {}) });
+    return linkRowLines(alone ? { ...r, depth: Math.max(0, r.depth - 1) } : r, { cols: lw, lines: spec.lines ?? lines, selected: r.key === sel && (previewing || entered), focused: entered, ...(tagRow ? { tag: tagRow } : {}) });
   });
   const head = rows.find(r => r.kind === "group");
   if (!list.length) list.push(fg(C.dark) + (head?.kind === "group" && head.note ? head.note : filter ? `nothing matches ${filter}` : "nothing here yet") + RESET);

@@ -16,13 +16,13 @@ import { inWindow, type Placement } from "../kitty";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, putCell, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
 import type { DocTrim } from "../doc";
-import { describeLinkRow, linkNote, linkRowLine, linkRows, linksOf, type LinkGroupName, type LinkRow } from "../links";
+import { describeLinkRow, linkNote, linkRowLines, linkRows, linksOf, type LinkGroupName, type LinkRow } from "../links";
 import { isOutlineNote } from "../authored";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, LINK_GROUPS_ARE_THE_PERSONS } from "../backlinks";
 import { outlineState, readState, writeState } from "../state";
 import { C, fg, pad, paint, RESET, selectedRow, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ago, wrap } from "../text";
+import { rowLines, ago, wrap } from "../text";
 import { lastTop, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, undoMove, type MoveArgs } from "../note-move";
@@ -444,11 +444,11 @@ export class RiverColumn extends ReaderPane {
       const m = row.m, on = n === this.sel;
       const rail = fg(C.blue) + "│ ".repeat(row.depth) + RESET;
       const tw = Math.max(8, w - row.depth * 2 - 2);
-      push(rail + (on ? selectedRow(` ${glyph(m)} ${subject(m)}`, tw + 1, active) : " " + fg(C.white) + pad(`${glyph(m)} ${subject(m)}`, tw) + RESET), n);
+      for (const line of rowLines(` ${glyph(m)} ${subject(m)}`, tw, undefined, { hang: 3 })) push(rail + (on ? selectedRow(line, tw + 1, active) : " " + fg(C.white) + pad(line, tw) + RESET), n);
       push(rail + " " + pad(`${fg(authorColour(m.author))}${authorName(m.author)}${fg(C.dark)} · ${ago(m.updatedAt)}  ${chips(m)}`, tw), n);
       // Links read as their titles here too (not as raw ((ids))); an embed reads as its title.
       const gist = visible(presentLinks(bodyLines(m).slice(0, 2).join(" ").replace(/!\(\(/g, "(("), false, desk ? { board: desk.ctx.board, redraw: () => desk.redraw() } : null, m.text));
-      for (const l of wrap(gist, tw).slice(0, 2)) push(rail + " " + fg(C.grey) + pad(l, tw) + RESET, n);
+      for (const l of rowLines(gist, tw)) push(rail + " " + fg(C.grey) + pad(l, tw) + RESET, n);
       const k = this.fold.kids.get(m.id), count = idx?.count(m.id) ?? (Array.isArray(k) ? k.length : undefined);
       if (k === "loading") push(rail + " " + fg(C.dark) + "» loading replies…" + RESET, n, true);
       else if (count) push(rail + " " + fg(C.cyan) + (this.fold.open.has(m.id) ? `▾ ${repliesWord(count)} · hide` : `» ${repliesWord(count)}`) + RESET, n, true);
@@ -460,7 +460,7 @@ export class RiverColumn extends ReaderPane {
       all.push({ text: fg(C.blue) + label + "─".repeat(Math.max(0, w - label.length)) + RESET, card: -1, replies: false, linksHead: true });
       this.linkList().forEach((r, j) => {
         const n = flat.length + j, on = n === this.sel;
-        push((on ? fg(active ? C.lcyan : C.grey) + "▌" + RESET : " ") + linkRowLine(r, { cols: w - 1, selected: on && active, focused: active }), n);
+        for (const line of linkRowLines(r, { cols: w - 1, selected: on && active, focused: active })) push((on ? fg(active ? C.lcyan : C.grey) + "▌" + RESET : " ") + line, n);
       });
     }
     if (!this.items && !this.error) push(fg(C.dark) + "dialing…" + RESET);
