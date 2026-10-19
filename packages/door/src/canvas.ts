@@ -146,12 +146,19 @@ export class Canvas {
    */
   under(r: Rect, sgr: string, skip?: (x: number, y: number) => boolean): void {
     if (!sgr) return;
+    // Thousands of cells share a handful of styles; parse each once for this fill.
+    const styles = new Map<string, string>();
     for (let y = Math.max(0, r.row); y < r.row + r.rows && y < this.rows; y++) {
       const line = this.cells[y]!;
       for (let x = Math.max(0, r.col); x < r.col + r.cols && x < this.cols; x++) {
         const c = line[x]!;
-        if (skip?.(x, y) || hasBackground(c.sgr)) continue;
-        c.sgr = withSgr(c.sgr, sgr);
+        if (skip?.(x, y)) continue;
+        let filled = styles.get(c.sgr);
+        if (filled === undefined) {
+          filled = hasBackground(c.sgr) ? c.sgr : withSgr(c.sgr, sgr);
+          styles.set(c.sgr, filled);
+        }
+        c.sgr = filled;
       }
     }
   }
@@ -159,10 +166,17 @@ export class Canvas {
   /** A modal backdrop darkens both ink and fill; it never adds light to a cell. */
   backdrop(values?: StyleValues): void {
     const t = theme(), dim = floatTheme(values).dim, scale = (rgb: readonly number[]) => rgb.map(v => Math.round(v * dim)).join(";");
+    // Keep this operation's dimming local: another backdrop may use a different theme or depth.
+    const styles = new Map<string, string>();
     for (const row of this.cells) for (const cell of row) {
-      cell.sgr = cell.sgr.replace(/\x1b\[(38|48);2;(\d+);(\d+);(\d+)m/g, (_, kind, r, g, b) => `\x1b[${kind};2;${scale([+r, +g, +b])}m`);
-      if (!/\x1b\[38;2;/.test(cell.sgr)) cell.sgr += `\x1b[38;2;${scale(t.text.body ?? t.palette[7]!)}m`;
-      if (!hasBackground(cell.sgr)) cell.sgr += `\x1b[48;2;${scale(t.ground ?? t.palette[0]!)}m`;
+      let dimmed = styles.get(cell.sgr);
+      if (dimmed === undefined) {
+        dimmed = cell.sgr.replace(/\x1b\[(38|48);2;(\d+);(\d+);(\d+)m/g, (_, kind, r, g, b) => `\x1b[${kind};2;${scale([+r, +g, +b])}m`);
+        if (!/\x1b\[38;2;/.test(dimmed)) dimmed += `\x1b[38;2;${scale(t.text.body ?? t.palette[7]!)}m`;
+        if (!hasBackground(dimmed)) dimmed += `\x1b[48;2;${scale(t.ground ?? t.palette[0]!)}m`;
+        styles.set(cell.sgr, dimmed);
+      }
+      cell.sgr = dimmed;
     }
   }
 
