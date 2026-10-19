@@ -1,4 +1,3 @@
-import {diffArrays, diffLines} from "diff";
 import { parsePropertyRecords } from "./property-parse";
 
 export interface EditHunk { start: number; end: number; text: string }
@@ -19,23 +18,44 @@ export type MergePart = string | MergeConflict;
 
 /** A bounded diff never substitutes a coarser range when it runs out of work. */
 export function editHunks(base: string, changed: string, words = false): EditHunk[] | null {
-  const tokens = (text: string) => text.match(/[\p{L}\p{N}\p{M}_]+|[^\p{L}\p{N}\p{M}_]/gu) ?? [];
-  const options = {timeout: 100, maxEditLength: 20_000};
-  const diff = words ? diffArrays(tokens(base), tokens(changed), options) : diffLines(base, changed, options);
-  if (!diff) return null;
-  let offset = 0;
+  const tokens = (text: string) => text.match(words
+    ? /[\p{L}\p{N}\p{M}_]+|[^\p{L}\p{N}\p{M}_]/gu
+    : /[^\n]*\n|[^\n]+$/g) ?? [];
+  const old = tokens(base), next = tokens(changed);
+  let head = 0;
+  while (head < old.length && head < next.length && old[head] === next[head]) head++;
+  let tail = 0;
+  while (tail < old.length - head && tail < next.length - head && old[old.length - 1 - tail] === next[next.length - 1 - tail]) tail++;
+  const rows = old.length - head - tail, cols = next.length - head - tail;
+  // Reuse the compare's LCS, bounded by cells rather than a coarse replacement
+  // window: unchanged words must never become conflict evidence for the model.
+  const width = cols + 1;
+  if ((rows + 1) * width > 16_000_000) return null;
+  const lcs = new Uint32Array((rows + 1) * width);
+  for (let row = rows - 1; row >= 0; row--) {
+    for (let col = cols - 1; col >= 0; col--) {
+      lcs[row * width + col] = old[head + row] === next[head + col]
+        ? lcs[(row + 1) * width + col + 1]! + 1
+        : Math.max(lcs[(row + 1) * width + col]!, lcs[row * width + col + 1]!);
+    }
+  }
   const result: EditHunk[] = [];
+  let row = 0, col = 0, offset = old.slice(0, head).join("").length;
   let pending: EditHunk | undefined;
-  for (const part of diff) {
-    const value = typeof part.value === "string" ? part.value : part.value.join("");
-    if (!part.added && !part.removed) {
+  while (row < rows || col < cols) {
+    if (row < rows && col < cols && old[head + row] === next[head + col]) {
       if (pending) result.push(pending);
       pending = undefined;
-      offset += value.length;
+      offset += old[head + row++]!.length;
+      col++;
     } else {
       pending ??= {start: offset, end: offset, text: ""};
-      if (part.removed) { offset += value.length; pending.end = offset; }
-      else pending.text += value;
+      if (col < cols && (row === rows || lcs[row * width + col + 1]! >= lcs[(row + 1) * width + col]!)) {
+        pending.text += next[head + col++];
+      } else {
+        offset += old[head + row++]!.length;
+        pending.end = offset;
+      }
     }
   }
   if (pending) result.push(pending);

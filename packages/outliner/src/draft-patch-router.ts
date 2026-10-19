@@ -773,7 +773,9 @@ export class DraftPatchRouter {
         await undo();
         return { ok: false, reason: "reason" in answer && answer.reason ? answer.reason : "the draft refused it" };
       }
-      const span = answer.inverse && wholeTextSpan(answer.inverse.before, answer.inverse.text);
+      const span = answer.inverse && (answer.inverse.before === ""
+        ? { observed: "", replacement: answer.inverse.text, range: { start: 0, end: 0 } }
+        : wholeTextSpan(answer.inverse.before, answer.inverse.text));
       patched.push({ hold, patchId, ...(span && answer.inverse ? { inverse: { blockId: hold.blockId, revision: answer.inverse.revision, patches: [span] } } : {}) });
       applied.push({ blockId: edit.blockId, route: "draft", holder: hold.clientId });
 

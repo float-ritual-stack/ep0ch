@@ -108,7 +108,11 @@ async function fakeDoor(client: OutlinerClient, clientId: string, block: Block) 
       else if (request.kind === "patch") {
         const located = locateSpans(door.text, request.patches, request.force);
         if (!located.ok) answer = { applied: false, reason: located.reason };
-        else { door.text = applyLocated(door.text, located.spans); answer = { applied: true }; }
+        else {
+          const text = door.text;
+          door.text = applyLocated(door.text, located.spans);
+          answer = { applied: true, ...(request.undoPatches ? {inverse: {before: door.text, text, revision: block.revision}} : {}) };
+        }
       }
       await client.request({ action: "drafts.answer", requestId: request.requestId, clientId, answer: answer as never }).catch(() => undefined);
     },
@@ -670,4 +674,19 @@ test("undoing resolution restores the agent request's proposed row and projectio
   expect(store.require(note.id).text).toBe("Garden\ncarrots\n@grower");
   expect(store.agentRequests(note.id)[0]).toEqual(before);
   expect((await agentOf(note.id, p => p.agent?.status === "proposed")).agent!.proposalId).toBe(before.proposalId!);
+});
+
+
+test("undo restores every byte after resolution empties a held draft", async () => {
+  const {client, store, create} = await setup();
+  const note = await create("Garden\r\nKeep  these bytes.  \r\n日本語 👩🏽‍💻\r\n");
+  const door = await fakeDoor(client, "door-empty-resolution", note);
+  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: "always", patches: [{observed: note.text, replacement: ""}], mutation: {author: "agent", actorId: "gardener"}});
+  const result = await client.request<{outcome: string; undo: string}>({action: "draft.proposal.resolve", proposalId: pending.proposalId, mutation: PERSON});
+  expect(result.outcome).toBe("resolved");
+  expect(door.text).toBe("");
+  await client.request({action: "extensions.undo", undo: result.undo, mutation: PERSON});
+  expect(door.text).toBe(note.text);
+  expect(store.require(note.id).text).toBe(note.text);
+  expect(store.require(pending.proposalId).properties).toContainEqual({key: "proposal-status", value: "open"});
 });
