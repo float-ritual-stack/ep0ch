@@ -268,7 +268,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(scrollOf(d)).toBe(bottom - 1);
   });
 
-  test("a float's title keeps · NN% however long the subject (PR #11 review)", async () => {
+  test("a long float title keeps its controls and leaves progress to the thumb (PIE-925)", async () => {
     const title = "Rebuild the potting bench with the cedar boards from the old fence, and sand the top before the rain comes back";
     const card = await create(null, long(title, "done"));                    // in no lane
     await fresh();
@@ -278,8 +278,10 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     key({ kind: "pgdn" });
     const fr = frame(), R = B().rect(f)!;
     const line = fr[R.row]!.slice(R.col, R.col + R.cols);
-    expect(line).toMatch(/ · \d+%/);
-    expect(line).not.toContain("Rebuild the potting bench");
+    expect(line).not.toMatch(/ · \d+%/);
+    expect(line).toContain("⋯");
+    expect(Array.from({ length: R.rows - 2 }, (_, i) => fr[R.row + 1 + i]![R.col + R.cols - 1]).join("")).toContain("█");
+    expect(line).toContain("Rebuild the potting bench");
     expect(fr.join("\n")).toContain("Rebuild the potting bench");
   });
 
@@ -422,15 +424,15 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await until(() => !B().moving, "the move");
   });
 
-  test("frames show how far down a long note is: a thumb on the right border and · NN% in the title", async () => {
+  test("frames show progress with a thumb on the right border, without a percentage in the title", async () => {
     await fresh();
     key({ kind: "enter" });
     await whole(B().details[0]);
     frame();
     key({ kind: "pgdn" });
     const lines = frame(), r = rect("detail0"), pv = rect("preview");
-    expect(lines[r.row]!.slice(r.col, r.col + r.cols)).toMatch(/detail 1 · stays put[^\n]* · \d+%/);
-    expect(lines[pv.row]!.slice(pv.col, pv.col + pv.cols)).toMatch(/preview · follows the board[^\n]* · \d+%/);
+    expect(lines[r.row]!.slice(r.col, r.col + r.cols)).not.toMatch(/\d+%/);
+    expect(lines[pv.row]!.slice(pv.col, pv.col + pv.cols)).not.toMatch(/\d+%/);
     const border = Array.from({ length: r.rows - 2 }, (_, i) => lines[r.row + 1 + i]![r.col + r.cols - 1]).join("");
     expect(border).toContain("█");
     expect(border.indexOf("█")).toBeGreaterThan(0);                             // scrolled: the thumb isn't at the top
@@ -438,7 +440,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await act("open", { id: cards.gate.id }, "float");
     await whole(B().floats[0]);
     const fl = frame(), f = B().rect(B().floats[0])!;
-    expect(fl[f.row]).toMatch(/\d+%/);
+    expect(fl[f.row]).not.toMatch(/\d+%/);
     expect(Array.from({ length: f.rows - 2 }, (_, i) => fl[f.row + 1 + i]![f.col + f.cols - 1]).join("")).toContain("█");
   });
 
@@ -461,7 +463,9 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
       const r = D.placed.rects.get(readerId);
       wheel(r);
       expect(scrollOf(rd)).toBe(15 + SCROLL_ROWS);
-      expect(plain(desk.render(D.ctx).lines[r.row]!)).toMatch(/\d+%/);
+      const drawn = desk.render(D.ctx).lines.map(plain);
+      expect(drawn[r.row]).not.toMatch(/\d+%/);
+      expect(drawn.slice(r.row + 1, r.row + r.rows - 1).map(l => l[r.col + r.cols - 1]).join("")).toContain("█");
       // An agent opens an edit there: the person's tab still moves focus, their j doesn't type.
       await act("edit");
       const text = rd.draft!.text;

@@ -126,7 +126,7 @@ export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
     name: 'door_peek',
     example: {},
     description: 'What the door shows the person now (ep0ch peek): the screen as structured state and as text. Only reads.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    inputSchema: { type: 'object', properties: { xray: { type: 'boolean', description: 'Include every visible tile controls as hint-card rows.' } }, additionalProperties: false },
   },
   {
     name: 'door_act',

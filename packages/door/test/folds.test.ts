@@ -431,18 +431,18 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     delete process.env.EP0CH_STATE;
   });
 
-  test("keys and a click fold in a detail; the frame's thumb and % follow; an edit elsewhere keeps the fold; another note resets it", async () => {
+  test("keys and a click fold in a detail; the frame's thumb follows; an edit elsewhere keeps the fold; another note resets it", async () => {
     await mine("open", { id: card.id }, "detail");
     const d = B().details[0];
     await until(() => d.msg?.id === card.id && !d.msg.partial, "the whole note");
     expect(BV.where(b)).toBe("detail0");
     const r = BV.rectOf(b, "detail0") ?? (frame(), BV.rectOf(b, "detail0"));
-    const title = () => [...frame()[r.row]!].slice(r.col, r.col + r.cols).join("");
-    expect(title()).toMatch(/ · \d+%/);                        // long: the frame says how far down
+    const border = () => frame().slice(r.row + 1, r.row + r.rows - 1).map(line => [...line][r.col + r.cols - 1]).join("");
+    expect(border()).toContain("█");
     key(char(")")); key(char("f"));
     expect(d.surface.describe().folds.folded).toEqual(["## Beds"]);
     expect(frame().join("\n")).toContain("▸ ## Beds · 60 lines folded");
-    expect(title()).not.toMatch(/ · \d+%/);                    // it fits now: no thumb, no %
+    expect(border()).not.toContain("█");                     // The folded note fits without scrolling.
     // A click on ## Water (inside the frame, below the header) folds it too.
     const rows = frame();
     const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows && l.includes("## Water"));

@@ -175,19 +175,26 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
-  test("the mouse: a tab in the drawer has the ×; a running program asks twice, one that exited closes at once; the drawer's own tab has none", async () => {
+  test("the drawer's frame card closes a running program after two presses and an exited program at once", async () => {
     const d = await door();
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
       d.key(ctrl("w")); d.key(char("a"));
       await until(() => d.inDrawer("kettle"), "kettle in");
-      const x = () => { const lines = d.paint(), row = d.app.drawer.rect!.row + 1; return { row, col: lines[row]!.lastIndexOf("×") }; };
-      const click = () => { const at = x(); expect(at.col).toBeGreaterThan(0); d.key(mouse("down", at.col, at.row)); d.key(mouse("up", at.col, at.row)); };
+      const click = () => {
+        const lines = d.paint(), row = d.app.drawer.rect!.row + 1;
+        const chip = lines[row]!.lastIndexOf("⋯");
+        expect(chip).toBeGreaterThan(0);
+        d.key(mouse("down", chip, row)); d.key(mouse("up", chip, row));
+        const card = d.paint(), close = card.findIndex(l => l.includes("[x] close"));
+        expect(close).toBeGreaterThan(row);
+        const col = card[close]!.indexOf("close");
+        d.key(mouse("down", col, close)); d.key(mouse("up", col, close));
+      };
       click();
       expect(d.inDrawer("kettle")).toBe(true);                   // running: asked first
       click();
       await until(() => !d.inDrawer("kettle"), "the second click closed it");
-      expect(x().col).toBe(-1);                                 // the drawer's own tab: no ×
       // A terminal opened in the drawer (alt+s) that exited: one click.
       d.key({ kind: "alt", ch: "s" });
       await until(() => d.app.drawer.tabs().length === 2, "a shell tab");

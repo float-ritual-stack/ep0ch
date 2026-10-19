@@ -1,3 +1,4 @@
+import type { Hint } from "./hint-card";
 import { INVITES } from "./invite";
 import { ActionRefused, actRequestOf, type ActRequest } from "@ep0ch/outline-core/action-line";
 export { ActionRefused, actRequestOf, lineWords, type ActRequest } from "@ep0ch/outline-core/action-line";
@@ -87,6 +88,7 @@ export type DraftUse = "type" | "leave" | "write" | "safe" | "text" | "replace";
 export interface ActionDef<A, H> {
   /** What the action does, in the words `actions` and the README use. */
   summary: string;
+  hint?: Hint | ((args: A, host: H) => Hint | null);
   /** The key that does the same thing, when there is one. */
   keys?: string;
   /** What it touches of the person's: the one actor rule, checked by the dispatcher (Touches). The most it can touch. */
@@ -294,13 +296,14 @@ export function traceActions(f: (r: ActionRun) => void): () => void {
 /** Named keys as the README, hints and `keys` write them, to the one name `keyName` gives. */
 const NAMED: Record<string, string> = {
   "⏎": "enter", enter: "enter", return: "enter", esc: "esc", escape: "esc", tab: "tab", backtab: "shift+tab", "shift+tab": "shift+tab",
+  ctrl: "ctrl",
   space: "space", backspace: "backspace", "⌫": "backspace", delete: "delete", del: "delete",
   pgup: "pgup", pgdn: "pgdn", pageup: "pgup", pagedown: "pgdn", home: "home", end: "end",
   up: "up", down: "down", left: "left", right: "right", "↑": "up", "↓": "down", "←": "left", "→": "right",
   "alt+⏎": "alt+enter", "alt⏎": "alt+enter", "alt+enter": "alt+enter", "shift+enter": "shift+enter", "shift+⏎": "shift+enter", "ctrl+enter": "ctrl+enter",
   "alt+←": "alt+left", "alt+→": "alt+right", "alt+left": "alt+left", "alt+right": "alt+right",
   "alt+↑": "alt+up", "alt+↓": "alt+down", "alt+up": "alt+up", "alt+down": "alt+down",
-  click: "click", "right-click": "click", "ctrl-click": "click", "alt-click": "click", drag: "drag", wheel: "wheel",
+  hover: "hover", click: "click", "right-click": "click", "ctrl-click": "click", "alt-click": "click", drag: "drag", wheel: "wheel",
 };
 /** Whether `s` is a key's one name (what `keyName` gives): a screen's key map names its keys so. */
 export const isKeyName = (s: unknown): s is string =>
@@ -312,6 +315,7 @@ const MOUSE = new Set(["click", "drag", "wheel"]);
 export function keyName(k: Key): string | null {
   if ("pasted" in k && k.pasted) return null;
   switch (k.kind) {
+    case "modifier": return "ctrl";
     case "char": return k.ctrl ? `ctrl+${k.ch.toLowerCase()}` : k.ch === " " ? "space" : k.ch;
     case "alt": return `alt+${k.ch}`;
     case "super": return `super+${k.ch}`;
@@ -325,7 +329,7 @@ export function keyName(k: Key): string | null {
     case "alt-down": return "alt+down";
     case "back": return "alt+left";
     case "forward": return "alt+right";
-    case "mouse": return k.action === "wheel-up" || k.action === "wheel-down" ? "wheel" : k.action === "wheel-left" || k.action === "wheel-right" ? "sideways" : k.action === "drag" ? "drag" : "click";
+    case "mouse": return k.action === "drag" && k.button === 3 ? "hover" : k.action === "wheel-up" || k.action === "wheel-down" ? "wheel" : k.action === "wheel-left" || k.action === "wheel-right" ? "sideways" : k.action === "drag" ? "drag" : "click";
     case "paste": return null;
     default: return k.kind;
   }
@@ -424,6 +428,7 @@ const NAMED_KEY: Record<string, Key> = {
 };
 /** The key a key name stands for (`keyName`'s inverse); null for a mouse gesture. */
 export function keyOfName(n: string): Key | null {
+  if (n === "ctrl") return { kind: "modifier", key: "ctrl", event: "tap" };
   if ([...n].length === 1) return { kind: "char", ch: n };
   const m = /^(ctrl|alt|super|hyper)\+(.)$/u.exec(n);
   if (m) return m[1] === "ctrl" ? { kind: "char", ch: m[2]!, ctrl: true } : { kind: m[1] as "alt" | "super" | "hyper", ch: m[2]! };

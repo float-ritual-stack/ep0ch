@@ -223,10 +223,10 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const b = (stage().menuButtons as any[]).find(x => stage().nameOf(x.id) === "reader");
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
     click(at.col + b.from, at.row + b.row);
-    await until(() => stage().overlays.top()?.name === "tile menu", "the reader's menu");
-    const row = (stage().overlays.top().items as any[]).find(r => r.action === "tile.close");
+    await until(() => stage().hintGet().cards.some((c: any) => c.tile === "reader"), "the reader's controls card");
+    const row = stage().hintGet().cards[0].choices.find((r: any) => r.act.action === "tile.close");
     expect(row?.refused).toBeTruthy();
-    const lines = sc.render(app).lines.map(plain), y = lines.findIndex(l => l.includes(` ${row.label} `) && l.includes("^W x"));
+    const lines = sc.render(app).lines.map(plain), y = lines.findIndex(l => l.includes(` ${row.label} `) && l.includes("[x]"));
     expect(y).toBeGreaterThan(0);
     const x = lines[y]!.indexOf(` ${row.label} `) + 2;
     click(x, y);

@@ -154,12 +154,10 @@ describe.skipIf(!outliner)("the showcase screen: new notes", () => {
     const titleRow = origin.row + first.rect.row, fx = origin.col + first.rect.col + 7;
     const head = origin.row + target.row, hx = origin.col + target.col + 8;
     expect(titleRow).toBeGreaterThan(head);
-    expect(rows()[titleRow]).toContain("⧉");
-    expect(rows()[head]).toContain("reader");
     press({ kind: "mouse", action: "down", button: 0, x: fx, y: titleRow });
     press({ kind: "mouse", action: "drag", button: 32, x: hx, y: head + 1 });
     press({ kind: "mouse", action: "drag", button: 32, x: hx, y: head });
-    expect(plain(sc.render(app).lines.join("\n"))).toContain("release docks it");
+    expect(plain(sc.render(app).lines.join("\n"))).toContain("A header makes tabs");
     press({ kind: "mouse", action: "up", button: 0, x: hx, y: head });
     await until(() => !floats().some(f => f.id === first.id), "the first float docked", 5000);
     // A tab beside the reader now, in the layout: one tab set holding both.

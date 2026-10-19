@@ -87,8 +87,8 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
     app.push(b);
     await until(() => BV.view(b).lanes.length === 2 && BV.view(b).lanes.every((l: any) => l.items?.length) && BV.view(b).lanes[0].items.length === 2, "the lanes", 10_000);
     const top = lines()[0]!;
-    expect(top).toContain("To read 2");
-    expect(top).toContain("Reading now 1");
+    expect(top).toContain("To read");
+    expect(top).toContain("Reading now");
     expect(top).not.toContain("To-read");
     const all = lines().join("\n");
     expect(all).toContain("M. Thorn");

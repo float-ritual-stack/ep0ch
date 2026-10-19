@@ -232,11 +232,14 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await until(() => D().pane("tree").rows?.some((r: any) => r.m?.id === notes.beans.id), "the beans row loaded");
     await mine("tree.pick", { id: notes.beans.id }, "tree");
     await until(() => tile("side").showing?.id === notes.beans.id, "selection lands in the mouse-wired reader");
-    const tr = rect("tree"), header = visible(render().lines[tr.row]!);
-    const chip = header.indexOf("○", tr.col);
-    expect(chip).toBeGreaterThan(tr.col);
-    mouse("down", chip, tr.row);
-    mouse("down", tr.col + 3, tr.row + 3);
+    const tr = rect("tree");
+    const header = visible(render().lines[tr.row]!).slice(tr.col, tr.col + tr.cols);
+    mouse("down", tr.col + header.indexOf("⋯"), tr.row);
+    const cardLines = render().lines.map(visible);
+    const wireRow = cardLines.findIndex((line: string) => line.includes("select wire:"));
+    expect(wireRow).toBeGreaterThan(tr.row);
+    mouse("down", cardLines[wireRow]!.indexOf("select wire:"), wireRow);
+    mouse("down", tr.col + 3, tr.row + tr.rows - 3);
     expect(tile("tree").wires.some((w: any) => w.verb === "select")).toBe(false);
     key(ctrl("w")); key(char("P")); render();
     key({ kind: "enter" }); render();
@@ -552,10 +555,9 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("layout.load", { name: "terminal-day" });
     const before = shape(), n = rect("now"), c = rect("claude");
     // Past the title, on the line: the border between claude and now follows the pointer up. Nothing moves.
-    render();
-    const end = D().gripEnd(n);
-    expect(end).toBeLessThan(n.col + n.cols - 2);
-    drag(n.col + n.cols - 3, n.row, n.col + n.cols - 3, n.row - 4);
+    const bare = (r: typeof n) => r.col + visible(render().lines[r.row]!).slice(r.col, r.col + r.cols).match(/[─═]{3,}/)!.index! + 1;
+    const border = bare(n);
+    drag(border, n.row, border, n.row - 4);
     expect(shape()).toBe(before);
     expect(D().describe().dragging).toBeNull();
     expect(rect("now").rows).toBe(n.rows + 4);
@@ -567,7 +569,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     // A header with no border above (the top row) is grip all the way along.
     await mine("layout.load", { name: "terminal-day" });
     const t = rect("claude");
-    mouse("down", t.col + t.cols - 3, t.row); mouse("drag", t.col + t.cols - 1, t.row); render();
+    mouse("down", bare(t), t.row); mouse("drag", t.col + t.cols - 1, t.row); render();
     expect(D().describe().dragging).toMatchObject({ tile: "claude" });
     key({ kind: "esc" }); mouse("up", t.col + t.cols - 1, t.row);
   });

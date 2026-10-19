@@ -45,6 +45,7 @@ export class PreviewPane extends ReaderPane {
   override label: string | null = null;
   /** What the list it follows quotes of its selection (the backlinks: the mention), said in place of its label. */
   quote = "";
+  headName() { return this.quote ? `"${this.quote}"` : undefined; }
   override title() {
     const f = this.fileNow();
     const what = this.quote ? `"${this.quote}"` : this.label ?? ("tile" in this.source && !this.source.tile && !f ? "preview" : `preview · ${"tile" in this.source ? this.source.tile + (f ? ` · ${basename(f)}` : "") : basename(this.source.file)}`);

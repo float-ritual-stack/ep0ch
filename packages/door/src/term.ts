@@ -13,6 +13,7 @@ export const programStatusWanted = (env: Record<string, string | undefined> = pr
 import { paintable } from "./text";
 
 export type Key =
+  | { kind: "modifier"; key: "ctrl"; event: "press" | "release" | "tap" }
   /**
    * `pasted`: it came inside a paste typed out as keys (App): a draft takes it as it came. `shift` with `ctrl`: held
    * with a ctrl+letter, as only the Kitty keyboard protocol can say (ctrl+shift+z, a draft's redo).
@@ -102,7 +103,7 @@ export const GROUND_RESET = "\x1b]110\x1b\\\x1b]111\x1b\\";
  * was pushed), paste, mouse, colours, wrap, the cursor, then the normal screen. A theme's ground is given back
  * apart (Term.stop), only when one was set: a person's own OSC 10/11 colours stay theirs under classic.
  */
-export const TERM_RESET = KBD_POP + "\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l";
+export const TERM_RESET = KBD_POP + "\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[0m\x1b[?7h\x1b[?25h\x1b[?1049l";
 
 /**
  * A watcher for the one exit the door can't handle itself (kill -9): a small shell reading a pipe from the
@@ -234,6 +235,7 @@ export class KeyDecoder {
    * start and on every resume, and TERM_RESET gives it back. False: legacy keys, as before.
    */
   kbd = false;
+  private keyEvents = false;
   /** The bytes of the key just handed to `keyHandler` (`keys.probe` shows them: what a chord arrives as, PIE-699). */
   lastSeq = "";
   constructor(private readonly info: TermInfo) {}
@@ -294,9 +296,9 @@ export class KeyDecoder {
     if (r) {
       const seq = this.pending.slice(0, r.length);
       this.pending = this.pending.slice(r.length);
-      const k = reportKey(r);
+      const k = reportKey(this.keyEvents ? { ...r, eventType: true } : r);
       // The escape chord, and a hyper chord (PIE-699: the door's, whatever the tile is typing), stay the door's.
-      if ((k?.kind === "char" && k.ctrl && k.ch === "]") || k?.kind === "hyper") { this.lastSeq = seq; this.keyHandler(k); }
+      if ((k?.kind === "char" && k.ctrl && k.ch === "]") || k?.kind === "hyper" || k?.kind === "modifier") { this.lastSeq = seq; this.keyHandler(k); }
       else if (!isHyperReport(r)) sink(seq);                                           // a hyper chord's release is the door's too: dropped
       return true;
     }
@@ -345,10 +347,10 @@ export class KeyDecoder {
       if (m) { this.probing?.done(); this.pending = p.slice(m[0].length); continue; }
       // The Kitty keyboard protocol's query answered: the terminal has it (src/kbd.ts).
       m = p.match(/^\x1b\[\?\d*u/);
-      if (m) { if (this.probing) this.kbd = true; this.pending = p.slice(m[0].length); continue; }
+      if (m) { if (this.probing) this.kbd = true; this.keyEvents = !!(Number(m[0].slice(3, -1)) & 2); this.pending = p.slice(m[0].length); continue; }
       // A key report under that protocol: Shift+Enter, Esc (CSI 27u), ctrl and alt keys.
       const report = parseReport(p);
-      if (report) { this.lastSeq = p.slice(0, report.length); this.pending = p.slice(report.length); const k = reportKey(report); if (k) this.keyHandler(k); continue; }
+      if (report) { this.lastSeq = p.slice(0, report.length); this.pending = p.slice(report.length); const k = reportKey(this.keyEvents ? { ...report, eventType: true } : report); if (k) this.keyHandler(k); continue; }
       if ((/^\x1b(\[[<\d;:?]*|_[^\x1b]*|_[^\x1b]*\x1b)?$/.test(p) && p.length < 64) || (/^\x1b\][^\x07\x1b]*\x1b?$/.test(p) && p.length < 4096)) {
         // Incomplete escape: wait briefly for the rest, then treat a lone ESC as Escape.
         setTimeout(() => { if (this.pending === p) { this.pending = ""; if (p === "\x1b") this.keyHandler({ kind: "esc" }); } }, 30);
@@ -436,7 +438,7 @@ export class Term extends Rows {
     process.stdin.resume();
     process.stdin.on("data", this.onData);
     process.stdout.on("resize", this.onResized);
-    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h");
+    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1003h\x1b[?1006h\x1b[?2004h");
     this.measure();
     const hint = kittyHint(), sized = sizedHint();
     const decoder = this.decoder;
@@ -448,7 +450,7 @@ export class Term extends Rows {
     });
     if (hint !== null) this.info.kitty = hint;
     if (sized !== null) this.info.sized = sized;
-    if (this.kbd) this.write(KBD_PUSH);
+    if (this.kbd) this.write(KBD_PUSH + KBD_QUERY);
     if (this.ground) this.write(this.ground);
   }
 
@@ -489,7 +491,7 @@ export class Term extends Rows {
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
     this.decoder.reset();
-    this.write(`\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h${this.kbd ? KBD_PUSH : ""}${this.ground}`);
+    this.write(`\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1003h\x1b[?1006h\x1b[?2004h${this.kbd ? KBD_PUSH + KBD_QUERY : ""}${this.ground}`);
     this.measure();
     this.invalidate();
   }

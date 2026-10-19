@@ -271,18 +271,21 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().card()?.id).toBe(cards.kettle.id);
   });
 
-  test("a dock undocks into the layout by T or by a click on its header's ⇤ docked; T puts it back in its dock", async () => {
+  test("a dock undocks into the layout by T or by its frame card; T puts it back in its dock", async () => {
     await settled();
     BV.at(b, "lanes");
     const drawn = () => b.render(B().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
     press({ kind: "char", ch: "t" });
-    expect(drawn()).toContain("outline ⇤ docked");             // a dock: slides over, not laid out
     expect(B().treePinned).toBe(false);
-    const r = BV.rectOf(b, "tree"), at = drawn().split("\n")[r.row]!.indexOf("⇤ docked");
-    press({ kind: "mouse", action: "down", button: 0, x: at + 1, y: r.row });
-    press({ kind: "mouse", action: "up", button: 0, x: at + 1, y: r.row });
+    drawn();
+    const r = BV.rectOf(b, "tree");
+    press({ kind: "mouse", action: "down", button: 0, x: r.col + r.cols - 3, y: r.row });
+    const card = drawn().split("\n"), y = card.findIndex(l => l.includes("undock it"));
+    expect(y).toBeGreaterThan(r.row);
+    const x = card[y]!.indexOf("undock it");
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
     expect(B().treePinned).toBe(true);
-    expect(drawn()).not.toContain("outline ⇤ docked");
     press({ kind: "char", ch: "T" });                         // the key toggles it back
     expect(B().treePinned).toBe(false);
     press({ kind: "char", ch: "T" });

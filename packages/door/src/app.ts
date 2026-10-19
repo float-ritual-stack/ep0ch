@@ -1160,7 +1160,7 @@ export class App implements Ctx {
   }
 
   private key(typed: Key) {
-    this.lastInput = Date.now();
+    if (!(typed.kind === "mouse" && typed.action === "drag" && typed.button === 3)) this.lastInput = Date.now();
     if (!(typed.kind === "mouse" && (typed.action === "wheel-up" || typed.action === "wheel-down"))) this.changed = true;
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
@@ -1178,7 +1178,16 @@ export class App implements Ctx {
   }
 
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
+  private xrayLeader = false;
   private route(k: Key) {
+    if (k.kind === "modifier") {
+      if (!this.bar && this.dispatch.has("xray")) void this.dispatch.press("xray", k.event === "tap" ? {} : { on: k.event === "press" });
+      return;
+    }
+    const leader = this.xrayLeader;
+    if (k.kind !== "mouse") this.xrayLeader = !this.bar && k.kind === "char" && !!k.ctrl && k.ch === "]";
+    if (!this.bar && leader && k.kind === "char" && !k.ctrl && k.ch === "?" && this.dispatch.has("xray")) { void this.dispatch.press("xray"); return; }
+
     // keys.probe (PIE-699): describe the key, run nothing. A click still works (the status bar's chip, a tile), and esc ends it.
     if (this.probing && k.kind !== "mouse") {
       if (k.kind === "esc") this.probeKeys(false);
