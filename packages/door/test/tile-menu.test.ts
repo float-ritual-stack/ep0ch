@@ -89,23 +89,28 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     await mine("edit.close", {}, "reader");
   });
 
-  test("a frame card leaves focus alone and its zoom row runs the menu's action", async () => {
+  test("a click on a tile's ⋯ opens its menu under it; one click on a row runs it as the person", async () => {
     fresh();
     await mine("tile.focus", {}, "reader");
     render();
     const r = rect("activity");
-    const frame = render().lines.map(visible)[r.row]!;
-    const x = frame.indexOf("⋯", r.col);
-    expect(x).toBeGreaterThan(r.col);
-    press(x, r.row);
-    expect(get().focus).toBe("reader");
-    expect(D().hintGet().cards[0].choices.find((c: any) => c.act.action === "tile.zoom")).toBeDefined();
+    const b = (D().menuButtons as any[]).find(x => D().nameOf(x.id) === "activity");
+    // Left of the ×: ⋯ ×.
+    expect(b).toMatchObject({ row: r.row, from: r.col + r.cols - 4 });
+    expect(screen().split("\n")[r.row]!.slice(r.col + r.cols - 4, r.col + r.cols - 1)).toBe("⋯─×");
+    press(b.from, b.row);
+    await until(() => menu()?.name === "tile menu", "the menu opens");
+    expect(get().focus).toBe("activity");
+    // Drawn under the ⋯, its title the tile's name.
+    expect(screen()).toContain(" activity ");
     const lines = render().lines.map(visible);
-    const zoomAt = lines.findIndex(l => l.includes("[ctrl][w] [z] zoom"));
-    expect(zoomAt).toBeGreaterThan(-1);
-    press(lines[zoomAt]!.indexOf("zoom"), zoomAt);
-    await until(() => get().zoom === "activity" || !!D().zoom, "zoom ran from the frame card");
-    expect(D().hintGet().cards).toEqual([]);
+    const zoomAt = lines.findIndex(l => /\bzoom\b/.test(l) && l.includes("^W z"));
+    expect(zoomAt).toBeGreaterThan(r.row);
+    const x = lines[zoomAt]!.indexOf("zoom");
+    press(x, zoomAt);
+    await until(() => get().zoom === "activity" || !!D().zoom, "zoom ran from the menu");
+    expect(menu()).toBeNull();
+    // It's an action: unzoom is the same row, relabelled.
     const again = await act("tile.menu", {}, "activity") as { rows: MenuRow[] };
     expect(again.rows.find(x => x.action === "tile.zoom")?.label).toBe("unzoom");
     await mine("tile.zoom", { on: false }, "activity");
@@ -292,7 +297,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     await mine("layout.lock", { on: false });
   });
 
-  test("a terminal tile: its menu has its own rows; a right-click goes to a program that asked for the mouse, and the frame still opens its card", async () => {
+  test("a terminal tile: its menu has its own rows; a right-click goes to a program that asked for the mouse, and the ⋯ still opens the menu", async () => {
     fresh();
     // A program that asks for the mouse (mode 1000 and SGR 1006), then waits.
     await mine("tile.open", { kind: "pty", name: "mousy", cmd: "sh -c \"printf '\\033[?1000h\\033[?1006h'; sleep 30\"" }, "reader");
@@ -307,7 +312,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     expect(menu()).toBeNull();
     const b = (D().menuButtons as any[]).find(x => D().nameOf(x.id) === "mousy");
     press(b.from, b.row);
-    expect(D().hintGet().cards[0].choices.some((c: any) => c.act.action === "tile.enter")).toBe(true);
+    await until(() => menu()?.name === "tile menu", "the ⋯ opens the terminal's menu");
     key({ kind: "esc" });
     // Closing ends its program: asked twice.
     await mine("tile.close", {}, "mousy").catch(() => {}); await mine("tile.close", {}, "mousy");

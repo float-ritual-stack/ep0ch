@@ -216,7 +216,7 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
   }, 20_000);
 
 
-  test("the menu section (PIE-492): an agent's tile.menu answers rows; the frame card and right-click menu run its rows; a row runs as the person; the terminal keeps its right-click", async () => {
+  test("the menu section (PIE-492): an agent's tile.menu answers rows; the ⋯ and a right-click open it; a row runs as the person; the terminal keeps its right-click", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "menu" }, as: "test-agent" });
     await until(() => marks.menu!.every(m => screen().includes(m)), "the menu section");
@@ -233,11 +233,11 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     sc.render(app);
     const b = (stage().menuButtons as any[]).find(x => stage().nameOf(x.id) === "reader");
     click(at.col + b.from, at.row + b.row);
-    await until(() => stage().hintGet().cards.length > 0, "the frame card opens");
-    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => /\[z\] zoom/g.test(l));
+    await until(() => overlay()?.name === "tile menu", "the ⋯ opens the reader's menu");
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => /\bzoom\s+\^W z/.test(l));
     expect(y).toBeGreaterThan(0);
     // The menu's row, not the index's "open, split, zoom" a scrolled index can put on the same row.
-    click(rows[y]!.indexOf("zoom"), y);
+    click(rows[y]!.search(/\bzoom\s+\^W z/), y);
     await until(() => stage().zoom !== null, "zoom ran from the menu");
     expect(overlay()).toBeNull();
     await app.act({ action: "tile.zoom", tile: "reader", args: { on: false }, as: "test-agent" }).catch(() => stage().dispatch.press("tile.zoom", { on: false }, "reader"));
@@ -265,8 +265,8 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     sc.render(app);
     const tb = (stage().menuButtons as any[]).find(x => stage().nameOf(x.id) === "clicks");
     click(at.col + tb.from, at.row + tb.row);
-    await until(() => stage().hintGet().cards.length > 0, "the terminal frame card opens");
-    expect(stage().hintGet().cards[0].choices.some((c: any) => c.act.action === "tile.close")).toBe(true);
+    await until(() => overlay()?.name === "tile menu", "the terminal's ⋯ opens its menu");
+    expect(overlay()!.items.map(x => x.group)).toContain("Terminal");
     press({ kind: "esc" });
     expect(overlay()).toBeNull();
     // The right-click went into the terminal (a click there types in it): ctrl+] leaves it, then esc to the index.

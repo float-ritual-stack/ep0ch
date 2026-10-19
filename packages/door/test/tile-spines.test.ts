@@ -1,4 +1,4 @@
-// PIE-642 and PIE-925: the frame card folds a tile; a click on a spine
+// PIE-642 and PIE-925: the tile menu folds a tile; a click on a spine
 // opens it at the size it had; alt+h and alt+H are the keys; tile.collapse dir=v|h and tile.expand are the actions
 // an agent calls, which never fold the tile the person has. The fold is layout state: it saves and comes back.
 // Scratch services and fictional notes only.
@@ -28,7 +28,7 @@ describe.skipIf(!outliner)("tile spines: one click folds a tile, a click on the 
   const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, tile: reader }, { kind: "user" });
   const click = (x: number, y: number, mods?: number) => { key({ kind: "mouse", action: "down", button: 0, x, y, ...(mods ? { mods } : {}) }); key({ kind: "mouse", action: "up", button: 0, x, y, ...(mods ? { mods } : {}) }); render(); };
   const clickFold = async (name: string) => {
-    await mine("hint.show", {}, name);
+    await mine("tile.menu", {}, name);
     const lines = render().lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
     const y = lines.findIndex(l => l.includes("fold to a spine"));
     expect(y).toBeGreaterThan(-1);
@@ -58,13 +58,12 @@ describe.skipIf(!outliner)("tile spines: one click folds a tile, a click on the 
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EDITOR"]) delete process.env[k];
   });
 
-  test("the frame card folds a tile; clicking the spine restores its size", async () => {
+  test("the tile menu folds a tile; clicking the spine restores its size", async () => {
     const side = names().find(n => D().foldDirOf([...D().names].find(([, x]: [number, string]) => x === n)![0]) === "v")!;
     const before = rect(side);
     await clickFold(side);
     expect(tile(side).collapsed).toBe(true);
     expect(rect(side).cols).toBe(3);
-    await mine("hint.dismiss");
     click(rect(side).col + 1, rect(side).row + 3);
     expect(tile(side).collapsed).toBeUndefined();
     expect(rect(side)).toEqual(before);

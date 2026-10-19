@@ -271,7 +271,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().card()?.id).toBe(cards.kettle.id);
   });
 
-  test("a dock undocks into the layout by T or by its frame card; T puts it back in its dock", async () => {
+  test("a dock undocks into the layout by T or by its tile menu; T puts it back in its dock", async () => {
     await settled();
     BV.at(b, "lanes");
     const drawn = () => b.render(B().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
