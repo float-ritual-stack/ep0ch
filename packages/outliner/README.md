@@ -1401,8 +1401,7 @@ stops automatic deployment; the service seeds it only once. Bare store artifact
 names keep their existing meaning and do not deploy repos.
 
 The host clones into `~/artifact-deploys/<repo>`. A package build/start script,
-Next, Vite, SvelteKit or API routes chooses Vercel in the `e-schultz` personal
-scope; otherwise tracked static files go through the existing store/compiler.
+Next, Vite, SvelteKit or API routes chooses Vercel in the CLI's default context; otherwise tracked static files go through the existing store/compiler.
 Only the `ep0ch-artifacts` owner may deploy. Other owners get the exact fork and
 transfer commands. A matching commit skips the build/upload. `artifact ls` includes
 where, URL and commit. The run note explains the destination and DNS result.
@@ -1413,7 +1412,18 @@ The deployer must confirm the existing Caddy edge forwards the desired Host to
 port 8796 before advertising a named static host. No per-repo Caddy configuration
 is written by this command.
 
-Vercel gets `<repo>.ep0ch.sh`. DNS runs through
+Choose a Vercel domain with `--domain <name>` on the deploy CLI or
+`[domain::<name>]` beside `[artifact::]` on the note; the CLI option takes
+precedence. The agent tool accepts `domain` too. Without an override, deployment
+reuses the project's existing `*.ep0ch.sh` domain, then a backfilled domain,
+then `<repo>.ep0ch.sh`. Backfill receipts resolve the existing Vercel project
+even when its name differs from the repo. An already assigned domain needs no
+`domains add` or DNS write. Project-specific deployment lists omit `--all`.
+Set `EP0CH_VERCEL_SCOPE` on the host only when a particular team scope is needed;
+otherwise all Vercel commands use the logged-in CLI context. Private GitHub
+clones require `gh auth setup-git` on the host.
+
+For a new domain, DNS runs through
 `with-secrets hetzner-dns -- hcloud ...`; use
 `with-secrets --add hetzner-dns HCLOUD_TOKEN` to enter the Cloud token privately.
 Without that group the command prints the exact manual CNAME/A record and keeps
@@ -1443,7 +1453,10 @@ actual DNS and routing state. No real deploy or backfill is part of the tests.
 The local agent tool is available to scripts and the Claude mod; the MCP gateway
 has no deploy/proposal adapter.
 
-CLI contracts checked against the [Vercel list source](https://github.com/vercel/vercel/blob/main/packages/cli/src/commands/list/command.ts),
+CLI flags checked with the real Vercel 64.5.0 help on float-2 (including list, inspect,
+deploy, domains add/list, project list/inspect, link and api). Domain discovery uses
+`vercel api /v9/projects/<project>/domains` because project inspect does not return
+domains. See the [Vercel list source](https://github.com/vercel/vercel/blob/main/packages/cli/src/commands/list/command.ts),
 [Vercel domains documentation](https://vercel.com/docs/cli/domains),
 [Vercel API CLI](https://vercel.com/docs/cli/api) (backfill reads deployment metadata by ID), and
 [Hetzner RRSet CLI reference](https://github.com/hetznercloud/cli/blob/main/docs/reference/manual/hcloud_zone_rrset.md).

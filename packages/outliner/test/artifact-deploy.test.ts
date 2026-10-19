@@ -25,19 +25,47 @@ async function fixture(app = false) {
     process.env[`EP0CH_${name.toUpperCase().replaceAll("-", "_")}`] = file;
   };
   wrapper("git", `case "$1" in
-clone) mkdir -p "$3/.git"; printf '<h1>Moth garden</h1>' > "$3/index.html"; ${app ? `printf '{"scripts":{"build":"vite build"}}' > "$3/package.json";` : ""} ;;
+clone) if [ -e "$ARTIFACT_FIXTURE/clone-failure" ]; then printf "fatal: could not read Username for 'https://github.com': terminal prompts disabled" >&2; exit 128; fi; mkdir -p "$3/.git"; printf '<h1>Moth garden</h1>' > "$3/index.html"; ${app ? `printf '{"scripts":{"build":"vite build"}}' > "$3/package.json";` : ""} ;;
 remote) printf 'https://github.com/ep0ch-artifacts/moth-garden\n';;
 fetch|reset) :;;
 rev-parse) cat "$ARTIFACT_FIXTURE/commit";;
 ls-files) printf 'index.html\\0${app ? "package.json\\0" : ""}';;
 *) exit 8;;
 esac`);
-  wrapper("vercel", `case "$1" in
-list) if [ -e "$ARTIFACT_FIXTURE/deployed-commit" ] && [ "$(cat "$ARTIFACT_FIXTURE/deployed-commit")" = "$(cat "$ARTIFACT_FIXTURE/commit")" ]; then printf '{"deployments":[{"name":"moth-garden","state":"READY","url":"moth-garden.example.test"}]}'; else printf '{"deployments":[]}'; fi;;
-link|domains) :;;
+  wrapper("vercel", `
+for arg in "$@"; do
+  case "$arg" in
+  --*) case "$1:$arg" in
+    list:--all|list:--prod|list:--json|list:--limit|list:--meta|list:--next|project:--json|project:--limit|project:--next|link:--yes|link:--project|deploy:--prod|deploy:--yes|deploy:--meta|inspect:--json|*:--scope) :;;
+    *) printf 'Error: unsupported flag %s' "$arg" >&2; exit 1;;
+  esac;;
+  esac
+  if [ "$arg" = e-schultz ]; then printf 'Error: You cannot set your Personal Account as the scope.' >&2; exit 1; fi
+done
+case "$1" in
+list) all=0; project=0; shift
+while [ "$#" -gt 0 ]; do
+ case "$1" in
+ --all) all=1;;
+ --prod|--json) :;;
+ --limit|--meta|--scope|--next) shift;;
+ --*) exit 8;;
+ *) project=1;;
+ esac
+ shift
+done
+if [ "$all" = 1 ] && [ "$project" = 1 ]; then printf 'Error: Cannot use --all flag with a project argument' >&2; exit 1; fi
+if [ -e "$ARTIFACT_FIXTURE/deployed-commit" ] && [ "$(cat "$ARTIFACT_FIXTURE/deployed-commit")" = "$(cat "$ARTIFACT_FIXTURE/commit")" ]; then printf '{"deployments":[{"name":"moth-garden","state":"READY","url":"moth-garden.example.test"}]}'; else printf '{"deployments":[]}'; fi;;
+project) printf '{"projects":[{"name":"moth-garden"}],"pagination":{"next":null}}';;
+link) if [ -e "$ARTIFACT_FIXTURE/mapped-project" ]; then test "$4" = lantern; fi;;
+domains) test "$2" = add; test "$#" = 4; printf '%s' "$3" > "$ARTIFACT_FIXTURE/added-domain";;
 deploy) test ! -e "$ARTIFACT_FIXTURE/fail-vercel"; cp "$ARTIFACT_FIXTURE/commit" "$ARTIFACT_FIXTURE/deployed-commit"; printf 'deployed\\n' >> "$ARTIFACT_FIXTURE/deploys"; printf 'https://moth-garden.example.test';;
-inspect) host=\${2#https://}; name=\${host%%.*}; if [ "$name" = kalku-run ] && [ -e "$ARTIFACT_FIXTURE/missing-deployment" ]; then printf "Error: Can't find the deployment %s under the context evan-schultzs-projects\\n" "$host" >&2; exit 1; fi; if [ "$name" = plastik-kraft ] && [ -e "$ARTIFACT_FIXTURE/login-failure" ]; then printf 'Error: You are not logged in (401)\\n' >&2; exit 1; fi; printf '{"id":"%s","createdAt":1700000000000}' "$name";;
-api) name=\${2##*/}; printf '{"createdAt":1700000000000,"meta":{"githubCommitOrg":"ep0ch-artifacts","githubCommitRepo":"%s","githubCommitSha":"abc123"}}' "$name";;
+inspect) test "$3" = --json; host=\${2#https://}; name=\${host%%.*}; if { [ "$name" = moon ] || [ "$name" = glow ]; } && { [ ! -e "$ARTIFACT_FIXTURE/added-domain" ] || [ "$(cat "$ARTIFACT_FIXTURE/added-domain")" != "$host" ]; }; then printf "Error: Can't find the deployment" >&2; exit 1; fi; if [ "$name" = kalku-run ] && [ -e "$ARTIFACT_FIXTURE/missing-deployment" ]; then printf "Error: Can't find the deployment %s under the context evan-schultzs-projects\\n" "$host" >&2; exit 1; fi; if [ "$name" = plastik-kraft ] && [ -e "$ARTIFACT_FIXTURE/login-failure" ]; then printf 'Error: You are not logged in (401)\\n' >&2; exit 1; fi; printf '{"id":"%s","createdAt":1700000000000}' "$name";;
+api) case "$2" in
+/v9/projects/*/domains*) if [ -e "$ARTIFACT_FIXTURE/custom-domain" ]; then printf '{"domains":[{"name":"lantern.ep0ch.sh"}],"pagination":{"next":null}}'; else printf '{"domains":[],"pagination":{"next":null}}'; fi;;
+/v13/deployments/*) name=\${2##*/}; project="$name"; if [ "$name" = moon ] || [ "$name" = glow ]; then project=moth-garden; fi; if [ -e "$ARTIFACT_FIXTURE/mapped-project" ] && [ "$name" = kalku-run ]; then name=moth-garden; project=lantern; fi; printf '{"name":"%s","createdAt":1700000000000,"meta":{"githubCommitOrg":"ep0ch-artifacts","githubCommitRepo":"%s","githubCommitSha":"abc123"}}' "$project" "$name";;
+*) exit 8;;
+esac;;
 *) exit 8;;
 esac`);
   wrapper("gh", `printf '[{"name":"moth-garden","url":"https://github.com/ep0ch-artifacts/moth-garden","homepageUrl":"https://moth-garden.example.test"}]'`);
@@ -168,4 +196,43 @@ test("backfill calls out a real Vercel login failure separately", async () => {
   expect(report.pending).toContain("plastik-kraft: Vercel login failed; run vercel login on the outline host and run the artifact command again.");
   expect(store.children(store.resolveBlockRef("[[artifacts]]").id).find(row => row.text.startsWith("plastik-kraft "))?.text).toContain("[where::unknown] [deployed-at::unknown]");
   expect(report.imported.some((row: { name: string }) => row.name === "goose")).toBe(true);
+});
+
+test("private clone failures explain the gh credential helper", async () => {
+  const { root, cli } = await fixture();
+  writeFileSync(join(root, "clone-failure"), "");
+  const result = await cli("deploy", "moth-garden");
+  expect(result.code).toBe(1);
+  expect(result.err).toContain("gh auth setup-git");
+});
+
+test.each([false, true])("existing domains keep their project without domain or DNS writes (backfilled: %s)", async (backfilled) => {
+  const { root, cli } = await fixture(true);
+  writeFileSync(join(root, "custom-domain"), "");
+  if (backfilled) {
+    writeFileSync(join(root, "mapped-project"), "");
+    expect((await cli("backfill")).code).toBe(0);
+  }
+  writeFileSync(join(root, "commit"), "next456");
+  const result = await cli("deploy", "moth-garden");
+  expect(result.err).toBe(""); expect(result.code).toBe(0);
+  expect(JSON.parse(result.out)).toMatchObject({ url: "https://lantern.ep0ch.sh", commit: "next456" });
+  expect(readFileSync(join(root, "deploys"), "utf8")).toBe("deployed\n");
+  expect(existsSync(join(root, "added-domain"))).toBe(false);
+  expect(existsSync(join(root, "dns"))).toBe(false);
+});
+
+test("the CLI domain overrides the note domain, and saved notes use their domain", async () => {
+  const { root, cli, store, client, server } = await fixture(true);
+  const note = store.create("Moth garden [artifact::ep0ch-artifacts/moth-garden] [domain::glow]", null, "agent", { actorId: "ext:fixture" });
+  const result = await cli("deploy", "moth-garden", "--domain", "moon");
+  expect(result.err).toBe(""); expect(result.code).toBe(0);
+  expect(JSON.parse(result.out).url).toBe("https://moon.ep0ch.sh");
+  expect(readFileSync(join(root, "added-domain"), "utf8")).toBe("moon.ep0ch.sh");
+  // The next edit uses the note's domain even though this commit was already deployed.
+  await client.request({ action: "update", blockId: note.id, text: store.get(note.id)!.text + "\nEdited", expectedRevision: store.get(note.id)!.revision, mutation: { author: "user" } });
+  await server.extensionRules.settle();
+  for (const started = Date.now(); !store.get(note.id)!.text.includes("[url::https://glow.ep0ch.sh]") && Date.now() - started < 5000;) await Bun.sleep(20);
+  expect(store.get(note.id)!.text).toContain("[url::https://glow.ep0ch.sh]");
+  expect(readFileSync(join(root, "added-domain"), "utf8")).toBe("glow.ep0ch.sh");
 });

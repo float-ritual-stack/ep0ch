@@ -38,6 +38,7 @@ export function artifactDestination(files: readonly string[], pkg?: { scripts?: 
 type Program = "git" | "gh" | "vercel" | "hcloud" | "with-secrets";
 async function artifactProgram(program: Program, args: string[], cwd?: string, secretGroup?: string): Promise<string> {
   const path = (name: Program) => process.env[`EP0CH_${name.toUpperCase().replaceAll("-", "_")}`] ?? name;
+  if (program === "vercel" && process.env.EP0CH_VERCEL_SCOPE) args = [...args, "--scope", process.env.EP0CH_VERCEL_SCOPE];
   const command = secretGroup ? [path("with-secrets"), secretGroup, "--", path(program), ...args] : [path(program), ...args];
   let child;
   try { child = Bun.spawn(command, { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }, stdout: "pipe", stderr: "pipe" }); }
@@ -45,6 +46,8 @@ async function artifactProgram(program: Program, args: string[], cwd?: string, s
   // External diagnostics can contain credentials. Keep them out of notes and socket replies.
   const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code !== 0) {
+    if (program === "git" && args[0] === "clone" && /could not read Username/i.test(err))
+      throw new Error("Private repo clone needs GitHub credentials; run gh auth setup-git on the outline host, then run the artifact command again.");
     if (program === "vercel" && /not logged in|\b401\b|unauthorized/i.test(err))
       throw new Error("Vercel login failed; run vercel login on the outline host and run the artifact command again.");
     if (program === "vercel" && args[0] === "inspect" && /can't find the deployment|deployment.*not found/i.test(err))
@@ -85,10 +88,10 @@ function rememberDeployment(artifacts: ArtifactStore, deployment: Deployment) {
 }
 
 const queues = new Map<string, Promise<unknown>>();
-export function deployArtifact(artifacts: ArtifactStore, store: OutlinerStore, input: string, requestedBy?: MutationProvenance) {
+export function deployArtifact(artifacts: ArtifactStore, store: OutlinerStore, input: string, requestedBy?: MutationProvenance, domain?: string) {
   const repo = artifactRepo(input);
   const previous = queues.get(artifacts.root) ?? Promise.resolve();
-  const run = previous.catch(() => {}).then(() => deploy(artifacts, store, repo, requestedBy)).catch(error => {
+  const run = previous.catch(() => {}).then(() => deploy(artifacts, store, repo, requestedBy, domain)).catch(error => {
     const actor = { author: "agent" as const, actorId: "ext:artifact-deploy" };
     store.changes.run(store.changes.attribution({ action: "artifacts.deploy", actor, requestedBy }), () =>
       store.create(`Artifact ${repo.name}: failed [type::artifact-run] [status::failed]\n\nRepo: ${repo.repo}\n${error.message}\nRun ep0ch artifact deploy ${repo.repo} again after fixing the problem.`, null, "agent", actor));
@@ -98,7 +101,17 @@ export function deployArtifact(artifacts: ArtifactStore, store: OutlinerStore, i
   void run.finally(() => { if (queues.get(artifacts.root) === run) queues.delete(artifacts.root); }).catch(() => {});
   return run;
 }
-async function deploy(artifacts: ArtifactStore, store: OutlinerStore, repo: ReturnType<typeof artifactRepo>, requestedBy?: MutationProvenance) {
+async function deploy(artifacts: ArtifactStore, store: OutlinerStore, repo: ReturnType<typeof artifactRepo>, requestedBy?: MutationProvenance, domain?: string) {
+  const source = store.queryBlocks({ filters: [{ key: "artifact" }], limit: 1000 }).blocks.find(note =>
+    parsePropertyRecords(note.text).some(p => {
+      if (p.key !== "artifact" || p.scope !== "block") return false;
+      try { return artifactRepo(p.value).repo === repo.repo; } catch { return false; }
+    }));
+  domain ??= source && parsePropertyRecords(source.text).find(p => p.key === "domain" && p.scope === "block")?.value;
+  if (domain) {
+    domain = domain.replace(/\.ep0ch\.sh$/, "");
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(domain)) throw new Error("Use --domain <name> or [domain::<name>] with an ep0ch.sh subdomain label.");
+  }
   const parent = process.env.EP0CH_ARTIFACT_DEPLOYS ?? join(homedir(), "artifact-deploys");
   mkdirSync(parent, { recursive: true });
   const folder = join(parent, repo.name);
@@ -114,8 +127,9 @@ async function deploy(artifacts: ArtifactStore, store: OutlinerStore, repo: Retu
   const pkg = files.includes("package.json") ? JSON.parse(readFileSync(join(folder, "package.json"), "utf8")) : undefined;
   const choice = artifactDestination(files, pkg);
   let deployment = deployedArtifacts(artifacts).find(row => row.name === repo.name && row.commit === commit && row.where === choice.where);
-  const remoteExists = choice.where === "vercel" && (await vercelDeployments(commit)).some(d => d.name === repo.name && d.state === "READY");
-  let unchanged = !!deployment && (choice.where === "vercel" ? remoteExists : existsSync(join(artifacts.live, repo.name)) && deployment.contentHash === artifacts.contentHash(repo.name));
+  const target = choice.where === "vercel" ? await vercelTarget(artifacts, repo, domain) : undefined;
+  const remoteExists = !!target?.exists && (await vercelDeployments(commit, target.project)).some(d => d.state === "READY");
+  let unchanged = !!deployment && (!target || deployment.url === `https://${target.domain}.ep0ch.sh`) && (choice.where === "vercel" ? remoteExists : existsSync(join(artifacts.live, repo.name)) && deployment.contentHash === artifacts.contentHash(repo.name));
   let dns: Awaited<ReturnType<typeof artifactDns>> | undefined;
   if (!unchanged) {
     if (choice.where === "float-2") {
@@ -126,16 +140,17 @@ async function deploy(artifacts: ArtifactStore, store: OutlinerStore, repo: Retu
       }));
       await artifacts.put(repo.name, contents, { compile: true, rejectErrors: true });
     } else {
-      const scope = ["--scope", "e-schultz"];
-      unchanged = remoteExists;
-      if (!unchanged) {
-        await artifactProgram("vercel", ["link", "--yes", "--project", repo.name, ...scope], folder);
-        await artifactProgram("vercel", ["deploy", "--prod", "--yes", "--meta", `ep0chCommit=${commit}`, ...scope], folder);
+      unchanged = remoteExists && target!.assigned;
+      if (!remoteExists) {
+        await artifactProgram("vercel", ["link", "--yes", "--project", target!.project], folder);
+        await artifactProgram("vercel", ["deploy", "--prod", "--yes", "--meta", `ep0chCommit=${commit}`], folder);
       }
-      await artifactProgram("vercel", ["domains", "add", `${repo.name}.ep0ch.sh`, repo.name, ...scope], folder);
-      dns = await artifactDns(repo.name, "vercel");
+      if (!target!.assigned) {
+        await artifactProgram("vercel", ["domains", "add", `${target!.domain}.ep0ch.sh`, target!.project], folder);
+        dns = await artifactDns(target!.domain, "vercel");
+      }
     }
-    deployment = { ...repo, ...choice, commit, deployedAt: new Date().toISOString(), url: choice.where === "float-2" ? `https://artifacts.ep0ch.sh/${repo.name}/` : `https://${repo.name}.ep0ch.sh` };
+    deployment = { ...repo, ...choice, commit, deployedAt: new Date().toISOString(), url: choice.where === "float-2" ? `https://artifacts.ep0ch.sh/${repo.name}/` : `https://${target!.domain}.ep0ch.sh` };
     if (choice.where === "float-2") deployment.contentHash = artifacts.contentHash(repo.name);
     rememberDeployment(artifacts, deployment);
   }
@@ -195,8 +210,8 @@ export async function backfillArtifacts(artifacts: ArtifactStore, store: Outline
         if (live) url = `https://${live.url}`;
       }
       if (!url) { markPending(name, repo, "no current deployed URL; not deployed by backfill"); continue; }
-      const inspected = JSON.parse(await artifactProgram("vercel", ["inspect", url, "--json", "--scope", "e-schultz"])) as { id: string };
-      const info = JSON.parse(await artifactProgram("vercel", ["api", `/v13/deployments/${encodeURIComponent(inspected.id)}`, "--scope", "e-schultz"])) as { meta?: { githubCommitOrg?: string; githubCommitRepo?: string; githubCommitSha?: string; ep0chCommit?: string }; createdAt: number };
+      const inspected = JSON.parse(await artifactProgram("vercel", ["inspect", url, "--json"])) as { id: string };
+      const info = JSON.parse(await artifactProgram("vercel", ["api", `/v13/deployments/${encodeURIComponent(inspected.id)}`])) as { meta?: { githubCommitOrg?: string; githubCommitRepo?: string; githubCommitSha?: string; ep0chCommit?: string }; createdAt: number };
       const row: Deployment = { name, url, repo: info.meta?.githubCommitOrg && info.meta.githubCommitRepo ? `${info.meta.githubCommitOrg}/${info.meta.githubCommitRepo}` : repo ? `ep0ch-artifacts/${repo.name}` : "unknown", where: "vercel", commit: info.meta?.ep0chCommit ?? info.meta?.githubCommitSha ?? "unknown", deployedAt: new Date(info.createdAt).toISOString(), reason: "Imported the existing deployment; no redeploy." };
       rememberDeployment(artifacts, row); registerArtifact(store, row); imported.push(row);
     } catch (error) {
@@ -211,19 +226,55 @@ export async function backfillArtifacts(artifacts: ArtifactStore, store: Outline
 export function seedArtifactRule(store: OutlinerStore) {
   if (store.readMetadata("artifacts.deploy-rule")) return;
   const actor = { actorId: "ext:artifact-deploy" };
-  const script = store.create('Deploy the repo named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\nconst repo = this.properties.find(p => p.key === "artifact");\nif (repo?.values[0]?.includes("/")) text(await tools.artifact_deploy({ repo: repo.values[0] }));\n```', null, "agent", actor);
+  const script = store.create('Deploy the repo named by this note [script::deploy-artifact] [effects::write] [deadline::5m]\n\n```js\nconst repo = this.properties.find(p => p.key === "artifact");\nif (repo?.values[0]?.includes("/")) text(await tools.artifact_deploy({ repo: repo.values[0], domain: this.properties.find(p => p.key === "domain")?.values[0] }));\n```', null, "agent", actor);
   const action = `${scriptSourceId(script.id)}/run`;
   const rule = store.create(`Deploy repos named by notes [rule-name::deploy-artifact] [rule-match::artifact] [rule-on::${action}] [rule-on-change::${action}]\n\nOnly ep0ch-artifacts repos deploy. The repo decides the destination; remove this rule to stop automatic deployment.`, null, "agent", actor);
   store.writeMetadata("artifacts.deploy-rule", rule.id);
 }
 
 interface VercelDeployment { name: string; url: string; state: string }
-async function vercelDeployments(commit?: string): Promise<VercelDeployment[]> {
+async function vercelDeployments(commit?: string, project?: string): Promise<VercelDeployment[]> {
   const filters = commit ? [["--meta", `ep0chCommit=${commit}`], ["--meta", `githubCommitSha=${commit}`]] : [[]];
   const deployments: VercelDeployment[] = [];
   for (const filter of filters) {
-    const result = JSON.parse(await artifactProgram("vercel", ["list", "--all", "--prod", "--json", "--limit", "100", ...filter, "--scope", "e-schultz"])) as { deployments: VercelDeployment[] };
+    const result = JSON.parse(await artifactProgram("vercel", ["list", ...(project ? [project] : ["--all"]), "--prod", "--json", "--limit", "100", ...filter])) as { deployments: VercelDeployment[] };
     deployments.push(...result.deployments);
   }
   return deployments;
+}
+
+async function vercelTarget(artifacts: ArtifactStore, repo: ReturnType<typeof artifactRepo>, requested?: string) {
+  const remembered = deployedArtifacts(artifacts).find(row => row.repo === repo.repo && row.where === "vercel" && row.url !== "pending");
+  let project = repo.name;
+  let exists = false;
+  if (remembered || requested) {
+    try {
+      const inspected = JSON.parse(await artifactProgram("vercel", ["inspect", remembered?.url ?? `https://${requested}.ep0ch.sh`, "--json"])) as { id: string };
+      const info = JSON.parse(await artifactProgram("vercel", ["api", `/v13/deployments/${encodeURIComponent(inspected.id)}`])) as { name: string };
+      project = info.name;
+      exists = true;
+    } catch (error) {
+      if (remembered || (error as Error).message !== "no Vercel deployment for that domain") throw error;
+    }
+  }
+  if (!exists) {
+    let next: number | null = null;
+    do {
+      const page: { projects: { name: string }[]; pagination: { next: number | null } } = JSON.parse(await artifactProgram("vercel", ["project", "ls", "--json", "--limit", "100", ...(next ? ["--next", String(next)] : [])]));
+      exists = page.projects.some(p => p.name === project);
+      next = page.pagination.next;
+    } while (!exists && next);
+  }
+  const domains: string[] = [];
+  if (exists) {
+    let next: number | null = null;
+    do {
+      const page: { domains: { name: string }[]; pagination: { next: number | null } } = JSON.parse(await artifactProgram("vercel", ["api", `/v9/projects/${encodeURIComponent(project)}/domains?limit=100${next ? `&until=${next}` : ""}`]));
+      domains.push(...page.domains.map(d => d.name));
+      next = page.pagination.next;
+    } while (next);
+  }
+  const rememberedDomain = remembered?.url.match(/^https:\/\/([a-z0-9-]+)\.ep0ch\.sh\/?$/)?.[1];
+  const domain = requested ?? domains.find(d => d.endsWith(".ep0ch.sh"))?.replace(/\.ep0ch\.sh$/, "") ?? rememberedDomain ?? repo.name;
+  return { project, exists, domain, assigned: domains.includes(`${domain}.ep0ch.sh`) };
 }
