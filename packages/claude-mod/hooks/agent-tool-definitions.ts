@@ -71,8 +71,8 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
   {
     name: "artifact_deploy", operation: "artifact-deploy", writes: true,
     description: "Deploy an ep0ch-artifacts repo, register it and update notes that name it. The repo decides static store or Vercel.",
-    example: { repo: "ep0ch-artifacts/moth-garden" }, properties: { repo: { type: "string" } }, required: ["repo"],
-    command(input) { return { operation: "artifact-deploy", input: inputOf(input, ["repo"]) }; },
+    example: { repo: "ep0ch-artifacts/moth-garden" }, properties: { repo: { type: "string" }, domain: { type: "string" } }, required: ["repo"],
+    command(input) { return { operation: "artifact-deploy", input: inputOf(input, ["repo", "domain"]) }; },
   },
   {
     name: "outline_read",
