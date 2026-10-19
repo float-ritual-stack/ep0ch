@@ -217,11 +217,11 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   /** A door at `cols` columns on the detail screen of the note, its terminal's writes kept. */
-  async function door(cols: number, board0: SocketBoard = board, show?: { id: string; drawn: string }) {
+  async function door(cols: number, board0: SocketBoard = board, show?: { id: string; drawn: string }, rows = 46) {
     const board = board0;
     const writes: string[] = [];
     let key: (k: Key) => void = () => {};
-    const term = { info: { cols, rows: 46, cellW: 9, cellH: 16, kitty: false }, write(s: string) { writes.push(s); }, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols, rows, cellW: 9, cellH: 16, kitty: false }, write(s: string) { writes.push(s); }, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     const app = new App(term as any, board, Date.now(), () => {});
     const sub = board.subscribe(e => app.event(e));
     const desk = openScreen("detail", { note: show?.id ?? note.id, persist: false }) as Desk;
@@ -324,6 +324,18 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
     } finally { d.close(); }
   }, 30_000);
 
+  test("a tune inspector opens beside a tile too short to split and says why", async () => {
+    const d = await door(120, board, { id: note.id, drawn: "Bean row" }, 7);
+    try {
+      expect(await d.app.act({ action: "tile.tune", tile: "detail", as: "look-agent" })).toMatchObject({ tunes: "detail" });
+      d.lines();
+      const detail = (d.desk as any).drawnAt("detail"), tune = (d.desk as any).drawnAt("tune");
+      expect(tune.row).toBe(detail.row);
+      expect(tune.col).toBeGreaterThan(detail.col);
+      expect(d.lines().some(l => l.includes("too short to split; inspector beside it"))).toBe(true);
+    } finally { d.close(); }
+  }, 30_000);
+
   test("PIE-675: x and a row's × take one value back to the level under it (by key, by click, through act), and a save removes it from its note; a tile's border, surface and header surface draw from the look", async () => {
     const d = await door(140);
     try {
@@ -360,6 +372,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       // Frames, surfaces and the header's surface, set globally in memory: the inspector's frame at rest, the reader's surfaces.
       for (const [row, v] of [["border", "round"], ["bg", "raised"], ["header.bg", "blue"], ["header.bg.opacity", "60"], ["edge", "box"], ["tone", "amber"]] as const)
         expect(await d.app.act({ action: "tune.set", args: { row, value: v, level: "global" }, tile: "tune", as: "look-agent" })).toMatchObject({ value: v, at: "global" });
+      (d.desk as any).focusTile("detail", { kind: "user" });
       await until(() => d.lines().some(l => /╭─.*tune/.test(l)), "the inspector's frame round, at rest", 5000);
       const raw = () => d.desk.render((d.desk as any).ctx).lines;
       // The header's surface is under its crumbs and meta lines; the title stands on the ground, off the band (PIE-809).
@@ -408,24 +421,29 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
     } finally { d.close(); }
   }, 30_000);
 
-  test("PIE-675: a level picked shows its own values; a row something nearer wins is marked, and a nudge there asks (anyway, instead, clear); the width trap: narrow, then all widths", async () => {
+  test("PIE-675: a level picked shows its own values; a row something nearer wins is marked, and a nudge there asks (anyway, instead, clear); narrow, then all widths", async () => {
     // A connection of its own: its own session of the inspector.
     const b2 = new SocketBoard(scratch.sock);
     await b2.info();
-    const d = await door(120, b2);
+    const d = await door(110, b2);
     try {
+      await d.app.act({ action: "tile.open", args: { kind: "tree", name: "outline", where: "left" }, tile: "detail", as: "look-agent" });
+      d.lines();
+      const detailWidth = (d.desk as any).drawnAt("detail").cols;
       expect(await d.app.act({ action: "tile.tune", tile: "detail", as: "look-agent" })).toMatchObject({ tunes: "detail" });
       const tune = () => [...(d.desk as any).panes.values()].find((p: any) => p.kind === "tune");
       // Read as drawn: a frame first (the inspector reads the look the tile was last drawn with).
       const v = (tk: string) => { d.lines(); return tune().describe(d.desk).values[tk]; };
       await until(() => !!tune()?.describe(d.desk).values, "the inspector", 5000);
       d.lines();
+      expect((d.desk as any).drawnAt("detail").cols).toBe(detailWidth);
       expect(tune().describe(d.desk).breakpoint).toBe("narrow");
+      expect(d.lines().some(l => l.includes("narrow (under 60)"))).toBe(true);
       const act = (action: string, args: Record<string, unknown> = {}) => d.app.act({ action, args, tile: "tune", as: "look-agent" }) as Promise<any>;
       // The page picked: each row says what the page sets itself (nothing yet), beside the value in force.
       await act("tune.level", { level: "page" });
       expect(v("pad.x")).toMatchObject({ value: "2", from: "screen detail", at: { level: "this page", value: null } });
-      await until(() => d.lines().some(l => /in force +page +from/.test(l)) && d.lines().some(l => /pad\.x +2 +— +← scree/.test(l)), "the page's column:\n" + d.lines().join("\n"), 5000);
+      await until(() => d.lines().some(l => /in force +page +from/.test(l)) && d.lines().some(l => /pad\.x +2 +— +← scr/.test(l)), "the page's column:\n" + d.lines().join("\n"), 5000);
       // Global picked: the screen's style wins over it, so the row is marked, and an agent's nudge there says why and what it can do.
       await act("tune.level", { level: "global" });
       expect(v("pad.x").overridden).toBe("screen detail overrides");
@@ -435,7 +453,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(await act("tune.nudge", { row: "pad.x", by: 1, shadow: "anyway" })).toMatchObject({ at: "global", shadow: "anyway" });
       expect(v("pad.x")).toMatchObject({ value: "2", at: { level: "global", value: "4" } });
       expect(await act("tune.undo")).toMatchObject({ undone: "pad.x" });
-      // The width trap: at a narrow tile, the page's narrow width, then all widths.
+      // At a narrow tile, the page's narrow width, then all widths.
       await act("tune.level", { level: "page" });
       await act("tune.width", { scope: "this" });
       expect(await act("tune.nudge", { row: "pad.x", by: 1 })).toMatchObject({ at: "this page, narrow only" });

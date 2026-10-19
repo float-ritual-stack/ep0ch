@@ -1,4 +1,4 @@
-// The tune inspector (PIE-673, PIE-675): a tile beside the one it tunes, like devtools' computed styles. It lists the
+// The tune inspector (PIE-673, PIE-675): a tile under the one it tunes, like devtools' computed styles. It lists the
 // look's values for that tile (or, in a reader, the `::box` its `[ ]` is in), each with where it comes from, and nudges
 // them: a nudge goes into the connection's tuning (src/look.ts), in memory, and the tiles draw with it in the next frame,
 // nothing read from the outline. `s` writes the nudges to the level picked (global, the tile's kind, the screen, the
@@ -116,6 +116,7 @@ const levelOfSource = (src: StyleSource): TuneLevel => (src.level === "global" |
 
 export class TunePane implements Pane {
   readonly kind = "tune";
+  besideShort = false;
   sel = 0;
   /**
    * The level a nudge goes to and a save writes: `auto` (where the value comes from, as devtools edits the rule that
@@ -217,7 +218,8 @@ export class TunePane implements Pane {
       lines.push(line);
     };
     const sp = { text: " ", sgr: "" };
-    put([{ text: `${t.kind}${t.title !== t.kind ? ` ${t.title}` : ""} · ${t.cols} cols · `, sgr: fg(C.grey) }, { text: widthWords(t.look), sgr: fg(C.lcyan) }, ...(t.box ? [{ text: " · in a box", sgr: fg(C.yellow) }] : [])]);
+    if (this.besideShort) put([{ text: "too short to split; inspector beside it", sgr: fg(C.yellow) }]);
+    else put([{ text: `${t.kind}${t.title !== t.kind ? ` ${t.title}` : ""} · ${t.cols} cols · `, sgr: fg(C.grey) }, { text: widthWords(t.look), sgr: fg(C.lcyan) }, ...(t.box ? [{ text: " · in a box", sgr: fg(C.yellow) }] : [])]);
     // The levels a save goes to; the one picked lit. A level this tile hasn't (no page shown) is dim.
     put([{ text: "nudge ", sgr: fg(C.dark) }, ...TUNE_LEVELS.flatMap(l => {
       const target = l === "auto" ? null : tuneTarget(l, t.look.place, t.list?.target ?? null), on = l === this.level;

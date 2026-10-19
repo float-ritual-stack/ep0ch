@@ -1,5 +1,5 @@
 import { readNote, outlineBoards } from "./outline-boards";
-import type { AltRule } from "./layout";
+import { MIN_ROWS, type AltRule } from "./layout";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The desk: the door owns the whole canvas, and the canvas is tiles (PIE-413). A tile is a view (the outline
 // tree, a reader, a detail, a preview, a program in a terminal, a whole screen) in the layout tree: split,
@@ -388,7 +388,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /**
    * The tune inspector (PIE-673) on tile `tile` (default the focused one): the one on this screen turns to it, else one
-   * opens beside it. The person's keys go to it; an agent's leaves them where they are.
+   * opens under it, or beside it when there is too little height to split. The person's keys go to it; an agent's leaves them where they are.
    */
   async openTune(actor: Actor, tile?: string): Promise<Record<string, unknown>> {
     const focused = this.panes.get(this.focus);
@@ -398,8 +398,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let id = tunes[0]?.[0];
     if (id !== undefined) { (this.panes.get(id) as Pane & { source: string }).source = target; }
     else {
-      const made = await this.openTile({ kind: "tune", source: `tile:${target}` }, target, "right", actor);
+      const short = (placeLayout(this.layout, this.area, this.holds).rects.get(this.idNamed(target)!)?.rows ?? this.area.rows) < MIN_ROWS * 2;
+      const made = await this.openTile({ kind: "tune", source: `tile:${target}` }, target, short ? "right" : "down", actor);
       id = this.idNamed(made.tile);
+      if (id !== undefined) (this.panes.get(id) as Pane & { besideShort: boolean }).besideShort = short;
     }
     if (id !== undefined && actor.kind !== "agent") this.run("tile.focus", {}, this.nameOf(id));
     this.redraw();

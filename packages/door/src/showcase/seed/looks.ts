@@ -18,7 +18,7 @@ export const HEADING_STYLE_LINE = "# Plot style [heading-style::plot] [heading-p
  */
 export const SPACING_LAB = [
   `${SEED.spacingLab} [page::${SEED.spacingLab}] [style::lab]`,
-  "This page is drawn by the lab style, which the Looks lab note declares: its measure holds the text to 64 columns, centred in a wide tile, its padding keeps it off the frame, and its list has a blank row and a dotted line between items. Nudge any value in the tune inspector beside it and the page moves in the next frame; s writes it to the level you pick, and every door on the outline draws it.",
+  "This page is drawn by the lab style, which the Looks lab note declares: its measure holds the text to 64 columns, centred in a wide tile, its padding keeps it off the frame, and its list has a blank row and a dotted line between items. Nudge any value in the tune inspector under it and the page moves in the next frame; s writes it to the level you pick, and every door on the outline draws it.",
   "",
   "## Seed trays",
   "- Tomatoes on the warm shelf, the ones from [[Headings and dividers]]",
