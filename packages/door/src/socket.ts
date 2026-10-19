@@ -950,6 +950,10 @@ export class SocketBoard implements Board {
    * without full text (PIE-400 `fields`).
    */
   /** `sort`: created, updated or a property key (the service orders by it, and refuses one that isn't). */
+  async waitingAsks(): Promise<import("@ep0ch/outline-core/protocol").WaitingAsk[]> {
+    return this.request("waiting.list", {});
+  }
+
   async query(q: string, limit = 50, sort = "updated", direction: "asc" | "desc" = "desc", list = false): Promise<Msg[]> {
     const filters = q.split(/\s+/).filter(Boolean).map(t => { const i = t.indexOf("="); return i > 0 ? { key: t.slice(0, i), value: t.slice(i + 1) } : { key: t }; });
     const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", { query: { limit: Math.min(1000, limit), filters, sort: { field: sort, direction } }, ...this.listFields(list) });

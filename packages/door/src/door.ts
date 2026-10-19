@@ -83,6 +83,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
     void app.whatChanged.seed(o.board);
     // Requests held for the person's r (PIE-888): the status bar's count and the waiting-on-you list.
     void app.heldAsks.seed(o.board);
+    void app.waitingAsks.seed(o.board);
     // The service's extensions (PIE-512): their lines, actions and tile kinds, bound as soon as the list is read.
     void app.loadExtensions();
     // Whether another door already handed the outline's agents the person's permissions (PIE-973): the chip says so from the start.

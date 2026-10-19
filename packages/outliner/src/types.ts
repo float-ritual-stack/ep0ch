@@ -1996,6 +1996,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "mcp.access.status" }
   /** The `@name` requests an agent or an extension wrote that wait for a person's `r`, with why (PIE-888). Reads only. */
   | { id: string; action: "agents.held" }
+  | { id: string; action: "waiting.list" }
   /** Yolo (PIE-973): the person's door (`clientId`, a connected client) turns the agent gate off for the outline (`on: true`), or any door takes it back (`on: false`). An agent's mutation is refused. */
   | { id: string; action: "agents.yolo"; clientId: string; on: boolean; mutation?: MutationProvenance }
   | { id: string; action: "mcp.access.configure"; level: McpAccessLevel }

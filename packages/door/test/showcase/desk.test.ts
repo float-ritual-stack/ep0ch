@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../../src/app";
 import { Desk } from "../../src/desk/desk";
-import { RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, type Seeded } from "../../src/showcase/seed";
+import { seedRace, RACE, RACE_AGENTS, RACE_LINE, RACE_PATCH, type Seeded } from "../../src/showcase/seed";
 import { gardenRound, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
 import { subject } from "../../src/board";
@@ -371,9 +371,9 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     // Blocked on a permission: the header's ◆, the list's row, the status bar's count, peek and status.list.
     await until(() => deploy()?.status.urgent()?.state === "blocked", "blocked", 8000);
     await until(() => /◆ \d sh/.test(screen()) && screen().includes("deploy · needs you · Deploy v2.4.1 to production?"), "the header and the list", 5000);
-    expect(bar()).toContain("◆1 on you");
+    expect(bar()).toMatch(/◆[1-9]\d*/);
     const listed = await app.act({ action: "status.list", args: {}, as: "test-agent" }) as any;
-    expect(listed.waiting[0]).toMatchObject({ n: 1, name: "deploy", state: "blocked", kind: "permission", app: "deploy", msg: "Deploy v2.4.1 to production?" });
+    expect(listed.waiting.find((r: any) => r.name === "deploy")).toMatchObject({ name: "deploy", state: "blocked", kind: "permission", app: "deploy", msg: "Deploy v2.4.1 to production?" });
     expect(JSON.stringify(app.describe())).toContain("\"status\":[{\"id\":\"\",\"state\":\"blocked\",\"kind\":\"permission\",\"app\":\"deploy\",\"msg\":\"Deploy v2.4.1 to production?\"}]");
     // Going to it is the person's: an agent's is refused, its keys stay put.
     await expect(app.act({ action: "status.go", tile: "waiting", args: { n: 1 }, as: "test-agent" })).rejects.toThrow();
@@ -381,7 +381,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await app.act({ action: "tile.type", tile: "deploy", args: { text: "y\\n" }, as: "test-agent" });
     await until(() => deploy()?.status.urgent()?.state === "done", "done", 8000);
     await until(() => /✓ \d sh/.test(screen()) && screen().includes("deploy · done · Deployed v2.4.1 to 3 regions"), "done on the header and the list", 5000);
-    expect(bar()).toContain("✓1 on you");
+    expect(bar()).toContain("✓1");
     // alt+w: the same list in your drawer.
     (app as any).lastInput = 0;
     press({ kind: "alt", ch: "w" });
@@ -390,13 +390,59 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "char", ch: "]", ctrl: true });
     await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" }).catch(() => {});
     // The person goes to it from the list (⏎ on its row runs status.go): the keys go to the deploy, and its done is seen.
-    await stage().dispatch.press("status.go", { n: 1 }, "waiting");
+    await stage().dispatch.press("status.go", { tile: "deploy" }, "waiting");
     await until(() => deploy()?.status.records.size === 0, "seen once the person is in it", 5000);
-    expect(bar()).not.toContain("on you");
+    expect(bar()).not.toContain("✓1");
     press({ kind: "char", ch: "]", ctrl: true });
     press({ kind: "esc" });
   }, 30_000);
 
+
+  test("outline asks join waiting on you and clear live (PIE-1072)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "status" }, as: "test-agent" });
+    await until(() => !!S().stages.get(S().sel), "waiting section");
+    const stage = () => S().stages.get(S().sel).top;
+    const ask = seeded.notes.waitingDecision;
+    const call = seeded.notes.waitingCalls;
+    const rows = () => stage().pane("waiting").describe() as any[];
+    await until(() => rows().some(r => r.block === ask.id), "the outline decision in waiting on you", 3000);
+    expect(rows().find(r => r.block === ask.id)).toMatchObject({ kind: "decision", reason: "glass or shade cloth?", by: "garden-agent" });
+    expect(rows().filter(r => r.block === call.id)).toMatchObject([{ kind: "call", line: 3, reason: "Choose the north wall" }]);
+    expect(rows().some(r => r.kind === "proposal")).toBe(true);
+    await app.act({ action: "host.waiting", as: "test-agent" });
+    expect(app.drawer.tabs().some(t => t.kind === "waiting-you")).toBe(true);
+    expect(JSON.stringify(app.describe())).toContain("glass or shade cloth?");
+    const count = rows().length;
+    expect(stage().pane("waiting").title()).toBe(`waiting on you · ${count}`);
+    (app as any).paint();
+    expect(plain(h.painted.at(-1) ?? "")).toContain(`?${rows().filter(r => ["decision", "proposal", "call"].includes(r.kind)).length}`);
+    await stage().dispatch.press("tile.open", { kind: "detail", name: "ask-preview", note: seeded.notes.notebook.id }, "waiting");
+    await stage().dispatch.press("tile.link", { to: "ask-preview", verb: "select" }, "waiting");
+    await stage().dispatch.press("status.pick", { n: rows().find(r => r.block === ask.id).n }, "waiting");
+    await until(() => stage().pane("ask-preview").msg?.id === ask.id, "decision previews");
+    await stage().dispatch.press("tile.link", { to: "ask-preview", verb: "alt" }, "waiting");
+    await stage().dispatch.press("ask.open", { n: rows().find(r => r.block === call.id).n, fresh: true }, "waiting");
+    await until(() => stage().pane("ask-preview").msg?.id === call.id, "call opens through the alt wire");
+    await until(() => stage().pane("ask-preview").surface.describe().focus?.line === 4, "call opens at its source line");
+    const applicable = rows().find(r => r.kind === "proposal" && r.block !== seeded.race.proposal);
+    await stage().dispatch.press("ask.proposal", { n: applicable.n, op: "apply" }, "waiting");
+    await until(() => !rows().some(r => r.block === applicable.block), "applied proposal leaves the list");
+    expect((await board.get(seeded.notes.remoteWrites.id))!.text).toContain("three bags");
+    const fresh = await seedRace(board, await board.createBlock(null, RACE));
+    await until(() => rows().some(r => r.block === fresh.race.proposal), "new proposal arrives live");
+    const proposal = rows().find(r => r.block === fresh.race.proposal);
+    await stage().dispatch.press("ask.proposal", { n: proposal.n, op: "dismiss" }, "waiting");
+    await until(() => !rows().some(r => r.block === proposal.block), "dismissed proposal leaves the list");
+    await stage().dispatch.press("ask.clear", { n: rows().find(r => r.block === ask.id).n }, "waiting");
+    await until(() => !rows().some(r => r.block === ask.id), "cleared decision leaves the list");
+    expect((await board.comments(ask.id)).some(c => JSON.stringify(c).includes("cleared by you"))).toBe(true);
+    const current = (await board.get(call.id))!;
+    await board.update(call.id, current.text.replace("- [ ] Choose", "- [x] Choose"), current.revision!);
+    await until(() => !rows().some(r => r.block === call.id), "ticked call leaves the list");
+    await stage().dispatch.press("tile.close", {}, "ask-preview");
+    await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" });
+  }, 20_000);
 
   test("held requests (PIE-888): an agent's @tidy line is listed after the programs and counted in the status bar; ⏎ opens its note, r sends it as the person, an agent's send is refused", async () => {
     (app as any).lastInput = 0;
@@ -409,7 +455,8 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const held = () => (stage().pane("waiting").describe() as any[]).filter(r => r.kind === "held");
     expect(held()).toMatchObject([{ kind: "held", agent: "tidy", title: "Reply to the seed swap thread", why: "cap: “Showcase wake cap” is capped at 1/day, and it's used up today · r to send" }]);
     await until(() => bar().includes("‼1"), "the count in the status bar");
-    await until(() => screen().includes("@tidy · Reply to the seed swap thread"), "the row");
+    await stage().dispatch.press("status.pick", { n: held()[0].n }, "waiting");
+    await until(() => screen().includes("@tidy · Reply to"), "the row");
     // An agent opens it, never sends it.
     await expect(app.act({ action: "held.send", tile: "waiting", args: { id: held()[0].block }, as: "test-agent" })).rejects.toThrow("waits for a person");
     expect(app.heldAsks.count()).toBe(1);

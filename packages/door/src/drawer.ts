@@ -1,3 +1,4 @@
+import type { Reveal } from "./reveal";
 // The host layer and its drawer (PIE-513; PIE-498): what stays with the person on every screen, above the screen layer
 // that is swapped per screen. It is a layout on the one layout engine (`hostLayer` in src/desk/screen-layout.ts): a
 // slot for whatever screen is shown, beside a drawer. The drawer is the drawer: it holds tiles that belong to the App,
@@ -314,7 +315,7 @@ export class AgentDrawer {
     const tile = this.tabs().find(t => t.kind === WAITING_YOU_KIND_NAME)?.name ?? (await d.openTile({ kind: WAITING_YOU_KIND_NAME }, DRAWER_TILE_ID, "tabs", actor)).tile;
     if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown(); }
     this.host.redraw();
-    return { tile, waiting: waitingOnYou(this).length };
+    return { tile, waiting: waitingOnYou(this).length + (this.host.ctx?.()?.heldAsks?.count() ?? 0) + (this.host.ctx?.()?.waitingAsks?.count() ?? 0) };
   }
 
   /**
@@ -368,14 +369,15 @@ export class AgentDrawer {
   }
 
   /** Open block `id` on the screen shown, as its details open (a new detail when `fresh`), or where an open naming no tile lands. */
-  async openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string): Promise<{ reader: string | null; id: string }> {
+  async openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: Reveal): Promise<{ reader: string | null; id: string }> {
     // The tile it comes from has a link to a tile of the screen (alt+l): that tile takes it, whatever has the keys (PIE-700).
     const linked = from && !fresh && this.d ? await this.d.openOnLink(id, from, actor) : null;
     if (linked) return { reader: linked, id };
     const screen = tilesOf(this.host.screen?.());
     if (!screen) throw new ActionRefused("this screen has no tiles to open it in · q goes back to one");
-    if (screen.hasPlaces()) return screen.openPlace(id, fresh ? "new-detail" : "detail", actor);
-    return screen.openLanding(id, actor);
+    const opened = screen.hasPlaces() ? await screen.openPlace(id, fresh ? "new-detail" : "detail", actor) : fresh ? await screen.openFresh(id, actor) : await screen.openLanding(id, actor);
+    if (reveal) screen.revealIn(opened.reader, reveal, actor);
+    return opened;
   }
 
   /**

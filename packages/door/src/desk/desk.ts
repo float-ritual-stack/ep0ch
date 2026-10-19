@@ -1,4 +1,5 @@
 import { HintCard, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
+import { revealOn, type Reveal } from "../reveal";
 import { readNote, outlineBoards } from "./outline-boards";
 import { MIN_ROWS, type AltRule } from "./layout";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
@@ -1395,7 +1396,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const at = this.idOf(opts.from);
     // Drawer lists use the screen's open rule only when no wire gives the open a destination.
     if (m && at !== undefined && (opts.link || opts.reveal || opts.fresh) && kindOf(opts.from)?.opensOnScreen && this.ctx.hostLayer?.isDrawer(this) && !this.routes(opts.from!, opts.fresh ? "alt" : "open")) {
-      return this.ctx.hostLayer.openOnScreen(m.id, !!opts.fresh, by).then(() => this.redraw());
+      return this.ctx.hostLayer.openOnScreen(m.id, !!opts.fresh, by, undefined, revealOn.get(m)).then(() => this.redraw());
     }
     const beside = !!m && !opts.fresh && at !== undefined && this.policyAt(at).opens === "beside";
     if (beside) this.readerBeside(opts.from!, by);
@@ -2260,12 +2261,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `open fragment=` (`ep0ch open <uri>#<fragment>`, `((id^fragment))`): the reader that shows the note scrolls to the
    * fragment and marks it, as a followed link does (PIE-425); an agent's never scrolls the reader the person is in.
    */
-  revealIn(reader: string | null, fragment: string, actor: Actor): void {
+  revealIn(reader: string | null, target: string | Reveal, actor: Actor): void {
     const r = this.namedReaders().find(x => x.name === reader);
     if (!r) return;
     const host = r.pane.host(this);
     if (actor.kind === "agent" && host.focused !== false) return;
-    void r.pane.surface.revealFragment(fragment, host, actor);
+    const reveal = typeof target === "string" ? { fragment: target } : target;
+    if (reveal.fragment) void r.pane.surface.revealFragment(reveal.fragment, host, actor);
+    else if (reveal.at !== undefined) void r.pane.surface.revealAt(reveal.at, host, actor, reveal.label, reveal.says);
   }
 
   /** A note that is no block (a file, its diff: `open file=`) where an agent's open lands. */

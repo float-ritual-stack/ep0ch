@@ -1,3 +1,4 @@
+import { WaitingAsks } from "./waiting-asks";
 import { RUNBOOK_ACTIONS } from "./runbook";
 import { outlineBoards, readNote } from "./desk/outline-boards";
 import { INVITES } from "./surface/invite";
@@ -96,7 +97,7 @@ export interface HostLayer {
    */
   goTo(p: Pane, actor: Actor, o?: { zoom?: boolean }): { tile: string; in: "drawer" | "screen"; raised?: string };
   /** Open block `id` on the screen shown, where its opens land (a detail; `fresh`: a new one), for a tile in the drawer, which has none of its own; `from`: that tile, whose link to a tile of the screen (alt+l) takes it first. */
-  openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string): Promise<{ reader: string | null; id: string }>;
+  openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: import("./reveal").Reveal): Promise<{ reader: string | null; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
   /** Every agent session this door holds (PIE-737): the agent panel's rows. */
@@ -130,6 +131,7 @@ export interface Ctx {
   whatChanged?: WhatChanged;
   /** Requests an agent or an extension wrote that wait for the person's `r` (PIE-888): the status bar's count and the waiting-on-you list. */
   heldAsks?: HeldAsks;
+  waitingAsks?: WaitingAsks;
   /** The backup job's alert on this machine (PIE-607): the status bar's mark and what it says, or null. */
   backupAlert?(): { text: string; say: string } | null;
   board: SocketBoard;
@@ -416,6 +418,7 @@ export class App implements Ctx {
   readonly whatChanged = new WhatChanged();
   /** The requests held for the person's `r` (PIE-888), as the service lists them. */
   readonly heldAsks = new HeldAsks();
+  readonly waitingAsks = new WaitingAsks();
   /** Where the status bar's `+N new` sits, for a click (changes.open). */
   private changedAt: { from: number; to: number; row: number } | null = null;
   reconnects = 0;
@@ -573,6 +576,7 @@ export class App implements Ctx {
     this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); }, this.drawer);
     this.reportStatus();
     this.whatChanged.subscribe(() => { this.bar?.refresh(true); this.redraw(); });
+    this.waitingAsks.subscribe(() => this.redraw());
     this.heldAsks.subscribe(() => this.redraw());
     // A source that came or went (an extension added or removed) is asked, or dropped, by the open bar at once.
     onBarSources(() => { this.bar?.refresh(true); this.redraw(); });
@@ -909,6 +913,7 @@ export class App implements Ctx {
 
   event(e: OutlineEvent) {
     this.heldAsks.heard(e);
+    this.waitingAsks.heard(e);
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
     // bind it, so what came shows up and what went goes away without a restart (PIE-512).
     if (e.domain === "extensions") { componentsChanged(this.board); void this.loadExtensions(); return; }
@@ -1154,6 +1159,7 @@ export class App implements Ctx {
     // What the door reported to its terminal goes with it (OSC 7501 clear).
     this.display.programStatus?.(null);
     this.disarm();
+    this.waitingAsks.stop();
     outlineBoards(this).close();
     this.display.dispose();
     this.done();
@@ -1339,7 +1345,7 @@ export class App implements Ctx {
   /** The status bar's time, as it would read now: the uptime and the clock; and the drawer's chip, which changes on its own. */
   private timeShown(): string {
     const now = this.now();
-    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${waitingText(waitingCounts(waitingOnYou(this.drawer))).plain}|${this.whatChanged.count()}`;
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() }).plain}|${this.whatChanged.count()}`;
   }
 
   /** The drawer's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
@@ -1472,7 +1478,7 @@ export class App implements Ctx {
     const newCount = this.whatChanged.count();
     const newPart = newCount ? `${fg(C.yellow)}+${newCount} new ${fg(C.lcyan)}│ ` : "";
     // What the terminals' programs say waits on the person (OSC 7501): a click opens the list in the drawer (host.waiting).
-    const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count() });
+    const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() });
     const waitPart = waiting.plain ? `${waiting.styled} ${fg(C.lcyan)}│ ` : "";
     // Yolo is loud: agents act with no person guard while it shows.
     const yoloPart = this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD} ${fg(C.lcyan)}│ ` : "";
@@ -1509,9 +1515,9 @@ export class App implements Ctx {
  * The status bar's waiting-on-you count (OSC 7501): `◆1 ✗1 ✓2 on you`, blocked, failed and done in their colours;
  * `plain` is "" when nothing waits.
  */
-export function waitingText(n: { blocked: number; error: number; done: number; held?: number }): { plain: string; styled: string } {
+export function waitingText(n: { blocked: number; error: number; done: number; held?: number; asks?: number }): { plain: string; styled: string } {
   // `‼`: requests an agent or an extension wrote that wait for the person's r (held asks, PIE-888).
-  const parts = ([["◆", n.blocked, C.lmagenta], ["✗", n.error, C.lred], ["✓", n.done, C.lgreen], ["‼", n.held ?? 0, C.yellow]] as const).filter(p => p[1] > 0);
+  const parts = ([["◆", n.blocked, C.lmagenta], ["✗", n.error, C.lred], ["✓", n.done, C.lgreen], ["‼", n.held ?? 0, C.yellow], ["?", n.asks ?? 0, C.yellow]] as const).filter(p => p[1] > 0);
   if (!parts.length) return { plain: "", styled: "" };
   return { plain: `${parts.map(p => `${p[0]}${p[1]}`).join(" ")} on you`, styled: `${parts.map(p => `${fg(p[2])}${p[0]}${p[1]}`).join(" ")}${fg(C.lcyan)} on you` };
 }

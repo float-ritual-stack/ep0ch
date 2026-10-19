@@ -1,3 +1,4 @@
+import { waitingAsks } from "./waiting-you";
 import { deployArtifact, artifactDns, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
 import { ArtifactStore } from "./artifact-store";
 import { moveNote } from "./note-move";
@@ -351,7 +352,7 @@ function asAgentSource<T>(input: T): T {
 const SLOW_REQUEST_MS = STALL_REPORT_MS;
 const SLOW_WAIT_MS = 1_000;
 
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "blocks.census", "annotations.list", "mcp.access.status", "agents.held", "blocks.query", "views.read", "query.matches", "site.answer", "site.sources", "template.use", "template.props"]);
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "blocks.facets", "blocks.census", "annotations.list", "mcp.access.status", "waiting.list", "agents.held", "blocks.query", "views.read", "query.matches", "site.answer", "site.sources", "template.use", "template.props"]);
 /**
  * What a read-only copy answers: those reads, and the ones the web client's pages of it make (publish-remote.ts: another
  * machine's outline read from its mirror while that machine is away), with the change feed it subscribes to.
@@ -2515,6 +2516,9 @@ export class OutlinerServer {
           break;
         case "agents.yolo":
           result = this.setYolo(request);
+          break;
+        case "waiting.list":
+          result = waitingAsks(this.store);
           break;
         case "agents.held":
           result = { held: this.agentRequests.held() };
