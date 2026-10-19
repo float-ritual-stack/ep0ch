@@ -3049,6 +3049,13 @@ The service has no auth or read-only mode, so these limits are the door's own di
 
 ## Checking it
 
+`nice -n 15 bun run bench:scroll --check` paints a generated import (2,600 children, each with properties and
+2-5 children) through the real outline tile, App input and `Rows`, without a terminal. It reports median, p95 and
+worst times for j, k, PgDn, wheel and opening the parent; `--json` emits the figures and `--frames N` sets the
+scroll samples. Seeding uses a private scratch host and SQLite file. The check budgets p95 at 16 ms for scrolling
+and 250 ms for opening; `test/scroll-bench.test.ts` runs it. Profile with `nice -n 15 bun --cpu-prof scripts/bench-scroll.ts --json`. Compare timings on the same quiet machine. The large import stays in this bench
+instead of slowing every kitchen-sink showcase seed.
+
     bun test
     bun run check
     bun scripts/snap.ts           # drives the real door, read-only, against the outline this folder names (or EP0CH_SOCKET); writes out/snap-kitty-*.png

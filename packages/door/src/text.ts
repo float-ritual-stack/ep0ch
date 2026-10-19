@@ -145,6 +145,8 @@ export function wrap(text: string, w: number, { code = false, joins }: { code?: 
 }
 
 let rowLimit = 2;
+/** The row limit lent to the current paint, also part of a row measurement's cache key. */
+export const currentRowLimit = () => rowLimit;
 /** A synchronous tile paint lends its resolved row limit to shared row renderers. */
 export function withRowLimit<T>(lines: number, draw: () => T): T {
   const previous = rowLimit, previousMeasures = measures;
