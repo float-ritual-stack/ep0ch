@@ -19,6 +19,19 @@ import type { Block, QueryExpression, VisibleBlockCollection } from "../src/type
 
 const p = (key: string, value?: string): QueryExpression => ({ kind: "property", key, ...(value === undefined ? {} : { value }) });
 
+async function inTimezone(zone: string, assertions: () => void): Promise<void> {
+  // Bun can retain timezone state after a runtime TZ change; start with the intended calendar.
+  const child = Bun.spawn([process.execPath, "-e", `
+    import { expect } from "bun:test";
+    import { compileQueryExpression, parseQueryExpression } from ${JSON.stringify(new URL("../src/block-query.ts", import.meta.url).pathname)};
+    (${assertions.toString()})();
+  `], { env: { ...process.env, TZ: zone }, stdout: "pipe", stderr: "pipe" });
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+  ]);
+  expect({ code, stdout, stderr }).toEqual({ code: 0, stdout: "", stderr: "" });
+}
+
 function syntaxPosition(input: string): number {
   try {
     parseSearchExpression(input);
@@ -114,7 +127,7 @@ describe("query grammar", () => {
     expect(queryRequestProblem(otherError)).toEqual({ code: "query-syntax", message: expect.stringContaining("Unterminated quoted filter value") });
   });
 
-  test("date values are whole UTC days; relative values resolve at evaluation time", () => {
+  test("date values are whole UTC days; relative values resolve at evaluation time", () => inTimezone("UTC", () => {
     const now = Date.parse("2026-09-27T15:00:00Z");
     const at = (updatedAt: string) => ({ createdAt: updatedAt, updatedAt });
     const check = (query: string, updatedAt: string) => compileQueryExpression(parseQueryExpression(query), now)(at(updatedAt), []);
@@ -140,24 +153,36 @@ describe("query grammar", () => {
     // Hours are an instant from now, like minutes.
     expect(check("updated >= -2h", "2026-09-27T13:00:00.000Z")).toBe(true);
     expect(check("updated >= -2h", "2026-09-27T12:59:59.999Z")).toBe(false);
-  });
+  }));
 
-  test("a relative bound keeps its meaning across a clock change", () => {
-    const zone = process.env.TZ;
-    process.env.TZ = "America/Toronto";
-    try {
-      const run = (query: string, nowIso: string, at: string) =>
-        compileQueryExpression(parseQueryExpression(query), Date.parse(nowIso))({ createdAt: at, updatedAt: at }, []);
-      // Two hours is two hours of elapsed time, though the clock jumped an hour in between (Mar 8, 2026, 2 am).
-      expect(run("updated >= -2h", "2026-03-08T07:30:00Z", "2026-03-08T05:30:00Z")).toBe(true);
-      expect(run("updated >= -2h", "2026-03-08T07:30:00Z", "2026-03-08T05:29:59Z")).toBe(false);
-      // A 23-hour day ends at its own midnight, and a 25-hour day at its own.
-      expect(run("updated <= today", "2026-03-08T16:00:00Z", "2026-03-09T04:30:00Z")).toBe(false);
-      expect(run("updated <= today", "2026-11-01T17:00:00Z", "2026-11-02T04:30:00Z")).toBe(true);
-    } finally {
-      if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+  test("a relative bound keeps its meaning across a clock change", () => inTimezone("America/Toronto", () => {
+    const run = (query: string, nowIso: string, at: string) =>
+      compileQueryExpression(parseQueryExpression(query), Date.parse(nowIso))({ createdAt: at, updatedAt: at }, []);
+    // Hours measure elapsed time even when the local clock skips an hour.
+    expect(run("updated >= -2h", "2026-03-08T07:30:00Z", "2026-03-08T05:30:00Z")).toBe(true);
+    expect(run("updated >= -2h", "2026-03-08T07:30:00Z", "2026-03-08T05:29:59Z")).toBe(false);
+    expect(run("updated <= today", "2026-03-08T16:00:00Z", "2026-03-09T04:30:00Z")).toBe(false);
+    expect(run("updated <= today", "2026-11-01T17:00:00Z", "2026-11-02T04:30:00Z")).toBe(true);
+    for (const [start, end, today, nextDay, nextWeek, previousDay] of [
+      ["2026-03-08T05:00:00Z", "2026-03-09T04:00:00Z", "2026-03-08T16:00:00Z", "2026-03-09T16:00:00Z", "2026-03-15T16:00:00Z", "2026-03-07T17:00:00Z"],
+      ["2026-11-01T04:00:00Z", "2026-11-02T05:00:00Z", "2026-11-01T17:00:00Z", "2026-11-02T17:00:00Z", "2026-11-08T17:00:00Z", "2026-10-31T16:00:00Z"],
+    ] as const) {
+      for (const [bound, now] of [["today", today], ["yesterday", nextDay], ["tomorrow", previousDay], ["-1d", nextDay], ["-7d", nextWeek], ["-1w", nextWeek]] as const) {
+        for (const field of ["created", "updated"]) {
+          const beforeStart = new Date(Date.parse(start) - 1).toISOString();
+          const beforeEnd = new Date(Date.parse(end) - 1).toISOString();
+          expect(run(`${field} >= ${bound}`, now, beforeStart)).toBe(false);
+          expect(run(`${field} >= ${bound}`, now, start)).toBe(true);
+          expect(run(`${field} < ${bound}`, now, beforeStart)).toBe(true);
+          expect(run(`${field} < ${bound}`, now, start)).toBe(false);
+          expect(run(`${field} <= ${bound}`, now, beforeEnd)).toBe(true);
+          expect(run(`${field} <= ${bound}`, now, end)).toBe(false);
+          expect(run(`${field} > ${bound}`, now, beforeEnd)).toBe(false);
+          expect(run(`${field} > ${bound}`, now, end)).toBe(true);
+        }
+      }
     }
-  });
+  }));
 
   test("normalization parses where text, validates a structured predicate and ANDs both with filters", () => {
     expect(normalizeBlockSearchQuery({ where: "a OR b", predicate: { kind: "not", operand: p("C") }, filters: [{ key: "d" }], limit: 5 })).toEqual({
