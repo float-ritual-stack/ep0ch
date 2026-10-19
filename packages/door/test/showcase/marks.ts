@@ -26,7 +26,7 @@ export const marks: Record<string, string[]> = {
   proposals: ["Seed sowing guide", "beans in late May", "proposed edit from @moss", "[dismiss]"],
   // An edit with a whole document pasted in by mistake, one step, and the page token selected with its [copy].
   undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
-  hints: ["Linking from source", "select wire", "HintCard"],
+  hints: ["source: select wire", "select wire", "HintCard"],
   panes: ["outline", "children", "Visitors", "Kitchen sink"],
   folds: ["outline", "children", "◂", "▾"],
   screens: ["Daily brief", "2026-03-11", "Needs you"],

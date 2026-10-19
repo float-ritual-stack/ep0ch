@@ -17,7 +17,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     const d = h.S().stages.get(h.S().sel).top as Desk;
     const get = () => d.dispatch.act({ action: "hint.get" }, { kind: "agent", id: "test-agent" }) as Promise<any>;
     await d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source");
-    expect((await get()).cards[0].lines.join(" ")).toContain("select wire");
+    expect((await get()).cards[0].lines.join(" ")).toContain("A select in source lands in");
     h.screen();
     expect((await get()).cards).toHaveLength(1);
     expect((await get()).cards[0].tile).toBe("source");
@@ -35,7 +35,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     const tile = d.layoutGet().tiles.find(t => t.name === "reader")!;
     const r = tile.rect!;
     d.key({ kind: "mouse", action: "down", button: 0, x: r.col + 2, y: r.row + r.rows - 3 }, h.app);
-    await until(() => !h.screen().includes("Linking from"), "the hint ending with linking");
+    await until(() => !h.screen().includes(" lands in "), "the hint ending with linking");
     expect((await get()).cards).toEqual([]);
     const wires = d.layoutGet().tiles.find(t => t.name === "source")!;
     expect(JSON.stringify(wires)).toContain("reader");
@@ -130,7 +130,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       const x = header.indexOf(` ${letter} `);
       expect(x, header).toBeGreaterThan(0);
       d.key({ kind: "mouse", action: "down", button: 0, x: source.col + x + 1, y: source.row }, h.app);
-      expect(d.hintGet().cards[0]!.lines.join(" ")).toContain(`${verb} wire`);
+      expect(d.hintGet().cards[0]!.lines.join(" ")).toContain(verb === "select" ? "A select in" : verb === "alt" ? "An alt-open from" : "An open from");
       h.screen();
       const target = d.layoutGet().tiles.find(t => t.name === "reader")!.rect!;
       d.key({ kind: "mouse", action: "down", button: 0, x: target.col + 2, y: target.row + target.rows - 3 }, h.app);
@@ -146,8 +146,8 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       await d.dispatch.press("tune.set", { row: "hints", value, level: "global" }, "hint-tune");
       await d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source");
       const text = h.screen();
-      expect(text.includes("Click this tile again")).toBe(detailed);
-      expect(text.includes("Now: a select")).toBe(value !== "off");
+      expect(text.includes("Click a tile to send it there")).toBe(detailed);
+      expect(text.includes("A select in source lands in")).toBe(value !== "off");
     }
     await d.dispatch.press("tune.set", { row: "hints", value: "full", level: "global" }, "hint-tune");
     await d.dispatch.press("tile.link", { ask: false }, "source");

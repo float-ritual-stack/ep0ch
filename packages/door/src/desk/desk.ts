@@ -2343,10 +2343,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   linkingHint(): Hint | null {
     if (!this.linking) return null;
     const { desk, from, verb } = this.linking, tile = desk.nameOf(from);
-    return { title: `Linking ${verb}`, lines: [
-      `Now: ${verb === "select" ? "a select here previews in" : verb === "alt" ? "an alt-open here opens in" : "an open here opens in"} ${desk.wireWords(from, verb)}.`,
-      `Linking from ${tile}'s ${verb} wire. Click a tile to send ${verb === "select" ? "selects" : "opens"} there.`,
-      "Alt+click an edge or gap opens beside. Click this tile again to unlink.",
+    // Two lines: where this wire lands now, and what a click does. The rows below carry the rest; no line repeats a row.
+    const what = verb === "select" ? "A select in" : verb === "alt" ? "An alt-open from" : "An open from";
+    return { title: `${tile}: ${verb} wire`, lines: [
+      `${what} ${tile} lands in ${desk.wireWords(from, verb)}.`,
+      `Click a tile to send it there; alt+click an edge or gap for beside.`,
     ], keys: [{ keys: "h j k l / 1-9", does: "choose a tile" }],
       choices: [ ...(["select", "open", "alt"] as const).map(v => ({ label: `change ${v} wire`, key: v === "select" ? "s" : v === "open" ? "o" : "a", act: { action: "tile.link", tile, args: { ask: true, verb: v } } })),
         { label: `unlink ${verb} wire`, act: { action: "tile.link", tile, args: { verb } } }, { label: "cancel", key: "esc", act: { action: "tile.link", tile, args: { ask: false } } } ] };
