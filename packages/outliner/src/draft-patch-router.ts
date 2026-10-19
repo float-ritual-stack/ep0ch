@@ -73,7 +73,7 @@ import { droppedLinkedStructure, type WorkToolsClient } from "./work-tools";
 /** What a request to a holding door carries besides its ids, which the server fills in. */
 export type DraftHolderAsk =
   | { kind: "read" }
-  | { kind: "patch"; undoPatches?: string[]; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance; replyTo?: string; replyGroup?: string; mark?: string; force?: boolean; proposal?: DraftHolderProposal }
+  | { kind: "patch"; undoPatches?: string[]; patchId: string; revision: number; patches: DraftPatchSpan[]; mutation: MutationProvenance; replyTo?: string; replyGroup?: string; mark?: string; output?: boolean; force?: boolean; proposal?: DraftHolderProposal }
   | { kind: "revert"; patchId: string };
 
 export interface DraftPatchRouterDeps {
@@ -123,6 +123,7 @@ export interface ProposalSettled {
 }
 
 interface RunOptions {
+  output?: boolean;
   replyTo?: string; replyGroup?: string;
   mutation: MutationProvenance;
   mark?: { text: string; blockId: string };
@@ -305,7 +306,8 @@ export class DraftPatchRouter {
     return { blockId, route: "saved", text: saved.text, revision: saved.revision };
   }
 
-  async patch(input: DraftPatchInput): Promise<DraftPatchResult> {
+  /** Only the output planner sets output: it has checked the region belongs to its producer. */
+  async patch(input: DraftPatchInput, output = false): Promise<DraftPatchResult> {
     const edits = normalizeDraftPatchEdits(input);
     if (input.replyTo !== undefined && (typeof input.replyTo !== "string" || edits.length !== 1 ||
       edits[0]!.patches.length !== 1 || (edits[0]!.patches[0]!.observed !== input.replyTo && !edits[0]!.patches[0]!.observed.startsWith(input.replyTo + "\n> [!note]- ")) ||
@@ -338,9 +340,9 @@ export class DraftPatchRouter {
         }
       }
     }
-    const outcome = await this.run(edits, { mutation, mark, replyTo: input.replyTo, replyGroup: input.replyGroup, ...sent, ...(input.current === true ? { current: true } : {}) });
+    const outcome = await this.run(edits, { mutation, mark, output, replyTo: input.replyTo, replyGroup: input.replyGroup, ...sent, ...(input.current === true ? { current: true } : {}) });
     if (outcome.ok) return { outcome: "applied", edits: outcome.applied };
-    if (outcome.refused) throw new DraftPatchRefusal(outcome.reason);
+    if (outcome.refused || output) throw new DraftPatchRefusal(outcome.reason);
     return this.propose(outcome.reason, edits, mutation, mark, sent);
   }
 
@@ -676,6 +678,7 @@ export class DraftPatchRouter {
           ...(options.replyTo ? { replyTo: options.replyTo, replyGroup: options.replyGroup } : {}),
           ...(scriptRun ? { undoPatches: this.scriptPatches.get(scriptRun)?.get(hold.blockId)?.ids ?? [] } : {}),
           ...(options.mark && options.mark.blockId === edit.blockId ? { mark: options.mark.text } : {}),
+          ...(options.output ? { output: true } : {}),
           ...(options.force ? { force: true } : {}),
           ...(options.proposal ? { proposal: options.proposal } : {}),
         });

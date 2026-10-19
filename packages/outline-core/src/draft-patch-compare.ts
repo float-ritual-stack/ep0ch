@@ -25,7 +25,7 @@ export interface DraftPatchRange {
 
 /** One compare-and-swap on a span of a note's text. */
 export interface DraftPatchSpan {
-  /** The text the writer saw there. Never empty: an insertion compares the text it goes beside. */
+  /** The text the writer saw there. Empty means an insertion at its range, or an append without one. */
   observed: string;
   /** What it becomes. */
   replacement: string;
@@ -94,7 +94,11 @@ function nearest(candidates: number[], to: number, within: number): { at: number
  * one, its only copy.
  */
 export function locateSpan(text: string, span: DraftPatchSpan): { start: number; end: number } | { reason: string } {
-  if (!span.observed) return { reason: "the observed text is empty; compare the text the change goes beside" };
+  if (!span.observed) {
+    if (!span.range) return { start: text.length, end: text.length };
+    const at = utf16Range(text, span.range, span.unit);
+    return at && at.start === at.end ? at : { reason: "the insertion range no longer names a place in the block" };
+  }
   const found = occurrences(text, span.observed);
   if (!span.range) {
     if (found.length === 1) return { start: found[0]!, end: found[0]! + span.observed.length };
@@ -118,7 +122,7 @@ export function locateSpan(text: string, span: DraftPatchSpan): { start: number;
  * than replaced (PIE-510).
  */
 export function locateSpanForced(text: string, span: DraftPatchSpan): { start: number; end: number } | { reason: string } {
-  if (!span.observed) return { reason: "the observed text is empty; compare the text the change goes beside" };
+  if (!span.observed) return { start: text.length, end: text.length };
   const found = occurrences(text, span.observed);
   if (!found.length) return { reason: "the passage changed since it was proposed; read the proposal and edit it by hand" };
   const hintStart = span.range ? (utf16Range(text, span.range, span.unit)?.start ?? Math.min(text.length, span.range.start)) : 0;
