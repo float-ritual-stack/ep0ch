@@ -1279,3 +1279,11 @@ slot; a running own program still refuses close. Enter or the run-again
 control restarts it, alt+s opens a shell and alt+g opens agents. Leaving a
 drawer with only that empty slot puts it away; reopening it starts nothing.
 Peek reports `state: "empty"`. Other screens' bare x bindings are unchanged.
+
+### Proposal resolution (PIE-1085)
+
+An open proposal's reader or selected proposal embed owns `r` for `proposal.resolve`; otherwise the reader's
+`r` remains projection refresh. A proposal row in waiting-on-you uses `r` to resolve; a held request row uses
+it to send. Both mouse controls and the power bar call the same proposal action. The service's proposal router
+runs the tidy responder, routes edits through its existing draft/saved comparison, and records the extension
+undo receipt. No second reader, editor, model client, or rules engine.

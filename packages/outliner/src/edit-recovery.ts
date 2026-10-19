@@ -1,5 +1,5 @@
 import {createHash} from "node:crypto";
-import {mergeEdits, type EditMerge} from "./edit-merge";
+import {mergeEdits, type EditMerge} from "@ep0ch/outline-core/edit-merge";
 import type {OutlinerStore} from "./store";
 import type {Block, ChecklistIdentityChange, MutationProvenance} from "./types";
 import {BLOCK_EDIT_ACTIVITY_KIND_SQL} from "./types";

@@ -401,9 +401,9 @@ function labelOf(title: string): string {
  * one; `[proposal-applies::no]` beside it says the passage it changes was already gone when it was proposed
  * (or is at or below the mark, which a forced apply doesn't pass either), so only dismiss is offered (PIE-510).
  */
-export type DraftProposalStatus = "open" | "applied" | "dismissed";
+export type DraftProposalStatus = "open" | "applied" | "dismissed" | "resolved";
 
-export const DRAFT_PROPOSAL_STATUSES: readonly DraftProposalStatus[] = ["open", "applied", "dismissed"];
+export const DRAFT_PROPOSAL_STATUSES: readonly DraftProposalStatus[] = ["open", "applied", "dismissed", "resolved"];
 
 /** The property a proposal carries, set to `no`, when its passage wasn't in the note when it was proposed, or was at or below the mark. */
 export const DRAFT_PROPOSAL_APPLIES = "proposal-applies";
@@ -418,7 +418,7 @@ function proposalHeader(proposal: DraftProposal, status: DraftProposalStatus, ap
   const changes = proposalChanges(proposal);
   const count = changes > 1 ? ` (${changes} changes)` : "";
   const reason = typeof proposal.reason === "string" ? proposal.reason : "it couldn't be placed";
-  const said = status === "applied"
+  const said = status === "resolved" ? `Resolved: 1 proposed edit${count} from ${who}` : status === "applied"
     ? `Applied anyway: 1 edit${count} from ${who}, which didn't apply at first because ${reason}`
     : status === "dismissed"
       ? `Dismissed: 1 proposed edit${count} from ${who}, not applied because ${reason}`

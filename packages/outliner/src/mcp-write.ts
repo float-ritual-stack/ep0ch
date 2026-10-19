@@ -5,15 +5,15 @@ import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 
 
 export interface WriteActor { actorId: string; sessionId?: string; taskId?: string }
-export type McpWriteTool = "outline_create" | "outline_patch" | "outline_comment" | "outline_reply" | "outline_resolve_thread" | "outline_quote" | "outline_set_property" | "outline_move" | "outline_trash" | "outline_restore" | "outline_assign_id" | "outline_proposal_apply" | "outline_proposal_dismiss";
+export type McpWriteTool = "outline_create" | "outline_patch" | "outline_comment" | "outline_reply" | "outline_resolve_thread" | "outline_quote" | "outline_set_property" | "outline_move" | "outline_trash" | "outline_restore" | "outline_assign_id" | "outline_proposal_apply" | "outline_proposal_dismiss" | "outline_proposal_resolve";
 export interface WriteBoard {
   address?: { outline: string; machine: string };
-  request<T>(action: string, args: Record<string, unknown>): Promise<T>;
+  request<T>(action: string, args: Record<string, unknown>, timeoutMs?: number): Promise<T>;
   info(): Promise<unknown>;
   comments(id: string): Promise<{ id: string; replies: { id: string }[] }[]>;
 }
 const clientOf = (board: WriteBoard) => ({
-  request: <T>({ action, ...args }: { action: string } & Record<string, unknown>) => board.request<T>(action, args),
+  request: <T>({ action, ...args }: { action: string } & Record<string, unknown>, timeoutMs?: number) => board.request<T>(action, args, timeoutMs),
   requireCompatibleService: () => board.info(),
 });
 const pick = (args: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter(k => args[k] !== undefined).map(k => [k, args[k]]));
@@ -27,7 +27,7 @@ export const restoreRefusal = (level: McpAccessLevel): string | null => level ==
 
 /** Settling a proposal cannot become another proposal; check before queueing and again at its destination. */
 export const proposalSettlementRefusal = (tool: McpWriteTool, level: McpAccessLevel): string | null =>
-  (tool === "outline_proposal_apply" || tool === "outline_proposal_dismiss") && level !== "full"
+  (tool === "outline_proposal_apply" || tool === "outline_proposal_dismiss" || tool === "outline_proposal_resolve") && level !== "full"
     ? `${tool} settles a proposal and can't be proposed: it needs full access (this outline's is ${level}).` : null;
 
 /** Whether a level allows writes, and which kind. */
@@ -59,7 +59,7 @@ export interface WriteOutcome {
 
 /** The outliner's agent operations, as much of them as a write uses (loaded by a name the door's checker doesn't follow). */
 interface AgentTools {
-  settleProposal(c: unknown, input: Record<string, unknown>, op: "apply" | "dismiss", actor: WriteActor): Promise<unknown>;
+  settleProposal(c: unknown, input: Record<string, unknown>, op: "apply" | "dismiss" | "resolve", actor: WriteActor): Promise<unknown>;
   createBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ id: string; revision: number }>;
   commentOn(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; blockId?: string; resourceId?: string; deduplicated?: boolean }>;
   replyTo(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; reply: string; deduplicated?: boolean }>;
@@ -127,6 +127,10 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
     return { outcome: "applied", uri: o.uri(write.blockId), said: `commented on the whole of ${o.uri(write.blockId)} (thread ${c.thread}): the thread ${thread} was gone when it landed`, detail: c };
   };
   switch (write.tool) {
+    case "outline_proposal_resolve": {
+      const r = await tools.settleProposal(client, { ref: write.blockId }, "resolve", o.actor) as { outcome: string; message: string };
+      return { outcome: r.outcome === "resolved" ? "applied" : "unchanged", uri: o.uri(write.blockId), said: r.message, detail: r };
+    }
     case "outline_proposal_apply":
     case "outline_proposal_dismiss": {
       const op = write.tool === "outline_proposal_apply" ? "apply" : "dismiss";

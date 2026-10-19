@@ -260,7 +260,7 @@ export type LinkTarget = {
    * An agent's open proposal (PIE-501): on its embed's source line, the proposal it shows; with `op`, one of
    * the controls drawn there (role "control"), which runs `proposal.apply` or `proposal.dismiss` on it.
    */
-  proposal?: { id: string; op?: "apply" | "dismiss" };
+  proposal?: { id: string; op?: "apply" | "dismiss" | "resolve" };
   /**
    * A control on an `■ unsent` line (role "control", src/unsent.ts): what's put aside on note `of` (its edit, a comment,
    * a note under it, a card), and which of its actions it runs (`unsent.diff`, `.copy`, `.dismiss`, `.add`, `.keep`, `.show`).

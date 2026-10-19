@@ -1239,15 +1239,15 @@ export async function restoreBlock(client: AgentToolsClient, input: { ref: strin
 }
 
 /** Proposal settlement uses the service's ownership, compare and attribution rules, with no reader involved. */
-export async function settleProposal(client: AgentToolsClient, input: { ref: string }, op: "apply" | "dismiss", actor: AgentActor): Promise<unknown> {
+export async function settleProposal(client: AgentToolsClient, input: { ref: string }, op: "apply" | "dismiss" | "resolve", actor: AgentActor): Promise<unknown> {
   await client.requireCompatibleService();
   const { id } = await resolveRef(client, input.ref);
-  return client.request({ action: `draft.proposal.${op}`, proposalId: id, mutation: mutationOf(actor) });
+  return client.request({ action: `draft.proposal.${op}`, proposalId: id, mutation: mutationOf(actor) }, op === "resolve" ? 120_000 : undefined);
 }
 
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-apply", "proposal-dismiss", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file"] as const;
+export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-resolve", "proposal-apply", "proposal-dismiss", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -1279,6 +1279,7 @@ export function runAgentOperation(
     case "edit-comment": return editComment(client, any, writer());
     case "resolve-thread": return resolveThread(client, any, writer());
     case "changes": return changesSince(client, any);
+    case "proposal-resolve": return settleProposal(client, any, "resolve", writer());
     case "proposal-apply": return settleProposal(client, any, "apply", writer());
     case "proposal-dismiss": return settleProposal(client, any, "dismiss", writer());
     case "patch": return patchDraft(client, any, writer());

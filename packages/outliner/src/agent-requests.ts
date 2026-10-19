@@ -1,3 +1,4 @@
+import type { MergeConflict } from "@ep0ch/outline-core/edit-merge";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import { createHash } from "node:crypto";
@@ -218,6 +219,19 @@ export class AgentRequests {
     private readonly runtime: ResourceExtensionRuntime,
     private readonly deps: AgentRequestDeps,
   ) {}
+
+  async resolveProposal(input: MergeConflict & { proposal_note: string }, requestedBy: MutationProvenance): Promise<{replacement: string} | {ambiguous: string}> {
+    const bound = this.registry.agent("tidy");
+    if (!bound) throw new Error("Install the tidy extension to resolve proposals: ep0ch ext add tidy");
+    const { extension, agent } = bound;
+    const result = await this.runtime.invokeLoaded(extension, "respond", {
+      agent: "tidy", request: "Resolve this conflict", resolution: input,
+    }, durationMs(agent.deadline) ?? DEFAULT_DEADLINE_MS, { requestedBy, label: "ext.tidy.agent.resolve" });
+    const value = result.value;
+    if (isObject(value) && typeof value.ambiguous === "string") return {ambiguous: cleanExtensionText(value.ambiguous)};
+    if (isObject(value) && typeof value.replacement === "string") return {replacement: value.replacement};
+    throw new Error("The conflict responder must return replacement or ambiguous text");
+  }
 
   private get now(): number {
     return (this.deps.now ?? Date.now)();
@@ -940,13 +954,13 @@ export class AgentRequests {
    * The proposal a request left was applied anyway or dismissed (PIE-510): its row says so, so the line's
    * projection tells the truth in every client. Who did it is said when it wasn't the person.
    */
-  proposalSettled(proposalId: string, status: "applied" | "dismissed", by: MutationProvenance): void {
+  proposalSettled(proposalId: string, status: "applied" | "dismissed" | "resolved", by: MutationProvenance): void {
     const row = this.store.agentRequestByProposal(proposalId);
     if (!row || row.status !== "proposed") return;
     const who = by.author === "agent" ? ` by @${by.actorId ?? "an agent"}` : "";
     this.store.putAgentRequest({
-      ...row, status,
-      message: status === "applied" ? `its proposal was applied anyway${who}` : `its proposal was dismissed${who}`,
+      ...row, status: status === "resolved" ? "applied" : status,
+      message: status === "resolved" ? `its proposal was resolved${who}` : status === "applied" ? `its proposal was applied anyway${who}` : `its proposal was dismissed${who}`,
       answeredAt: new Date(this.now).toISOString(),
     });
     this.deps.changed(row.blockId);

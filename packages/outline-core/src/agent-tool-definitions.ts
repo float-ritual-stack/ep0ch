@@ -21,7 +21,7 @@ import type { ToolArgsSpec, ToolSchema } from "./tool-args";
 export type AgentToolOperation =
   | "artifact-deploy"
   | "read" | "find" | "resolve" | "site" | "edit" | "create" | "comment" | "reply" | "edit-comment" | "resolve-thread"
-  | "proposal-apply" | "proposal-dismiss" | "changes" | "patch" | "set-property" | "assign-id" | "move" | "trash" | "restore" | "view-order";
+  | "proposal-apply" | "proposal-dismiss" | "proposal-resolve" | "changes" | "patch" | "set-property" | "assign-id" | "move" | "trash" | "restore" | "view-order";
 
 /**
  * How a surface names the block a tool acts on, filled into a description's `{note}` and `{parent}`: the mod says
@@ -414,13 +414,13 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       return { operation: "patch", input: { policy: "edit", ...inputOf(input, ["ref", "revision", "patches", "mark", "policy", "allowStructural"]) } };
     },
   },
-  ...(["apply", "dismiss"] as const).map(op => ({
+  ...(["apply", "dismiss", "resolve"] as const).map(op => ({
     name: `outline_proposal_${op}`,
     operation: `proposal-${op}` as const,
     example: { ref: NOTE },
     writes: true,
     target: "ref" as const,
-    description: op === "dismiss"
+    description: op === "resolve" ? "Ask the outline agent to resolve a stale proposal against the current note, preserving other edits. Ambiguous intent stays open with both readings." : op === "dismiss"
       ? "Dismiss your own draft proposal {note} by id, without a reader: mark it dismissed and put it in Trash. Another agent's proposal is refused."
       : "Apply draft proposal {note} by id, without a reader, under the agent's normal patch comparison and policy. An agent cannot force a proposal over changed text.",
     properties: { ref: REF },
@@ -581,6 +581,7 @@ export const AGENT_TOOL_SURFACES: Readonly<Record<string, Readonly<Record<AgentT
   outline_patch: { mod: true, gateway: true },
   outline_proposal_apply: { mod: true, gateway: true },
   outline_proposal_dismiss: { mod: true, gateway: true },
+  outline_proposal_resolve: { mod: true, gateway: true },
   outline_set_property: { mod: true, gateway: true },
   outline_assign_id: { mod: true, gateway: true },
   outline_move: { mod: true, gateway: true },

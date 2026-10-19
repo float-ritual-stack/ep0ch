@@ -1,5 +1,5 @@
 import {expect, test} from "bun:test";
-import {mergeEdits} from "../src/edit-merge";
+import {mergeEdits} from "@ep0ch/outline-core/edit-merge";
 
 test("combines assistance metadata with independent long-note writing exactly", () => {
   const base = "My work note\n\nFirst paragraph\n";
@@ -59,4 +59,21 @@ test('an editor-added final newline leaves final-line deletions for review',()=>
 test('newline handling does not discard Markdown hard breaks or indentation changes',()=>{
   expect(mergeEdits('Line','Local line\n','Line  \n').conflicts.length).toBeGreaterThan(0);
   expect(mergeEdits('    code','    local code\n','  code\n').conflicts.length).toBeGreaterThan(0);
+});
+
+
+test.each([
+  ["adjacent replacements", "one two", "ONE two", "one TWO", "ONE TWO"],
+  ["competing insertions", "one two", "one red two", "one blue two", "one red and blue two"],
+  ["overlapping deletions", "a b c d", "a d", "a b", "a "],
+  ["combining characters", "café beans", "cafè beans", "café peas", "cafè peas"],
+  ["edited trailing whitespace", "beans  ", "peas  ", "beans ", "peas "],
+])("word refinement preserves exact text: %s", (_name, base, ours, theirs, expected) => {
+  const merged = mergeEdits(base!, ours!, theirs!, {refine: true});
+  expect(merged.incomplete).toBe(false);
+  if (_name === "competing insertions") expect(merged.parts?.filter(part => typeof part !== "string")).toEqual([{region_base: "", region_ours: "red ", region_theirs: "blue "}]);
+  else if (_name === "overlapping deletions") expect(merged.parts?.filter(part => typeof part !== "string")).toEqual([{region_base: "b c d", region_ours: "d", region_theirs: "b"}]);
+  else expect(merged.conflicts).toEqual([]);
+  expect(merged.parts?.map(part => typeof part === "string" ? part :
+    part.region_base === "" ? "red and blue " : "").join("")).toBe(expected!);
 });

@@ -1,3 +1,5 @@
+import {mergeEdits, type MergeConflict} from "@ep0ch/outline-core/edit-merge";
+import { diffLines } from "diff";
 import { isSqliteBusy } from "./sqlite-busy";
 import { wholeTextSpan } from "./extension-writes";
 /**
@@ -96,13 +98,15 @@ export interface DraftPatchRouterDeps {
    * (PIE-888) before it lands, so the person's later save or typing doesn't send them.
    */
   heldInDraft?(blockId: string, patches: readonly DraftPatchSpan[], by: MutationProvenance): (landed: boolean) => void;
-  /** A proposal was applied or dismissed: whatever answered with it (an `@name` request) says so now. */
+  keepResolution?(edits: DraftPatchApplied["edits"], inverse: DraftPatchEdit[]): { undo?: string; undoNote?: string };
+  resolve?(input: MergeConflict & { proposal_note: string }, by: MutationProvenance): Promise<{ replacement: string } | { ambiguous: string }>;
+  /** A proposal was settled: whatever answered with it says so now. */
   proposalSettled?(proposalId: string, status: Exclude<DraftProposalStatus, "open">, by: MutationProvenance): void;
   /**
    * An extension's write group a proposal holds, applied anyway: its structural writes checked against the outline
    * as it is now (`write` runs inside the transaction that writes the saved notes), and `done` told what landed.
    */
-  groups?(group: DraftGroup, by: MutationProvenance): { write(): void; done(applied: DraftPatchApplied["edits"]): void };
+  groups?(group: DraftGroup, by: MutationProvenance): { write(): void; done(applied: DraftPatchApplied["edits"], drafts?: DraftPatchEdit[]): { undo?: string; undoNote?: string } };
 }
 
 /** An extension's write group as the router takes it (src/extension-calls.ts builds it): its text edits and the rest. */
@@ -123,6 +127,8 @@ export interface ProposalSettled {
 }
 
 interface RunOptions {
+  /** Ask the holding door for the inverse kept by an extension undo receipt. */
+  undo?: true;
   output?: boolean;
   replyTo?: string; replyGroup?: string;
   mutation: MutationProvenance;
@@ -153,7 +159,7 @@ const toldBy = (group: DraftGroup | undefined) => new Set((group?.writes ?? []).
 const madeBy = (group: DraftGroup | undefined) => (group?.writes ?? []).flatMap(write => write.op === "create" ? [write.text] : []);
 
 /** `refused`: the `edit` policy's guard said no; the patch is an error, never a proposal. */
-type Outcome = { ok: true; applied: DraftPatchApplied["edits"] } | { ok: false; reason: string; refused?: boolean };
+type Outcome = { ok: true; applied: DraftPatchApplied["edits"]; inverse: DraftPatchEdit[] } | { ok: false; reason: string; refused?: boolean };
 
 /** A write group's own writes failed inside the saved notes' transaction: the group is refused, not proposed. */
 class AlongsideFailure extends Error {
@@ -421,6 +427,81 @@ export class DraftPatchRouter {
     }
   }
 
+  /** A saved target changed: its open proposals expose staleness to ordinary property queries and rules. */
+  targetChanged(blockId: string, actor: MutationProvenance): void {
+    const store = this.deps.store;
+    for (const block of store.children(blockId)) {
+      if (!isDraftProposal(block) || proposalStatus(block.properties) !== "open") continue;
+      const proposal = parseProposal(block.text);
+      if (!proposal) continue;
+      const stale = block.properties.some(p => p.key === "proposal-applies" && p.value === "no") || proposal.edits.some(edit => store.get(edit.blockId)?.revision !== edit.revision);
+      const text = block.text.replace(/^[^\n]*/, header =>
+        `${header.replace(/ \[stale::(?:true|false)\]/g, "").replace(/ \[type::proposal\]/g, "")} [type::proposal] [stale::${stale}]`);
+      if (text !== block.text) store.update(block.id, text, block.revision, actor);
+    }
+  }
+
+  async resolveProposal(proposalId: string, requestedBy: MutationProvenance, trigger?: string): Promise<{ outcome: "resolved" | "open"; proposalId: string; message: string; undo?: string; undoNote?: string }> {
+    return this.settle(proposalId, async () => {
+      const { store } = this.deps;
+      const { block, proposal } = this.openProposal(proposalId);
+      const actor: MutationProvenance = { author: "agent", actorId: "ext:tidy", taskId: `trigger:${trigger ?? "proposal/resolve"}` };
+      const edits: DraftPatchEdit[] = [];
+      const from = proposal.actor.actorId ?? proposal.actor.author;
+      const messages: string[] = [];
+      const leaveOpen = (message: string) => {
+        const current = store.requireActive(proposalId);
+        store.update(proposalId, `${current.text}\n\nResolution: ${message.replace(/\s+/g, " ")}`, current.revision, actor);
+        return { outcome: "open" as const, proposalId, message };
+      };
+      if (!proposal.edits.length) return leaveOpen("This proposal has no text passage to resolve; apply or dismiss its structural changes.");
+      try {
+        for (const edit of proposal.edits) {
+          const current = await this.read(edit.blockId);
+          const original = store.revisionText(edit.blockId, edit.revision);
+          const located = locateSpans(original.text, edit.patches);
+          if (!located.ok) return leaveOpen(located.reason);
+          const theirs = applyLocated(original.text, located.spans);
+          if (current.route === "draft" && !current.text && theirs) return leaveOpen("the empty draft cannot receive this merge safely; save or close it, then resolve again");
+          const comparison = mergeEdits(original.text, current.text, theirs, {refine: true});
+          if (comparison.incomplete) return leaveOpen("too large to merge safely; edit the proposal by hand");
+          const parts = comparison.parts!;
+          let merged = "";
+          for (const part of parts) {
+            if (typeof part === "string") { merged += part; continue; }
+            // The generated proposal carries other passages too; only its added note accompanies a conflict.
+            const first = store.revisionText(block.id, 1).text;
+            const proposal_note = diffLines(first.slice(first.indexOf("\n")), block.text.slice(block.text.indexOf("\n")))
+              .filter(part => part.added).map(part => part.value).join("").trim();
+            const answer = await this.deps.resolve!({...part, proposal_note}, requestedBy);
+            if ("ambiguous" in answer) return leaveOpen(answer.ambiguous);
+            merged += answer.replacement;
+          }
+          messages.push("Merged the proposed change.");
+          const patch = wholeTextSpan(current.text, merged);
+          edits.push({ blockId: edit.blockId, revision: current.revision, patches: patch ? [patch] : [] });
+        }
+        const status = withProposalStatus(block.text, "resolved").replace("\n", ` [from::${from}]${trigger ? ` [via-trigger::${trigger}]` : ""}\n`) + `\n\nResolved: ${messages.join(" ")}\n` + edits.map(edit => `((${edit.blockId}|Resolved edit))`).join("\n");
+        const prepared = proposal.group ? this.deps.groups!(proposal.group, actor) : undefined;
+        const outcome = await store.changes.run(store.changes.attribution({ action: "draft.proposal.resolve", actor, requestedBy }), () => this.run(edits, {
+          mutation: actor, policy: "prose", undo: true, ...(proposal.mark ? {mark: {...proposal.mark, blockId: proposal.mark.blockId ?? edits[0]!.blockId}} : {}),
+          alongside: () => {
+            store.update(proposalId, status, block.revision, actor);
+            prepared?.write();
+          },
+          ...(prepared ? { told: toldBy(proposal.group), made: madeBy(proposal.group) } : {}),
+        }));
+        if (!outcome.ok) return leaveOpen(outcome.reason);
+        outcome.applied.push({ blockId: proposalId, route: "saved", revision: store.requireActive(proposalId).revision });
+        const undo = prepared ? prepared.done(outcome.applied, outcome.inverse) : this.deps.keepResolution?.(outcome.applied, outcome.inverse);
+        this.settled(proposalId, "resolved", actor);
+        return { outcome: "resolved", proposalId, message: messages.join(" "), ...undo };
+      } catch (error) {
+        return leaveOpen(error instanceof Error ? error.message : String(error));
+      }
+    });
+  }
+
   /**
    * "Apply anyway": the proposal's patch as an ordinary edit by `mutation`, at most once. The person's is
    * forced (no revision or policy check) but never past the passage the proposal shows or below its mark;
@@ -676,7 +757,7 @@ export class DraftPatchRouter {
           kind: "patch", patchId, revision: options.force || options.current ? hold.revision : edit.revision, patches: edit.patches,
           mutation: options.mutation,
           ...(options.replyTo ? { replyTo: options.replyTo, replyGroup: options.replyGroup } : {}),
-          ...(scriptRun ? { undoPatches: this.scriptPatches.get(scriptRun)?.get(hold.blockId)?.ids ?? [] } : {}),
+          ...(scriptRun || options.undo ? { undoPatches: scriptRun ? this.scriptPatches.get(scriptRun)?.get(hold.blockId)?.ids ?? [] : [] } : {}),
           ...(options.mark && options.mark.blockId === edit.blockId ? { mark: options.mark.text } : {}),
           ...(options.output ? { output: true } : {}),
           ...(options.force ? { force: true } : {}),
@@ -692,7 +773,9 @@ export class DraftPatchRouter {
         await undo();
         return { ok: false, reason: "reason" in answer && answer.reason ? answer.reason : "the draft refused it" };
       }
-      const span = answer.inverse && wholeTextSpan(answer.inverse.before, answer.inverse.text);
+      const span = answer.inverse && (answer.inverse.before === ""
+        ? { observed: "", replacement: answer.inverse.text, range: { start: 0, end: 0 } }
+        : wholeTextSpan(answer.inverse.before, answer.inverse.text));
       patched.push({ hold, patchId, ...(span && answer.inverse ? { inverse: { blockId: hold.blockId, revision: answer.inverse.revision, patches: [span] } } : {}) });
       applied.push({ blockId: edit.blockId, route: "draft", holder: hold.clientId });
 
@@ -722,7 +805,7 @@ export class DraftPatchRouter {
     applied.sort((left, right) => order.get(left.blockId)! - order.get(right.blockId)!);
     settle(true);
     if (scriptRun) for (const patch of patched) this.rememberScriptPatch(scriptRun, patch);
-    return { ok: true, applied };
+    return { ok: true, applied, inverse: patched.flatMap(patch => patch.inverse ? [patch.inverse] : []) };
   }
 
   /** The revision a saved note's part was read at when it is applied at a newer one (a rebase), else null. */
@@ -861,9 +944,10 @@ export class DraftPatchRouter {
     const created = store.database.transaction(() => {
       const raced = this.openProposalLike(hostId, dedupe);
       if (raced) return { id: raced, deduped: true };
+      const text = proposalText(proposal, names, { applies }).replace("\n", ` [type::proposal] [stale::${!applies || edits.some(edit => store.get(edit.blockId)?.revision !== edit.revision)}]\n`);
       const block = mutation.author === "agent"
-        ? store.create(proposalText(proposal, names, { applies }), hostId, "agent", { actorId: mutation.actorId!, ...(mutation.sessionId ? { sessionId: mutation.sessionId } : {}) })
-        : store.create(proposalText(proposal, names, { applies }), hostId, "user");
+        ? store.create(text, hostId, "agent", { actorId: mutation.actorId!, ...(mutation.sessionId ? { sessionId: mutation.sessionId } : {}) })
+        : store.create(text, hostId, "user");
       return { id: block.id, deduped: false };
     })();
     return { outcome: "proposed", reason, proposalId: created.id, beside: hostId, ...(created.deduped ? { deduped: true as const } : {}) };

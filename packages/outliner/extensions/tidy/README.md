@@ -25,3 +25,35 @@ Morning plan
 - A `@tidy` line written by an agent lands held (`held: <agent> may not wake @tidy · r to send`) and waits for a person's `r`, so agents can't set each other off.
 
 Install: `outliner ext add tidy`. See [the four kinds](../../docs/extensions/README.md#agents-in-the-note).
+
+## Resolving a stale proposal
+
+`outline_proposal_resolve` (service: `draft.proposal.resolve`) merges the proposal's original revision,
+the current note, and the original with the proposal's patches applied. The shared outline-core diff
+compares lines, then words within overlapping line changes. Independent changes merge without a model call.
+Only conflicts go to the responder, as `{ region_base, region_ours, region_theirs, proposal_note }`.
+The added author note accompanies the conflict; the rest of the note and proposal do not.
+The same `config.answer` command as an instructed tidy returns `{ "replacement": "merged region" }`
+or `{ "ambiguous": "both conflicting readings in one line" }`. A replacement occupies only that region;
+an ambiguous answer leaves the entire proposal open with its reason and the target unchanged.
+
+The router applies the merged text through `draft.patch` with policy `prose`, preserving links, anchors,
+properties and the proposal's request-line boundary. It writes as `ext:tidy` and marks the proposal resolved
+with a link and `[from::]` the proposer. `extensions.undo` takes its receipt back in one step; the door
+records that receipt for Ctrl+Z in the reader. Receipts last for this host process.
+
+Automatic resolution is off until the outline contains this rule note:
+
+```text
+Resolve stale proposals [rule-name::resolve-stale-proposals] [rule-on::tidy/resolve] [rule-match::type=proposal stale=true]
+```
+
+Proposal creation and target edits maintain the proposal's `stale` property. The rule engine supplies its
+ordinary quiet wait and loop guard; resolution writes carry `trigger:` attribution and resolved proposals
+carry `[via-trigger::]`. A failed resolution leaves the existing proposal open, never another proposal.
+For deployment, enable this note in pie and float-hub after updating their hosts and clients together.
+This change does not modify either live outline. A wire change requires a protocol bump at final rebase.
+
+A text resolution in an extension write group retains its structural operations: the existing group writer
+checks and lands them in the same transaction and undo receipt. A proposal with no text passage has nothing
+for the resolver to rewrite; it stays open for apply or dismiss.

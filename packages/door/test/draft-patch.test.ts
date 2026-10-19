@@ -241,6 +241,43 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     return { id, s, h, d, type };
   }
 
+  test("an empty held draft leaves a non-empty resolution open instead of losing it", async () => {
+    const e = await editing("Garden");
+    try {
+      const saved = (await board.get(e.id))!;
+      const pending = await agent.request<{proposalId: string}>("draft.patch", {blockId: e.id, revision: saved.revision, propose: "always", patches: [{observed: "", replacement: "\nNew line."}], mutation: {author: "agent", actorId: "gardener"}});
+      e.d.replace("", undefined, undefined, true);
+      const result = await board.request<{outcome: string; message: string}>("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
+      expect(result.outcome).toBe("open");
+      expect(result.message).toContain("empty draft");
+      expect(e.d.text).toBe("");
+      expect((await board.get(e.id))!.text).toBe("Garden");
+      expect(prop((await board.get(pending.proposalId))!, "proposal-status")).toBe("open");
+    } finally { e.s.dispose(); }
+  });
+
+  test("resolving a sentence deletion in a held draft undoes byte for byte", async () => {
+    const folder = join(scratch.workspace, "extensions", "tidy");
+    cpSync(join(outliner!, "extensions", "tidy"), folder, {recursive: true});
+    const patches = [{observed: "Remove this sentence.\n", replacement: ""}];
+    writeFileSync(join(folder, "config.json"), JSON.stringify({config: {answer: ["bun", "-e", `await Bun.stdin.text(); console.log(${JSON.stringify(JSON.stringify({patches, message: "Removed the sentence."}))});`]}}));
+    await board.listExtensions(true);
+    const e = await editing("Garden\nRemove this sentence.\nKeep  these bytes.  \n\nStill typing");
+    try {
+      e.type(" here.");
+      const before = e.d.text;
+      const saved = (await board.get(e.id))!;
+      const pending = await agent.request<{proposalId: string}>("draft.patch", {blockId: e.id, revision: saved.revision, propose: "always", patches, mutation: {author: "agent", actorId: "gardener"}});
+      const result = await board.request<{outcome: string; undo: string}>("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
+      expect(result.outcome).toBe("resolved");
+      expect(e.d.text).toBe(before.replace("Remove this sentence.\n", ""));
+      await board.request("extensions.undo", {undo: result.undo, mutation: {author: "user"}});
+      expect(e.d.text).toBe(before);
+      expect((await board.get(e.id))!.text).toBe(saved.text);
+      expect(prop((await board.get(pending.proposalId))!, "proposal-status")).toBe("open");
+    } finally { e.s.dispose(); }
+  });
+
   test("anchored append through the agent CLI lands in a held draft even at its cursor", async () => {
     const e = await editing("Garden\n\nLog entry. ^log\n\nTyping here.");
     const saved = (await board.get(e.id))!;
@@ -553,6 +590,8 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const reader = new NoteSurface(), h = host();
     reader.show(proposal, h);
     expect(reader.render(100, 40, h).lines.map(visible).join("\n")).toContain("[apply]");
+    expect(reader.describeElements().filter(e => e.control).map(e => e.control)).toEqual(["apply", "dismiss"]);
+    expect(reader.hint()).not.toContain("r resolve");
     expect(proposal.text).toContain("at the end of the block");
     reader.key(char("A"), h);
     await until(() => e.d.text.endsWith("\nA proposed addition."), "the append applied");
@@ -584,9 +623,9 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const reader = new NoteSurface(), h = host();
     reader.show(proposal, h);
     const header = reader.render(90, 30, h).lines.map(visible).slice(0, 8).join("\n");
-    expect(header).toContain("proposal · [dismiss]");
+    expect(header).toContain("proposal · [dismiss] [resolve]");
     expect(header).not.toContain("[apply]");
-    expect(reader.hint()).toContain("X dismiss");
+    expect(reader.hint()).toContain("X dismiss · r resolve");
     expect(reader.hint()).not.toContain("A apply");
     flashes.length = 0;
     expect(reader.key(char("A"), h)).toBe(true);

@@ -2541,6 +2541,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "echonet.put"; from: string; packet: unknown }
   | { id: string; action: "echonet.take"; for: string; ack?: string[] }
   /** "Apply anyway": a proposal block's patch as an ordinary edit (capability `draft.proposal.apply`). */
+  | { id: string; action: "draft.proposal.resolve"; proposalId: string; mutation: MutationProvenance }
   | { id: string; action: "draft.proposal.apply"; proposalId: string; mutation: MutationProvenance }
   /** Dismiss a proposal without applying it (capability `draft.proposal.dismiss`). */
   | { id: string; action: "draft.proposal.dismiss"; proposalId: string; mutation: MutationProvenance }

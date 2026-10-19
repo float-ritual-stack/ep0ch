@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 // The door reaches the other packages only through their public faces: all of outline-core (pure, shared), and
 // what the outliner declares in its package.json `exports`. Reaching into `@ep0ch/outliner/src/...` or across with
@@ -18,6 +18,18 @@ function files(dir: string): string[] {
 }
 
 describe("package boundary", () => {
+  test("outline-core imports only itself and node:path", () => {
+    const bad: string[] = [];
+    const core = resolve(root, "../outline-core/src");
+    for (const f of files(core)) {
+      for (const {path: spec} of new Bun.Transpiler({loader: "ts"}).scanImports(readFileSync(f, "utf8"))) {
+        const internal = spec.startsWith(".") && resolve(dirname(f), spec).startsWith(core + "/");
+        if (!internal && spec !== "node:path") bad.push(`${f}: ${spec}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
   test("the door imports other packages only through outline-core and the outliner's declared exports", () => {
     const bad: string[] = [];
     for (const dir of ["src", "scripts", "ext"]) {

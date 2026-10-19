@@ -1,6 +1,7 @@
 import type { WaitingAsk } from "@ep0ch/outline-core/protocol";
 import type { WaitingAsks } from "../waiting-asks";
 import { markReveal } from "../reveal";
+import { PROPOSAL_ACTIONS } from "../surface/note";
 import { proposalOps } from "../embeds";
 import type { Actor } from "../socket";
 import { C, dim, fg, pad, RESET, selectedRow } from "../style";
@@ -48,7 +49,7 @@ export class WaitingYouPane implements Pane {
     return [...this.asks().map(row => ({ kind: "ask" as const, row })), ...this.held().map(row => ({ kind: "held" as const, row })), ...this.rows().map(row => ({ kind: "program" as const, row }))];
   }
   title() { const n = this.entries().length; return `waiting on you · ${n || "nothing"}`; }
-  hint() { return "j k pick · click selects · ⏎ opens · alt+⏎ beside · x clear/seen · A apply · X dismiss · r send"; }
+  hint() { return "j k pick · click selects · ⏎ opens · alt+⏎ beside · x clear/seen · A apply · X dismiss · r resolve/send"; }
   init(desk: DeskApi) {
     this.dispose();
     this.door = desk.ctx.hostLayer ?? desk.ctx;
@@ -62,7 +63,7 @@ export class WaitingYouPane implements Pane {
     if (e.kind === "held") return SEND;
     if (e.kind !== "ask") return "";
     if (e.row.kind === "decision") return " [x clear]";
-    return e.row.kind === "proposal" ? proposalOps(e.row).map(op => op === "apply" ? " [A apply]" : " [X dismiss]").join("") : "";
+    return e.row.kind === "proposal" ? proposalOps(e.row).map(op => op === "apply" ? " [A apply]" : op === "resolve" ? " [r resolve]" : " [X dismiss]").join("") : "";
   }
   render(w: number, h: number, focused: boolean): PaneView {
     this.width = w;
@@ -114,7 +115,7 @@ export class WaitingYouPane implements Pane {
     if (ch(k) === "x" && e.kind === "program") { this.run(desk, "status.seen", args); return true; }
     if (e.kind === "ask") {
       if (ch(k) === "x" && e.row.kind === "decision") { this.run(desk, "ask.clear", args); return true; }
-      if ((ch(k) === "A" || ch(k) === "X") && e.row.kind === "proposal") { this.run(desk, "ask.proposal", { ...args, op: ch(k) === "A" ? "apply" : "dismiss" }); return true; }
+      if ((ch(k) === "A" || ch(k) === "X" || ch(k) === "r") && e.row.kind === "proposal") { this.run(desk, "ask.proposal", { ...args, op: ch(k) === "A" ? "apply" : ch(k) === "r" ? "resolve" : "dismiss" }); return true; }
     }
     return false;
   }
@@ -126,7 +127,14 @@ export class WaitingYouPane implements Pane {
     const e = this.entries()[n];
     if (e?.kind === "ask" && e.row.kind === "decision" && x >= this.width - 10) { this.run(desk, "ask.clear", { n: n + 1 }); return true; }
     if (e?.kind === "held" && x >= this.width - SEND.length) { this.run(desk, "held.send", { n: n + 1 }); return true; }
-    if (e?.kind === "ask" && e.row.kind === "proposal" && x >= this.width - this.controls(e).length) { this.run(desk, "ask.proposal", { n: n + 1, op: x >= this.width - 12 ? "dismiss" : "apply" }); return true; }
+    if (e?.kind === "ask" && e.row.kind === "proposal" && x >= this.width - this.controls(e).length) {
+      let end = this.width;
+      for (const op of [...proposalOps(e.row)].reverse()) {
+        end -= op === "apply" ? " [A apply]".length : op === "resolve" ? " [r resolve]".length : " [X dismiss]".length;
+        if (x >= end) { this.run(desk, "ask.proposal", { n: n + 1, op }); break; }
+      }
+      return true;
+    }
     const gesture = this.view.press(n, pressOn(k, press, n === this.at));
     if (gesture === "select") this.run(desk, "status.pick", { n: n + 1 });
     else this.run(desk, this.openAction(n), { n: n + 1, ...(e?.kind !== "program" && gesture === "fresh" ? { fresh: true } : {}) });
@@ -267,9 +275,9 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
     },
   }),
   "ask.proposal": def({
-    summary: "apply or dismiss an open proposal", keys: "A X, row controls",
+    summary: "apply, resolve or dismiss an open proposal", keys: "A r X, row controls",
     touches: "nothing", replay: "ask",
-    args: { n: { type: "number", optional: true, about: "row number from peek" }, op: { type: "string", about: "apply or dismiss" } },
+    args: { n: { type: "number", optional: true, about: "row number from peek" }, op: { type: "string", about: "apply, resolve or dismiss" } },
     examples: [
       { act: "ask.proposal n=2 op=apply", does: "applies the proposal in the second row" },
       { act: "ask.proposal n=2 op=dismiss", does: "dismisses the proposal in the second row" },
@@ -278,9 +286,9 @@ export const WAITING_YOU_ACTIONS = actionSet<KindHost>()("waiting-you", {
       const ask = askOf(pane as WaitingYouPane, a.n);
       if (ask.kind !== "proposal") throw new ActionRefused("pick a proposal row");
       const m = await askNote(desk, ask, actor);
-      if (a.op !== "apply" && a.op !== "dismiss") throw new ActionRefused("op is apply or dismiss");
+      if (a.op !== "apply" && a.op !== "dismiss" && a.op !== "resolve") throw new ActionRefused("op is apply, resolve or dismiss");
       if (!proposalOps(m).includes(a.op)) throw new ActionRefused("the passage is gone; dismiss this proposal");
-      return a.op === "apply" ? desk.ctx.board.applyProposal(m.id, actor) : desk.ctx.board.dismissProposal(m.id, actor);
+      return a.op === "resolve" ? PROPOSAL_ACTIONS.run("proposal.resolve", { block: m.id }, { host: { ctx: desk.ctx, redraw: () => desk.redraw() } }, actor) : a.op === "apply" ? desk.ctx.board.applyProposal(m.id, actor) : desk.ctx.board.dismissProposal(m.id, actor);
     },
   }),
   "status.seen": def({

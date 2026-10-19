@@ -4,6 +4,7 @@
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../../src/app";
 import { Desk } from "../../src/desk/desk";
@@ -176,6 +177,61 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect((await board.get(guide.id))!).toMatchObject({ text: guide.text, revision: guide.revision });
   }, 30_000);
 
+
+  test("the proposals section resolves by key, click and agent action, and waiting counts follow", async () => {
+    writeFileSync(join(scratch.root, "config", "pi-herdr-outliner", "extensions", "tidy", "config.json"), JSON.stringify({config: {answer: ["bun", "-e", `await Bun.stdin.text(); console.log(JSON.stringify({patches: [{observed: "grow beans", replacement: "grow peas"}], message: "Kept Tuesday and changed beans to peas."}));`]}}));
+    await board.listExtensions(true);
+    const make = async () => {
+      const note = await board.request<any>("create", {text: "Resolution garden\ngrow beans\ndelivery Monday", author: "user"});
+      const proposal = await board.request<any>("draft.patch", {blockId: note.id, revision: note.revision, propose: "always", patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "moss"}});
+      await board.update(note.id, note.text.replace("Monday", "Tuesday"), note.revision);
+      return {note, proposal: proposal.proposalId};
+    };
+    const finished = async (id: string) => untilAsync(async () => prop((await board.get(id))!, "proposal-status") === "resolved", "the resolution");
+    const first = await make();
+    await app.act({action: "section", args: {name: "proposals"}, as: "test-agent"});
+    await until(() => { screen(); return !!S().stages.get(S().sel); }, "the proposals stage");
+    await (S().stages.get(S().sel).top as Desk).dispatch.press("open", {id: first.proposal}, "guide");
+    await until(() => screen().includes("[resolve]") && (S().stages.get(S().sel).top as Desk).layoutGet().tiles.some(t => t.showing?.id === first.proposal), "the reader resolve control");
+    ch("l");
+    ch("r");
+    await finished(first.proposal);
+    expect((await board.get(first.note.id))!.text).toContain("grow peas\ndelivery Tuesday");
+    press({kind: "char", ch: "z", ctrl: true});
+    await untilAsync(async () => prop((await board.get(first.proposal))!, "proposal-status") === "open", "one undo reopens the proposal");
+    expect((await board.get(first.note.id))!.text).toContain("grow beans\ndelivery Tuesday");
+    const second = await make();
+    await (S().stages.get(S().sel).top as Desk).dispatch.press("open", {id: second.proposal}, "guide");
+    await until(() => screen().includes("[resolve]") && (S().stages.get(S().sel).top as Desk).layoutGet().tiles.some(t => t.showing?.id === second.proposal), "the second reader resolve control");
+    const lines = screen().split("\n");
+    const y = lines.findIndex(line => line.includes("[resolve]"));
+    const x = lines[y]!.indexOf("[resolve]") + 3;
+    press({kind: "mouse", action: "down", button: 0, x, y});
+    press({kind: "mouse", action: "up", button: 0, x, y});
+    await finished(second.proposal);
+    const third = await make();
+    await until(() => { press({kind: "esc"}); return S().focus === "index"; }, "back at the section index");
+    (app as any).lastInput = 0;
+    await app.act({action: "section", args: {name: "status"}, as: "test-agent"});
+    await until(() => { screen(); return !!S().stages.get(S().sel); }, "the status stage");
+    const stage = () => S().stages.get(S().sel).top as Desk;
+    const rows = () => (stage().pane("waiting") as any).describe() as any[];
+    await until(() => rows().some(row => row.block === third.proposal), "the proposal in waiting on you");
+    const before = rows().length;
+    expect(await app.act({action: "proposal.resolve", args: {block: third.proposal}, as: "test-agent"})).toMatchObject({outcome: "resolved"});
+    await until(() => !rows().some(row => row.block === third.proposal), "the resolved row removed");
+    expect(rows().length).toBe(before - 1);
+    const offered = await app.act({action: "bar.open", args: {scope: "actions", query: "proposal.resolve"}, as: "test-agent"});
+    expect(JSON.stringify(offered)).toContain("proposal.resolve");
+    const fourth = await make();
+    await until(() => rows().some(row => row.block === fourth.proposal), "the next proposal row");
+    await stage().dispatch.press("status.pick", {n: rows().find(row => row.block === fourth.proposal).n}, "waiting");
+    await stage().dispatch.press("tile.focus", {}, "waiting");
+    ch("l");
+    ch("r");
+    await finished(fourth.proposal);
+    await until(() => { press({kind: "esc"}); return S().focus === "index"; }, "leave the status section for the next example");
+  }, 30_000);
 
   test("the refusals section (PIE-727): a key the spine refuses says why on its frame, loud the second time, gone on another key; the status bar keeps its copy", async () => {
     (app as any).lastInput = 0;
@@ -405,7 +461,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const stage = () => S().stages.get(S().sel).top;
     const ask = seeded.notes.waitingDecision;
     const call = seeded.notes.waitingCalls;
-    const rows = () => stage().pane("waiting").describe() as any[];
+    const rows = () => (stage().pane("waiting") as any).describe() as any[];
     await until(() => rows().some(r => r.block === ask.id), "the outline decision in waiting on you", 3000);
     expect(rows().find(r => r.block === ask.id)).toMatchObject({ kind: "decision", reason: "glass or shade cloth?", by: "garden-agent" });
     expect(rows().filter(r => r.block === call.id)).toMatchObject([{ kind: "call", line: 3, reason: "Choose the north wall" }]);
