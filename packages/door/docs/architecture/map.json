@@ -307,14 +307,14 @@
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
       "built": "NoteSurface behind the SurfaceHost seam; inline views, links, backlinks, tables and tabs lend their tagged rows to InlineList over RowView (PIE-1035), with wheel handoff and element selection; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
-        { "r": "door", "p": "src/surface/note.ts", "l": 637, "m": "export class NoteSurface" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 638, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/inline-list.ts", "l": 11, "m": "export class InlineList" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 106, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 23, "m": "export const PRECEDENCE" },
         { "r": "door", "p": "src/surface/note.ts", "l": 140, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 8088, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1052, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1069, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 8130, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1053, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1070, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -375,7 +375,7 @@
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 239, "m": "export class Dispatcher" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 174, "m": "export function actorRule" },
         { "r": "door", "p": "src/whereabouts.ts", "l": 83, "m": "export function whereabouts" },
-        { "r": "door", "p": "src/app.ts", "l": 1087, "m": "person(): Whereabouts" },
+        { "r": "door", "p": "src/app.ts", "l": 1089, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 607, "m": "export function draftRule" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 2332, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
@@ -391,7 +391,7 @@
         { "r": "door", "p": "src/screens.ts", "l": 475, "m": "export const SHELL_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 1023, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 174, "m": "export function actorRule" },
-        { "r": "door", "p": "src/app.ts", "l": 1105, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 1107, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 53, "m": "export async function runLoginShell" }
       ]
     },
@@ -400,10 +400,10 @@
       "does": "A refusal of the person's own key or click (an ActionRefused from their press, nothing to close, a spine's keys, a dimmed tile-menu row) is said on the focused tile's frame as well as the status bar; the same key refused again makes it loud (bold on the amber surface, capped dark, the frame amber) until a different key (PIE-727). An agent's refusal is thrown to it and said with who it is.",
       "built": "Ctx.refuse and App.refusal (the same gesture again: pressOf, joined while the screen holds the keys; pressNow drops a late one to the status bar); the dispatcher's asPerson calls it; refused() in shell-keys for a Ctx without it; the desk's drawTile draws it on the focused tile's hint row (refusalHint), the screen's hint row for a spine; Pane.nestsTiles leaves it to a mount's own focused tile.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 738, "m": "refuse(msg: string, at = this.pressCount) {" },
+        { "r": "door", "p": "src/app.ts", "l": 739, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 443, "m": "if (said) (ctx?.refuse" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6585, "m": "export function refusalHint" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6594, "m": "export function refusalHint" }
       ]
     },
     {
@@ -435,7 +435,7 @@
       "does": "Alt screen, SGR mouse with button events, bracketed paste, OSC 52 copy, Kitty graphics where there are any. Over ssh and tmux to a phone, and a Mac terminal that types Option as characters.",
       "built": "term.ts turns on 1049, 1002, 1006 and 2004 and decodes keys and mouse into Key events (a KeyDecoder per terminal, a session's clients each their own); a frame goes to a Display, a Painter per terminal (its rows diffed by Rows, its Kitty images, its video mode); each chunk of input is handled, then painted once, and a trackpad's burst of wheel reports scrolls a row each (wheelRows); a macOS Option character is read as its alt key outside text (OPTION_KEYS). What reaches the terminal is printable (text.ts printable and paintable: no raw escapes from a note or a program) and measured in cells (style.ts width; fitHint cuts a hint row to fit and says ? more, #103).",
       "refs": [
-        { "r": "door", "p": "src/term.ts", "l": 436, "m": "\\x1b[?1003h" },
+        { "r": "door", "p": "src/term.ts", "l": 441, "m": "\\x1b[?1003h" },
         { "r": "door", "p": "src/scroll.ts", "l": 23, "m": "export const wheelRows" },
         { "r": "door", "p": "src/term.ts", "l": 67, "m": "export const OPTION_KEYS" },
         { "r": "door", "p": "src/text.ts", "l": 27, "m": "export function printable(" },
@@ -498,7 +498,7 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 582, "m": "private layoutCtx" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 2566, "m": "  run(name: string, args" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1216, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 5613, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 5622, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 115, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 395, "m": "\"tile.widen\": def({" }
       ],
@@ -551,7 +551,7 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 627, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/app.ts", "l": 628, "m": "background: Screen[]" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1349, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
@@ -581,7 +581,7 @@
       "does": "A program beside the notes: keys go to it while you're in it, ctrl+] leaves, the mouse goes to it when it asked. Its environment says which door and which tile it runs in.",
       "built": "PtyPane over a PtyBackend (Bun.Terminal in this process, or a session's terminal host) and @xterm/headless; tileEnv is the one list of what a program doesn't inherit. A terminal's actions belong to its kind (PTY_ACTIONS: tile.type, tile.restart, tile.enter, tile.leave, tile.herdr, #105).",
       "refs": [
-        { "r": "door", "p": "src/desk/pty.ts", "l": 162, "m": "export class PtyPane" },
+        { "r": "door", "p": "src/desk/pty.ts", "l": 165, "m": "export class PtyPane" },
         { "r": "door", "p": "src/desk/pty-backend.ts", "l": 68, "m": "new Bun.Terminal" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 21, "m": "export const PTY_ACTIONS" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 125, "m": "export function tileEnv" }
@@ -600,7 +600,7 @@
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 442, "m": "export async function main" },
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 369, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 88, "m": "\"tile.herdr\": def({" },
-        { "r": "door", "p": "src/desk/pty.ts", "l": 190, "m": "get herdr(): { pane: string; name?: string } | null" },
+        { "r": "door", "p": "src/desk/pty.ts", "l": 193, "m": "get herdr(): { pane: string; name?: string } | null" },
         { "r": "door", "p": "src/drawer.ts", "l": 186, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/drawer.ts", "l": 1457, "m": "export const DRAWER_ACTIONS" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1694, "m": "export function hostLayer" }
@@ -614,7 +614,7 @@
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 186, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 5877, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 5886, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 903, "m": "private take(id: I, heir?" }
       ]
     },
@@ -639,7 +639,7 @@
       "refs": [
         { "r": "door", "p": "src/door.ts", "l": 215, "m": "export function guardDoor" },
         { "r": "door", "p": "src/door.ts", "l": 230, "m": "process.on(\"uncaughtException\", fault)" },
-        { "r": "door", "p": "src/app.ts", "l": 710, "m": "terminate()" }
+        { "r": "door", "p": "src/app.ts", "l": 711, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -650,7 +650,7 @@
       "refs": [
         { "r": "door", "p": "src/session/place.ts", "l": 39, "m": "export function placeOf" },
         { "r": "door", "p": "src/session/place.ts", "l": 51, "m": "export function placeFor" },
-        { "r": "door", "p": "src/session/daemon.ts", "l": 86, "m": "export async function serve" },
+        { "r": "door", "p": "src/session/daemon.ts", "l": 87, "m": "export async function serve" },
         { "r": "door", "p": "src/session/session-term.ts", "l": 83, "m": "export class SessionTerm" },
         { "r": "door", "p": "src/session/client.ts", "l": 254, "m": "export async function attach(" },
         { "r": "door", "p": "src/session/protocol.ts", "l": 130, "m": "export class Frames" },
@@ -668,7 +668,7 @@
       "refs": [
         { "r": "door", "p": "src/session/pty-host.ts", "l": 61, "m": "export async function servePtyHost" },
         { "r": "door", "p": "src/session/pty-host.ts", "l": 210, "m": "export class HostPtys" },
-        { "r": "door", "p": "src/desk/pty-backend.ts", "l": 65, "m": "export const localPtys" },
+        { "r": "door", "p": "src/desk/pty-backend.ts", "l": 64, "m": "export const localPtys" },
         { "r": "door", "p": "src/session/restore.ts", "l": 69, "m": "export class Checkpoints" },
         { "r": "door", "p": "src/session/restore.ts", "l": 121, "m": "export async function restore" }
       ],
@@ -795,8 +795,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the request through the App's dispatcher (the host layer's, the shell's and the extensions' sets, then the screen's own dispatcher); App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 1105, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 799, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 1107, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 800, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },
@@ -842,10 +842,10 @@
       "refs": [
         { "r": "outliner", "p": "src/extension-registry.ts", "l": 65, "m": "export function extensionRoots" },
         { "r": "outliner", "p": "src/extension-registry.ts", "l": 254, "m": "export class ExtensionRegistry" },
-        { "r": "outliner", "p": "src/extension-calls.ts", "l": 429, "m": "export class ExtensionCalls" },
+        { "r": "outliner", "p": "src/extension-calls.ts", "l": 433, "m": "export class ExtensionCalls" },
         { "r": "outliner", "p": "src/agent-requests.ts", "l": 208, "m": "export class AgentRequests" },
-        { "r": "outliner", "p": "src/resource-extensions.ts", "l": 60, "m": "contract: Type.Literal(1)" },
-        { "r": "outliner", "p": "src/resource-extensions.ts", "l": 160, "m": "async function runCommand" },
+        { "r": "outliner", "p": "src/resource-extensions.ts", "l": 62, "m": "contract: Type.Literal(1)" },
+        { "r": "outliner", "p": "src/resource-extensions.ts", "l": 155, "m": "async function runCommand" },
         { "r": "outliner", "p": "extensions/jira/extension.json", "l": 2, "m": "\"contract\": 2" }
       ],
       "questions": [ { "text": "Credential lookup is macOS-only (keychain); on Linux a keychain credential is unavailable.", "finding": "B-F15", "route": "PIE-494" } ]
@@ -855,7 +855,7 @@
       "does": "The door binds what the service's extensions offer: handler lines drawn under their line (records, output, components from the shared primitives), each action an ActionDef (ext.<id>.<action>: its key, a click on its control, act), and each extension tile kind registered as a program tile. Any program in a terminal tile can still drive its door over EP0CH_CONTROL as EP0CH_TILE; the Claude mod and the Herdr agent do.",
       "built": "src/extensions.ts reads extensions.list and binds again when the feed says it changed: EXT_ACTIONS for lines and blocks, serviceKind for tile kinds. tileEnv gives a tile's program its door and its tile.",
       "refs": [
-        { "r": "door", "p": "src/extensions.ts", "l": 170, "m": "export const EXT_ACTIONS" },
+        { "r": "door", "p": "src/extensions.ts", "l": 172, "m": "export const EXT_ACTIONS" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 125, "m": "export function tileEnv" }
       ],
       "questions": [
@@ -951,7 +951,7 @@
         { "r": "door", "p": "src/bar/sources.ts", "l": 401, "m": "export const BUILT_IN_SOURCES" },
         { "r": "door", "p": "src/bar/actions.ts", "l": 46, "m": "export const BAR_ACTIONS" },
         { "r": "door", "p": "src/bar/form.ts", "l": 69, "m": "export async function openActionForm" },
-        { "r": "door", "p": "src/bar/arg-kinds.ts", "l": 22, "m": "export function registerArgKind" }
+        { "r": "door", "p": "src/bar/arg-kinds.ts", "l": 25, "m": "export function registerArgKind" }
       ]
     },
     {
