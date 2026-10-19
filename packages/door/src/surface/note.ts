@@ -8107,7 +8107,7 @@ const PROPOSAL_DEFS = {
         const result = await host.ctx.board.resolveProposal(target, actor);
         if (result.undo) EXT_UNDO.push({ undo: result.undo, label: "Resolve proposal", by: partyOf(actor), context: surface?.msg?.id ?? target });
         outlineChanged([target, ...(surface?.msg ? [surface.msg.id] : [])]);
-        host.ctx.flash(result.message, 8000);
+        host.ctx.flash(result.undo ? `${result.message} · ctrl+z takes it back` : result.message, 8000);
         surface?.noteAgent(actor, result.outcome === "resolved" ? "resolved a proposal" : "asked to resolve a proposal");
         return result;
       } finally { host.redraw(); }
