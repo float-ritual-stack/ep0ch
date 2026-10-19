@@ -86,7 +86,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       // A hover over the menu control opens nothing: no card, no menu (Evan, Oct 19 12:30 PM).
       h.press({ kind: "mouse", action: "drag", button: 3, x: h.screen().split("\n")[stage.row + r.row]!.indexOf("\u2261", stage.col + r.col), y: stage.row + r.row });
       expect(d.hintGet().cards).toEqual([]);
-      expect(d.overlays.top()).toBeFalsy();
+      expect((d as unknown as { overlays: { top(): unknown } }).overlays.top()).toBeFalsy();
       expect(declaredKeys(d.dispatch.defOf("hint.show")?.keys)).not.toContain("hover");
       expect(declaredKeys(d.dispatch.defOf("xray")?.keys)).toContain("ctrl");
     } finally { off(); }
