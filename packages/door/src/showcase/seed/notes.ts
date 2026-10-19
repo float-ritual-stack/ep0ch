@@ -327,6 +327,7 @@ export const DEEP_LINKS = [
   "",
   `A comment is open on this note, with the ${SEED.meeting.split(",")[0]} beside it. Type \`((Gree\` in the comment: the meeting is listed with its anchors (\`^a10\`, \`^decision\`) right under it, each at the front of its row.`,
   "",
+  "- **Read before inserting:** the completion floats across the screen, beyond this tile. Click a row to preview its note; wheel over the preview or PgUp/PgDn scrolls it. Enter or double click inserts. The next `((` starts with notes again.",
   "- **Refine a reference:** choose the meeting itself, then type `^` straight after its `))`: the popup searches inside the meeting, its anchors first. Choose `^a10`.",
   "- **A passage with no anchor:** type `^` after another reference and choose a line that says `adds ^…`: the anchor is added to the meeting (the reader beside shows it) and the reference points at it, in one choice.",
   "- **Reopen one later:** click inside a finished `((…))` and type `^` (every passage) or `#` (headings).",

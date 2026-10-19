@@ -1,3 +1,4 @@
+import { COMPLETION_ROWS, type Completer } from "../surface/completer";
 import { HintCard, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
 import { revealOn, type Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
@@ -2304,6 +2305,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * one grammar over `tiles()`; `expected=` against the layout's revision; each action's declared touches against
    * where the person is (`keys`, through the shell's whereabouts).
    */
+  private completionFloat: { completer: Completer; rect: Rect; origin: Rect } | null = null;
   private hintCard: HintCard | null = null;
   private hintPointer: { x: number; y: number } | undefined;
   private modeHintKey = "";
@@ -3173,6 +3175,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const rect = card.draw(canvas, anchor, area, look.hints === "brief", this.hintPointer, TONE[look.tone]);
       placements = uncover(placements, rect);
     }
+    this.completionFloat = null;
+    const completion = this.views.get(this.focus)?.view.completion;
+    const origin = this.contents.get(this.focus);
+    if (completion?.shown && completion.drawn && origin) {
+      const height = Math.min(COMPLETION_ROWS, area.rows);
+      const rect = { col: area.col, row: Math.max(area.row, Math.min(origin.row + completion.drawn.row, area.row + area.rows - height)), cols: area.cols, rows: height };
+      completion.drawn.row = rect.row - origin.row;
+      const lines = withRowLimit(this.lookAt(this.panes.get(this.focus)!, rect.cols).values["rows.lines"], () => completion.inFrame(rect.cols, rect.col - origin.col, height));
+      canvas.clear(rect, bg(C.black));
+      lines.forEach((line, i) => canvas.text(rect.col, rect.row + i, line, rect.cols));
+      this.completionFloat = { completer: completion, rect, origin };
+      placements = uncover(placements, rect);
+    }
     // Images would bleed through an overlay.
     for (const o of [...this.overlays.all()].reverse()) { withRowLimit(this.focusedPane() ? this.lookAt(this.focusedPane()!, cols).values["rows.lines"] : 2, () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 })); placements = []; }
     const hint = this.hints(cols);
@@ -3460,12 +3475,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return out;
     }
     view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
-    const completion = view.completion;
-    if (completion?.drawn) {
-      const row = inner.row + completion.drawn.row;
-      completion.inFrame(framed.cols, framed.col - inner.col).slice(0, framed.row + framed.rows - row)
-        .forEach((line, i) => canvas.text(framed.col, row + i, line, framed.cols));
-    }
     const lineEnds = new Map<number, number>();
     if (pane instanceof ReaderPane) for (const p of pointers) {
       if (p.line === undefined || (p.note && p.note !== pane.msg?.id)) continue;
@@ -3935,6 +3944,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   key(k: Key, ctx: Ctx): void {
+    if (k.kind === "mouse" && this.completionFloat && !this.overlays.all().length) {
+      const { completer, rect, origin } = this.completionFloat;
+      if (completer.shown && k.x >= rect.col && k.x < rect.col + rect.cols && k.y >= rect.row && k.y < rect.row + rect.rows) {
+        if (k.action === "wheel-up" || k.action === "wheel-down") {
+          const dir = k.action === "wheel-up" ? -1 : 1;
+          if (k.x >= rect.col + (completer.shown.listWidth ?? rect.cols)) completer.scrollPreview(dir * 3);
+          else completer.move(dir);
+        } else if (k.action === "up") completer.click(k.y - origin.row, k.x - origin.col);
+        this.redraw();
+        return;
+      }
+    }
     if (k.kind === "mouse") {
       this.hintPointer = { x: k.x, y: k.y };
       if (k.action === "wheel-up" || k.action === "wheel-down") {

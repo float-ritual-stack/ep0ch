@@ -996,6 +996,38 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 
+  test("reference float previews passages, scrolls, and starts the next completion with notes", async () => {
+    const note = await create(null, "Reference practice\n");
+    const journal = await create(null, "Orchard journal\n## Orchard passage ^harvest\n" + Array.from({ length: 35 }, (_, i) => `Harvest detail ${i}: baskets beside the gate.`).join("\n"));
+    await create(null, "Orchard weather\nClouds over the orchard. ^clouds");
+    const desk = openScreen("detail", { note: note.id, persist: false }) as Desk;
+    app.push(desk);
+    try {
+      await until(() => screen().some(l => l.includes("Reference practice")), "the reader");
+      key(char("e")); key(K("enter"));
+      const rd = [...(desk as any).panes.values()].find((p: any) => "surface" in p) as ReaderPane;
+      await until(() => !!rd.draft, "the edit");
+      key(K("down")); key(K("end")); type("((Orchard");
+      await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "notes");
+      const picked = completionOf(rd.draft!)!.items.findIndex(i => i.blockId === journal.id && !i.fragmentId);
+      for (let n = 0; n < picked; n++) key(K("down"));
+      type("^");
+      await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "passages");
+      expect(completionOf(rd.draft!)!.items.every(i => i.blockId === journal.id)).toBe(true);
+      await until(() => screen().some(l => l.slice(l.indexOf(" │ ") + 3).includes("Harvest detail 0")), "the passage in its note", 2000);
+      const before = screen();
+      const y = before.findIndex(l => l.slice(l.indexOf(" │ ") + 3).includes("Harvest detail 0"));
+      const x = before[y]!.lastIndexOf("Harvest detail 0");
+      key({ kind: "mouse", action: "wheel-down", button: 0, x, y });
+      expect(screen().map(l => l.slice(l.indexOf(" │ ") + 3)).join("\n")).not.toContain("Harvest detail 0:");
+      key(K("enter"));
+      await until(() => rd.draft!.text.includes("^harvest))"), "inserted anchor");
+      type(" ((Orchard");
+      await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "fresh notes");
+      expect(completionOf(rd.draft!)!.items[0]!.kind).toStartWith("block");
+    } finally { app.pop(); }
+  });
+
   test("completion fills a wide tile beyond its narrow text measure (PIE-1026)", async () => {
     const note = await create(null, "Completion practice [style.measure::40] [style.pad::2]\n");
     await create(null, "Greenhouse planting calendar [page::greenhouse-calendar]\nSow beans after the frost.");
