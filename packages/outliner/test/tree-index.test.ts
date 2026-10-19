@@ -107,7 +107,6 @@ test("Tree receives complete structure and bounded previews while exact bodies r
   const socket = join(directory, "outliner.sock");
   const server = new OutlinerServer(store, socket);
   try {
-    const initialCount = store.readWorkspaceSnapshot().physical.blocks.length;
     const root = store.create("Project [type::project]");
     const text = "Long document\n" + "Full source text. ".repeat(5_000) + "FINAL SOURCE SENTINEL";
     const child = store.create(text, root.id);
@@ -118,9 +117,8 @@ test("Tree receives complete structure and bounded previews while exact bodies r
     const index = await client.request<TreeIndexSnapshot>({ action: "tree.index" });
 
     const fixtureIds = new Set([root.id, child.id, sibling.id]);
-    // Every physical block is indexed: the three fixtures, and the Routing view the host seeds on start (PIE-1010).
-    expect(store.readWorkspaceSnapshot().physical.blocks.length).toBe(initialCount + 4);
-    expect(index.physicalBlockIds).toHaveLength(initialCount + 4);
+    // Compare with stored blocks so startup seed content cannot hide a missing indexed block.
+    expect([...index.physicalBlockIds].sort()).toEqual(store.readWorkspaceSnapshot().physical.blocks.map(block => block.id).sort());
     expect(index.visible.completeness).toEqual({ kind: "complete" });
     expect(index.blocks.filter(block => fixtureIds.has(block.id))
       .map(block => [block.id, block.parentId, block.depth, block.hasChildren]))

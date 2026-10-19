@@ -5,6 +5,7 @@
 // Scratch services in temp folders; every note and name is made up.
 import { expect, test } from "bun:test";
 import type { ExtensionsListResult } from "../src/extension-registry";
+import type { RuleListEntry } from "../src/extension-rules";
 import { setup, until } from "./script-harness";
 
 test("a script reads this, self, caller and props, with no id written in it", async () => {
@@ -42,11 +43,10 @@ test("a returned string shows as plain text, and a run with no note says why thi
 });
 
 test("a rule-fired script is told the matched block as this, and its caller", async () => {
-  const { store, create } = await setup();
+  const { store, create, client } = await setup();
   const script = create("Stamper [script::stamper]\n```js\nreturn `stamped ${this.title} from ${caller.block === this.id}`;\n```");
   create("Stamp rule [rule-name::stamp] [rule-match::#shipit] [rule-on::script:stamper]");
-  await until("the rule", async () => store.queryBlocks({ where: "rule-name" }).blocks.length === 1);
-  await Bun.sleep(100);
+  await until("the stamp rule to load", async () => (await client.request<{ rules: RuleListEntry[] }>({ action: "extensions.list" })).rules.some(rule => rule.name === "stamp"));
   const hit = create("Ship the beans #shipit");
   const note = await until("the run note", () => store.children(script.id).find(child => child.text.includes("stamped")));
   expect(note.text).toContain(`stamped ${hit.text.replace(" #shipit", "")} from true`);

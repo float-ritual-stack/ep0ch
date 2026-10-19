@@ -10,6 +10,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { ExtensionsListResult } from "../src/extension-registry";
+import type { RuleListEntry } from "../src/extension-rules";
 import type { Block } from "../src/types";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -82,6 +83,7 @@ test("an extension.json whose component isn't a schema doesn't load, and says wh
 
 test("rules.preview: what a rule note, never saved, draws on a sample note's text, as the engine draws a block's", async () => {
   const client = await setup([MOOD]);
+  const before = await client.request<{ rules: RuleListEntry[] }>({ action: "extensions.list" });
   type Preview = { decorations: { name: string; place: string; status: string; hit: { at: string; line: number }; view: { type: string; text?: string; label?: string }; markdown: string }[]; problems: string[] };
   const text = "Planning call [type::meeting]\n\n## Decisions\nShip the shelf !!today!!";
   const band = await client.request<Preview>({ action: "rules.preview", note: "Card [rule-name::card] [rule-kind::heading:2] [rule-decorate::band] [rule-tone::accent]", text });
@@ -91,6 +93,6 @@ test("rules.preview: what a rule note, never saved, draws on a sample note's tex
   expect(shout.decorations[0]).toMatchObject({ place: "prepend", hit: { at: "text", line: 3 }, view: { type: "badge", label: "today" } });
   const broken = await client.request<Preview>({ action: "rules.preview", note: "Nothing [rule-name::nothing] [rule-decorate::band]", text });
   expect(broken).toEqual({ decorations: [], problems: [expect.stringContaining("matches nothing")] });
-  // Nothing is written: the outline has no rule notes.
-  expect((await client.request<{ rules: unknown[] }>({ action: "extensions.list" })).rules).toEqual([]);
+  // A preview must not install its rule alongside the outline's existing rules.
+  expect((await client.request<{ rules: RuleListEntry[] }>({ action: "extensions.list" })).rules).toEqual(before.rules);
 });

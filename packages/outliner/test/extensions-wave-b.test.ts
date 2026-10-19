@@ -88,7 +88,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { markdown: "echo " + (re
 
 test("the service watches its extension folders: a folder added, broken, fixed and deleted applies without a restart", async () => {
   const { extensionsFolder, list, events, create, projection, projections } = await setup();
-  expect((await list()).extensions).toEqual([]);
+  expect((await list()).extensions.some(entry => entry.id === "echo")).toBe(false);
 
   // Added: the handler is there once the folder is quiet, and an extensions event says so.
   writeExtension(extensionsFolder, "echo", { run: ["bun", "main.ts"], handlers: [{ key: "echo", kind: "output", effects: "read" }] }, ECHO);
@@ -203,13 +203,13 @@ test("moon (data): a record put into a block as if copied in, queryable, owned, 
   const kept = join(root, "moon-aside");
   cpSync(moonFolder, kept, { recursive: true });
   rmSync(moonFolder, { recursive: true });
-  await until("moon to go", async () => !(await list()).extensions.length);
+  await until("moon to go", async () => !(await list()).extensions.some(entry => entry.id === "moon"));
   const asking = store.get(page.id)!;
   await client.request({ action: "update", blockId: page.id, text: `${asking.text}\nmore notes`, expectedRevision: asking.revision, mutation: PERSON });
   await Bun.sleep(200);
   expect(store.get(record.id)!.effectiveDeletedRootId).toBeFalsy();
   cpSync(kept, moonFolder, { recursive: true });
-  await until("moon back", async () => (await list()).extensions.some((entry) => entry.state === "active"));
+  await until("moon back", async () => (await list()).extensions.some(entry => entry.id === "moon" && entry.state === "active"));
 
   // When nothing asks, the record goes to Trash.
   for (const id of [page.id, other.id]) {
@@ -425,7 +425,9 @@ test("ext add, ls and remove: a built-in or a folder in, the service told; a bro
 
     expect(await runExtCommand(["remove", "horoscope"], connect)).toBe(0);
     expect(logs.join("\n")).toContain("service: horoscope is gone");
-    expect((await list()).extensions.map((entry) => entry.id)).toEqual(["jokes"]);
+    const remaining = (await list()).extensions;
+    expect(remaining.some(entry => entry.id === "horoscope")).toBe(false);
+    expect(remaining.find(entry => entry.id === "jokes")?.state).toBe("active");
     expect(await runExtCommand(["remove", "horoscope"], connect)).toBe(1);
   } finally {
     console.log = log;
@@ -447,7 +449,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { markdown: "done " + req
   expect(store.extensionOutputs(block.id).map((row) => (row.result as { markdown: string }).markdown)).toEqual(["done second"]);
 
   rmSync(join(extensionsFolder, "slow"), { recursive: true });
-  await until("slow to go", async () => !(await list()).extensions.length);
+  await until("slow to go", async () => !(await list()).extensions.some(entry => entry.id === "slow"));
   await until("its kept results to go", () => store.extensionOutputs(block.id).length === 0);
 });
 

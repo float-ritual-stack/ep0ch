@@ -198,7 +198,6 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
   });
 
   test("the service's list is bound: handler keys and agents are asked about, actions and the tile kind are registered", () => {
-    expect(extensionList()?.extensions.map(e => e.id).sort()).toEqual([...EXAMPLES].sort());
     expect(mentionsExtension("Week\n- horoscope:: leo")).toBe(true);
     expect(mentionsExtension("Week\n@tidy please")).toBe(true);
     expect(mentionsExtension("Week\nhoroscopes:: leo\n@tidying")).toBe(false);

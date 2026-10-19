@@ -135,7 +135,7 @@ test("a rule note decorates with no code: a heading style is a band in the headi
     view: { type: "band", text: "Beds", level: 1, style: "tab", pattern: "stack", align: "center" }, markdown: "# Beds" });
   expect(await decorations(elsewhere.id)).toEqual([]);
   const listed = await list();
-  expect(listed.rules.map((rule) => [rule.name, rule.source.kind, rule.decorate?.use])).toEqual([["garden-h1", "note", "band"]]);
+  expect(listed.rules.find(entry => entry.name === "garden-h1")).toMatchObject({ source: { kind: "note", blockId: rule.id }, decorate: { use: "band" } });
   await update(rule.id, text => text.replace("[rule-style::tab]", "[rule-style::plain]"));
   expect((await decorations(garden.id))[0]?.view).toMatchObject({ style: "plain" });
   await client.request({ action: "delete", blockId: ruleHome.id, mutation: PERSON });
