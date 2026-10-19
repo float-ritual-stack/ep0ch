@@ -327,6 +327,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // What the last probe left, when it changed nothing and ran nothing: the next probe's starting point.
     let last: Snap | null = null;
     const states: Key[] = [];
+    let selectionProbed = false;
     checkHint(label);
     /**
      * A state probed already (`sharedStates`): one the same action opened, the shell's on any screen, a screen's own
@@ -369,8 +370,10 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         continue;
       }
       if (after.holds && after.top === base.top) {
-        // Navigation inside an already-open picker didn't enter another input state.
-        if (opened) {
+        // Walk second keys after one representative move in an already-open picker: actions on the newly
+        // selected row can differ. Repeating that walk for every navigation key adds cost without coverage.
+        if (opened || (!selectionProbed && k.kind !== "mouse")) {
+          if (!opened) selectionProbed = true;
           if (log) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} holds, no action\n`);
           states.push(k);
         }
