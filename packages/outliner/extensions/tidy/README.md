@@ -33,6 +33,7 @@ note, the original revision, and the current note to this responder. It uses the
 command as an instructed tidy. The model returns `{ "patches": [{ "observed": "exact short current passage", "replacement": "intended change" }], "message": "one line" }`,
 or `{ "ambiguous": "both conflicting readings in one line" }`. Each observed passage must occur exactly
 once in the current note; missing or repeated passages leave the proposal open with the reason.
+Each pair must stay within a sentence containing one of the proposal's original observed spans, mapped onto the current note. Resolution also keeps the proposal's request-line boundary.
 The router applies the pairs through `draft.patch` with policy `prose`, preserving links, anchors and
 properties. It writes as `ext:tidy` and marks the proposal resolved with a link and `[from::]` the proposer. `extensions.undo` takes its receipt back in one
 step; the door records that receipt for Ctrl+Z in the reader. Receipts last for this host process.
@@ -40,7 +41,7 @@ step; the door records that receipt for Ctrl+Z in the reader. Receipts last for 
 Automatic resolution is off until the outline contains this rule note:
 
 ```text
-Resolve stale proposals [rule-name::resolve-stale-proposals] [rule-on::proposal/resolve] [rule-match::type=proposal stale=true]
+Resolve stale proposals [rule-name::resolve-stale-proposals] [rule-on::tidy/resolve] [rule-match::type=proposal stale=true]
 ```
 
 Proposal creation and target edits maintain the proposal's `stale` property. The rule engine supplies its

@@ -555,6 +555,7 @@ export class OutlinerServer {
     });
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
       undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),
+      resolveProposal: (id, by, rule) => this.draftPatches.resolveProposal(id, by, rule),
       script: (extension, request) => this.scriptRuns.start(extension, request),
       scriptRender: (source, input) => this.scriptRuns.render(source, input),
       // An action's update goes where an @agent's edit goes: draft.patch, the edit policy's guard.
@@ -601,7 +602,6 @@ export class OutlinerServer {
       });
     }, ended => this.broadcast({ id: crypto.randomUUID(), domain: "script", action: "scripts.ended", sequence: store.sequence, ended }));
     this.extensionRules = new ExtensionRules(store, this.extensionRegistry, extensionRuntime, {
-      resolveProposal: (id, by, rule) => this.draftPatches.resolveProposal(id, by, rule),
       // A trigger's action runs where any action runs: extensions.act, attributed to the extension, with who asked.
       act: (request) => this.extensionCalls.act(request),
       changed: (blockId) => this.broadcast({

@@ -1,3 +1,4 @@
+import { diffChars } from "diff";
 import { isSqliteBusy } from "./sqlite-busy";
 import { wholeTextSpan } from "./extension-writes";
 /**
@@ -23,6 +24,7 @@ import {
   locateSpans,
   locateSpanForced,
   markStart,
+  mapOffset,
   rebaseSpans,
   spanContext,
   type DraftPatchSpan,
@@ -125,6 +127,8 @@ export interface ProposalSettled {
 }
 
 interface RunOptions {
+  /** Ask the holding door for the inverse kept by an extension undo receipt. */
+  undo?: true;
   output?: boolean;
   replyTo?: string; replyGroup?: string;
   mutation: MutationProvenance;
@@ -155,7 +159,35 @@ const toldBy = (group: DraftGroup | undefined) => new Set((group?.writes ?? []).
 const madeBy = (group: DraftGroup | undefined) => (group?.writes ?? []).flatMap(write => write.op === "create" ? [write.text] : []);
 
 /** `refused`: the `edit` policy's guard said no; the patch is an error, never a proposal. */
-type Outcome = { ok: true; applied: DraftPatchApplied["edits"] } | { ok: false; reason: string; refused?: boolean };
+type Outcome = { ok: true; applied: DraftPatchApplied["edits"]; inverse: DraftPatchEdit[] } | { ok: false; reason: string; refused?: boolean };
+
+/** The proposal's observed passages, with their sentences, carried onto the current text. */
+function resolutionScope(original: string, current: string, patches: readonly DraftPatchSpan[]): LocatedSpan[] {
+  const observed = locateSpans(original, patches);
+  if (!observed.ok) return [];
+  const changes: LocatedSpan[] = [];
+  let offset = 0;
+  let pending: LocatedSpan | undefined;
+  for (const part of diffChars(original, current)) {
+    if (!part.added && !part.removed) {
+      if (pending) changes.push(pending);
+      pending = undefined;
+      offset += part.value.length;
+    } else {
+      pending ??= {start: offset, end: offset, replacement: ""};
+      if (part.removed) { offset += part.value.length; pending.end = offset; }
+      else pending.replacement += part.value;
+    }
+  }
+  if (pending) changes.push(pending);
+  const boundaries = [...original.matchAll(/[.!?](?=\s|$)|\n/g)].map(match => match.index! + 1);
+  return observed.spans.map(span => {
+    const start = boundaries.filter(at => at <= span.start).at(-1) ?? 0;
+    const end = boundaries.find(at => at >= span.end) ?? original.length;
+    // Text inserted at the sentence's end belongs to what follows it.
+    return {start: mapOffset(start, changes), end: mapOffset(end, changes.filter(change => change.start < end)), replacement: ""};
+  });
+}
 
 /** A write group's own writes failed inside the saved notes' transaction: the group is refused, not proposed. */
 class AlongsideFailure extends Error {
@@ -445,7 +477,6 @@ export class DraftPatchRouter {
       const edits: DraftPatchEdit[] = [];
       const from = proposal.actor.actorId ?? proposal.actor.author;
       const messages: string[] = [];
-      const inverse: DraftPatchEdit[] = [];
       const leaveOpen = (message: string) => {
         const current = store.requireActive(proposalId);
         store.update(proposalId, `${current.text}\n\nResolution: ${message.replace(/\s+/g, " ")}`, current.revision, actor);
@@ -460,14 +491,18 @@ export class DraftPatchRouter {
           if (!answer.patches.length) return leaveOpen(answer.message ?? "The agent could not determine the intended change.");
           messages.push(answer.message ?? "Resolved the intended change.");
           const patches = answer.patches;
+          const scope = resolutionScope(original.text, current.text, edit.patches);
+          const located = locateSpans(current.text, patches);
+          if (!located.ok) return leaveOpen(located.reason);
+          if (located.spans.some(span => !scope.some(allowed => span.start >= allowed.start && span.end <= allowed.end))) {
+            return leaveOpen("would change text the proposal didn't touch");
+          }
           edits.push({ blockId: edit.blockId, revision: current.revision, patches });
-          if (current.route === "draft") inverse.push({ blockId: edit.blockId, revision: current.revision,
-            patches: patches.map(patch => ({ observed: patch.replacement, replacement: patch.observed })) });
         }
         const status = withProposalStatus(block.text, "resolved").replace("\n", ` [from::${from}]${trigger ? ` [via-trigger::${trigger}]` : ""}\n`) + `\n\nResolved: ${messages.join(" ")}\n` + edits.map(edit => `((${edit.blockId}|Resolved edit))`).join("\n");
         const prepared = proposal.group ? this.deps.groups!(proposal.group, actor) : undefined;
         const outcome = await store.changes.run(store.changes.attribution({ action: "draft.proposal.resolve", actor, requestedBy }), () => this.run(edits, {
-          mutation: actor, policy: "prose",
+          mutation: actor, policy: "prose", undo: true, ...(proposal.mark ? {mark: {...proposal.mark, blockId: proposal.mark.blockId ?? edits[0]!.blockId}} : {}),
           alongside: () => {
             store.update(proposalId, status, block.revision, actor);
             prepared?.write();
@@ -477,7 +512,7 @@ export class DraftPatchRouter {
         if (!outcome.ok) return leaveOpen(outcome.reason);
         outcome.applied.push({ blockId: proposalId, route: "saved", revision: store.requireActive(proposalId).revision });
         this.settled(proposalId, "resolved", actor);
-        return { outcome: "resolved", proposalId, message: messages.join(" "), ...(prepared ? prepared.done(outcome.applied, inverse) : this.deps.keepResolution?.(outcome.applied, inverse)) };
+        return { outcome: "resolved", proposalId, message: messages.join(" "), ...(prepared ? prepared.done(outcome.applied, outcome.inverse) : this.deps.keepResolution?.(outcome.applied, outcome.inverse)) };
       } catch (error) {
         return leaveOpen(error instanceof Error ? error.message : String(error));
       }
@@ -739,7 +774,7 @@ export class DraftPatchRouter {
           kind: "patch", patchId, revision: options.force || options.current ? hold.revision : edit.revision, patches: edit.patches,
           mutation: options.mutation,
           ...(options.replyTo ? { replyTo: options.replyTo, replyGroup: options.replyGroup } : {}),
-          ...(scriptRun ? { undoPatches: this.scriptPatches.get(scriptRun)?.get(hold.blockId)?.ids ?? [] } : {}),
+          ...(scriptRun || options.undo ? { undoPatches: scriptRun ? this.scriptPatches.get(scriptRun)?.get(hold.blockId)?.ids ?? [] : [] } : {}),
           ...(options.mark && options.mark.blockId === edit.blockId ? { mark: options.mark.text } : {}),
           ...(options.output ? { output: true } : {}),
           ...(options.force ? { force: true } : {}),
@@ -785,7 +820,7 @@ export class DraftPatchRouter {
     applied.sort((left, right) => order.get(left.blockId)! - order.get(right.blockId)!);
     settle(true);
     if (scriptRun) for (const patch of patched) this.rememberScriptPatch(scriptRun, patch);
-    return { ok: true, applied };
+    return { ok: true, applied, inverse: patched.flatMap(patch => patch.inverse ? [patch.inverse] : []) };
   }
 
   /** The revision a saved note's part was read at when it is applied at a newer one (a rebase), else null. */

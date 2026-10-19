@@ -91,7 +91,7 @@ export interface ExtensionHandlerEntry {
 export interface ExtensionActionEntry extends ExtensionAction {
   /** `ext.<extension>.<action>`. */
   readonly name: string;
-  /** Provided by the service for every output and component handler, not by the extension's code. */
+  /** Provided by the service rather than the extension's code. */
   readonly builtIn?: true;
 }
 
@@ -221,16 +221,20 @@ interface Slot {
 const QUIET_MS = 300;
 const TRUST = "Extensions are trusted code, not a sandbox: they run as the service user.";
 
-/** Built-in actions every output and component handler has. */
+/** Service-owned actions, available through the same registry as declared actions. */
 function builtInActions(extension: LoadedExtension): ExtensionActionEntry[] {
-  return (extension.manifest.handlers ?? [])
+  const core: ExtensionActionEntry[] = extension.id === "tidy" ? [{
+    id: "resolve", name: "ext.tidy.resolve", label: "Resolve proposal", on: "block",
+    description: "Resolve a proposal against its current note", effects: "write", builtIn: true,
+  }] : [];
+  return [...core, ...(extension.manifest.handlers ?? [])
     .filter((handler) => handler.kind === "output" || handler.kind === "component")
     .map((handler) => ({
       id: "keep", name: `ext.${extension.id}.keep`, label: "Keep as blocks", on: `handler:${handler.key}`,
       description: "Writes this output under the block as real blocks, attributed to the extension", effects: "write" as const,
       builtIn: true as const,
     }))
-    .filter((action, index, all) => all.findIndex((other) => other.id === action.id) === index);
+    .filter((action, index, all) => all.findIndex((other) => other.id === action.id) === index)];
 }
 
 export interface ExtensionRegistryOptions {
@@ -433,7 +437,7 @@ export class ExtensionRegistry {
     return this.slots.flatMap((slot) => slot.serving && (slot.state === "active" || slot.state === "failed") ? [slot.serving] : []);
   }
 
-  /** An action an extension declares, or the built-in `keep` of its output and component handlers. */
+  /** An action the extension declares or the service provides for it. */
   action(extensionId: string, actionId: string): ExtensionActionEntry | undefined {
     const extension = this.extension(extensionId);
     if (!extension) return undefined;

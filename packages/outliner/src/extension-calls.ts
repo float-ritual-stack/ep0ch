@@ -1,3 +1,4 @@
+import { parseProposal } from "./draft-patch";
 import type { RunbookPlan, RunbookResult } from "@ep0ch/outline-core/runbook";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { ExtensionBarResult, ExtensionBarRow } from "@ep0ch/outline-core/protocol";
@@ -71,6 +72,7 @@ import { createHash } from "node:crypto";
  */
 
 export interface ExtensionCallsOptions {
+  readonly resolveProposal?: (id: string, by: MutationProvenance, trigger?: string) => Promise<{outcome: "resolved" | "open"; message: string; undo?: string; undoNote?: string}>;
   readonly undoDrafts?: import("./extension-writes").ExtensionWritesDeps["undoDrafts"];
   readonly script?: (extension: LoadedExtension, request: ExtensionActRequest) => ExtensionActResult;
   /**
@@ -1104,6 +1106,13 @@ export class ExtensionCalls {
     if (!block && (action.on ?? "block") !== "block" && action.on !== "bar" && action.on !== "outline" && !action.on!.startsWith("tile:")) throw new Error(`${action.name} acts on a block's line: pass blockId and line`);
     if (!block && (action.on ?? "block") === "block") throw new Error(`${action.name} acts on a block: pass blockId`);
     const call = block ? this.callFor(block, action, request.line) : undefined;
+    if (action.builtIn && action.id === "resolve") {
+      const proposal = parseProposal(block!.text);
+      const result = await this.options.resolveProposal!(block!.id, request.requestedBy ?? {author: "user"}, request.trigger?.rule);
+      return {extension: extension.id, action: action.id, message: result.message,
+        written: [block!.id, ...(result.outcome === "resolved" ? proposal!.edits.map(edit => edit.blockId) : [])],
+        ...(result.undo ? {undo: result.undo} : {}), ...(result.undoNote ? {undoNote: result.undoNote} : {})};
+    }
     if (action.builtIn) return this.keep(extension, action, block!, call!, request.requestedBy);
     const declared = extension.manifest.actions?.find((candidate) => candidate.id === action.id);
     const args = this.resolveArgs(action, request.args, block);
