@@ -116,6 +116,21 @@ describe.skipIf(!outliner)("the runbook showcase", () => {
     await app.dispatch.act({ action: "tile.close", tile: "Runbook" }, USER);
   }, 30000);
 
+  test("each step's run is its own: a step left running never blocks running the next one by hand (Evan, Oct 19)", async () => {
+    const { app, board, sc } = h;
+    const book = await board.createBlock(null, "Two steps by hand [type::runbook]");
+    const server = await board.createBlock(book.id, "Start the stub\nrun::\n```sh\nprintf 'stub up\\n'; sleep 60\n```");
+    const client = await board.createBlock(book.id, "Ask the stub\nrun::\n```sh\nprintf 'asked\\n'\n```");
+    await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: server.id } }, USER);
+    await until(() => (sc.tilesHere()!.pane("Runbook") as PtyPane | undefined)?.text().join("\n").includes("stub up") ?? false, "the first step is running");
+    await app.dispatch.act({ action: "ext.runbook.run-step", args: { block: client.id } }, USER);
+    let recorded = false;
+    await until(() => { void board.get(client.id).then(b => { recorded = !!b?.text.includes("[run.exit::0]"); }); return recorded; }, "the second step ran and recorded", 10000);
+    await expect(app.dispatch.act({ action: "ext.runbook.run-step", args: { block: server.id } }, USER)).rejects.toThrow("this step is already running");
+    await app.dispatch.act({ action: "runbook.stop" }, USER).catch(() => {});
+    await app.dispatch.act({ action: "runbook.stop" }, USER).catch(() => {});
+  }, 30000);
+
   test("a kept value remains literal shell data, confirmation is a form field, and successful close removes the tile", async () => {
     const { app, board, sc } = h;
     const book = await board.createBlock(null, "Remember a label [type::runbook]");
