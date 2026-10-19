@@ -9,7 +9,7 @@ import type { OutlinerStore } from "./store";
 import type { MutationProvenance } from "./types";
 
 export interface Deployment {
-  name: string; repo: string; where: "float-2" | "vercel"; url: string;
+  name: string; repo: string; where: "float-2" | "vercel" | "unknown"; url: string;
   commit: string; contentHash?: string; deployedAt: string; reason: string;
 }
 
@@ -43,8 +43,14 @@ async function artifactProgram(program: Program, args: string[], cwd?: string, s
   try { child = Bun.spawn(command, { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }, stdout: "pipe", stderr: "pipe" }); }
   catch { throw new Error(`Cannot start ${program}; install it on the outline host and run ep0ch artifact deploy again.`); }
   // External diagnostics can contain credentials. Keep them out of notes and socket replies.
-  const [out, , code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  if (code !== 0) throw new Error(`${program} ${args[0] ?? ""} exited ${code}; check its login on the outline host and run the artifact command again.`);
+  const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  if (code !== 0) {
+    if (program === "vercel" && /not logged in|\b401\b|unauthorized/i.test(err))
+      throw new Error("Vercel login failed; run vercel login on the outline host and run the artifact command again.");
+    if (program === "vercel" && args[0] === "inspect" && /can't find the deployment|deployment.*not found/i.test(err))
+      throw new Error("no Vercel deployment for that domain");
+    throw new Error(`${program} ${args[0] ?? ""} exited ${code}; check its login on the outline host and run the artifact command again.`);
+  }
   return out.trimEnd();
 }
 
@@ -151,6 +157,7 @@ function registerArtifact(store: OutlinerStore, row: Deployment, requestedBy?: M
     const old = store.children(catalogue.id).find(b => b.properties.some(p => p.key === "repo" && p.value === row.repo) && b.text.startsWith(`${row.name} `));
     if (!old) store.create(text, catalogue.id, "agent", actor);
     else if (old.text !== text) store.update(old.id, text, old.revision, actor);
+    if (row.url === "pending") return catalogue.id;
     for (const note of store.queryBlocks({ filters: [{ key: "artifact" }], limit: 1000 }).blocks) {
       const tokens = parsePropertyRecords(note.text);
       const source = tokens.find(p => p.key === "artifact" && p.scope === "block");
@@ -172,22 +179,33 @@ export async function backfillArtifacts(artifacts: ArtifactStore, store: Outline
   const domains = ["kalku-run", "plastik-kraft", "plastik-loop", "ansi-culture", "kalku-path", "goose"];
   const imported: Deployment[] = [];
   const pending: string[] = [];
+  const markPending = (name: string, repo: { name: string } | undefined, reason: string) => {
+    const row: Deployment = { name, repo: repo ? `ep0ch-artifacts/${repo.name}` : "unknown", where: "unknown", url: "pending", commit: "unknown", deployedAt: "unknown", reason };
+    rememberDeployment(artifacts, row); registerArtifact(store, row);
+    pending.push(`${name}: ${reason}`);
+  };
   for (const name of [...new Set([...domains, ...repos.map(r => r.name)])]) {
     const repo = repos.find(r => r.name === name);
     if (repo && imported.some(row => row.repo === `ep0ch-artifacts/${repo.name}`)) continue;
-    let url = domains.includes(name) ? `https://${name}.ep0ch.sh` : repo?.homepageUrl;
-    if (!url) {
-      const list = await vercelDeployments();
-      const live = list.find(d => d.name === name && d.state === "READY");
-      if (live) url = `https://${live.url}`;
+    try {
+      let url = domains.includes(name) ? `https://${name}.ep0ch.sh` : repo?.homepageUrl;
+      if (!url) {
+        const list = await vercelDeployments();
+        const live = list.find(d => d.name === name && d.state === "READY");
+        if (live) url = `https://${live.url}`;
+      }
+      if (!url) { markPending(name, repo, "no current deployed URL; not deployed by backfill"); continue; }
+      const inspected = JSON.parse(await artifactProgram("vercel", ["inspect", url, "--json", "--scope", "e-schultz"])) as { id: string };
+      const info = JSON.parse(await artifactProgram("vercel", ["api", `/v13/deployments/${encodeURIComponent(inspected.id)}`, "--scope", "e-schultz"])) as { meta?: { githubCommitOrg?: string; githubCommitRepo?: string; githubCommitSha?: string; ep0chCommit?: string }; createdAt: number };
+      const row: Deployment = { name, url, repo: info.meta?.githubCommitOrg && info.meta.githubCommitRepo ? `${info.meta.githubCommitOrg}/${info.meta.githubCommitRepo}` : repo ? `ep0ch-artifacts/${repo.name}` : "unknown", where: "vercel", commit: info.meta?.ep0chCommit ?? info.meta?.githubCommitSha ?? "unknown", deployedAt: new Date(info.createdAt).toISOString(), reason: "Imported the existing deployment; no redeploy." };
+      rememberDeployment(artifacts, row); registerArtifact(store, row); imported.push(row);
+    } catch (error) {
+      markPending(name, repo, (error as Error).message);
     }
-    if (!url) { pending.push(`${name}: no current deployed URL; not deployed by backfill`); continue; }
-    const inspected = JSON.parse(await artifactProgram("vercel", ["inspect", url, "--json", "--scope", "e-schultz"])) as { id: string };
-    const info = JSON.parse(await artifactProgram("vercel", ["api", `/v13/deployments/${encodeURIComponent(inspected.id)}`, "--scope", "e-schultz"])) as { meta?: { githubCommitOrg?: string; githubCommitRepo?: string; githubCommitSha?: string; ep0chCommit?: string }; createdAt: number };
-    const row: Deployment = { name, url, repo: info.meta?.githubCommitOrg && info.meta.githubCommitRepo ? `${info.meta.githubCommitOrg}/${info.meta.githubCommitRepo}` : repo ? `ep0ch-artifacts/${repo.name}` : "unknown", where: "vercel", commit: info.meta?.ep0chCommit ?? info.meta?.githubCommitSha ?? "unknown", deployedAt: new Date(info.createdAt).toISOString(), reason: "Imported the existing deployment; no redeploy." };
-    rememberDeployment(artifacts, row); registerArtifact(store, row); imported.push(row);
   }
-  return { imported, pending };
+  const domainPending = pending.filter(item => domains.some(name => item.startsWith(`${name}: `)));
+  const summary = `${domains.length} domains: ${domains.length - domainPending.length} registered, ${domainPending.length} pending${domainPending.length ? ` (${domainPending.join(", ")})` : ""}`;
+  return { imported, pending, summary };
 }
 
 export function seedArtifactRule(store: OutlinerStore) {

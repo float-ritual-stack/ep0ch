@@ -36,7 +36,7 @@ esac`);
 list) if [ -e "$ARTIFACT_FIXTURE/deployed-commit" ] && [ "$(cat "$ARTIFACT_FIXTURE/deployed-commit")" = "$(cat "$ARTIFACT_FIXTURE/commit")" ]; then printf '{"deployments":[{"name":"moth-garden","state":"READY","url":"moth-garden.example.test"}]}'; else printf '{"deployments":[]}'; fi;;
 link|domains) :;;
 deploy) test ! -e "$ARTIFACT_FIXTURE/fail-vercel"; cp "$ARTIFACT_FIXTURE/commit" "$ARTIFACT_FIXTURE/deployed-commit"; printf 'deployed\\n' >> "$ARTIFACT_FIXTURE/deploys"; printf 'https://moth-garden.example.test';;
-inspect) host=\${2#https://}; name=\${host%%.*}; printf '{"id":"%s","createdAt":1700000000000}' "$name";;
+inspect) host=\${2#https://}; name=\${host%%.*}; if [ "$name" = kalku-run ] && [ -e "$ARTIFACT_FIXTURE/missing-deployment" ]; then printf "Error: Can't find the deployment %s under the context evan-schultzs-projects\\n" "$host" >&2; exit 1; fi; if [ "$name" = plastik-kraft ] && [ -e "$ARTIFACT_FIXTURE/login-failure" ]; then printf 'Error: You are not logged in (401)\\n' >&2; exit 1; fi; printf '{"id":"%s","createdAt":1700000000000}' "$name";;
 api) name=\${2##*/}; printf '{"createdAt":1700000000000,"meta":{"githubCommitOrg":"ep0ch-artifacts","githubCommitRepo":"%s","githubCommitSha":"abc123"}}' "$name";;
 *) exit 8;;
 esac`);
@@ -139,4 +139,33 @@ test("backfill imports existing URLs without deploying", async () => {
   expect(JSON.parse(result.out).imported.some((r: { url: string }) => r.url === "https://goose.ep0ch.sh")).toBe(true);
   expect(store.children(store.resolveBlockRef("[[artifacts]]").id).some(b => b.text.includes("https://moth-garden.example.test"))).toBe(true);
   expect(existsSync(join(root, "deploys"))).toBe(false); expect(existsSync(join(root, "dns"))).toBe(false);
+});
+
+test("backfill registers a missing domain as pending and continues with the other domains", async () => {
+  const { root, store, cli } = await fixture();
+  writeFileSync(join(root, "missing-deployment"), "");
+  const result = await cli("backfill");
+  expect(result.code).toBe(0);
+  const report = JSON.parse(result.out);
+  expect(report.summary).toBe("6 domains: 5 registered, 1 pending (kalku-run: no Vercel deployment for that domain)");
+  expect(report.imported.filter((row: { name: string }) => ["kalku-run", "plastik-kraft", "plastik-loop", "ansi-culture", "kalku-path", "goose"].includes(row.name))).toHaveLength(5);
+  const rows = store.children(store.resolveBlockRef("[[artifacts]]").id);
+  expect(rows.find(row => row.text.startsWith("kalku-run "))?.text).toContain("[where::unknown]");
+  expect(rows.find(row => row.text.startsWith("kalku-run "))?.text).toContain("[url::pending]");
+  expect(rows.find(row => row.text.startsWith("kalku-run "))?.text).toContain("no Vercel deployment for that domain");
+  expect(rows.some(row => row.text.startsWith("goose ") && row.text.includes("[where::vercel]"))).toBe(true);
+  const listed = await cli("ls");
+  expect(listed.code).toBe(0);
+  expect(JSON.parse(listed.out).artifacts).toContainEqual(expect.objectContaining({ name: "kalku-run", where: "unknown", url: "pending" }));
+});
+
+test("backfill calls out a real Vercel login failure separately", async () => {
+  const { root, store, cli } = await fixture();
+  writeFileSync(join(root, "login-failure"), "");
+  const result = await cli("backfill");
+  expect(result.code).toBe(0);
+  const report = JSON.parse(result.out);
+  expect(report.pending).toContain("plastik-kraft: Vercel login failed; run vercel login on the outline host and run the artifact command again.");
+  expect(store.children(store.resolveBlockRef("[[artifacts]]").id).find(row => row.text.startsWith("plastik-kraft "))?.text).toContain("[where::unknown] [deployed-at::unknown]");
+  expect(report.imported.some((row: { name: string }) => row.name === "goose")).toBe(true);
 });
