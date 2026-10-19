@@ -7,6 +7,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { join } from "node:path";
 import type { Msg } from "../src/board";
 import { renderDoc, type DocEnv } from "../src/doc";
+import { Mirror } from "../src/mirror";
+import { groundSeq, setTheme, THEMES, luminance } from "../src/theme";
+import { rowBytes } from "../src/term";
 import { emphasis } from "../src/inline";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../src/open";
 import { presentLinks } from "../src/refs";
@@ -77,6 +80,55 @@ describe("inline Markdown, by Detail's rules", () => {
     expect(lines[0]).toContain(`${BOLD}firm`);
     expect(lines[0]).toContain(`${ITALIC}soft`);
     expect(lines[0]).toContain(`${STRIKE}dropped`);
+  });
+
+  test("bold has one brighter tone across rows and restores surrounding colours", () => {
+    for (const name of ["calm", "night", "classic"] as const) {
+      setTheme(name);
+      try {
+        const source = [
+          "**Standalone**", "", "Before **Inline** after.", "",
+          "[Link **Strong** tail](https://example.org)", "",
+          "**Around [Link](https://example.org) tail** after.", "",
+          "## Heading **Strong** tail", "",
+          "> [!note] Callout", "> Before **Strong** tail.", "",
+          "- Before **Strong** tail.", "",
+          "**Wrapped words carried across several rows** after.", "",
+          "**Start `code` resume** after.", "",
+          "**Start [plot::north] resume** after.",
+        ].join("\n");
+        const lines = renderDoc(presentLinks(source, false, null), { ...ENV, width: 36 }).lines;
+        const mirror = new Mirror(80, lines.length);
+        mirror.write(groundSeq());
+        lines.forEach((line, y) => mirror.write(rowBytes(y, line, 80)));
+        const cell = (row: string, word: string) => {
+          const y = lines.findIndex(l => plain(l).includes(row));
+          expect(y).toBeGreaterThanOrEqual(0);
+          return mirror.cells[y]![plain(lines[y]!).indexOf(word)]!.fg;
+        };
+        const strong = cell("Standalone", "Standalone"), body = THEMES[name].palette[7]!;
+        expect(luminance(strong as [number, number, number])).toBeGreaterThan(luminance(body));
+        expect(cell("Before Inline", "Inline")).toEqual(strong);
+        expect(cell("Before Inline", "after")).toEqual([...body]);
+        expect(cell("Link Strong tail", "Strong")).toEqual([...THEMES[name].external]);
+        expect(cell("Link Strong tail", "tail")).toEqual([...THEMES[name].external]);
+        expect(cell("Around Link", "Link")).toEqual([...THEMES[name].external]);
+        expect(cell("Around Link", "tail")).toEqual(strong);
+        expect(cell("Heading Strong", "Strong")).toEqual(cell("Heading Strong", "Heading"));
+        expect(cell("Heading Strong", "tail")).toEqual(cell("Heading Strong", "Heading"));
+        const bodies = lines.map(plain).map((l, y) => ({ l, y })).filter(({ l }) => l.includes("Before Strong"));
+        expect(bodies.length).toBe(2);
+        for (const { l, y } of bodies) {
+          expect(mirror.cells[y]![l.indexOf("Strong")]!.fg).toEqual(strong);
+          expect(mirror.cells[y]![l.indexOf("tail")]!.fg).toEqual(mirror.cells[y]![l.indexOf("Before")]!.fg);
+        }
+        expect(cell("Start code resume", "resume")).toEqual(strong);
+        expect(cell("Start [plot::north] resume", "resume")).toEqual(strong);
+        expect(cell("Wrapped words", "Wrapped")).toEqual(strong);
+        expect(cell("rows after.", "rows")).toEqual(strong);
+        expect(cell("rows after.", "after")).toEqual([...body]);
+      } finally { setTheme("calm"); }
+    }
   });
 
   test("a bold span that wraps is bold on every row it's on, and the rows keep their width", () => {

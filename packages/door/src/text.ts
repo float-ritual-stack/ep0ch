@@ -183,8 +183,8 @@ function colourPageLinks(line: string, base: number): string {
 /** Colour one body line the way a BBS message reader would: quotes, headings, links, properties. */
 /** `literal`: the line is in a literal region (PIE-422), where `[key::value]` is text, not a property. */
 export function colourBody(line: string, literal = false): string {
-  if (/^#{1,6} /.test(line)) return fg(C.white) + styleMarks(line) + RESET;
-  if (/^> ?/.test(line)) return fg(C.lgreen) + styleMarks(line) + RESET;
+  if (/^#{1,6} /.test(line)) return styleMarks(fg(C.white) + line, { bold: false }) + RESET;
+  if (/^> ?/.test(line)) return styleMarks(fg(C.lgreen) + line) + RESET;
   if (/^\s*[-*] /.test(line)) line = line.replace(/^(\s*)([-*]) /, `$1${fg(C.lcyan)}∙${fg(C.grey)} `);
   return colourInline(line, C.grey, literal);
 }
@@ -198,13 +198,12 @@ export function colourInline(line: string, base: number = C.grey, literal = fals
   // Property tokens first, on the plain line: their values hold links and brackets the escapes below would confuse.
   if (!literal) line = replacePropertyTokens(line, t => `${fg(C.dark)}[${fg(C.brown)}${t.key}${fg(C.dark)}::${fg(C.yellow)}${t.value}${fg(C.dark)}]${fg(base)}`);
   const back = fg(C.grey) + (base === C.grey ? "" : fg(base));
-  return fg(base) + colourPageLinks(line, base)
+  return styleMarks(fg(base) + colourPageLinks(line, base)
     .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(base)}`)
-    .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${back}`)
+    .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${back}`))
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
     .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE009/g, fgRgb(theme().external)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(base))
-    // Inline Markdown (src/inline.ts): bold, italic, strikethrough, as Detail draws them.
-    .replace(/[\uE003-\uE008]+/g, m => styleMarks(m)) + RESET;
+    + RESET;
 }
 
 export const rule = (w: number, label = "") => {

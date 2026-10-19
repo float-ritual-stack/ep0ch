@@ -26,9 +26,10 @@ export interface Theme {
   /**
    * The terminal's own default background and text (OSC 11 / OSC 10) while the door runs: the ground every
    * cell without a colour of its own is drawn on. null: the terminal's own (classic).
+   * Strong text is one step brighter than body text, within the same theme brightness cap.
    */
   ground: Rgb | null;
-  text: Rgb | null;
+  text: { body: Rgb | null; strong: Rgb };
   /** Backgrounds drawn under text that aren't palette entries. */
   tint: {
     /** An agent's selection: tinted in the agents' colour. */
@@ -93,7 +94,7 @@ const CLASSIC: Theme = {
   about: "the exact VGA palette: bright cyan, magenta and phosphor green on blue bars",
   palette: VGA_RGB,
   ground: null,
-  text: null,
+  text: { body: null, strong: VGA_RGB[15]! },
   tint: {
     agent: [78, 40, 88], thread: [40, 52, 30], embed: [18, 24, 44],
     idle: [22, 30, 58], idleRow: VGA_RGB[8]!,
@@ -132,7 +133,7 @@ const CALM: Theme = {
     [228, 226, 220],  // 15 white: off-white, never #fff
   ],
   ground: [13, 16, 22],
-  text: [200, 202, 206],
+  text: { body: [200, 202, 206], strong: [228, 226, 220] },
   tint: {
     agent: [66, 40, 78], thread: [36, 50, 34], embed: [20, 26, 38],
     idle: [30, 38, 54], idleRow: [30, 38, 54],
@@ -170,7 +171,7 @@ const NIGHT: Theme = {
     [186, 184, 178],  // 15 white
   ],
   ground: [10, 11, 14],
-  text: [166, 166, 170],
+  text: { body: [166, 166, 170], strong: [186, 184, 178] },
   tint: {
     agent: [50, 30, 58], thread: [28, 40, 28], embed: [16, 20, 28],
     idle: [24, 28, 38], idleRow: [24, 28, 38],
@@ -231,8 +232,8 @@ const xcolor = ([r, g, b]: Rgb) => `rgb:${hex2(r)}/${hex2(g)}/${hex2(b)}`;
  * again (OSC 110, 111). A terminal that doesn't know them ignores them.
  */
 export function groundSeq(t: Theme = active): string {
-  if (!t.ground || !t.text) return "\x1b]110\x1b\\\x1b]111\x1b\\";   // term.ts GROUND_RESET
-  return `\x1b]10;${xcolor(t.text)}\x1b\\\x1b]11;${xcolor(t.ground)}\x1b\\`;
+  if (!t.ground || !t.text.body) return "\x1b]110\x1b\\\x1b]111\x1b\\";   // term.ts GROUND_RESET
+  return `\x1b]10;${xcolor(t.text.body)}\x1b\\\x1b]11;${xcolor(t.ground)}\x1b\\`;
 }
 
 // ── WCAG 2 contrast ──
