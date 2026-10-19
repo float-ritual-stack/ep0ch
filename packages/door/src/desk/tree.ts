@@ -1,4 +1,4 @@
-import { rowLines } from "../text";
+import { currentRowLimit, rowLines } from "../text";
 // The outline tree (a desk tile, the board's outline dock), with the authored links the outliner's Tree
 // shows under a block (PIE-259, PIE-324, PIE-329): `L` (`tree.links`) opens, under the selected row, its
 // Outlinks and Resources (the service's `blocks.authored-links`) and its Backlinks (`references.backlinks`,
@@ -107,6 +107,8 @@ export class TreePane implements Pane {
   private drawnW = 0;
   private drawnH = 0;
   private drawnItems: number[] = [];
+  // rebuild publishes new rows when content, revisions or disclosure change; a cursor move keeps that snapshot.
+  private rowLayout: { rows: TreeRow[]; width: number; limit: number; starts: number[] } | null = null;
   private timer: Timer | null = null;
   private reload: Timer | null = null;
   title() { return "outline"; }
@@ -591,8 +593,7 @@ export class TreePane implements Pane {
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.drawnW = w; this.drawnH = h;
     if (!this.roots) return { lines: [dim("dialing the outline…")] };
-    const drawn = this.rows.map((r, i) => {
-      const on = i === this.sel;
+    const draw = (r: TreeRow, on: boolean) => {
       const indent = "  ".repeat(r.depth);
       if (r.kind === "branch-note") {
         const text = `${indent}${r.role === "results" ? "◇ " : r.role === "more" ? "▸ " : "  "}${r.text}`;
@@ -615,13 +616,34 @@ export class TreePane implements Pane {
         });
       }
       return linkRowLines(r, { cols: w, selected: on, focused, nest: this.panels.has(r.key) });
-    });
-    const flat = drawn.flatMap((lines, i) => lines.map(text => ({ text, i })));
-    const first = drawn.slice(0, this.sel).reduce((n, rows) => n + rows.length, 0);
-    this.view.place(this.sel, flat.length, h, [first, first + (drawn[this.sel]?.length ?? 1) - 1]);
-    const shown = flat.slice(this.view.top, this.view.top + h);
-    this.drawnItems = shown.map(r => r.i);
-    const lines = shown.map(r => r.text);
+    };
+    const limit = currentRowLimit();
+    if (this.rowLayout?.rows !== this.rows || this.rowLayout.width !== w || this.rowLayout.limit !== limit) {
+      const starts = [0];
+      for (const r of this.rows) starts.push(starts.at(-1)! + draw(r, false).length);
+      this.rowLayout = { rows: this.rows, width: w, limit, starts };
+    }
+    const starts = this.rowLayout.starts, selected = this.rows[this.sel];
+    const picked = selected ? draw(selected, true) : [];
+    const first = starts[this.sel] ?? 0;
+    // A selected root reserves a cell for its cursor; its extra wrap shifts only the rows after it.
+    const extra = selected ? picked.length - (starts[this.sel + 1]! - first) : 0;
+    const start = (i: number) => starts[i]! + (i > this.sel ? extra : 0);
+    this.view.place(this.sel, starts.at(-1)! + extra, h, [first, first + picked.length - 1]);
+    let lo = 0, hi = this.rows.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (start(mid + 1) <= this.view.top) lo = mid + 1; else hi = mid;
+    }
+    const lines: string[] = [];
+    this.drawnItems = [];
+    for (let i = lo; i < this.rows.length && lines.length < h; i++) {
+      const drawn = i === this.sel ? picked : draw(this.rows[i]!, false);
+      for (let j = Math.max(0, this.view.top - start(i)); j < drawn.length && lines.length < h; j++) {
+        lines.push(drawn[j]!);
+        this.drawnItems.push(i);
+      }
+    }
     // A note being dragged (PIE-943): the row it would land on says how, and which note it is.
     const d = this.drag;
     const at = d?.over != null ? this.drawnItems.indexOf(d.over) : -1;
