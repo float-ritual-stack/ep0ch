@@ -146,6 +146,9 @@ export interface PtySpec {
   cmd: string[]; cwd?: string; file?: string; label?: string; temp?: boolean; agent?: boolean;
   /** Variables the program gets on top of a terminal tile's own (an extension's tile: its outline and socket, PIE-512). */
   env?: Record<string, string>;
+  output?: (data: Uint8Array) => void;
+  /** A command owned by a form must return there before another run. */
+  rerun?: () => void;
   /**
    * The door's own settings for a program it starts itself (`Ctx.inTile`: ctrl+t's picker on the draft's outline), last
    * and EP0CH_* included, unlike `env`'s; null unsets one. Never from a service or a saved layout.
@@ -265,7 +268,7 @@ export class PtyPane implements Pane {
     return this.exited !== null ? `${what} · exited ${this.exited}` : this.back ? `${what} · ${this.back} lines back` : what;
   }
   hint(): string {
-    if (this.exited !== null) return "⏎ runs it again";
+    if (this.exited !== null) return this.run.rerun ? "run it again from the note" : "⏎ runs it again";
     return `click or ⏎ types here · ${this.wantsMouse() ? "shift+drag (alt+drag) selects and copies" : "drag selects and copies"} · ${ESCAPE_CHORD} back to the door`;
   }
 
@@ -355,6 +358,7 @@ export class PtyPane implements Pane {
     // kept program wrote before was copied then.
     const clip = new Osc52Reader();
     const data = (d: Uint8Array) => {
+      this.run.output?.(d);
       this.lastOutput = Date.now();
       const text = Buffer.from(d).toString("latin1");
       modes(text, true);
@@ -435,8 +439,9 @@ export class PtyPane implements Pane {
       // An agent starts inside the person's login shell: when it exits (or crashes) the tile is that shell, in the same
       // folder with the same environment, and says so. Nothing starts it again by itself (no dead panes).
       const argv = this.wrapped ? inLoginShell(cmd, process.env.SHELL || "sh", programName(this.run.cmd)) : cmd;
-      this.proc = backend.spawn({ key, argv: CTTY ? [...CTTY, ...argv] : argv, cwd: this.run.cwd, env, cols, rows, meta: this.meta() }, data);
-      if (!CTTY && !saidNoCtty) { saidNoCtty = true; this.desk?.ctx.flash("no setsid or perl here: terminal tiles won't hear resizes, and ctrl+z doesn't stop a job", 8000); }
+      this.proc = backend.spawn({ key, argv: backend.kind === "host" && CTTY ? [...CTTY, ...argv] : argv, cwd: this.run.cwd, env, cols, rows, meta: this.meta() }, data);
+      if (this.run.temp) { this.run.env = undefined; this.run.own = undefined; }
+      if (backend.kind === "host" && !CTTY && !saidNoCtty) { saidNoCtty = true; this.desk?.ctx.flash("no setsid or perl here: terminal tiles won't hear resizes, and ctrl+z doesn't stop a job", 8000); }
       if (this.socket) this.attach(this.socket);
     } catch (e) {
       if (this.socket) { void unlink(this.socket).catch(() => {}); this.socket = null; }
@@ -527,7 +532,13 @@ export class PtyPane implements Pane {
    * Run it again after it exited (⏎ on the tile, or `tile.restart`). `keep`: the conversation is kept: a bare
    * `claude` gets --continue, and the Herdr launcher is told to do the same in its pane (`agent.restart`).
    */
-  restart(keep = false) { this.kill(); this.proc = null; this.continueNext = keep; this.start(this.cols || 80, this.rows || 24); this.desk?.redraw(); }
+  restart(keep = false) { if (this.run.rerun) return this.run.rerun(); this.startAgain(keep); }
+
+  replaceProgram(cmd: string[], env: Record<string, string>, output: (data: Uint8Array) => void) {
+    this.run.cmd = cmd; this.run.own = env; this.run.output = output; this.startAgain(false);
+  }
+
+  private startAgain(keep: boolean) { this.kill(); this.proc = null; this.continueNext = keep; this.start(this.cols || 80, this.rows || 24); this.desk?.redraw(); }
 
   /**
    * Ask the program to exit (SIGTERM) and wait for it; SIGKILL after `graceMs`. Only this tile's own program:
@@ -587,7 +598,7 @@ export class PtyPane implements Pane {
       }) : "");
     }
     if (this.sel) for (let y = 0; y < h; y++) { const span = this.sel.span(top + y, w); if (span && lines[y]) lines[y] = paintRange(lines[y]!, span[0], span[1], SELECT_BG); }
-    if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ⏎ runs it again${this.closesBy} · ctrl+] back to the door\x1b[0m`;
+    if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ${this.run.rerun ? "run it again from the note" : "⏎ runs it again"}${this.closesBy} · ctrl+] back to the door\x1b[0m`;
     return { lines, scroll: b.baseY > 0 ? { top, room: h, total: b.baseY + h } : undefined };
   }
 

@@ -97,6 +97,16 @@ if (argv[0] === "--serve") {
     ...(process.env.FAKE_SSH_OWNER_FILE ? { FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE } : {}),
     ...(process.env.FAKE_SSH_STATE ? { EP0CH_STATE: process.env.FAKE_SSH_STATE } : {}),
   };
+  if (argv.includes("-tt")) {
+    let drained!: () => void;
+    const eof = new Promise<void>(resolve => { drained = resolve; });
+    const child = Bun.spawn(["sh", "-c", command], { env, terminal: { cols: 100, rows: 30, data: (_term, data) => process.stdout.write(data), exit: () => drained() } });
+    const terminal = child.terminal!;
+    process.stdin.on("data", data => terminal.write(data));
+    const [code] = await Promise.all([child.exited, eof]);
+    terminal.close();
+    process.exit(code);
+  }
   const p = Bun.spawn(["sh", "-c", command], { env, stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await p.exited);
 }

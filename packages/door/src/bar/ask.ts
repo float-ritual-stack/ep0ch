@@ -22,6 +22,7 @@ import { registerBarSource, unregisterBarSource, type BarHost, type BarPreview, 
 /** One question: an extension's argument with its choices, or the door's own. */
 export interface BarQuestion {
   name: string;
+  masked?: boolean;
   /** `note`: one of `choices`, or a note found by its words (answered with its id). */
   type: "text" | "choice" | "property" | "number" | "note";
   label?: string;
@@ -64,6 +65,7 @@ export interface AskForm {
   examples?: readonly ActionExample[];
   page?: string;
   check?(answers: Record<string, string>): string | null;
+  cancel?(): void;
 }
 
 /** One answer a question's `suggest` offers: the whole value, and how it's shown. */
@@ -77,6 +79,8 @@ const ASK_SCOPE = "ask";
 let waiting: { title: string; questions: BarQuestion[]; answers: Record<string, string>; run: (answers: Record<string, string>) => Promise<unknown>; form?: AskForm; focus: number } | null = null;
 
 /** The question asked now, or null (a form's act line). */
+export const maskedQuestion = () => !!question()?.masked;
+export function clearPrivateForm() { if (waiting && (waiting.questions.some(q => q.masked) || waiting.form?.cancel)) { const cancel = waiting.form?.cancel; waiting = null; unregisterBarSource(ASK_SCOPE); cancel?.(); } }
 const question = () => (waiting?.form ? waiting.questions[waiting.focus] ?? null : waiting?.questions.find(q => waiting!.answers[q.name] === undefined) ?? null);
 
 /** The bar's host as asking needs it: the person's dispatcher, to open the bar. */
@@ -104,7 +108,7 @@ export const formOpen = (): boolean => !!waiting?.form;
 /** The act line a form's answers make (`shownLine`): the action, its tile=, then each answer in the fields' order. */
 function lineOf(w: NonNullable<typeof waiting>): string {
   const f = w.form!, sel = f.selector;
-  const args = Object.fromEntries(w.questions.filter(q => q.name !== sel && w.answers[q.name] !== undefined).map(q => [q.name, w.answers[q.name]]));
+  const args = Object.fromEntries(w.questions.filter(q => q.name !== sel && w.answers[q.name] !== undefined).map(q => [q.name, q.masked ? "[hidden]" : w.answers[q.name]]));
   return shownLine(f.action, args, sel ? w.answers[sel] : undefined);
 }
 
@@ -114,7 +118,7 @@ export function formState(): Record<string, unknown> | null {
   if (!w?.form) return null;
   return {
     action: w.form.action, line: lineOf(w), focus: w.questions[w.focus]?.name ?? "run", ...(w.form.check?.(w.answers) ? { refused: w.form.check(w.answers) } : {}),
-    fields: w.questions.map(q => ({ name: q.name, ...(w.answers[q.name] !== undefined ? { value: w.answers[q.name] } : {}), ...(q.required ? { required: true } : {}), ...(q.kind ? { kind: q.kind } : {}), ...(q.default !== undefined ? { default: q.default } : {}) })),
+    fields: w.questions.map(q => ({ name: q.name, ...(w.answers[q.name] !== undefined ? { value: q.masked ? "[hidden]" : w.answers[q.name] } : {}), ...(q.required ? { required: true } : {}), ...(q.kind ? { kind: q.kind } : {}), ...(q.default !== undefined ? { default: q.default } : {}) })),
   };
 }
 
@@ -151,6 +155,7 @@ export async function formRun(): Promise<unknown> {
   const why = w.form.check?.(w.answers);
   if (why) throw new ActionRefused(why);
   // The form is put away once its action ran; one the action refuses stays, its answers kept (`?` brings it back).
+  if (w.questions.some(q => q.masked)) { waiting = null; unregisterBarSource(ASK_SCOPE); }
   const out = await w.run(w.answers);
   if (waiting === w) { waiting = null; unregisterBarSource(ASK_SCOPE); }
   return out;
@@ -185,7 +190,7 @@ function formHead(w: NonNullable<typeof waiting>, width_: number): string[] {
   const valueW = Math.max(10, Math.min(28, Math.floor(width_ * 0.3)));
   for (let i = from; i < to; i++) {
     const q = qs[i]!, on = i === w.focus, v = w.answers[q.name];
-    const shown = v !== undefined ? fg(C.white) + pad(headOf(v || '""', valueW), valueW)
+    const shown = v !== undefined ? fg(C.white) + pad(headOf(q.masked ? "********" : v || '""', valueW), valueW)
       : q.required ? fg(C.lred) + pad("needed", valueW) : fg(C.dark) + pad(headOf(q.default !== undefined ? `(${q.default})` : "-", valueW), valueW);
     const name = (on ? fg(C.lcyan) + "▸ " : "  ") + (q.required ? fg(C.yellow) : fg(C.grey)) + pad(q.name, nameW) + RESET;
     lines.push(` ${name} ${shown}${RESET} ${fg(C.dark)}${headOf(q.description ?? "", Math.max(0, width_ - nameW - valueW - 6))}${RESET}`);
@@ -214,6 +219,7 @@ async function kindRows(q: BarQuestion, typed: string, host: BarHost, head: stri
 
 /** A field's rows in a form: its choices, then its kind's values; what's typed as typed when it takes a free value. */
 async function fieldRows(q: BarQuestion, typed: string, host: BarHost, head: string): Promise<BarRow[]> {
+  if (q.masked) return typed ? [{ key: "private-answer", label: "********", group: head, data: typed }] : [{ key: "type", label: `type the ${q.label ?? q.name}`, group: head }];
   const words = typed.trim().toLowerCase();
   const choices = (q.choices ?? []).filter(c => !words || c.toLowerCase().includes(words) || q.says?.[c]?.toLowerCase().includes(words))
     .map((c): BarRow => ({ key: `answer:${c}`, label: q.says?.[c] ?? c, ...(c === q.default ? { detail: "the default" } : {}), group: head, data: c }));
@@ -337,6 +343,7 @@ async function formPick(row: BarRow, host: BarHost, how: { alt: boolean; actor: 
   const q = question();
   if (!q) throw new ActionRefused("pick run, or a field first");
   if (row.key === "type") throw new ActionRefused(`type the ${q.label ?? q.name} first, then ⏎`);
+  if (q.kind === "file" && String(row.data).endsWith("/")) return host.dispatch.press("bar.open", { scope: ASK_SCOPE, query: String(row.data) });
   formSet(q.name, row.key === "leave" ? undefined : String(row.data), true);
   if (how.alt) { await refused(); return formRun(); }
   return again({ answered: q.name, line: lineOf(w) });

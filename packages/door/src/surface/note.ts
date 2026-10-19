@@ -43,7 +43,7 @@ import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-cor
 import { drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
 import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, resourceChanged, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
-import { planDecorations } from "../decorations";
+import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source, prop } from "../props";
@@ -364,6 +364,7 @@ interface HeaderBlock {
   /** The byline's comment count (PIE-873): a click cycles the margin, as M does. */
   marginChip?: { row: number; from: number; to: number };
   /** Marks only (PIE-873): the whole-note threads' one mark after the title, and the thread a click opens. */
+  titleControls?: { row: number; from: number; to: number; link: Link }[];
   wholeMarks?: { row: number; from: number; to: number; thread: string }[];
 }
 
@@ -1404,6 +1405,24 @@ export class NoteSurface {
         titled[titled.length - 1] = pad(styled + fg(C.yellow) + " [+]".repeat(wholeMarks.length) + RESET, w);
       }
     }
+    const titleControls: NonNullable<HeaderBlock["titleControls"]> = [];
+    if (!this.printed && !this.raw && isOutlineNote(m)) {
+      for (const decoration of decorationsOf(m, src).filter(d => d.place === "title")) {
+        const tags: Link[] = [];
+        const drawn = decorationRows(decoration, w, {
+          markdown: (text, width) => wrap(text, width),
+          press: (act, text) => tagged(tags, { role: "control", label: text, press: { act, block: m.id, line: 0 } }, text),
+        });
+        const control = extractLinks(drawn);
+        for (let i = 0; i < control.lines.length; i++) {
+          const text = control.lines[i]!, last = titled.length - 1;
+          let row = last, col = width(titled[last]!.trimEnd().replace(/ *\x1b\[0m$/, "")) + 1;
+          if (col + width(text) > w) { row++; col = 0; titled.push(""); lines.push(""); }
+          titled[row] = pad(titled[row]!.replace(/ *\x1b\[0m$/, "").trimEnd() + " ".repeat(col ? 1 : 0) + text, w) + RESET;
+          for (const r of control.ranges.filter(r => r.line === i)) titleControls.push({ row: row + 1, from: gx + col + r.from, to: gx + col + r.to, link: tags[r.n]! });
+        }
+      }
+    }
     const subtitle = subtitleOf(m);
     const subRows = subtitle ? [fg(C.dark) + pad(printable(subtitle, " "), w) + RESET] : [];
     const first = (this.printed ? 1 : 2) + lines.length - 1 + subRows.length;
@@ -1413,7 +1432,7 @@ export class NoteSurface {
     // The chip ends the first byline row (the one `said` is on), where it fits in the tile.
     const chipTo = chipped ? width(metaRows[0]!) : 0, commentChip = chipped && commentOn ? { row: first, from: chipTo - width(COMMENT_CHIP), to: chipTo } : undefined;
     const sourcesChip = chipped && sourcesOn ? { row: first, from: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) - width(SOURCES_CHIP), to: chipTo - (commentOn ? width(` · ${COMMENT_CHIP}`) : 0) } : undefined;
-    return { rows: rows.map(l => " ".repeat(gx) + l), wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary, summaryRow: apart ? first + 1 : first, summaryLinks: links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: { row: this.printed ? 0 : 1, rows: lines.length }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
+    return { rows: rows.map(l => " ".repeat(gx) + l), titleControls, wholeMarks: wholeMarks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), summary, summaryRow: apart ? first + 1 : first, summaryLinks: links.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })), title: { row: this.printed ? 0 : 1, rows: lines.length }, crumbsRow: this.printed ? rows.length - 1 : 0, ...(commentChip ? { commentChip: { ...commentChip, from: commentChip.from + gx, to: commentChip.to + gx } } : {}), ...(sourcesChip ? { sourcesChip: { ...sourcesChip, from: sourcesChip.from + gx, to: sourcesChip.to + gx } } : {}), ...(marginChip ? { marginChip: { ...marginChip, from: marginChip.from + gx, to: marginChip.to + gx, row: first } } : {}) };
   }
 
   /**
@@ -1560,7 +1579,7 @@ export class NoteSurface {
     // Each construct the note leaves open, on its line (PIE-669): what is read instead, and how to close it.
     const open = openConstructs(m.text);
     this.lookAt(m, w, host);
-    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks } = this.headerBlock(m, w, host, src);
+    const { rows: headerBlock, summary, summaryRow, summaryLinks, title, crumbsRow, commentChip, sourcesChip, marginChip, wholeMarks, titleControls } = this.headerBlock(m, w, host, src);
     // An agent's proposal, opened (PIE-501): its [apply] [dismiss] on a row of their own under the byline.
     const proposalTags: Link[] = [];
     const proposalHead = isOpenProposal(m) ? { row: headerBlock.length, ...extractLinks([pad(fg(C.yellow) + "proposal ·" + proposalControls(m, proposalTags) + fg(C.dark) + (proposalApplies(m) ? " · A apply anyway · X dismiss" : " · X dismiss · it can't be applied: its passage was already gone"), w) + RESET]) } : null;
@@ -1628,6 +1647,12 @@ export class NoteSurface {
       });
       this.elems = [...laid.elems, ...own].sort((a, b) => a.row - b.row || a.from - b.from);
     }
+    for (const [i, control] of (titleControls ?? []).entries()) {
+      const key = `control:title:${m.id}:${i}`;
+      this.hits.push({ ...control, elem: key });
+      this.elems.push({ ...control, key, kind: "control", ruler: [control.row, control.row + 1], label: control.link.label ?? "run" });
+    }
+    this.elems.sort((a, b) => a.row - b.row || a.from - b.from);
     if (unsentHead.elems.length) this.elems = [...this.elems, ...unsentHead.elems].sort((a, b) => a.row - b.row || a.from - b.from);
     this.keepCurrent(host);
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show). A header
@@ -1947,7 +1972,13 @@ export class NoteSurface {
       const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn, env.inlineList) : null;
       const view = !!results && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch";
       // The rules' decorations (PIE-600): above or below what they matched, in its place, or around it.
-      const plan = planDecorations(decorations, noteLines, { row: extDraw.row, markdown: extDraw.markdown, blockdown: extDraw.blockdown, image: extDraw.image, headings: headingStylesOf(src) }, bodyText);
+      const plan = planDecorations(decorations, noteLines, { row: extDraw.row, press: (act, text) => tagged(drawn, { role: "control", label: text, press: { act, block: m.id, line: 0 } }, text), markdown: extDraw.markdown, blockdown: extDraw.blockdown, image: extDraw.image, headings: headingStylesOf(src) }, bodyText);
+      for (const [line, ps] of regions) {
+        const replace = ps.filter(({ p }) => p.output?.component?.placement === "replace");
+        if (!replace.length) continue;
+        plan.place.set(line, { end: line + 1, draw: width => ({ rows: replace.flatMap(({ p }) => extensionRegion(p, width, now, (to, text) => tagged(drawn, to, text), extDraw, book).rows) }) });
+        regions.set(line, ps.filter(p => !replace.includes(p)));
+      }
       return regions.size || view || plan.after.size || plan.place.size ? {
         ...(plan.place.size ? {
           decorate: (line: number, width: number) => {
@@ -2228,10 +2259,21 @@ export class NoteSurface {
         const inside = target.text.includes("<!--") ? literalLines(target.text).inside : new Set<number>();
         lit = new Set(lines.flatMap((l, i) => (inside.has(l) ? [i] : [])));
       } else ({ text, lines, literal: lit } = readableSource(target, source));
+      const projections = isOutlineNote(target) ? projectionsOf(target, source) : [];
+      const projected = this.projectionRegions(projections, lines);
+      const inert = (text: string, width: number) => renderDoc(text, { ...env, width, graphics: false, after: undefined, embed: undefined, keepTags: false }).lines;
       const rendered = renderDoc(presentLinks(text, true, source, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
-        ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
+        ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, regions: undefined, outputs: undefined,
         // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
         nested: !!part,
+        decorate: (line, width) => {
+          const ps = projected.get(line)?.filter(({ p }) => p.output?.component?.placement === "replace");
+          return ps?.length ? { end: line + 1, rows: ps.flatMap(({ p }) => extensionRegion(p, width, Date.now(), (to, text) => tagged(drawn, to, text), { note: target.id, markdown: inert }).rows) } : null;
+        },
+        after: (line, width) => {
+          const ps = projected.get(line)?.filter(({ p }) => p.output?.component?.placement !== "replace");
+          return ps ? { rows: ps.flatMap(({ p }) => extensionRegion(p, width, Date.now(), (to, text) => tagged(drawn, to, text), { note: target.id, markdown: inert, row: (block, text) => tagged(drawn, { block, role: "row" }, text) }).rows) } : [];
+        },
         link: (block, t, _figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row" }, t),
         // The template is the definition (`self`); the chain says the host is `this`, so a figure over `{{this.project}}` reads the host.
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
@@ -8790,7 +8832,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem|approved|rejected (tasks lists the steps)`);
       // An extension's line (PIE-512): its head runs the line's primary action, a control its own; an agent's
       // run is the agent's (said on the status bar), and what it writes is the extension's (ext:<id>).
-      if (e.link?.ext && (e.kind === "control" || e.kind === "resource")) {
+      if (e.link?.ext && !e.link.press && (e.kind === "control" || e.kind === "resource")) {
         const r = await surface.runExt(e.link.ext.action, e.link.ext, host, actor);
         surface.noteAgent(actor, `ran ${e.link.ext.action} on ${e.label.slice(0, 40)}`);
         return { element: i, kind: e.kind, action: e.link.ext.action, ...(r && typeof r === "object" ? r : {}) };

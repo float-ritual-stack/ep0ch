@@ -1,9 +1,9 @@
 {
   "contract": 2,
   "id": "runbook",
-  "version": 4,
+  "version": 5,
   "name": "Runbook",
-  "description": "A note is a runbook: each step is a command block you run by name, secrets join a step from a with-secrets group at run time, and every run is recorded under the step.",
+  "description": "Run commands from a note in your terminal, answer prompts, and keep the result under each step.",
   "demo": "demo",
   "run": [
     "bun",
@@ -21,8 +21,8 @@
       "options": {
         "mode": {
           "type": "string",
-          "pattern": "^(dry|apply)$",
-          "default": "dry"
+          "pattern": "^(terminal|host|dry|apply)$",
+          "default": "terminal"
         },
         "secrets": {
           "type": "string",
@@ -31,6 +31,15 @@
         "confirm": {
           "type": "string",
           "pattern": "^[A-Za-z0-9._-]+$"
+        },
+        "on": {
+          "type": "string"
+        },
+        "close": {
+          "type": "string"
+        },
+        "keep": {
+          "type": "boolean"
         }
       }
     }
@@ -42,13 +51,13 @@
       "on": "handler:run",
       "key": "x",
       "effects": "write",
-      "description": "Runs the step's command (its first code fence) with its secrets group, and records the run under it. An apply step is the person's, and needs confirm=<its confirm word>.",
+      "description": "Runs this step in a terminal tile by default. Its values and confirmation are asked in the argument form.",
       "args": [
         {
           "name": "confirm",
           "type": "text",
           "label": "Confirm",
-          "description": "the word an apply step needs (its --confirm=<word>; default apply)"
+          "description": "Confirmation for a host apply step; terminal steps ask in their own form."
         }
       ]
     },
@@ -57,16 +66,28 @@
       "label": "Run the runbook",
       "on": "block",
       "effects": "write",
-      "description": "Runs a [type::runbook] note's steps in order and stops at the first one that fails or is not an agent's to run. Records each run under its step. The note's own [form-field::name text] chips are the run's props ({{props.name}}), asked for in the door.",
+      "description": "Walks the runbook in order, reusing one terminal tile and pausing for values or a failure.",
       "args": [
         {
           "name": "confirm",
           "type": "text",
           "label": "Confirm",
-          "description": "the word an apply step needs (its --confirm=<word>; default apply)"
+          "description": "Confirmation for a host apply step; terminal steps ask in their own form."
         }
       ],
       "fieldsFrom": "block"
+    },
+    {
+      "id": "record",
+      "label": "Record a terminal run",
+      "on": "block",
+      "effects": "write"
+    },
+    {
+      "id": "host-step",
+      "label": "Run a host step",
+      "on": "block",
+      "effects": "write"
     }
   ],
   "configSchema": {
@@ -80,5 +101,16 @@
       }
     },
     "additionalProperties": false
-  }
+  },
+  "rules": [
+    {
+      "id": "run-all",
+      "match": {
+        "property": "type=runbook"
+      },
+      "decorate": {
+        "place": "title"
+      }
+    }
+  ]
 }

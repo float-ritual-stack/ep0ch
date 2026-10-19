@@ -35,7 +35,7 @@ export type ResourceProjectionStatus = "ready" | "stale" | "not-fetched" | "not-
  */
 export interface ExtensionOutput {
   markdown: string; ranAt: string; title?: string;
-  component?: { data: unknown; view: unknown };
+  component?: { data: unknown; view: unknown; placement?: "replace" };
   inputsChanged?: true; versionChanged?: true;
 }
 /** Who asked an `@name` agent, as the service says it (`user`, `agent:<id>`, `system`), in the door's words. */
@@ -576,7 +576,7 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   const at = (action: string) => ({ ext: { block: d.note, line: p.anchor.line, action, extension, handler }, refresh: d.note, refreshLine: p.anchor.line });
   const primary = primaryAction(p);
   // A view's pressable primitive (PIE-957): a control that runs the action line it carries on this line's note.
-  const pressing: PrimitiveDraw["press"] | undefined = link ? (act, text) => link({ role: "control", label: text, press: { act, block: d.note, line: p.anchor.line } }, text) : undefined;
+  const pressing: PrimitiveDraw["press"] | undefined = link ? (act, text) => link({ role: "control", label: text, ...at(primary.name), press: { act, block: d.note, line: p.anchor.line } }, text) : undefined;
   const ready = (p.status === "ready" || p.status === "stale") && (p.output || p.summary !== undefined);
   const bad = !ready && p.status !== "not-run" && p.status !== "not-fetched";
   const when = p.output?.ranAt ?? p.fetchedAt;

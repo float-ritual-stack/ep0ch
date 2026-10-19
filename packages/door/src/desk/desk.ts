@@ -5298,10 +5298,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r0 = this.placed.rects.get(at);
     const dir = p.wide && r0 && splitAxis(r0, true) === "col" ? "down" : "right";
     const where: At<number> = this.inFlow(at) ? { kind: "next", from: at } : { kind: "split", target: at, dir };
-    const r = this.ask({ op: "open", tile: this.nextId, kind: "pty", name: p.name, loose: true, at: where });
+    const r = this.ask({ op: "open", tile: this.nextId, kind: "pty", name: p.name, loose: true, at: where }, p.actor);
     if (!r.ok) return false;
     // Never kept in a layout (its program and files go with the door), so its spec is the door's own, never a saved one.
-    const pane = new PtyPane({ cmd: p.cmd, ...(p.cwd ? { cwd: p.cwd } : {}), ...(p.file ? { file: p.file } : {}), ...(p.own ? { own: p.own } : {}), ...(p.shows ? { shows: p.shows } : {}), label: p.name, temp: true });
+    const pane = new PtyPane({ cmd: p.cmd, ...(p.cwd ? { cwd: p.cwd } : {}), ...(p.file ? { file: p.file } : {}), ...(p.own ? { own: p.own } : {}), ...(p.shows ? { shows: p.shows } : {}), label: p.name, temp: true, output: p.output, ...(p.retain ? { rerun: () => { throw new ActionRefused("run this step again from the note to answer its form"); } } : {}) });
     const id = this.put(pane);
     this.commit(r);
     this.openedFrom.set(id, at);
@@ -5313,6 +5313,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // Its tile closed first (^W x, the door ending): it was ended, whatever it printed on its way out (a program that
       // reads its tile sees end-of-input), so it gave no answer: no code, and nothing it wrote is taken.
       done(this.panes.has(id) ? code : null);
+      if (p.retain) { this.redraw(); return; }
       // Its keys come back to the reader when they were in the tile as it ended; a tile the person closed themselves
       // (^W x) gave them back to the reader as it closed (`openedFrom`), and they go on into the edit.
       const back = this.panes.has(id) ? this.focus === id : this.focus === at;
@@ -5324,7 +5325,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
       this.save(); this.redraw();
     };
-    this.focus = id; this.ptyIn = pane;
+    p.ready?.({
+      start: (cmd, env, output, finished) => {
+        pane.onExit = code => finished(this.panes.has(id) ? code : null);
+        pane.replaceProgram(cmd, env, output);
+      },
+      stop: () => pane.kill(),
+      dismiss: () => { if (this.panes.has(id)) this.closeId(id); this.redraw(); },
+    });
+    if (!p.actor || p.actor.kind === "user") { this.focus = id; this.ptyIn = pane; }
     this.redraw();
     return true;
   }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 5 (2026-10-19)
+
+- Steps default to the door's terminal tile, with run controls, masked argument forms, SSH execution and a sequential run-all walk (PIE-1061). Host mode keeps the noninteractive runner.
+- Output is recorded through the extension after the terminal exits; supplied secrets use environment variables and the shared scrubber.
+- The page's example uses a longer outer fence so its nested command fences render.
+
 ## 4 (2026-10-17)
 
 - Step results now sit in output regions after the command, with attributed patches and draft conflict proposals. The running region is replaced when the command finishes; no result child is made. Whole-run summaries remain machinery notes (PIE-956).

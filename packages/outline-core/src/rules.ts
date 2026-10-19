@@ -178,7 +178,7 @@ export function compileRulePattern(raw: string): RegExp | { problem: string } {
  * the characters a text pattern hit (a tone on the words), and `margin`, a card beside them (in the reader's margin
  * column when there's room, folded under the passage when there isn't).
  */
-export const PLACES = ["prepend", "append", "replace", "around", "span", "margin"] as const;
+export const PLACES = ["prepend", "append", "replace", "around", "span", "margin", "title"] as const;
 export type Place = (typeof PLACES)[number];
 
 /**

@@ -1,3 +1,4 @@
+import type { RunbookPlan, RunbookResult } from "@ep0ch/outline-core/runbook";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { ExtensionBarResult, ExtensionBarRow } from "@ep0ch/outline-core/protocol";
 import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
@@ -160,6 +161,7 @@ export interface ExtensionActRequest {
 }
 
 export interface ExtensionActResult {
+  runbook?: RunbookPlan; runbookResult?: RunbookResult;
   /** Scripts write as their author and keep run undo on their source (or their run note for files). */
   writtenAs?: string;
   undoOn?: string;
@@ -343,7 +345,7 @@ export function validateRecord(value: unknown, fallbackTitle = "Collection"): Ex
   return { record, members: { records, complete: answer.complete === true } };
 }
 
-function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string } {
+function validateAct(value: unknown, blockOk: (id: string) => boolean): { message?: string; writes: ExtensionWrite[]; copy?: string; open?: string; runbook?: RunbookPlan; runbookResult?: RunbookResult } {
   if (!isObject(value)) throw new Error("an action returns { message?, writes?, copy?, open? }");
   // What the client opens once the action answers (PIE-754): a block, or a Resource by its ref.
   if (value.open !== undefined) {
@@ -361,6 +363,8 @@ function validateAct(value: unknown, blockOk: (id: string) => boolean): { messag
     ...(typeof value.message === "string" ? { message: cleanExtensionText(value.message) } : {}),
     ...(typeof value.copy === "string" ? { copy: cleanExtensionText(value.copy, true) } : {}),
     ...(typeof value.open === "string" ? { open: value.open } : {}),
+    ...(value.runbookResult ? { runbookResult: value.runbookResult as RunbookResult } : {}),
+    ...(value.runbook ? { runbook: value.runbook as RunbookPlan } : {}),
     writes: writes.map((write, index) => {
       if (!isObject(write)) throw new Error(`writes[${index}] must be an object`);
       if (write.op === "annotate") {
@@ -993,7 +997,7 @@ export class ExtensionCalls {
       ranAt: row.ranAt!,
       ...(result.title ? { title: cleanExtensionText(result.title) } : {}),
       ...(scriptReads(row.request) ? { reads: scriptReads(row.request) } : {}),
-      ...(call.kind === "component" || result.view ? { component: { data: result.data ?? null, view: result.view } } : {}),
+      ...(call.kind === "component" || result.view ? { component: { data: result.data ?? null, view: result.view, ...(result.placement ? { placement: result.placement } : {}) } } : {}),
       ...(storedInputs(row) !== this.inputs(block, call.line) ? { inputsChanged: true as const } : {}),
       ...(extension && row.extensionVersion !== extension.version ? { versionChanged: true as const } : {}),
     };
@@ -1147,6 +1151,8 @@ export class ExtensionCalls {
     return { extension: extension.id, action: action.id, ...(said ? { message: said } : {}), written,
       ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}),
       ...(parsed.open !== undefined ? { open: parsed.open } : {}),
+      ...(parsed.runbookResult ? { runbookResult: parsed.runbookResult } : {}),
+      ...(parsed.runbook ? { runbook: parsed.runbook } : {}),
       ...(applied.proposalId ? { proposalId: applied.proposalId } : {}),
       ...(applied.undo ? { undo: applied.undo } : {}), ...(applied.undoNote ? { undoNote: applied.undoNote } : {}) };
   }
@@ -1250,7 +1256,9 @@ export class ExtensionCalls {
     } else if (host && (applied.written.length || wrote.some((change) =>
       change.blockId === host.id || change.parentId === host.id || change.previousParentId === host.id))) this.options.changed?.(host.id);
     return { extension: extension.id, action: action.id, ...(parsed.message ? { message: parsed.message } : {}), written,
-      ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}), ...(parsed.open !== undefined ? { open: parsed.open } : {}), passage,
+      ...(parsed.copy !== undefined ? { copy: parsed.copy } : {}), ...(parsed.open !== undefined ? { open: parsed.open } : {}),
+      ...(parsed.runbookResult ? { runbookResult: parsed.runbookResult } : {}),
+      ...(parsed.runbook ? { runbook: parsed.runbook } : {}), passage,
       ...(applied.undo ? { undo: applied.undo } : {}), ...(applied.undoNote ? { undoNote: applied.undoNote } : {}) };
   }
 

@@ -1,52 +1,84 @@
 # Runbook
 
-A note is a runbook. Each step is a block with a `run::` line and its command in the first code fence; running it
-records the run under the step. Everything here is made up.
+A note is a runbook. Each step is a block with a `run::` line and its command in the first code fence. Press
+**run** on a step, or **run all** at the top of the runbook. The step's last status is beside its control.
+The controls use the same actions as `act ext.runbook.run-step block=<id>` and `act ext.runbook.run-all block=<id>`.
+On a selected run line, `x` runs the step; controls also open with Enter or a mouse click.
 
-```text
-Deploy the demo widget [type::runbook] [env::scratch]
-  Stage the build with the token
-  run:: --mode=dry --secrets=widget-demo
+````text
+Tend the demo garden [type::runbook]
+  Choose a herb [choices::herb basil,mint,sage]
+  run:: --keep
   ```sh
-  widget stage --env {{self.env}}
+  printf 'Planting %s\n' {{ask.herb}}
   ```
-  Apply the patch
-  run:: --mode=apply --secrets=widget-demo --confirm=ship
+  Supply a token
+  run::
   ```sh
-  widget apply --env {{self.env}}
+  garden-login --token-env RUNBOOK_SECRET_token
+  # A placeholder declares the value; its replacement is a quoted environment reference.
+  test -n {{secret.token}}
   ```
-```
+````
 
-- A step's command reads the outline's one `{{ }}` grammar, filled by the service in the step's Site (the extension asks
-  `site.answer`; it carries no parser of its own):
-  - `{{self.name}}` is the runbook note's own `[name::value]` (`self` is the nearest `[type::runbook]` note above the
-    step). Its author wrote it, so it is trusted as written.
-  - `{{props.name}}` is a value the run is given (`name=value` on the action, `with='{"name":"value"}'` from `act`, or
-    the runbook note's own `[form-field::name text]` chips, which the door asks for when you run the whole runbook).
-    It lands in a shell command, so it must be plain characters (letters, digits and `. @ : / = + , -`).
-  - Any other value (`{{((id)).x}}`, `{{parent.x}}`, `{{now.date}}`, a link followed from `self`) is checked the same way:
-    a value that could build a command refuses the step ("put the value on the runbook note, or pass it as a prop").
-  - A placeholder with no value refuses the step, saying which and how to give it. A step never runs half-filled.
-  - A list joins with `, `; `{{self.env[0]}}` picks one.
-- `--secrets=<group>[,<group>]` names `with-secrets` groups. When the step runs, the extension asks the service for each
-  group by name (`secrets.group`; the manifest's `"secretGroups": ["*"]` allows any) and runs the command with the
-  values in its environment. The service scrubs them (and their base64 and URL-encoded forms, and a value split by
-  terminal escapes) from everything the extension writes and answers.
-- `--mode=apply` steps are the person's: an agent's request is recorded as refused. Who asked is the action's
-  `requestedBy`. They also need
-  `confirm=<word>` (`--confirm=<word>` on the line; default `apply`).
-- A step run is an output region after its command, written through `outputs.place` and the draft router: `[run.status::ok|failed|refused]`, `[run.exit::N]`, `[run.at::…]`, `[run.by::person|agent:<id>]`,
-  and the last 15 lines of output. The step carries `[run.last::<status>]`, so `run.last=failed` finds the steps that failed.
+## Where commands run
 
-Actions: `ext.runbook.run-step` (on a `run::` line; `outliner ext act runbook run-step --block <id> --arg confirm=ship`)
-and `ext.runbook.run-all` (on the runbook note: steps in order, stopping at the first that fails or is refused, with a
-machinery summary child on the note). In the door: `act ext.runbook.run-all block=<id>`.
+`--mode=terminal` is the default. The door opens a terminal tile beside the note, with your shell, PATH and keys.
+Type directly into it when a command prompts: `read`, `sudo`, and `ep0ch keys set` work normally. Ctrl+] returns
+keys to the door. The tile stays after exit; `--close=on-success` dismisses it after a successful final step.
+Run the step again from the note to answer its form again.
 
-`config.json`: `{ "config": { "timeoutSeconds": 120 } }`. Groups are read where `with-secrets` reads them
-(`~/.config/secrets`, or the service's `WITH_SECRETS_DIR`).
+`--mode=host` runs a noninteractive script in the outline host as its service user, with the existing timeout
+(`config.json`: `{ "config": { "timeoutSeconds": 120 } }`). Use terminal mode for commands that prompt or restart
+that host. The existing `dry` and `apply` modes remain host actions; an apply step requires the person and its
+confirmation word. They do not mean a shell command is simulated.
+
+`--on=laptop` (also `--on laptop`) runs a terminal step with your SSH configuration, using `ssh -tt -- laptop`.
+The outline's existing connection carries the plan and result; its link does not carry shell commands. For steps
+with supplied values, the remote machine needs `python3`: a fixed helper turns terminal echo off, receives the
+values through SSH's input, restores the terminal and starts your shell. Values never appear in SSH's arguments.
+If SSH exits 255, the step is marked **waiting**, with a command to paste under it. Secret values are replaced by
+instructions to enter them in the terminal. Continue tries the machine again.
+
+## Values and confirmation
+
+- `{{ask.name}}` asks for text. `--keep` remembers it on the runbook as `[name::value]`; otherwise it is kept only for
+  this run. The next run offers a remembered value in the form.
+- `{{secret.name}}` asks for masked text. It is never remembered. Closing the form discards its answers.
+- `[choices::name first,second,third]` on the step makes that field a pick list.
+- `[form-field::name file]` on the step opens the shared file picker. Select a folder to browse into it.
+- `--confirm=ship` asks for exactly `ship` in the form before running the step.
+
+Write these placeholders as shell arguments without surrounding quotes: they become quoted environment
+references, `"${RUNBOOK_ASK_name}"` or `"${RUNBOOK_SECRET_name}"`. A value containing spaces, quotes or shell
+operators stays data. Do not embed a placeholder inside another quoted shell string. Values are not inserted
+into the command's text, a draft, or the undo history. A secret is scrubbed from the recorded output, including
+its encoded forms and text interrupted by terminal escapes. A command may still display what it prints in its
+terminal; use the program's own masked prompt when that is what it expects.
+
+The existing Site grammar is still available: `{{self.name}}` reads the nearest runbook's own property, and
+`{{props.name}}` reads action arguments or the runbook's `[form-field::name text]` fields. The service fills these
+through `site.answer`; values outside the runbook's own properties must be plain shell-safe characters. Prefer
+`ask` for values the person supplies at run time.
+
+`--secrets=group[,group]` loads named with-secrets groups into the environment. Terminal mode reads them on the
+door's machine; host mode reads them on the host. Their values are scrubbed with the same shared scrubber.
+
+## Walking and recording
+
+Run all visits steps in outline order, reusing one terminal tile. A command's own prompt waits in that terminal.
+A failed step offers **continue** (the next step) and **stop**; a waiting remote step's Continue tries that step
+again. These are `runbook.continue` and `runbook.stop`, also available through `act`.
+
+Each exit is recorded in an output region under the step, with status, exit code, time, attribution and the last
+15 lines. `[run.last::ok|failed|waiting]` is queryable. If the host is restarting when the command ends, Continue
+saves the pending record without running the command again. The pending result lives in this door until saved;
+keep the door open. Closing the door ends its temporary terminals. A session handover is refused while a runbook
+is active, so an install cannot kill the terminal running that install. The install reports that session as left
+on its current code; after the runbook finishes, run `ep0ch session upgrade` from your shell.
 
 ## The demo
 
-Installing it writes a made-up runbook under its page in the Extensions hub (`demo/`): *Ship the demo widget*, with a
-dry step, one that joins the made-up secrets group `runbook-demo` (it fails until you make the group), and one that
-exits 3. Every command is an `echo`. Run the steps from their lines to see each kind of record.
+The extension page includes *Try a terminal runbook*: one command asks for a herb in the terminal, then another
+asks for a fictional masked token in the argument form. It is also the **runbook** section of `ep0ch --showcase`.
+*Ship the demo widget* demonstrates the existing host runner and its secrets groups. All demo content is made up.

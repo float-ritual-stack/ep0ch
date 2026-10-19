@@ -787,7 +787,7 @@ after the last).
 
 | Field | Meaning |
 |---|---|
-| `place` | `prepend` (before what matched), `append` (after it), `replace` (in its place) or `around`: the Placement words every producer shares. Default: a band or divider replaces, a box goes around, the rest prepends. A whole block's `replace` and `around` are `prepend`. With `match.text` also `span` (ADR 0004 contract 6: the characters the pattern hit, `hit.span`, drawn in `tone` on a capped-dark surface; the publisher a `<mark>`) and `margin` (a card beside them: the reader's margin column when it's wide, under the passage when it isn't) |
+| `place` | `prepend` (before what matched), `append` (after it), `replace` (in its place) or `around`: the Placement words every producer shares. Default: a band or divider replaces, a box goes around, the rest prepends. A whole block's `replace` and `around` are `prepend`. `title` puts a view beside the note title in the door, wrapping below it when needed. With `match.text` also `span` (ADR 0004 contract 6: the characters the pattern hit, `hit.span`, drawn in `tone` on a capped-dark surface; the publisher a `<mark>`) and `margin` (a card beside them: the reader's margin column when it's wide, under the passage when it isn't) |
 | `use` | a built-in decoration, no code: `band` (a heading in three rows of glyph track, PIE-599's banner), `divider` (one row of track), `card` (the block's title and `fields`), `badge`, `text`, `box` |
 | `style` | a `band` or `divider` draws with this heading style ([heading styles](../../../../CHANGELOG.md), PIE-599: `[heading-style::name]` declarations and the built-ins `band`, `tab`, `waffle`, `uptime`, `dots`, `rule`, `fade`); `pattern`, `align` and `tone` go over it. Default: `band` (a divider: `fade`) |
 | `label`, `tone`, `fields`, `pattern`, `align` | the built-in's words (a `{{ }}` template: `{{this.title}}`, `{{match.text}}`, `{{match.level}}`, `{{match[1]}}`, any property `{{this.status}}`; a name the block lacks is empty), tone, the card's property keys, the band's glyphs (`stack`, `waffle`, `uptime`, `dots`, `rule`) and where its words sit |
@@ -990,6 +990,14 @@ actions yet; `r` is its path today.
 - `act` may also return `open` (PIE-754): a block id, or a [Resource ref](#opening-a-resource) (`file:/path`,
   `web:https://…`, `resource:<id>`). The door opens it where the asker's opens land (a Resource registered first when
   it must be); `outliner ext act` prints `open <ref>`.
+- Runbook actions may return `runbook: { steps: RunbookStep[] }` (PIE-1061; the shared types are in
+  `outline-core/runbook.ts`). The extension owns the grammar and records; the door owns the argument form,
+  terminal tile and execution. Its ordinary view buttons call the extension's ActionSet actions. This extends the
+  existing action-result path rather than adding a second reader or a terminal inside the host. A component
+  result can use `placement: "replace"` to draw its view in its handler line's place; runbook uses that for
+  `run:: [run]` and the last status, including inside transclusions. `host-step`
+  returns `runbookResult: { exit, output }` to that coordinator, which scrubs supplied secrets before calling
+  `record`. These values are transient action results, never handler projections saved in the outline.
 - `effects`: `read` (the default) answers only; `write` may return writes, and lets its process write over its
   connection. `effects` is about the outline, never about the outside world: an action that only writes to an outside
   service (sends a note to Reader, posts a message) and writes nothing in the outline is `read`; one that also writes

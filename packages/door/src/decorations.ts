@@ -12,6 +12,7 @@ import { wrap } from "./text";
 /** How the reader draws inside a decoration: a link a card names (`[ ]` stops on it), its Markdown when a primitive is new to this door. */
 export interface DecorationDraw {
   row?: (block: string, text: string) => string;
+  press?: PrimitiveDraw["press"];
   /** The outline's heading styles (PIE-599): what a band or a track names, and draws with. */
   headings?: HeadingStyleRegistry;
   markdown: (text: string, width: number) => string[];
@@ -31,7 +32,7 @@ export interface DecorationPlan {
 
 /** A decoration's rows, `width` wide: its view's primitives, else its Markdown, else what's wrong, dim. */
 export function decorationRows(d: Decoration, width: number, draw: DecorationDraw): string[] {
-  if (d.view) { try { return primitiveLines(d.view, width, { link: draw.row, headings: draw.headings, blockdown: draw.blockdown, image: draw.image }); } catch { /* the next step of the chain */ } }
+  if (d.view) { try { return primitiveLines(d.view, width, { link: draw.row, press: draw.press, headings: draw.headings, blockdown: draw.blockdown, image: draw.image }); } catch { /* the next step of the chain */ } }
   if (d.markdown?.trim()) return draw.markdown(d.markdown, width);
   // Not drawn yet, or failed: said in one dim line, so a rule's author sees why.
   const why = d.status === "not-run" ? `${d.name} · drawing…` : `${d.name} · ${d.reason ?? d.status}`;
@@ -66,6 +67,7 @@ export function planDecorations(ds: readonly Decoration[], noteLines: readonly n
   const aroundAll: Decoration[] = [];
   const callouts = calloutBlocks(body);
   for (const d of ds) {
+    if (d.place === "title") continue;
     const rows = (width: number) => decorationRows(d, width, draw);
     if (d.hit.at === "block") {
       if (d.place === "append") put(last, rows);

@@ -1,3 +1,4 @@
+import { runbookActive } from "../runbook";
 // The door session (PIE-418): one door that keeps running without a terminal, and the terminals that attach to it.
 // It holds what the door holds (the screens and their layouts, the dispatcher, draft sessions, terminal tiles with
 // their programs and scrollback, the service connection and its change feed); a client (src/session/client.ts) only
@@ -216,6 +217,7 @@ export async function serve(args: string[]): Promise<never> {
    */
   const handOver = async (): Promise<{ ok: boolean; message: string }> => {
     if (over) return { ok: false, message: "the session is already ending or being handed over" };
+    if (runbookActive()) return { ok: false, message: "finish or stop the runbook before upgrading this session; its terminal and private answers are still here" };
     over = true;
     checkpoints?.write(true);
     checkpoints?.stop();

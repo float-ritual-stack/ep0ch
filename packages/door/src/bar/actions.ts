@@ -7,7 +7,7 @@
 import { ActionRefused, actionSet, actRequestOf, def, lineWords, type ActRequest } from "../surface/actions";
 import type { Actor } from "../socket";
 import type { PowerBar } from "./bar";
-import { formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
+import { clearPrivateForm, formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
 import { formFor, openActionForm } from "./form";
 import { barSource, barSources, type BarHost } from "./source";
 
@@ -165,6 +165,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
     run(_, { on }) {
       if (!on.bar()) throw new ActionRefused("the power bar isn't open");
       on.close();
+      clearPrivateForm();
       return { closed: true };
     },
   }),
