@@ -1,3 +1,5 @@
+import type { Ctx } from "../app";
+import type { NoteSurface, SurfaceHost } from "./note";
 import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 // Reference completion in the edit control (PIE-416): typing `[[`, `((` or `[file::` in a draft offers
 // pages and Work IDs, blocks and fragments, or workspace paths, from the service's lookups (`pages.complete`,
@@ -24,7 +26,7 @@ import {
 import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type FragmentCandidate, type SocketBoard } from "../socket";
 import { lineCompletionHooks, type LineCompletion, type LineInput } from "./line";
-import { bg, C, fg, pad, RESET } from "../style";
+import { bg, C, fg, pad, RESET, TAGS, MARKS } from "../style";
 import type { Key } from "../term";
 import { rowLines, printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
@@ -51,7 +53,7 @@ export const jevOff = new WeakSet<object>();
 export const COMPLETION_ROWS = 14;
 export const COMPLETION_HINT = "up/down or wheel choose · enter inserts (styles/properties: after choosing) · tab/double click inserts · esc dismisses";
 /** A `((` popup's: what a reference does once it's in (PIE-762). */
-export const REFERENCE_HINT = "up/down choose · enter/double click inserts · then ^ or # searches inside it · esc dismisses";
+export const REFERENCE_HINT = "up/down choose · enter/double click inserts · PgUp/PgDn/wheel preview · ^/# narrow · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
 export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage">;
@@ -87,6 +89,8 @@ export interface CompletionItem {
   blockId?: string;
   address?: string;
   fragmentId?: string;
+  passageLine?: number;
+  addition?: string;
   /** Where it sits (ancestors) and how its body starts; read for the selected candidate. */
   context?: string;
   /**
@@ -308,7 +312,8 @@ function fragmentItem(c: FragmentCandidate, oneNote: boolean, under = false): Co
   const where = oneNote || under ? "" : `${c.title} » `;
   return {
     label: c.fragmentId ? `${under ? "  " : ""}^${id}  ${where}${what}` : `${under ? "  " : ""}${where}${what} · adds ^${id}`,
-    blockId: c.blockId, fragmentId: id, kind: "fragment", insertion: `((${c.blockId}^${id}))`,
+    blockId: c.blockId, fragmentId: id, passageLine: c.lineIndex,
+    ...(!c.fragmentId ? { addition: ` · adds ^${id}` } : {}), kind: "fragment", insertion: `((${c.blockId}^${id}))`,
     context: `${c.kind} in ${c.title}${c.fragmentId ? "" : `: choosing it adds ^${id} to that line`}`,
     ...(c.anchor ? { anchor: { lineIndex: c.lineIndex, line: c.anchor.line, revision: c.revision } } : {}),
   };
@@ -467,6 +472,9 @@ export interface CompletionState extends CompletionLookup {
 /** One draft's completion popup: a lookup at a time, newer typing or a dismissal dropping older answers. */
 export class Completer {
   state: CompletionState | null = null;
+  /** The tile host paints this popup after the screen, beyond the editor's rectangle. */
+  screenLayer = false;
+  private preview: { item: CompletionItem; surface: NoteSurface; host: SurfaceHost } | null = null;
   private generation = 0;
   private accepting = false;
   private prefix: string | null | undefined;
@@ -498,6 +506,8 @@ export class Completer {
     this.stopJev();
     if (!this.state) return;
     this.state = null;
+    this.preview?.surface.dispose();
+    this.preview = null;
     this.redraw();
   }
 
@@ -572,15 +582,35 @@ export class Completer {
   /** The selected candidate's ancestors and first lines, from `blocks.context`. */
   private async enrich(generation = this.generation): Promise<void> {
     const item = this.state?.items[this.state.index];
-    // A fragment's row says where it is in its note already; the note's first lines would hide that.
-    if (!item?.blockId || item.fragmentId) return;
+    if (!item?.blockId || this.preview?.item === item) return;
     try {
-      const ctx = await this.board.blockContext(item.blockId);
+      const [ctx, { NoteSurface }] = await Promise.all([this.board.blockContext(item.blockId), import("./note")]);
       if (!this.current(generation) || this.state?.items[this.state.index] !== item) return;
-      if (ctx.selected) item.preview = (w, h) => drawVariation({ values: {}, use: ctx.selected!.text }, w, { board: this.board, redraw: this.redraw }).slice(0, h);
+      if (ctx.selected) {
+        this.preview?.surface.dispose();
+        const surface = new NoteSurface();
+        const host: SurfaceHost = { ctx: { board: this.board, t: { cols: 80, rows: 20, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash: (s: string) => { this.d.note = s; }, redraw: this.redraw } as unknown as Ctx, redraw: this.redraw, navigate() {} };
+        const own = this.own();
+        const note = own?.blockId === item.blockId ? { ...ctx.selected, text: own.text } : ctx.selected;
+        surface.show(note, host);
+        this.preview = { item, surface, host };
+        if (item.fragmentId && !item.anchor && own?.blockId !== item.blockId) await surface.revealFragment(item.fragmentId, host);
+        else if (item.passageLine !== undefined) {
+          const offset = note.text.split("\n").slice(0, item.passageLine).reduce((n, l) => n + l.length + 1, 0);
+          await surface.revealAt(offset, host);
+        }
+        item.preview = (w, h) => surface.render(w, h, host).lines.slice(0, h).map(l => l.replace(TAGS, "").replace(MARKS, ""));
+      }
       item.context = ctx.selected ? [...ctx.ancestors.map(title), snippet(ctx.selected.text)].filter(Boolean).join(" » ") : "target unavailable";
       this.redraw();
     } catch { /* the snippet from the lookup stays */ }
+  }
+
+  scrollPreview(by: number): boolean {
+    const p = this.preview;
+    if (!p || p.item !== this.shown?.items[this.shown.index]) return false;
+    void p.surface.act("scroll", { by }, p.host, USER);
+    return true;
   }
 
   /** Where the last render drew the popup, in the editor's rows: its first row and each row's candidate. */
@@ -604,12 +634,12 @@ export class Completer {
   }
 
   /** Repaint in the host's frame, keeping hit columns relative to its measured text. */
-  inFrame(w: number, col: number): string[] {
+  inFrame(w: number, col: number, height = this.drawn?.items.length ?? 0): string[] {
     const at = this.drawn, s = this.shown;
     if (!at || !s) return [];
     at.col = col;
     at.cols = w;
-    return renderCompletion(s, w, at.items.length, at.items, (at.anchor ?? 0) - col);
+    return renderCompletion(s, w, height, at.items, (at.anchor ?? 0) - col);
   }
 
   move(delta: number): void {
@@ -674,12 +704,19 @@ const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" |
  * the popup took the key.
  */
 function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boolean {
+  if (c.shown && (k.kind === "pgup" || k.kind === "pgdn") && c.scrollPreview(k.kind === "pgup" ? -8 : 8)) return true;
   if (c.state && !c.shown) c.dismiss();
   const s = c.state;
   if (s) {
     // A line (a filter, a panel value) has esc of its own: a popup with nothing to choose never keeps it.
     if (k.kind === "esc") { c.dismiss(); return !line || !!s.items.length; }
     if (s.items.length && !s.loading) {
+      const item = s.items[s.index];
+      if (k.kind === "char" && !k.ctrl && (k.ch === "^" || k.ch === "#") && s.target.kind === "block" && !parseFragmentCompletionQuery(s.target.query) && item?.blockId) {
+        d.splice(s.target.start, s.target.end, `((${item.blockId}${k.ch}`);
+        void c.refresh();
+        return true;
+      }
       if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return true; }
       // A new page alone on the list (PIE-592) is chosen only on purpose (↓ or a click): Enter and Tab stay the draft's.
       const lone = s.items.length === 1 && !!s.items[0]!.newPage && !s.picked;
@@ -780,11 +817,12 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   const selected = s.items[s.index]!;
   const preview = (pw: number, ph: number) => {
     if (selected.kind === "component" && selected.preview) return selected.preview(pw, ph);
+    if (selected.blockId && selected.preview) return selected.preview(pw, ph);
     const description = wholeWords(selected.context ?? selected.insertion, pw);
     return [fg(C.lcyan) + pad(description, pw) + RESET, ...(selected.preview?.(pw, Math.max(0, ph - 1)) ?? [])].slice(0, ph);
   };
   const labelWidth = Math.max(...s.items.map(it => cells(printable(it.label, " ")) + 3));
-  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, w, { col: anchor, width: labelWidth });
+  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, s.target?.kind === "block" || s.target?.kind === "page" ? Math.max(90, w) : w, { col: anchor, width: labelWidth });
   s.listCol = drawn.listCol;
   s.listWidth = drawn.listWidth;
   rows.push(...drawn.rows); out.push(...drawn.lines);
@@ -807,7 +845,7 @@ function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> 
   let picker = pickers.get(s);
   if (!picker) {
     picker = new ListPicker({ name: "completion", items: () => s.items,
-      row: (it, _i, on, w) => [...pickRows(` ${on ? "»" : " "} ${printable(it.label, " ")}` + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : ""), on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])],
+      row: (it, _i, on, w) => [...pickRows(` ${on ? "»" : " "} ${printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " ")}` + (it.addition ? fg(C.dark) + it.addition + RESET : "") + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : ""), on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])],
       heading: (it, i, w) => it.group && it.group !== s.items[i - 1]?.group ? fg(C.dark) + pad(` ${it.group}`, w) + RESET : null,
       choose: () => {},
     });

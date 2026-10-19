@@ -638,6 +638,16 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     expect(p.items[2]!.label).toBe("Present: Ana, Bo and Cy, in the greenhouse at ten. · adds ^present-ana-bo");
     const drawn = rows().join("\n");
     expect(drawn).toContain(`in ${SEED.meeting} 1/`);
+    const popupRows = () => { const all = rows(); const start = all.findIndex(l => l.includes(`in ${SEED.meeting} 1/`)); return all.slice(start + 1, start + 13); };
+    const preview = () => popupRows().map(l => l.includes(" │ ") ? l.slice(l.lastIndexOf(" │ ") + 3) : "");
+    await until(() => preview().some(l => l.includes("We agreed to water")), "the anchor's passage in the floating reader");
+    r = rows(); y = r.findIndex((l, i) => i > r.findIndex(l => l.includes(`in ${SEED.meeting} 1/`)) && l.includes(" │ ") && l.slice(l.lastIndexOf(" │ ") + 3).includes("We agreed to water"));
+    x = r[y]!.lastIndexOf("We agreed to water");
+    press({ kind: "mouse", action: "wheel-down", button: 0, x, y });
+    expect(pop()!.index).toBe(0);
+    expect(preview().join("\n")).not.toContain("We agreed to water");
+    press({ kind: "pgup" });
+    await until(() => preview().some(l => l.includes("We agreed to water")), "keys scroll the same preview");
     press({ kind: "enter" });
     await until(() => d()!.text.endsWith(`((${meeting}^a10))`), "refined to ^a10", 8000);
     // Another, refined to a line with no anchor: the meeting gains it, as the person's, and the reference points at it.

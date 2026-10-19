@@ -94,6 +94,11 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
     const text = d.render(Math.max(1, w - 2), room).map(l => " " + l);
     return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];
   }
+  if (c.screenLayer) {
+    const text = d.render(Math.max(1, w - 2), room).map(l => " " + l);
+    c.drawn = { row: top.length + d.cursorRow + 1, cols: w, anchor: 1 + d.cursorCol, items: [] };
+    return [...top, ...text, ...(below.length ? pad0(room - text.length) : []), ...below];
+  }
   // The completion popup opens under the cursor's row; the draft gives up that many rows to keep it.
   const cph = Math.min(COMPLETION_ROWS, Math.max(0, room - 1));
   const text = d.render(Math.max(1, w - 2), Math.max(1, room - cph)).map(l => " " + l);
