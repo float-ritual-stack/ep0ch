@@ -241,7 +241,7 @@ describe("what a running agent knows", () => {
     expect(knowsLabel({ state: "unknown", why: "" })).toBe("");
   });
 
-  test("the chip says `door tools`, still after the mod changes (it reloads live); when stale, a click on ⟳ restarts the agent alone, continuing", async () => {
+  test("the chip says `door tools`, still after the mod changes (it reloads live); when stale, its chip still opens the picker and an explicit restart continues the agent", async () => {
     const mod = installMod();
     process.env.EP0CH_DAILY_AGENT = standin;
     const bystander = Bun.spawn(["sleep", "30"]);                     // never signalled
@@ -252,22 +252,24 @@ describe("what a running agent knows", () => {
       await until(() => d.app.drawer.tile?.running === true && starts().length === 1, "the drawer's agent");
       const first = d.app.drawer.tile!.pid!;
       await d.app.drawer.readKnows();
-      expect(d.app.drawer.chipText()).toMatch(/^▼ claude · (idle|working) · door tools$/);
+      expect(d.app.drawer.chipText()).toMatch(/^▼ claude \(from EP0CH_DAILY_AGENT\) · (idle|working) · door tools$/);
       updateMod(mod);
       await d.app.drawer.readKnows();
-      expect(d.app.drawer.chipText()).toMatch(/^▼ claude · (idle|working) · door tools$/);
+      expect(d.app.drawer.chipText()).toMatch(/^▼ claude \(from EP0CH_DAILY_AGENT\) · (idle|working) · door tools$/);
       // A plugin rename changes tool registration, which hot reload cannot replace.
       writeFileSync(join(mod, ".claude-plugin/plugin.json"), '{"name":"ep0ch"}');
       await d.app.drawer.readKnows();
       expect(await d.app.act({ action: "agent.knows", args: {}, as: "helper" })).toMatchObject({ knows: { state: "stale" } });
-      expect(d.app.drawer.chipText()).toMatch(/^▼ claude · (idle|working) · started before update ⟳$/);
+      expect(d.app.drawer.chipText()).toMatch(/^▼ claude \(from EP0CH_DAILY_AGENT\) · (idle|working) · started before update ⟳$/);
 
-      // ⟳ is the chip's last cell: a click there restarts; anywhere else on the chip still toggles the drawer.
+      // Even the stale mark opens the picker; restarting remains an explicit action.
       const shown = d.paint();
       const chip = d.app.drawer.chipAt!;
       expect(shown.at(-1)!.slice(chip.to - 1, chip.to)).toBe("⟳");
       d.key({ kind: "mouse", action: "down", button: 0, x: chip.to - 1, y: chip.row });
-      expect(d.app.drawer.open).toBe(true);                               // not toggled
+      expect(d.app.drawer.desk!.overlaid()).toBe(true);
+      d.key({ kind: "esc" });
+      await d.app.dispatch.act({ action: "agent.restart" }, { kind: "user" });
       await until(() => starts().length === 2 && d.app.drawer.tile?.running === true, "the restart");
       expect(d.app.drawer.tile!.pid).not.toBe(first);
       expect(starts()[1]!.argv).toBe("--continue");                     // a bare claude continues its conversation

@@ -106,7 +106,13 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         if (name === "pi") expect(d.paint().some(l => l.includes("EP0CH_DAILY_AGENT overrides"))).toBe(true);
         d.key({ kind: "esc" });
         delete process.env.EP0CH_DAILY_AGENT;
-        await d.app.dispatch.act({ action: "host.agent", args: { name, confirm: true } }, USER);
+        if (name === "claude") {
+          const pid = d.app.drawer.tile!.pid;
+          expect(await d.app.dispatch.act({ action: "host.agent", args: { name } }, USER)).toMatchObject({ confirming: true });
+          expect(d.app.drawer.tile!.pid).toBe(pid);
+          d.paint();
+          d.key({ kind: "down" }); d.key({ kind: "enter" });
+        } else await d.app.dispatch.act({ action: "host.agent", args: { name, confirm: true } }, USER);
         d.paint();
         await until(() => !!d.app.drawer.tile?.text().some(l => l.includes(`scratch ${name} started`)), "the chosen program actually runs");
         expect(d.app.drawer.tabs().filter(t => t.name === "drawer.agent")).toHaveLength(1);
