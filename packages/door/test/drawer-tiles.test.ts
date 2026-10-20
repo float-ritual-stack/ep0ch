@@ -3,7 +3,7 @@
 // never the person's keys), by ^W a, by a drag onto the drawer's chip or out of the dock, and by a key while dragging.
 // It's saved (drawer-tiles.json) and comes back in the next door. Scratch outline host, fictional notes, `cat` programs.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -83,22 +83,35 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   });
 
   test("the agent chip always opens the picker and choices replace the same tab (PIE-1117)", async () => {
+    const bin = join(state, "bin");
+    mkdirSync(bin);
+    for (const name of ["pi", "claude"]) {
+      const file = join(bin, name);
+      writeFileSync(file, `#!/bin/sh\nprintf 'scratch ${name} started\\n'\nexec cat\n`);
+      chmodSync(file, 0o755);
+    }
+    const shell = join(bin, "login-shell");
+    writeFileSync(shell, '#!/bin/sh\nif [ "$2" = "-c" ]; then exec /bin/sh -c "$3"; fi\nexec cat\n');
+    chmodSync(shell, 0o755);
+    const oldPath = process.env.PATH, oldShell = process.env.SHELL;
+    process.env.PATH = `${bin}:${oldPath}`;
+    process.env.SHELL = shell;
     const d = await door();
     try {
-      for (let i = 0; i < 2; i++) {
+      for (const name of ["pi", "claude"]) {
         d.paint();
         const chip = d.app.drawer.chipAt!;
         d.key(mouse("down", chip.from + 1, chip.row));
         expect(d.app.drawer.desk!.overlaid()).toBe(true);
-        expect(d.paint().some(l => l.includes("EP0CH_DAILY_AGENT overrides"))).toBe(true);
+        if (name === "pi") expect(d.paint().some(l => l.includes("EP0CH_DAILY_AGENT overrides"))).toBe(true);
         d.key({ kind: "esc" });
-        const chosen = await d.app.dispatch.act({ action: "host.agent", args: { name: "shell", confirm: true } }, USER);
-        expect(chosen).toMatchObject({ startsNow: true });
+        delete process.env.EP0CH_DAILY_AGENT;
+        await d.app.dispatch.act({ action: "host.agent", args: { name, confirm: true } }, USER);
         d.paint();
-        await until(() => !!d.app.drawer.tile?.running, "the replacement runs");
+        await until(() => !!d.app.drawer.tile?.text().some(l => l.includes(`scratch ${name} started`)), "the chosen program actually runs");
         expect(d.app.drawer.tabs().filter(t => t.name === "drawer.agent")).toHaveLength(1);
       }
-    } finally { d.app.quit(); }
+    } finally { d.app.quit(); process.env.PATH = oldPath; if (oldShell === undefined) delete process.env.SHELL; else process.env.SHELL = oldShell; }
   }, 20_000);
 
   test("the last drawer tile closes to home, stays closed, and a shell is one key away (PIE-1119)", async () => {
@@ -454,7 +467,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
-  test("refused, with why: the screen's last tile stays; an agent never moves the tile the person types in", async () => {
+  test("refused, with why: an agent never moves the tile the person types in", async () => {
     const d = await door();
     try {
       d.key({ kind: "alt", ch: "a" }); d.paint();

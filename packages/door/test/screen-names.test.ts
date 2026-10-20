@@ -118,12 +118,10 @@ describe.skipIf(!outliner)("naming screens, against a scratch outline", () => {
     expect(resolveScreen("daily-test")).toBe("daily-test");
     expect(resolveScreen("no such screen")).toBeNull();
     for (const asked of ["daily test", "daily-test", "Daily Test"]) {
-      const n = app.screens().length;
+      const original = top(), n = app.screens().length;
       await app.dispatch.act({ action: "screen.open", args: { name: asked } }, { kind: "user" });
-      await until(() => app.screens().length === n + 1 && top().name === "daily-test", `${asked} opened`);
+      await until(() => app.screens().length === n && top() === original && top().name === "daily-test", `${asked} opened`);
       expect(top().title).toBe("daily test");
-      await app.dispatch.act({ action: "screen.back" }, { kind: "user" });
-      await until(() => app.screens().length === n, "back");
     }
     await mine("layout.load", { name: "daily test" });
     expect(top().layoutGet().layout).toBe("daily-test");

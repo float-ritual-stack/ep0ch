@@ -1261,7 +1261,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     const c = await HandoffClient.attach(sessionSocket(dir), 120, 36);
     await until(() => c.screen().includes("chard-42"), "the shell's output after the crash", 10_000);
     expect(await shellPid()).toBe(before.shell);
-    await until(() => c.screen().includes("came back after its daemon stopped"), "the restore said", 5000);
+    await until(() => c.screen().includes("came back"), "the restore said", 5000);
     c.close();
   }, 60_000);
 

@@ -447,6 +447,18 @@ function itemNamed(name: string): MenuItem | undefined {
   const n = name.trim().toLowerCase();
   return ITEMS.find(i => i.key.toLowerCase() === n) ?? ITEMS.find(i => i.label.toLowerCase() === n || SCREEN_NAMES[i.key]?.includes(n));
 }
+/** Returning to a screen respects the same save/leave decision as q. */
+function returnToScreen(ctx: Ctx, wanted: Screen, actor: Actor) {
+  let top = ctx.screens?.().at(-1);
+  while (top && top !== wanted) {
+    if (actor.kind === "agent") agentMayLeave(top);
+    ctx.pop();
+    const next = ctx.screens?.().at(-1);
+    if (next === top) throw new ActionRefused(`not left: ${top.shapeWarning?.() ?? top.leaveRefusal?.() ?? `${top.title} holds unsaved work · ctrl+s saves · screen.back again confirms leaving`}`);
+    top = next;
+  }
+}
+
 /** Whether `screen.open` (and `ep0ch --screen`) knows `name`: a menu item by any of its names, or a registered screen. */
 export const knownScreen = (name: string): boolean => !!itemNamed(name) || resolveScreen(name) !== null;
 
@@ -639,10 +651,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
         const value = arg === "note" && given ? await blockTarget(given, ctx) : given;
         const existing = ctx.screens?.().find(s => s.name === name && (s.openArgs?.()?.target ?? undefined) === value);
         if (existing) {
-          while (ctx.screens?.().at(-1) !== existing) {
-            if (actor.kind === "agent") agentMayLeave(ctx.screens!().at(-1)!);
-            ctx.pop();
-          }
+          returnToScreen(ctx, existing, actor);
           return { opened: existing.title, screen: name, back: here?.title ?? null };
         }
         const s = openScreen(name, arg && value ? { [arg]: value } : {});
@@ -659,13 +668,10 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       // By name: the brief, Waiting and the welcome are desks too (PIE-515: specs on it), and each is its own screen.
       const open = item.one && ctx.screens?.().find(x => x.name === item.one);
       // Already on the stack: go back down to it (never a second copy: a desk would start its programs twice).
-      if (open && open === here) return { opened: open.title, key: item.key };
+      if (open && open === here) throw new ActionRefused(`the ${open.title} is already open`);
       if (open) {
         const from = here?.title ?? null;
-        while (ctx.screens?.().at(-1) && ctx.screens!().at(-1) !== open) {
-          if (actor.kind === "agent") agentMayLeave(ctx.screens!().at(-1)!);
-          ctx.pop();
-        }
+        returnToScreen(ctx, open, actor);
         return { opened: open.title, key: item.key, back: from };
       }
       const s = openItem(item, ctx);

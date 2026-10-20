@@ -639,11 +639,11 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     expect(D().layoutGet().floats).toEqual([]);
   });
 
-  test("^W x closes by the same path as pane.close: down to the last pane, which stays", async () => {
+  test("^W x closes the last tile to home; an agent still cannot close the person's tile", async () => {
     while (D().describe().panes.length > 1) { key({ kind: "char", ch: "w", ctrl: true } as Key); key(char("x")); }
-    await expect(act("tile.close", {}, "1")).rejects.toThrow(/last tile stays/);
+    await expect(act("tile.close", {}, "1")).rejects.toThrow(/person's keys/);
     key({ kind: "char", ch: "w", ctrl: true } as Key); key(char("x"));
-    expect(D().describe().panes.length).toBe(1);
-    expect(saved().root.t).toBe("leaf");
+    expect(D().describe().panes).toEqual([]);
+    expect(saved().root).toMatchObject({ t: "tabs", tabs: [] });
   });
 });
