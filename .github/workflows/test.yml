@@ -53,9 +53,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { pkg: door, runner: blacksmith-16vcpu-ubuntu-2404, args: "--parallel=16" }
-          - { pkg: outliner, runner: blacksmith-8vcpu-ubuntu-2404, args: "" }
-          - { pkg: outline-core, runner: blacksmith-2vcpu-ubuntu-2404, args: "" }
+          # The door's every-key walks (test/parity-*) are about half its time: their own job, so neither half nears the watchdog.
+          - { pkg: door, name: door, runner: blacksmith-16vcpu-ubuntu-2404, args: "--parallel=16 $(find test -name '*.test.ts' ! -name 'parity-*' | sort)" }
+          - { pkg: door, name: door-parity, runner: blacksmith-16vcpu-ubuntu-2404, args: "--parallel=16 $(find test -name 'parity-*.test.ts' | sort)" }
+          - { pkg: outliner, name: outliner, runner: blacksmith-8vcpu-ubuntu-2404, args: "" }
+          - { pkg: outline-core, name: outline-core, runner: blacksmith-2vcpu-ubuntu-2404, args: "" }
     runs-on: ${{ matrix.runner }}
     # The run's own 16 minutes, the reruns' 4 and the setup.
     timeout-minutes: 24
@@ -70,7 +72,7 @@ jobs:
           key: bun-${{ hashFiles('bun.lock') }}
       - run: sudo apt-get install -y --no-install-recommends tmux sqlite3 >/dev/null
       - run: bun install --frozen-lockfile
-      - name: bun test (${{ matrix.pkg }})
+      - name: bun test (${{ matrix.name }})
         id: tests
         working-directory: packages/${{ matrix.pkg }}
         # A private HOME, as box-test gives: no test reads a person's settings.
@@ -83,11 +85,11 @@ jobs:
           # one still passing tests is slow (Oct 13-14: every parity test 2-3x slower at once, PIE-831), said apart.
           # The output is copied to a file (tee) only to see when it last moved.
           # The run is a process group of its own (setsid), so stopping it stops what it started too.
-          out="$RUNNER_TEMP/out-${{ matrix.pkg }}.txt"; machine="$RUNNER_TEMP/machine-${{ matrix.pkg }}.txt"
+          out="$RUNNER_TEMP/out-${{ matrix.name }}.txt"; machine="$RUNNER_TEMP/machine-${{ matrix.name }}.txt"
           # The machine every 30 s (load, CPU stolen, throttling, the busiest processes): the machine artifact.
           bash ../../scripts/ci-machine-sample.sh "$machine" & sampler=$!
-          setsid bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml" > >(tee "$out") 2>&1 & run=$!
-          hung="$RUNNER_TEMP/hung-${{ matrix.pkg }}"; hang="$RUNNER_TEMP/hang-${{ matrix.pkg }}.txt"
+          setsid bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.name }}.xml" > >(tee "$out") 2>&1 & run=$!
+          hung="$RUNNER_TEMP/hung-${{ matrix.name }}"; hang="$RUNNER_TEMP/hang-${{ matrix.name }}.txt"
           ( sleep 960; kill -0 $run 2>/dev/null || exit 0
             quiet=$(( $(date +%s) - $(stat -c %Y "$out" 2>/dev/null || echo 0) ))
             if [ $quiet -ge 180 ]; then echo "hung: no output for ${quiet}s" > "$hung"; else echo "slow: still passing tests (output ${quiet}s ago)" > "$hung"; fi
@@ -98,8 +100,8 @@ jobs:
           if [ -e "$hung" ]; then
             wait $watchdog 2>/dev/null || true
             case $(cat "$hung") in
-              hung*) echo "::error title=Test run hung::bun test (${{ matrix.pkg }}) stopped making output and was stopped at 16 minutes ($(cat "$hung")): what it was doing is below and in the hang-report artifact" ;;
-              *) echo "::error title=Test run too slow::bun test (${{ matrix.pkg }}) was still passing tests at 16 minutes, a full run takes about 8-13 ($(cat "$hung")): what the machine was doing is below and in the hang-report artifact" ;;
+              hung*) echo "::error title=Test run hung::bun test (${{ matrix.name }}) stopped making output and was stopped at 16 minutes ($(cat "$hung")): what it was doing is below and in the hang-report artifact" ;;
+              *) echo "::error title=Test run too slow::bun test (${{ matrix.name }}) was still passing tests at 16 minutes, a full run takes about 8-13 ($(cat "$hung")): what the machine was doing is below and in the hang-report artifact" ;;
             esac
             cat "$hang" 2>/dev/null || true
             echo "== the machine through the run (every 30 s)"; cat "$machine" 2>/dev/null || true
@@ -110,28 +112,28 @@ jobs:
           exit $code
       # Which kind of red: each file with a failed test runs again alone, and the summary and annotations say, test by
       # test, "failed again" or "passed alone: a flake". The job stays failed: a flake is reported, never re-run green.
-      - name: failed tests, run again alone (${{ matrix.pkg }})
+      - name: failed tests, run again alone (${{ matrix.name }})
         if: failure() && steps.tests.outcome == 'failure'
         working-directory: packages/${{ matrix.pkg }}
         run: |
           export HOME="$RUNNER_TEMP/home"
           for v in $(compgen -e | grep '^EP0CH_'); do unset "$v"; done
-          bun ../../scripts/ci-rerun-failed.ts "$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml" packages/${{ matrix.pkg }}
+          bun ../../scripts/ci-rerun-failed.ts "$RUNNER_TEMP/junit-${{ matrix.name }}.xml" packages/${{ matrix.pkg }}
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: junit-${{ matrix.pkg }}
-          path: ${{ runner.temp }}/junit-${{ matrix.pkg }}.xml
+          name: junit-${{ matrix.name }}
+          path: ${{ runner.temp }}/junit-${{ matrix.name }}.xml
           if-no-files-found: ignore
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: machine-${{ matrix.pkg }}
-          path: ${{ runner.temp }}/machine-${{ matrix.pkg }}.txt
+          name: machine-${{ matrix.name }}
+          path: ${{ runner.temp }}/machine-${{ matrix.name }}.txt
           if-no-files-found: ignore
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hang-report-${{ matrix.pkg }}
-          path: ${{ runner.temp }}/hang-${{ matrix.pkg }}.txt
+          name: hang-report-${{ matrix.name }}
+          path: ${{ runner.temp }}/hang-${{ matrix.name }}.txt
           if-no-files-found: ignore
