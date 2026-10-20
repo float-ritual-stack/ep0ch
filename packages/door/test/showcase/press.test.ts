@@ -71,8 +71,8 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     const rows = screen().split("\n"), y = rows.findIndex(r => r.includes("[New game]"));
     click(rows[y]!.indexOf("[New game]") + 1, y);
     await untilAsync(async () => (await boardOf()) === ".........", "a new game");
-    await until(() => (app as any).message.includes("ctrl+z"), "the reset answer");
-    expect((app as any).message).toBe("New game · ctrl+z undoes");
+    // The board can read empty before the reset's answer replaces the previous move's line: wait for the answer itself.
+    await until(() => (app as any).message === "New game · ctrl+z undoes", "the reset answer");
     expect((app as any).statusBar(h.sc, 200)).toContain(fg(C.lcyan) + "New game · ctrl+z undoes");
     // The inline form: [start over](act: ttt-reset) after a move.
     const extension = extensionList()!.extensions.find(e => e.name === "ttt-move")!;
