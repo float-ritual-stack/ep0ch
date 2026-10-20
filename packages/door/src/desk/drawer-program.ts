@@ -167,4 +167,4 @@ export function drawerProgram(o: { env?: Record<string, string | undefined>; out
 }
 
 /** The command that changes it, for `ep0ch doctor` and a refusal: the drawer's picker, or `act host.agent`. */
-export const CHANGE_AGENT = "click the drawer agent chip, or `ep0ch agent use <name> [--everywhere]`";
+export const CHANGE_AGENT = "alt+click (or right-click) the drawer agent chip, or `ep0ch agent use <name> [--everywhere]`";

@@ -133,7 +133,7 @@ describe("the drawer", () => {
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
-  test("the mouse: the chip opens the picker, the top edge drags its height, a click in it enters, a click above leaves", () => {
+  test("the mouse: the chip toggles it (alt+click: the picker), the top edge drags its height, a click in it enters, a click above leaves", () => {
     const d = door();
     try {
       d.app.push(d.screen("desk") as any);
@@ -142,8 +142,8 @@ describe("the drawer", () => {
       expect(chip.row).toBe(29);
       d.key(mouse("down", chip.from + 1, 29)); d.key(mouse("up", chip.from + 1, 29));
       expect(d.app.drawer.open).toBe(true);
+      expect(d.app.drawer.desk?.overlaid() ?? false).toBe(false);
       d.paint();
-      d.key({ kind: "esc" });
       const top = d.app.drawer.rect!.row;
       d.key(mouse("down", 50, top));                           // the top edge
       d.key(mouse("drag", 50, 8));
@@ -156,8 +156,11 @@ describe("the drawer", () => {
       d.key(mouse("down", 10, 20)); d.key(mouse("up", 10, 20));
       expect(d.app.drawer.entered).toBe(true);
       d.paint();
+      d.key({ kind: "mouse", action: "down", button: 0, x: chip.from + 1, y: 29, mods: 8 });
+      expect(d.app.drawer.desk!.overlaid()).toBe(true);           // alt+click: the agent picker
+      d.key({ kind: "esc" });
       d.key(mouse("down", chip.from + 1, 29));
-      expect(d.app.drawer.desk!.overlaid()).toBe(true);
+      expect(d.app.drawer.open).toBe(false);                      // a plain click closes it again
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
