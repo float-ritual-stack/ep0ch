@@ -36,6 +36,7 @@ export type PanelItem =
   | { kind: "fold"; fold: SourcesFold }
   | { kind: "param"; key: string; value: string }
   | { kind: "jump"; block: string }
+  | { kind: "result"; row: number; block?: string }
   | { kind: "download"; format: "csv" | "json" }
   | { kind: "copy"; part: "query" | "transform" | "result" };
 
@@ -51,7 +52,11 @@ export function itemsOf(s: SourceEntry, folds: Record<SourcesFold, boolean>): Pa
   out.push({ kind: "fold", fold: "transform" });
   if (folds.transform) { if (s.transform.block) out.push({ kind: "jump", block: s.transform.block }); if (s.transform.text !== undefined) out.push({ kind: "copy", part: "transform" }); }
   out.push({ kind: "fold", fold: "result" });
-  if (folds.result) out.push({ kind: "copy", part: "result" }, { kind: "download", format: "csv" }, { kind: "download", format: "json" });
+  if (folds.result) {
+    const rows = s.result.table ?? s.result.text.split("\n").filter(Boolean).map(x => [x]);
+    rows.forEach((r, row) => out.push({ kind: "result", row, ...(s.kind === "figure" && r[0] ? { block: r[0] } : {}) }));
+    out.push({ kind: "copy", part: "result" }, { kind: "download", format: "csv" }, { kind: "download", format: "json" });
+  }
   return out;
 }
 
@@ -143,9 +148,9 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
     if (table && s.result.columns) {
       const cols = s.result.columns, wide = Math.max(4, Math.floor((w - 6) / Math.max(1, cols.length)) - 2);
       put(`    ${fg(C.white)}${cols.map(c => pad(cut(c, wide), wide)).join("  ")}${RESET}`);
-      for (const r of table.slice(0, Math.max(3, h - 22))) put(`    ${fg(C.grey)}${r.map(c => pad(cut(c, wide), wide)).join("  ")}${RESET}`);
+      for (const r of table) { row(i, `  ${fg(C.grey)}${r.map(c => pad(cut(c, wide), wide)).join("  ")}${RESET}`, "sources.pick", { n: i + 1 }); i++; }
       if (table.length > Math.max(3, h - 22)) put(`    ${dim(`… ${s.result.rows - Math.max(3, h - 22)} more · copy has them all`)}`);
-    } else for (const l of s.result.text.split("\n").slice(0, 8)) put(`    ${fg(C.grey)}${cut(l, w - 6)}${RESET}`);
+    } else for (const l of s.result.text.split("\n").filter(Boolean)) { row(i, `  ${fg(C.grey)}${cut(l, w - 6)}${RESET}`, "sources.pick", { n: i + 1 }); i++; }
     row(i, `  ${fg(C.lcyan)}[y copy result]${RESET}`, "sources.copy", { part: "result" }); i++;
     row(i, `  ${fg(C.lcyan)}[c download CSV]${RESET}`, "sources.download", { format: "csv" }); i++;
     row(i, `  ${fg(C.lcyan)}[J download JSON]${RESET}`, "sources.download", { format: "json" }); i++;

@@ -6078,7 +6078,7 @@ export class NoteSurface {
   }
 
   /** What the panel's focused row (or the open source) does on ⏎ or a click. */
-  async enterSource(host: SurfaceHost, actor: Actor, n?: number): Promise<unknown> {
+  async enterSource(host: SurfaceHost, actor: Actor, n?: number, fresh = false): Promise<unknown> {
     const P = this.requireSources(), a = P.answer;
     if (!a) throw new ActionRefused("the sources are still being read");
     if (P.open === null) {
@@ -6096,6 +6096,11 @@ export class NoteSurface {
     if (it.kind === "param") return this.setSourceParam(undefined, it.key, undefined, host, actor);
     if (it.kind === "jump") return this.jumpSource(host, actor);
     if (it.kind === "download") return this.downloadSource(it.format, host);
+    if (it.kind === "result") {
+      if (!it.block) return this.copySource("result", host, actor);
+      await this.followTarget({ block: it.block, role: "embed" }, host, { link: true, fresh });
+      return { opened: it.block, fresh };
+    }
     return this.copySource(it.part, host, actor);
   }
 
@@ -6201,7 +6206,14 @@ export class NoteSurface {
   /** The transform's note, opened in this reader (the person's; an agent reads it with outline_read). */
   async jumpSource(host: SurfaceHost, actor: Actor) {
     const P = this.requireSources(), s = P.answer?.sources[P.open ?? -1];
-    if (!s?.transform.block) throw new ActionRefused("this source's transform has no note to jump to (it is the line itself, or code that isn't in the outline)");
+    if (!s) throw new ActionRefused("open a source first");
+    if (!s.transform.block) {
+      if (actor.kind !== "user") return { block: P.block, line: s.line + 1, opened: false };
+      this.focusSources(host, false);
+      const text = this.requireNote().text;
+      await this.revealAt(text.split("\n").slice(0, s.line).join("\n").length + (s.line ? 1 : 0), host, actor);
+      return { block: P.block, line: s.line + 1, opened: true };
+    }
     if (actor.kind !== "user") return { block: s.transform.block, opened: false, said: "an agent reads it with outline_read; the jump opens it in the person's reader" };
     this.modes.drop("sources");
     await this.followTarget({ block: s.transform.block, role: "embed" }, host, { link: true });
@@ -6269,7 +6281,7 @@ export class NoteSurface {
         else if (c === "q" || c === "S") run("sources.close");
         else if (k.kind === "down" || c === "j" || k.kind === "tab") run("sources.pick", { by: 1 });
         else if (k.kind === "up" || c === "k") run("sources.pick", { by: -1 });
-        else if (k.kind === "enter") run("sources.enter");
+        else if (k.kind === "enter" || k.kind === "alt-enter") run("sources.enter", { fresh: k.kind === "alt-enter" });
         else if (c === "e") run("sources.set");
         else if (c === "y") run("sources.copy");
         else if (c === "c" || c === "J") run("sources.download", { format: c === "c" ? "csv" : "json" });
@@ -6293,7 +6305,7 @@ export class NoteSurface {
       wheel: (dir, _host, at) => { const r = mode.rect; if (!at || at.x < r.x || at.x >= r.x + r.w || at.y < r.y || at.y >= r.y + r.h) return false; run("sources.scroll", { by: wheelRows(dir) }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("sources"); return { left: "nothing" }; },
       hint: () => "sources has keys · j k move · ⏎ open/edit · e edit · g jump · Esc reader · q close", state: () => this.modes.active(mode) ? "sources" : null,
-      describe: () => ({ block: P.block, view: P.open === null ? "list" : "source", ...(P.answer ? { readAt: P.answer.readAt, sources: P.answer.sources.map((s, i) => ({ n: i + 1, name: s.name, kind: s.kind, ...(i === P.open ? { open: true, folds: { ...P.folds }, item: P.item + 1 } : {}), ...(i === P.sel ? { selected: true } : {}) })) } : {}), ...(P.error ? { error: P.error } : {}), loading: P.loading }),
+      describe: () => ({ keys: this.modes.active(mode) ? "sources" : "reader", selectedResult: (() => { const s = P.answer?.sources[P.open ?? -1]; const it = s && itemsOf(s, P.folds)[P.item]; return it?.kind === "result" ? it.block ?? null : null; })(), block: P.block, view: P.open === null ? "list" : "source", ...(P.answer ? { readAt: P.answer.readAt, sources: P.answer.sources.map((s, i) => ({ n: i + 1, name: s.name, kind: s.kind, ...(i === P.open ? { open: true, folds: { ...P.folds }, item: P.item + 1 } : {}), ...(i === P.sel ? { selected: true } : {}) })) } : {}), ...(P.error ? { error: P.error } : {}), loading: P.loading }),
     };
     return mode;
   }
@@ -10691,13 +10703,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: ({ by, n }, { surface, host }) => surface.pickSource(host, by, n),
   }),
   "sources.enter": def({
-    summary: "⏎ in the inspector: open the selected source; on a row of one, fold or unfold it, edit the parameter (the person is asked), jump to the transform's note, or copy", keys: "⏎, a click on a row",
+    summary: "⏎ in the inspector: open the selected source; on a row of one, fold or unfold it, edit the parameter (the person is asked), jump to the transform's note, or copy", keys: "⏎, alt+⏎, a click on a row",
     touches: "draft", replay: "ask", draft: "write", person: "the inspector is the person's view; an agent reads sources.open and writes with sources.set source= param= value=",
-    args: { n: { type: "number", optional: true, about: "the row, from 1 (default: the selected one)" } },
+    args: { n: { type: "number", optional: true, about: "the row, from 1 (default: the selected one)" }, fresh: { type: "boolean", optional: true, about: "open a result beside the reader" } },
     examples: [
       { act: "sources.enter n=2", does: "does what enter does on row 2 of the inspector, such as opening that source" },
     ],
-    run: ({ n }, { surface, host }, actor) => surface.enterSource(host, actor, n),
+    run: ({ n, fresh }, { surface, host }, actor) => surface.enterSource(host, actor, n, fresh),
   }),
   "sources.item": def({
     summary: "a click on a row of an open source: it is the focused row, and does what ⏎ does there", keys: "a click on a row", touches: "draft", replay: "ask", draft: "write", person: "the inspector is the person's view; an agent reads sources.open and writes with sources.set source= param= value=",

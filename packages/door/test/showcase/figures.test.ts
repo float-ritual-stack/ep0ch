@@ -65,6 +65,44 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(drawn).not.toContain("view:");
   }, 20_000);
 
+  test("PIE-1100: Result rows select, Enter opens, alt+Enter opens beside, and g reveals the figure", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
+    screen();
+    press({ kind: "enter" });
+    const desk = S().stages.get(S().sel).top;
+    const tile = desk.layoutGet().tiles[0].name;
+    await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, { kind: "user" });
+    await until(() => screen().includes("Result"), "figure sources");
+    const pane = desk.panes.get(desk.idNamed(tile));
+    const state = () => pane.surface.describe().sources as any;
+    for (let i = 0; i < 25 && !state().selectedResult; i++) { ch("j"); screen(); }
+    expect(state().selectedResult).toBeTruthy();
+    const id = state().selectedResult;
+    press({ kind: "up" });
+    screen();
+    const rows = screen().split("\n"), y = rows.findIndex(l => l.includes(id.slice(0, 8))), x = rows[y]!.indexOf(id.slice(0, 8)) + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    expect(state().selectedResult).toBe(id);
+    const before = desk.layoutGet().tiles.length;
+    press({ kind: "enter" });
+    await until(() => desk.layoutGet().tiles.some((t: any) => t.showing?.id === id), "result opened");
+    expect(desk.layoutGet().tiles.length).toBeGreaterThan(before);
+    await app.dispatch.act({ action: "tile.focus", tile }, { kind: "user" });
+    await app.dispatch.act({ action: "sources.focus", tile, args: { on: true } }, { kind: "user" });
+    const opened = desk.layoutGet().tiles.length;
+    press({ kind: "alt-enter" });
+    await until(() => desk.layoutGet().tiles.length > opened, "result opened beside");
+    expect(pane.msg.id).toBe(seeded.notes.plotJobs.id);
+    await app.dispatch.act({ action: "open", tile, args: { id: seeded.notes.plotJobs.id } }, { kind: "user" });
+    await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, { kind: "user" });
+    ch("g");
+    await until(() => !pane.surface.holdsKeys, "jump returns keys to reader");
+    expect(pane.surface.describe().focus).toBeTruthy();
+    await app.dispatch.act({ action: "sources.close", tile }, { kind: "user" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
   test("activity days open their notes below the reader through act (PIE-972)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "figures" }, as: "test-agent" });
