@@ -1609,7 +1609,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     keys: "the status bar's waiting count, the drawer's waiting-on-you tab",
     touches: "nothing", replay: "safe",
     args: {},
-    run(_, { drawer }) { return { waiting: waitingOnYou(drawer).map((r, i) => rowFacts(r, i + 1)) }; },
+    run(_, { drawer, ctx }) { return { waiting: waitingOnYou(drawer).map((r, i) => rowFacts(r, i + 1)), messages: ctx.messages?.rows ?? [] }; },
   }),
   "host.tileOf": def({
     summary: "which terminal tile (the drawer's or the screen's) a process is drawn in, read: pid=<pid> finds the tile whose program is that process or its ancestor; port=<n> the tile whose program, or a descendant of it, holds a TCP connection with that local port (the ssh client in a tile, for the sshd on the far end: its client port is the second field of SSH_CONNECTION). Answers {tile, id, by} with tile null when none matches. Changes nothing and says nothing on the screen: the Claude mod asks it to open a pressed reference where the tile's opens go",

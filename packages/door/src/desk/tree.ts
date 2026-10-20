@@ -1,3 +1,4 @@
+import { shortId } from "../refs";
 import { currentRowLimit, rowLines } from "../text";
 // The outline tree (a desk tile, the board's outline dock), with the authored links the outliner's Tree
 // shows under a block (PIE-259, PIE-324, PIE-329): `L` (`tree.links`) opens, under the selected row, its
@@ -20,9 +21,8 @@ import { DEFAULT_BACKLINK_VIEW_OPTIONS, backlinkView, type BacklinkCollection } 
 import type { AuthoredLinksSnapshot } from "../authored";
 import { linkBlock, linkNote, linkRowLines, linkRows, linkWords, SEP, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { USER, type Actor, type OutlineEvent } from "../socket";
-import { shortId } from "../refs";
 import { ActionRefused, actionSet, def } from "../surface/actions";
-import { C, dim, fg, pad, RESET, selectedRow } from "../style";
+import { width, drawEllipsized, C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { Fold } from "../fold";
 import { readView, type ViewRead } from "../views";
 import { RowView, type RowPress } from "../scroll";
@@ -607,11 +607,12 @@ export class TreePane implements Pane {
         const mark = k === "loading" ? "…" : leaf ? (r.via !== undefined && r.rel === 0 ? "◇" : "·") : this.fold.open.has(r.foldId) || this.panels.has(r.key) ? "▾" : "▸";
         const branch = !r.via && isBranch(r.m) ? this.branches.get(r.m.id) : undefined;
         const found = branch && branch.read !== "loading" && branch.read.status === "ready" ? `V:${branch.read.total ?? branch.items.length}` : "";
-        const tag = (found || (prop(r.m, "work-id") ?? prop(r.m, "status") ?? prop(r.m, "type") ?? "")).slice(0, 14);
-        const room = Math.max(4, w - (tag ? tag.length + 1 : 0) - (on && !indent ? 1 : 0));
+        const tag = (found || (prop(r.m, "work-id") ?? prop(r.m, "status") ?? prop(r.m, "type") ?? ""));
+        const shownTag = drawEllipsized(tag, Math.min(14, Math.floor(w / 3)));
+        const room = Math.max(4, w - (shownTag ? width(shownTag) + 1 : 0) - (on && !indent ? 1 : 0));
         const here = desk.current?.id === r.m.id;
         return rowLines(`${indent}${mark} ${subject(r.m)}`, room - 1, undefined, { hang: indent.length + 2 }).map((line, j) => {
-          const tail = !j && tag ? " " + (on ? "" : fg(C.brown)) + tag : "";
+          const tail = !j && shownTag ? " " + (on ? "" : fg(C.brown)) + shownTag : "";
           return on ? selectedRow(pad(line, room) + tail, w, focused) : pad(fg(here ? C.yellow : C.grey) + line, room) + tail + RESET;
         });
       }
@@ -651,7 +652,7 @@ export class TreePane implements Pane {
       const target = this.rows[d.over!], dragged = this.rows.find(x => x.kind === "block" && x.m.id === d.id);
       if (target?.kind === "block" && dragged?.kind === "block") {
         const how = d.beside ? (d.over! < d.from ? "above" : "below") : "under";
-        lines[at] = fg(C.black) + "\x1b[43m" + pad(`${"  ".repeat(target.depth)}→ ${how} ${subject(target.m)}  ← ${subject(dragged.m).slice(0, 30)}`, w) + RESET;
+        lines[at] = fg(C.black) + "\x1b[43m" + pad(`${"  ".repeat(target.depth)}→ ${how} ${subject(target.m)}  ← ${subject(dragged.m)}`, w) + RESET;
       }
     }
     return { lines };

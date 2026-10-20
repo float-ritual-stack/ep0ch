@@ -96,7 +96,7 @@ export class FacetsPane implements Pane {
 
   /** The selection as the query the service is asked. */
   query(): string { return selectionQuery(this.clauses, this.raw); }
-  title() { const q = this.query(); return q ? `${this.kind} ${q.length > 30 ? q.slice(0, 29) + "…" : q}` : this.kind; }
+  title() { const q = this.query(); return q ? `${this.kind} ${q}` : this.kind; }
   hint() { return this.draft ? "type the query (the views' grammar: #tag key=value NOT … OR …) · ⏎ apply · esc undo" : HINT; }
   headLabel() { return fg(C.dark) + (this.error ? "failed" : this.answer ? String(this.answer.facets.length) : "…") + RESET; }
   spine() { return { title: this.title() }; }
@@ -247,7 +247,7 @@ export class FacetsPane implements Pane {
   }
 
   private line(r: Row, on: boolean, focused: boolean, w: number): string[] {
-    const style = (text: string, colour: string) => rowLines(text, w).map(text => (on ? selectedRow(text.replace(/\x1b\[[\d;]*m/g, ""), w, focused, "idleRow") : colour + pad(text, w) + RESET));
+    const style = (text: string, colour: string) => rowLines(text, w).map(text => (on ? selectedRow(text.replace(/\x1b\[(?!777;|778m)[\d;]*m/g, ""), w, focused, "idleRow") : colour + pad(text, w) + RESET));
     const room = Math.max(4, w - 3 - (USES + 1 + LAST));
     if (r.kind === "note") return style(` ${subject(r.note)} · ${ago(r.note.updatedAt)}`, fg(C.grey));
     if (r.kind === "clause") return style(` ${r.clause.mode === "include" ? "+" : "−"} ${clauseText({ ...r.clause, mode: "include" })}`, r.clause.mode === "include" ? fg(C.lgreen) : fg(C.lred));
@@ -424,7 +424,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   "facets.open": def({
     summary: "open a note the selection leaves, as ⏎ does in a list (the desk's open rule: the tile's link, or its container's): n (its row, from 1), id, or the row the cursor is on; fresh opens a new detail beside",
     keys: "⏎ on a note, double click, alt+⏎ (fresh)",
-    touches: "nothing", replay: "safe", says: r => `opened "${String(r.title).slice(0, 40)}"`,
+    touches: "nothing", replay: "safe", says: r => `opened "${String(r.title)}"`,
     args: {
       n: { type: "number", optional: true, about: "its row, from 1" },
       id: { type: "string", optional: true, about: "a block id (or its first 8+ characters)" },
@@ -464,7 +464,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.save": def({
     summary: "save the selection as a view: a block `[type::virtual-branch] [query::<the query>]` under a hub (parent=<block id>; left out, the newest board hub, else the top level), named name= (left out, the query)",
-    keys: "v", touches: "nothing", replay: "ask", says: r => `saved view "${String(r.name).slice(0, 40)}"`,
+    keys: "v", touches: "nothing", replay: "ask", says: r => `saved view "${String(r.name)}"`,
     args: { name: { type: "string", optional: true, about: "the view's name" }, parent: { type: "string", optional: true, about: "the hub's block id" } },
     examples: [
       { act: "facets.save name=\"Garden beds\" tile=facets", does: "saves the selection as a view named Garden beds under the newest board hub" },

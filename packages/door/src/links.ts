@@ -35,7 +35,7 @@ import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { watchedOn, type Watching } from "./watched";
 import type { LinkTarget } from "./refs";
 import { ActionRefused } from "./surface/actions";
-import { C, fg, pad, RESET, selectedRow, width } from "./style";
+import { C, drawEllipsized, fg, pad, RESET, selectedRow, width } from "./style";
 
 export { ALL_LINK_GROUPS, blockGroups, isLinkGroup, LINK_BLOCK_KINDS, LINK_GROUPS, linkBlockAt, type LinkBlockKind, type LinkBlockSpec, type LinkGroupName, type LinkPreview } from "@ep0ch/outline-core/link-blocks";
 import { ALL_LINK_GROUPS, blockGroups, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
@@ -736,5 +736,5 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
     key, n, title, rows: entries.map(r => ({ key: r.key, id: linkBlock(r), text: linkWords(r).text, kind: r.kind })),
     sel: sel ?? null, preview: previewing && previewId ? previewId : null, previews: previewing, entered, typing, query: spec.query, groups,
   });
-  return frame(title, body, W, `${loading ? "asking… · " : ""}live · ${what}${filter ? ` · ${filter}` : ""}${spec.of ? ` · of ${of!.slice(0, 8)}` : ""}`, control);
+  return frame(title, body, W, `${loading ? "asking… · " : ""}live · ${what}${filter ? ` · ${filter}` : ""}${spec.of ? ` · of ${drawEllipsized(of!, 9)}` : ""}`, control);
 }

@@ -51,7 +51,7 @@ import { outlineState, readState, writeState } from "../state";
 import { hyperOn } from "../hyper";
 import { containerKeys, leafNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
-import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
+import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme, themed } from "../theme";
 import { ch, type Key, type TileProgram } from "../term";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
@@ -1625,7 +1625,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // (A following reader that stayed on its note for an open edit or comment said so itself, PIE-761.)
     const stayed = (p: Pane) => p instanceof ReaderPane && p.follows && !p.holding && p.editing;
     if (m && opts.from && (opts.link || opts.reveal) && opts.by?.kind !== "agent" && ![...this.panes.values()].some(p => shownBy(p) || stayed(p))) {
-      this.ctx.flash(`no tile shows ${headOf(subject(m), 24)} · alt+l, then click a reader: ⏎ and double-click open there`);
+      this.ctx.flash(`no tile shows ${subject(m)} · alt+l, then click a reader: ⏎ and double-click open there`);
     }
     this.redraw();
   }
@@ -1986,7 +1986,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async revealInOutline(p: Pane): Promise<{ revealed: string; outline: string }> {
     const m = p instanceof ReaderPane ? p.msg : null;
     if (!m) throw new ActionRefused("nothing in that reader to find in the outline");
-    if (!isOutlineNote(m)) throw new ActionRefused(`${headOf(subject(m), 30)} isn't a note in the outline (a Resource or a file): it has no place there`);
+    if (!isOutlineNote(m)) throw new ActionRefused(`${subject(m)} isn't a note in the outline (a Resource or a file): it has no place there`);
     const outline = (d: Desk) => d.all().find(id => typeof d.panes.get(id)?.reveal === "function");
     const desk = [this, ...this.relatives().filter(d => d !== this)].find(d => outline(d) !== undefined);
     const tid = desk ? outline(desk) : undefined;
@@ -3933,7 +3933,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
-        : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? "|15alt+d|08 daily · " : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${headOf(subject(this.currentNow()!), 40)}` : ""}`;
+        : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? "|15alt+d|08 daily · " : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.currentNow()!)}` : ""}`;
     return line(paint(s));
   }
 
@@ -5579,7 +5579,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let line = at.line;
     if (line === undefined && at.text) {
       const i = p.msg.text.split("\n").findIndex(l => l.toLowerCase().includes(at.text!.toLowerCase()));
-      if (i < 0) throw new ActionRefused(`no line in ${subject(p.msg).slice(0, 40)} has ${JSON.stringify(at.text)}`);
+      if (i < 0) throw new ActionRefused(`no line in ${subject(p.msg)} has ${JSON.stringify(at.text)}`);
       line = i + 1;
     }
     if (line === undefined) throw new ActionRefused("view.scrollTo needs line=<n> or text=<words>");
@@ -5606,7 +5606,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   async markBlock(sel: string | undefined, m: { id?: string; line?: number; reason: string }, actor: Actor): Promise<unknown> {
     const by = whoOf(actor);
-    const reason = m.reason.trim().slice(0, 80);
+    const reason = m.reason.trim();
     if (!reason) throw new ActionRefused("block.mark needs reason=<a few words>");
     if (m.line !== undefined) {
       const t = this.tile(sel);

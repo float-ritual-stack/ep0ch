@@ -8,6 +8,7 @@ import { declaredKeys, traceActions } from "../../src/surface/actions";
 import { Desk } from "../../src/desk/desk";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
+import { visible } from "../../src/style";
 
 describe.skipIf(!outliner)("x-ray and hint cards", () => {
   const h = useShowcaseScreen();
@@ -151,6 +152,36 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     }
     await d.dispatch.press("tune.set", { row: "hints", value: "full", level: "global" }, "hint-tune");
     await d.dispatch.press("tile.link", { ask: false }, "source");
+  });
+
+  test("PIE-1113: a clipped tile title is readable by hover and keys without opening its menu", async () => {
+    await h.app.dispatch.act({ action: "section", args: { name: "hints" } }, { kind: "user" });
+    await until(() => !!h.S().stages.get(h.S().sel), "the hints section");
+    const d = h.S().stages.get(h.S().sel).top as Desk;
+    const title = "Greenhouse planting notes with the complete watering instructions and the seed order for next spring";
+    await d.dispatch.press("tile.title", { text: title }, "source");
+    const painted = () => h.painted.map(visible).join("\n");
+    h.screen(); h.app.redraw();
+    await until(() => painted().includes("Greenhouse planting"), "the clipped title");
+    expect(painted()).not.toContain(title);
+    const lines = h.painted.map(visible), y = lines.findIndex(l => l.includes("Greenhouse planting"));
+    const x = lines[y]!.indexOf("Greenhouse planting") + 3;
+    const focus = d.layoutGet().focus;
+    h.press({ kind: "mouse", action: "drag", button: 3, x, y });
+    await until(() => painted().includes(title), "the full title on hover", 1500);
+    h.press({ kind: "mouse", action: "drag", button: 3, x: 0, y: 0 });
+    await until(() => !painted().includes(title), "the hover leaving the title");
+    for (let n = 0; n < 80 && !painted().includes(title); n++) {
+      h.press({ kind: "alt", ch: "?" });
+      await Bun.sleep(30);
+    }
+    expect(painted()).toContain(title);
+    h.app.flash(`Title changed: ${title}`);
+    const log = await h.app.act({ action: "status.list", as: "reader-1113" }) as { messages: { message: string }[] };
+    expect(log.messages.some(m => m.message.includes(title))).toBe(true);
+    expect(d.layoutGet().focus).toBe(focus);
+    expect((d as unknown as { overlays: { top(): unknown } }).overlays.top()).toBeFalsy();
+    await d.dispatch.press("tile.title", { text: "Garden notes" }, "source");
   });
 
 });

@@ -1,8 +1,9 @@
+import { clipText } from "./overflow";
 // A rich component's view (an extension's `component` handler line, pi-herdr-outliner
 // PIE-507), and a rule's decoration (PIE-600): the shared primitives (card, box, stack, row, text, badge, stat, bar,
 // table, checklist, sparkline, image, and band and track for headings and dividers) in the terminal, as the service's `terminal` target lays them out, with tone as colour. The
 // service checks the view against the catalogue; this draws what it sent and nothing else.
-import { BOLD, C, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth } from "./style";
+import { BOLD, C, fg, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth } from "./style";
 import { printable, rowLines, wrap } from "./text";
 import { BAND_ALIGNS, BAND_PATTERNS, BAND_ROWS, BUILTIN_HEADING_STYLE_REGISTRY, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import type { CalloutTone } from "@ep0ch/outline-core/callouts";
@@ -195,7 +196,7 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
     case "box": {
       const title = n.title !== undefined ? ` ${one(n.title)} ` : "";
       const body = kids(n).flatMap(c => inner(c, w - 4));
-      const top = fg(C.dark) + "┌─" + fg(C.lcyan) + headOf(title, Math.max(0, w - 4)) + fg(C.dark) + "─".repeat(Math.max(0, w - 3 - vwidth(title))) + "┐" + RESET;
+      const top = fg(C.dark) + "┌─" + fg(C.lcyan) + clipText(title, Math.max(0, w - 4)) + fg(C.dark) + "─".repeat(Math.max(0, w - 3 - vwidth(title))) + "┐" + RESET;
       return [top, ...body.map(l => fg(C.dark) + "│ " + RESET + pad(l, w - 4) + fg(C.dark) + " │" + RESET), fg(C.dark) + "└" + "─".repeat(w - 2) + "┘" + RESET];
     }
     case "stack":

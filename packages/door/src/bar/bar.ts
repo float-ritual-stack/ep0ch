@@ -1,3 +1,4 @@
+import { clipText } from "../overflow";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { lookFor } from "../look";
 import { outlineBoards } from "../desk/outline-boards";
@@ -346,7 +347,7 @@ export class PowerBar {
     const compact = this.compact();
     if (compact) {
       this.tabSpots = []; this.sourceHead = [];
-      const label = headOf(compact.title, Math.max(1, w - 12));
+      const label = clipText(compact.title, Math.max(1, w - 12));
       const input = this.scope === "ask" && maskedQuestion() ? "·".repeat(Math.min(this.query.length, Math.max(1, w - width(label) - 2))) + "█" : this.input.render(Math.max(1, w - width(label) - 2), 1)[0];
       return { rect, title: "", foot: compact.choice ? "click or j k ⏎ choose · esc cancel" : "⏎ run · esc cancel",
         head: [fg(C.lcyan) + ` ${label} ` + RESET + (compact.choice ? "" : input)] };
@@ -399,7 +400,7 @@ export class PowerBar {
     }
     if (p === "…") return [dim("…")];
     if (!p) return [];
-    if ("lines" in p) return p.lines.slice(0, h).map(l => fg(C.grey) + headOf(paintable(l), w) + RESET);
+    if ("lines" in p) return p.lines.slice(0, h).map(l => fg(C.grey) + clipText(paintable(l), w) + RESET);
     if ("markdown" in p) return draftPreview(p.markdown, w, { board: this.host.ctx.board, redraw: () => this.host.ctx.redraw() }).slice(0, h);
     return this.notePreview(p.note, w, h);
   }

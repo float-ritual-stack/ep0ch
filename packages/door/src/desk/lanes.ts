@@ -14,7 +14,7 @@ import { ActionRefused, actionSet, def, agentLabel, agentWords, asActor } from "
 import { Dispatcher } from "../surface/dispatch";
 import { armsEdit, draftPreviewDoc, leaveSaid, sessionStart } from "../surface/note";
 import { viewSummaryKeys, prop } from "../props";
-import { bg, C, chip, ellipsize, fg, pad, paint, RESET } from "../style";
+import { bg, C, chip, drawEllipsized, fg, pad, paint, RESET } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { applyMove, describeChanges, NO_PLAN, planMoves, type MovePlan } from "../move";
@@ -222,9 +222,9 @@ export class Lanes implements SourceModel {
       const over = d.over === null ? null : this.lanes[d.over];
       const p = over && d.over !== d.from ? this.cachedPlan(d.card, over) : null;
       const onto = d.onto ? this.lanes[d.from]?.items?.find(m => m.id === d.onto) : undefined, above = onto ? this.dropsAbove(d) : null;
-      if (onto && above !== null) return paint(`|08 release to put |15${subject(d.card).slice(0, 40)}|08 ${above ? "above" : "below"} |15${subject(onto).slice(0, 40)}|08 (its lane's hand-set order)`);
+      if (onto && above !== null) return paint(`|08 release to put |15${subject(d.card)}|08 ${above ? "above" : "below"} |15${subject(onto)}|08 (its lane's hand-set order)`);
       const say = over && d.over !== d.from && !p ? `|08 asking the outline what a move into |15${over.name}|08 would patch…`
-        : !over || !p ? `|08 dragging |15${subject(d.card).slice(0, 60)}|08 · release over another lane to move it there`
+        : !over || !p ? `|08 dragging |15${subject(d.card)}|08 · release over another lane to move it there`
         : p.kind === "patch" ? `|08 release to move into |15${over.name}|08 · |14${describeChanges(p.changes)}`
         : p.kind === "already" ? `|08 already in |15${over.name}|08 · nothing to change`
         : `|12 can't drop into ${over.name}: ${p.reason}`;
@@ -649,7 +649,7 @@ export class Lanes implements SourceModel {
     if (actor.kind !== "agent") lane.want = card.id;
     this.loadLanes([lane]);
     const place = `#${position + 1} of ${r.blockIds.length} in ${lane.name}`;
-    asActor(this.host.ctx, actor).flash(`"${ellipsize(subject(card), 40)}" is ${place}`);
+    asActor(this.host.ctx, actor).flash(`"${subject(card)}" is ${place}`);
     for (const x of this.readers()) if (x.msg?.id === card.id) x.surface.noteAgent(actor, `put this card ${place}`);
     return { card: card.id, lane: lane.name, position, of: r.blockIds.length };
   }
@@ -752,7 +752,7 @@ export class Lanes implements SourceModel {
         if (this.card()?.id !== card.id || this.lane !== from) return this.host.ctx.flash("the selection changed · not moved");
         if (i !== from) void this.run("card.move", { lane: this.lanes[i]!.name, card: card.id });
       },
-      frame: a => ({ rect: { col: Math.round(a.cols * 0.15), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.7), rows: Math.min(a.rows - 4, this.lanes.length * 2 + 3) }, title: `move · ${ellipsize(subject(card), Math.round(a.cols * 0.7) - 20)}`, foot: "enter move · esc closes" }),
+      frame: a => ({ rect: { col: Math.round(a.cols * 0.15), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.7), rows: Math.min(a.rows - 4, this.lanes.length * 2 + 3) }, title: `move · ${drawEllipsized(subject(card), Math.round(a.cols * 0.7) - 20)}`, foot: "enter move · esc closes" }),
     }), { card, from, plans: null as MovePlan[] | null });
     M.sel = from;
     this.mover = M;
@@ -1008,7 +1008,7 @@ export class Lanes implements SourceModel {
     }
     const m = made.block;
     const fields = [`priority=${input.priority}`, `arc=${input.arc}`, ...input.tracks.map(t => `track=${t}`), `project=${input.project}`];
-    this.created(lane, m, actor, `created ${made.workId} in ${lane.name} · ${input.title.slice(0, 50)} · ${fields.join(" ")}`, `created ${made.workId} in ${lane.name} under its work queue ${made.workQueueId.slice(0, 8)}`);
+    this.created(lane, m, actor, `created ${made.workId} in ${lane.name} · ${input.title} · ${fields.join(" ")}`, `created ${made.workId} in ${lane.name} under its work queue ${made.workQueueId.slice(0, 8)}`);
     // What the allocator gave it, read off the block it made (its stage rule is the service's, not ours).
     const props = m.properties;
     const bornWith = ["type", "priority", "work-stage", "work-batch", "project", "arc", "track"].flatMap(k => props.filter(p => p.key === k).map(p => `${k}=${p.value}`));
@@ -1045,8 +1045,8 @@ export class Lanes implements SourceModel {
     const m = await this.landCreate(parentId, body, actor);
     const parent = await this.host.ctx.board.get(parentId).catch(() => null);
     if (parent) for (const r of this.readers()) r.refresh(parent);
-    asActor(this.host.ctx, actor).flash(`added a note under ${parent ? titleOf(parent) : parentId.slice(0, 8)} · ${titleOf(m)}`);
-    this.lastWrite = { what: "note", id: m.id, result: `created under ${parentId.slice(0, 8)}`, ...(byOf(actor)) };
+    asActor(this.host.ctx, actor).flash(`added a note under ${parent ? titleOf(parent) : parentId} · ${titleOf(m)}`);
+    this.lastWrite = { what: "note", id: m.id, result: `created under ${parentId}`, ...(byOf(actor)) };
     for (const r of this.readers()) if (r.msg?.id === parentId) r.surface.noteAgent(actor, "added a note under this card");
     this.host.redraw();
     return { id: m.id, parent: parentId, text: m.text };
@@ -1087,7 +1087,7 @@ export class Lanes implements SourceModel {
         const done = S.read?.items.filter(i => stepDone(i.status)).length ?? 0;
         return {
           rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, Math.max(6, n + 4)) },
-          title: `steps · ${titleOf(S.card, 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`, foot: "space done · esc closes",
+          title: `steps · ${drawEllipsized(titleOf(S.card), 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`, foot: "space done · esc closes",
           head: S.read ? [] : [fg(C.dark) + " reading the steps…" + RESET],
           tail: S.read ? [fg(S.busy ? C.grey : C.dark) + ` ${S.busy ? "saving…" : S.note || "each step is changed by the service, checked against how it was read"}` + RESET] : [],
         };
@@ -1330,7 +1330,7 @@ export class Lanes implements SourceModel {
     const C0 = this.composer!, d = C0.session.draft;
     const r: Rect = { col: Math.round(W * 0.18), row: Math.round(H * 0.1), cols: Math.round(W * 0.64), rows: Math.max(10, Math.round(H * 0.6)) };
     canvas.clear(r, bg(C.black));
-    const title = C0.kind === "card" ? `new card · ${C0.lane.name}` : `new note under · ${titleOf(C0.parent, 40)}`;
+    const title = C0.kind === "card" ? `new card · ${C0.lane.name}` : `new note under · ${drawEllipsized(titleOf(C0.parent), 40)}`;
     canvas.box(r, fg(C.yellow), fg(C.yellow) + title, fg(C.dark) + "ctrl+s create · esc closes");
     const w = r.cols - 2;
     const line = (s: string, color: number) => fg(color) + pad(s, w) + RESET;
@@ -1345,7 +1345,7 @@ export class Lanes implements SourceModel {
         : line(`roadmap item · type ${roadmapHint(C0) || "its title"} · the allocator issues its work-id and files it in its project's work queue`, C.cyan),
       line(d.note || "the first line is the title; [key::value] tokens are properties", d.note.startsWith("not created") ? C.lred : C.dark),
     ] : [
-      line(`a child note of ${titleOf(C0.parent, 60)}`, C.cyan),
+      line(`a child note of ${drawEllipsized(titleOf(C0.parent), 60)}`, C.cyan),
       line(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
     ];
     const lines = renderEditor(d, { look, title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, null, links), pick: true }, w, r.rows - 2);

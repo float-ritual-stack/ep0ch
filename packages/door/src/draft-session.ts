@@ -673,7 +673,7 @@ export function blockTarget(m: Msg, o: {
 }): DraftTarget {
   const redraw = () => o.redraw?.();
   return {
-    place: `edit:${m.id}`, back: "e brings it back", label: m.id.slice(0, 8), what: `the edit to “${subject(m).slice(0, 40)}”`,
+    place: `edit:${m.id}`, back: "e brings it back", label: m.id.slice(0, 8), what: `the edit to “${subject(m)}”`,
     verb: "save", blockId: m.id, near: m.id, leaveWrites: true,
     async submit(s, by, { asked, away }) {
       const d = s.draft;
@@ -789,7 +789,7 @@ export function commentTarget(o: {
   refused?(why: string, stale: boolean): void;
   relocate?(): Promise<void>;
 }): DraftTarget {
-  const w0 = o.where(), title = `“${subject(o.note).slice(0, 40)}”`;
+  const w0 = o.where(), title = `“${subject(o.note)}”`;
   let confirmNew = false;
   const no = (why: string, more: { stale?: boolean; again?: boolean } = {}): Outcome => { o.refused?.(why, !!more.stale); return { ok: false, why, ...more }; };
   const key = (t: NewCommentWhere, body: string) => JSON.stringify(t.kind === "quote" ? ["comment", t.blockId, t.revision, t.passage.start, t.passage.quote, body] : t.kind === "note" ? ["comment", t.blockId, t.revision, body] : ["reply", t.thread.id, body]);
@@ -871,7 +871,7 @@ export function commentEditTarget(o: {
   return {
     place: `remark:${mark.id}`, near: o.note.id, label,
     back: `e on the ${what} brings it back`,
-    what: `the edit to ${mark.author}'s ${what} on “${subject(o.note).slice(0, 40)}”`,
+    what: `the edit to ${mark.author}'s ${what} on “${subject(o.note)}”`,
     verb: "save", leaveWrites: true,
     async submit(s, by) {
       const d = s.draft;
@@ -928,7 +928,7 @@ export function cardTarget(o:
     place: card ? `card:${o.view}` : `child:${o.parent.id}`, near: card ? o.view : o.parent.id,
     back: card ? `n in ${o.lane} brings it back` : "N on the card brings it back",
     label,
-    what: card ? `the new card in ${o.lane}` : `the new note under “${subject(o.parent).slice(0, 40)}”`,
+    what: card ? `the new card in ${o.lane}` : `the new note under “${subject(o.parent)}”`,
     verb: "create", leaveWrites: false,
     async submit(s, by) {
       const d = s.draft;

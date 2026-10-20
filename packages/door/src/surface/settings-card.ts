@@ -13,7 +13,7 @@ import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import type { BarQuestion, BarSuggestion } from "../bar/ask";
 import { printable } from "../props";
 import { RowView } from "../scroll";
-import { selectedRow, bg, C, ellipsize, fg, pad, RESET, width } from "../style";
+import { selectedRow, bg, C, drawEllipsized, fg, pad, RESET, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { rowLines, rule } from "../text";
 
@@ -200,7 +200,7 @@ export class SettingsCard {
     const first = this.schemas[0]!, name = first.source.note?.name;
     const named = fields.find(f => f.prop.key === name)?.value;
     const title = `settings · ${this.schemas.map(s => s.title).join(" + ")}${named ? ` · ${printable(named)}` : ""}${revision !== undefined ? ` · rev ${revision}` : ""}`;
-    const out = [rule(w, ellipsize(title, Math.max(2, w - 8)))];
+    const out = [rule(w, drawEllipsized(title, Math.max(2, w - 8)))];
     this.sel = Math.max(0, Math.min(this.sel, fields.length - 1));
     const sel = fields[this.sel];
     const about = sel ? `${sel.prop.key} · ${sel.prop.type} · ${sel.prop.meaning}` : "";
@@ -227,7 +227,7 @@ export class SettingsCard {
       if (r.n) this.at.push({ y: out.length, n: r.n });
       out.push(r.n - 1 === this.sel ? selectedRow(r.text, w) : pad(r.text, w));
     }
-    if (foot) out.push(fg(/not saved|can't|refused|failed|isn't|is one of|is a /.test(this.note) ? C.lred : this.note ? C.yellow : C.dark) + pad(ellipsize(foot, w), w) + RESET);
+    if (foot) out.push(fg(/not saved|can't|refused|failed|isn't|is one of|is a /.test(this.note) ? C.lred : this.note ? C.yellow : C.dark) + pad(drawEllipsized(foot, w), w) + RESET);
     return out.slice(0, h);
   }
 }

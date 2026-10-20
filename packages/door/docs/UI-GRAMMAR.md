@@ -6,6 +6,15 @@ The line numbers in the citations below are from that first audit and drift; the
 [architecture map](architecture/map.json) is the checked index (`bun scripts/architecture-map.ts --sync` in packages/door keeps its lines current). Use this page to name things in code,
 READMEs and roadmap items, and to judge whether a new screen reuses the grammar or invents its own.
 
+## Text must stay reachable
+
+Table stakes for every surface (the panels capability, `056753fc`): wrap where the container can grow,
+scroll when long, and keep the whole value when shortening is unavoidable. All shortening uses `pad`,
+`drawEllipsized`, `rowLines` or `fitHint`, never a local slice and ellipsis. Keep status messages whole until
+`App.flash`, so `status.list` and the message log retain them. The final composed frame owns reveal placement,
+including text inside floats: hover or keyboard selection shows the full value; Alt+? cycles clipped values.
+The one-line reveal scrolls if it is itself wider than the screen. Reading it never changes a click's action.
+
 ## Before adding a feature
 
 Check here for the part that already does it. Skipping this step is how the door got two readers,
@@ -13,6 +22,7 @@ three layout models and four searches (§4).
 
 | The feature needs to… | Use | Where |
 |---|---|---|
+| read a cut-short string in full | `clipText`, `pad`, `drawEllipsized`, `rowLines` and `fitHint` carry compact references through the canvas as zero-cell drawing marks. `ellipsize` and `shortId` return plain text for data and refusals. `Overflow` resolves the final composed cells, lazily caches a reveal of at most 4 KiB plus an omitted-character count, reveals hovered or selected values in one line and scrolls those wider than the screen. The value cache retains at most 1,024 source references. Alt+? (`text.reveal`) cycles the clipped values without changing focus. Sources headers and values wrap without a row cap; tables drop the id column before shrinking a title. `status.list` also returns recent messages in full. | `src/style.ts`, `src/text.ts`, `src/hyperlink.ts`, `src/overflow.ts`, `src/canvas.ts`, `src/app.ts`; showcase `hints` |
 | recover and search a status message after its flash | `App.flash` appends to the session's `StatusLog` (last 500 in memory, size-rotated JSONL under `outlineState()`). `StatusMessages` uses the BBS list actions, `RowView`, uncapped `rowLines`, `LineInput` and outline-core's search matcher. `status.log` opens it, `status.filter` searches it, `status.reload` refreshes its stable rows; Enter returns to the note or tile. Stacks stay in the file; `peek` carries messages; `ep0ch log --follow` tails the file. | `src/status-log.ts`, `src/app.ts`, `src/screens.ts`; showcase `message-log` |
 | offer a first step in an empty screen, drawer or agent panel | `HomeSurface`, using the document renderer, shared button drawing and `::graph-keys`; presses go through the existing actions | `src/surface/home.ts`, `src/desk/desk.ts`, `src/desk/agents-panel.ts`; showcase `drawer` |
 | explain a mode or reveal a frame's controls without taking keys | `HintCard`, composed in the desk float layer with `Canvas.box`, `RowView` and the `graph-keys` keycaps. `ActionDef.hint` or a mode's card declares its words. `menuRow` formats the interaction choices; the dispatcher owns execution. `hint.show/get/pin/dismiss`, `hint.scroll` and `xray` share one ActionSet. | `src/surface/hint-card.ts`, `src/desk/desk.ts`; showcase `hints` |

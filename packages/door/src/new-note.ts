@@ -93,7 +93,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
         throw new ActionRefused(`no new note: ${why}${fix}`);
       }
       const { note, placement } = made;
-      const out = { id: note.id, title: subject(note).slice(0, 40), parentId: placement.parentId, rule: placement.rule, said: placement.said };
+      const out = { id: note.id, title: subject(note), parentId: placement.parentId, rule: placement.rule, said: placement.said };
       // An agent's opens nothing (the dispatcher says it on the status bar, `says`, named), unless it asked where: shown there, unfocused.
       if (actor.kind === "agent") {
         // Made either way: a showing refused (a locked screen) is said with the note's id, never as a failure to retry.

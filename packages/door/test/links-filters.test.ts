@@ -1,3 +1,4 @@
+import { visible } from "../src/style";
 // The links tile's Kind, Stage and Sort apply to all three groups (Outlinks, Resources, Backlinks), its counters
 // count across them and say which, and its header keeps every control where it is whatever the values (src/links.ts
 // `linkRows`, `linkAcross`; src/desk/backlinks-pane.ts `layoutLinksStatus`). Fictional links; the model and the
@@ -142,7 +143,7 @@ describe("the header keeps its controls where they are", () => {
     const parts = backlinkStatusParts(backlinkView((data().backlinks as { value: BacklinkCollection }).value, opts), opts, opts.filter, linkAcross(data(), opts));
     return layoutLinksStatus(parts, cols, 6, () => "").segs;
   };
-  const slotOf = (segs: ReturnType<typeof at>, label: string) => segs.find(s => s.text.startsWith(label));
+  const slotOf = (segs: ReturnType<typeof at>, label: string) => segs.find(s => visible(s.text).startsWith(label));
 
   test.each([60, 90, 120])("at %i columns the counters, Kind, Stage and Sort sit at the same cell whatever the values", cols => {
     const base = at(cols, {});
@@ -164,7 +165,7 @@ describe("the header keeps its controls where they are", () => {
     const parts = backlinkStatusParts(backlinkView((data().backlinks as { value: BacklinkCollection }).value, DEFAULT_BACKLINK_VIEW_OPTIONS), DEFAULT_BACKLINK_VIEW_OPTIONS, "", { ...linkAcross(data(), DEFAULT_BACKLINK_VIEW_OPTIONS), kinds: [{ kind: "outbox-item", label: "A very long kind label indeed, longer than any slot" }] });
     parts.find(p => p.slot === "kind")!.text = "Kind: A very long kind label indeed, longer than any slot";
     const cut = layoutLinksStatus(parts, 90, 6, () => "").segs;
-    expect(slotOf(cut, "Kind:")!.text.endsWith("…")).toBe(true);
+    expect(visible(slotOf(cut, "Kind:")!.text).endsWith("…")).toBe(true);
     expect(slotOf(cut, "Stage:")).toMatchObject({ x: slotOf(long, "Stage:")!.x, y: slotOf(long, "Stage:")!.y });
     expect(slotOf(cut, "Sort:")).toMatchObject({ x: slotOf(long, "Sort:")!.x, y: slotOf(long, "Sort:")!.y });
     expect(kinds.length).toBeGreaterThan(0);

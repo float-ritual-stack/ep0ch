@@ -1,3 +1,5 @@
+import { fullPlainText } from "./overflow";
+import { Overflow } from "./overflow";
 import { linkUpdateLabel } from "@ep0ch/outliner/link";
 import { outlinesDir } from "./discover";
 import { errorDetails } from "./status-log";
@@ -152,6 +154,7 @@ export interface Ctx {
   replace(s: Screen): void;
   quit(): void;
   redraw(): void;
+  readonly overflow?: Overflow;
   readonly messages?: StatusLog;
   readonly dispatch?: Dispatcher;
   flash(msg: string, ms?: number, details?: MessageDetails): void;
@@ -393,6 +396,7 @@ export function agentActor(as?: string): Actor {
 }
 
 export class App implements Ctx {
+  readonly overflow = new Overflow();
   /** The host layer's drawer, as a screen's tiles reach it (`tile.drawer`). */
   get hostLayer(): HostLayer { return this.drawer; }
   private stack: Screen[] = [];
@@ -734,7 +738,7 @@ export class App implements Ctx {
     this.messageWarning = warning; this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw();
   }
   /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
-  flash(msg: string, ms = 4000, details: MessageDetails = {}) { this.showMessage(msg, ms, true, details); }
+  flash(msg: string, ms = 4000, details: MessageDetails = {}) { this.showMessage(fullPlainText(msg), ms, true, details); }
 
   // ── a refusal of the person's key or click (PIE-727): said on the status bar and on the focused tile's frame ──
   /**
@@ -994,7 +998,7 @@ export class App implements Ctx {
     const said = this.remoteSaid, now = this.now();
     if (verb === "changed" && said && said.id === r?.id && said.verb !== "changed" && now - said.at < 3000) return;
     this.remoteSaid = { id: r?.id, verb, at: now };
-    this.flash(`${actorLabel(w.actor)} ${verb} ${r?.title ? `“${r.title.slice(0, 48)}”` : "a note"} · a remote MCP write`, 6000);
+    this.flash(`${actorLabel(w.actor)} ${verb} ${r?.title ? `“${r.title}”` : "a note"} · a remote MCP write`, 6000);
   }
   private remoteSaid: { id?: string; verb: string; at: number } | null = null;
 
@@ -1209,6 +1213,10 @@ export class App implements Ctx {
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private xrayLeader = false;
   private route(k: Key) {
+    if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
+    if (k.kind === "mouse" && k.action === "drag" && k.button === 3) void this.dispatch.press("text.hover", { x: k.x, y: k.y });
+    else if (k.kind === "mouse") this.overflow.clear();
+    else this.overflow.keys();
     if (k.kind === "modifier") {
       if (!this.bar && this.dispatch.has("xray")) void this.dispatch.press("xray", k.event === "tap" ? {} : { on: k.event === "press" });
       return;
@@ -1370,7 +1378,7 @@ export class App implements Ctx {
     let expired = !!this.message && Date.now() > this.messageUntil;
     if (expired) this.message = "";
     if (this.toast && Date.now() > this.toast.until) { this.toast = null; expired = true; }
-    if (s?.tick?.(this) || expired) this.redraw();
+    if (s?.tick?.(this) || expired || this.overflow.tick(Date.now())) this.redraw();
     // An idle door still keeps time: once the clock or the uptime turns over, the status bar alone is
     // repainted (no screen render, no Kitty sync), so nothing being edited, selected or dragged moves.
     else if (s && this.timeShown() !== this.shownTime) this.paintStatus(s);
@@ -1392,7 +1400,8 @@ export class App implements Ctx {
   private paintStatus(s: Screen) {
     if (this.closed) return;
     const { cols, rows } = this.term.info;
-    if (!this.display.showRow(rows - 1, this.statusBar(s, cols))) this.redraw();
+    const status = this.overflow.updateRow(this.statusBar(s, cols), rows - 1);
+    if (status.reading || !this.display.showRow(rows - 1, status.line)) this.redraw();
   }
 
   /**
@@ -1479,7 +1488,9 @@ export class App implements Ctx {
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
     lines.push(this.statusBar(s, cols));
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
-    this.display.show(lines, placements);
+    const readable = this.overflow.draw(lines, cols, Date.now());
+    if (readable.overlay) placements = uncover(placements, readable.overlay);
+    this.display.show(readable.lines, placements);
     this.schedulePublish();
   }
 

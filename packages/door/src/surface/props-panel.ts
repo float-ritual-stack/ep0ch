@@ -9,9 +9,9 @@ import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link
 import { isWritablePropertyValue, splitPropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
-import { MISSING_MARK, pageOf, refView, referencesIn, shortId } from "../refs";
+import { MISSING_MARK, pageOf, refView, referencesIn, shortId, drawShortId } from "../refs";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
-import { selectedRow, ellipsize, bg, C, fg, pad, RESET, width } from "../style";
+import { selectedRow, drawEllipsized, bg, C, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rowLines, rule } from "../text";
 import { RowView } from "../scroll";
@@ -71,7 +71,7 @@ export function valueView(r: PropRow, src: Source | null, noteText?: string): st
   }
   if (r.target && "page" in r.target) {
     const p = pageOf(r.target.page, src);
-    return p?.status === "missing" ? `${v} ${MISSING_MARK}` : p?.block ? `${v}  ${printable(titleLine(p.block.text).text).slice(0, 60)}` : v;
+    return p?.status === "missing" ? `${v} ${MISSING_MARK}` : p?.block ? `${v}  ${printable(titleLine(p.block.text).text)}` : v;
   }
   return v;
 }
@@ -139,7 +139,7 @@ export class PropertyPanel {
   render(rows: PropRow[], w: number, h: number, info: { look?: StyleValues; origin?: number; revision?: number; summary: readonly string[]; source: string; scopes: "ready" | "loading" | "block"; src: Source | null; text?: string; values?: readonly ValueRow[] }): string[] {
     const scopes = info.scopes === "ready" ? "" : info.scopes === "loading" ? " · reading…" : " · block only (no properties.preview here)";
     const title = `properties · ${rows.length}${info.revision !== undefined ? ` · rev ${info.revision}` : ""}${scopes}`;
-    const out = [rule(w, ellipsize(title, Math.max(2, w - 8)))];
+    const out = [rule(w, drawEllipsized(title, Math.max(2, w - 8)))];
     const foot = this.field?.note || this.note;
     const room = Math.max(1, h - 1 - (foot ? 1 : 0));
     if (!rows.length) out.push(fg(C.dark) + pad("  no properties", w) + RESET);
@@ -159,7 +159,9 @@ export class PropertyPanel {
       const mark = info.summary.includes(r.key.toLowerCase()) ? fg(C.yellow) + "■" : " ";
       const scope = r.scope === "block" ? "" : ` (${r.scope})`;
       const valW = Math.max(1, w - keyW - 5 - scope.length);
-      const value = f ? f.input.show(valW, "block") : (r.target ? fg(C.lcyan) : fg(C.yellow)) + valueView(r, info.src, info.text);
+      const reads = valueView(r, info.src, info.text), block = r.target && "block" in r.target ? r.target.block : undefined;
+      const shown = block ? reads.replace(shortId(block), () => drawShortId(block)) : reads;
+      const value = f ? f.input.show(valW, "block") : (r.target ? fg(C.lcyan) : fg(C.yellow)) + shown;
       const line = " " + mark + " " + fg(C.brown) + pad(printable(r.key), keyW) + "  " + value + RESET + fg(C.dark) + scope + RESET;
       return rowLines(line, w, f ? 1 : undefined, { hang: keyW + 5 }).map(text => ({ text, row: r }));
     });
@@ -189,8 +191,8 @@ export class PropertyPanel {
     if (values.length && out.length + 2 < h - (foot ? 1 : 0)) {
       out.push(fg(C.dark) + pad(`Values read here · ${values.length}`, w) + RESET);
       for (const v of values.slice(0, Math.max(0, h - 1 - (foot ? 1 : 0) - out.length))) {
-        const key = ellipsize(`{{${printable(v.expression)}}}`, Math.max(8, keyW + 12));
-        const reads = v.problem ? fg(C.brown) + printable(v.problem) : fg(C.yellow) + printable(v.words) + (v.from ? fg(C.dark) + `  ${shortId(v.from)}` : fg(C.dark) + "  computed");
+        const key = drawEllipsized(`{{${printable(v.expression)}}}`, Math.max(8, keyW + 12));
+        const reads = v.problem ? fg(C.brown) + printable(v.problem) : fg(C.yellow) + printable(v.words) + (v.from ? fg(C.dark) + `  ${drawShortId(v.from)}` : fg(C.dark) + "  computed");
         out.push(pad("  " + fg(C.lcyan) + key + RESET + "  " + reads + RESET, w));
       }
     }

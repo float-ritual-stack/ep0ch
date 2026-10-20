@@ -13,7 +13,7 @@
 //
 // A cell is the text between `|`s; a bold row is the accent. Under 60 columns the block stacks: each row is its
 // label, then one line per column.
-import { BOLD, ellipsize, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
+import { BOLD, drawEllipsized, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { rowLines, wrap } from "../text";
 import { ACCENT, DIM, HI, INK, records, rowLink, tier, type Props, type RowLink } from "./palette";
 
@@ -34,12 +34,12 @@ export function drawCompare(p: Props, w: number, link?: RowLink): string[] {
     return entries.flatMap((e, i) => [
       ...(i ? [""] : []),
       ...rowLines(rowLink(link, e.block, e.label), w).map(l => ink(e) + l + UNBOLD + RESET),
-      ...columns.flatMap((c, k) => rowLines(e.cells[k] || " ", Math.max(4, w - cl - 4)).map((l, j) => "  " + fg(HI) + pad(j ? "" : ellipsize(c, cl), cl) + "  " + fg(INK) + l + RESET)),
+      ...columns.flatMap((c, k) => rowLines(e.cells[k] || " ", Math.max(4, w - cl - 4)).map((l, j) => "  " + fg(HI) + pad(j ? "" : drawEllipsized(c, cl), cl) + "  " + fg(INK) + l + RESET)),
     ]);
   }
   const lw = Math.min(Math.max(...entries.map(e => vwidth(e.label))), Math.max(8, Math.floor(w * 0.3)));
   const cw = Math.max(6, Math.floor((w - lw - 3 * n) / n));
-  const head = pad("", lw) + columns.map(c => fg(DIM) + " ┊ " + fg(HI) + pad(ellipsize(c, cw), cw)).join("") + RESET;
+  const head = pad("", lw) + columns.map(c => fg(DIM) + " ┊ " + fg(HI) + pad(drawEllipsized(c, cw), cw)).join("") + RESET;
   const rule = fg(DIM) + "·".repeat(Math.min(w, lw + (cw + 3) * n)) + RESET;
   const body = entries.flatMap(e => {
     const labels = rowLines(rowLink(link, e.block, e.label), lw), cells = columns.map((_, k) => rowLines(e.cells[k] ?? "", cw));

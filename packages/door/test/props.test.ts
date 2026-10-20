@@ -1,3 +1,4 @@
+import { visible } from "../src/style";
 // Readers show notes the way Detail does: a summary line instead of metadata lines, a property panel
 // (copy, follow, edit by keys and agents), links by title, and transclusions with explicit failures.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -115,7 +116,7 @@ describe("links read as titles", () => {
     const text = `See ((${A})), ((${A}|the plan)), ((${A}^beds)), ((${A}^nope)), ((${T})), ((${GONE}|old notes)), ((${GONE})), [[garden]], [[GDN-99|the bin]].\n\`((${A}))\`\n\`\`\`\n((${A}))\n\`\`\`\n!((${A}))`;
     presentLinks(text, true, src);
     await Bun.sleep(5);
-    const out = stripMarks(presentLinks(text, true, src)).split("\n");
+    const out = visible(presentLinks(text, true, src)).split("\n");
     expect(out[0]).toBe("See Garden plan, the plan, Garden plan^beds, Garden plan^nope · Missing fragment, Old shed · Trash, old notes ◌, cccccccc… ◌, garden, the bin ◌.");
     expect(out.slice(1)).toEqual([`\`((${A}))\``, "```", `((${A}))`, "```", `!((${A}))`]);
     // Inside an embed, an embed isn't expanded, and says so.
@@ -124,7 +125,7 @@ describe("links read as titles", () => {
   });
 
   test("without a service the raw reference still reads short, never a crash", () => {
-    expect(stripMarks(presentLinks(`((${A})) and ((${A}|label))`, true, null))).toBe("aaaaaaaa… and label");
+    expect(visible(presentLinks(`((${A})) and ((${A}|label))`, true, null))).toBe("aaaaaaaa… and label");
   });
 });
 

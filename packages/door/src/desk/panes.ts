@@ -502,7 +502,7 @@ export class ReaderPane implements Pane {
     if (this.holding) return;
     if (this.show(m, desk) || !m || !this.msg || m.id === this.msg.id || !this.editing || this.heldAgainst === m.id) return;
     this.heldAgainst = m.id;
-    desk.ctx.flash(`${this.detailLabel() ?? "the reader"} keeps ${sessionName(this)} on “${subject(this.msg).slice(0, 40)}” · “${subject(m).slice(0, 40)}” is the current note; it follows once that's sent or closed`, 8000);
+    desk.ctx.flash(`${this.detailLabel() ?? "the reader"} keeps ${sessionName(this)} on “${subject(this.msg)}” · “${subject(m)}” is the current note; it follows once that's sent or closed`, 8000);
   }
   /** The last current note it stayed off for its open session, said once. */
   private heldAgainst: string | null = null;
@@ -545,7 +545,7 @@ export class ReaderPane implements Pane {
   landsFrom: string[] = [];
   /** What an empty one says it's for: where its notes come from, and how to get one there. */
   protected emptyFor(): string {
-    if (this.missing) return `the note it held (${this.missing.slice(0, 8)}…) isn't in this outline (gone, or the screen was made on another outline) · open one here, or ^W x closes it`;
+    if (this.missing) return `the note it held (${this.missing}) isn't in this outline (gone, or the screen was made on another outline) · open one here, or ^W x closes it`;
     if (this.landsFrom.length) return `what you open in ${this.landsFrom.join(" or ")} lands here`;
     return this.follows && !this.holding ? "shows the current note: pick one in the outline, or / searches" : "keeps the note opened into it · alt+l in another tile, then a click here, sends that tile's opens here";
   }
@@ -835,7 +835,7 @@ export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi }>
   "activity.pick": def({
     summary: "pick a row of the activity tile (last callers, live): n from 1, else the selected one; open=true makes its note the current one, as ⏎ does. An agent's pick answers the row and moves nothing of the person's",
     keys: "j k ↑ ↓ click wheel, ⏎ (open)",
-    touches: "nothing", replay: "safe", says: r => (r.opened ? `opened ${String(r.title).slice(0, 40)}` : null),
+    touches: "nothing", replay: "safe", says: r => (r.opened ? `opened ${String(r.title)}` : null),
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, open: { type: "boolean", optional: true, about: "make its note the current one, as ⏎ does" } },
     examples: [
       { act: "activity.pick tile=activity n=1", does: "answers the newest caller's row: who, which note, when" },

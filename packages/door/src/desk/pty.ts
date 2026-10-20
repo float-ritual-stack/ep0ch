@@ -327,7 +327,7 @@ export class PtyPane implements Pane {
     const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true });
     this.term = term;
     holdStatus(this);
-    term.onTitleChange(t => { this.programTitle = t.slice(0, 60); });
+    term.onTitleChange(t => { this.programTitle = t; });
     // A program asks its terminal things (where the cursor is, its colours): the emulator answers, and the
     // answer goes back to the program as a terminal's would. Without it nvim waits, then complains.
     // Not while what a kept program wrote is replayed (an adopted one): its old queries were answered then.

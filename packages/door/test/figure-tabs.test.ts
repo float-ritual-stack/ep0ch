@@ -15,7 +15,7 @@ const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000
 describe("a title's lines (density)", () => {
   test("cozy wraps to two lines, hanging past a work id; only the last line is cut", () => {
     const t = "PIE-541 — this is a long title and stuff and its two lines and then some more words";
-    const out = rowLines(t, 30, 2);
+    const out = rowLines(t, 30, 2).map(strip);
     expect(out).toHaveLength(2);
     expect(out[0]).toBe("PIE-541 — this is a long title");
     expect(out[1]!.startsWith(" ".repeat(width("PIE-541 — ")))).toBe(true);
@@ -24,7 +24,7 @@ describe("a title's lines (density)", () => {
     // Fits in one: one line, whatever the density.
     expect(rowLines("PIE-1 — short", 30, 3)).toEqual(["PIE-1 — short"]);
     // Compact: one line, cut.
-    expect(rowLines(t, 30, 1)).toEqual([t.slice(0, 29) + "…"]);
+    expect(rowLines(t, 30, 1).map(strip)).toEqual([t.slice(0, 29) + "…"]);
   });
   test("an explicit larger limit keeps the whole title when it fits", () => {
     const q = "PLOT-12 — When the seed swap moves to the hall, who carries the trestle tables, who brings the urn, and does the borrowed kettle go back to the church hall before Sunday's service starts?";
@@ -33,10 +33,10 @@ describe("a title's lines (density)", () => {
     expect(out.join("")).not.toContain("…");
     expect(out.map(l => l.trim()).join(" ")).toBe(q);
     expect(out.every(l => width(l) <= 30)).toBe(true);
-    expect(rowLines(q, 30, 2)[1]!.endsWith("…")).toBe(true);
+    expect(strip(rowLines(q, 30, 2)[1]!).endsWith("…")).toBe(true);
   });
   test("a title with no id prefix continues at the column's edge; wide glyphs count as two cells", () => {
-    expect(rowLines("plain words that wrap onto another line", 20, 2)[1]!.startsWith("wrap")).toBe(true);
+    expect(strip(rowLines("plain words that wrap onto another line", 20, 2)[1]!).startsWith("wrap")).toBe(true);
     const wide = rowLines("KEY-9 · 漢字漢字漢字漢字漢字漢字漢字漢字漢字漢字", 16, 3);
     expect(wide.every(l => width(l) <= 16)).toBe(true);
     expect(wide.length).toBeGreaterThan(1);

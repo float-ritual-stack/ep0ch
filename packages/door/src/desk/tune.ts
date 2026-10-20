@@ -27,7 +27,7 @@ import {
 import { surfaceMix } from "../theme";
 import type { Actor } from "../socket";
 import { ActionRefused, actionSet, agentLabel, def } from "../surface/actions";
-import { bgRgb, C, chip, ellipsize, fg, pad, RESET, selected, selectedRow, width } from "../style";
+import { bgRgb, C, chip, drawEllipsized, fg, pad, RESET, selected, selectedRow, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { type RowPress } from "../scroll";
 import { Inspector } from "../surface/inspector";
@@ -240,7 +240,7 @@ export class TunePane implements Pane {
       let line = "", x = 0;
       for (const p of parts) {
         if (x >= w) break;
-        const text = ellipsize(p.text, w - x);
+        const text = drawEllipsized(p.text, w - x);
         if (p.action) this.controls.push({ y: lines.length, x, cols: width(text), action: p.action, args: p.args ?? {} });
         line += p.sgr + text + RESET; x += width(text);
       }
@@ -289,7 +289,7 @@ export class TunePane implements Pane {
     // With a level (or a width) picked, a header names the columns: the value in force, what that level says itself, where the value in force comes from.
     if (picked) {
       const lv = this.level === "auto" ? "where set" : this.level;
-      lines.push(fg(C.dark) + pad("", nameW) + pad("in force", valW) + fg(C.lcyan) + " " + pad(ellipsize(`${lv}${this.scope === "this" && t.look.breakpoint ? ` ${t.look.breakpoint}` : ""}`, lvlW - 2), lvlW - 1) + fg(C.dark) + "from" + RESET);
+      lines.push(fg(C.dark) + pad("", nameW) + pad("in force", valW) + fg(C.lcyan) + " " + pad(drawEllipsized(`${lv}${this.scope === "this" && t.look.breakpoint ? ` ${t.look.breakpoint}` : ""}`, lvlW - 2), lvlW - 1) + fg(C.dark) + "from" + RESET);
     }
     this.view.place(this.sel, TUNE_ROWS.length, picked ? room - 1 : room);
     for (let i = this.view.top; i < Math.min(TUNE_ROWS.length, this.view.top + (picked ? room - 1 : room)); i++) {
@@ -308,8 +308,8 @@ export class TunePane implements Pane {
       const ownText = !picked ? "" : !aimed ? "—" : own.every(v => v === null) ? "—" : own.map(v => (v === UNSET ? "×" : v ?? "·")).join(" ");
       const srcW = Math.max(0, w - nameW - valW - lvlW - ctl - 1);
       const y = lines.length;
-      const name = " " + pad(ellipsize(row.name, nameW - 2), nameW - 1), value = swatch && valW > 6 ? pad(ellipsize(shown, valW - 4), valW - 3) + " " + swatch + (on ? selected(focused) : "") : pad(ellipsize(shown, valW - 1), valW);
-      const lvl = picked ? " " + pad(ellipsize(ownText, lvlW - 2), lvlW - 1) : "";
+      const name = " " + pad(drawEllipsized(row.name, nameW - 2), nameW - 1), value = swatch && valW > 6 ? pad(drawEllipsized(shown, valW - 4), valW - 3) + " " + swatch + (on ? selected(focused) : "") : pad(drawEllipsized(shown, valW - 1), valW);
+      const lvl = picked ? " " + pad(drawEllipsized(ownText, lvlW - 2), lvlW - 1) : "";
       const whence = shadow ? `⊘ ${shadow.why}` : `${tuned ? "● " : "← "}${sourceWords(src)}`;
       const ink = (c: number) => (on ? "" : fg(shadow ? C.dark : c));
       const body = (on ? "" : fg(shadow ? C.dark : C.grey)) + name + ink(tuned ? C.yellow : C.white) + value + ink(C.lcyan) + lvl + (on ? "" : fg(shadow ? C.yellow : C.dark)) + pad(whence, srcW) + RESET;
@@ -321,8 +321,8 @@ export class TunePane implements Pane {
     }
     // What the tile's look couldn't use (a value out of range, a style no note declares), then the help.
     const problems = t.look.problems;
-    if (problems.length) lines.push(fg(C.yellow) + ellipsize(`⚠ ${problems.join(" · ")}`, w) + RESET);
-    lines.push(fg(C.dark) + ellipsize(TUNE_HELP, w) + RESET);
+    if (problems.length) lines.push(fg(C.yellow) + drawEllipsized(`⚠ ${problems.join(" · ")}`, w) + RESET);
+    lines.push(fg(C.dark) + drawEllipsized(TUNE_HELP, w) + RESET);
     return { lines };
   }
 

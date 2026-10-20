@@ -112,7 +112,7 @@ export const wKey = (key: string): WKey | undefined => (W_KEYS as readonly WKey[
 export const wCaption = (key: string): string => `^W ${key === " " ? "space" : key}`;
 
 /** A summary's first clause: what the popup says under a label. */
-export const clause = (summary: string): string => summary.split(/[.:;(]/)[0]!.trim().slice(0, 90);
+export const clause = (summary: string): string => summary.split(/[.:;(]/)[0]!.trim();
 
 /** One key as the popup and the keys box list it: the entry with the words joined from its action. */
 export interface WRow {

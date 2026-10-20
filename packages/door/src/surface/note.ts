@@ -1,3 +1,4 @@
+import { fullPlainText, selectFullText } from "../overflow";
 import { buttonLabel } from "./home";
 import { withFigureProp } from "@ep0ch/outline-core/figure-props";
 import { checkValue as schemaCheck } from "@ep0ch/outline-core/component-schema";
@@ -83,7 +84,7 @@ import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
-import { visible, headOf, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
+import { visible, headOf, tailFrom, BOLD, fgRgb, ellipsize, drawEllipsized, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rowLines, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
@@ -335,14 +336,13 @@ export function historyKey(k: Key): -1 | 1 | 0 {
 export function historyRow(w: number, back: string | null, forward: string | null): { line: string; hits: { from: number; to: number; dir: -1 | 1 }[] } | null {
   if ((!back && !forward) || w < 12) return null;
   const room = back && forward ? Math.floor((w - 3) / 2) : w - 2;
-  const b = back ? ellipsize(`← back · ${printable(back)}`, room) : "", f = forward ? ellipsize(`${printable(forward)} · forward →`, room) : "";
+  const b = back ? drawEllipsized(`${fg(C.lcyan)}← back${fg(C.dark)} · ${printable(back)}`, room) : "", f = forward ? drawEllipsized(`${fg(C.dark)}${printable(forward)} · ${fg(C.lcyan)}forward →`, room) : "";
   const hits: { from: number; to: number; dir: -1 | 1 }[] = [];
   let line = "";
-  if (b) { line += " " + fg(C.lcyan) + "← back" + fg(C.dark) + b.slice("← back".length) + RESET; hits.push({ from: 0, to: 1 + width(b), dir: -1 }); }
+  if (b) { line += " " + b + RESET; hits.push({ from: 0, to: 1 + width(b), dir: -1 }); }
   if (f) {
     const at = w - 1 - width(f), gap = at - (b ? 1 + width(b) : 0);
-    const arrow = f.endsWith("forward →") ? f.length - "forward →".length : f.length;
-    line += " ".repeat(Math.max(1, gap)) + fg(C.dark) + f.slice(0, arrow) + fg(C.lcyan) + f.slice(arrow) + RESET;
+    line += " ".repeat(Math.max(1, gap)) + f + RESET;
     hits.push({ from: at, to: w, dir: 1 });
   }
   return { line, hits };
@@ -1037,19 +1037,19 @@ export class NoteSurface {
     if (rows) return selectionHint(this.selection!, [...this.selection!.text(rows)].length);
     const points = this.msg && !this.msg.partial ? this.visibleFolds(this.msg) : [];
     const sel = this.selectedFold(), f = sel ? points.indexOf(sel) : -1;
-    if (f >= 0) { const p = points[f]!; return `fold ${f + 1}/${points.length} ${foldLabel(p).slice(0, 60)} · ⏎ f ${this.folded.has(p.key) ? "unfold" : "fold"} · F all · ( ) next · [ ] elements`; }
+    if (f >= 0) { const p = points[f]!; return `fold ${f + 1}/${points.length} ${foldLabel(p)} · ⏎ f ${this.folded.has(p.key) ? "unfold" : "fold"} · F all · ( ) next · [ ] elements`; }
     // The current element, named (PIE-441); one an agent's mark scrolled away is named, but ⏎ waits for it.
     const away = !this.inView() && this.drawn ? this.elems.find(x => x.key === this.cur) : undefined;
-    if (away) return `[ ] ${this.elems.indexOf(away) + 1}/${this.elems.length} · ${away.kind} ${printable(away.label).slice(0, 60)} · out of view · [ ] steps on from it`;
+    if (away) return `[ ] ${this.elems.indexOf(away) + 1}/${this.elems.length} · ${away.kind} ${printable(away.label)} · out of view · [ ] steps on from it`;
     const e = this.inView(), i = e ? this.elems.indexOf(e) : -1;
     // A proposal's keys go first: in a narrow tile the hint is cut from the end.
     // An extension's line or control: its keys go first, as a proposal's do.
-    if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label).slice(0, 30)} · ⏎ runs ${printable(e.link.press.act).slice(0, 80)}`;
-    if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label).slice(0, 50)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
+    if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act)}`;
+    if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label)} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
-    if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
+    if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
     const back = this.peek(-1) ? "alt← back · " : "";
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
     const proposal = this.msg && isOpenProposal(this.msg) ? this.proposalKeys(this.msg.id) : "";
@@ -1823,7 +1823,8 @@ export class NoteSurface {
       if (itemRows && row >= itemRows[0] && row < itemRows[1]) {
         const band = paintRange(pad(l, W), 0, W, host?.focused === false ? ITEM_IDLE_BG : ITEM_BG);
         const bar = bx > 0 && row >= top ? putCell(band, bx - 1, theme().focus.item.glyph, fgRgb(theme().focus.item.bar)) : null;
-        return this.paintSelection(marked(bar ?? band, row), row);
+        const item = this.paintSelection(marked(bar ?? band, row), row);
+        return host?.focused === false ? item : selectFullText(item);
       }
       const tint = ruled(row) ? RULER_BG : readingBand && row >= readingBand[0] && row < readingBand[1] ? (host?.focused === false ? RULER_IDLE_BG : RULER_BG) : inQuote(row) ? THREAD_BG : null;
       if (tint) return this.paintSelection(marked(paintRange(pad(l, W), 0, W, tint), row), row);
@@ -2546,7 +2547,7 @@ export class NoteSurface {
    */
   copyValue(r: PropRow, host: SurfaceHost) {
     if (host.ctx.copy?.(r.value) === false) return;
-    if (this.panel) this.panel.note = `copied ${r.key}: ${printable(r.value).slice(0, 60)}`;
+    if (this.panel) this.panel.note = `copied ${r.key}: ${printable(r.value)}`;
   }
 
   /** `o`: open what a block, page or Work-ID value names. Pages resolve read-only (never creating a stub). */
@@ -2612,7 +2613,7 @@ export class NoteSurface {
     try {
       const saved = await this.patchValue(m, f.revision, f.row, value, host, actor);
       if (this.panel?.field === f) this.panel.field = null;
-      const said = `saved · revision ${saved.revision} · ${f.row.key}: ${printable(f.row.value).slice(0, 30)} → ${printable(value).slice(0, 30)}`;
+      const said = `saved · revision ${saved.revision} · ${f.row.key}: ${printable(f.row.value)} → ${printable(value)}`;
       if (this.panel) this.panel.note = said;
       host.ctx.flash(said);
       return saved.revision ?? null;
@@ -4748,7 +4749,7 @@ export class NoteSurface {
       const rows = rowsOfLines(doc, noteLines, lo, hi);
       if (!rows) continue;
       const q = printable(c.quote).trim();
-      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${ellipsize(q, 40)}" · ${kindOf(c) === "comment" ? "" : `${kindOf(c)} · `}${authorName(c.author)}${c.open ? "" : " · resolved"}` });
+      out.push({ thread: c.id, open: c.open, row: rows[0], rows, label: `"${q}" · ${kindOf(c) === "comment" ? "" : `${kindOf(c)} · `}${authorName(c.author)}${c.open ? "" : " · resolved"}` });
     }
     const columns = new Map<number, number>();
     for (const mark of out) {
@@ -4888,16 +4889,16 @@ export class NoteSurface {
     if (spec.near !== undefined && spec.quote === undefined) throw new ActionRefused("near= goes with quote=");
     if (spec.line !== undefined && (spec.line < 1 || (spec.to ?? spec.line) < spec.line)) throw new ActionRefused("line is from 1 (the subject), and to isn't before it");
     if (spec.quote !== undefined && !spec.quote.trim()) throw new ActionRefused("quote is empty");
-    if (spec.quote !== undefined && findQuote(m.text, spec.quote, spec.near) < 0) throw new ActionRefused(`"${ellipsize(spec.quote, 40)}" isn't in the note's current text`);
+    if (spec.quote !== undefined && findQuote(m.text, spec.quote, spec.near) < 0) throw new ActionRefused(`"${spec.quote}" isn't in the note's current text`);
     const rows = this.focusRows(spec, m, d.doc, d.lines, d.top);
     if (!rows) {
       if (spec.block !== undefined) throw new ActionRefused(`this note doesn't embed or link ${spec.block} where it's drawn; to mark another note, open it first`);
       throw new ActionRefused("nothing of that is drawn here (past the end, only properties, or in a folded section; unfold it first)");
     }
     const q = spec.quote?.trim() ?? "";
-    const label = spec.quote !== undefined ? `"${ellipsize(q, 40)}"`
+    const label = spec.quote !== undefined ? `"${q}"`
       : spec.line !== undefined ? `line${spec.to && spec.to !== spec.line ? `s ${spec.line}–${spec.to}` : ` ${spec.line}`}`
-      : sameId(spec.block!, m.id) ? "this note" : (this.elems.find(e => sameId(spec.block!, e.link?.block))?.label ?? spec.block!).slice(0, 40);
+      : sameId(spec.block!, m.id) ? "this note" : (this.elems.find(e => sameId(spec.block!, e.link?.block))?.label ?? spec.block!);
     this.focusMark = { by, spec, label, at: Date.now() };
     this.revealMark = true;
     return { marked: label, rows: rows[1] - rows[0] };
@@ -5085,7 +5086,7 @@ export class NoteSurface {
     if (!edits.length) return { block: ref.block, line: ref.line + 1, changed: false, image: ref.source, revision: r.revision ?? null };
     // The person's image stays in view as it grows or moves, so its keys keep working on it.
     if (actor.kind === "user") this.reveal = true;
-    const said = `image ${printable(name).slice(0, 30)}: ${what}`;
+    const said = `image ${printable(name)}: ${what}`;
     host.ctx.flash(said);
     this.noteAgent(actor, said);
     host.redraw();
@@ -5171,7 +5172,7 @@ export class NoteSurface {
     if (!bd) return [];
     return bd.doc.blocks.map((b, i) => {
       const text = this.blockText(b), lines = text.split("\n").length;
-      return { n: i + 1, kind: b.kind, lines, from: (this.drawnLines()[b.line] ?? b.line) + 1, to: (this.drawnLines()[b.end - 1] ?? b.end - 1) + 1, text: ellipsize(printable(text.split("\n")[0] ?? ""), 60), current: this.blockOfCurrent() === i };
+      return { n: i + 1, kind: b.kind, lines, from: (this.drawnLines()[b.line] ?? b.line) + 1, to: (this.drawnLines()[b.end - 1] ?? b.end - 1) + 1, text: printable(text.split("\n")[0] ?? ""), current: this.blockOfCurrent() === i };
     });
   }
 
@@ -5760,7 +5761,7 @@ export class NoteSurface {
       throw new ActionRefused("say which callout: n= or line= (callout.list lists them), or put [ ] on a callout's icon");
     }
     const all = this.calloutsIn(await this.whole());
-    const listed = () => all.slice(0, 12).map((c, i) => `${i + 1} line ${c.line + 1} [!${c.type}] ${calloutTitle(c).slice(0, 24)}`).join("; ") || "none";
+    const listed = () => all.slice(0, 12).map((c, i) => `${i + 1} line ${c.line + 1} [!${c.type}] ${calloutTitle(c)}`).join("; ") || "none";
     const hit = n !== undefined ? all[n - 1] : all.find(c => c.line + 1 === line);
     if (!hit) throw new ActionRefused(`no such callout in this note (${listed()})`);
     return hit;
@@ -5781,7 +5782,7 @@ export class NoteSurface {
     if (next === ref.header) return { block: ref.block, line: ref.line + 1, changed: false, header: ref.header, revision: r.revision ?? null };
     // "Make it start folded" folds it here too; "start open" opens it.
     if (change.fold !== undefined && ref.foldKey && actor.kind === "user") { if (change.fold === "-") this.folded.add(ref.foldKey); else this.folded.delete(ref.foldKey); }
-    const said = `callout ${printable(calloutTitle(ref)).slice(0, 30)}: ${what}`;
+    const said = `callout ${printable(calloutTitle(ref))}: ${what}`;
     host.ctx.flash(said);
     this.noteAgent(actor, said);
     host.redraw();
@@ -5856,7 +5857,7 @@ export class NoteSurface {
     outlineChanged([r.block.id]);
     await this.loadComments(host);
     if (this.session && this.comments) this.session.threads = this.comments;
-    say.flash(`quoted ${r.placement.said}: ${printable(r.block.text.split("\n", 1)[0] ?? "").slice(0, 50)}${r.undo ? " · ctrl+z undoes" : ""}`);
+    say.flash(`quoted ${r.placement.said}: ${printable(r.block.text.split("\n", 1)[0] ?? "")}${r.undo ? " · ctrl+z undoes" : ""}`);
     this.noteAgent(actor, `quoted ${ids.length === 1 ? "a mark" : `${ids.length} marks`} ${r.placement.said}`);
     host.redraw();
     return { block: r.block.id, title: r.block.text.split("\n", 1)[0], placed: r.placement.said, parent: r.placement.parentId, marks: r.marks, ...(r.undo ? { undo: r.undo } : {}) };
@@ -5919,7 +5920,7 @@ export class NoteSurface {
     history.drop(e);
     outlineChanged([m.id]);
     if (this.msg?.id === m.id) this.refresh({ ...saved, childIds: this.msg.childIds });
-    const said = `undid the ${what} change: ${printable(e.edits[0]!.before.trim()).slice(0, 40)}`;
+    const said = `undid the ${what} change: ${printable(e.edits[0]!.before.trim())}`;
     host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
     return { block: m.id, edits: e.edits, revision: saved.revision ?? null };
   }
@@ -5953,7 +5954,7 @@ export class NoteSurface {
     if (this.msg?.id === ref.block && !this.msg.partial) this.refresh({ ...r.block, childIds: this.msg.childIds });
     const was = taskBase(ref), now = taskBase({ ...ref, step: r.item });
     if (was !== now) this.stepRenamed = { was, now };
-    const where = ref.via ? ` · in ${ref.via}` : "";
+    const where = ref.via ? ` · in ${fullPlainText(ref.via)}` : "";
     let said: string, link: string | undefined;
     if (choice === "copy-link" || choice === "address") {
       link = stepLink(ref.block, r.item.itemId!);
@@ -6664,7 +6665,7 @@ export class NoteSurface {
     let now: Msg;
     try { now = await this.whole(); } catch { return; }
     if (now.id !== m.id) return;
-    const name = `${subject(m).slice(0, 40)} ^${fragment}`;
+    const name = `${subject(m)} ^${fragment}`;
     if ("error" in read) { host.ctx.flash(`${name}: ${read.error}`); return; }
     if (read.status === "missing") { host.ctx.flash(`${name} · Missing fragment: no ^${fragment} in the note now`); return; }
     if (read.status === "duplicate") { host.ctx.flash(`${name} · Duplicate fragment: ^${fragment} is on ${read.duplicates.length} lines (${read.duplicates.map(d => d.line + 1).join(", ")})`); return; }
@@ -7446,7 +7447,7 @@ export class NoteSurface {
    */
   noteAgent(actor: Actor, did: string, draft?: Draft) {
     if (actor.kind !== "agent") return;
-    this.agent = { id: actor.id, did, at: Date.now() };
+    this.agent = { id: actor.id, did: fullPlainText(did), at: Date.now() };
     this.agentDraft = draft ?? null;
   }
 
@@ -7753,7 +7754,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   const body = (s: string, w: number, col = 2) => (draw ? draw(s, w, col) : text(s, w));
   if (trim) {
     const summary = c.tldr ? `TL;DR ${c.tldr.body}` : c.replies.at(-1)?.body ?? c.body;
-    lines.push(edge + "│ " + fg(C.grey) + ellipsize(body(summary, inner).join(" "), inner) + RESET);
+    lines.push(edge + "│ " + fg(C.grey) + drawEllipsized(body(summary, inner).join(" "), inner) + RESET);
     return { lines, images: [], links: [], controls: [
       { thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" },
       { thread: c.id, control: "card", row: 0, from: 0, to: W - 3, label: "Open thread" },
@@ -7769,7 +7770,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   const quotedIn = (ids: readonly string[] | undefined, indent: string) => {
     for (const id of ids ?? []) {
       const said = `quoted in ${draw ? (draw(`((${id}))`, Math.max(4, inner - 12), 2, false)[0] ?? "") : id.slice(0, 8)}`;
-      const shown = ellipsize(said, Math.max(4, inner - indent.length));
+      const shown = drawEllipsized(said, Math.max(4, inner - indent.length));
       const on = cur === controlKey(c.id, "quoted", id);
       controls.push({ thread: c.id, control: "quoted", value: id, row: lines.length, from: 2 + indent.length, to: 2 + indent.length + width(shown), label: "quoted in" });
       lines.push(edge + "│ " + indent + (on ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET);
@@ -7781,8 +7782,8 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     // Each reply is a mark too: its own [Quote].
     // Each reply is a mark too: its own [Edit] (PIE-763) and [Quote].
     const stamp = " · " + ago(r.at) + editedMark(r);
-    const head = "└ " + ellipsize(printable(authorName(r.author)), Math.max(1, inner - 2 - width(stamp))) + stamp;
-    let row = edge + "│ " + fg(C.cyan) + ellipsize(head, inner) + RESET, col = 2 + Math.min(width(head), inner);
+    const head = "└ " + drawEllipsized(printable(authorName(r.author)), Math.max(1, inner - 2 - width(stamp))) + stamp;
+    let row = edge + "│ " + fg(C.cyan) + drawEllipsized(head, inner) + RESET, col = 2 + Math.min(width(head), inner);
     for (const [k, q, label] of [["edit", "[Edit]", "Edit the reply"], ["quote", "[Quote]", "Quote the reply"]] as const) {
       if (col + 1 + q.length > W) { lines.push(row); row = edge + "│ "; col = 2; }
       controls.push({ thread: c.id, control: k, value: r.id, row: lines.length, from: col + 1, to: col + 1 + q.length, label });
@@ -8152,7 +8153,7 @@ async function runFold(on: boolean, { all, ...which }: FoldArgs & { all?: boolea
   }
   const p = now ? foldPointIn(surface, now, which) : await foldTarget(surface, which);
   surface.setFold(p, on, actor.kind === "user");
-  surface.noteAgent(actor, `${on ? "folded" : "unfolded"} ${foldLabel(p).slice(0, 40)}`);
+  surface.noteAgent(actor, `${on ? "folded" : "unfolded"} ${foldLabel(p)}`);
   host.redraw();
   return foldResult(surface, p);
 }
@@ -8512,7 +8513,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const spend = invitation !== undefined ? () => ds!.spend(invitation, actor) : undefined;
         if (!await insertCompletion(board, d, target, item, own, still, actor, spend)) throw new Error("the draft changed while the reference was checked; ask again");
       } catch (e) { throw new ActionRefused(`not inserted: ${e instanceof Error ? e.message : String(e)}`); }
-      surface.noteAgent(actor, `inserted ${item.insertion.slice(0, 60)}`);
+      surface.noteAgent(actor, `inserted ${item.insertion}`);
       host.redraw();
       return { ...out, inserted: item.insertion, dirty: d.dirty };
     },
@@ -8901,7 +8902,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (m && "outside" in m) return { opened: null, ...m };
       // A #tag (PIE-800): the list it opened (or, for an agent, the notes carrying it).
       if (m && "query" in m) return { opened: null, ...m };
-      if (m) surface.noteAgent(actor, `followed a link to ${subject(m).slice(0, 40)}`);
+      if (m) surface.noteAgent(actor, `followed a link to ${subject(m)}`);
       return m ? { opened: m.id, title: subject(m) } : { opened: null };
     },
   }),
@@ -8979,7 +8980,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons of that note (${hits.map(f => `"${f.label}"`).join(", ")}); say more of the label`);
         const hit = hits[0]!;
         const r = await surface.runPress({ act: hit.act, block: m.id, line: hit.line }, host, actor);
-        surface.noteAgent(actor, `pressed ${hit.label.slice(0, 40)} (${hit.act.slice(0, 60)})`);
+        surface.noteAgent(actor, `pressed ${hit.label} (${hit.act})`);
         return { note: m.id, kind: "control", act: hit.act, ...(r && typeof r === "object" ? r : {}) };
       }
       await surface.whole();
@@ -8995,7 +8996,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons (${hits.map(i => `${i}: ${all[i - 1]!.label}`).join(", ")}); say n=`);
       const i = hits[0]!, e = surface.element(i);
       const r = await surface.runPress(e.link!.press!, host, actor);
-      surface.noteAgent(actor, `pressed ${e.label.slice(0, 40)} (${e.link!.press!.act.slice(0, 60)})`);
+      surface.noteAgent(actor, `pressed ${e.label} (${e.link!.press!.act})`);
       return { element: i, kind: e.kind, act: e.link!.press!.act, ...(r && typeof r === "object" ? r : {}) };
     },
   }),
@@ -9039,13 +9040,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       // run is the agent's (said on the status bar), and what it writes is the extension's (ext:<id>).
       if (e.link?.ext && !e.link.press && (e.kind === "control" || e.kind === "resource")) {
         const r = await surface.runExt(e.link.ext.action, e.link.ext, host, actor);
-        surface.noteAgent(actor, `ran ${e.link.ext.action} on ${e.label.slice(0, 40)}`);
+        surface.noteAgent(actor, `ran ${e.link.ext.action} on ${e.label}`);
         return { element: i, kind: e.kind, action: e.link.ext.action, ...(r && typeof r === "object" ? r : {}) };
       }
       // A press (PIE-957): its action line, through the door's dispatcher, as whoever asks (the person's asks first when it writes).
       if (e.link?.press && e.kind === "control") {
         const r = await surface.runPress(e.link.press, host, actor);
-        surface.noteAgent(actor, `pressed ${e.label.slice(0, 40)} (${e.link.press.act.slice(0, 60)})`);
+        surface.noteAgent(actor, `pressed ${e.label} (${e.link.press.act})`);
         return { element: i, kind: e.kind, act: e.link.press.act, ...(r && typeof r === "object" ? r : {}) };
       }
       // An `■ unsent` line's control runs its action as whoever asks (an agent's is refused: the unsent text is the person's).
@@ -9080,7 +9081,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       }
       const r = await surface.openElement(e, host, !!fresh, actor.kind === "user");
       // Outside the door, an agent's was given the address (openOutside said so); it opened nothing.
-      if (!(r && typeof r === "object" && "outside" in r)) surface.noteAgent(actor, `${e.kind === "fold" ? "toggled" : "opened"} ${e.label.slice(0, 40)}`);
+      if (!(r && typeof r === "object" && "outside" in r)) surface.noteAgent(actor, `${e.kind === "fold" ? "toggled" : "opened"} ${e.label}`);
       host.redraw();
       return { element: i, kind: e.kind, ...(r && typeof r === "object" && "id" in r ? { opened: (r as Msg).id, title: subject(r as Msg) } : r && typeof r === "object" ? r : {}) };
     },
@@ -9341,7 +9342,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (text !== undefined && text.trim()) {
           const thread = await send(text, props);
           said.flash(action === "comment" ? "commented on the passage" : `asked @${agent!.name} · the answer lands in the margin`);
-          surface.noteAgent(actor, `${action === "comment" ? "commented on" : "asked about"} "${ellipsize(p.note.quote, 30)}"`);
+          surface.noteAgent(actor, `${action === "comment" ? "commented on" : "asked about"} "${p.note.quote}"`);
           return { thread, passage: p.target };
         }
         // Written by hand: the comment composer on the passage, opened for the person (an agent says body= or question=).
@@ -9366,7 +9367,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (r.copy !== undefined && actor.kind === "user") host.ctx.copy?.(r.copy);
         if (r.written.length) await surface.loadComments(host);
         if (actor.kind === "user") surface.selection = null;
-        surface.noteAgent(actor, `${choice.action.label.toLowerCase()} on "${ellipsize(p.note.quote, 30)}"`);
+        surface.noteAgent(actor, `${choice.action.label.toLowerCase()} on "${p.note.quote}"`);
         host.redraw();
         return { said: r.said, written: r.written, ...(r.copy !== undefined ? { copy: r.copy, clipboard: actor.kind === "user" } : {}), passage: r.passage ?? p.target, ...(r.undo ? { undo: r.undo } : {}) };
       };
@@ -9571,7 +9572,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       // Checked before anything opens: the words read are still its words.
       if (observed !== undefined) {
         const th = s.threads[i]!, now = reply === undefined ? th : th.replies.find(x => x.id === reply || (reply.length >= 6 && x.id.startsWith(reply)));
-        if (now && now.body.trim() !== observed.trim()) throw new ActionRefused(`it changed since you read it; its words now: ${JSON.stringify(ellipsize(now.body, 300))} · read them again and edit those`);
+        if (now && now.body.trim() !== observed.trim()) throw new ActionRefused(`it changed since you read it; its words now: ${JSON.stringify(now.body)} · read them again and edit those`);
       }
       const why = s.editMark(i, reply, actor);
       if (why) throw new ActionRefused(why);
@@ -9860,7 +9861,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (!row.target) throw new ActionRefused(`${row.key} holds plain text (${row.value}); there is nothing to follow`);
       const m = await surface.followValue(row, host);
       if (!m) throw new ActionRefused(surface.panel?.note || `nothing answers at ${row.value}`);
-      surface.noteAgent(actor, `followed ${row.key} to ${subject(m).slice(0, 40)}`);
+      surface.noteAgent(actor, `followed ${row.key} to ${subject(m)}`);
       return { opened: m.id, title: subject(m) };
     },
   }),
@@ -9896,8 +9897,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       try { saved = await surface.patchValue(m, m.revision, row, to, host, actor); } catch (e) {
         throw new ActionRefused(e instanceof EditConflict ? "the note changed elsewhere since its properties were read · not saved; read them again (props)" : `not saved: ${e instanceof Error ? e.message : String(e)}`);
       }
-      host.ctx.flash(`saved · revision ${saved.revision} · ${row.key}: ${printable(row.value).slice(0, 30)} → ${printable(to).slice(0, 30)}`);
-      surface.noteAgent(actor, `set ${row.key} to ${to.slice(0, 40)}`);
+      host.ctx.flash(`saved · revision ${saved.revision} · ${row.key}: ${printable(row.value)} → ${printable(to)}`);
+      surface.noteAgent(actor, `set ${row.key} to ${to}`);
       host.redraw();
       return { saved: true, key: row.key, from: row.value, to, revision: saved.revision ?? null, fromRevision: m.revision, recordedAs: mutationFor(actor) };
     },
@@ -9996,10 +9997,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         try { saved = await surface.writeSetting(m, field.prop.key, to, host, actor); } catch (e) {
           throw e instanceof ActionRefused ? e : new ActionRefused(e instanceof EditConflict ? "the note changed elsewhere since its settings were read · not saved; open them again (settings)" : `not saved: ${e instanceof Error ? e.message : String(e)}`);
         }
-        const said = `saved · ${field.prop.key}: ${field.value === null ? "unset" : printable(field.value).slice(0, 30)} → ${printable(to).slice(0, 40)}`;
+        const said = `saved · ${field.prop.key}: ${field.value === null ? "unset" : printable(field.value)} → ${printable(to)}`;
         if (surface.panel?.card) surface.panel.card.note = said;
         host.ctx.flash(said);
-        surface.noteAgent(actor, `set ${field.prop.key} to ${to.slice(0, 40)}`);
+        surface.noteAgent(actor, `set ${field.prop.key} to ${to}`);
         host.redraw();
         return { saved: true, key: field.prop.key, from: field.value, to, revision: saved.revision ?? null, recordedAs: mutationFor(actor) };
       };
@@ -10214,7 +10215,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const p = at ?? (now && !now.partial ? foldPointIn(surface, now, args) : await foldTarget(surface, args));
       const on = !surface.folded.has(p.key);
       surface.setFold(p, on, actor.kind === "user");
-      surface.noteAgent(actor, `${on ? "folded" : "unfolded"} ${foldLabel(p).slice(0, 40)}`);
+      surface.noteAgent(actor, `${on ? "folded" : "unfolded"} ${foldLabel(p)}`);
       host.redraw();
       return foldResult(surface, p);
     },

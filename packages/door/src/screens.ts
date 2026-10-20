@@ -1,3 +1,4 @@
+import { clipText } from "./overflow";
 import { errorDetails } from "./status-log";
 import { matchesSearchText } from "@ep0ch/outline-core/search-match";
 import { LineInput } from "./surface/line";
@@ -294,12 +295,12 @@ export class MainMenu implements Screen {
       const item = ITEMS[i];
       if (!item) return;
       const on = i === this.sel;
-      const label = item.label.padEnd(8).slice(0, 8);
+      const label = pad(item.label, 8);
       if (on) overlays.push({ row: s.row, col: s.col, text: label, fg: C.white, bg: C.magenta });
       else {
-        const hot = label.toUpperCase().indexOf(item.key);
+        const hot = item.label.toUpperCase().indexOf(item.key);
         overlays.push({ row: s.row, col: s.col, text: label, fg: C.lmagenta });
-        if (hot >= 0) overlays.push({ row: s.row, col: s.col + hot, text: label[hot]!, fg: C.white, blank: 1 });
+        if (hot >= 0) overlays.push({ row: s.row, col: s.col + hot, text: item.label[hot]!, fg: C.white, blank: 1 });
       }
     });
     // Two overlays on the same cells: keep the highlight letter by merging into one run per slot.
@@ -489,6 +490,21 @@ const SCREEN_NAMES: Record<string, string[]> = {
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q on every BBS screen, run these, as `act` does. */
 export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
+  "text.reveal": def({
+    summary: "read a cut-short label in full; repeats select the next clipped value on screen; long values scroll",
+    keys: "alt+?", touches: "nothing", replay: "safe",
+    person: "the full-text overlay is the person's; agents read the full action results",
+    args: {},
+    run(_, { ctx }) { const result = ctx.overflow?.reveal(); ctx.redraw(); return result; },
+  }),
+  "text.hover": def({
+    summary: "read the full value under the pointer without selecting or opening it",
+    keys: "hover a cut-short string", touches: "nothing", replay: "safe",
+    person: "the pointer is the person's",
+    args: { x: { type: "number", about: "screen column, from 0" }, y: { type: "number", about: "screen row, from 0" } },
+    examples: [{ act: "text.hover x=4 y=2", does: "reads the clipped value at column 4, row 2 without opening it" }],
+    run({ x, y }, { ctx }) { ctx.overflow?.hover(x, y); ctx.redraw(); },
+  }),
   "status.log": def({
     summary: "open the session's message log: every status, warning, refusal and error, with time and the action and tile; / searches, enter returns to its note or tile, q comes back",
     keys: "alt+M; click the status line",
@@ -958,7 +974,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       // brief and the river have an open of their own and never get here.)
       if (here?.openBlock) here.openBlock(m);
       else shellOpenBlock(m, ctx);
-      ctx.flash(`opened: ${subject(m).slice(0, 60)}`);
+      ctx.flash(`opened: ${subject(m)}`);
       ctx.redraw();
       return { opened: m.id, id: m.id, screen: ctx.screens?.().at(-1)?.title ?? null };
     },
@@ -1084,7 +1100,7 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
   }),
   "list.select": def({
     summary: "light row n of the list (an agent's waits until the person is idle and is said on the status bar)", keys: "j k ↑↓ PgUp PgDn Home End, a click, the wheel",
-    touches: "screen", replay: "safe", says: out => `· lit row ${out.selected}: ${out.row.title.slice(0, 50)}`,
+    touches: "screen", replay: "safe", says: out => `· lit row ${out.selected}: ${out.row.title}`,
     args: { n: { type: "number", about: "the row, from 1 (list.read numbers them)" } },
     examples: [
       { act: "list.select n=3", does: "lights the third row of the list" },
@@ -1098,7 +1114,7 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
   }),
   "list.open": def({
     summary: "open a row as ⏎ does (read, join, browse): the lit one, or row n", keys: "⏎, a click on the lit row",
-    touches: "screen", replay: "safe", says: out => ({ text: `· opened row ${out.n}: ${out.row.title.slice(0, 50)} · q goes back`, ms: 6000 }),
+    touches: "screen", replay: "safe", says: out => ({ text: `· opened row ${out.n}: ${out.row.title} · q goes back`, ms: 6000 }),
     args: { n: { type: "number", optional: true, about: "the row, from 1; the lit one when left out" } },
     examples: [
       { act: "list.open", does: "opens the lit row as ⏎ does; q comes back" },
@@ -1117,7 +1133,7 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
   }),
   "list.thread": def({
     summary: "list a row's replies (its children) as messages over this list, as t does on a message list: the lit row, or row n (q comes back)", keys: "t, T, click on T thread",
-    touches: "screen", replay: "safe", says: out => ({ text: `· opened the replies of row ${out.n}: ${out.row.title.slice(0, 50)} · q goes back`, ms: 6000 }),
+    touches: "screen", replay: "safe", says: out => ({ text: `· opened the replies of row ${out.n}: ${out.row.title} · q goes back`, ms: 6000 }),
     args: { n: { type: "number", optional: true, about: "the row, from 1; the lit one when left out" } },
     examples: [
       { act: "list.thread", does: "lists the lit row's replies as messages over the list" },
@@ -1416,7 +1432,7 @@ export class MessageList extends BbsList {
   }
   threadRow(i: number, ctx: Ctx) {
     const m = this.items![i]!;
-    ctx.push(new MessageList(`thread: ${subject(m).slice(0, 30)}`, async () => (await readReplies(ctx.board, m.id, true)).children.map(c => c.block), "", false));
+    ctx.push(new MessageList(`thread: ${subject(m)}`, async () => (await readReplies(ctx.board, m.id, true)).children.map(c => c.block), "", false));
   }
   listRows(): ListRow[] | null {
     return this.items?.map((m, i) => ({ n: i + 1, title: subject(m), id: m.id, author: m.author ?? null, updatedAt: m.updatedAt, ...(prop(m, "work-id") ? { workId: prop(m, "work-id") } : {}) })) ?? null;
@@ -1481,7 +1497,7 @@ export class MessageReader implements Screen {
       navigate: (m, how) => {
         // An agent never takes the person's keys: while they're in an edit, a comment or the panel here,
         // what it followed is named, not opened over them.
-        if (how?.by?.kind === "agent" && this.surface.holdsKeys && !ctx.agentsYolo) { ctx.flash(`not opened while you're in ${this.personIn()}: ${subject(m).slice(0, 50)}`); return; }
+        if (how?.by?.kind === "agent" && this.surface.holdsKeys && !ctx.agentsYolo) { ctx.flash(`not opened while you're in ${this.personIn()}: ${subject(m)}`); return; }
         ctx.push(new MessageReader([m], 0));
       },
       header: (m, w, info) => this.header(m, w, info),
@@ -1502,14 +1518,14 @@ export class MessageReader implements Screen {
     const comments = c?.total ? ` |08· ${c.open ? `|14■ ${c.open} open comment${c.open === 1 ? "" : "s"}` : `■ ${c.total} resolved`} |08(m)` : "";
     const props = info.properties ? ` |08· i ${info.properties} propert${info.properties === 1 ? "y" : "ies"}` : "";
     return [
-      paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${prop(m, "work-id") ?? m.id.slice(0, 8)} |08(${this.index + 1} of ${this.list.length})`),
+      paint(`|09Date: |07${bbsDate(m.updatedAt).padEnd(24)}|09Number: |15${prop(m, "work-id") ?? clipText(m.id, 8)} |08(${this.index + 1} of ${this.list.length})`),
       // Addressed with a `to::` property, else to everyone, as a BBS message is.
-      paint(`|09  To: |07${pad(prop(m, "to")?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId?.slice(0, 8) ?? "none"}`),
+      paint(`|09  To: |07${pad(prop(m, "to")?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId ? clipText(m.parentId, 8) : "none"}`),
       paint(`|09From: |14${pad(authorName(m.author), 23)} |09Reply: |07${replies === null ? "…" : replies}`),
       // An edit armed here (e, src/arm.ts): the subject asks in the edit's colour until ⏎ opens it or a key lets it go.
       this.ctx?.armed?.()?.of === this.surface
-        ? paint(`|09Subj: |14✎ edit? ${subject(m).slice(0, Math.max(1, w - 14))} |06⏎ opens it`)
-        : paint(`|09Subj: |15${subject(m).slice(0, Math.max(1, w - 6))}`),
+        ? paint(`|09Subj: |14✎ edit? ${clipText(subject(m), Math.max(1, w - 14))} |06⏎ opens it`)
+        : paint(`|09Subj: |15${clipText(subject(m), Math.max(1, w - 6))}`),
       ...(subtitleOf(m) ? [fg(C.dark) + "      " + printable(subtitleOf(m), " ") + RESET] : []),
       paint(`|09Conf: |11${pad(info.crumbs, Math.max(1, w - 6))}`),
       paint(`|09Stat: |13${status.toUpperCase()}${props}${comments}`),
@@ -1557,7 +1573,7 @@ export class MessageReader implements Screen {
   /** `T`: the message's replies, as a message list. */
   thread(ctx: Ctx) {
     const m = this.surface.msg ?? this.msg;
-    ctx.push(new MessageList(`thread: ${subject(m).slice(0, 30)}`, async () => (await readReplies(ctx.board, m.id, true)).children.map(c => c.block), "", false));
+    ctx.push(new MessageList(`thread: ${subject(m)}`, async () => (await readReplies(ctx.board, m.id, true)).children.map(c => c.block), "", false));
   }
 
   render(ctx: Ctx): Frame {
@@ -1719,7 +1735,7 @@ export class Conferences extends BbsList {
   listRows(): ListRow[] | null { return this.confs?.map((c, i) => ({ n: i + 1, title: subject(c), id: c.id, type: prop(c, "type") ?? null })) ?? null; }
   openRow(i: number, ctx: Ctx) {
     const c = this.confs![i]!;
-    ctx.push(new MessageList(subject(c).slice(0, 40), () => ctx.board.children(c.id), prop(c, "type") ?? "", false));
+    ctx.push(new MessageList(subject(c), () => ctx.board.children(c.id), prop(c, "type") ?? "", false));
   }
 }
 

@@ -36,5 +36,5 @@ export function pickParent(laneName: string, def: Msg | undefined, laneItems: Ms
     : `there's no card on the board to take a parent from; give ${laneName} a [create-parent::<block id>]` };
 }
 
-/** "Paint the shed": a card's title for a flash, kept short. */
-export const titleOf = (m: Msg, n = 50) => ellipsize(subject(m), n);
+/** Status history and action results keep the title until a drawing caller supplies a cell budget. */
+export const titleOf = (m: Msg, n = Infinity) => ellipsize(subject(m), n);

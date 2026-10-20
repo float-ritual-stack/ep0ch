@@ -137,9 +137,9 @@ const REASON = { linked: "linked from here", near: "near here", yours: "you edit
 const hitSnippet = (title: string, text: string) => {
   const lines = text.split(/\r?\n/);
   return (withoutPropertyTokens(lines[0] ?? "").trim().startsWith(title.slice(0, 24)) ? lines.slice(1) : lines)
-    .map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim().slice(0, 240);
+    .map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim();
 };
-const snippet = (text: string) => text.split(/\r?\n/).slice(1).map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim().slice(0, 240);
+const snippet = (text: string) => text.split(/\r?\n/).slice(1).map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim();
 
 export const notConfigured = (semantic: { status: string; message?: string }) => semantic.status === "unavailable" && /not configured/i.test(semantic.message ?? "");
 

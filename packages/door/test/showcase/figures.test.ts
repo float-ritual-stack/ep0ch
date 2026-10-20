@@ -1,3 +1,4 @@
+import { visible } from "../../src/style";
 // PIE-439: the showcase screen, figures: steps, tabs and Markdown kinds. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
@@ -589,4 +590,19 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     await until(() => !screen().includes("BEAN ROWS (CHILD BULLETS)"), "the child bullet's note opened by a click", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
+  test("PIE-1113: selecting a clipped table row reveals its whole title and drops the id first", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
+    const title = "The greenhouse watering instructions include the seed order and all the planting dates for the coming spring and summer";
+    const job = await board.createBlock(null, `${title} [overflow-demo::yes]`);
+    const note = await board.createBlock(null, "Whole table values\n\n::graph-table\n---\nquery: overflow-demo=yes\ncolumns: [id, title]\nlines: 1\n---\n::");
+    await app.dispatch.act({ action: "open", tile: "reader", args: { id: note.id } }, { kind: "user" });
+    await until(() => screen().includes("greenhouse watering"), "the clipped table row");
+    const painted = () => h.painted.map(visible).join("\n");
+    expect(screen()).not.toContain(job.id);
+    expect(painted()).not.toContain(title);
+    press({ kind: "enter" }); ch("]"); press({ kind: "down" });
+    await until(() => painted().includes(title), "the selected row's whole title");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
 });

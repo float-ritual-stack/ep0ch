@@ -1,3 +1,4 @@
+import { FULL_MARKERS } from "../src/overflow";
 // PIE-440: one spine part for river columns, board lanes and board readers. On the board, c collapses
 // the preview or a detail to a spine showing its note's title (C comments now), c ⏎ or a click opens it,
 // alt+c opens everything collapsed, and agents do the same through tile.collapse. A
@@ -51,7 +52,7 @@ describe("the spine part", () => {
       const mark = fg(C.yellow) + "✎" + RESET;
       const want = riverBefore(a, r, title, C.lcyan, mark, 7, graphics);
       const got = drawSpine(b, r, { key: "spine:7", title, colour: C.lcyan, marks: [mark] }, v(graphics));
-      expect(b.lines()).toEqual(a.lines());
+      expect(b.lines().map(l => l.replace(FULL_MARKERS, ""))).toEqual(a.lines());
       expect(got ? [got] : []).toEqual(want);
     }
   });

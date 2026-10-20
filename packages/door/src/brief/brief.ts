@@ -160,7 +160,7 @@ export class BriefReader extends ReaderPane {
     if (!this.briefs) return "daily brief · asking the outline…";
     if (!this.briefs.length) return "daily brief · none yet";
     const s = this.shown;
-    if (!s) return `daily brief · not a brief: ${this.msg ? subject(this.msg).slice(0, 40) : "nothing"} · , . back to the briefs`;
+    if (!s) return `daily brief · not a brief: ${this.msg ? subject(this.msg) : "nothing"} · , . back to the briefs`;
     return `daily brief · ${s.date}`;
   }
 

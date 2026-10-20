@@ -482,7 +482,7 @@ export class EchoReader extends ReaderPane {
 
   override title() {
     const m = this.message;
-    return m && this.area ? `${this.area.tag.toUpperCase()} · message ${m.n} of ${this.list.length}` : this.msg ? `reading · ${subject(this.msg).slice(0, 40)}` : "message reader";
+    return m && this.area ? `${this.area.tag.toUpperCase()} · message ${m.n} of ${this.list.length}` : this.msg ? `reading · ${subject(this.msg)}` : "message reader";
   }
   override hint() { return this.message ? `} { next prev · r reply · q quote · ${super.hint()}` : super.hint(); }
   /** It reads what its list opens: the desk's current note doesn't move it. */
@@ -498,7 +498,7 @@ export class EchoReader extends ReaderPane {
       ctx: net.ctxOf(a, desk),
       contextFor: () => net.ctxOf(a, desk),
       // A link followed in a message is read here, on the message's own outline (alt+← comes back); } { go on through the list.
-      navigate: (m: Msg, how?: OpenHow) => { if (how?.by?.kind === "agent" && this.holdsKeys) { desk.ctx.flash(`not opened while you're in ${this.surface.sessionWord() ?? "a session"} here: ${subject(m).slice(0, 50)}`); return; } this.surface.show(m, h); desk.redraw(); },
+      navigate: (m: Msg, how?: OpenHow) => { if (how?.by?.kind === "agent" && this.holdsKeys) { desk.ctx.flash(`not opened while you're in ${this.surface.sessionWord() ?? "a session"} here: ${subject(m)}`); return; } this.surface.show(m, h); desk.redraw(); },
       header: (m: Msg, _w: number, info: HeaderInfo) => {
         const found = this.list.find(x => x.msg.id === m.id);
         const comments = info.comments?.total ? [`|08■ ${info.comments.open ? `${info.comments.open} open` : `${info.comments.total} earlier`} repl${info.comments.total === 1 ? "y" : "ies"} on this copy · m lists them`] : [];
@@ -556,7 +556,7 @@ export class EchoReader extends ReaderPane {
       void board?.markRead(shown).catch(e => {
         m.fresh = true;
         if (area.fresh !== null) area.fresh++;
-        desk.ctx.flash(`couldn't mark ${subject(m.msg).slice(0, 40)} read: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e));
+        desk.ctx.flash(`couldn't mark ${subject(m.msg)} read: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e));
         desk.redraw();
       });
     } else if (actor.kind === "agent") void board?.markRead(shown, actor.id).catch(() => {});
@@ -668,7 +668,7 @@ export const ECHO_MESSAGE_ACTIONS = actionSet<KindHost>()("echo", {
   "echo.message": def({
     summary: "light a message of the area listed (n= its number, or id=); read=true reads it in the reader, marked read (the person's read marks; an agent's are its own) and, for the person, with their keys there",
     keys: "j k ↑ ↓ PgUp PgDn Home End, click, wheel (light) · ⏎, double click (read it)",
-    touches: "screen", replay: "safe", says: r => (r.read ? `read message ${r.n} of ${r.of}: ${r.subject.slice(0, 40)}` : `lit message ${r.n}`),
+    touches: "screen", replay: "safe", says: r => (r.read ? `read message ${r.n} of ${r.of}: ${r.subject}` : `lit message ${r.n}`),
     args: {
       n: { type: "number", optional: true, about: "its number in the area, from 1 (oldest first)" },
       id: { type: "string", optional: true, about: "its block id" },
@@ -699,7 +699,7 @@ export const ECHO_MESSAGE_ACTIONS = actionSet<KindHost>()("echo", {
 export const ECHO_READER_ACTIONS = actionSet<KindHost>()("echo", {
   "echo.step": def({
     summary: "read the next (by=1) or previous (by=-1) message of the area the reader was opened on, marked read as it's shown", keys: "} {",
-    touches: "screen", replay: "safe", says: r => `read message ${r.n} of ${r.of}: ${r.subject.slice(0, 40)}`,
+    touches: "screen", replay: "safe", says: r => `read message ${r.n} of ${r.of}: ${r.subject}`,
     args: { by: { type: "number", about: "1 the next, -1 the previous" } },
     examples: [
       { act: "echo.step by=1", does: "reads the next message of the area, marked read" },

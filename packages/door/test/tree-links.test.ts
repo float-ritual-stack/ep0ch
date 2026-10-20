@@ -14,7 +14,7 @@ import {
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
 import type { ReaderPane } from "../src/desk/panes";
-import type { TreePane } from "../src/desk/tree";
+import { TreePane } from "../src/desk/tree";
 import { MainMenu } from "../src/screens";
 import { installTickets, SHOWCASE_TICKETS, ticketSource } from "../src/showcase/tickets/install";
 import { SocketBoard } from "../src/socket";
@@ -190,6 +190,20 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
   }, 60_000);
 
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
+
+  test("a stale tree row refuses with a plain short id", async () => {
+    const gone = await board.createBlock(null, "Temporary seed ledger");
+    const stale = new TreePane();
+    stale.init(desk);
+    await until(() => stale.list().some(r => r.kind === "block" && r.m.id === gone.id), "the ledger row");
+    const i = stale.list().findIndex(r => r.kind === "block" && r.m.id === gone.id);
+    await board.request("delete", { blockId: gone.id });
+    await board.request("trash.purge", { blockId: gone.id, confirmation: gone.id.slice(0, 8) });
+    try {
+      await expect(stale.showRow(i, desk, { kind: "agent", id: "ledger-reader" }))
+        .rejects.toThrow(`nothing answers at ${gone.id.slice(0, 8)}…`);
+    } finally { stale.dispose(); }
+  });
 
   test("L shows a row's outlinks, resources and backlinks, grouped as the Tree groups them; L again hides them", async () => {
     selectRow("Weekend plan");
