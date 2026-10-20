@@ -15,6 +15,8 @@ export interface InspectorField {
   multiple: boolean;
   note: string;
   saving: boolean;
+  /** The save in flight: the next edit waits for it to land instead of refusing (a quick second click). */
+  landing?: Promise<unknown>;
 
 }
 
@@ -28,7 +30,12 @@ export class Inspector extends RowView {
   private editorRect = { x: 4, y: 0, w: 0, h: 0 };
 
   async edit(key: string, value: string, choices: string[], multiple: boolean, place: string, write: (value: string) => Promise<unknown>, env: SessionEnv = {}) {
-    if (this.field?.saving) throw new ActionRefused("the field's save is still landing · its text stays here");
+    // A save still landing: wait for it. Saved, the field is gone; refused, its text stays and says why.
+    if (this.field?.saving) {
+      const f = this.field;
+      await f.landing?.catch(() => undefined);
+      if (this.field === f && f.note) throw new ActionRefused(`${f.key} didn't save: ${f.note} · its text stays here`);
+    }
     if (this.field) await this.field.session.leave(USER);
     const session = DraftSession.open({
       place, back: `e on ${key} brings it back`, label: "inspector-field", what: `${key} in the inspector`, verb: "save", leaveWrites: false,
@@ -57,11 +64,15 @@ export class Inspector extends RowView {
     }
     if (op === "save") {
       f.saving = true;
-      try {
-        if (f.choices.length && !f.multiple && f.selected >= 0) f.session.replace(f.choices[f.selected]!, USER);
-        const result = await f.session.submit(USER);
-        if (result.ok) { if (this.field === f) this.field = null; } else f.note = result.why;
-      } finally { f.saving = false; }
+      const landing = (async () => {
+        try {
+          if (f.choices.length && !f.multiple && f.selected >= 0) f.session.replace(f.choices[f.selected]!, USER);
+          const result = await f.session.submit(USER);
+          if (result.ok) { if (this.field === f) this.field = null; } else f.note = result.why;
+        } finally { f.saving = false; }
+      })();
+      f.landing = landing;
+      await landing;
     }
   }
   intent(k: Key): { op: string; value?: string; n?: number } | null {
