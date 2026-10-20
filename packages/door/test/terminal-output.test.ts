@@ -100,7 +100,7 @@ describe("terminal cells, not code points", () => {
     expect(width(cjk)).toBe(20);
     expect(width(emoji)).toBe(14);
     for (const w of [5, 6, 9, 12]) expect(cells(pad(cjk, w))).toBe(w);
-    expect(pad(cjk, 6)).toStartWith("会議 ");
+    expect(visible(pad(cjk, 6))).toStartWith("会議 ");
     expect(headOf(`\x1b[1m${cjk}`, 5)).toBe("\x1b[1m会議");
     expect(headOf(emoji, 8)).toBe("🌙 moon ");
     expect(cells(pad(emoji, 10))).toBe(10);
@@ -114,13 +114,13 @@ describe("terminal cells, not code points", () => {
     }
     const m = { id: "b1", text: cjk + cjk, properties: [] } as any;
     expect(cells(titleOf(m, 9))).toBeLessThanOrEqual(9);
-    expect(titleOf(m, 9)).toEndWith("…");
+    expect(visible(titleOf(m, 9))).toEndWith("…");
     // ellipsize: cut to cells with …, never padded, never half a wide or joined glyph.
-    expect(ellipsize(cjk, 7)).toBe("会議メ…");
-    expect(ellipsize(cjk, 6)).toBe("会議…");                      // 5 cells: the next glyph would split
-    expect(ellipsize("👩‍💻 dev", 2)).toBe("…");
-    expect(ellipsize(emoji, 9)).toBe("🌙 moon …");
-    expect(ellipsize("short", 9)).toBe("short");
+    expect(visible(ellipsize(cjk, 7))).toBe("会議メ…");
+    expect(visible(ellipsize(cjk, 6))).toBe("会議…");                      // 5 cells: the next glyph would split
+    expect(visible(ellipsize("👩‍💻 dev", 2))).toBe("…");
+    expect(visible(ellipsize(emoji, 9))).toBe("🌙 moon …");
+    expect(visible(ellipsize("short", 9))).toBe("short");
   });
 
   test("the canvas puts a wide glyph in two cells, keeps the row's width, and blanks half a glyph written over", () => {

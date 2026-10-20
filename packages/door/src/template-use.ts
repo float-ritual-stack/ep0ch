@@ -74,7 +74,7 @@ export function useRegion(d: UseDrawing): string[] | AfterRows {
   if ((d.depth ?? 0) >= MAX_USE_DEPTH) return only(dim(`::use ${who} · nested too deep · at most ${MAX_USE_DEPTH} calls inside each other`));
   const read = useAnswer(d.src, d.host, d.line, d.site);
   if (!read || read.state === "loading") return only(dim(`::use ${who} · reading…`));
-  if (read.state === "error" && !read.value) return only(fg(C.lred) + `::use ${who} · ${printable(read.error).slice(0, 200)}` + RESET);
+  if (read.state === "error" && !read.value) return only(fg(C.lred) + `::use ${who} · ${printable(read.error)}` + RESET);
   const answer = read.value!;
   const notes: string[] = [];
   const title = answer.template ? printable(answer.template.title) : printable(who);
@@ -83,8 +83,8 @@ export function useRegion(d: UseDrawing): string[] | AfterRows {
   // What is wrong, said where it is, with the nearest name and a call that works (a save is never refused for it).
   for (const p of answer.problems) {
     if (p.kind === "missing") continue;
-    notes.push(fg(C.lred) + `⚠ ${printable(p.message).slice(0, 220)}` + RESET);
-    if (p.example && p.kind !== "spec") notes.push(dim(`  for example ${printable(p.example).slice(0, 200)}`));
+    notes.push(fg(C.lred) + `⚠ ${printable(p.message)}` + RESET);
+    if (p.example && p.kind !== "spec") notes.push(dim(`  for example ${printable(p.example)}`));
   }
   if (answer.missing.length) {
     const names = answer.missing.map(m => m.name).join(", ");
@@ -96,9 +96,9 @@ export function useRegion(d: UseDrawing): string[] | AfterRows {
   // The template's note: kept read by the embed machinery (its text, revision and change events); its body is drawn here.
   const st = embedState(answer.template.id, undefined, d.src, d.top);
   if (st.kind === "loading") { notes.push(dim("reading the template…")); return draw([]); }
-  if (st.kind === "failed") { notes.push(fg(C.lred) + `the template: ${printable(st.error).slice(0, 200)}` + RESET); return draw([]); }
+  if (st.kind === "failed") { notes.push(fg(C.lred) + `the template: ${printable(st.error)}` + RESET); return draw([]); }
   const node = st.node;
-  if (node.status !== "ready" || !node.block) { notes.push(fg(C.lred) + `the template: ${printable(node.message ?? node.status).slice(0, 200)}` + RESET); return draw([]); }
+  if (node.status !== "ready" || !node.block) { notes.push(fg(C.lred) + `the template: ${printable(node.message ?? node.status)}` + RESET); return draw([]); }
   // A template with a prop missing or wrong is drawn anyway (the call is the person's to fix); the body shows what it can.
   return draw(d.body(node.block, bodySite(answer), Math.max(4, d.width)));
 }

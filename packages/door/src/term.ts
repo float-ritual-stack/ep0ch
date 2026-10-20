@@ -378,7 +378,7 @@ export class KeyDecoder {
       if (p[0] === "\x1b" && (p[1] === "\x7f" || p[1] === "\x08")) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt-backspace" }); continue; }
       // Alt+letter or digit arrives as ESC and the key together. `[ O P _ ]` start CSI, SS3, DCS, APC and OSC
       // sequences, so an ESC before one of them keeps its old meaning.
-      if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9]$/.test(p[1]!)) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
+      if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9?]$/.test(p[1]!)) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }
       if (p[0] === "\x1b") { // unknown sequence: drop it
         // A CSI's private marker (< = > ?) is part of it: a mouse report the door couldn't read is dropped whole, not read as esc and keys.
         const k = p.match(/^\x1b\[[<=>?]?[\d;:?]*[ -\/]*[@-~]/);

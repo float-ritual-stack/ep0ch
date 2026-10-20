@@ -1,5 +1,6 @@
+import { clipText } from "../overflow";
 import { RowView } from "../scroll";
-import { extractLinks, fg, C, pad, headOf, RESET } from "../style";
+import { extractLinks, fg, C, pad, RESET } from "../style";
 import { cellsOf } from "./selection";
 import type { LinkTarget } from "../refs";
 
@@ -38,7 +39,7 @@ export class InlineList {
     const size = Math.max(1, Math.round(room * room / total));
     const pos = total > room ? Math.round((room - size) * top / (total - room)) : 0;
     const body = lines.slice(first + top, first + top + room).map((line, i) => total > room
-      ? pad(headOf(line, width - 1), width - 1) + fg(C.dark) + (i >= pos && i < pos + size ? "█" : "│") + RESET : line);
+      ? pad(clipText(line, width - 1), width - 1) + fg(C.dark) + (i >= pos && i < pos + size ? "█" : "│") + RESET : line);
     return [...lines.slice(0, first), ...body, ...lines.slice(last + 1)];
   }
 }

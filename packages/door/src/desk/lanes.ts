@@ -222,9 +222,9 @@ export class Lanes implements SourceModel {
       const over = d.over === null ? null : this.lanes[d.over];
       const p = over && d.over !== d.from ? this.cachedPlan(d.card, over) : null;
       const onto = d.onto ? this.lanes[d.from]?.items?.find(m => m.id === d.onto) : undefined, above = onto ? this.dropsAbove(d) : null;
-      if (onto && above !== null) return paint(`|08 release to put |15${subject(d.card).slice(0, 40)}|08 ${above ? "above" : "below"} |15${subject(onto).slice(0, 40)}|08 (its lane's hand-set order)`);
+      if (onto && above !== null) return paint(`|08 release to put |15${subject(d.card)}|08 ${above ? "above" : "below"} |15${subject(onto)}|08 (its lane's hand-set order)`);
       const say = over && d.over !== d.from && !p ? `|08 asking the outline what a move into |15${over.name}|08 would patch…`
-        : !over || !p ? `|08 dragging |15${subject(d.card).slice(0, 60)}|08 · release over another lane to move it there`
+        : !over || !p ? `|08 dragging |15${subject(d.card)}|08 · release over another lane to move it there`
         : p.kind === "patch" ? `|08 release to move into |15${over.name}|08 · |14${describeChanges(p.changes)}`
         : p.kind === "already" ? `|08 already in |15${over.name}|08 · nothing to change`
         : `|12 can't drop into ${over.name}: ${p.reason}`;
@@ -1008,7 +1008,7 @@ export class Lanes implements SourceModel {
     }
     const m = made.block;
     const fields = [`priority=${input.priority}`, `arc=${input.arc}`, ...input.tracks.map(t => `track=${t}`), `project=${input.project}`];
-    this.created(lane, m, actor, `created ${made.workId} in ${lane.name} · ${input.title.slice(0, 50)} · ${fields.join(" ")}`, `created ${made.workId} in ${lane.name} under its work queue ${made.workQueueId.slice(0, 8)}`);
+    this.created(lane, m, actor, `created ${made.workId} in ${lane.name} · ${input.title} · ${fields.join(" ")}`, `created ${made.workId} in ${lane.name} under its work queue ${made.workQueueId.slice(0, 8)}`);
     // What the allocator gave it, read off the block it made (its stage rule is the service's, not ours).
     const props = m.properties;
     const bornWith = ["type", "priority", "work-stage", "work-batch", "project", "arc", "track"].flatMap(k => props.filter(p => p.key === k).map(p => `${k}=${p.value}`));
@@ -1045,8 +1045,8 @@ export class Lanes implements SourceModel {
     const m = await this.landCreate(parentId, body, actor);
     const parent = await this.host.ctx.board.get(parentId).catch(() => null);
     if (parent) for (const r of this.readers()) r.refresh(parent);
-    asActor(this.host.ctx, actor).flash(`added a note under ${parent ? titleOf(parent) : parentId.slice(0, 8)} · ${titleOf(m)}`);
-    this.lastWrite = { what: "note", id: m.id, result: `created under ${parentId.slice(0, 8)}`, ...(byOf(actor)) };
+    asActor(this.host.ctx, actor).flash(`added a note under ${parent ? titleOf(parent) : parentId} · ${titleOf(m)}`);
+    this.lastWrite = { what: "note", id: m.id, result: `created under ${parentId}`, ...(byOf(actor)) };
     for (const r of this.readers()) if (r.msg?.id === parentId) r.surface.noteAgent(actor, "added a note under this card");
     this.host.redraw();
     return { id: m.id, parent: parentId, text: m.text };

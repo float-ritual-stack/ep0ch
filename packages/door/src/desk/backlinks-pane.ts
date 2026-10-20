@@ -173,9 +173,9 @@ export class BacklinksPane implements Pane {
     if (!this.target) return `${word} · of ${this.source}`;
     if (this.childrenOnly) {
       const c = this.children;
-      return `${word} · ${subject(this.target).slice(0, 50)} · ${c.kind === "ready" ? `${c.value.length} repl${c.value.length === 1 ? "y" : "ies"}` : "…"}`;
+      return `${word} · ${subject(this.target)} · ${c.kind === "ready" ? `${c.value.length} repl${c.value.length === 1 ? "y" : "ies"}` : "…"}`;
     }
-    return `${word} · ${subject(this.target).slice(0, 50)}`;
+    return `${word} · ${subject(this.target)}`;
   }
   headControls(_room: number, desk: DeskApi) {
     if (!this.target || this.childrenOnly) return null;
@@ -602,7 +602,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       // Its authored links too: the counts and kinds are across all three groups, as the person's.
       const links: Load<AuthoredLinksSnapshot> = same && L.authored.kind === "ready" ? L.authored : await board.authoredLinks(target.id).then(value => ({ kind: "ready" as const, value }), () => ({ kind: "loading" as const }));
       const o = parse(base, data, links);
-      desk.ctx.flash(`${agentLabel(actor)} read the backlinks of ${subject(target).slice(0, 40)}`);
+      desk.ctx.flash(`${agentLabel(actor)} read the backlinks of ${subject(target)}`);
       const all: LinkData = { links, backlinks: { kind: "ready", value: data } };
       const listed = linkRows(all, { shut: new Set(), kinds: same ? L.expanded : new Set(), backlinks: o, sortAll: true }).map((r, i) => describeLinkRow(r, i + 1, false));
       return { backlinks: { target: { id: target.id, title: subject(target) }, ...describeBacklinkView(backlinkView(data, o), o, same ? L.expanded : new Set(), undefined, linkAcross(all, o)), rows: listed } };

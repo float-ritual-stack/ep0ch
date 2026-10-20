@@ -133,7 +133,7 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     s.key(char("x"), host);
     await until(() => s.picker === null, "the choice to land");
     expect(await textOf(n.garden.id)).toContain("2. [x] Sow the beans ^t-d4e5f6");
-    expect(flashes.at(-1)).toBe(`set "Sow the beans" to do → done · in !((${n.garden.id.slice(0, 8)}…^t-d4e5f6))`);
+    expect(flashes.at(-1)).toBe(`set "Sow the beans" to do → done · in !((${n.garden.id}^t-d4e5f6))`);
     // Both places it's drawn follow: the whole note's embed and the slice.
     await settle(draw, t => (t.match(/\[x\] Sow the beans/g) ?? []).length === 2, "both embeds redrawn");
     // Still on the same step, so space toggles it back to do, and ctrl+z undoes that toggle.
@@ -234,8 +234,8 @@ describe.skipIf(!outliner)("steps and transclusions, against a scratch outline",
     expect(r).toMatchObject({ status: "problem", from: "waiting", changed: true, recordedAs: { author: "agent", actorId: AGENT } });
     expect(s.describe().elements!.current).toEqual(before);
     expect(s.scroll).toBe(scroll);
-    expect(s.describe().agent).toMatchObject({ id: AGENT, did: `set "Buy canes" waiting → problem · in !((${n.garden.id.slice(0, 8)}…))` });
-    expect(flashes.at(-1)).toBe(`an agent (${AGENT}) · set "Buy canes" waiting → problem · in !((${n.garden.id.slice(0, 8)}…))`);
+    expect(s.describe().agent).toMatchObject({ id: AGENT, did: `set "Buy canes" waiting → problem · in !((${n.garden.id}))` });
+    expect(flashes.at(-1)).toBe(`an agent (${AGENT}) · set "Buy canes" waiting → problem · in !((${n.garden.id}))`);
     expect(draw().some(l => l.includes(`an agent (${AGENT}) set "Buy canes"`))).toBe(true);
     // The service recorded it as the agent's.
     const activity = await board.activity(20);

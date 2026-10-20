@@ -15,7 +15,7 @@ import { authorName, whoOf, USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
-import { bg, C, chip, fg, RESET, width } from "./style";
+import { bg, C, chip, ellipsize, fg, RESET, width } from "./style";
 import { wrap } from "./text";
 import { lastTop, scrolled, scrollOff } from "./scroll";
 import type { Key } from "./term";
@@ -1147,7 +1147,7 @@ export class Draft {
       if (progress) line += RESET + fg(C.lmagenta) + this.askStatus(this.lines[r.line]!, roomForStatus);
       const said = glow.find(g => g.last)?.label;
       const room = w1 - r.indent - width(cells.join("")) - width(progress ? this.askStatus(this.lines[r.line]!, roomForStatus) : "") - 2;
-      out.push(line + RESET + (said && room > 4 ? "  " + fg(C.lmagenta) + ("@" + said).slice(0, room) + RESET : ""));
+      out.push(line + RESET + (said && room > 4 ? "  " + fg(C.lmagenta) + ellipsize("@" + said, room) + RESET : ""));
     }
     return out;
   }

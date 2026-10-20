@@ -70,7 +70,7 @@ const age = (iso: string | undefined, now: number) => (iso ? relativeAge(iso, no
 export function drawSources(p: SourcesPanel, w: number, now: number): PanelDraw {
   const lines: string[] = [], hits: PanelHit[] = [];
   const put = (text: string, hit?: { from: number; to: number; action: string; args?: Record<string, unknown> }[]) => {
-    for (const line of rowLines(text, w)) {
+    for (const line of wrap(text, w)) {
       for (const x of hit ?? []) hits.push({ row: lines.length, from: x.from, to: x.to, action: x.action, args: x.args ?? {} });
       lines.push(pad(line, w) + RESET);
     }
@@ -101,7 +101,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number): PanelDraw 
       const on = i === p.sel, when = age(x.readAt, now) || (x.kind === "output" ? "written" : ""), kind = KIND_WORDS[x.kind];
       const left = ` ${on ? fg(C.yellow) + "▸" : " "} ${on ? fg(C.white) + BOLD : fg(C.lcyan)}${x.name}${UNBOLD}${RESET}${x.problem ? fg(C.yellow) + " !" + RESET : ""}`;
       const right = `${dim(kind)}  ${dim(when)}`;
-      for (const text of rowLines(`${left}  ${right}`, w, undefined, { hang: 3 })) put(text, [{ from: 0, to: w, action: "sources.enter", args: { n: i + 1 } }]);
+      for (const text of rowLines(`${left}  ${right}`, w, Infinity, { hang: 3 })) put(text, [{ from: 0, to: w, action: "sources.enter", args: { n: i + 1 } }]);
     });
     put("");
     put(` ${dim("j k select · ⏎ open · r read again · esc close")}`);
@@ -113,7 +113,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number): PanelDraw 
   const at = Math.min(p.item, items.length - 1);
   let focus = 0;
   const mark = (i: number) => (i === at ? fg(C.yellow) + "▸" + RESET : " ");
-  const row = (i: number, text: string, hit?: PanelHit["action"], args: Record<string, unknown> = {}) => { if (i === at) focus = lines.length; for (const line of rowLines(`${mark(i)} ${text}`, w, undefined, { hang: 2 })) put(line, [{ from: 0, to: w, action: hit ?? "sources.item", args: hit ? args : { n: i + 1 } }]); };
+  const row = (i: number, text: string, hit?: PanelHit["action"], args: Record<string, unknown> = {}) => { if (i === at) focus = lines.length; for (const line of rowLines(`${mark(i)} ${text}`, w, Infinity, { hang: 2 })) put(line, [{ from: 0, to: w, action: hit ?? "sources.item", args: hit ? args : { n: i + 1 } }]); };
   put(` ${fg(C.lcyan)}← ${RESET}${fg(C.yellow)}${BOLD}${s.name}${UNBOLD}${RESET} ${dim(`· ${KIND_WORDS[s.kind]} · line ${s.line + 1}${s.endLine > s.line ? `–${s.endLine + 1}` : ""}`)}${" ".repeat(0)}`, [{ from: 0, to: 3, action: "sources.back" }]);
   if (s.readAt) put(` ${dim(`read ${age(s.readAt, now)} · ${s.live ? "live: drawn again when what it read changes" : "as written"}`)}`);
   else if (s.live === false) put(` ${dim("as written: its text is the note's")}`);

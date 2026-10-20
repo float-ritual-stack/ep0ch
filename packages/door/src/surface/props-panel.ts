@@ -71,7 +71,7 @@ export function valueView(r: PropRow, src: Source | null, noteText?: string): st
   }
   if (r.target && "page" in r.target) {
     const p = pageOf(r.target.page, src);
-    return p?.status === "missing" ? `${v} ${MISSING_MARK}` : p?.block ? `${v}  ${printable(titleLine(p.block.text).text).slice(0, 60)}` : v;
+    return p?.status === "missing" ? `${v} ${MISSING_MARK}` : p?.block ? `${v}  ${printable(titleLine(p.block.text).text)}` : v;
   }
   return v;
 }

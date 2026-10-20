@@ -1,3 +1,4 @@
+import { clipText } from "../overflow";
 // Welcome: the notes with a block-scoped `welcome` property (any value: it only marks a note), one at a time, in the
 // hand-set order of the Welcome view (a saved view `[query::welcome]`, #190's order: alt+↑ alt+↓ or a drag in the list,
 // `welcome.move`, `ep0ch view order`, a board lane on it); the first is the detail when the screen opens. Notes the
@@ -25,7 +26,7 @@ import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
-import { artLines, C, chip, ellipsize, fg, headOf, pad, paint, RESET, selectedRow, width } from "../style";
+import { artLines, C, chip, ellipsize, fg, pad, paint, RESET, selectedRow, width } from "../style";
 import { ch, isUp, isDown, type Key, type TermInfo } from "../term";
 import { rowLines, bbsDate, wrap } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -509,7 +510,7 @@ export class WelcomePreview extends PreviewPane {
     if (v.lines.length && !this.holdsKeys && w >= lw + 8) {
       this.readFrom = w - lw;
       // Keep the surface's breadcrumb: the next row already owns the note's title.
-      v.lines[0] = headOf(v.lines[0]!, w - lw) + chip(C.magenta) + READ_HERE + RESET;
+      v.lines[0] = clipText(v.lines[0]!, w - lw) + chip(C.magenta) + READ_HERE + RESET;
     }
     return v;
   }
@@ -538,7 +539,7 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
   "welcome.select": def({
     summary: "read a welcome note in the detail: n (its place from 1, as the tabs number them: 1-9, then 10 is the 0 key) or id; read=true also gives the detail the person's keys (never an agent's). Refused to an agent while the person is typing here",
     keys: "1-9 0, a click on a tab, j k ⏎, a click or the wheel in the list",
-    touches: "screen", replay: "safe", says: r => `put ${r.title.slice(0, 40)} in the detail${r.n ? ` (welcome ${tabKey(r.n - 1) ?? r.n})` : ""}`,
+    touches: "screen", replay: "safe", says: r => `put ${r.title} in the detail${r.n ? ` (welcome ${tabKey(r.n - 1) ?? r.n})` : ""}`,
     args: {
       n: { type: "number", optional: true, about: "its place, from 1" },
       id: { type: "string", optional: true, about: "the welcome note's block id" },
@@ -559,7 +560,7 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
   "welcome.read": def({
     summary: "read any note in the detail (as alt+⏎ or a ctrl-click on a link does); back (alt+←) returns to the one before",
     keys: "alt+⏎, ctrl-click, alt-click on a link or a backlink",
-    touches: "screen", replay: "safe", says: r => `put ${r.title.slice(0, 40)} in the detail`,
+    touches: "screen", replay: "safe", says: r => `put ${r.title} in the detail`,
     args: { id: { type: "string", about: "the block id" } },
     examples: [
       { act: "welcome.read id=6c1e4a85-7d92-4b03-8f5a-3e9b2d0c7a16", does: "puts that note in the welcome detail, with back returning to the last one" },
@@ -574,7 +575,7 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
     summary: "put a welcome note elsewhere in the Welcome view's hand-set order, which is the screen's order (the first is read when it opens): the one in the detail, or id=; by=<±places> (negative: up) or to=<place from 1>. With no Welcome view yet ([query::welcome]), it's made first, holding today's order. Recorded as who asked; `ep0ch view order` and a board lane on the view change the same order",
     keys: "alt+↑ alt+↓ in the list, drag a note up or down the list",
     touches: "nothing", replay: "ask", confirms: true,
-    says: r => `moved ${String(r.title).slice(0, 40)} to welcome ${r.n} of ${r.of}${r.made ? " (made the Welcome view to hold the order)" : ""}`,
+    says: r => `moved ${String(r.title)} to welcome ${r.n} of ${r.of}${r.made ? " (made the Welcome view to hold the order)" : ""}`,
     args: {
       id: { type: "string", optional: true, about: "the welcome note's block id (default: the one in the detail)" },
       by: { type: "number", optional: true, about: "places to move down (negative: up)" },

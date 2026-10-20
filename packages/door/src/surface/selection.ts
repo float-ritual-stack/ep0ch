@@ -458,7 +458,7 @@ export function selectText(rows: SelectRows, text: string, n = 1, skipEdges = fa
   const re = new RegExp(text.trim().split(/\s+/).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s+"), "g");
   const hits = [...flat.matchAll(re)];
   const hit = hits[(n ?? 1) - 1];
-  if (!hit) throw new ActionRefused(hits.length ? `it's drawn ${hits.length} time${hits.length === 1 ? "" : "s"}; n is 1 to ${hits.length}` : `"${ellipsize(text, 40)}" isn't drawn in this reader (links read as their titles; folded sections aren't drawn)`);
+  if (!hit) throw new ActionRefused(hits.length ? `it's drawn ${hits.length} time${hits.length === 1 ? "" : "s"}; n is 1 to ${hits.length}` : `"${text}" isn't drawn in this reader (links read as their titles; folded sections aren't drawn)`);
   const at = (off: number): Pos => {
     const row = starts.findLastIndex(s => s <= off);
     return { row, col: (rows.margin?.(row) ?? 0) + off - starts[row]! };

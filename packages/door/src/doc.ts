@@ -1,3 +1,4 @@
+import { clipText } from "./overflow";
 import { componentRowFields } from "./look";
 import { heroLook } from "./surface/hero-look";
 import { isArtifactName } from "@ep0ch/outline-core/artifacts";
@@ -7,7 +8,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // media lines as image slots the caller fills with Kitty placements.
 import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
-import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, fgRgb, headOf, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv, type RowInline } from "./graphs";
@@ -553,7 +554,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
           callout: undefined, decorate: undefined, literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
           folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: Math.min(p.end, end) - off })) },
         });
-        const title = deco.frame.title ? ` ${headOf(deco.frame.title, Math.max(0, W - 6))} ` : "";
+        const title = deco.frame.title ? ` ${clipText(deco.frame.title, Math.max(0, W - 6))} ` : "";
         out.push(fg(colour) + "╭─" + title + "─".repeat(Math.max(0, W - 3 - vwidth(title))) + "╮" + RESET);
         mark();
         const base = out.length;
@@ -1110,7 +1111,7 @@ function styleDeclaration(line: string, W: number): string[] | null {
   const summary = chip(C.dark, C.white) + ` style ${name} ` + RESET + fg(C.grey) + (facts.length ? " " + facts.join(" · ") : "") + RESET
     + (d.problems.length ? fg(C.yellow) + " · ⚠ " + d.problems.join(" · ") + RESET : "")
     + (text ? fg(C.dark) + "  " + text + RESET : "");
-  const out = [headOf(summary, W) + RESET];
+  const out = [clipText(summary, W) + RESET];
   // The preview: the style drawn on its own name, in the room a narrow note leaves.
   const band = s && drawBand(s, Math.min(W, 56), 2, BOLD + (s.tone !== "neutral" ? fg(TONE[s.tone]) : fg(C.white)) + bandLetters(text || name, s.letters) + UNBOLD + RESET, text || name);
   if (band) out.push(...band.rows);

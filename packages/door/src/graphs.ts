@@ -1,8 +1,9 @@
+import { clipText } from "./overflow";
 // mdxcn-style figures (https://mdxcn.dev): a dotted frame with + corners and a [ TITLE ],
 // charts made of characters, one accent. Two inputs render the same way:
 //   ::graph-<kind>          Comark block with YAML props between --- lines, drawn here natively
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
-import { BOLD, C, ellipsize, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
+import { BOLD, C, ellipsize, fg, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
 import { rowLines, withRowLimit, wrap } from "./text";
 import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from "./live";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
@@ -51,7 +52,7 @@ export function frame(title: string, body: string[], W: number, footer = "", con
   const left = Math.max(1, Math.floor((w - 2 - lw) / 2)), right = Math.max(1, w - 2 - lw - left);
   const top = fg(DIM) + "+" + rep("·", left) + fg(ACCENT) + label + fg(DIM) + rep("·", right) + "+" + RESET;
   const side = (s: string) => fg(DIM) + "┊ " + RESET + pad(s, inner) + fg(DIM) + " ┊" + RESET;
-  const shown = footer ? headOf(footer, Math.max(0, w - 8)) : "";
+  const shown = footer ? clipText(footer, Math.max(0, w - 8)) : "";
   const fits = !!control && vwidth(shown) + vwidth(control) + (shown ? 3 : 0) + 8 <= w;
   const tail = fits ? (shown ? fg(DIM) + " · " : "") + fg(ACCENT) + control : "";
   const foot = shown || tail ? ` ${shown}${tail} ` : "";
@@ -277,12 +278,24 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     let align: string[] = Array.isArray(p.align) ? p.align : [];
     // Narrow (PIE-581): the title column and one more; the rest are counted in the footer, never wrapped to nothing.
     const width0 = Math.max(0, ...[head, ...rows].map(r => r.length));
-    const tcol = Math.min(Math.max(0, width0 - 1), Math.max(0, Number(p.titleColumn) || 0));
+    let tcol = Math.min(Math.max(0, width0 - 1), Math.max(0, Number(p.titleColumn) || 0));
     let dropped = 0;
-    if (tier(w) === "narrow" && width0 > 2) {
-      const keep = [tcol, [...Array(width0).keys()].find(k => k !== tcol)!];
+    const reduce = (keep: number[]) => {
       const cut = (r: string[]) => keep.map(k => r[k] ?? "");
-      head = cut(head); rows = rows.map(cut); foot = foot && cut(foot); align = cut(align); dropped = width0 - 2;
+      head = cut(head); rows = rows.map(cut); foot = foot && cut(foot); align = cut(align);
+      tcol = Math.max(0, keep.indexOf(tcol));
+    };
+    const id = head.findIndex(c => c.toLowerCase() === "id");
+    const title = head.findIndex(c => c.toLowerCase() === "title");
+    const natural = Array.from({ length: width0 }, (_, k) => Math.max(...[head, ...rows].map(r => vwidth(r[k] ?? "")))).reduce((a, b) => a + b, 0) + (width0 - 1) * 3;
+    if (id >= 0 && title >= 0 && natural > w) {
+      reduce([...Array(width0).keys()].filter(k => k !== id));
+      dropped++;
+    }
+    const remaining = width0 - dropped;
+    if (tier(w) === "narrow" && remaining > 2) {
+      reduce([tcol, [...Array(remaining).keys()].find(k => k !== tcol)!]);
+      dropped += remaining - 2;
     }
     const all = [head, ...rows, ...(foot ? [foot] : [])];
     const n = Math.max(...all.map(r => r.length));
@@ -296,7 +309,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const rule = fg(DIM) + rep("·", Math.min(w, cw.reduce((a, b) => a + b, 0) + (n - 1) * 3)) + RESET;
     // Each cell shares the row limit; every physical line belongs to the same note.
     const density = ui?.density ?? (isDensity(p.density) ? p.density : "cozy"), most = ui?.lines ?? 2;
-    const tc = dropped ? 0 : Math.min(n - 1, Math.max(0, Number(p.titleColumn) || 0));
+    const tc = tcol;
     const drawRow = (r: string[]) => {
       const cells = r.map((c, k) => rowLines(c, cw[k]!, most));
       return Array.from({ length: Math.max(...cells.map(c => c.length)) }, (_, i) => line(cells.map(c => c[i] ?? ""), fg(INK)));

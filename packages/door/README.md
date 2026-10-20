@@ -3177,3 +3177,5 @@ surface. The showcase's `hints` section demonstrates linking live.
 `ep0ch peek --xray` reads every visible tile's card as data without displaying it.
 `hint.show text="Choose a destination" for=reader` shows an attributed card;
 `hint.get`, `hint.pin`, and `hint.dismiss` read, keep, or close it.
+
+Cut-short text stays readable: hover it, select a list row by keys, or press Alt+? to cycle clipped values. A value wider than the screen scrolls. The status line still opens the message log on a click (Alt+M by keys); `status.list` returns recent messages in full alongside waiting programs.

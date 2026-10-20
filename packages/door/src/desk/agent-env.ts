@@ -283,7 +283,7 @@ export async function doorAgents(env: Record<string, string | undefined> = proce
     if (p.pid === process.pid) continue;
     const a = await readAgent(p.pid);
     if (!a.env?.EP0CH_TILE && !a.env?.EP0CH_CONTROL && !a.env?.EP0CH_NEST) continue;
-    out.push({ ...a, cmd: p.argv.join(" ").slice(0, 200), knows: judgeAgent(a, mod) });
+    out.push({ ...a, cmd: p.argv.join(" "), knows: judgeAgent(a, mod) });
   }
   return out;
 }

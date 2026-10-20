@@ -1,3 +1,4 @@
+import { fullText, FULL_MARKERS } from "./overflow";
 // Text helpers shared by the BBS screens and the desk panes.
 import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
 import { pageLinkRanges, referencedBlock } from "@ep0ch/outline-core/link-syntax";
@@ -37,6 +38,7 @@ const UNSAFE = /[\x00-\x1a\x1c-\x1f\x7f-\x9f]|\x1b(?!\[[\d;:]*m)/;
  * The sink under every screen (term.ts rowBytes) and the canvas (canvas.ts) use it.
  */
 export function paintable(line: string): string {
+  line = line.replace(FULL_MARKERS, "");
   if (!UNSAFE.test(line)) return line;
   let link = false;
   const drawn = line.split(DRAWN_PART).map((part, i) => {
@@ -164,15 +166,16 @@ export function rowLines(text: string, w: number, lines = rowLimit, { hang }: { 
   // Wrap the marker with the first line, then reuse wrap's seams to consume source text, not balanced tags.
   let rest = text;
   const out: string[] = [];
+  let clipped = false;
   for (let i = 0; rest && i < lines; i++) {
     const room = w - (i ? indent : 0), before = i ? lead : "";
-    if (i === lines - 1 || width(rest) <= room) { out.push(before + ellipsize(rest, room)); break; }
+    if (i === lines - 1 || width(rest) <= room) { clipped = width(rest) > room; out.push(before + ellipsize(rest, room)); break; }
     const joins: (string | undefined)[] = [];
     const wrapped = wrap(rest, room, { joins });
     out.push(before + wrapped[0]!);
     rest = wrapped.slice(1).map((l, j) => (j ? joins[j + 1] ?? "" : "") + l).join("");
   }
-  return out.length ? out : [""];
+  return out.length ? clipped ? out.map(line => fullText(text, line)) : out : [""];
 }
 
 /** Each `[[page link]]` of `line` in the link colour, its brackets counted (a page link may hold another, PIE-592). */
@@ -201,7 +204,7 @@ export function colourInline(line: string, base: number = C.grey, literal = fals
   if (!literal) line = replacePropertyTokens(line, t => `${fg(C.dark)}[${fg(C.brown)}${t.key}${fg(C.dark)}::${fg(C.yellow)}${t.value}${fg(C.dark)}]${fg(base)}`);
   const back = fg(C.grey) + (base === C.grey ? "" : fg(base));
   return styleMarks(fg(base) + colourPageLinks(line, base)
-    .replace(/\(\(([0-9a-f-]{8})[0-9a-f-]*\)\)/g, `${fg(C.cyan)}(($1…))${fg(base)}`)
+    .replace(/\(\(([0-9a-f-]{8}[0-9a-f-]*)\)\)/g, (_, id: string) => `${fg(C.cyan)}((${ellipsize(id, 9)}))${fg(base)}`)
     .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${back}`))
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
     .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE009/g, fgRgb(theme().external)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(base))

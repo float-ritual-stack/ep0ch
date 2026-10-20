@@ -1,3 +1,4 @@
+import { clipText } from "../overflow";
 // The power bar asks for what an action needs and wasn't given (PIE-784): an extension's declared arguments (a sort's
 // by and order) and the door's own (where a quote of marks goes). One question at a time in the bar's `ask` scope (`?`),
 // its choices as rows (the value it has now first); a number or text is what's typed; a note is a choice or any note
@@ -15,7 +16,7 @@ import { ActionRefused, shownLine, type ActionExample } from "../surface/actions
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import type { Actor } from "../socket";
 import { noteLabel } from "../board";
-import { C, fg, headOf, pad, RESET, width } from "../style";
+import { C, fg, pad, RESET, width } from "../style";
 import { argKind } from "./arg-kinds";
 import { registerBarSource, unregisterBarSource, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 
@@ -189,7 +190,7 @@ let headSpots: (string | null)[] = [];
 /** The form's lines above its rows: the action, a line per field (name, answer, meaning), the act line. */
 function formHead(w: NonNullable<typeof waiting>, width_: number): string[] {
   const f = w.form!, qs = w.questions, nameW = Math.min(14, Math.max(...qs.map(q => width(q.name)), 4));
-  const lines: string[] = [fg(C.dark) + headOf(` ${w.title}`, width_) + RESET];
+  const lines: string[] = [fg(C.dark) + clipText(` ${w.title}`, width_) + RESET];
   headSpots = [null];
   let from = 0, to = qs.length;
   if (qs.length > FIELDS_SHOWN) { from = Math.max(0, Math.min(w.focus - Math.floor(FIELDS_SHOWN / 2), qs.length - FIELDS_SHOWN)); to = from + FIELDS_SHOWN; }
@@ -197,16 +198,16 @@ function formHead(w: NonNullable<typeof waiting>, width_: number): string[] {
   const valueW = Math.max(10, Math.min(28, Math.floor(width_ * 0.3)));
   for (let i = from; i < to; i++) {
     const q = qs[i]!, on = i === w.focus, v = w.answers[q.name];
-    const shown = v !== undefined ? fg(C.white) + pad(headOf(q.masked ? "********" : v || '""', valueW), valueW)
-      : q.required ? fg(C.lred) + pad("needed", valueW) : fg(C.dark) + pad(headOf(q.default !== undefined ? `(${q.default})` : "-", valueW), valueW);
+    const shown = v !== undefined ? fg(C.white) + pad(clipText(q.masked ? "********" : v || '""', valueW), valueW)
+      : q.required ? fg(C.lred) + pad("needed", valueW) : fg(C.dark) + pad(clipText(q.default !== undefined ? `(${q.default})` : "-", valueW), valueW);
     const name = (on ? fg(C.lcyan) + "▸ " : "  ") + (q.required ? fg(C.yellow) : fg(C.grey)) + pad(q.name, nameW) + RESET;
-    lines.push(` ${name} ${shown}${RESET} ${fg(C.dark)}${headOf(q.description ?? "", Math.max(0, width_ - nameW - valueW - 6))}${RESET}`);
+    lines.push(` ${name} ${shown}${RESET} ${fg(C.dark)}${clipText(q.description ?? "", Math.max(0, width_ - nameW - valueW - 6))}${RESET}`);
     headSpots.push(q.name);
   }
   if (to < qs.length) { lines.push(fg(C.dark) + `   … ${qs.length - to} more below` + RESET); headSpots.push(qs[to]!.name); }
   const why = f.check?.(w.answers), line = lineOf(w), on = w.focus >= qs.length;
   const tail = why ? `  ✕ ${why}` : "  ⏎ runs it";
-  lines.push(` ${on ? fg(C.lcyan) + "▸ " : "  "}${fg(C.dark)}ep0ch act ${fg(why ? C.grey : C.lgreen)}${headOf(line, Math.max(10, width_ - 16 - Math.min(width(tail), 40)))}${fg(why ? C.lred : C.dark)}${headOf(tail, Math.max(0, width_ - width(line) - 16))}${RESET}`);
+  lines.push(` ${on ? fg(C.lcyan) + "▸ " : "  "}${fg(C.dark)}ep0ch act ${fg(why ? C.grey : C.lgreen)}${clipText(line, Math.max(10, width_ - 16 - Math.min(width(tail), 40)))}${fg(why ? C.lred : C.dark)}${clipText(tail, Math.max(0, width_ - width(line) - 16))}${RESET}`);
   headSpots.push("run");
   return lines;
 }
@@ -245,7 +246,7 @@ async function formRows(w: NonNullable<typeof waiting>, typed: string, host: Bar
   const run: BarRow = { key: "run", label: `run ${line}`, fill: line, detail: "as you, through the dispatcher", group: "run", ...(why ? { refused: why } : {}) };
   const examples = (f.examples ?? []).map((ex, i): BarRow => ({ key: `example:${i}`, label: ex.act, detail: ex.does, group: "examples · fill the form" }));
   if (!q) return [run, { key: "copy", label: "copy the act line", detail: line, group: "run" }, ...examples];
-  return [...await fieldRows(q, typed, host, `${q.name} · ${q.description ?? ""}`.slice(0, 80)), ...examples, run];
+  return [...await fieldRows(q, typed, host, `${q.name} · ${q.description ?? ""}`), ...examples, run];
 }
 
 /** A note's parents (nearest first, three) and the notes changed lately (the `/` scope's own list), then the choices: where a note can go before anything is typed. */

@@ -1,6 +1,7 @@
+import { fullText, selectFullText } from "./overflow";
 // Palette styling for real terminal text, plus width-safe padding. Every UI colour comes through the active
 // theme (src/theme.ts); ANSI art keeps true VGA (artLines).
-import { OSC8_ALL } from "./hyperlink";
+import { closesHyperlink, DRAWN_PART, OSC8_ALL } from "./hyperlink";
 import { glyph, VGA_RGB, type Cell } from "./ansi";
 import { contrast, luminance, surfaceRgb, theme, type Rgb, type Theme } from "./theme";
 import type { Surface } from "@ep0ch/outline-core/style-cascade";
@@ -31,12 +32,12 @@ export function selectedRow(text: string, cols: number, keys = true, idle: "idle
   if (cols <= 0) return "";
   const style = selected(keys, idle);
   const body = text.replace(/^((?:\x1b\[[\d;]*m)*) /, "$1");
-  return style + (keys ? itemBar() : " ") + style + (cols > 1 ? pad(body, cols - 1) : "").split(RESET).join(RESET + style) + RESET;
+  return style + (keys ? itemBar() : " ") + style + (cols > 1 ? (keys ? selectFullText(pad(body, cols - 1)) : pad(body, cols - 1)) : "").split(RESET).join(RESET + style) + RESET;
 }
 /** A float's selected row is one solid dark accent band, including its key caption. */
 export function floatSelectedRow(text: string, cols: number): string {
   const style = selected();
-  return style + pad(text, cols).split(RESET).join(RESET + style) + RESET;
+  return style + selectFullText(pad(text, cols)).split(RESET).join(RESET + style) + RESET;
 }
 /** A chip lighter than this (relative luminance) would be a bright patch: calm and night draw it as coloured text instead. */
 export const CHIP_MAX_LUMINANCE = 0.3;
@@ -243,26 +244,17 @@ export const trimTagged = (s: string) => s.trim().replace(/^([\u{100000}-\u{10FF
 export function pad(s: string, w: number): string {
   const n = width(s);
   if (n <= w) return s + " ".repeat(w - n);
-  let out = "", seen = 0;
-  const parts = s.split(/(\x1b\[[\d;]*m)/);
-  for (let p = 0; p < parts.length; p++) {
-    const part = parts[p]!;
-    if (part.startsWith("\x1b[")) { out += part; continue; }
-    const gs = graphemes(part);
-    for (let i = 0; i < gs.length; i++) {
-      const g = gs[i]!, gw = glyphWidth(g);
-      if (!gw) { out += g; continue; }
-      // Cut here; link tags past the cut still close what they opened. A wide glyph that would end past the
-      // cut leaves a space instead.
-      if (seen + gw > w - 1) return out + " ".repeat(Math.max(0, w - 1 - seen)) + "…" + RESET + tagsIn([...gs.slice(i), ...parts.slice(p + 1)].join(""));
-      out += g; seen += gw;
-    }
-  }
-  return out;
+  return shortened(s, w, true) + RESET;
 }
 
 /** `s` cut to `w` cells, ending in `…`, when it's wider; never padded, never through a wide or joined glyph. */
-export const ellipsize = (s: string, w: number): string => (width(s) <= w ? s : w < 1 ? "" : headOf(s, w - 1) + "…");
+export const ellipsize = (s: string, w: number): string => width(s) <= w ? s : shortened(s, w, false);
+
+function shortened(s: string, w: number, padded: boolean): string {
+  if (w < 1) return "";
+  const head = headOf(s, w - 1);
+  return fullText(s, head + (padded ? " ".repeat(Math.max(0, w - 1 - width(head))) : "") + "…") + (padded ? tagsIn(s.slice(head.length)) : "");
+}
 
 /**
  * The first `n` cells of a styled string, its colour codes kept, never half a wide glyph. Its link tags and
@@ -270,8 +262,8 @@ export const ellipsize = (s: string, w: number): string => (width(s) <= w ? s : 
  */
 export function headOf(s: string, n: number): string {
   let out = "", seen = 0;
-  for (const part of s.split(/(\x1b\[[\d;?]*[A-Za-z])/)) {
-    if (part.startsWith("\x1b[")) { out += part; continue; }
+  for (const part of s.split(DRAWN_PART)) {
+    if (part.startsWith("\x1b")) { out += part; continue; }
     for (const g of graphemes(part)) {
       const gw = glyphWidth(g);
       if (seen + gw > n) return out;
@@ -287,10 +279,11 @@ export function headOf(s: string, n: number): string {
  * (`w` cells) over `s`.
  */
 export function tailFrom(s: string, n: number): string {
-  let out = "", seen = 0, state = "";
-  for (const part of s.split(/(\x1b\[[\d;?]*[A-Za-z])/)) {
-    if (part.startsWith("\x1b[")) {
+  let out = "", seen = 0, state = "", link = "";
+  for (const part of s.split(DRAWN_PART)) {
+    if (part.startsWith("\x1b")) {
       if (seen >= n) out += part;
+      else if (part.startsWith("\x1b]8;")) link = closesHyperlink(part) ? "" : part;
       else if (part.endsWith("m")) state = part === RESET || part === "\x1b[m" ? "" : state + part;
       continue;
     }
@@ -300,7 +293,7 @@ export function tailFrom(s: string, n: number): string {
       if (seen > n) out += " ".repeat(seen - n);
     }
   }
-  return state + out;
+  return link + state + out;
 }
 
 /**
@@ -319,7 +312,7 @@ export function fitHint(s: string, w: number, more = ` ${fg(C.dark)}…`): { tex
     col += glyphWidth(gs[i]!);
   }
   const at = part > 0 ? part : space > 0 ? space : room;
-  return { text: headOf(s, at) + RESET + more + RESET, at, cut: true };
+  return { text: fullText(s, headOf(s, at) + RESET + more + RESET), at, cut: true };
 }
 const tagsIn = (rest: string) => rest.match(TAGS)?.join("") ?? "";
 

@@ -1,3 +1,4 @@
+import { visible } from "../src/style";
 // PIE-442: backlinks you can use. src/backlinks.ts mirrors Detail's backlink view (pi-herdr-outliner
 // src/backlink-view.ts) and its panel's text (src/detail-pi-preview.ts); these tests check it against the
 // outliner's own functions over fictional sources and every option, then drive the board's dock against
@@ -216,7 +217,7 @@ describe.skipIf(!outliner)("the text is Detail's panel: status line, group heade
         return `+ ${f.title}${f.suffix ? ` — ${f.suffix}` : ""}`;
       });
       const rows = detail.slice(1).filter(l => !l.startsWith("No backlinks"));
-      expect(rows).toEqual(mine);
+      expect(rows).toEqual(mine.map(visible));
       if (!view.matching.length) expect(detail.at(-1)).toBe(collection.sources.length ? "No backlinks match the current filter." : "No backlinks.");
     });
   }

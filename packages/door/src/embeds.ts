@@ -209,7 +209,7 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
   const st = embedState(id, fragment, src, host);
   if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink, list);
   if (st.kind === "loading") return [S(fg(C.dark) + `${shortRef(id, fragment)} · reading…` + RESET)];
-  return [S(fg(C.lred) + `${shortRef(id, fragment)} · TARGET FAILED · ${printable(st.error).slice(0, 200)}` + RESET)];
+  return [S(fg(C.lred) + `${shortRef(id, fragment)} · TARGET FAILED · ${printable(st.error)}` + RESET)];
 }
 
 const shortRef = (id: string, fragment?: string) => `!((${shortId(id)}${fragment ? `^${fragment}` : ""}))`;
@@ -305,7 +305,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
       // On a row of its own, so a narrow preview doesn't cut it; a click on it opens that passage.
       return near ? [said, S(fg(C.lred) + "  did you mean " + LINK_ON + tagged(sink, { block: node.blockId, fragment: near }, `^${near}`) + LINK_OFF + fg(C.lred) + "?" + RESET)] : [said];
     }
-    return [S(fg(calm ? C.yellow : C.lred) + `${ref} · ${printable(node.message ?? node.status).slice(0, 240)}` + RESET)];
+    return [S(fg(calm ? C.yellow : C.lred) + `${ref} · ${printable(node.message ?? node.status)}` + RESET)];
   }
   const target = node.block;
   if (node.kind === "view") {

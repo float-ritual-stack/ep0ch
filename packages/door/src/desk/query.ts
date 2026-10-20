@@ -295,7 +295,7 @@ export const QUERY_ACTIONS = actionSet<QueryOn>()("query", {
   "query.pick": def({
     summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it; a tile beside a reader, its home, only previews: the current note stays), open=true opens it as ⏎ does (in its home, replacing its note), fresh=true as alt+⏎ (a new detail beside its home). An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
     keys: "j k ↑ ↓ PgUp PgDn, click, wheel (pick) · ⏎, double click (open) · alt+⏎, alt- ctrl- or middle-click (fresh)",
-    touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} "${r.title.slice(0, 40)}"`,
+    touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} "${r.title}"`,
     args: {
       n: { type: "number", optional: true, about: "the card, from 1" },
       id: { type: "string", optional: true, about: "a card's block id (or its first 8+ characters)" },

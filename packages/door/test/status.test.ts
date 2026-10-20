@@ -1,9 +1,9 @@
 // The status bar: its right part (video, uptime, clock) always shows whole, set apart by a separator.
 import { describe, expect, test } from "bun:test";
 import { App, statusLine } from "../src/app";
-import { width } from "../src/style";
+import { visible, width } from "../src/style";
 
-const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
+const plain = visible;
 const right = "kitty+crt │ on 0m │ 09:13 ";
 
 describe("status bar", () => {

@@ -1,3 +1,4 @@
+import { ellipsize } from "./style";
 // Links in read mode, as Detail shows them: `((id))` and `[[address]]` become the target's title or the
 // authored label, without delimiters; a missing target reads `label ◌` (MISSING_MARK), quiet in running text. The service
 // resolves (`references.resolve`, `pages.resolve`); the door keeps the answers until the outline changes.
@@ -29,8 +30,9 @@ export { stripMarks };
 
 /** What a reference's answer is kept under: its target. Its label is how the note writes it, not what it resolves to. */
 export const refKey = (id: string, fragment?: string, outline?: string) => `${outline ? outline + ":" : ""}${id}${fragment ? `^${fragment}` : ""}`;
-/** An id cut to its first eight characters and …, once it is longer than twelve (a link's, an embed's, a property's). */
-export const shortId = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
+
+/** The compact id keeps its full value in the shared truncation metadata. */
+export const shortId = (id: string) => id.length > 12 ? ellipsize(id, 9) : id;
 
 // ── what changed: a cached answer is asked again only when a change could have altered it ──────────
 

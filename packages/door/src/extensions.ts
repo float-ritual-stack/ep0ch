@@ -606,7 +606,7 @@ function barEntry(b: ExtensionBarSource, prefix: string): BarSource {
     },
     preview(row) {
       const r = row.data as ExtensionBarRow;
-      return r.preview ? { markdown: r.preview } : r.block ? { note: r.block } : { lines: [row.label, ...(r.copy ? ["", `⏎ copies ${oneLine(r.copy).slice(0, 60)}`] : r.resource ? ["", `⏎ opens ${oneLine(r.resource).slice(0, 80)}`] : [])] };
+      return r.preview ? { markdown: r.preview } : r.block ? { note: r.block } : { lines: [row.label, ...(r.copy ? ["", `⏎ copies ${oneLine(r.copy)}`] : r.resource ? ["", `⏎ opens ${oneLine(r.resource)}`] : [])] };
     },
     async pick(row, host, how) {
       const r = row.data as ExtensionBarRow;

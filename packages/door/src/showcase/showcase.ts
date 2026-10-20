@@ -318,10 +318,10 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "hints", need: "x-ray and hint cards", part: "HintCard and Canvas.float in the desk float layer, ActionDef hints, menuRow and keycaps", files: "src/surface/hint-card.ts, src/desk/desk.ts",
-    aside: "Linking has its instructions beside the tile. Click a destination; the card leaves the keys with you. The frame controls are ○ (select lands), » (open lands), ^ (alt-open lands), \u25c4/\u25bc (fold), \u2261 (menu), x (close), and \u25d8 (float or put back). Hover the menu or press ? on the frame for their meanings. The menu still opens its searchable action list. All floats share a raised panel, accent border and shadow; menus dim the screen, hints leave it readable. Hold ctrl for every tile's card, or ctrl+] then ? to toggle. hint.pin keeps a card; esc dismisses it.",
+    aside: "Hover a clipped title or label to read it whole; Alt+? cycles clipped values, and values wider than the screen scroll. Linking has its instructions beside the tile. Click a destination; the card leaves the keys with you. The frame controls are ○ (select lands), » (open lands), ^ (alt-open lands), \u25c4/\u25bc (fold), \u2261 (menu), x (close), and \u25d8 (float or put back). Hover the menu or press ? on the frame for their meanings. The menu still opens its searchable action list. All floats share a raised panel, accent border and shadow; menus dim the screen, hints leave it readable. Hold ctrl for every tile's card, or ctrl+] then ? to toggle. hint.pin keeps a card; esc dismisses it.",
     stage(n, show) {
       const source = new ReaderPane(), reader = new ReaderPane();
-      return deskOf({ title: "x-ray and hint cards", panes: [source, reader], names: ["source", "reader"] }, show, [[source, n.notebook], [reader, n.shed]], d => { void d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source"); });
+      return deskOf({ title: "x-ray and hint cards", panes: [source, reader], names: ["source", "reader"] }, show, [[source, n.notebook], [reader, n.shed]], d => { void d.dispatch.press("tile.title", { text: "Allotment notebook: planting, watering and seed orders through the growing season" }, "source"); void d.dispatch.press("tile.link", { ask: true, verb: "select" }, "source"); });
     },
   },
   {
@@ -364,7 +364,7 @@ export const SECTIONS: Section[] = [
         kind: "showcase.kinds", about: "the registry, listed",
         render: async req => ({
           title: "tile kinds",
-          lines: tileKinds().flatMap(k => [`${fg(C.lcyan)}${k.kind}${RESET}${k.keys?.length ? ` ${fg(C.dark)}^W o ${k.keys.map(x => x.key).join(" ")}${RESET}` : ""}`, `  ${fg(C.grey)}${k.about}${RESET}`.slice(0, req.cols + 20)]),
+          lines: tileKinds().flatMap(k => [`${fg(C.lcyan)}${k.kind}${RESET}${k.keys?.length ? ` ${fg(C.dark)}^W o ${k.keys.map(x => x.key).join(" ")}${RESET}` : ""}`, `  ${fg(C.grey)}${k.about}${RESET}`]),
         }),
       }).make({ kind: "showcase.kinds" });
       const r = new ReaderPane();
@@ -785,7 +785,7 @@ export const SECTIONS: Section[] = [
               ...(e.schedules ?? []).flatMap(x => [`  ${fg(C.grey)}schedule ${x.entry} ${fg(C.dark)}${x.every ? `every ${x.every}` : `cron ${x.cron}`}${x.once === "host" ? ` · once per host${x.runsIn ? ` · runs in ${x.runsIn}` : ""}` : ""}${RESET}`,
                 `    ${fg(C.dark)}${x.running ? "running · " : ""}${x.last ? `last ${x.last.ok ? x.last.message ?? "ok" : `failed: ${x.last.error ?? ""}`}` : "not run yet"} · next ${x.next.slice(0, 16).replace("T", " ")}${RESET}`]),
             ]).concat(l.tileKinds.map(t => `${fg(C.lcyan)}${t.kind}${RESET} ${fg(C.dark)}tile kind${RESET}`));
-          return { title: "extensions", lines: rows.map(x => x.slice(0, req.cols + 40)) };
+          return { title: "extensions", lines: rows };
         },
       }).make({ kind: "showcase.extensions" });
       const r = new ReaderPane();
@@ -904,7 +904,7 @@ export const SECTIONS: Section[] = [
           const rows = !s ? [`${fg(C.yellow)}this door runs in its own terminal (--no-daemon): quitting it ends it${RESET}`, `${fg(C.grey)}ep0ch (without --no-daemon) runs it as a session${RESET}`]
             : [`${fg(C.lcyan)}session ${process.pid}${RESET} ${fg(C.dark)}drawn at ${s.info.cols}×${s.info.rows}${RESET}`,
               ...s.list().map(c => `  ${c.active ? fg(C.white) : fg(C.grey)}#${c.id} ${c.tty ?? `pid ${c.pid}`} ${c.cols}×${c.rows} ${c.video}${c.active ? " · has the keys" : ""}${c.watch ? " · watching" : ""}${RESET}`)];
-          return { title: "session", lines: rows.map(x => x.slice(0, req.cols + 40)) };
+          return { title: "session", lines: rows };
         },
       }).make({ kind: "showcase.session" });
       const r = new ReaderPane();

@@ -1,10 +1,11 @@
+import { fullText } from "./overflow";
 // A spine: a pane squeezed to a title strip. River columns, board lanes and board readers draw theirs
 // here. Under Kitty graphics the title is VGA text turned a quarter clockwise (read top to bottom);
 // in cells it stacks one letter per row. Marks (a draft, new comments) sit one per row above it.
 import { cp437Code } from "./ansi";
 import type { Canvas, Rect } from "./canvas";
 import type { Placement } from "./kitty";
-import { C, fg, pad, RESET, width } from "./style";
+import { C, ellipsize, fg, headOf, pad, RESET, visible, width } from "./style";
 import { theme } from "./theme";
 import { rasterize, rotateCW, type Rgba } from "./vga";
 
@@ -50,13 +51,15 @@ export function drawSpine(canvas: Canvas, r: Rect, s: Spine, v: { graphics: bool
     // Rotated VGA text: 16px wide per glyph row, 9px per character down the spine.
     const t = v.t;
     const maxChars = Math.max(1, Math.floor(((room - 1) * t.cellH * 16) / (2 * t.cellW * 9)));
-    const text = s.title.length > maxChars ? s.title.slice(0, maxChars - 1) + "…" : s.title;
+    const text = visible(ellipsize(s.title, maxChars));
+    if (text !== s.title) for (let y = top; y < top + room; y++) canvas.text(r.col, y, fullText(s.title, "  "), 2);
     const img = spineImage(text, s.colour);
     const rowsNeeded = Math.max(1, Math.ceil((img.height * (2 * t.cellW / img.width)) / t.cellH));
     return { key: s.key, image: img, col: r.col, row: top, cols: 2, rows: Math.min(rowsNeeded, room), z: -1 };
   }
   const style = s.cellStyle ?? fg(s.colour);
-  [...s.title].slice(0, room).forEach((ch, i) => canvas.text(r.col, top + i, style + ch + RESET, 1));
+  const text = headOf(s.title, room);
+  [...text].forEach((ch, i) => canvas.text(r.col, top + i, style + (text !== s.title ? fullText(s.title, ch) : ch) + RESET, 1));
   return null;
 }
 
