@@ -34,6 +34,8 @@ outline popup writes it). The installed CLI answers (`outliner bound-folder
   and the mod calls the installed CLI's `mentions ingest`. It never starts a service.
   Failures show as one toast and leave the answer untouched. An Outliner older
   than `bound-folder` feeds nothing and says so once per session.
+- Named machines use the CLI's shared link-first, then SSH route. Successful
+  CLI diagnostics, including the selected transport, appear in the mod's log.
 
 ### Opting out, and strict mode
 

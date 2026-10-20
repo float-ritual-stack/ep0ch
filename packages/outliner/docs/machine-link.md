@@ -2,8 +2,12 @@
 
 A machine behind an inbound firewall runs `ep0ch link connect`. It dials an HTTPS
 WebSocket to `ep0ch link serve`, which listens on loopback behind the web proxy.
-The server exposes `<outlines>/.remote/<machine>.sock`, the existing shared forward.
-Clients still use `ensureForward`; no reader, editor or host RPC is duplicated.
+The server exposes `<outlines>/.remote/<machine>.link.sock`. The existing shared
+client socket, `<machine>.sock`, points there while the link answers. Clients
+still use `ensureForward`: probe the link first, then use SSH at the shared socket
+if the link or its host does not answer. Both readers and writers name the chosen
+transport on stderr; the door also says it in its status messages. No reader,
+editor or host RPC is duplicated.
 
 Configure a connector:
 
@@ -26,7 +30,11 @@ the macOS Keychain. No value is printed or put in link configuration.
 `~/.config/systemd/user/ep0ch-link.service` on Linux, or
 `~/Library/LaunchAgents/io.ep0ch.link.plist` on macOS. It asks for a missing key at a
 terminal; unattended installs name the command to set it. With no link config,
-install does nothing for links. Install never edits Caddy or DNS.
+install does nothing for links. After a restart, install waits up to a minute for
+the new link process and any previously connected peers. A connector must be up;
+a server with no previously connected peer can report that peer as away. A
+service-manager success without recovery fails the step with the status command
+for both ends. Install never edits Caddy or DNS.
 
 The server sends a fresh random challenge. The connector proves its machine's key
 with HMAC-SHA256 over a domain-separated machine name and challenge. Both compare
@@ -39,20 +47,25 @@ Binary WebSocket messages carry an operation byte, a four-byte big-endian stream
 id, and optional data. OPEN, DATA, CLOSE and ACK multiplex Unix connections.
 Each direction pauses its source after a chunk until the destination acknowledges
 its write or drain; the WebSocket also has a bounded send buffer. Heartbeats run
-every 15 seconds and expire after 45 seconds. Reconnect backs off from 1 to 30
-seconds. Disconnect destroys pending streams: requests, especially writes, are
+every 10 seconds and expire after 25 seconds. Reconnect backs off from 1 to 15
+seconds, with a 10-second connection deadline. Errors, timeouts and lost
+heartbeats schedule recovery directly, without waiting for a close handshake on
+a broken connection. Disconnect destroys pending streams: requests, especially writes, are
 never replayed by the transport.
 
 The link and SSH use the same forward lock. A link taking over an SSH forward
 ends that dedicated SSH master and waits for its listener to release the path;
-existing clients reconnect. It does not end unrelated SSH sessions. A live link
-whose host is restarting reports that condition without replacing its listener.
-After link loss, the next client can start SSH normally. Read-only mirror fallback
+existing clients reconnect. It does not end unrelated SSH sessions. The link's own
+listener survives an SSH fallback; a later request selects the link again once
+its host answers. After link loss, the next client can start SSH normally. Read-only mirror fallback
 belongs to PIE-1057 and the existing mirror consumers, not to this transport.
 
 `ep0ch link status [--json]` and `ep0ch status [--json]` report link/SSH, whether the
-host answers, and the connection time (SSH's control-socket modification time).
-The connector reports its outbound connection too. Server logs go to the journal;
+link is up, the last connection time and the down reason, retaining those across
+restarts. A stopped process is reported down even if its last saved state was up.
+SSH's time is its control-socket modification time. The connector reports its
+outbound connection too. Loki reads laptop presence from this link state; an SSH
+probe does not decide whether the laptop is away. Server logs go to the journal;
 macOS logs go to `~/Library/Logs/ep0ch-link.log`.
 
 This is a process/transport feature, so its demo is the scratch-host WebSocket

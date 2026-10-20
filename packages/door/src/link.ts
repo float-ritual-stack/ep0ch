@@ -28,7 +28,7 @@ export async function runLink(args: string[]): Promise<number> {
     }
     if (op === "status") {
       const links = await linkStatus(outlines), config = readLinkConfig(outlines);
-      console.log(values.json ? JSON.stringify({ config, links }) : links.length ? links.map(l => `${l.machine}: ${l.transport} ${l.up ? "up" : "down"}${l.since ? ` since ${l.since}` : ""}`).join("\n") : "No inbound link is up; clients can use SSH or their read mirror.");
+      console.log(values.json ? JSON.stringify({ config, links }) : links.length ? links.map(l => `${l.machine}: ${l.transport} ${l.up ? "up" : "down"}${l.since ? `; last up ${l.since}` : "; never up"}${l.reason ? `; ${l.reason}` : ""}`).join("\n") : "No machine link is configured; run ep0ch link setup.");
       return 0;
     }
     const config = readLinkConfig(outlines);

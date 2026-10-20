@@ -33,8 +33,11 @@ export interface MachineIO {
   privateDir(dir: string): void;
   /** A file's text, or null when there's none. */
   read(path: string): string | null;
+  exists(path: string): boolean;
   /** Remove a file that may not be there. */
   remove(path: string): void;
+  /** Point the shared client socket at the link's listener. */
+  routeLink(socket: string, target: string): void;
   /** Create the file with `text` only when there is none (O_EXCL): whether this call made it. The lock. */
   createExclusive(path: string, text: string): boolean;
   /** This process's id, and whether a process runs. */
@@ -133,7 +136,7 @@ export function configuredRemoteSocket(p: ForwardPaths, io: Pick<MachineIO, "rea
 
 /** How a forward came to answer: it already did, or it was started. */
 export type ForwardHow = "up" | "started";
-export interface Forward { socket: string; how: ForwardHow; remote?: RemoteStatus }
+export interface Forward { socket: string; how: ForwardHow; remote?: RemoteStatus; transport: "link" | "ssh" }
 
 export interface ForwardOptions { ssh: string; outlines: string; io: MachineIO; /** How long a start waits for the host to answer through it. */ waitMs?: number }
 
@@ -144,18 +147,28 @@ export interface ForwardOptions { ssh: string; outlines: string; io: MachineIO; 
  */
 export async function ensureForward(machine: string, o: ForwardOptions): Promise<Forward> {
   const p = forwardPaths(o.outlines, machine);
-  if (await o.io.answers(p.socket)) return { socket: p.socket, how: "up" };
+  const linkSocket = `${p.dir}/${machine}.link.sock`;
+  const link = () => {
+    const text = o.io.read(`${p.dir}/${machine}.link.json`);
+    if (!text) return false;
+    try { const state = JSON.parse(text); return state.up && o.io.alive(state.pid); } catch { return false; }
+  };
+  if (!link() && await o.io.answers(p.socket)) return { socket: p.socket, how: "up", transport: "ssh" };
   o.io.privateDir(p.dir);
   return withForwardLock(`${p.control}.lock`, o.io, async () => {
-    if (await o.io.answers(p.socket)) return { socket: p.socket, how: "up" as const };
-    const linkText = o.io.read(`${p.dir}/${machine}.link.json`);
-    if (linkText) {
-      let link: { pid?: number } = {};
-      try { link = JSON.parse(linkText); } catch { /* An interrupted status write is not a live link. */ }
-      if (link.pid && o.io.alive(link.pid)) throw new Error(`link to ${machine} is connected, but its outline host is not answering; run ep0ch status on ${machine}`);
+    if (link() && await o.io.answers(linkSocket)) {
+      if ((await o.io.run(sshArgv.check(o.ssh, p), 5000)).code === 0) {
+        if ((await o.io.run(sshArgv.exit(o.ssh, p), 5000)).code !== 0) throw new Error(`SSH forward to ${machine} could not release its socket; run ssh -S ${p.control} -O exit ${machine}`);
+        const end = o.io.now() + 5000;
+        while (o.io.exists(p.socket) && o.io.now() < end) await o.io.sleep(20);
+        if (o.io.exists(p.socket)) throw new Error(`SSH forward to ${machine} has not released its socket; run ssh -S ${p.control} -O exit ${machine}`);
+      }
+      o.io.routeLink(p.socket, linkSocket);
+      return { socket: p.socket, how: "up", transport: "link" };
     }
+    if (await o.io.answers(p.socket)) return { socket: p.socket, how: "up" as const, transport: "ssh" };
     if ((await o.io.run(sshArgv.check(o.ssh, p), 5000)).code === 0) {
-      if (await answersWithin(p.socket, o.io, 2000)) return { socket: p.socket, how: "up" as const };
+      if (await answersWithin(p.socket, o.io, 2000)) return { socket: p.socket, how: "up" as const, transport: "ssh" };
       const named = configuredRemoteSocket(p, o.io);
       const look = named ? `\`ssh ${machine} ls -l ${named}\`` : `\`ssh ${machine} ep0ch status\``;
       throw new Error(`connected to ${machine}, but no outline host answers through the forward (it may be restarting: ${look}; if its socket moved, \`ssh -S ${p.control} -O exit ${machine}\` and the next client forwards it again)`);
@@ -175,7 +188,7 @@ export async function ensureForward(machine: string, o: ForwardOptions): Promise
     const started = await o.io.run(sshArgv.forward(o.ssh, p, remote.socket), 30_000, { detached: true });
     if (started.code !== 0) throw new Error(`ssh ${machine} couldn't forward its host socket ${remote.socket}: ${lastLine(o.io.read(p.log)) || `exit ${started.code}`}`);
     if (!(await answersWithin(p.socket, o.io, o.waitMs ?? 5000))) throw new Error(`the forward to ${machine} is up, but no outline host answers through it (at ${remote.socket} there)`);
-    return { socket: p.socket, how: "started" as const, remote };
+    return { socket: p.socket, how: "started" as const, remote, transport: "ssh" };
   });
 }
 

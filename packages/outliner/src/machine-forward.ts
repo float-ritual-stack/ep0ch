@@ -4,7 +4,7 @@
 // Detail, the CLI the Claude mod runs, the door) starts the forward before it connects and whenever its connection is
 // gone, so the first one to need it starts it and the rest share it. EP0CH_SSH names the ssh to run (tests give a
 // fake one).
-import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeSync } from "node:fs";
 import { connect } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ensureForward, type Forward, type ForwardOptions, type MachineIO } from "@ep0ch/outline-core/machine";
@@ -58,7 +58,14 @@ export function nodeMachineIO(env: NodeJS.ProcessEnv = process.env): MachineIO {
       }
     },
     read(path) { try { return readFileSync(path, "utf8"); } catch { return null; } },
+    exists: existsSync,
     remove(path) { rmSync(path, { force: true }); },
+    routeLink(socket, target) {
+      try { if (readlinkSync(socket) === target) return; } catch {}
+      const temp = `${socket}.${process.pid}`;
+      try { symlinkSync(target, temp); renameSync(temp, socket); }
+      finally { rmSync(temp, { force: true }); }
+    },
     createExclusive(path, text) {
       let fd: number;
       try { fd = openSync(path, "wx", 0o600); }
@@ -79,6 +86,12 @@ export function forwardOptions(outlines: string, env: NodeJS.ProcessEnv = proces
 }
 
 /** The machine's forward in `outlines`, answering: found up, or started. Throws with what went wrong and what to do. */
-export function forwardFor(machine: string, outlines: string, env: NodeJS.ProcessEnv = process.env): Promise<Forward> {
-  return ensureForward(machine, forwardOptions(outlines, env));
+export async function forwardFor(machine: string, outlines: string, env: NodeJS.ProcessEnv = process.env): Promise<Forward> {
+  try {
+    const f = await ensureForward(machine, forwardOptions(outlines, env));
+    console.error(`${machine} via ${f.transport}`);
+    return f;
+  } catch (error) {
+    throw new Error(`link to ${machine} is unavailable or its host is not answering (ep0ch link status; ep0ch install --apply on both ends); ssh: ${(error as Error).message}; check ssh ${machine} true`);
+  }
 }

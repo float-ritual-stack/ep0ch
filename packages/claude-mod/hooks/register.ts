@@ -1153,10 +1153,12 @@ async function machineName($: EngineInterface): Promise<string | undefined> {
 async function runOutliner($: EngineInterface, workspace: Workspace, args: string[]) {
   const root = await outlinerRootOf($)
   if (!root) throw Error('the Outliner plugin is disabled')
-  return $.process.run(
+  const ran = await $.process.run(
     ['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args],
     { cwd: workspace.root, env: envFor(workspace), timeoutMs: 30_000 },
   )
+  if (ran.exitCode === 0 && ran.stderr.trim()) await $.ui.log(ran.stderr.trim())
+  return ran
 }
 
 /**
@@ -1178,6 +1180,7 @@ async function runOutlinerCli($: EngineInterface, workspace: Workspace, args: st
     },
   )
   if (ran.exitCode !== 0) throw Error(failureReasonOf(ran.stderr) || `${args.slice(0, 2).join(' ')} failed`)
+  if (ran.stderr.trim()) await $.ui.log(ran.stderr.trim())
   return ran.stdout.trim()
 }
 

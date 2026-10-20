@@ -1357,11 +1357,22 @@ test("the binding backup survives its migration install and is retired by the ne
 });
 
 for (const platform of ["darwin", "linux"]) for (const kind of ["link", "backup"]) test(`${platform}: repeated install leaves the ${kind} running without reloading it`, async () => {
-  const home = mkdtempSync(join(scratch, "units-")), bin = join(home, ".local/bin"), repo = join(home, "repo");
+  const { scratchDir, until } = await import("./scratch");
+  const home = scratchDir("units-"), bin = join(home, ".local/bin"), repo = join(home, "repo");
   const outlines = join(home, "outlines");
   for (const dir of [bin, join(outlines, ".host"), join(home, ".config/secrets"), join(repo, "packages/door/src")]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(repo, "packages/door/src/main.ts"), "");
-  if (kind === "link") writeFileSync(join(outlines, ".host/link.json"), JSON.stringify({ mode: "connect", server: "https://link.example.test", machine: "garden" }));
+  let connector: ReturnType<typeof import("@ep0ch/outliner/link").connectLink> | undefined;
+  if (kind === "link") {
+    const { createServer } = await import("node:net");
+    const listener = createServer();
+    await new Promise<void>(resolve => listener.listen(0, "127.0.0.1", resolve));
+    const port = (listener.address() as import("node:net").AddressInfo).port;
+    await new Promise<void>(resolve => listener.close(() => resolve()));
+    writeFileSync(join(outlines, ".host/link.json"), JSON.stringify({ mode: "serve", port, machines: ["garden"] }));
+    const { connectLink } = await import("@ep0ch/outliner/link");
+    connector = connectLink({ server: `http://127.0.0.1:${port}`, machine: "garden", key: "fictional-key", host: join(home, "unused-host.sock"), log() {} });
+  }
   writeFileSync(join(home, ".config/secrets/link-garden.env"), "LINK_KEY=fictional-key\n", { mode: 0o600 });
   symlinkSync(join(import.meta.dir, "../scripts"), join(repo, "packages/door/scripts"));
   mkdirSync(join(repo, "packages/outliner/scripts"), { recursive: true });
@@ -1380,21 +1391,37 @@ const args = process.argv.slice(2), home = process.env.HOME, state = home + '/lo
 const command = args[0] === '--user' ? args[1] : args[0];
 appendFileSync(home + '/commands', command + '\\n');
 if (existsSync(home + '/fail') && ['bootout', 'restart', 'kickstart'].includes(command)) { console.error('Permission denied'); process.exit(1); }
+if (process.env.TEST_LINK_ENTRY && ['bootout', 'restart', 'kickstart'].includes(command) && existsSync(home + '/link-pid')) {
+  const pid = Number(await Bun.file(home + '/link-pid').text());
+  try { process.kill(pid, 'SIGTERM'); } catch {}
+  const deadline = Date.now() + 5000;
+  while (existsSync(home + '/outlines/.remote/garden.link.sock') && Date.now() < deadline) await Bun.sleep(20);
+}
 if (command === 'print' || command === 'is-active') { if (existsSync(pending)) { if (!existsSync(home + '/stuck')) { unlinkSync(pending); unlinkSync(state); } console.log('state = running'); process.exit(0); } if (existsSync(state)) { console.log('job = {\\n\\tstate = running\\n}'); process.exit(0); } process.exit(3); }
 if (command === 'is-enabled') process.exit(existsSync(enabled) ? 0 : 1);
 if (command === 'enable') writeFileSync(enabled, 'yes');
 if (command === 'bootout') { if (!existsSync(state)) { console.error('Boot-out failed: 3: No such process'); process.exit(3); } writeFileSync(pending, 'yes'); }
 if (command === 'bootstrap') { if (existsSync(state)) { if (existsSync(pending)) { unlinkSync(pending); unlinkSync(state); } console.error('Bootstrap failed: 5: Input/output error'); process.exit(5); } writeFileSync(state, 'yes'); }
 if (command === 'restart' || command === 'kickstart') writeFileSync(state, 'yes');
+if (process.env.TEST_LINK_ENTRY && !existsSync(home + '/service-down') && ['bootstrap', 'restart', 'kickstart'].includes(command)) {
+  const child = Bun.spawn([process.execPath, process.env.TEST_LINK_ENTRY, 'link', 'serve'], { env: process.env, stdio: ['ignore', 'ignore', Bun.file(home + '/link.log')], detached: true });
+  child.unref(); writeFileSync(home + '/link-pid', String(child.pid)); appendFileSync(home + '/link-pids', String(child.pid) + '\\n');
+}
 `;
   for (const name of ["launchctl", "systemctl"]) writeFileSync(join(bin, name), fake, { mode: 0o755 });
-  const env = { EP0CH_BACKUP_MACHINE: "garden", HOME: home, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, EP0CH_OUTLINES: outlines, EP0CH_STATE: join(home, "state"), XDG_CONFIG_HOME: join(home, ".config") };
+  const env = { EP0CH_BACKUP_MACHINE: "garden", HOME: home, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, EP0CH_OUTLINES: outlines, EP0CH_STATE: join(home, "state"), XDG_CONFIG_HOME: join(home, ".config"), ...(kind === "link" ? { TEST_LINK_ENTRY: join(import.meta.dir, "../src/main.ts"), EP0CH_SSH: "/no-such-ssh" } : {}) };
   const lines: string[] = [];
   const io = { env, platform, repoRoot: repo, cwd: home, out: (s: string) => lines.push(s), err: (s: string) => lines.push(s) };
+  try {
   for (let pass = 0; pass < 3; pass++) {
     lines.length = 0;
     expect({ code: await setupCommand(["install", "--apply", "--json"], io), errors: lines.filter(l => l.includes('"ok": false')) }).toEqual({ code: 0, errors: [] });
     expect(existsSync(join(home, "loaded"))).toBe(true);
+    if (!pass && kind === "link") {
+      expect(lines.join('\n')).toContain("machine link verified");
+      const { linkStates } = await import("@ep0ch/outliner/link");
+      await until(() => linkStates(outlines).length === 1, "installed link accepts the connector");
+    }
     if (pass) expect(lines.join('\n')).toContain("already installed and running");
   }
   const commands = readFileSync(join(home, "commands"), "utf8").split('\n');
@@ -1407,7 +1434,13 @@ if (command === 'restart' || command === 'kickstart') writeFileSync(state, 'yes'
     expect(lines.join('\n')).toContain("this machine serves no outlines; nothing to host or back up");
   }
   const unit = platform === "darwin" ? join(home, `Library/LaunchAgents/io.ep0ch.${kind}.plist`) : join(home, `.config/systemd/user/ep0ch-${kind}.${kind === "backup" ? "timer" : "service"}`);
-  if (platform === "darwin") rmSync(join(home, "loaded"));
+  if (platform === "darwin") {
+    if (kind === "link") {
+      process.kill(Number(readFileSync(join(home, "link-pid"), "utf8")), "SIGTERM");
+      await until(() => !existsSync(join(outlines, ".remote/garden.link.sock")), "simulated unit unload stops its listener");
+    }
+    rmSync(join(home, "loaded"));
+  }
   const runs: { code: number; errors: string[] }[] = [];
   for (let pass = 0; pass < 3; pass++) {
     writeFileSync(unit, readFileSync(unit, "utf8") + "\n");
@@ -1437,7 +1470,26 @@ if (command === 'restart' || command === 'kickstart') writeFileSync(state, 'yes'
     expect(existsSync(join(home, "unloading"))).toBe(true);
     expect(existsSync(join(home, "loaded"))).toBe(true);
   }
-}, 60_000);
+  if (platform === "linux" && kind === "link") {
+    rmSync(join(home, "fail"));
+    writeFileSync(unit, readFileSync(unit, "utf8") + "\n");
+    writeFileSync(join(home, "service-down"), "yes");
+    lines.length = 0;
+    expect(await setupCommand(["install", "--apply", "--json"], io)).toBe(1);
+    const failure = JSON.parse(lines.at(-1)!).steps.find((s: any) => s.id === "machine-link");
+    expect(failure.error).toContain("did not return within a minute");
+    expect(failure.recover).toContain("ep0ch link status on both ends");
+  }
+  } finally {
+    connector?.stop();
+    if (kind === "link" && existsSync(join(home, "link-pids"))) {
+      for (const pid of readFileSync(join(home, "link-pids"), "utf8").trim().split('\n').map(Number)) {
+        try { process.kill(pid, "SIGTERM"); } catch {}
+      }
+    }
+    rmSync(home, { recursive: true, force: true });
+  }
+}, 100_000);
 
 test("install records a deploy in the host's default outline from an unnamed folder", async () => {
   const { ScratchHost } = await import("./scratch");

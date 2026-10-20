@@ -83,7 +83,7 @@ describe.skipIf(!outliner)("the access view reads the gateway's machine (PIE-103
 
   test("--machine: the caps and the usage are that machine's, and the matrix says which it read", async () => {
     const r = await ep0ch(["mcp", "access", "--matrix", "--json", "--machine", "far-box"]);
-    expect(r.err).toBe("");
+    expect(r.err).toContain("far-box via ssh");
     expect(r.code).toBe(0);
     const m = JSON.parse(r.out) as ReturnType<typeof buildMatrix> & { readFrom: string };
     const bot = m.callers.findIndex(c => c.name === "far-bot");

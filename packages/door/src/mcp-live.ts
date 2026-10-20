@@ -76,7 +76,7 @@ export class LiveMachines {
   }
 
   private said(machine: string, v: Extract<Verdict, { up: false }>) {
-    return `${machine} didn't answer over ssh (tried ${ago(this.now() - v.at)}): ${v.why}`;
+    return `${machine} didn't answer over link or ssh (tried ${ago(this.now() - v.at)}): ${v.why}`;
   }
 
   private away(machine: string, v: Extract<Verdict, { up: false }>): LiveAnswer {

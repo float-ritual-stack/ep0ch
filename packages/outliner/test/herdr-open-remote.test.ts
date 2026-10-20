@@ -160,7 +160,8 @@ if (args[0] === "pane" && args[1] === "get") {
       new Response(child.stderr).text(),
     ]);
     expect(exitCode).toBe(0);
-    expect(stderr).toBe("");
+    if (via === "machine") expect(stderr).toContain("box-a via ssh");
+    else expect(stderr).toBe("");
     const result = JSON.parse(stdout) as Record<string, unknown>;
     expect(result.outline).toBe("garden");
     expect(result.outlinerPane).toBe("workspace:outliner");

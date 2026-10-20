@@ -34,8 +34,9 @@ it before changing it.
   names the same outline. A machine is an ssh config name; ssh owns its keys and hops.
   Under `scripts/agent-env` (EP0CH_AGENT_ENV set, unless `EP0CH_SSH` is a fake in the temp folder) only `--machine` counts: the other two are
   set aside and said on stderr (`scratchEnv`, `ignoredMachineNote`; PIE-912).
-- Every client reaches it through one shared ssh forward, `<outlines>/.remote/<ssh-name>.sock`, started by the first
-  client that needs it (outline-core's `src/machine.ts`, `ensureForward`). `<outlines>/.remote/<ssh-name>.json`
+- Every client reaches it through one shared socket, `<outlines>/.remote/<ssh-name>.sock` (outline-core's
+  `src/machine.ts`, `ensureForward`): the outbound link's `<ssh-name>.link.sock` first, then an SSH forward
+  started by the first client that needs it. Clients name the transport they used. `<outlines>/.remote/<ssh-name>.json`
   (`{ "outlines": "/abs/folder" }`) names that machine's outlines folder when its own `ep0ch status` isn't the host
   to reach. `EP0CH_SOCKET` names any host's socket outright, the low-level escape hatch.
 

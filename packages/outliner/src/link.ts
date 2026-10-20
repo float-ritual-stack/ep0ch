@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type Server as SocketServer } from "node:net";
-import { chmodSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync, renameSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, readlinkSync, readdirSync, statSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerWebSocket } from "bun";
 import { forwardPaths, sshArgv, withForwardLock } from "@ep0ch/outline-core/machine";
@@ -8,21 +8,33 @@ import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { hostAnswers, nodeMachineIO } from "./machine-forward";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { LinkStreams } from "./link-streams";
+import { readLinkConfig } from "./link-config";
+
+type LinkState = { machine: string; since?: string; pid: number; up: boolean; reason?: string };
+const savedState = (path: string): LinkState | undefined => {
+  try { return JSON.parse(readFileSync(path, "utf8")); } catch { return; }
+};
+function saveState(path: string, state: LinkState) {
+  writeFileSync(`${path}.tmp`, JSON.stringify(state), { mode: 0o600 });
+  renameSync(`${path}.tmp`, path);
+}
 
 const proof = (key: string, machine: string, nonce: string) => createHmac("sha256", key).update(`ep0ch-link\n${machine}\n${nonce}`).digest();
-type Peer = { nonce: string; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean };
+type Peer = { nonce: string; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string };
 export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void }) {
   const io = nodeMachineIO(), peers = new Map<string, ServerWebSocket<Peer>>();
   if (new Set(Object.values(o.keys)).size !== Object.keys(o.keys).length) throw new Error("Each link key must name only one machine");
   for (const machine of Object.keys(o.keys)) forwardPaths(o.outlines, machine);
   io.privateDir(join(o.outlines, ".remote"));
-  const cleanup = (ws: ServerWebSocket<Peer>) => {
+  const cleanup = (ws: ServerWebSocket<Peer>, code?: number, reason?: string) => {
     const p = ws.data;
     p.closed = true; clearTimeout(p.timer); p.streams?.close(); p.listener?.close();
     if (p.machine && peers.get(p.machine) === ws) {
       peers.delete(p.machine);
-      // Node's listener owns unlinking its socket; do not unlink a replacement SSH forward.
-      io.remove(join(o.outlines, ".remote", `${p.machine}.link.json`));
+      const paths = forwardPaths(o.outlines, p.machine);
+      try { if (readlinkSync(paths.socket) === join(paths.dir, `${p.machine}.link.sock`)) io.remove(paths.socket); } catch {}
+      const statePath = join(paths.dir, `${p.machine}.link.json`);
+      saveState(statePath, { machine: p.machine, since: savedState(statePath)?.since, pid: process.pid, up: false, reason: p.reason ?? (reason || `connection closed (${code ?? 1006})`) });
       o.log(`link ${p.machine} down`);
     }
   };
@@ -63,43 +75,60 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
                 if (existsSync(paths.socket)) throw new Error("SSH forward has not released its socket; reconnect");
               }
               if (p.closed) return;
-              io.remove(paths.socket);
+              const linkSocket = join(paths.dir, `${auth.machine}.link.sock`);
+              io.remove(linkSocket);
               const streams = p.streams = new LinkStreams(data => ws.send(data));
               p.listener = createServer(socket => streams.open(socket));
-              await new Promise<void>((resolve, reject) => { p.listener!.once("error", reject); p.listener!.listen(paths.socket, resolve); });
+              await new Promise<void>((resolve, reject) => { p.listener!.once("error", reject); p.listener!.listen(linkSocket, resolve); });
               if (p.closed) { p.listener.close(); return; }
-              chmodSync(paths.socket, 0o600);
+              chmodSync(linkSocket, 0o600);
+              io.routeLink(paths.socket, linkSocket);
               const since = new Date().toISOString();
               const stateFile = join(paths.dir, `${auth.machine}.link.json`);
-              writeFileSync(`${stateFile}.tmp`, JSON.stringify({ machine: auth.machine, since, pid: process.pid }), { mode: 0o600 });
-              renameSync(`${stateFile}.tmp`, stateFile);
+              saveState(stateFile, { machine: auth.machine, since, pid: process.pid, up: true });
               clearTimeout(p.timer); ws.send(JSON.stringify({ ready: true })); o.log(`link ${auth.machine} up since ${since}`);
             });
           } else if (typeof bytes === "string") {
             if (bytes !== "ping") throw new Error("unexpected message");
             p.last = Date.now(); ws.send("pong");
           } else p.streams.receive(Buffer.from(bytes));
-        } catch (error) { o.log(`link refused: ${(error as Error).message}`); ws.close(1008, "link refused"); }
+        } catch (error) { p.reason = (error as Error).message; o.log(`link refused: ${p.reason}`); ws.close(1008, p.reason); }
       },
       close: cleanup,
     },
   });
-  const heartbeat = setInterval(() => { for (const ws of peers.values()) if (Date.now() - ws.data.last > 45_000) ws.terminate(); }, 15_000);
-  return { port: server.port!, async stop() { clearInterval(heartbeat); for (const ws of peers.values()) { cleanup(ws); ws.terminate(); } await server.stop(true); } };
+  for (const machine of Object.keys(o.keys)) {
+    const path = join(o.outlines, ".remote", `${machine}.link.json`);
+    saveState(path, { machine, since: savedState(path)?.since, pid: process.pid, up: false, reason: "waiting for connector" });
+  }
+  const heartbeat = setInterval(() => { for (const ws of peers.values()) if (Date.now() - ws.data.last > 25_000) { ws.data.reason = "heartbeat timed out"; ws.terminate(); } }, 10_000);
+  return { port: server.port!, async stop() { clearInterval(heartbeat); for (const ws of peers.values()) { ws.data.reason = "link server stopped"; cleanup(ws); ws.terminate(); } await server.stop(true); } };
 }
 
 export function connectLink(o: { server: string; machine: string; key: string; host: string; statusPath?: string; log: (line: string) => void }) {
-  let stopped = false, ws: WebSocket | undefined, streams: LinkStreams | undefined;
+  let stopped = false, streams: LinkStreams | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined, heartbeat: ReturnType<typeof setInterval> | undefined;
   let delay = 1000;
-  const clearState = () => { if (o.statusPath) nodeMachineIO().remove(o.statusPath); };
+  let since = o.statusPath ? savedState(o.statusPath)?.since : undefined;
+  const state = (up: boolean, reason?: string) => { if (o.statusPath) saveState(o.statusPath, { machine: o.machine, since, pid: process.pid, up, reason }); };
+  state(false, "connecting");
+  let finish: (reason: string) => void = () => {};
   const dial = () => {
     if (stopped) return;
     const url = new URL(o.server); url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-    const socket = ws = new WebSocket(url); socket.binaryType = "arraybuffer";
-    let last = Date.now();
-    const timeout = setTimeout(() => socket.close(), 10_000);
+    const socket = new WebSocket(url); socket.binaryType = "arraybuffer";
+    let last = Date.now(), ended = false;
+    const timeout = setTimeout(() => endAttempt("connection timed out"), 10_000);
+    finish = (reason: string) => {
+      if (ended) return;
+      ended = true;
+      clearTimeout(timeout); clearInterval(heartbeat); streams?.close(); streams = undefined;
+      socket.close(); state(false, reason);
+      if (!stopped) { o.log(`link down: ${reason}; reconnect in ${delay / 1000}s`); retry = setTimeout(dial, delay); delay = Math.min(delay * 2, 15_000); }
+    };
+    const endAttempt = finish;
     socket.onmessage = event => {
+      if (ended) return;
       try {
         if (typeof event.data !== "string") { if (!streams) throw new Error("not authenticated"); streams.receive(Buffer.from(event.data)); return; }
         if (event.data === "pong") { last = Date.now(); return; }
@@ -110,45 +139,48 @@ export function connectLink(o: { server: string; machine: string; key: string; h
         } else if (message.ready === true && !streams) {
           clearTimeout(timeout); delay = 1000;
           streams = new LinkStreams(data => { if (socket.bufferedAmount > 4 * 1024 * 1024) socket.close(); else socket.send(data); }, o.host);
-          const since = new Date().toISOString();
-          if (o.statusPath) writeFileSync(o.statusPath, JSON.stringify({ machine: o.machine, since, pid: process.pid }), { mode: 0o600 });
+          since = new Date().toISOString(); state(true);
           o.log(`link ${o.machine} up since ${since}`);
-          heartbeat = setInterval(() => { if (Date.now() - last > 45_000) socket.close(); else socket.send("ping"); }, 15_000);
+          heartbeat = setInterval(() => { if (Date.now() - last > 25_000) endAttempt("heartbeat timed out"); else socket.send("ping"); }, 10_000);
         } else throw new Error("unexpected authentication message");
-      } catch (error) { o.log(`link refused: ${(error as Error).message}; check ep0ch install --apply on both machines`); socket.close(1008, "invalid link message"); }
+      } catch (error) { endAttempt(`${(error as Error).message}; check ep0ch install --apply on both machines`); }
     };
-    socket.onerror = () => socket.close();
-    socket.onclose = () => {
-      clearTimeout(timeout); clearInterval(heartbeat); streams?.close(); streams = undefined; clearState();
-      if (!stopped) { o.log(`link down; reconnect in ${delay / 1000}s`); retry = setTimeout(dial, delay); delay = Math.min(delay * 2, 30_000); }
-    };
+    socket.onerror = () => endAttempt("connection failed");
+    socket.onclose = event => endAttempt(event.reason || `connection closed (${event.code})`);
   };
   dial();
-  return { stop() { stopped = true; clearState(); clearTimeout(retry); clearInterval(heartbeat); streams?.close(); ws?.close(); } };
+  return { stop() { stopped = true; clearTimeout(retry); finish("connector stopped"); state(false, "connector stopped"); } };
 }
 
 export function linkStates(outlines: string) {
   const dir = join(outlines, ".remote"), io = nodeMachineIO();
   let files: string[]; try { files = readdirSync(dir); } catch { return []; }
   return files.filter(f => f.endsWith(".link.json")).flatMap(file => {
-    try { const state = JSON.parse(readFileSync(join(dir, file), "utf8")); return io.alive(state.pid) ? [state as { machine: string; since: string; pid: number }] : []; } catch { return []; }
+    const state = savedState(join(dir, file)); return state?.up && io.alive(state.pid) ? [state] : [];
   });
 }
 
 /** Both transports share the client socket; status probes that socket without starting SSH. */
 export async function linkStatus(outlines: string) {
-  const dir = join(outlines, ".remote"), links = linkStates(outlines);
+  const dir = join(outlines, ".remote"), io = nodeMachineIO();
   let files: string[]; try { files = readdirSync(dir); } catch { files = []; }
-  const outbound: { machine: string; transport: string; up: boolean; since: string; direction: string }[] = [];
-  try {
-    const state = JSON.parse(readFileSync(join(outlines, ".host/link-state.json"), "utf8"));
-    if (nodeMachineIO().alive(state.pid)) outbound.push({ machine: state.machine, transport: "link", up: true, since: state.since, direction: "outbound" });
-  } catch { /* No connector is running here. */ }
-  const inbound = await Promise.all(files.filter(f => f.endsWith(".sock")).map(async file => {
-    const machine = file.slice(0, -5), link = links.find(l => l.machine === machine);
-    let since = link?.since;
-    if (!since) { try { since = statSync(join(dir, `${machine}.ctl`)).mtime.toISOString(); } catch {} }
-    return { machine, transport: link ? "link" : "ssh", up: await hostAnswers(join(dir, file)), since };
-  }));
-  return [...inbound, ...outbound];
+  const config = readLinkConfig(outlines);
+  const machines = new Set(files.filter(f => f.endsWith(".link.json")).map(f => f.slice(0, -10)));
+  if (config?.mode === "serve") for (const machine of config.machines) machines.add(machine);
+  const rows: { machine: string; transport: "link" | "ssh"; up: boolean; running?: boolean; pid?: number; since?: string; direction: "inbound" | "outbound"; reason?: string }[] = [];
+  const add = (machine: string, path: string, direction: "inbound" | "outbound") => {
+    const state = savedState(path), alive = state && io.alive(state.pid);
+    const up = !!(alive && state.up);
+    rows.push({ machine, transport: "link", up, running: !!alive, pid: state?.pid, since: state?.since, direction, reason: up ? undefined : alive ? state.reason : "link process is not running; run ep0ch install --apply" });
+  };
+  for (const machine of machines) add(machine, join(dir, `${machine}.link.json`), "inbound");
+  const outbound = savedState(join(outlines, ".host/link-state.json"));
+  if (config?.mode === "connect" || outbound) add(config?.mode === "connect" ? config.machine : outbound!.machine, join(outlines, ".host/link-state.json"), "outbound");
+  for (const file of files.filter(f => f.endsWith(".ctl"))) {
+    const machine = file.slice(0, -4);
+    let since: string | undefined;
+    try { since = statSync(join(dir, file)).mtime.toISOString(); } catch {}
+    rows.push({ machine, transport: "ssh", up: await hostAnswers(join(dir, `${machine}.sock`)), since, direction: "inbound" });
+  }
+  return rows;
 }

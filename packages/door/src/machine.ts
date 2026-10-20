@@ -28,7 +28,7 @@ export function forwardTo(machine: string, env: Env = process.env): Promise<Forw
 
 /** What a forward's start was, in a few words for the status bar. */
 export function forwardSaying(machine: string, f: Forward): string | null {
-  return f.how === "up" ? null : `started the forward to ${machine}`;
+  return `${machine} via ${f.transport}`;
 }
 
 /** A machine as `ep0ch doctor` shows it: its forward, and its outlines when the forward answers. */
@@ -102,6 +102,7 @@ export function forwardedMachines(env: Env = process.env): string[] {
   try {
     const names = new Set<string>();
     for (const f of readdirSync(outlineLayout(outlinesDir(env)).remoteDir)) {
+      if (f.endsWith(".link.sock") || f.endsWith(".link.json")) continue;
       const m = /^(.+)\.(sock|json)$/.exec(f)?.[1];
       if (m && isMachineName(m)) names.add(m);
     }

@@ -72,3 +72,25 @@ test("a .ep0ch's machine: the forward's socket, and a client that starts the for
   expect((await client.request<OutlinerServiceStatus>({ action: "ping" })).outline?.name).toBe("pie");
   expect(sshCalls().filter(a => a.includes("-L"))).toHaveLength(2);
 }, 30_000);
+
+test("a client bound through .ep0ch checks an unanswered link before sending its request over SSH", async () => {
+  const { serveLink, connectLink, linkStates } = await import("../src/link");
+  const { forwardPaths, sshArgv } = await import("@ep0ch/outline-core/machine");
+  const { nodeMachineIO } = await import("../src/machine-forward");
+  const outlines = join(root, "outlines"), notes = join(root, "linked-notes");
+  mkdirSync(notes); writeDotEp0ch(notes, "pie", { machine: "box-b" });
+  const server = serveLink({ outlines, port: 0, keys: { "box-b": "fictional-key" }, log() {} });
+  const connector = connectLink({ server: `http://127.0.0.1:${server.port}`, machine: "box-b", key: "fictional-key", host: join(root, "missing.sock"), log() {} });
+  try {
+    const deadline = Date.now() + 5000;
+    while (!linkStates(outlines).some(l => l.machine === "box-b")) {
+      if (Date.now() > deadline) throw new Error("link did not connect");
+      await Bun.sleep(20);
+    }
+    const client = createOutlinerClient(resolveClientPaths(envFor(notes)));
+    expect((await client.request<OutlinerServiceStatus>({ action: "ping" }, 500)).outline?.name).toBe("pie");
+  } finally {
+    await nodeMachineIO().run(sshArgv.exit(process.env.EP0CH_SSH!, forwardPaths(outlines, "box-b")), 5000);
+    connector.stop(); await server.stop();
+  }
+}, 15_000);
