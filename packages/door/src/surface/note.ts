@@ -222,6 +222,7 @@ export interface SurfaceHost {
    * one open here is left as it was (PIE-812), drawn away. Undefined: the host doesn't say (a reader on its own).
    */
   entered?: boolean;
+  enterMode?(): void;
   /** Whose action runs through this host: an agent's (NoteSurface.run sets it), else the person's. */
   actor?: Actor;
   /**
@@ -983,7 +984,7 @@ export class NoteSurface {
    * The mode the person is in, as hosts track it (Entered): the edit, else the comment, else the panel. A status
    * choice opened over one of them isn't a session: it holds no note.
    */
-  private sessionMode() { return this.modes.get("draft") ?? this.modes.get("comment") ?? this.modes.get("panel") ?? this.modes.get("replies") ?? this.modes.get("sources"); }
+  private sessionMode() { return this.modes.all().find(m => this.modes.active(m) && ["draft", "comment", "panel", "replies", "sources"].includes(m.name)); }
   /** What the person is in here, by name ("edit", "comment", "property panel"), or null while reading. */
   sessionWord(): string | null { return this.sessionMode()?.word ?? null; }
   /** Typed text that isn't saved or sent: an edit, a comment being written, a property value. */
@@ -1192,6 +1193,7 @@ export class NoteSurface {
     const sm = this.sourcesMode;
     if (sm) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
       sm.rect = { x: col, y: row, w: cols, h: rows };
+      rows = Math.max(1, rows - 1);
       const full = drawSources(sm.panel, cols, 10_000, Date.now());
       // Moving the focus scrolls it into view; scrolling by hand (the wheel, PgDn) leaves the focus where it is.
       if (sm.followed !== full.focus) {
@@ -1201,7 +1203,10 @@ export class NoteSurface {
       }
       sm.top = Math.max(0, Math.min(sm.top, Math.max(0, full.lines.length - rows)));
       sm.draw = { ...full, lines: full.lines.slice(sm.top, sm.top + rows), hits: full.hits.map(x => ({ ...x, row: x.row - sm.top })).filter(x => x.row >= 0 && x.row < rows) };
-      return { lines: sm.draw.lines };
+      const lines = [...sm.draw.lines];
+      while (lines.length < rows) lines.push("");
+      lines.push(pad(this.modes.active(sm) ? "sources has keys · j k move · Esc reader" : "reader has keys · click panel or S enter", cols));
+      return { lines };
     });
     if (this.replyParent && this.draft) return this.renderSplit(w, h, host, { d: this.draft, f: this.replyFrame(host) });
     // A comment written split (PIE-770): the reader's rect shared, the note in one part and the composer in the other.
@@ -5268,9 +5273,9 @@ export class NoteSurface {
     // The `[ ]` position as the click found it: a click's own reading.place lets go of it first.
     const was = this.cur;
     // An open mode first (in its precedence): the edit's or comment's own click, a status choice's row, a panel row.
-    if (!this.editing) { const line = this.sourceLineAt(y + (this.drawn?.heroRows ?? 0)); if (line !== null) void this.runKey("reading.place", { line: line + 1 }, host); }
     const taken = this.modes.click(x, y, host);
     if (taken !== undefined) return taken;
+    if (!this.editing) { const line = this.sourceLineAt(y + (this.drawn?.heroRows ?? 0)); if (line !== null) void this.runKey("reading.place", { line: line + 1 }, host); }
     // The header image: a click on it makes it the `[ ]` position, as a click on any image does.
     if (y < 0) { const i = this.elems.findIndex(e => !!e.link?.media && e.link.image?.line === this.hero?.line); if (i >= 0) void this.runKey("element.select", { n: i + 1 }, host); return i >= 0; }
     const h = this.hitAt(x, y);
@@ -6030,6 +6035,7 @@ export class NoteSurface {
     }
     let mode = this.sourcesMode;
     if (!mode || mode.panel.block !== m.id) { mode = this.sourcesModeOf(newPanel(m.id, ""), host); this.modes.push(mode); }
+    this.focusSources(host, true);
     const P = mode.panel;
     await this.readSources(P, host);
     if (at !== undefined && P.answer) {
@@ -6133,6 +6139,15 @@ export class NoteSurface {
   }
 
   closeSources(host: SurfaceHost) { this.modes.drop("sources"); host.redraw(); return { closed: true }; }
+
+  focusSources(host: SurfaceHost, on: boolean) {
+    const mode = this.sourcesMode;
+    if (!mode) throw new ActionRefused("S opens the Sources inspector");
+    this.modes.focus(mode, on);
+    if (on) host.enterMode?.();
+    host.redraw();
+    return { keys: on ? "sources" : "reader" };
+  }
 
   /** Back from one source to the list; from the list, close. */
   backSource(host: SurfaceHost) {
@@ -6247,7 +6262,7 @@ export class NoteSurface {
       changed: () => { if (!P.loading) void this.readSources(P, host); },
       key: k => {
         const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-        if (k.kind === "esc") run("sources.back");
+        if (k.kind === "esc") run("sources.focus", { on: false });
         else if (k.kind === "char" && k.ctrl && k.ch === "z") run("sources.undo");
         else if (k.kind === "pgdn" || c === " ") run("sources.scroll", { by: 8 });
         else if (k.kind === "pgup") run("sources.scroll", { by: -8 });
@@ -6268,14 +6283,16 @@ export class NoteSurface {
       click: (x, y) => {
         y += this.drawn?.heroRows ?? 0;
         const r = mode.rect;
-        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
+        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) { if (this.modes.active(mode)) run("sources.focus", { on: false }); return undefined; }
+        if (y === r.y + r.h - 1) { run("sources.focus", { on: !this.modes.active(mode) }); return true; }
+        run("sources.focus", { on: true });
         const hit = mode.draw?.hits.filter(h => h.row === y - r.y && x - r.x >= h.from && x - r.x < h.to).sort((a, b) => (a.to - a.from) - (b.to - b.from))[0];
         if (hit) run(hit.action, hit.args);
         return true;
       },
-      wheel: (dir, _host, at) => { if (!at || at.x < mode.rect.x || at.y < mode.rect.y) return false; run("sources.scroll", { by: dir * 3 }); return true; },
+      wheel: (dir, _host, at) => { const r = mode.rect; if (!at || at.x < r.x || at.x >= r.x + r.w || at.y < r.y || at.y >= r.y + r.h) return false; run("sources.scroll", { by: wheelRows(dir) }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("sources"); return { left: "nothing" }; },
-      hint: () => (P.open === null ? "j k select · ⏎ open · r read all again · esc close" : "j k move · ⏎ fold or edit · e edit · y copy · c CSV · J JSON · g jump · r run again · esc back"), state: () => "sources",
+      hint: () => "sources has keys · j k move · ⏎ open/edit · e edit · g jump · Esc reader · q close", state: () => this.modes.active(mode) ? "sources" : null,
       describe: () => ({ block: P.block, view: P.open === null ? "list" : "source", ...(P.answer ? { readAt: P.answer.readAt, sources: P.answer.sources.map((s, i) => ({ n: i + 1, name: s.name, kind: s.kind, ...(i === P.open ? { open: true, folds: { ...P.folds }, item: P.item + 1 } : {}), ...(i === P.sel ? { selected: true } : {}) })) } : {}), ...(P.error ? { error: P.error } : {}), loading: P.loading }),
     };
     return mode;
@@ -10647,6 +10664,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (!at || ("line" in at && at.line < 0)) throw new ActionRefused("say which line: line=<from 1>, or select words (or put [ ] on a line) in a generated region first");
       return surface.openSources(host, actor, at);
     },
+  }),
+  "sources.focus": def({
+    summary: "give the keys to the Sources inspector or back to the reader, keeping the panel open", keys: "esc, S, a click in the panel or its footer",
+    touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads sources.open",
+    args: { on: { type: "boolean", about: "true gives keys to sources; false returns them to the reader" } },
+    examples: [{ act: "sources.focus on=false", does: "returns keys to the reader" }],
+    run: ({ on }, { surface, host }) => surface.focusSources(host, on),
   }),
   "sources.close": def({
     summary: "close the Sources inspector", keys: "q, S, esc in the list", touches: "shape", replay: "safe", says: () => "closed the sources", person: "the inspector is the person's view; an agent reads sources.open",

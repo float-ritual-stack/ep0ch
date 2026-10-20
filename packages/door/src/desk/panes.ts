@@ -72,6 +72,7 @@ export interface DeskApi {
   hasFocus?(p: Pane): boolean;
   /** The person is in tile `p`'s edit, comment or panel (they opened it, or the keys came back to it). */
   isIn?(p: Pane): boolean;
+  enterSession?(p: ReaderPane): void;
   /** Esc found nothing left to close in a tile's own screen (a screen tile's): the desk's next step out, or nothing to close. */
   escaped?(): void;
   /**
@@ -459,6 +460,7 @@ export class ReaderPane implements Pane {
       get focused() { return desk.hasFocus ? desk.hasFocus(pane) : undefined; },
       // Whether the person types in it: an edit left open while they're elsewhere (a preview they read through) is drawn away.
       get entered() { return desk.isIn ? desk.isIn(pane) : undefined; },
+      enterMode: () => desk.enterSession?.(pane),
       redraw: () => desk.redraw(),
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),

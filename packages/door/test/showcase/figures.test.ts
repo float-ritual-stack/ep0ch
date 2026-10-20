@@ -32,6 +32,27 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+  test("PIE-1100: the sources panel takes keys on click and Esc returns them to the reader", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
+    press({ kind: "enter" });
+    ch("S");
+    await until(() => screen().includes("Sources ·"), "the sources panel");
+    press({ kind: "enter" });
+    await until(() => screen().includes("Query"), "the source open");
+    press({ kind: "esc" });
+    expect(screen()).toContain("reader has keys");
+    expect(screen()).toContain("Query");
+    const rows = screen().split("\n"), y = rows.findIndex(l => l.includes("Query")), x = rows[y]!.indexOf("Query") + 15;
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    expect(screen()).toContain("sources has keys");
+    ch("j");
+    expect(screen()).toContain("▸");
+    press({ kind: "esc" });
+    await app.dispatch.act({ action: "sources.close", tile: "1" }, { kind: "user" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
 
   test("the live showcase counts its garden view by block and by page", async () => {
     await app.act({ action: "section", args: { name: "live" }, as: "test-agent" });
