@@ -52,6 +52,15 @@ const floated = (s: LayoutState) => names(s, s.floats.map(f => f.id));
 const withFloat = (s: LayoutState, id: number) => ok(s, { op: "float", tile: id }).state;
 
 describe("one operation, one transaction", () => {
+  test("the last tile closes to an empty home and another tile can open there (PIE-1119)", () => {
+    extra = {};
+    const closed = ok(fresh(leaf(2)), { op: "close", tile: 2 }).state;
+    expect(leaves(closed.tree)).toEqual([]);
+    expect(closed.names.has(2)).toBe(false);
+    const reopened = ok(closed, { op: "open", tile: 9, kind: "reader", name: "new", at: { kind: "edge", dir: "right" } }).state;
+    expect(leaves(reopened.tree)).toEqual([9]);
+  });
+
   test("select targets survive setting open and alt wires, and closing a target removes only its wires", () => {
     extra = { 3: { notes: true }, 4: { notes: true } };
     let s = ok(fresh(), { op: "link", tile: 1, to: 3, verb: "select" }).state;
@@ -237,7 +246,7 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
     extra = { 2: { editing: "an edit" } };
     no(fresh(), { op: "close", tile: 2 }, /not closed: it holds an edit/);
     extra = {};
-    no(init({ tree: leaf(2), names: NAMES }), { op: "close", tile: 2 }, /the screen's last tile stays/);
+
   });
 
   test("tab rules: a tile's kind may take only some kinds as tabs", () => {

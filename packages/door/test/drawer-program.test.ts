@@ -23,7 +23,7 @@ describe("the drawer's own program", () => {
     const set = drawerProgram({ env: { EP0CH_DAILY_AGENT: "claude --model x", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
     expect(set.cmd).toEqual(["claude", "--model", "x"]);
     expect(set.name).toBe("claude");
-    expect(set.programWhy).toBe("EP0CH_DAILY_AGENT (claude --model x), which overrides the drawer's choice");
+    expect(set.programWhy).toContain("remove: export EP0CH_DAILY_AGENT='claude --model x'");
     // The Herdr launcher is a Claude too; another program is its own name.
     expect(programName(["/x/scripts/door-agent-herdr.ts", "--agent", "codex"])).toBe("codex");
     expect(programName(["/x/scripts/door-agent-herdr.ts"])).toBe("claude");

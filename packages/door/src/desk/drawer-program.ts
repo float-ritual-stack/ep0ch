@@ -137,7 +137,7 @@ export function drawerProgram(o: { env?: Record<string, string | undefined>; out
   const dflt = !saved && o.state ? readChoice(choiceFile(o.state)) : null;
   const choice = saved ?? dflt;
   let cmd: string[], from: DrawerProgram["from"], programWhy: string;
-  if (set) { cmd = words(set); from = "env"; programWhy = `EP0CH_DAILY_AGENT (${set}), which overrides the drawer's choice`; }
+  if (set) { cmd = words(set); from = "env"; programWhy = `EP0CH_DAILY_AGENT (${set}), which overrides the drawer's choice. Check ~/.zshrc, ~/.zprofile, ~/.profile or the door launcher; remove: export EP0CH_DAILY_AGENT=${shellQuote(set)}`; }
   else if (choice) {
     const agent = words(choice.agent === "shell" ? shell : choice.agent);
     cmd = choice.herdr ? herdrCmd(agent, session) : agent;
@@ -167,4 +167,4 @@ export function drawerProgram(o: { env?: Record<string, string | undefined>; out
 }
 
 /** The command that changes it, for `ep0ch doctor` and a refusal: the drawer's picker, or `act host.agent`. */
-export const CHANGE_AGENT = "alt+g in the drawer (its picker), or `ep0ch act host.agent name=<agent> [herdr=true] [default=true]`";
+export const CHANGE_AGENT = "click the drawer agent chip, or `ep0ch agent use <name> [--everywhere]`";

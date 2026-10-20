@@ -38,6 +38,23 @@ describe.skipIf(!outliner)("--screen <name> [<target>], through screen.open", ()
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
+  test("opening a named screen twice returns to the existing screen and its tiles (PIE-1119)", async () => {
+    await start(["--screen", "blank"]);
+    const original = top();
+    await expect(app.dispatch.act({ action: "screen.open", args: { name: "blank" } }, USER)).rejects.toThrow("already open");
+    expect(top() === original).toBe(true);
+  });
+
+  test("returning to an existing named screen keeps an unsaved screen in front (PIE-1119)", async () => {
+    registerScreen("seed-surface", () => ({ name: "seed-surface", title: "Seed surface", layout: { root: { t: "leaf", kind: "reader", name: "reader" } } }));
+    await start(["--screen", "seed-surface"]);
+    await app.dispatch.act({ action: "screen.open", args: { name: "blank" } }, USER);
+    const editing = app.screens().at(-1)!;
+    await editing.dispatch!.act({ action: "blank.fill", tile: "blank", args: { kind: "reader" } }, USER);
+    await expect(app.dispatch.act({ action: "screen.open", args: { name: "seed-surface" } }, USER)).rejects.toThrow("not left");
+    expect(app.screens().at(-1) === editing).toBe(true);
+  });
+
   test("a built-in screen by name, over the main menu", async () => {
     await start(["--screen", "river"]);
     expect((app as any).stack[0]).toBeInstanceOf(MainMenu);

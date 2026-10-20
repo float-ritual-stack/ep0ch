@@ -14,6 +14,7 @@ three layout models and four searches (§4).
 | The feature needs to… | Use | Where |
 |---|---|---|
 | recover and search a status message after its flash | `App.flash` appends to the session's `StatusLog` (last 500 in memory, size-rotated JSONL under `outlineState()`). `StatusMessages` uses the BBS list actions, `RowView`, uncapped `rowLines`, `LineInput` and outline-core's search matcher. `status.log` opens it, `status.filter` searches it, `status.reload` refreshes its stable rows; Enter returns to the note or tile. Stacks stay in the file; `peek` carries messages; `ep0ch log --follow` tails the file. | `src/status-log.ts`, `src/app.ts`, `src/screens.ts`; showcase `message-log` |
+| offer a first step in an empty screen, drawer or agent panel | `HomeSurface`, using the document renderer, shared button drawing and `::graph-keys`; presses go through the existing actions | `src/surface/home.ts`, `src/desk/desk.ts`, `src/desk/agents-panel.ts`; showcase `drawer` |
 | explain a mode or reveal a frame's controls without taking keys | `HintCard`, composed in the desk float layer with `Canvas.box`, `RowView` and the `graph-keys` keycaps. `ActionDef.hint` or a mode's card declares its words. `menuRow` formats the interaction choices; the dispatcher owns execution. `hint.show/get/pin/dismiss`, `hint.scroll` and `xray` share one ActionSet. | `src/surface/hint-card.ts`, `src/desk/desk.ts`; showcase `hints` |
 | reply to a note and read its conversation | `NoteSurface` owns the temporary split and source position; `DraftSession` with `noteReplyTarget` keeps a reply unsaved until submit. The existing editor draws it. `readReplies`, `linkRows` and `linkRowLines` share the children/replies group with the links model; the thread drawer is a reader mode. | `src/surface/note.ts`, `src/draft-session.ts`, `src/links.ts`; showcase `replies` |
 | read a thread as a tree, and pick a post without leaving the one you're reading (PIE-944) | the reader's THREAD panel (`note.thread`, a reader mode): `readThread` (`src/links.ts`) reads the note's ancestors from the service once (`blocks.context`) and follows `replyTo` through them (a moved reply's parent is asked for singly), and, for each level, the replies the service lists for that parent (`readReplies`, the one membership query); `threadRows` lays them out as the links model's rows (`child` rows with `thread`, `fold` rows), `linkRowLines` draws them: the root, the parents down to the note (marked ►, its author and age on every row), the posts beside each, the note's replies; a busy level, a long chain and a long run of replies fold around the note with a count, and ⏎ (or a double click) on the fold shows them. A click selects, a double click or ⏎ opens (`RowPresses`, `RowPress.selected`); `T` is the full list, `b` the outlinks and backlinks | `src/links.ts`, `src/surface/note.ts`, `src/scroll.ts` (`pressOn`); showcase `thread` |
@@ -1291,14 +1292,21 @@ The shared part is `src/surface/inline-list.ts`, lent by NoteSurface to the exis
 Doc and embed renderers. Rows remain reader elements and use `element.select`,
 `element.open` and `element.scroll`. The `inline-lists` showcase demonstrates 60 rows.
 
-### Empty drawer slot (PIE-1067)
+### Empty screen and drawer home (PIE-1119)
 
-An exited program in `drawer.own` clears with `tile.close`: `x`, `^W x`,
-the frame's close control, or the exit line's x. The tile stays as an empty
-slot; a running own program still refuses close. Enter or the run-again
-control restarts it, alt+s opens a shell and alt+g opens agents. Leaving a
-drawer with only that empty slot puts it away; reopening it starts nothing.
-Peek reports `state: "empty"`. Other screens' bare x bindings are unchanged.
+Closing the last tile is a screen-layout `close` operation. Its empty tab set is saved and restored as empty.
+The screen host draws its home with the shared document renderer: the power bar button, New note, Shell and
+Agent buttons (`::button`) and a `::graph-keys` figure. Nothing starts by itself; alt+s always opens a shell.
+The empty agent panel uses those same controls. A new note in an empty reader or detail opens its draft in
+that tile, including a tile in the drawer.
+
+A mode's key hints belong in its tile footer once. The drawer edge and the status line show state and controls;
+they do not repeat the tile's mode hints. An explicit keys figure can teach the home or empty panel's first steps.
+
+Clicking the drawer agent chip always opens `host.agent`'s picker. Choosing replaces its own agent tab and
+asks first when it is busy. The picker includes the folder and this-outline/every-outline scope. An
+`EP0CH_DAILY_AGENT` override is named on the chip, explained in the picker and doctor, with the shell line to
+remove. `ep0ch agent use <name> [--everywhere]` uses that same action.
 
 ### Proposal resolution (PIE-1085)
 

@@ -116,7 +116,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       } catch (e) { throw new ActionRefused(`the new note couldn't be opened to write (${e instanceof Error ? e.message : String(e)}); ${await putAway(ctx, note)}`); }
       if (reader === null) throw new ActionRefused(`the new note couldn't be opened to write here (cancelled, or no reader took it); ${await putAway(ctx, note)}`);
       // Said last, over what the open said: where it went, and how to leave it.
-      ctx.flash(`new note ${placement.said} · ctrl+s saves · esc on it still empty puts it in the trash${opens === "float" ? " · ctrl+n another" : ""}`, 8000);
+      ctx.flash(`new note ${placement.said}`, 8000);
       ctx.redraw();
       return { ...out, reader, ...(here?.editNew && opens ? { opens } : {}) };
     },

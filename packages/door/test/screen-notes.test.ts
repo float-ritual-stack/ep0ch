@@ -36,6 +36,14 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
   const get = () => top().layoutGet() as { tiles: any[]; layout: string | null };
   const mine = (action: string, args: Record<string, unknown> = {}, tile?: string) => top().dispatch.act({ action, args, tile }, { kind: "user" });
   const agent = (action: string, args: Record<string, unknown> = {}, tile?: string) => app.act({ action, args, tile, as: AS });
+  const freshBlank = async () => {
+    while (!(app.screens().at(-1) instanceof MainMenu)) {
+      const was = top();
+      await app.dispatch.act({ action: "screen.back" }, { kind: "user" });
+      if (top() === was) await app.dispatch.act({ action: "screen.back" }, { kind: "user" });
+    }
+    await app.dispatch.act({ action: "screen.open", args: { name: "blank" } }, { kind: "user" });
+  };
   const notes: Record<string, any> = {};
 
   beforeAll(async () => {
@@ -164,14 +172,14 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
   });
 
   test("an agent starts a blank screen with a query lane on a named view; the person's Q picks the view", async () => {
-    await app.dispatch.act({ action: "screen.open", args: { name: "blank" } }, { kind: "user" });
+    await freshBlank();
     await until(() => top().name === "blank", "a blank screen");
     await agent("blank.fill", { kind: "query", view: notes.view.id }, "blank");
     expect(get().tiles.map(t => t.kind)).toEqual(["query"]);
     const text = () => { render(); return top().render((top() as any).ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, ""); };
     await until(() => text().includes("nothing in Sowing list yet"), "the empty lane says what it lists");
     // The person's Q: the views to pick from, then the lane.
-    await app.dispatch.act({ action: "screen.open", args: { name: "blank" } }, { kind: "user" });
+    await freshBlank();
     await until(() => get().tiles[0]?.kind === "blank", "a blank screen");
     render();
     key({ kind: "char", ch: "Q" });
@@ -181,7 +189,7 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
   });
 
   test("an empty detail says what it's for: where opens land in it, or how to send them there", async () => {
-    await app.dispatch.act({ action: "screen.open", args: { name: "blank" } }, { kind: "user" });
+    await freshBlank();
     await until(() => top().name === "blank" && get().tiles.length === 1 && get().tiles[0].kind === "blank", "another blank screen");
     await mine("blank.fill", { kind: "detail" }, "blank");
     const said = () => { render(); return top().render((top() as any).ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, ""); };

@@ -81,13 +81,13 @@ describe("the drawer", () => {
     const d = door();
     try {
       d.app.push(d.screen("logon", { noDrawer: true }) as any);
-      expect(d.paint().at(-1)).not.toContain("▲ claude");
+      expect(d.paint().at(-1)).not.toContain("▲ claude (from EP0CH_DAILY_AGENT)");
       d.key(ALT("a"));                                         // nothing to pull up on the logon
       expect(d.app.drawer.open).toBe(false);
       d.A.stack.pop();
       d.app.push(d.screen("main menu") as any);
       let shown = d.paint();
-      expect(shown.at(-1)).toContain("▲ claude");
+      expect(shown.at(-1)).toContain("▲ claude (from EP0CH_DAILY_AGENT)");
       expect(shown[27]).toBe("main menu row 27");
       d.key(ALT("a"));
       expect(d.app.drawer.open).toBe(true);
@@ -125,7 +125,7 @@ describe("the drawer", () => {
       d.type("\x1ba");                                          // alt+a, as raw bytes while in it
       expect(d.app.drawer.open).toBe(false);
       d.app.push(d.screen("kanban") as any);
-      expect(d.paint().at(-1)).toContain("▲ claude");
+      expect(d.paint().at(-1)).toContain("▲ claude (from EP0CH_DAILY_AGENT)");
       d.key(ALT("a")); const shown = d.paint();
       expect(d.app.drawer.tile!.pid).toBe(pid);
       await wait(() => d.app.drawer.tile!.text().some(l => l.includes("first")));
@@ -133,7 +133,7 @@ describe("the drawer", () => {
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
-  test("the mouse: the chip toggles it, the top edge drags its height, a click in it enters, a click above leaves", () => {
+  test("the mouse: the chip opens the picker, the top edge drags its height, a click in it enters, a click above leaves", () => {
     const d = door();
     try {
       d.app.push(d.screen("desk") as any);
@@ -143,6 +143,7 @@ describe("the drawer", () => {
       d.key(mouse("down", chip.from + 1, 29)); d.key(mouse("up", chip.from + 1, 29));
       expect(d.app.drawer.open).toBe(true);
       d.paint();
+      d.key({ kind: "esc" });
       const top = d.app.drawer.rect!.row;
       d.key(mouse("down", 50, top));                           // the top edge
       d.key(mouse("drag", 50, 8));
@@ -156,7 +157,7 @@ describe("the drawer", () => {
       expect(d.app.drawer.entered).toBe(true);
       d.paint();
       d.key(mouse("down", chip.from + 1, 29));
-      expect(d.app.drawer.open).toBe(false);
+      expect(d.app.drawer.desk!.overlaid()).toBe(true);
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
@@ -187,7 +188,8 @@ describe("the drawer", () => {
       await wait(() => d.app.drawer.tile?.running === true);
       d.key(CTRL_RB);
       expect(d.app.drawer.entered).toBe(false);
-      expect(d.A.message).toContain("ctrl+] or a click goes back in");
+      expect(d.A.message).not.toContain("ctrl+]");
+      expect(d.paint().join("\n")).toContain("ctrl+] back to the door");
       // Right away again: back in, and the agent gets the ctrl+] (the tty echoes it as ^]).
       d.key(CTRL_RB);
       expect(d.app.drawer.entered).toBe(true);
@@ -206,7 +208,7 @@ describe("the drawer", () => {
       d.key(CTRL_RB);
       expect(d.app.drawer.entered).toBe(false);
       expect(got.filter(k => k.kind === "char" && k.ch === "]")).toHaveLength(2);
-      expect(plain(d.paint()[d.app.drawer.rect!.row + d.app.drawer.rect!.rows - 1]!)).toContain("click in it or ctrl+] to type");
+      expect(d.app.drawer.entered).toBe(false);
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
@@ -321,7 +323,7 @@ describe("the drawer", () => {
     const d = door();
     try {
       d.app.push(d.screen("main menu") as any);
-      expect(d.app.drawer.chipText()).toBe("▲ claude");
+      expect(d.app.drawer.chipText()).toBe("▲ claude (from EP0CH_DAILY_AGENT)");
       d.key(ALT("a")); d.paint();
       await wait(() => d.app.drawer.tile?.running === true);
       d.type("x\r");
@@ -332,12 +334,12 @@ describe("the drawer", () => {
       expect(r).toEqual({ tile: DRAWER_TILE_ID, herdr: { pane: "door-claude" } });
       d.app.drawer.state();
       await wait(() => d.app.drawer.state() === "blocked");
-      expect(d.app.drawer.chipText()).toBe("▼ claude · needs you");
+      expect(d.app.drawer.chipText()).toBe("▼ claude (from EP0CH_DAILY_AGENT) · needs you");
       expect(readFileSync(join(dir, "calls"), "utf8")).toContain("agent get door");
       expect(d.app.describe().drawer).toMatchObject({ herdr: { pane: "door-claude" } });
       d.type("\x04");                                            // ctrl+d: cat ends
       await wait(() => d.app.drawer.state() === "exited");
-      expect(d.app.drawer.chipText()).toBe("▼ claude · exited 0 · shell");   // the agent gone, its shell left (no dead pane)
+      expect(d.app.drawer.chipText()).toBe("▼ claude (from EP0CH_DAILY_AGENT) · exited 0 · shell");   // the agent gone, its shell left (no dead pane)
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
@@ -354,7 +356,7 @@ describe("the drawer", () => {
       await wait(() => d.app.drawer.tile?.running === true);
       await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
       await wait(() => d.app.drawer.state() === "watching");
-      expect(d.app.drawer.chipText()).toBe("▼ claude · watching");
+      expect(d.app.drawer.chipText()).toBe("▼ claude (from EP0CH_DAILY_AGENT) · watching");
       const shown = d.paint().join("\n");
       expect(shown).toContain("another door has it");
       expect(shown).toContain("⏎ takes it over");

@@ -5,7 +5,9 @@ import { resolve } from "node:path";
 import { ask } from "./jsonl";
 import { resolveDoor } from "./door-resolve";
 
-export const AGENT_USAGE = `  ep0ch agent [--program <name>] [--in <folder>] [--persona <name>] [--new] [--json]
+export const AGENT_USAGE = `  ep0ch agent use <name> [--everywhere]
+                                   choose and restart the drawer agent for this outline, or every outline
+  ep0ch agent [--program <name>] [--in <folder>] [--persona <name>] [--new] [--json]
                                    start an agent session in this folder (or --in one), or attach the one already
                                    running there: the same program in the same folder is the same session. It opens
                                    in the door on this folder's outline, as a tab in its drawer (alt+g lists every
@@ -39,6 +41,17 @@ export function agentArgs(argv: readonly string[], cwd = process.cwd()): { args:
 }
 
 export async function agentCommand(argv: readonly string[], env: Record<string, string | undefined> = process.env, cwd = process.cwd()): Promise<number> {
+  if (argv[0] === "use") {
+    const name = argv[1];
+    if (!name || name.startsWith("--") || argv.slice(2).some(a => a !== "--everywhere")) {
+      console.error("ep0ch agent use <name> [--everywhere]"); return 2;
+    }
+    const door = await resolveDoor(env, cwd);
+    if (!door.path) { console.error(`ep0ch agent: ${door.text}`); return 1; }
+    const r = await ask(door.path, { cmd: "act", action: "host.agent", args: { name, default: argv.includes("--everywhere") }, as: env.EP0CH_AGENT || "ep0ch-agent" }, 30_000);
+    if (!r?.ok) { console.error(`ep0ch agent: ${r?.error ?? "no door answered"}`); return 1; }
+    console.log(JSON.stringify(r.result)); return 0;
+  }
   const parsed = agentArgs(argv, cwd);
   if ("error" in parsed) { console.error(parsed.error); return 2; }
   const door = await resolveDoor(env, cwd);

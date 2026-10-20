@@ -35,6 +35,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+
   test("the terminal showcase paints its program's browser link beside the notebook", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "terminal" }, as: "test-agent" });
@@ -760,28 +761,37 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await until(() => stage().agentNow("edit").level === "off", "the chip's click");
     press({ kind: "esc" });
   }, 30_000);
-  test("the drawer showcase clears an exited own shell and starts a new shell", async () => {
+  test("drawer home: close the last tile and make a note with its button (PIE-1119)", async () => {
+    const { app, screen, press } = h;
     await app.press("section.leave");
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
-    await app.press("host.toggle", { open: true });
-    (app as any).paint();
-    if (app.drawer.isAway()) await app.press("agent.back");
+    await app.dispatch.act({ action: "host.toggle", args: { open: true } }, { kind: "user" });
+    screen();
     const drawer = app.drawer.desk!;
-    await drawer.dispatch.act({ action: "tile.focus", tile: "drawer.agent" }, { kind: "user" });
+    if (drawer.overlaid()) press({ kind: "esc" });
+    for (const t of [...app.drawer.tabs()]) {
+      const close = () => drawer.dispatch.act({ action: "tile.close", tile: t.name }, { kind: "user" });
+      try { await close(); } catch (e) { if (!(e as Error).message.includes("closing ends it")) throw e; await close(); }
+    }
+    // One more close on the empty home says so in words, not "no tile undefined".
+    await expect(drawer.dispatch.act({ action: "tile.close" }, { kind: "user" })).rejects.toThrow(/this screen is empty · ctrl\+n a note/);
     (app as any).paint();
-    await until(() => !!app.drawer.tile?.running, "own shell runs");
-    await drawer.dispatch.act({ action: "tile.type", tile: "drawer.agent", args: { text: "exit\\n" } }, { kind: "user" });
-    await until(() => app.drawer.tile?.exited === 0, "own shell exits");
-    await drawer.dispatch.act({ action: "tile.close", tile: "drawer.agent" }, { kind: "user" });
-    (app as any).paint();
-    expect(app.drawer.describe().state).toBe("empty");
-    expect(h.painted.some(l => l.includes("nothing running"))).toBe(true);
-    const result = await app.press("host.shell") as { tile: string };
-    await until(() => !!(drawer.pane(result.tile) as import("../../src/desk/pty").PtyPane).running, "new shell runs");
-    expect(app.drawer.tabs().find(t => t.name === result.tile)?.shown).toBe(true);
-    await app.press("host.toggle", { open: false });
-  });
+    const rows = h.painted.map(plain);
+    const y = rows.findIndex(l => l.includes("[New note]"));
+    expect(y).toBeGreaterThanOrEqual(0);
+    const x = rows[y]!.indexOf("[New note]") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => app.drawer.tabs().some(t => !!(drawer.pane(t.name) as ReaderPane)?.surface?.draft), "a draft from the home button");
+    const t = app.drawer.tabs().find(t => (drawer.pane(t.name) as ReaderPane)?.surface?.draft)!;
+    await drawer.dispatch.act({ action: "edit.text", tile: t.name, args: { text: "The home button kept this note" } }, { kind: "user" });
+    await drawer.dispatch.act({ action: "edit.save", tile: t.name }, { kind: "user" });
+    expect((drawer.pane(t.name) as ReaderPane).msg?.text).toBe("The home button kept this note");
+    await drawer.dispatch.act({ action: "edit.close", tile: t.name }, { kind: "user" });
+    await app.dispatch.act({ action: "host.toggle", args: { open: false } }, { kind: "user" });
+  }, 20_000);
+
 
 
 });

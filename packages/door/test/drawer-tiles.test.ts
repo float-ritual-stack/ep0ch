@@ -3,11 +3,12 @@
 // never the person's keys), by ^W a, by a drag onto the drawer's chip or out of the dock, and by a key while dragging.
 // It's saved (drawer-tiles.json) and comes back in the next door. Scratch outline host, fictional notes, `cat` programs.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
+import { hostSpec } from "../src/drawer";
 import { PtyPane } from "../src/desk/pty";
 import { outlineState } from "../src/state";
 import { SocketBoard } from "../src/socket";
@@ -66,54 +67,78 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   /** Another screen (last callers), on top: the screen switch. */
   const otherScreen = () => new Desk({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "notes" }] } as any } });
 
-  test("an exited own program clears to an empty slot and a new shell stays one key away", async () => {
+  test("New note in an empty drawer detail opens its draft in that tile (PIE-1119)", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" });
+      d.paint();
+      await until(() => !!d.app.drawer.desk?.rawKeys(), "the drawer terminal has its keys");
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tile.open", args: { kind: "detail", name: "writing" } }, USER);
+      await drawer.dispatch.act({ action: "tile.focus", tile: "writing" }, USER);
+      d.paint();
+      d.key(ctrl("n"));
+      await until(() => !!(drawer.pane("writing") as any)?.surface?.draft, "the drawer detail has the new draft");
+    } finally { d.app.quit(); }
+  });
+
+  test("the agent chip always opens the picker and choices replace the same tab (PIE-1117)", async () => {
+    const bin = join(state, "bin");
+    mkdirSync(bin);
+    for (const name of ["pi", "claude"]) {
+      const file = join(bin, name);
+      writeFileSync(file, `#!/bin/sh\nprintf 'scratch ${name} started\\n'\nexec cat\n`);
+      chmodSync(file, 0o755);
+    }
+    const shell = join(bin, "login-shell");
+    writeFileSync(shell, '#!/bin/sh\nif [ "$2" = "-c" ]; then exec /bin/sh -c "$3"; fi\nexec cat\n');
+    chmodSync(shell, 0o755);
+    const oldPath = process.env.PATH, oldShell = process.env.SHELL;
+    process.env.PATH = `${bin}:${oldPath}`;
+    process.env.SHELL = shell;
+    const d = await door();
+    try {
+      for (const name of ["pi", "claude"]) {
+        d.paint();
+        const chip = d.app.drawer.chipAt!;
+        d.key(mouse("down", chip.from + 1, chip.row));
+        expect(d.app.drawer.desk!.overlaid()).toBe(true);
+        if (name === "pi") expect(d.paint().some(l => l.includes("EP0CH_DAILY_AGENT overrides"))).toBe(true);
+        d.key({ kind: "esc" });
+        delete process.env.EP0CH_DAILY_AGENT;
+        if (name === "claude") {
+          const pid = d.app.drawer.tile!.pid;
+          expect(await d.app.dispatch.act({ action: "host.agent", args: { name } }, USER)).toMatchObject({ confirming: true });
+          expect(d.app.drawer.tile!.pid).toBe(pid);
+          d.paint();
+          d.key({ kind: "down" }); d.key({ kind: "enter" });
+        } else await d.app.dispatch.act({ action: "host.agent", args: { name, confirm: true } }, USER);
+        d.paint();
+        await until(() => !!d.app.drawer.tile?.text().some(l => l.includes(`scratch ${name} started`)), "the chosen program actually runs");
+        expect(d.app.drawer.tabs().filter(t => t.name === "drawer.agent")).toHaveLength(1);
+      }
+    } finally { d.app.quit(); process.env.PATH = oldPath; if (oldShell === undefined) delete process.env.SHELL; else process.env.SHELL = oldShell; }
+  }, 20_000);
+
+  test("the last drawer tile closes to home, stays closed, and a shell is one key away (PIE-1119)", async () => {
     process.env.EP0CH_DAILY_AGENT = "sh";
     const d = await door();
     try {
-      await d.app.act({ action: "host.toggle", args: { open: true }, as: AS });
-      d.paint();
+      d.key({ kind: "alt", ch: "a" }); d.paint();
       await until(() => !!d.app.drawer.tile?.running, "own shell runs");
-      await d.app.act({ action: "tile.type", tile: "drawer.agent", args: { text: "exit\\n" }, as: AS });
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.type", tile: "drawer.agent", args: { text: "exit\\n" } }, USER);
       await until(() => d.app.drawer.tile?.exited === 0, "own shell exits");
-      const drawer = d.app.drawer.desk!;
-      await d.app.act({ action: "tile.close", tile: "drawer.agent", as: AS });
-      expect(d.app.drawer.describe().state).toBe("empty");
-      expect(d.paint().some(l => l.includes("nothing running"))).toBe(true);
-      d.key({ kind: "alt", ch: "a" });
-      expect(d.app.drawer.open).toBe(false);
-      d.key({ kind: "alt", ch: "a" });
-      d.paint();
-      expect(d.app.drawer.describe().state).toBe("empty");
-      // Restart from the empty slot, then clear by the new key through the same action.
-      d.key({ kind: "enter" });
-      await until(() => !!d.app.drawer.tile?.running, "empty slot runs again");
-      await expect(drawer.dispatch.act({ action: "tile.close", tile: "drawer.agent" }, USER)).rejects.toThrow(/doesn't close/);
-      await drawer.dispatch.act({ action: "tile.type", tile: "drawer.agent", args: { text: "exit\\n" } }, USER);
-      await until(() => d.app.drawer.tile?.exited === 0, "restarted shell exits");
-      const runs: ActionRun[] = [];
-      const stop = traceActions(r => runs.push(r));
-      try { d.key(char("x")); await until(() => d.app.drawer.describe().state === "empty", "x clears"); }
-      finally { stop(); }
-      expect(runs.some(r => r.name === "tile.close")).toBe(true);
-      const clickText = (label: string) => {
-        const lines = d.paint(), y = lines.findIndex(l => l.includes(label));
-        expect(y).toBeGreaterThanOrEqual(0);
-        const x = lines[y]!.indexOf(label) + 1;
-        d.key(mouse("down", x, y)); d.key(mouse("up", x, y));
-      };
-      clickText("◄ run sh again");
-      await until(() => !!d.app.drawer.tile?.running, "mouse runs the empty slot again");
-      await drawer.dispatch.act({ action: "tile.type", tile: "drawer.agent", args: { text: "exit\\n" } }, USER);
-      await until(() => d.app.drawer.tile?.exited === 0, "shell exits for mouse clear");
-      clickText("x clears");
-      await until(() => d.app.drawer.describe().state === "empty", "exit line x clears");
-      d.key({ kind: "esc" });
-      expect(d.app.drawer.open).toBe(false);
-      d.key({ kind: "alt", ch: "a" });
-      d.paint();
-      expect(d.app.drawer.describe().state).toBe("empty");
+      d.key(ctrl("w")); d.key(char("x"));
+      expect(d.app.drawer.tabs()).toEqual([]);
+      expect(d.paint().some(l => l.includes("[New note]"))).toBe(true);
+      d.key({ kind: "alt", ch: "a" }); d.key({ kind: "alt", ch: "a" }); d.paint();
+      expect(d.app.drawer.tabs()).toEqual([]);
+      const restored = new Desk(hostSpec());
+      restored.enter(d.app);
+      expect(restored.layoutGet().tiles).toEqual([]);
+      restored.dispose();
       d.key({ kind: "alt", ch: "s" });
-      await until(() => d.app.drawer.tabs().some(t => t.name !== "drawer.agent" && (d.pane(t.name) as PtyPane).running), "new shell runs");
+      await until(() => d.app.drawer.tabs().some(t => (d.pane(t.name) as PtyPane).running), "new shell runs from home");
     } finally { d.app.quit(); }
   });
 
@@ -132,7 +157,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(d.app.drawer.open).toBe(false);                       // an agent's drawer doesn't pull it up
       expect(d.desk.focusedName()).toBe("tree");                 // nor move the person's keys
       expect(d.A.message).toContain(`an agent (${AS})`);
-      expect(d.paint().at(-1)).toContain("▲ cat +1");          // the chip: its own program, and one more tile
+      expect(d.paint().at(-1)).toContain("▲ cat (from EP0CH_DAILY_AGENT) +1");          // the chip: its own program, and one more tile
     } finally { d.app.quit(); }
   });
 
@@ -215,15 +240,15 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await expect(d.app.act({ action: "tile.close", args: {}, tile: "kettle", as: AS })).rejects.toThrow(/keys|typing/);
       d.app.drawer.rawInput(d.A.drawerRun)!("\x04");
       await until(() => (d.pane("kettle") as PtyPane).exited !== null, "cat ended");
-      expect(d.paint().some(l => l.includes("kettle exited · ⏎ runs it again · ^W x closes · Esc or ctrl+] back to the desk"))).toBe(true);
+      expect(d.paint().some(l => l.includes("^W x closes"))).toBe(true);
       // Any other key waits; ^W x closes it at once (nothing runs to ask about), the person still in the drawer.
       d.key(char("x"));
       expect(d.inDrawer("kettle")).toBe(true);
       d.key(ctrl("w")); d.key(char("x"));
       await until(() => !d.inDrawer("kettle"), "^W x closed it");
       expect(d.app.drawer.entered).toBe(true);
-      // The drawer's own tab, exited too, doesn't offer ^W x: it never closes.
-      expect(d.app.drawer.made!.exitedSay("drawer.agent")).not.toContain("^W x");
+      // The own tab now offers the same close as any other terminal.
+      expect(d.app.drawer.made!.exitedSay("drawer.agent")).toContain("^W x");
     } finally { d.app.quit(); }
   });
 
@@ -313,7 +338,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
 
   // PIE-892: the drawer's own program leaves whole. Its tab holds the place and starts nothing (a second client of a
   // Herdr session was a mirror nobody could type in or close), says where it went, and ⏎ or a click brings it back.
-  test("the drawer's own tab leaves onto the screen whole: its tab starts nothing and says where it went; a click brings the same program back, no restart; it never closes, said plainly", async () => {
+  test("the drawer's own tab leaves onto the screen whole: its tab starts nothing and says where it went; a click brings the same program back, no restart; a running close asks before ending it", async () => {
     const d = await door();
     try {
       d.key({ kind: "alt", ch: "a" }); d.paint();
@@ -321,7 +346,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const own = d.app.drawer.tile!, pid = own.pid, name = d.app.drawer.name;
       // ^W x on it: what and why in a person's words, no kind or policy names.
       const why = await d.app.drawer.desk!.dispatch.act({ action: "tile.close", args: {}, tile: "drawer.agent" }, USER).then(() => "", (e: Error) => e.message);
-      expect(why).toContain("your drawer's own program doesn't close");
+      expect(why).toContain("closing ends it");
       expect(why).not.toMatch(/drawer\.own|closable|draggable/);
       const out = await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER) as any;
       expect(out).toMatchObject({ tile: name, fresh: true, into: "desk" });
@@ -448,7 +473,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
-  test("refused, with why: the screen's last tile stays; an agent never moves the tile the person types in", async () => {
+  test("refused, with why: an agent never moves the tile the person types in", async () => {
     const d = await door();
     try {
       d.key({ kind: "alt", ch: "a" }); d.paint();
@@ -617,7 +642,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       void d.app.dispatch.act({ action: "host.agent", args: {} }, USER);
       await until(() => d.paint().some(l => l.includes("the drawer's agent")), "the picker");
       expect(d.app.drawer.made!.rawInput()).toBeNull();            // the picker has the keys, not cat
-      expect(d.paint().some(l => l.includes("the picker has the keys"))).toBe(true);
+      expect(d.app.drawer.desk!.overlaid()).toBe(true);
       d.key({ kind: "esc" });
       expect(d.app.drawer.made!.rawInput()).not.toBeNull();        // back to cat
       // alt+g, typed in cat: never cat's; the agent panel's tab, the keys with it.

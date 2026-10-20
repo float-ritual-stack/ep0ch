@@ -1,3 +1,4 @@
+import { HomeSurface } from "../surface/home";
 // The agent panel (PIE-737): every agent session the door holds (src/desk/agent-sessions.ts), with its program, folder,
 // persona, what it's doing and where it's shown, as Herdr's sidebar lists its agents. A tile kind (`agents`), so it's a
 // tile like any other; `agents.open` (alt+g, on every screen) opens it as a tab in your drawer, where it travels with you.
@@ -25,13 +26,14 @@ export class AgentsPane implements Pane {
   /** The row picked (0 is the first). */
   at = 0;
   private view = new RowView();
+  private home = new HomeSurface();
   private desk: DeskApi | null = null;
   private off: (() => void) | null = null;
   private tick: Timer | null = null;
 
   rows(): AgentSession[] { return this.desk?.ctx.hostLayer?.sessions?.() ?? []; }
   title() { const n = this.rows().length; return n ? `agents · ${n}` : "agents · none"; }
-  hint() { return AGENTS_HINT; }
+  hint() { return this.rows().length ? AGENTS_HINT : ""; }
   init(desk: DeskApi) {
     this.desk = desk;
     this.off?.();
@@ -47,7 +49,7 @@ export class AgentsPane implements Pane {
   render(w: number, h: number, focused: boolean): PaneView {
     const rows = this.rows();
     if (!rows.length) {
-      return { lines: [fg(C.white) + "No agent sessions." + RESET, "", ...["n starts one here (the program, then the folder).", "`ep0ch agent` in any folder starts or attaches that folder's.", "A claude, codex or pi run in a terminal tile (^W o s) shows here by itself."].map(l => fg(C.grey) + pad(l, w) + RESET)] };
+      return { lines: this.home.render("Agents", w, h, true) };
     }
     this.at = Math.min(Math.max(0, this.at), rows.length - 1);
     this.view.place(this.at, rows.length, h);
@@ -87,6 +89,7 @@ export class AgentsPane implements Pane {
   }
 
   click(_x: number, y: number, desk: DeskApi) {
+    if (!this.rows().length) { this.home.press({ kind: "mouse", action: "down", button: 0, x: _x, y }, action => { void desk.ctx.press?.(action); }); return; }
     const n = this.view.top + y;
     if (n >= this.rows().length) return;
     if (n !== this.at) this.pick(desk, n + 1);
