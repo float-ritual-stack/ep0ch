@@ -61,18 +61,24 @@ export interface Seeded {
  */
 /**
  * The race (PIE-725): @fern and @moss read the guide at one revision and patch the same words. @fern's applies; @moss's
- * becomes a proposal beside the guide; @moss's retry of the same patch returns that proposal (deduped).
+ * is refused; @moss then deliberately offers a suggestion, whose retry is deduped.
  */
 export async function seedRace(board: SocketBoard, note: Msg): Promise<{ note: Msg; race: Seeded["race"] }> {
   const at = note.text.indexOf(RACE_PATCH.winner.observed);
-  const patch = (actorId: string, span: { observed: string; replacement: string }) => board.request<{ outcome: string; proposalId?: string; deduped?: boolean }>("draft.patch", {
-    blockId: note.id, revision: note.revision, mutation: { author: "agent", actorId },
+  const patch = (actorId: string, span: { observed: string; replacement: string }, propose = false) => board.request<{ outcome: string; proposalId?: string; deduped?: boolean }>("draft.patch", {
+    blockId: note.id, revision: note.revision, propose, mutation: { author: "agent", actorId },
     patches: [{ ...span, range: { start: at, end: at + span.observed.length }, unit: "utf16" }],
   });
   await patch(RACE_AGENTS.winner, RACE_PATCH.winner);
-  const lost = await patch(RACE_AGENTS.loser, RACE_PATCH.loser);
+  try {
+    await patch(RACE_AGENTS.loser, RACE_PATCH.loser);
+    throw new Error("the showcase's conflicting patch should be refused");
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("read it again and send the patch")) throw error;
+  }
+  const lost = await patch(RACE_AGENTS.loser, RACE_PATCH.loser, true);
   if (lost.outcome !== "proposed" || !lost.proposalId) throw new Error(`the showcase's race: @${RACE_AGENTS.loser}'s patch was ${lost.outcome}, not proposed`);
-  const retry = await patch(RACE_AGENTS.loser, RACE_PATCH.loser);
+  const retry = await patch(RACE_AGENTS.loser, RACE_PATCH.loser, true);
   return { note: (await board.get(note.id))!, race: { proposal: lost.proposalId, retry: { proposalId: retry.proposalId ?? "", ...(retry.deduped ? { deduped: true } : {}) } } };
 }
 

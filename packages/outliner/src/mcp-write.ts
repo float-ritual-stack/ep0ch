@@ -110,7 +110,7 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
   }
   const settlementRefusal = proposalSettlementRefusal(write.tool, o.level);
   if (settlementRefusal) throw Object.assign(new Error(settlementRefusal), { name: "WorkToolRefusal" });
-  const propose = kind === "proposals" || o.proposeOnly ? "always" : "held";
+  const propose = kind === "proposals" || o.proposeOnly || write.input.propose === true ? true : o.queued ? "on-conflict" : false;
   const patched = (r: PatchResult, what: string): WriteOutcome => r.outcome === "applied"
     ? { outcome: "applied", uri: o.uri(write.blockId), said: `${what} applied${r.edits[0]?.route === "draft" ? " to the live draft" : ""}${rebasedSaid(r.edits)}`, detail: r }
     : r.deduped

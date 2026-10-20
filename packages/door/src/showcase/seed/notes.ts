@@ -260,7 +260,7 @@ export const KEPT = {
  */
 /**
  * The proposals section's guide (PIE-725): two agents patch its sowing line at one revision. @fern's lands; @moss's
- * loses the race and becomes a proposal beside the guide, and @moss's retry of the same patch returns that proposal.
+ * loses the race and is refused. @moss deliberately offers a suggestion; repeating that suggestion is deduped.
  */
 export const RACE_LINE = "Sow the beans   in May, two to a pot.";
 
@@ -271,7 +271,7 @@ export const RACE_PATCH = { winner: { observed: "beans   in May", replacement: "
 export const RACE = [
   SEED.race,
   "",
-  `Two agents tidied this guide at the same moment. @${RACE_AGENTS.winner}'s patch landed first. @${RACE_AGENTS.loser}'s, read at the same revision, changed the same words, so it became a proposal beside the guide, drawn after its last line with [apply] and [dismiss]. The guide's text and revision stayed as @${RACE_AGENTS.winner} left them, so the next writer doesn't lose too.`,
+  `Two agents tidied this guide at the same moment. @${RACE_AGENTS.winner}'s patch landed first. @${RACE_AGENTS.loser}'s, read at the same revision, changed the same words, so it was refused with the current revision and instructions to re-read and retry. No proposal or waiting task was made. @${RACE_AGENTS.loser} then explicitly asked to propose a suggestion (propose: true); that is the proposal beside the guide, with [apply] and [dismiss]. The guide's text and revision stayed as @${RACE_AGENTS.winner} left them, so the next writer doesn't lose too.`,
   "",
   `@${RACE_AGENTS.loser} then sent the same patch again. The service returned the open proposal (deduped), not a second copy.`,
   "",

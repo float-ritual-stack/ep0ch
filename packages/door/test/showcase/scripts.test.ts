@@ -381,7 +381,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const target = seeded.notes.scriptTarget.id;
     const proposed = mode === "proposal" || mode === "dismiss" ? await board.request<{proposalId: string}>("draft.patch", {
       blockId: target, revision: (await board.get(target))!.revision,
-      patches: [{observed: "Prepare", replacement: "Sort"}], propose: "always", mutation: {author: "agent", actorId: `script:draft-labels-${mode}`},
+      patches: [{observed: "Prepare", replacement: "Sort"}], propose: true, mutation: {author: "agent", actorId: `script:draft-labels-${mode}`},
     }) : null;
     if (mode === "dismiss") press({kind: "paste", text: `\n!((${proposed!.proposalId}))\n`});
     const source = await board.request<{ id: string }>("create", { author: "agent", provenance: { actorId: "seed-writer" }, text: [

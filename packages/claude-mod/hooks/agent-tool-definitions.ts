@@ -186,7 +186,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "Rewrite {note}, checked against the revision you read with outline_read: its whole `text`, one " +
       "`replaceSection` (the text under a heading, subheadings included, as Detail folds it), or an `append` at the end. Give exactly one. With append, `at: \"^log\"` adds an output region after that anchor through placement: a held draft gets it in place, or outcome: proposed at a conflict; it returns the placement receipt instead of a diff. " +
       "Refused before anything is written: an empty or whitespace-only result, a stale revision (read again, then " +
-      "edit), and dropping a [page::…] property or an ^anchor other notes link to (pass allowStructural: true only " +
+      "edit in the same turn), and dropping a [page::…] property or an ^anchor other notes link to (pass allowStructural: true only " +
       "when removing them is the point). Returns the new revision and a short diff. Use it for rewriting your own " +
       "pages, such as a status page; for small edits to a note the person may be typing in, use outline_patch.",
     properties: {
@@ -364,9 +364,8 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "none. A live draft gets it in place; otherwise it is an ordinary edit of the saved note. policy `edit` (the " +
       "default) has outline_edit's guard (allowStructural likewise); `prose` keeps every link, anchor and property. " +
       "If the note was saved since you read it, the patch applies on the newer text when every observed span is still there " +
-      "once and nobody rewrote its line (the answer says rebasedFrom: the revision you read); it becomes one proposal for the " +
-      "person (outcome: proposed) when a span is gone, changed or ambiguous, when it touches the paragraph, list item or heading at the cursor or selection endpoint, the draft is busy or unavailable, or when prose refuses. With mark, spans must also stay above the mark and above the cursor block when the cursor is before that mark. This leaves the passage being typed in alone; an unmarked patch can land above or below it. " +
-      "A proposal sits beside the note and never changes its text or revision; sending the same patch again while yours is open " +
+      "once and nobody rewrote its line (the answer says rebasedFrom: the revision you read); it is refused with an error when a span is gone, changed or ambiguous, when it touches the paragraph, list item or heading at the cursor or selection endpoint, the draft is busy or unavailable, or when prose refuses. Treat refusal as a task now: re-read the note and retry against the new text in the same turn. With mark, spans must also stay above the mark and above the cursor block when the cursor is before that mark. This leaves the passage being typed in alone; an unmarked patch can land above or below it. " +
+      "Use propose: true only for an intentional suggestion for Evan to decide. A proposal sits beside the note and never changes its text or revision; sending the same patch again while yours is open " +
       "returns that proposal (deduped: true) instead of a second copy.",
     properties: {
       ref: REF,
@@ -392,6 +391,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       mark: { type: "string", description: "The @request line the patch answers: spans must end above it" },
       policy: { type: "string", enum: ["edit", "prose"], default: "edit" },
       allowStructural: { type: "boolean" },
+      propose: { type: "boolean", description: "An intentional suggestion for Evan to decide instead of applying the patch" },
     },
     required: ["ref", "revision", "patches"],
     command(input) {
@@ -401,7 +401,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
         if (!patch || (typeof patch.observed !== "string" || patch.observed.length === 0) || typeof patch.replacement !== "string") return "Each patch needs observed (the exact text you read, never empty) and replacement.";
       }
       if (input.policy !== undefined && input.policy !== "edit" && input.policy !== "prose") return "policy is edit (the default) or prose.";
-      return { operation: "patch", input: { policy: "edit", ...inputOf(input, ["ref", "revision", "patches", "mark", "policy", "allowStructural"]) } };
+      return { operation: "patch", input: { policy: "edit", ...inputOf(input, ["ref", "revision", "patches", "mark", "policy", "allowStructural", "propose"]) } };
     },
   },
   ...(["apply", "dismiss", "resolve"] as const).map(op => ({
@@ -430,7 +430,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "Set one [key::value] property on the header line of {note} (the chips that end its first line): the value replaced " +
       "where the key is, or the chip added at the line's end. Against the `revision` outline_read returned, as one " +
       "outline_patch span, so it has the patch's rules: a live draft gets it in place, and a note that changed since " +
-      "becomes a proposal (outcome: proposed). A key written more than once is a list: edit it with outline_patch.",
+      "is refused if it cannot rebase; re-read and retry in the same turn. A key written more than once is a list: edit it with outline_patch.",
     properties: {
       ref: REF,
       key: { type: "string", description: "The property key: letters, digits, - and _" },

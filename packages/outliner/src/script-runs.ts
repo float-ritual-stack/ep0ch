@@ -287,7 +287,7 @@ export class ScriptRuns {
       if (!plan.ok && plan.kind === "refused") throw new Error(plan.reason);
       const result = await client.request<{ outcome: string; reason?: string; proposalId?: string }>({
         action: "draft.patch", blockId: site.thisId, revision: draft.revision, patches: plan.spans, mutation: actor, current: true,
-        ...(plan.mark ? { mark: { text: plan.mark } } : {}), ...(plan.ok && (!request.mcpAccess || request.mcpAccess === "full") ? {} : { propose: "always" as const }),
+        ...(plan.mark ? { mark: { text: plan.mark } } : {}), ...(plan.ok && (!request.mcpAccess || request.mcpAccess === "full") ? {} : { propose: true as const }),
       });
       const said = plan.ok ? plan.summary : plan.reason;
       lines.push(`\nplace: ${result.outcome === "applied" ? said : `proposed instead: ${result.reason ?? said}`}`);

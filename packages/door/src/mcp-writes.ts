@@ -3,18 +3,18 @@
 // `outline_resolve_thread`, `outline_assign_id`, `outline_move`, `outline_trash` and `outline_restore`), and `outline_quote` (marks quoted into a new block, `marks.quote`), addressed as the read tools are (a
 // uri, or a ref in a named outline), and each runs the outliner's own agent operation (`@ep0ch/outliner/agent-tools`,
 // the code behind the mod's tools and `outliner agent …`) over the outline's socket. No rule is restated here: the
-// service checks revisions, anchors comments, refuses a dropped page or anchor, and turns a patch that no longer matches
-// into a proposal under the note.
+// service checks revisions, anchors comments, refuses a dropped page or anchor, and refuses a patch that no longer matches
+// so the agent re-reads and retries in the same turn.
 //
 // What the outline's access setting allows decides what a write becomes:
 //   read, none  no write at all;
-//   propose     a proposal: a patch or a property is a draft.patch proposal (`propose: always`), a new block is a comment
+//   propose     a proposal: a patch or a property is a draft.patch proposal (`propose: true`), a new block is a comment
 //               on its parent carrying the text, and a comment, a reply and a resolve are what they say (each changes
 //               nothing but its thread: a thread's state is not the note);
 //               (outline_move and outline_trash are comments on the note naming the change, for its owner to make;)
 //   (outline_assign_id stamps a work id, and outline_restore brings a note back from Trash, which is no proposal: each is applied at full and refused below it.)
-//   full        applied, through the service's revision checks; a note open in someone's draft gets a proposal in that
-//               draft instead (`propose: held`), never a change under their cursor.
+//   full        applied, through the service's revision checks; a note open in someone's draft merges outside
+//               their cursor block; a conflict is refused without a proposal.
 // An outline whose home is another machine is never written here: its writes queue (src/mcp-netmail.ts), and that
 // machine applies them with this same `applyWrite` when it pulls them.
 //

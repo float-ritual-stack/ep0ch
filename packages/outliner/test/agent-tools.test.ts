@@ -314,7 +314,7 @@ test("changes since a time or cursor, narrowed by author or actor", async () => 
   expect((await agent("changes", { since: "last tuesday" })).exitCode).toBe(1);
 });
 
-test("patch is an edit by default: a dropped [[link]] applies, a linked ^anchor is refused; prose makes it a proposal", async () => {
+test("patch is an edit by default: a dropped [[link]] applies, a linked ^anchor is refused; prose refuses too; an explicit suggestion is proposed", async () => {
   const { store, agent } = await setup();
   const note = store.create("Beds: two  raised beds by the fence, see [[Seed Swap]]. ^beds");
   store.create(`Plan\nsee ((${note.id}^beds))`);
@@ -327,20 +327,23 @@ test("patch is an edit by default: a dropped [[link]] applies, a linked ^anchor 
   expect(refused.exitCode).toBe(1);
   expect(refused.stderr).toContain("^beds (1 note links to it)");
   expect(store.get(note.id)!.text).toBe(current.text);
-  const proposed = await agent("patch", { ref: note.id, revision: current.revision, policy: "prose", patches: [{ observed: "fence. ^beds", replacement: "fence." }] });
+  const prose = await agent("patch", { ref: note.id, revision: current.revision, policy: "prose", patches: [{ observed: "fence. ^beds", replacement: "fence." }] });
+  expect(prose.exitCode).toBe(1);
+  expect(prose.stderr).toContain("prose edit");
+  const proposed = await agent("patch", { ref: note.id, revision: current.revision, policy: "prose", propose: true, patches: [{ observed: "fence. ^beds", replacement: "fence." }] });
   // Not applied: the proposal is a block beside the note for the person to apply or not; the note is untouched (PIE-725).
   expect(proposed.json.outcome).toBe("proposed");
-  expect(proposed.json.reason).toContain("^beds");
+  expect(proposed.json.reason).toContain("propose");
   expect(proposed.json).toMatchObject({ beside: note.id });
   expect(store.get(note.id)!).toMatchObject({ text: current.text, revision: current.revision });
   // The same patch again from the same agent returns that proposal, not a second copy.
-  const again = await agent("patch", { ref: note.id, revision: current.revision, policy: "prose", patches: [{ observed: "fence. ^beds", replacement: "fence." }] });
+  const again = await agent("patch", { ref: note.id, revision: current.revision, policy: "prose", propose: true, patches: [{ observed: "fence. ^beds", replacement: "fence." }] });
   expect(again.json).toMatchObject({ outcome: "proposed", proposalId: proposed.json.proposalId, deduped: true });
   const allowed = await agent("patch", { ref: note.id, revision: store.get(note.id)!.revision, allowStructural: true, patches: [{ observed: "fence. ^beds", replacement: "fence." }] });
   expect(allowed.json.outcome).toBe("applied");
 });
 
-test("set-property replaces a header chip in place or adds one at the line's end, as a patch: stale is a proposal, a list is refused", async () => {
+test("set-property replaces a header chip in place or adds one at the line's end, as a patch: stale is refused, a list is refused", async () => {
   const { store, agent } = await setup();
   const note = store.create("Seed list - [crop::bean] [bed::north]\nRunner beans.");
   const replaced = await agent("set-property", { ref: note.id, key: "crop", value: "leek", revision: note.revision });
@@ -352,8 +355,11 @@ test("set-property replaces a header chip in place or adds one at the line's end
   const same = await agent("set-property", { ref: note.id, key: "crop", value: "leek", revision: store.get(note.id)!.revision });
   expect(same.json.outcome).toBe("unchanged");
   const stale = await agent("set-property", { ref: note.id, key: "bed", value: "south", revision: note.revision });
-  expect(stale.json.outcome).toBe("proposed");
+  expect(stale.exitCode).toBe(1);
+  expect(stale.stderr).toContain("read it again");
   expect(store.get(note.id)!.text).toContain("[bed::north]");
+  const reread = await agent("read", { ref: note.id });
+  expect((await agent("set-property", { ref: note.id, key: "bed", value: "south", revision: reread.json.revision })).json.outcome).toBe("applied");
   const list = store.create("Tags [tag::a] [tag::b]");
   expect((await agent("set-property", { ref: list.id, key: "tag", value: "c", revision: list.revision })).stderr).toContain("a list");
   expect((await agent("set-property", { ref: list.id, key: "bad key", value: "c", revision: list.revision })).stderr).toContain("isn't a property key");

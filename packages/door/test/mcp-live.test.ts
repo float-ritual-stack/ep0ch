@@ -149,7 +149,10 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     expect(patched.json).toMatchObject({ outcome: "applied", source: "live", machine: FAR, outline: "attic-notes" });
     expect((await farRecord(ids.lamps!)).text).toContain("none cracked");
     const stale = await tool("outline_patch", { ref: ids.lamps, outline: "attic-notes", revision: read.revision, patches: [{ observed: "none cracked", replacement: "three lamps" }] });
-    expect(stale.json.outcome).toBe("proposed");
+    expect(stale.isError).toBe(true);
+    expect(stale.text).toContain(`revision ${read.revision}, now ${read.revision + 1}`);
+    expect(stale.text).toContain("read it again and send the patch against the new text");
+    expect((await farRecord(ids.lamps!)).text).toContain("none cracked");
     const entries = await boardOn(far, "attic-notes", FAR).request<{ entries: { block: { id: string }; actorId?: string; sessionId?: string }[] }>("activity.recent", { since: "2000-01-01T00:00:00.000Z", author: "agent", actorId: "mcp:chat.example.test", limit: 50, kinds: ["text", "properties"] });
     expect(entries.entries.filter(e => e.block.id === ids.lamps).map(e => ({ actorId: e.actorId, sessionId: e.sessionId }))).toContainEqual({ actorId: "mcp:chat.example.test", sessionId: expect.stringMatching(new RegExp(`^${PERSON}#c-[0-9a-f]{10}$`)) });
     const row = (await tool("list_outlines", {})).json.outlines[0];

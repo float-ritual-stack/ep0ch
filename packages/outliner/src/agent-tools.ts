@@ -27,7 +27,7 @@ import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } 
 import { resourceCommentSource } from "./resource-comments";
 import type { ResourceDescription } from "./resources";
 import { parsePropertyFilterClause } from "./block-query";
-import { DRAFT_PATCH_POLICIES, droppedStructure, type DraftPatchPolicyName, type DraftPatchProposeWhen, type DraftPatchResult } from "./draft-patch";
+import { DRAFT_PATCH_POLICIES, droppedStructure, type DraftPatchInput, type DraftPatchPolicyName, type DraftPatchResult } from "./draft-patch";
 import { chipText, headerLine } from "@ep0ch/outline-core/header-line";
 import { isPropertyKey } from "@ep0ch/outline-core/property-grammar";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
@@ -1060,11 +1060,12 @@ export async function changesSince(
  * `policy` is `edit` unless the caller says `prose`: the same guard as
  * outline_edit (a dropped `[page::…]` or linked `^anchor` is refused, unless
  * `allowStructural`). A patch that no longer matches, or that `prose` refuses,
- * lands as one proposal the person can apply (`outcome: proposed`, with the reason).
+ * is refused without writing; the agent re-reads and retries in the same turn.
+ * `propose: true` deliberately offers a suggestion instead.
  */
 export async function patchDraft(
   client: AgentToolsClient,
-  input: { ref: string; revision: number; patches: DraftPatchSpan[]; mark?: string; policy?: DraftPatchPolicyName; allowStructural?: boolean; propose?: DraftPatchProposeWhen },
+  input: { ref: string; revision: number; patches: DraftPatchSpan[]; mark?: string; policy?: DraftPatchPolicyName; allowStructural?: boolean; propose?: DraftPatchInput["propose"] },
   actor: AgentActor,
 ): Promise<DraftPatchResult & { warnings?: string[] }> {
   const revision = requireRevision(input.revision);
@@ -1106,12 +1107,12 @@ export type SetPropertyResult =
 /**
  * Sets one `[key::value]` chip on a note's header line (outline-core's `header-line.ts`): the chip's value replaced
  * where it is, or the chip added at the line's end. It is one `draft.patch` span against the revision the agent read,
- * so it has the patch's rules: a live draft gets it in place (or, with `propose: held`, a proposal), and a note that
- * changed since becomes a proposal, never an overwrite. A key written more than once is a list: outline_patch edits it.
+ * so it has the patch's rules: a live draft gets it in place (or, with `propose: true`, a suggestion), and a note that
+ * changed since is refused if it cannot rebase, never overwritten. A key written more than once is a list: outline_patch edits it.
  */
 export async function setBlockProperty(
   client: AgentToolsClient,
-  input: { ref: string; key: string; value: string; revision: number; propose?: DraftPatchProposeWhen },
+  input: { ref: string; key: string; value: string; revision: number; propose?: DraftPatchInput["propose"] },
   actor: AgentActor,
 ): Promise<SetPropertyResult> {
   const revision = requireRevision(input.revision);

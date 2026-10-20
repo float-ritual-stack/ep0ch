@@ -1228,7 +1228,7 @@ async function takeNewer(propose: boolean): Promise<{ message: string; open?: st
   if (text === current.text) return { message: `This copy already has ${node.id}'s revision ${original.revision}` };
   if (propose) {
     const result = await mine<{ outcome: string; proposalId?: string }>({
-      action: "draft.patch", blockId: current.id, revision: current.revision, propose: "always",
+      action: "draft.patch", blockId: current.id, revision: current.revision, propose: true,
       patches: [{ observed: current.text, replacement: text }], mutation: { author: "agent", actorId: "ext:echonet" },
     });
     return { message: `${node.id}'s revision ${original.revision} is proposed beside the copy: apply or dismiss it there`, ...(result.proposalId ? { open: result.proposalId } : {}) };

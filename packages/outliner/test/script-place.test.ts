@@ -209,13 +209,15 @@ test("a door holding the note takes the write in its draft as one patch; the sav
   expect(store.get(note.id)!.text).toBe(NOTE);
 });
 
-test("a door that declines the patch (its cursor is there) leaves one proposal, never a write", async () => {
+test("a door that declines the patch (its cursor is there) refuses the script write without a proposal", async () => {
   const { store, client, create, run } = await setup();
   create(WEEKLY("append"));
   const note = create(NOTE);
   const door = await fakeDoor(client, "door-b", note, false);
   const ran = await run("weekly", { blockId: note.id });
-  expect(ran.text).toContain("proposed instead");
+  expect(ran.text).toContain("not applied:");
+  expect(ran.text).toContain("the cursor is in that passage");
+  expect(store.children(note.id).some(child => child.properties.some(p => p.key === "type" && p.value === "draft-proposal"))).toBe(false);
   expect(findOutputRegions(door.text)).toHaveLength(0);
   expect(store.get(note.id)!.text).toBe(NOTE);
 });

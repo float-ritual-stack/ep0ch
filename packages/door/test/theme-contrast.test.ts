@@ -81,7 +81,7 @@ describe.skipIf(!outliner)("the themes on real screens (WCAG 2 contrast)", () =>
     const observed = "The peas   climb  the net", start = read.text.indexOf(observed);
     await board.update(plan.id, read.text.replace(observed, `${observed} (edited)`), read.revision!);
     await board.request("draft.patch", {
-      blockId: plan.id, revision: read.revision, mutation: { author: "agent", actorId: "tidy" },
+      blockId: plan.id, revision: read.revision, propose: true, mutation: { author: "agent", actorId: "tidy" },
       patches: [{ observed, replacement: "The peas climb the net", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 20) }],
     });
     reading = (await board.get(seeded.notes.shed.id))!;

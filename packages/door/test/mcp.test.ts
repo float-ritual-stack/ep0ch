@@ -308,9 +308,10 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       expect((await board.records([target.id])).records[0]!.text).toContain("Ready for stdio writes");
       const child = (await board.records([made.uri.split("/b/")[1]])).records[0]!;
       expect(child).toMatchObject({ author: "agent", actor: `mcp:claude-desktop@${machine}` });
-      // A stale revision is a proposal, never an overwrite: the same check the gateway makes.
+      // A stale write is an actionable error over stdio too, without a proposal or overwrite.
       const stale = await stdio([hello, patch(6, 1, "Ready for stdio writes", "Overwritten")]);
-      expect(called(stale.find(r => r.id === 6)).json.outcome).toBe("proposed");
+      expect(called(stale.find(r => r.id === 6)).isError).toBe(true);
+      expect(called(stale.find(r => r.id === 6)).text).toContain("read it again and send the patch against the new text");
       expect((await board.records([target.id])).records[0]!.text).not.toContain("Overwritten");
       await setAccess("read");
     }, 60_000);
@@ -357,7 +358,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       const make = async (actorId: string) => {
         const note = await board.request<any>("create", { parentId: null, text: "Seed plan\nPlant beans." });
         const p = await board.request<any>("draft.patch", { blockId: note.id, revision: note.revision,
-          patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: "always", mutation: { author: "agent", actorId } });
+          patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: true, mutation: { author: "agent", actorId } });
         return { note, id: p.proposalId as string };
       };
       for (const op of ["dismiss", "apply"]) {
