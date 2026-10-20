@@ -22,7 +22,7 @@ function saveState(path: string, state: LinkState) {
   renameSync(`${path}.tmp`, path);
 }
 
-const proof = (key: string, machine: string, nonce: string) => createHmac("sha256", key).update(`ep0ch-link\n${machine}\n${nonce}`).digest();
+const proof = (key: string, machine: string, nonce: string, role: "client" | "server" = "client") => createHmac("sha256", key).update(`ep0ch-link-${role}\n${machine}\n${nonce}`).digest();
 type Peer = { nonce: string; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
 export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void; onResult?: (machine: string, result: LinkInstallResult, deploy: LinkDeploy) => Promise<void> }) {
   let reporting = Promise.resolve();
@@ -104,7 +104,7 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
               const stateFile = join(paths.dir, `${auth.machine}.link.json`);
               saveState(stateFile, { machine: auth.machine, since, pid: process.pid, up: true });
               p.authenticated = true;
-              clearTimeout(p.timer); ws.send(JSON.stringify({ ready: true, compatible: auth.protocol === PROTOCOL, proof: proof(key, auth.machine, p.nonce + "\nserver").toString("hex") })); sendInstall(ws); o.log(`link ${auth.machine} up since ${since}`);
+              clearTimeout(p.timer); ws.send(JSON.stringify({ ready: true, compatible: auth.protocol === PROTOCOL, proof: proof(key, auth.machine, p.nonce, "server").toString("hex") })); sendInstall(ws); o.log(`link ${auth.machine} up since ${since}`);
             });
           } else if (typeof bytes === "string") {
             if (bytes === "ping") { p.last = Date.now(); ws.send("pong"); return; }
@@ -205,7 +205,7 @@ export function connectLink(o: { server: string; machine: string; key: string; h
           nonce = message.challenge;
           socket.send(JSON.stringify({ protocol: PROTOCOL, machine: o.machine, proof: proof(o.key, o.machine, message.challenge).toString("hex") }));
         } else if (message.ready === true && !authenticated) {
-          if (typeof message.proof !== "string" || !/^[a-f0-9]{64}$/.test(message.proof) || !timingSafeEqual(proof(o.key, o.machine, nonce + "\nserver"), Buffer.from(message.proof, "hex"))) throw new Error("server did not prove the link key");
+          if (typeof message.proof !== "string" || !/^[a-f0-9]{64}$/.test(message.proof) || !timingSafeEqual(proof(o.key, o.machine, nonce, "server"), Buffer.from(message.proof, "hex"))) throw new Error("server did not prove the link key");
           authenticated = true;
           sendResult = result => socket.send(JSON.stringify({ result }));
           clearTimeout(timeout); delay = 1000;
@@ -218,8 +218,8 @@ export function connectLink(o: { server: string; machine: string; key: string; h
           if (installing) return;
           if (update?.sha !== message.install) update = { sha: message.install, phase: "ready" };
           void consider();
-        } else if (authenticated && message.received === update?.sha) {
-          if (update?.restart) { update.restart = false; saveUpdate(); o.onInstalled?.(); }
+        } else if (authenticated && typeof message.received === "string" && /^[a-f0-9]{40}$/.test(message.received)) {
+          if (update?.restart && message.received === update.sha) { update.restart = false; saveUpdate(); o.onInstalled?.(); }
         } else throw new Error("unexpected authentication message");
       } catch (error) { endAttempt(`${(error as Error).message}; check ep0ch install --apply on both machines`); }
     };

@@ -382,7 +382,9 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect({ code: started.exitCode, error: started.stderr.toString(), out: started.stdout.toString() }).toMatchObject({ code: 0 });
     const wire = join(repo, "packages/outline-core/src/protocol.ts");
     writeFileSync(wire, readFileSync(wire, "utf8").replace(/export const PROTOCOL = (\d+);/, (_, n) => `export const PROTOCOL = ${Number(n) + 1};`));
-    git("add", "packages/outline-core/src/protocol.ts"); git("commit", "-qm", "the garden host speaks the next protocol"); git("push", "-q", "origin", "main");
+    const installer = join(repo, "packages/door/src/setup/apply.ts");
+    writeFileSync(installer, readFileSync(installer, "utf8").replace("  const plan = buildPlan(facts, options);", '  if (args.includes("--as-client")) writeFileSync(join(facts.home, "new-garden-support"), "installed by the target code");\n  const plan = buildPlan(facts, options);'));
+    git("add", "packages/outline-core/src/protocol.ts", "packages/door/src/setup/apply.ts"); git("commit", "-qm", "the garden host speaks the next protocol"); git("push", "-q", "origin", "main");
     const linkedHead = git("rev-parse", "HEAD");
     writeFileSync(join(outlines, ".host/link.json"), JSON.stringify({ mode: "serve", port, machines: ["travel"] }));
     mkdirSync(join(home, ".config/secrets"), { recursive: true });
@@ -394,20 +396,29 @@ const commit = Bun.spawnSync(["git", "-C", "${clientRepo}", "rev-parse", "HEAD"]
 const connector = connectLink({server: "http://127.0.0.1:${port}", machine: "travel", key: "fictional-key", host: "${sock}", statusPath: "${clientOutlines}/.host/link-state.json", commit, install: installLinkedSha, log: console.error, onInstalled: () => {connector.stop();process.exit(0);}});
 process.once("SIGTERM",()=>{connector.stop();process.exit(0)});
 `);
+    fakeSystemctl("start", "ep0ch-link");
     let linkedClient = Bun.spawn([bun, join(root, "linked-client.ts")], { cwd: clientHome, env: clientEnv, stdout: "ignore", stderr: Bun.file(join(root, "linked-client.log")) });
     try {
+      await until(() => { try { return JSON.parse(readFileSync(join(outlines, ".remote/travel.link.json"), "utf8")).up; } catch { return false; } }, "laptop linked before the deploy", 20_000);
       const delivered = await ep0ch("install", "--apply", "--json");
       const report = JSON.parse(delivered.out);
       expect({ code: delivered.code, err: delivered.err, step: report.steps.find((s: {error?:string}) => s.error) }).toMatchObject({ code: 0, step: undefined });
       expect(report.linked.join("\n")).toContain(`travel: installed ${linkedHead}`);
       expect(report.linked.join("\n")).toContain("session was handed over");
       expect(sh(["git", "-C", clientRepo, "rev-parse", "HEAD"])).toBe(linkedHead);
+      expect(readFileSync(join(clientHome, "new-garden-support"), "utf8")).toBe("installed by the target code");
       expect(await linkedClient.exited).toBe(0);
       linkedClient = Bun.spawn([bun, join(root, "linked-client.ts")], { cwd: clientHome, env: clientEnv, stdout: "ignore", stderr: Bun.file(join(root, "linked-client-again.log")) });
       await until(() => { try { return JSON.parse(readFileSync(join(outlines, ".remote/travel.link.json"), "utf8")).up; } catch { return false; } }, "updated connector comes back");
       const record = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
       expect(record.blocks[0].text).toContain(`travel: installed ${linkedHead}`);
       expect(record.blocks[0].text).toContain("session was handed over");
+      const repeated = await ep0ch("install", "--apply", "--json");
+      expect(repeated.code).toBe(0);
+      const repeatedRecord = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
+      expect(repeatedRecord.blocks[0].id).not.toBe(record.blocks[0].id);
+      expect(repeatedRecord.blocks[0].text).toContain(`travel: installed ${linkedHead}`);
+      expect(repeatedRecord.blocks[0].text).not.toContain("install pending");
     } finally {
       linkedClient.kill(); await linkedClient.exited;
       const end = Bun.spawn([bun, join(clientRepo, "packages/door/src/main.ts"), "session", "end", "--all", "--yes"], { env: clientEnv, cwd: clientHome, stdout: "ignore", stderr: "ignore" });

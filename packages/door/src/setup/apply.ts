@@ -604,7 +604,7 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
   try { return await setup(rest, io, env, json, progress, status, machineName, dials, clientChange, sha); }
   catch (error) {
     if (json) io.out(JSON.stringify({ ok: false, steps: [], notDone: ["install"], error: (error as Error).message }));
-    else io.err(`ep0ch install: ${(error as Error).message}`);
+    else io.err(`ep0ch ${args[0]}: ${(error as Error).message}`);
     return 1;
   }
   finally {
@@ -745,7 +745,10 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     const verified = await run(["git", "-C", facts.repo.root, "merge-base", "--is-ancestor", head.out, "origin/main"], { env });
     if (head.code === 0 && verified.code === 0) {
       const connected = new Set(linkStates(facts.host.folder).map(l => l.machine));
-      for (const machine of facts.linkConfig.machines) if (deploy) await record(() => deploy!.link(machine, `${machine}: ${connected.has(machine) ? "install pending over the link" : "away; install queued for its next connection"}`));
+      for (const machine of facts.linkConfig.machines) if (deploy) {
+        const receipt = linkInstallResult(facts.host.folder, machine, head.out);
+        await record(() => deploy!.link(machine, receipt ? linkInstallSummary(machine, receipt) : `${machine}: ${connected.has(machine) ? "install pending over the link" : "away; install queued for its next connection"}`));
+      }
       publishLinkInstall(facts.host.folder, { sha: head.out, record: deploy?.linkRecord });
       for (const machine of facts.linkConfig.machines) {
         let receipt = linkInstallResult(facts.host.folder, machine, head.out);

@@ -39,7 +39,8 @@ for both ends. Install never edits Caddy or DNS.
 The server sends a fresh random challenge. The connector proves its machine's key
 with HMAC-SHA256 over a domain-separated machine name and challenge. The outline tunnel requires matching PROTOCOL. Install control remains available
 when the versions differ, so an update can repair that mismatch. The server also
-proves the link key before the connector accepts an install request. Unknown machines, wrong keys, duplicate live connections and invalid
+proves the link key before the connector accepts an install request; client and
+server proofs use separate HMAC domains. Unknown machines, wrong keys, duplicate live connections and invalid
 frames are refused; the server logs the reason without the proof or key. The only tunnel destination is the connector's own outline-host socket. No frame can name a host,
 port or executable. The one control verb is `install <sha>`; it never carries a shell command.
 
@@ -84,7 +85,9 @@ The connector calls `ep0ch install --apply --as-client --sha <sha> --json` from
 its installed checkout. `--sha` accepts a full commit SHA reachable from fetched
 origin/main, requires clean main and a fast-forward, and never pulls past the
 requested commit. Backups, migrations, host restarts and session handover remain
-install's own steps. A link-initiated install defers its own connector restart
+install's own steps. When a successful checkout update asks for install to run
+again, the connector invokes the newly installed code before returning its final
+receipt. A failed install is reported without retrying. A link-initiated install defers its own connector restart
 until the server acknowledges the saved receipt; the service manager then starts
 it on the installed code.
 

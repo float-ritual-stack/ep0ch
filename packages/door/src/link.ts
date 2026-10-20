@@ -8,13 +8,18 @@ import { connectLink, linkStatus, serveLink, linkInstallSummary, type LinkInstal
 import { checkLinkServer, linkKey, linkKeyGroup, readLinkConfig, writeLinkConfig } from "@ep0ch/outliner/link-config";
 
 export async function installLinkedSha(sha: string): Promise<LinkInstallResult> {
-  const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "main.ts"), "install", "--apply", "--as-client", "--sha", sha, "--json"], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-  const report = JSON.parse(out);
-  const notDone = report.notDone ?? [];
-  const sessions = report.steps.filter((s: { id: string }) => s.id === "session");
+  const invoke = async () => {
+    const child = Bun.spawn([process.execPath, resolve(import.meta.dir, "main.ts"), "install", "--apply", "--as-client", "--sha", sha, "--json"], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    return { report: JSON.parse(out), err, code };
+  };
+  const first = await invoke();
+  // A successful checkout update asks for another invocation so the new code owns the remaining install work.
+  const changed = first.code === 0 && first.report.steps.some((s: { id: string; done?: string[] }) => s.id === "repo" && s.done?.some(line => line.startsWith("RUN AGAIN:")));
+  const { report, err, code } = changed ? await invoke() : first;
+  const sessions = [...(changed ? first.report.steps : []), ...report.steps].filter((s: { id: string }) => s.id === "session");
   const installedCommit = (await run(["git", "-C", resolve(import.meta.dir, "../../.."), "rev-parse", "HEAD"])).out;
-  return { sha, code, commit: installedCommit, notDone, notes: report.notes, sessions, error: report.error || (code !== 0 ? err || undefined : undefined) };
+  return { sha, code, commit: installedCommit, notDone: report.notDone, notes: report.notes, sessions, error: report.error || (code !== 0 ? err || undefined : undefined) };
 }
 
 export async function runLink(args: string[]): Promise<number> {

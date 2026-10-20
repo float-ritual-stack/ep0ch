@@ -245,6 +245,7 @@ test("install control returns a receipt, survives an offline connector, and hono
   await here.start(); await laptop.start(); await here.create("garden");
   const board = new SocketBoard(here.sock, undefined, "garden");
   const note = await board.createBlock(null, "Deploy on the garden host\nLocal: finished");
+  const messages: string[] = [];
   const sha = "a".repeat(40);
   const target = { sha, record: { socket: here.sock, outline: "garden", id: note.id } };
   let linked = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log() {}, onResult: (machine, result, deploy) => recordLinkInstall(deploy, machine, result) });
@@ -264,7 +265,7 @@ test("install control returns a receipt, survives an offline connector, and hono
         const code = await setupCommand(["install", "--apply", "--as-client", "--sha", requested, "--json"], { env, repoRoot: join(laptop.root, "absent-checkout"), cwd: laptop.root, out: s => output.push(s), err: s => output.push(s) });
         const report = JSON.parse(output.join("\n"));
         return { sha: requested, code, notDone: report.notDone, sessions: [], error: report.error };
-      }, log() {} });
+      }, log: line => messages.push(line) });
     await until(() => !!linkInstallResult(here.outlines, "travel", sha), "disabled laptop reports why it did not install");
     expect(linkInstallResult(here.outlines, "travel", sha)?.notDone.join(" ")).toContain("auto-install off");
     expect(linkUpdateLabel(laptop.outlines)).toBe("update ready · ep0ch install --apply");
@@ -283,6 +284,7 @@ test("install control returns a receipt, survives an offline connector, and hono
     expect(linkInstallResult(here.outlines, "travel", sha)?.code).toBe(1);
     await until(() => readFileSync(join(here.outlines, `.remote/travel.${sha}.install.json`), "utf8").includes("origin/main"), "receipt saved");
     await until(() => !!linkInstallResult(here.outlines, "travel", queued), "the newer deploy queued during installation also returns its result");
+    expect(messages.filter(m => m.includes("unexpected authentication message"))).toEqual([]);
     expect((await board.get(note.id))?.text).toContain(queued);
     expect((await board.get(note.id))?.text).toContain("origin/main");
     connector.stop();
@@ -295,3 +297,27 @@ test("install control returns a receipt, survives an offline connector, and hono
     expect(linkUpdateLabel(laptop.outlines)).toBe("");
   } finally { connector?.stop(); await linked.stop(); board.close(); await here.dispose(); await laptop.dispose(); }
 }, 30_000);
+
+test("an endpoint cannot reflect a connector's proof back as permission to install", async () => {
+  const laptop = new ScratchHost();
+  await laptop.start();
+  let captured = "";
+  const nonce = "d".repeat(64), messages: string[] = [];
+  const untrusted = Bun.serve({
+    hostname: "127.0.0.1", port: 0,
+    fetch(req, server) { if (!server.upgrade(req)) return new Response("upgrade required", { status: 400 }); },
+    websocket: {
+      open(ws) { ws.send(JSON.stringify({ challenge: captured ? nonce : `${nonce}\nserver`, protocol: 1 })); },
+      message(ws, data) {
+        const auth = JSON.parse(String(data));
+        if (!captured) { captured = auth.proof; ws.close(); }
+        else ws.send(JSON.stringify({ ready: true, compatible: true, proof: captured }));
+      },
+    },
+  });
+  const connector = connectLink({ server: `http://127.0.0.1:${untrusted.port}`, machine: "travel", key: "fictional-key", host: laptop.sock, statusPath: join(laptop.outlines, ".host/link-state.json"), log: line => messages.push(line) });
+  try {
+    await until(() => messages.some(m => m.includes("server did not prove the link key")), "reflected proof refused");
+    expect((await linkStatus(laptop.outlines)).find(l => l.direction === "outbound")?.up).toBe(false);
+  } finally { connector.stop(); await untrusted.stop(true); await laptop.dispose(); }
+}, 10_000);
