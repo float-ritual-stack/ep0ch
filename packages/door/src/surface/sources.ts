@@ -1,3 +1,4 @@
+import { Inspector } from "./inspector";
 // The Sources inspector's drawing (PIE-956 S6b): what "where this comes from" opens over a reader. A page shows none of the
 // mechanics behind it; this lists every generated region of the note (when each last read), and for one of them shows three
 // folds, as the claude.ai artifact's data panel does: Query (its parameters, each editable and written back to the note's
@@ -6,13 +7,14 @@
 // the one a published page's panel draws too. State and drawing only: the reader's mode (src/surface/note.ts) keeps it.
 import type { SourceEntry, SourcesAnswer } from "@ep0ch/outline-core/sources";
 import { relativeAge } from "../projection";
-import { BOLD, C, ellipsize, fg, pad, RESET, UNBOLD, width } from "../style";
+import { BOLD, C, fg, pad, RESET, UNBOLD, width } from "../style";
 import { rowLines, wrap } from "../text";
 
 export type SourcesFold = "query" | "transform" | "result";
 export const FOLDS: readonly SourcesFold[] = ["query", "transform", "result"];
 
 export interface SourcesPanel {
+  inspector: Inspector;
   block: string;
   answer: SourcesAnswer | null;
   /** Why it can't be read (a service without `site.sources`, a failed read), or null. */
@@ -25,11 +27,12 @@ export interface SourcesPanel {
   /** The focused row of the open source (its items, in order). */
   item: number;
   note: string;
+  warnings: Record<string, string>;
   /** The outline's name, as the door knows the connection. */
   outline: string;
 }
 
-export const newPanel = (block: string, outline: string): SourcesPanel => ({ block, answer: null, error: null, loading: true, sel: 0, open: null, folds: { query: true, transform: false, result: true }, item: 0, note: "", outline });
+export const newPanel = (block: string, outline: string): SourcesPanel => ({ inspector: new Inspector(), block, answer: null, error: null, loading: true, sel: 0, open: null, folds: { query: true, transform: false, result: true }, item: 0, note: "", warnings: {}, outline });
 
 /** A row the open source can act on: a fold header, a parameter to edit, the jump to the transform's note, a copy. */
 export type PanelItem =
@@ -63,11 +66,8 @@ export function itemsOf(s: SourceEntry, folds: Record<SourcesFold, boolean>): Pa
 const dim = (s: string) => fg(C.dark) + s + RESET;
 const age = (iso: string | undefined, now: number) => (iso ? relativeAge(iso, now) : "");
 
-/** One text cell row per line: `text` cut to `w`. */
-const cut = (s: string, w: number) => rowLines(s, w, 1)[0]!;
-
-/** The panel at `w` x `h` rows, its click targets, its items and the focused row. */
-export function drawSources(p: SourcesPanel, w: number, h: number, now: number): PanelDraw {
+/** The fully wrapped panel, its click targets, its items and the focused row; Inspector owns the viewport. */
+export function drawSources(p: SourcesPanel, w: number, now: number): PanelDraw {
   const lines: string[] = [], hits: PanelHit[] = [];
   const put = (text: string, hit?: { from: number; to: number; action: string; args?: Record<string, unknown> }[]) => {
     for (const line of rowLines(text, w)) {
@@ -101,7 +101,6 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
       const on = i === p.sel, when = age(x.readAt, now) || (x.kind === "output" ? "written" : ""), kind = KIND_WORDS[x.kind];
       const left = ` ${on ? fg(C.yellow) + "▸" : " "} ${on ? fg(C.white) + BOLD : fg(C.lcyan)}${x.name}${UNBOLD}${RESET}${x.problem ? fg(C.yellow) + " !" + RESET : ""}`;
       const right = `${dim(kind)}  ${dim(when)}`;
-      const gap = Math.max(1, w - width(left) - width(visibleOf(right)) - 1);
       for (const text of rowLines(`${left}  ${right}`, w, undefined, { hang: 3 })) put(text, [{ from: 0, to: w, action: "sources.enter", args: { n: i + 1 } }]);
     });
     put("");
@@ -128,7 +127,15 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
   };
   fold("query", "Query", `${s.query.params.length} parameter${s.query.params.length === 1 ? "" : "s"}`);
   if (p.folds.query) {
-    for (const x of s.query.params) { row(i, `  ${fg(C.grey)}${pad(x.key, 12)}${RESET} ${fg(C.white)}${x.value}${RESET}${s.query.editable ? "  " + fg(C.lcyan) + "[e edit]" + RESET : ""}`, "sources.item", { n: i + 1 }); i++; }
+    for (const x of s.query.params) { row(i, `  ${fg(C.grey)}${pad(x.key, 12)}${RESET} ${fg(C.white)}${x.value}${RESET}${s.query.editable ? "  " + fg(C.lcyan) + "[e edit]" + RESET : ""}`, "sources.item", { n: i + 1 });
+      if (p.warnings[x.key]) put(`    ${fg(C.yellow)}${p.warnings[x.key]}${RESET}`);
+      if (p.inspector.field?.key === x.key) {
+        const start = lines.length, field = p.inspector.fieldDraw(w, start);
+        if (i === at) focus = start + field.focus;
+        for (const line of field.lines) put(line);
+        for (const hit of field.hits) hits.push({ ...hit, row: start + hit.row, action: "sources.field" });
+      }
+      i++; }
     if (!s.query.params.length) put(`    ${dim("takes no parameters")}`);
     for (const l of wrap(s.query.text, w - 6)) put(`    ${fg(C.grey)}${l}${RESET}`);
     row(i, `  ${fg(C.lcyan)}[y copy query]${RESET}`, "sources.copy", { part: "query" }); i++;
@@ -163,9 +170,6 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
   put(` ${dim(p.note || "j k move · ⏎ fold or edit · e edit · y copy · g jump · esc back")}`);
   return { lines, hits, items, focus };
 }
-
-/** Text the way a row draws it, for measuring: its colour codes taken out. */
-const visibleOf = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
 
 /** The source whose lines hold note line `line` (from 0), the nearest enclosing: the innermost when regions nest. */
 export function sourceAt(a: SourcesAnswer, line: number): number {

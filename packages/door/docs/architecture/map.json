@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "aef0f1ab", "outliner": "aef0f1ab", "on": "2026-10-19" },
+  "verified": { "door": "0e91d217", "outliner": "0e91d217", "on": "2026-10-20" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -129,23 +129,24 @@
     { "id": "backup", "title": "Backups", "lede": "Every machine runs the same 15-minute job: snapshot what changed to restic, refresh the mirrors of other machines' outlines, check how fresh it is, and say it in one line with the command that fixes it. A machine that can't reach the repository relays through the hub." }
   ],
   "structures": [
-    {"id": "door.hint-card", "name": "Hint cards", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Explains modes and reveals frame controls without taking keys or focus.", "built": "ActionDef hints and Dispatcher.menu rows, drawn in the desk float layer with Canvas.box, RowView and keycaps. X-ray shows the same cards together; peek reads their rows.", "refs": [{"r": "door", "p": "src/surface/hint-card.ts", "l": 16, "m": "export class HintCard"}]},
+    {"id": "door.inspector", "name": "Property inspector surface", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Scrolls and selects inspector content and edits a property in place for tune, Sources and the element panel.", "built": "Inspector extends RowView and uses Selection, DraftSession and Draft; schemas and the service's row properties supply choices. Source YAML writes use draft.patch and withFigureProp.", "refs": [{"r": "door", "p": "src/surface/inspector.ts", "l": 22, "m": "export class Inspector"}]},
+    {"id": "door.hint-card", "name": "Hint cards", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.actions"], "does": "Explains modes and reveals frame controls without taking keys or focus.", "built": "ActionDef hints and Dispatcher.menu rows, drawn in the desk float layer with Canvas.box, RowView and keycaps. X-ray shows the same cards together; peek reads their rows.", "refs": [{"r": "door", "p": "src/surface/hint-card.ts", "l": 17, "m": "export class HintCard"}]},
     {"id": "door.outline-boards", "name": "Readers across outlines", "group": "door", "chapter": "socket", "ladder": "shared", "dependsOn": ["door.socketboard"], "does": "Keeps one board per outline and machine so a reader edits another outline without leaving its screen.", "built": "OutlineBoards shares connections and contexts between desk readers and EchoNet. Reader specs retain outline and machine; NoteSurface and DraftSession use that board.", "refs": [{"r": "door", "p": "src/desk/outline-boards.ts", "l": 14, "m": "export class OutlineBoards"}]},
     {"id": "svc.artifacts", "name": "Artifact folders", "group": "service", "chapter": "outline", "ladder": "shared", "dependsOn": ["svc.host"], "does": "Keeps live synced folders and snapshots outside notes; CLI and MCP put through the outline service, and note frames and door cards open the same static URL.", "built": "ArtifactStore reuses ArtifactCompiler for lone React sources at put or watcher time. The separate static listener reads files only, on its own origin.", "refs": [{"r": "outliner", "p": "src/artifact-store.ts", "l": 46, "m": "export class ArtifactStore"}, {"r": "outliner", "p": "src/artifact-server.ts", "l": 6, "m": "export function artifactResponse"}]},
     {
       "id": "kept.sqlite", "name": "SQLite (bun:sqlite)", "group": "kept", "chapter": "outline", "ladder": "stable", "dependsOn": [],
       "does": "Holds each outline: blocks, properties, the change feed, bookmarks, captures.",
       "built": "One database per outline, opened by the store; the kernel releases its write lock when the process dies.",
-      "refs": [ { "r": "outliner", "p": "src/store.ts", "l": 870, "m": "new Database(path" } ]
+      "refs": [ { "r": "outliner", "p": "src/store.ts", "l": 871, "m": "new Database(path" } ]
     },
     {
       "id": "svc.store", "name": "Outline store", "group": "service", "chapter": "outline", "ladder": "stable", "dependsOn": ["kept.sqlite", "svc.grammar"],
       "does": "Blocks with revisions and provenance (author, actor). Every write names the revision it read; a stale write is refused.",
       "built": "OutlinerStore over SQLite: a blocks table and a block_properties index; update() is the one text write, and properties.patch is an update at an expected revision.",
       "refs": [
-        { "r": "outliner", "p": "src/store.ts", "l": 833, "m": "export class OutlinerStore" },
+        { "r": "outliner", "p": "src/store.ts", "l": 834, "m": "export class OutlinerStore" },
         { "r": "outliner", "p": "src/schema.ts", "l": 106, "m": "CREATE TABLE IF NOT EXISTS blocks" },
-        { "r": "outliner", "p": "src/store.ts", "l": 888, "m": "update(" }
+        { "r": "outliner", "p": "src/store.ts", "l": 889, "m": "update(" }
       ]
     },
     {
@@ -154,7 +155,7 @@
       "built": "A SQLite write reservation on a lock file beside the database (acquireLockFile). Review B calls it the best runtime code in either repo.",
       "refs": [
         { "r": "outliner", "p": "src/workspace-ownership.ts", "l": 12, "m": "export function acquireLockFile" },
-        { "r": "outliner", "p": "src/store.ts", "l": 867, "m": "acquireWorkspaceOwnership(path)" }
+        { "r": "outliner", "p": "src/store.ts", "l": 868, "m": "acquireWorkspaceOwnership(path)" }
       ],
       "questions": [ { "text": "`:memory:` stores still create a stray `:memory:.owner.sqlite` in the working directory.", "finding": "B-F18" } ]
     },
@@ -186,8 +187,8 @@
       "built": "block-query.ts parses property filters and hands the relation and text atoms (#tag, links:, under:, title~, text~) to outline-core's query-atoms.ts; the server answers views.read and query.matches from the store. The door's port of this language is deleted: its query tiles ask views.read.",
       "refs": [
         { "r": "outliner", "p": "src/block-query.ts", "l": 334, "m": "export function parsePropertyFilterExpression" },
-        { "r": "outliner", "p": "src/server.ts", "l": 2525, "m": "case \"views.read\"" },
-        { "r": "outliner", "p": "src/server.ts", "l": 2544, "m": "case \"query.matches\"" },
+        { "r": "outliner", "p": "src/server.ts", "l": 2535, "m": "case \"views.read\"" },
+        { "r": "outliner", "p": "src/server.ts", "l": 2554, "m": "case \"query.matches\"" },
         { "r": "outliner", "p": "src/block-query.ts", "l": 5, "m": "@ep0ch/outline-core/query-atoms" }
       ]
     },
@@ -198,7 +199,7 @@
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/block-record.ts", "l": 122, "m": "export function blockRecord" },
         { "r": "outliner", "p": "src/block-records.ts", "l": 52, "m": "export function readBlockRecords" },
-        { "r": "outliner", "p": "src/server.ts", "l": 2480, "m": "case \"blocks.records\"" }
+        { "r": "outliner", "p": "src/server.ts", "l": 2487, "m": "case \"blocks.records\"" }
       ]
     },
 
@@ -209,8 +210,8 @@
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/protocol.ts", "l": 10, "m": "export const PROTOCOL = " },
         { "r": "outliner", "p": "../outline-core/src/protocol.ts", "l": 26, "m": "export function protocolMismatch" },
-        { "r": "outliner", "p": "src/server.ts", "l": 2442, "m": "case \"ping\"" },
-        { "r": "outliner", "p": "src/server.ts", "l": 792, "m": "server.listen(this.socketPath" }
+        { "r": "outliner", "p": "src/server.ts", "l": 2449, "m": "case \"ping\"" },
+        { "r": "outliner", "p": "src/server.ts", "l": 797, "m": "server.listen(this.socketPath" }
       ]
     },
     {
@@ -221,7 +222,7 @@
         { "r": "outliner", "p": "src/change-feed.ts", "l": 142, "m": "export class ChangeFeed" },
         { "r": "outliner", "p": "src/schema.ts", "l": 262, "m": "CREATE TABLE IF NOT EXISTS change_feed" },
         { "r": "outliner", "p": "src/change-feed.ts", "l": 308, "m": "since(sequence" },
-        { "r": "outliner", "p": "src/server.ts", "l": 3899, "m": "private publishChanges" }
+        { "r": "outliner", "p": "src/server.ts", "l": 3910, "m": "private publishChanges" }
       ]
     },
     {
@@ -230,8 +231,8 @@
       "built": "view-writes.ts splits a view's query into clauses a write sets and clauses that must already hold, then evaluates the whole query on the patched block. Ported from the door's move planning, which it replaces.",
       "refs": [
         { "r": "outliner", "p": "src/view-writes.ts", "l": 177, "m": "export function planMoveIntoView" },
-        { "r": "outliner", "p": "src/store.ts", "l": 4191, "m": "planViewWrites(input" },
-        { "r": "outliner", "p": "src/server.ts", "l": 2532, "m": "case \"views.planWrite\"" }
+        { "r": "outliner", "p": "src/store.ts", "l": 4217, "m": "planViewWrites(input" },
+        { "r": "outliner", "p": "src/server.ts", "l": 2542, "m": "case \"views.planWrite\"" }
       ],
       "questions": [ { "text": "One client so far (the door's board). Tree's virtual branches, the CLI's work_stage and agents could plan through it too.", "finding": "A-F12" } ]
     },
@@ -240,7 +241,7 @@
       "does": "Ranked search over the outline, text or semantic. Goto and the door's power bar (its notes scope) both use it.",
       "built": "Answered in the server before the request switch; the Goto controller asks it as you type.",
       "refs": [
-        { "r": "outliner", "p": "src/server.ts", "l": 2080, "m": "request.action === \"tree.search\"" },
+        { "r": "outliner", "p": "src/server.ts", "l": 2085, "m": "request.action === \"tree.search\"" },
         { "r": "outliner", "p": "src/goto-controller.ts", "l": 152, "m": "action: \"tree.search\"" }
       ],
       "questions": [ { "text": "The door has four searches of its own. One jump palette over tree.search would replace them.", "finding": "A-F8", "route": "service track" } ]
@@ -275,8 +276,8 @@
       "refs": [
         { "r": "door", "p": "src/socket.ts", "l": 462, "m": "export class SocketBoard" },
         { "r": "door", "p": "src/socket.ts", "l": 671, "m": "const mismatch = protocolMismatch" },
-        { "r": "door", "p": "src/socket.ts", "l": 1363, "m": "subscribe(onEvent" },
-        { "r": "door", "p": "src/socket.ts", "l": 1453, "m": "private async catchUp" },
+        { "r": "door", "p": "src/socket.ts", "l": 1367, "m": "subscribe(onEvent" },
+        { "r": "door", "p": "src/socket.ts", "l": 1457, "m": "private async catchUp" },
         { "r": "door", "p": "src/socket.ts", "l": 374, "m": "export class Offline" }
       ],
       "questions": []
@@ -307,14 +308,14 @@
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
       "built": "NoteSurface behind the SurfaceHost seam; inline views, links, backlinks, tables and tabs lend their tagged rows to InlineList over RowView (PIE-1035), with wheel handoff and element selection; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
-        { "r": "door", "p": "src/surface/note.ts", "l": 638, "m": "export class NoteSurface" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 645, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/inline-list.ts", "l": 11, "m": "export class InlineList" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 106, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 23, "m": "export const PRECEDENCE" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 140, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 8130, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1053, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1070, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 146, "m": "export interface SurfaceHost" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 8295, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1066, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1083, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -324,8 +325,8 @@
       "refs": [
         { "r": "door", "p": "src/edit.ts", "l": 62, "m": "export class Draft" },
         { "r": "door", "p": "src/edit.ts", "l": 1238, "m": "export const DRAFT_ACTIONS" },
-        { "r": "door", "p": "src/surface/editor.ts", "l": 161, "m": "export function editorClick" },
-        { "r": "door", "p": "../outline-core/src/draft-patch-compare.ts", "l": 153, "m": "export function locateSpans" }
+        { "r": "door", "p": "src/surface/editor.ts", "l": 168, "m": "export function editorClick" },
+        { "r": "door", "p": "../outline-core/src/draft-patch-compare.ts", "l": 154, "m": "export function locateSpans" }
       ]
     },
 
@@ -347,8 +348,8 @@
       "does": "Where a comment, question or reply is written: in the reader the person is reading, inline under its passage (the default), floating beside it, split beside the note or as a popup. composer.place is the person's setting; comment.place (ctrl+o, the box's chip) moves the one being written (PIE-770).",
       "built": "composerBox draws the comment session's draft through renderEditor in a box sized to its text; the reader splices it under the passage as body rows (inline) or lays it over its rows (overlayBox, floatRow); placeBox maps its frame to the reader's cells so the mouse and the completion popup reach the draft.",
       "refs": [
-        { "r": "door", "p": "src/surface/composer.ts", "l": 57, "m": "export function composerBox" },
-        { "r": "door", "p": "src/surface/composer.ts", "l": 99, "m": "export function placeBox" }
+        { "r": "door", "p": "src/surface/composer.ts", "l": 87, "m": "export function composerBox" },
+        { "r": "door", "p": "src/surface/composer.ts", "l": 100, "m": "export function placeBox" }
       ]
     },
 
@@ -375,9 +376,9 @@
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 239, "m": "export class Dispatcher" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 174, "m": "export function actorRule" },
         { "r": "door", "p": "src/whereabouts.ts", "l": 83, "m": "export function whereabouts" },
-        { "r": "door", "p": "src/app.ts", "l": 1089, "m": "person(): Whereabouts" },
+        { "r": "door", "p": "src/app.ts", "l": 1106, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 607, "m": "export function draftRule" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2342, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2375, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
       "questions": [
         { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" }
@@ -389,9 +390,9 @@
       "built": "SHELL_ACTIONS and LIST_ACTIONS in screens.ts; the menu's letters, Enter and clicks run them; the App's dispatcher holds the shell's set (a screen's own action of the same name first); a move of the person's screen declares touches: screen, and the actor rule guards it (PIE-514).",
       "refs": [
         { "r": "door", "p": "src/screens.ts", "l": 475, "m": "export const SHELL_ACTIONS" },
-        { "r": "door", "p": "src/screens.ts", "l": 1023, "m": "export const LIST_ACTIONS" },
+        { "r": "door", "p": "src/screens.ts", "l": 1032, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 174, "m": "export function actorRule" },
-        { "r": "door", "p": "src/app.ts", "l": 1107, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 1124, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 53, "m": "export async function runLoginShell" }
       ]
     },
@@ -400,10 +401,10 @@
       "does": "A refusal of the person's own key or click (an ActionRefused from their press, nothing to close, a spine's keys, a dimmed tile-menu row) is said on the focused tile's frame as well as the status bar; the same key refused again makes it loud (bold on the amber surface, capped dark, the frame amber) until a different key (PIE-727). An agent's refusal is thrown to it and said with who it is.",
       "built": "Ctx.refuse and App.refusal (the same gesture again: pressOf, joined while the screen holds the keys; pressNow drops a late one to the status bar); the dispatcher's asPerson calls it; refused() in shell-keys for a Ctx without it; the desk's drawTile draws it on the focused tile's hint row (refusalHint), the screen's hint row for a spine; Pane.nestsTiles leaves it to a mount's own focused tile.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 739, "m": "refuse(msg: string, at = this.pressCount) {" },
+        { "r": "door", "p": "src/app.ts", "l": 747, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 443, "m": "if (said) (ctx?.refuse" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6604, "m": "export function refusalHint" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6717, "m": "export function refusalHint" }
       ]
     },
     {
@@ -411,7 +412,7 @@
       "does": "Turns a key into what happens: on every screen, into an action, or into an input state (a prefix, a picker, an edit) that ends in one. test/parity.ts fails when a key or click changes the screen without an action naming that key (#96). Keys are still matched in place, screen by screen.",
       "built": "Hundreds of in-place comparisons (422 by a grep for c === / ch(k) === / k.kind === at 07d82c9; 86 in delivery.ts, 47 in the river's old screen), each screen with its own priority order.",
       "refs": [
-        { "r": "door", "p": "src/desk/lanes.ts", "l": 1225, "m": "if (c === \"m\") { this.openMover(); return true; }" },
+        { "r": "door", "p": "src/desk/lanes.ts", "l": 1229, "m": "if (c === \"m\") { this.openMover(); return true; }" },
         { "r": "door", "p": "src/screens.ts", "l": 59, "m": "const isBack" }
       ],
       "questions": [
@@ -435,13 +436,13 @@
       "does": "Alt screen, SGR mouse with button events, bracketed paste, OSC 52 copy, Kitty graphics where there are any. Over ssh and tmux to a phone, and a Mac terminal that types Option as characters.",
       "built": "term.ts turns on 1049, 1002, 1006 and 2004 and decodes keys and mouse into Key events (a KeyDecoder per terminal, a session's clients each their own); a frame goes to a Display, a Painter per terminal (its rows diffed by Rows, its Kitty images, its video mode); each chunk of input is handled, then painted once, and a trackpad's burst of wheel reports scrolls a row each (wheelRows); a macOS Option character is read as its alt key outside text (OPTION_KEYS). What reaches the terminal is printable (text.ts printable and paintable: no raw escapes from a note or a program) and measured in cells (style.ts width; fitHint cuts a hint row to fit and says ? more, #103).",
       "refs": [
-        { "r": "door", "p": "src/term.ts", "l": 441, "m": "\\x1b[?1003h" },
+        { "r": "door", "p": "src/term.ts", "l": 442, "m": "\\x1b[?1003h" },
         { "r": "door", "p": "src/scroll.ts", "l": 23, "m": "export const wheelRows" },
         { "r": "door", "p": "src/term.ts", "l": 67, "m": "export const OPTION_KEYS" },
         { "r": "door", "p": "src/text.ts", "l": 27, "m": "export function printable(" },
         { "r": "door", "p": "src/text.ts", "l": 39, "m": "export function paintable(" },
-        { "r": "door", "p": "src/style.ts", "l": 136, "m": "export const width = " },
-        { "r": "door", "p": "src/style.ts", "l": 285, "m": "export function fitHint(" }
+        { "r": "door", "p": "src/style.ts", "l": 162, "m": "export const width = " },
+        { "r": "door", "p": "src/style.ts", "l": 311, "m": "export function fitHint(" }
       ],
       "questions": [ { "text": "OSC 52 and the side buttons depend on tmux settings along the path to the phone.", "finding": "C-F14", "route": "PIE-494" } ]
     },
@@ -462,11 +463,11 @@
       "does": "The reducer of the door's one-way data flow (PIE-513): a screen's layout is one value (tiles in containers: n-ary splits by weight, tab sets, docks, columns from data, flows; floats above the tree; spines, zoom, links, names, the screen's policy and lock, the revision), and it changes only by apply(state, op, ctx): one layout operation for one actor as one transaction, answering the new state or a refusal with its reason. Every rule is checked inside it: floats have no place in the tree, the nearest policy wins and a lock above locks below, an agent undoes only its own lock and never moves the tile the person types in, the screen is never blank. The flow container is the river's columns: squeezed full, peek, spine around the wide one; opens land in the next column; focus never moves it.",
       "built": "screen-layout.ts is the interface (apply, refusal, init, serialize, describe, place, landing); layout.ts (the tree arithmetic) and flow.ts (the flow's squeeze and memory) are inside it and import only Rect and the spine's width. What it doesn't own is said to it: the actor, the person's keys and the tile they type in (ctx.person, a shell-owned query from PIE-514), each tile's facts. Its state is frozen under test, so a caller that writes to it throws. Tested through its interface with no App (test/screen-layout.test.ts, test/flow.test.ts), the round-2 review's B7-B11, C3 and C4 among them.",
       "refs": [
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 307, "m": "export function apply" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 309, "m": "export function apply" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 60, "m": "export interface LayoutState" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 164, "m": "export type Op<" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 279, "m": "export function init" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 387, "m": "export function landing" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 166, "m": "export type Op<" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 281, "m": "export function init" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 389, "m": "export function landing" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 141, "m": "export type LNode" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 127, "m": "export type Dock" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 119, "m": "export type Columns" },
@@ -484,8 +485,8 @@
       "built": "The ids live on the LNode tree; the screen-layout module gives them and moves the revision on a change of shape, in every operation; layout.resize takes split=<id>.",
       "refs": [
         { "r": "door", "p": "src/desk/layout.ts", "l": 112, "m": "id?: string" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 295, "m": "export function revisionRefusal" },
-        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 545, "m": "\"layout.resize\"" }
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 297, "m": "export function revisionRefusal" },
+        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 547, "m": "\"layout.resize\"" }
       ]
     },
     {
@@ -493,14 +494,14 @@
       "does": "The one full host of the layout: tile instances, focus, frames, headers, drag, tabs, docks, zoom, floats, flows drawn. Every key and drag goes through cmd() to an action, and every action's layout change through the screen-layout module.",
       "built": "Desk in desk.ts with TILE_ACTIONS; what differs by kind it asks the tile-kind registry. It holds a LayoutState and changes it only by apply (PIE-513): it says what each tile is (facts) and where the person types (layoutCtx), commits the module's answer, and keeps the tile instances, gestures and painting. Its refusal functions are gone into the module. tile.* actions are the one name for each operation; pane.* are their older aliases (PIE-510).",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 147, "m": "export class Desk" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 617, "m": "private apply(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 582, "m": "private layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2576, "m": "  run(name: string, args" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1216, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 5632, "m": "floatTile(sel" },
-        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 115, "m": "export const TILE_ACTIONS" },
-        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 395, "m": "\"tile.widen\": def({" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 152, "m": "export class Desk" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 632, "m": "private apply(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 597, "m": "private layoutCtx" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2609, "m": "  run(name: string, args" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1231, "m": "async fillColumns" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 5745, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 116, "m": "export const TILE_ACTIONS" },
+        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 397, "m": "\"tile.widen\": def({" }
       ],
       "questions": []
     },
@@ -514,11 +515,11 @@
         { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 246, "m": "export interface TileSource" },
         { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 258, "m": "readonly drop?: string;" },
         { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 437, "m": "export function serviceKind" },
-        { "r": "door", "p": "src/desk/query.ts", "l": 68, "m": "export class QueryPane" },
-        { "r": "door", "p": "src/desk/lanes.ts", "l": 1614, "m": "export const HUB_SOURCE" },
-        { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 245, "m": "export function registerBuiltinTiles" },
-        { "r": "door", "p": "src/desk/tune.ts", "l": 118, "m": "export class TunePane" },
-        { "r": "door", "p": "src/library/library.ts", "l": 619, "m": "export const LIBRARY_KIND" }
+        { "r": "door", "p": "src/desk/query.ts", "l": 69, "m": "export class QueryPane" },
+        { "r": "door", "p": "src/desk/lanes.ts", "l": 1618, "m": "export const HUB_SOURCE" },
+        { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 246, "m": "export function registerBuiltinTiles" },
+        { "r": "door", "p": "src/desk/tune.ts", "l": 124, "m": "export class TunePane" },
+        { "r": "door", "p": "src/library/library.ts", "l": 620, "m": "export const LIBRARY_KIND" }
       ],
       "questions": [ { "text": "The tile layer and the protocol import features.", "finding": "A-F16", "route": "PIE-493" } ]
     },
@@ -529,8 +530,8 @@
       "refs": [
         { "r": "door", "p": "src/desk/tiles.ts", "l": 110, "m": "export interface LayoutSpec" },
         { "r": "door", "p": "src/desk/tiles.ts", "l": 211, "m": "export function layoutNamed" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 103, "m": "interface SavedDesk" },
-        { "r": "door", "p": "src/river/column.ts", "l": 1076, "m": "saves: \"river.json\"" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 108, "m": "interface SavedDesk" },
+        { "r": "door", "p": "src/river/column.ts", "l": 1077, "m": "saves: \"river.json\"" }
       ],
       "questions": [ { "text": "One LayoutSpec shape for river.json too, and presets as screen notes in the outline.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -551,8 +552,8 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 628, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1349, "m": "private static kept" }
+        { "r": "door", "p": "src/app.ts", "l": 632, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1365, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -601,9 +602,9 @@
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 369, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 88, "m": "\"tile.herdr\": def({" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 193, "m": "get herdr(): { pane: string; name?: string } | null" },
-        { "r": "door", "p": "src/drawer.ts", "l": 186, "m": "export class AgentDrawer" },
-        { "r": "door", "p": "src/drawer.ts", "l": 1457, "m": "export const DRAWER_ACTIONS" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1694, "m": "export function hostLayer" }
+        { "r": "door", "p": "src/drawer.ts", "l": 231, "m": "export class AgentDrawer" },
+        { "r": "door", "p": "src/drawer.ts", "l": 1512, "m": "export const DRAWER_ACTIONS" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1696, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback. In a door session the tile outlives a detach, scrollback and all; a new door still attaches without it.", "finding": "B-F21", "route": "PIE-418" } ]
     },
@@ -612,10 +613,10 @@
       "does": "Tiles that travel with the person across screens (PIE-498): the host layer holds your drawer, a desk of its own, its tiles the drawer's tabs. Any tile goes in and out whole (tile.drawer, ^W a, a drag onto the chip or out of the drawer): a terminal's program keeps running, a reader keeps its note. Its first tab is the drawer's own program (EP0CH_DAILY_AGENT, else a shell, in the person's folder or the outline's); it can leave too, onto a screen still running, and the drawer starts a fresh one. A screen left with terminals running puts them in the drawer.",
       "built": "One layout operation each side: the screen's take, the drawer desk's open, both asked first; the instance moves. A moved terminal keeps the key its program started under (PtyPane.keptKey, saved as kept), so a session's terminal host gives it back after an upgrade. Saved in drawer-tiles.json.",
       "refs": [
-        { "r": "door", "p": "src/drawer.ts", "l": 186, "m": "export class AgentDrawer" },
+        { "r": "door", "p": "src/drawer.ts", "l": 231, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 5896, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 903, "m": "private take(id: I, heir?" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6009, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 905, "m": "private take(id: I, heir?" }
       ]
     },
     {
@@ -625,7 +626,7 @@
       "refs": [
         { "r": "door", "p": "src/desk/agent-sessions.ts", "l": 144, "m": "export function asSession" },
         { "r": "door", "p": "src/desk/agents-panel.ts", "l": 23, "m": "export class AgentsPane" },
-        { "r": "door", "p": "src/drawer.ts", "l": 482, "m": "async startSession(" },
+        { "r": "door", "p": "src/drawer.ts", "l": 530, "m": "async startSession(" },
         { "r": "door", "p": "src/agent-cli.ts", "l": 41, "m": "export async function agentCommand" }
       ],
       "questions": [
@@ -637,9 +638,9 @@
       "does": "SIGINT, SIGQUIT, SIGTERM, SIGHUP, an uncaught exception or rejection: drafts and ctrl+e text are copied to drafts/, the terminal is put back, the socket removed, and the door says where the text went.",
       "built": "guardDoor (door.ts) is the one teardown, for the own terminal and the session alike: every signal and fault calls App.terminate; a small watcher restores the terminal after kill -9. In a door session (door.daemon) a terminal's signals only detach it; the session's own end goes through the same terminate.",
       "refs": [
-        { "r": "door", "p": "src/door.ts", "l": 215, "m": "export function guardDoor" },
-        { "r": "door", "p": "src/door.ts", "l": 230, "m": "process.on(\"uncaughtException\", fault)" },
-        { "r": "door", "p": "src/app.ts", "l": 711, "m": "terminate()" }
+        { "r": "door", "p": "src/door.ts", "l": 216, "m": "export function guardDoor" },
+        { "r": "door", "p": "src/door.ts", "l": 231, "m": "process.on(\"uncaughtException\", fault)" },
+        { "r": "door", "p": "src/app.ts", "l": 715, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -680,7 +681,7 @@
       "built": "setup/: facts, model, plan, apply, doctor; backup/setup.ts is the backup job's place in install and doctor.",
       "refs": [
         { "r": "door", "p": "src/setup/facts.ts", "l": 51, "m": "export async function run" },
-        { "r": "door", "p": "src/setup/model.ts", "l": 266, "m": "MIN_BUN = \"1.3.0\"" },
+        { "r": "door", "p": "src/setup/model.ts", "l": 267, "m": "MIN_BUN = \"1.3.0\"" },
         { "r": "door", "p": "src/backup/setup.ts", "l": 1, "m": "// The backup job's place in `ep0ch install`" }
       ],
       "questions": [
@@ -697,7 +698,7 @@
         { "r": "door", "p": "src/desk/screen-spec.ts", "l": 55, "m": "export interface ScreenSpec" },
         { "r": "door", "p": "src/desk/screen-spec.ts", "l": 113, "m": "export function readSpec" },
         { "r": "door", "p": "src/desk/screen-specs.ts", "l": 57, "m": "export function openScreen" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 105, "m": "export function deskSpec" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 110, "m": "export function deskSpec" },
         { "r": "door", "p": "src/hub/welcome.ts", "l": 651, "m": "export function welcomeSpec" },
         { "r": "door", "p": "src/brief/brief.ts", "l": 282, "m": "export function briefSpec" }
       ],
@@ -711,9 +712,9 @@
       "built": "A screen spec on the desk (PIE-511, PIE-515: boardSpec, plain data): its lanes are query tiles in a columns container filled by the hub source; its docks, floats, spines, borders, focus and frames are the desk's; its opens land in the readers row (opensInto, keep), a dock's list closes by shutting its dock (shuts). What the lanes share is the hub source's model (Lanes): card moves, writes, steps, trash, the hub picker, and lane refresh from the change feed.",
       "refs": [
         { "r": "door", "p": "src/desk/delivery.ts", "l": 44, "m": "export function boardSpec" },
-        { "r": "door", "p": "src/desk/lanes.ts", "l": 53, "m": "export class Lanes implements SourceModel" },
-        { "r": "door", "p": "src/desk/lanes.ts", "l": 1391, "m": "export const BOARD_ACTIONS" },
-        { "r": "door", "p": "src/desk/lanes.ts", "l": 676, "m": "async moveTo" }
+        { "r": "door", "p": "src/desk/lanes.ts", "l": 55, "m": "export class Lanes implements SourceModel" },
+        { "r": "door", "p": "src/desk/lanes.ts", "l": 1395, "m": "export const BOARD_ACTIONS" },
+        { "r": "door", "p": "src/desk/lanes.ts", "l": 680, "m": "async moveTo" }
       ],
       "questions": [
         { "text": "The spec as a screen note in the outline (gap 4).", "finding": "A-F5", "route": "PIE-493" }
@@ -724,10 +725,10 @@
       "does": "Columns of notes that open to the right; focus moves the keys, not the layout; far columns shrink to peeks and spines.",
       "built": "A screen spec on the desk (PIE-515): its columns are river.column tiles (a reader of the note surface with the river's own view: the Library, a note and its replies, a #value branch) in a flow container, the layout engine's squeeze, focus, widen, hold, travel and close; saved to river.json as the desk's layout. Reply counts from one shared index per service.",
       "refs": [
-        { "r": "door", "p": "src/river/column.ts", "l": 141, "m": "export class RiverColumn extends ReaderPane" },
-        { "r": "door", "p": "src/river/column.ts", "l": 1074, "m": "export function riverSpec" },
-        { "r": "door", "p": "src/river/column.ts", "l": 107, "m": "class OutlineIndex" },
-        { "r": "door", "p": "src/river/column.ts", "l": 858, "m": "export const COLUMN_ACTIONS" }
+        { "r": "door", "p": "src/river/column.ts", "l": 142, "m": "export class RiverColumn extends ReaderPane" },
+        { "r": "door", "p": "src/river/column.ts", "l": 1075, "m": "export function riverSpec" },
+        { "r": "door", "p": "src/river/column.ts", "l": 108, "m": "class OutlineIndex" },
+        { "r": "door", "p": "src/river/column.ts", "l": 859, "m": "export const COLUMN_ACTIONS" }
       ],
       "questions": [
         { "text": "A river screen as a note in the outline (gap 4): its spec is plain data (riverSpec).", "finding": "A-F5", "route": "PIE-412" }
@@ -739,7 +740,7 @@
       "built": "Screen classes in screens.ts. The art screens are compositions and stay as they are; the lists now take actions.",
       "refs": [
         { "r": "door", "p": "src/screens.ts", "l": 277, "m": "export class MainMenu" },
-        { "r": "door", "p": "src/screens.ts", "l": 1295, "m": "export class MessageReader" }
+        { "r": "door", "p": "src/screens.ts", "l": 1312, "m": "export class MessageReader" }
       ],
       "questions": []
     },
@@ -760,9 +761,9 @@
       "built": "One search: tree.search (SocketBoard.searchBlocks) for the bar's notes, ((, ep0ch find and the [[page]] fallback, pages.complete for [[, each asked from the note in front (contextBlockId) with Jev re-ordering after a pause; the filters over held rows are outline-core's matchesSearchText. The door never ranks hits itself.",
       "refs": [
         { "r": "door", "p": "src/socket.ts", "l": 888, "m": "searchBlocks(text: string" },
-        { "r": "door", "p": "src/surface/completer.ts", "l": 139, "m": "export async function lookupCompletion" },
+        { "r": "door", "p": "src/surface/completer.ts", "l": 144, "m": "export async function lookupCompletion" },
         { "r": "door", "p": "src/bar/sources.ts", "l": 150, "m": "const NOTES" },
-        { "r": "door", "p": "src/river/column.ts", "l": 78, "m": "export function parseFilter" }
+        { "r": "door", "p": "src/river/column.ts", "l": 79, "m": "export function parseFilter" }
       ],
       "questions": [ { "text": "One jump palette as a shell overlay over tree.search.", "finding": "A-F8", "route": "PIE-493" } ]
     },
@@ -795,8 +796,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the request through the App's dispatcher (the host layer's, the shell's and the extensions' sets, then the screen's own dispatcher); App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 1107, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 800, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 1124, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 808, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },
@@ -841,9 +842,9 @@
       "built": "ExtensionRegistry watches the outline's extensions/ and the user folder, builds a candidate registry from every extension.json and publishes it in one step (extensions.list, a change-feed event). Each call is a fresh process (ExtensionCalls; runCommand passes PATH, LANG, the extension's connection (EP0CH_SOCKET, EP0CH_WS, a grant) and its with-secrets keys, caps output and kills the process group; ExtensionSchedules runs scheduled handlers and actions). AgentRequests runs @name lines once the note is quiet. Contract 1 manifests are still read for the legacy registry.",
       "refs": [
         { "r": "outliner", "p": "src/extension-registry.ts", "l": 65, "m": "export function extensionRoots" },
-        { "r": "outliner", "p": "src/extension-registry.ts", "l": 254, "m": "export class ExtensionRegistry" },
-        { "r": "outliner", "p": "src/extension-calls.ts", "l": 433, "m": "export class ExtensionCalls" },
-        { "r": "outliner", "p": "src/agent-requests.ts", "l": 208, "m": "export class AgentRequests" },
+        { "r": "outliner", "p": "src/extension-registry.ts", "l": 258, "m": "export class ExtensionRegistry" },
+        { "r": "outliner", "p": "src/extension-calls.ts", "l": 437, "m": "export class ExtensionCalls" },
+        { "r": "outliner", "p": "src/agent-requests.ts", "l": 209, "m": "export class AgentRequests" },
         { "r": "outliner", "p": "src/resource-extensions.ts", "l": 62, "m": "contract: Type.Literal(1)" },
         { "r": "outliner", "p": "src/resource-extensions.ts", "l": 155, "m": "async function runCommand" },
         { "r": "outliner", "p": "extensions/jira/extension.json", "l": 2, "m": "\"contract\": 2" }
@@ -903,10 +904,10 @@
       "does": "An agent's compare-and-swap on a span of a note, while the person may be typing in it: the observed text and the revision it was read at, then the replacement, attributed to the agent. A patch read at an older revision is rebased onto the newer one when every observed span is still there exactly once (PIE-687).",
       "built": "outline-core's draft-patch-compare.ts is the one compare (locateSpans, rebaseSpans); the service routes by who holds the note (draft-patch-router.ts: a note a door holds a live draft of is patched in that draft, any other as saved under a revision check, several notes together or not at all). The door runs the same compare on its live buffer. Any change to what it accepts bumps PROTOCOL.",
       "refs": [
-        { "r": "outliner", "p": "../outline-core/src/draft-patch-compare.ts", "l": 272, "m": "export function rebaseSpans" },
-        { "r": "outliner", "p": "../outline-core/src/draft-patch-compare.ts", "l": 153, "m": "export function locateSpans" },
-        { "r": "outliner", "p": "src/draft-patch-router.ts", "l": 4, "m": "Where a `draft.patch` goes" },
-        { "r": "outliner", "p": "src/draft-patch-router.ts", "l": 752, "m": "rebaseSpans(from, text, spans)" },
+        { "r": "outliner", "p": "../outline-core/src/draft-patch-compare.ts", "l": 177, "m": "export function rebaseSpans" },
+        { "r": "outliner", "p": "../outline-core/src/draft-patch-compare.ts", "l": 154, "m": "export function locateSpans" },
+        { "r": "outliner", "p": "src/draft-patch-router.ts", "l": 6, "m": "Where a `draft.patch` goes" },
+        { "r": "outliner", "p": "src/draft-patch-router.ts", "l": 835, "m": "rebaseSpans(from, text, spans)" },
         { "r": "door", "p": "src/edit.ts", "l": 22, "m": "locateSpans" }
       ]
     },
@@ -915,9 +916,9 @@
       "does": "Spacing and list density declared in the outline's own notes ([style-for::…]) and meant to be resolved the same way by every renderer (the door's so far): the nearest level that sets a value wins, base, component, global, tile kind, screen, page, block, with a narrow and a wide variant. Editing a style note restyles every door on the outline.",
       "built": "outline-core's style-cascade.ts is the one resolver and the tokens (STYLE_TOKENS, STYLE_LEVELS, parseStyleValue); the service answers the declarations (styles.list); the door resolves a look for where something is drawn (look.ts). Detail and the publisher read it next, the publisher as real CSS.",
       "refs": [
-        { "r": "outliner", "p": "../outline-core/src/style-cascade.ts", "l": 155, "m": "export const STYLE_LEVELS" },
-        { "r": "outliner", "p": "../outline-core/src/style-cascade.ts", "l": 183, "m": "export function parseStyleValue" },
-        { "r": "door", "p": "src/look.ts", "l": 282, "m": "export function lookFor" }
+        { "r": "outliner", "p": "../outline-core/src/style-cascade.ts", "l": 165, "m": "export const STYLE_LEVELS" },
+        { "r": "outliner", "p": "../outline-core/src/style-cascade.ts", "l": 193, "m": "export function parseStyleValue" },
+        { "r": "door", "p": "src/look.ts", "l": 283, "m": "export function lookFor" }
       ],
       "questions": [ { "text": "Only the door resolves it so far: Detail and the publisher still draw their own spacing.", "route": "PIE-493" } ]
     },
@@ -928,7 +929,7 @@
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/component-schema.ts", "l": 297, "m": "export const BUILTIN_COMPONENT_SCHEMAS" },
         { "r": "outliner", "p": "../outline-core/src/component-schema.ts", "l": 315, "m": "export function mergeComponentSchemas" },
-        { "r": "outliner", "p": "src/server.ts", "l": 3384, "m": "case \"components.schemas\"" }
+        { "r": "outliner", "p": "src/server.ts", "l": 3395, "m": "case \"components.schemas\"" }
       ]
     },
     {
@@ -946,7 +947,7 @@
       "does": "One palette over every screen (PIE-656): ctrl+k, the status bar's ^K, the desk's / and the river's g open it. A list on the left, what the lit row is on the right, scopes along the top: tiles (%), notes (/), actions (>), recent (+), screens (@). An extension adds scopes.",
       "built": "PowerBar is a list picker the App holds over whatever screen is shown, taking every key while open. It owns no list: each scope is a BarSource (sources.ts), asking the layout tree, the service's one search, the dispatcher's actions, the what-changed store and the screen list, and a pick goes through the shared paths. bar.open, bar.pick and bar.close are actions; an agent's pick runs as the agent and never touches the person's bar. An action that takes arguments opens its form (PIE-1031): its ArgSpecs as fields in the one action-argument prompt (askInBar, the ask scope), each field's values from its kind (arg-kinds.ts, a registry like the sources) or its choices, the act line under them, moved and run by bar.form.",
       "refs": [
-        { "r": "door", "p": "src/bar/bar.ts", "l": 50, "m": "export class PowerBar" },
+        { "r": "door", "p": "src/bar/bar.ts", "l": 51, "m": "export class PowerBar" },
         { "r": "door", "p": "src/bar/source.ts", "l": 57, "m": "export interface BarSource" },
         { "r": "door", "p": "src/bar/sources.ts", "l": 401, "m": "export const BUILT_IN_SOURCES" },
         { "r": "door", "p": "src/bar/actions.ts", "l": 46, "m": "export const BAR_ACTIONS" },
@@ -959,9 +960,9 @@
       "does": "Spacing and list density resolved for where something is drawn (PIE-673), and a tile beside the one it tunes, like devtools' computed styles: each value with where it comes from, nudged in memory so the tiles redraw in the next frame, and written with s to a level (global, the tile's kind, the screen, the page).",
       "built": "look.ts keeps the outline's style sheets per connection (asked again after the outline changes) and the tuning layer, and resolves through outline-core's cascade, never a rule of the door's own. The tune tile (TunePane, kind tune) is an ordinary tile kind with actions; saving writes the style note through the service.",
       "refs": [
-        { "r": "door", "p": "src/look.ts", "l": 282, "m": "export function lookFor" },
-        { "r": "door", "p": "src/look.ts", "l": 117, "m": "export class Tuning" },
-        { "r": "door", "p": "src/desk/tune.ts", "l": 118, "m": "export class TunePane" }
+        { "r": "door", "p": "src/look.ts", "l": 283, "m": "export function lookFor" },
+        { "r": "door", "p": "src/look.ts", "l": 118, "m": "export class Tuning" },
+        { "r": "door", "p": "src/desk/tune.ts", "l": 124, "m": "export class TunePane" }
       ]
     },
     {
@@ -989,9 +990,9 @@
       "does": "A tile's link (a reader beside its tree) may end on a tile of another desk of the family: inside a group, outside it, in the holder or the drawer (PIE-696). The link is drawn and followed the same; moving a tile in or out of a group keeps it.",
       "built": "The layout tree holds links only between its own tiles, so a link whose far end is elsewhere is kept on the desk as ext, by the tile it starts from, naming the far tile by pane or path (`<group>/<tile>`, `../<tile>`); extTarget finds it, relink turns it back into the layout's own when both ends meet on one desk.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 969, "m": "private readonly ext = new Map" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1029, "m": "extTarget(id: number," },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 995, "m": "pathTo(pane: Pane)" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 984, "m": "private readonly ext = new Map" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1044, "m": "extTarget(id: number," },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1010, "m": "pathTo(pane: Pane)" }
       ]
     },
     {
@@ -1112,27 +1113,27 @@
     "about": "The path the code takes today when the person presses m on a board card and picks a lane. m only opens the mover, an input state; the move itself is card.move, the same ActionDef that H, L, a drag and an agent's act run (PIE-506 closed the gap PIE-492 named).",
     "steps": [
       { "label": "key m", "at": "door.keys", "what": "The lanes' key handler opens the mover: an input state that holds the keys, and changes nothing until it ends.",
-        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 1225, "m": "if (c === \"m\") { this.openMover(); return true; }" } },
+        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 1229, "m": "if (c === \"m\") { this.openMover(); return true; }" } },
       { "label": "mover asks", "at": "door.board", "what": "openMover asks the service for every lane's plan at once, at the card's revision.",
-        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 756, "m": "planMoves(this.host.ctx.board, card, ids)" } },
+        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 760, "m": "planMoves(this.host.ctx.board, card, ids)" } },
       { "label": "views.planWrite", "at": "door.socketboard", "what": "SocketBoard sends one views.planWrite request over the service socket.",
-        "ref": { "r": "door", "p": "src/socket.ts", "l": 1085, "m": "\"views.planWrite\"" } },
+        "ref": { "r": "door", "p": "src/socket.ts", "l": 1089, "m": "\"views.planWrite\"" } },
       { "label": "plan", "at": "svc.planwrite", "what": "The service splits each lane's query and plans the property patch, or refuses with the reason.",
         "ref": { "r": "outliner", "p": "src/view-writes.ts", "l": 177, "m": "export function planMoveIntoView" } },
       { "label": "enter", "at": "door.board", "what": "The mover shows each lane's plan; Enter checks the selection hasn't changed and runs the card.move action, which calls moveTo.",
-        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 748, "m": "if (i !== from) void this.run(\"card.move\", { lane: this.lanes[i]!.name, card: card.id })" } },
+        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 752, "m": "if (i !== from) void this.run(\"card.move\", { lane: this.lanes[i]!.name, card: card.id })" } },
       { "label": "properties.patch", "at": "door.socketboard", "what": "moveTo re-plans the target lane, then applyMove sends properties.patch with expectedRevision and the actor's provenance.",
-        "ref": { "r": "door", "p": "src/socket.ts", "l": 1330, "m": "\"properties.patch\", { blockId, expectedRevision" } },
+        "ref": { "r": "door", "p": "src/socket.ts", "l": 1334, "m": "\"properties.patch\", { blockId, expectedRevision" } },
       { "label": "revision check", "at": "svc.store", "what": "The store refuses if the card changed since it was read; otherwise it patches the tokens and writes the text.",
-        "ref": { "r": "outliner", "p": "src/store.ts", "l": 2733, "m": "existing.revision !== expectedRevision" } },
+        "ref": { "r": "outliner", "p": "src/store.ts", "l": 2759, "m": "existing.revision !== expectedRevision" } },
       { "label": "change feed", "at": "svc.feed", "what": "The change is recorded in the feed and broadcast as an event to every subscriber: this door, other doors, Detail, Tree, the publisher.",
-        "ref": { "r": "outliner", "p": "src/server.ts", "l": 3899, "m": "private publishChanges" } },
+        "ref": { "r": "outliner", "p": "src/server.ts", "l": 3910, "m": "private publishChanges" } },
       { "label": "event in", "at": "door.socketboard", "what": "Each door's SocketBoard hands the event to App.event, which passes it to the screen on top.",
         "ref": { "r": "door", "p": "src/door.ts", "l": 80, "m": "o.board.subscribe(e => app.event(e))" } },
       { "label": "which lanes", "at": "door.board", "what": "The board works out which lanes the change touches (asking planWrite which lanes the card is 'already' in) and marks them.",
-        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 366, "m": "private changed(c: Change, e: OutlineEvent)" } },
+        "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 370, "m": "private changed(c: Change, e: OutlineEvent)" } },
       { "label": "lanes repaint", "at": "door.board", "what": "Each marked lane, a query tile in the board's columns container, reads its view again with views.read and draws. In the door that moved it, moveTo's finally reloads the source and target lanes.",
-        "ref": { "r": "door", "p": "src/desk/query.ts", "l": 170, "m": "readView(desk.ctx.board, def!)" } }
+        "ref": { "r": "door", "p": "src/desk/query.ts", "l": 171, "m": "readView(desk.ctx.board, def!)" } }
     ]
   }
 }

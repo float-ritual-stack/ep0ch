@@ -5,7 +5,7 @@
 import { slotPairs } from "./action-line";
 import { codeBlocks } from "./code-fence";
 import { componentAttrs, componentBlocks } from "./component-block";
-import { figureSource, graphKind } from "./figure-props";
+import { figureProps, figureSource, graphKind } from "./figure-props";
 import { siteBlockAt } from "./site-blocks";
 import { findOutputRegions } from "./output-region";
 import { useCallAt } from "./template-use";
@@ -34,7 +34,7 @@ export interface SourceEntry {
   /** Transform: the code, YAML or template that shaped the result, with the note to jump to. */
   transform: { kind: "script" | "extension" | "template" | "figure" | "expression" | "none"; label: string; text?: string; block?: string };
   /** Result: what it answered, as rows when it is a table. */
-  result: { rows: number; columns?: string[]; table?: string[][]; text: string };
+  result: { rows: number; columns?: string[]; table?: string[][]; text: string; propertyNames?: string[] };
   /** What is wrong with it, in the words the region shows. */
   problem?: string;
 }
@@ -107,12 +107,9 @@ export function sourceCalls(text: string): SourceCall[] {
 
 /** The top-level `key: value` pairs of a figure's YAML (a nested or listed value is left as the line says): its query's parameters. */
 export function yamlParams(yaml: string): SourceParam[] {
-  const out: SourceParam[] = [];
-  for (const line of yaml.split("\n")) {
-    const m = /^([A-Za-z][\w-]*):\s*(.*)$/.exec(line);
-    if (m && m[2]!.trim()) out.push({ key: m[1]!, value: m[2]!.trim().replace(/^(["'])(.*)\1$/, "$2") });
-  }
-  return out;
+  const parsed = figureProps("", { yaml });
+  if ("error" in parsed) return [];
+  return Object.entries(parsed.props).map(([key, value]) => ({ key, value: typeof value === "string" ? value : JSON.stringify(value) }));
 }
 
 /** The sources' list as plain text, one per line: what the header and an agent say (`3 sources · beds-table, ::use meeting, graph-table`). */

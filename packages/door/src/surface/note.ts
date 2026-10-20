@@ -1,3 +1,5 @@
+import { withFigureProp } from "@ep0ch/outline-core/figure-props";
+import { checkValue as schemaCheck } from "@ep0ch/outline-core/component-schema";
 import { Inspector } from "./inspector";
 import { coerceActionArgs } from "./actions";
 import { mentionsExtension as mentionsExtensionLine } from "../extensions";
@@ -80,7 +82,7 @@ import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
 import { visible, headOf, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ago, bbsDate, rule, wrap } from "../text";
+import { ago, bbsDate, rowLines, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
@@ -629,7 +631,7 @@ const LEAVE_SAYS: Record<LeaveChoice, string> = {
 };
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
 type LinksMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { block: string; describe(): { block: string; title: string | null; selected: string | null; typing: string | null } };
-type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; describe(): unknown };
+type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; footer: number; describe(): unknown };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
 /** How long a missing page's offer stands (PIE-544): the next ⏎ or click on its link within it makes the page. */
@@ -1194,14 +1196,16 @@ export class NoteSurface {
     const sm = this.sourcesMode;
     if (sm) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
       sm.rect = { x: col, y: row, w: cols, h: rows };
-      rows = Math.max(1, rows - 1);
-      const full = drawSources(sm.panel, cols, 10_000, Date.now());
+      const footer = rowLines(this.modes.active(sm) ? sm.view.field ? "sources has keys · Enter save · Esc keeps" : "sources has keys · Esc reader · q close" : "reader has keys · click panel or S enter", cols);
+      rows = Math.max(1, rows - footer.length);
+      sm.footer = rows;
+      const full = drawSources(sm.panel, cols, Date.now());
       sm.view.lines = full.lines;
       const top = sm.view.place(full.focus, full.lines.length, rows);
       sm.draw = { ...full, lines: full.lines.slice(top, top + rows).map((l, i) => sm.view.paint(l, top + i)), hits: full.hits.map(x => ({ ...x, row: x.row - top })).filter(x => x.row >= 0 && x.row < rows) };
       const lines = [...sm.draw.lines];
       while (lines.length < rows) lines.push("");
-      lines.push(pad(this.modes.active(sm) ? "sources has keys · j k move · Esc reader" : "reader has keys · click panel or S enter", cols));
+      lines.push(...footer);
       return { lines };
     });
     if (this.replyParent && this.draft) return this.renderSplit(w, h, host, { d: this.draft, f: this.replyFrame(host) });
@@ -6006,6 +6010,11 @@ export class NoteSurface {
     try {
       const was = P.answer?.sources[P.open ?? -1]?.key;
       P.answer = await host.ctx.board.siteSources(P.block);
+      const { schemas } = await host.ctx.board.componentSchemas();
+      for (const source of P.answer.sources) if (source.kind === "figure") {
+        const props = schemas.find(x => x.id === source.name)?.props.filter(x => x.where === "yaml") ?? [];
+        for (const p of props) if (!source.query.params.some(x => x.key === p.key)) source.query.params.push({ key: p.key, value: p.default ?? "" });
+      }
       P.error = null;
       if (was !== undefined) { const i = P.answer.sources.findIndex(s => s.key === was); P.open = i < 0 ? null : i; }
       P.sel = Math.min(P.sel, Math.max(0, P.answer.sources.length - 1));
@@ -6037,7 +6046,7 @@ export class NoteSurface {
     if (at !== undefined && P.answer) {
       const i = this.sourceIndex(P.answer, at);
       if (i < 0) { host.ctx.flash(`no generated region holds that line`); }
-      else { P.open = i; P.sel = i; P.item = 0; mode.view.reset(); }
+      else { if (mode.view.field) await mode.view.input("cancel"); P.open = i; P.sel = i; P.item = 0; mode.view.reset(); }
     }
     host.redraw();
     return { opened: true, ...(P.answer ? this.sourcesRead(P.answer) : { block: m.id, sources: [] }), ...(P.open !== null ? { at: P.open + 1 } : {}) };
@@ -6115,8 +6124,9 @@ export class NoteSurface {
     return m.panel;
   }
 
-  foldSource(fold: SourcesFold, host: SurfaceHost) {
+  async foldSource(fold: SourcesFold, host: SurfaceHost) {
     const P = this.requireSources();
+    if (fold === "query" && this.sourcesMode?.view.field) await this.sourcesMode.view.input("cancel");
     P.folds[fold] = !P.folds[fold];
     const s = P.answer?.sources[P.open ?? -1];
     if (s) P.item = Math.min(P.item, itemsOf(s, P.folds).length - 1);
@@ -6124,7 +6134,8 @@ export class NoteSurface {
     return { fold, open: P.folds[fold] };
   }
 
-  pickSource(host: SurfaceHost, by?: number, n?: number) {
+  async pickSource(host: SurfaceHost, by?: number, n?: number) {
+    if (this.sourcesMode?.view.field) await this.sourcesMode.view.input("cancel");
     const P = this.requireSources(), a = P.answer;
     if (!a) return { selected: 0 };
     if (P.open === null) {
@@ -6139,7 +6150,7 @@ export class NoteSurface {
     return { item: P.item + 1, of: items.length };
   }
 
-  closeSources(host: SurfaceHost) { this.modes.drop("sources"); host.redraw(); return { closed: true }; }
+  closeSources(host: SurfaceHost) { if (this.sourcesMode?.view.field) throw new ActionRefused("finish the property field · Enter saves · Esc cancels"); this.modes.drop("sources"); host.redraw(); return { closed: true }; }
 
   focusSources(host: SurfaceHost, on: boolean) {
     const mode = this.sourcesMode;
@@ -6151,7 +6162,8 @@ export class NoteSurface {
   }
 
   /** Back from one source to the list; from the list, close. */
-  backSource(host: SurfaceHost) {
+  async backSource(host: SurfaceHost) {
+    if (this.sourcesMode?.view.field) await this.sourcesMode.view.input("cancel");
     const P = this.sourcesMode?.panel;
     if (P && P.open !== null) { P.open = null; P.note = ""; host.redraw(); return { closed: false, view: "list" }; }
     this.modes.drop("sources");
@@ -6181,9 +6193,9 @@ export class NoteSurface {
     return s.result.table && s.result.columns && s.result.table.length >= s.result.rows ? [s.result.columns.join("\t"), ...s.result.table.map(r => r.join("\t"))].join("\n") : s.result.text;
   }
 
-  async copySource(part: "query" | "transform" | "result", host: SurfaceHost, actor: Actor, source?: string) {
+  async copySource(part: "query" | "transform" | "result", host: SurfaceHost, actor: Actor, source?: string, selected = false) {
     const { s } = await this.sourceFor(host, source);
-    const text = this.sourcesMode?.view.text() || this.sourcePart(s, part);
+    const text = selected && actor.kind === "user" && this.sourcesMode?.view.text() || this.sourcePart(s, part);
     if (actor.kind === "user") { host.ctx.copy?.(text); host.ctx.flash(`copied ${s.name}'s ${part}`); }
     host.redraw();
     return { part, text, ...(actor.kind === "user" ? { copied: true } : {}) };
@@ -6220,12 +6232,12 @@ export class NoteSurface {
    * The source an action names: `which` (its number in the list from 1, or its key), else the one the person has open. An
    * agent needs no inspector: the answer is read from the service, so its call never touches the person's reader.
    */
-  private async sourceFor(host: SurfaceHost, which: string | undefined): Promise<{ s: SourceEntry; P: SourcesPanel | null; block: string }> {
+  private async sourceFor(host: SurfaceHost, which: string | undefined): Promise<{ s: SourceEntry; P: SourcesPanel | null; block: string; revision: number }> {
     const m = this.requireNote(), P = this.sourcesMode?.panel.block === m.id ? this.sourcesMode.panel : null;
     const a = (which !== undefined || !P?.answer) ? (P?.answer ?? await host.ctx.board.siteSources(m.id)) : P.answer;
     const s = which !== undefined ? (/^\d+$/.test(which) ? a.sources[Number(which) - 1] : a.sources.find(x => x.key === which)) : a.sources[P?.open ?? -1];
     if (!s) throw new ActionRefused(which !== undefined ? `no source ${which}: this note's are ${a.sources.map((x, i) => `${i + 1} ${x.name}`).join(", ") || "none"}` : "open one source first (⏎ on it), or name it: source=<its number in sources.open's list>");
-    return { s, P, block: m.id };
+    return { s, P, block: m.id, revision: a.revision };
   }
 
   /**
@@ -6234,7 +6246,8 @@ export class NoteSurface {
    * The person is asked for the value; an agent passes it (and names the source). Other kinds are written in the note.
    */
   async setSourceParam(source: string | undefined, param: string | undefined, value: string | undefined, host: SurfaceHost, actor: Actor): Promise<unknown> {
-    const { s, P, block } = await this.sourceFor(host, source);
+    const { s, P, block, revision } = await this.sourceFor(host, source);
+    if (s.kind === "figure") return this.setFigureParam(s, P, block, revision, param, value, host, actor);
     if (!s.query.editable) throw new ActionRefused(`${s.name} is written in the note, not through a field: edit its line ${s.line + 1} there`);
     const cur = P && P.answer?.sources[P.open ?? -1] === s ? itemsOf(s, P.folds)[P.item] : undefined;
     const key = param ?? (cur?.kind === "param" ? cur.key : undefined);
@@ -6258,17 +6271,82 @@ export class NoteSurface {
     return askInBar(host.ctx as never, `${s.name}: ${key}`, [{ name: "value", type: "text", label: key, ...(now ? { value: now.value } : {}) }], {}, actor, answers => write(answers.value ?? ""));
   }
 
+  private async setFigureParam(s: SourceEntry, P: SourcesPanel | null, block: string, revision: number, param: string | undefined, value: string | undefined, host: SurfaceHost, actor: Actor) {
+    const cur = P && itemsOf(s, P.folds)[P.item];
+    const key = param ?? (cur?.kind === "param" ? cur.key : undefined);
+    const { schemas } = await host.ctx.board.componentSchemas();
+    const prop = schemas.find(x => x.id === s.name)?.props.find(p => p.where === "yaml" && p.key === key);
+    if (!prop) throw new ActionRefused(`choose a property of ${s.name} in Query`);
+    const current = s.query.params.find(p => p.key === key)?.value ?? prop.default ?? "";
+    const write = (given: string) => this.inTurn(async () => {
+      const m = await host.ctx.board.get(block);
+      if (!m) throw new ActionRefused("the figure note was removed · text kept");
+      if (m.revision !== revision) throw new ActionRefused("the figure changed since this field opened · text kept · Esc then e reads it again");
+      const lines = m.text.split("\n"), observed = lines.slice(s.line, s.endLine + 1).join("\n");
+      const body = withFigureProp(lines.slice(s.line + 1, s.endLine), prop.key, prop.type === "list" ? given || "[]" : JSON.stringify(given));
+      const replacement = [lines[s.line]!, ...body, lines[s.endLine]!].join("\n");
+      const start = lines.slice(0, s.line).join("\n").length + (s.line ? 1 : 0);
+      await this.patchSource(block, revision, observed, replacement, start, host, actor);
+      this.sourceHistory.push({ block, edits: [{ line: s.line, before: observed, after: replacement }], patch: { start }, by: partyOf(actor), context: block });
+      let warning = schemaCheck(prop, given);
+      if (prop.type === "query") {
+        try { await host.ctx.board.request("query.matches", { expression: given, blockIds: [block] }); }
+        catch (e) { warning = e instanceof Error ? e.message : String(e); }
+      }
+      if (P) { await this.readSources(P, host); if (warning) P.warnings[prop.key] = warning; else delete P.warnings[prop.key]; P.note = warning ? `saved · ${warning}` : `saved ${prop.key} · ctrl+z undoes`; }
+      this.noteAgent(actor, `set ${s.name} ${prop.key}=${given}`);
+      host.ctx.flash(warning ? `saved · ${warning}` : `saved ${prop.key} · ctrl+z undoes`);
+      host.redraw();
+      return { block, wrote: { [prop.key]: given }, recordedAs: mutationFor(actor), ...(warning ? { warning } : {}) };
+    });
+    if (value !== undefined) return write(value);
+    if (actor.kind !== "user") throw new ActionRefused(`give value= for ${prop.key}`);
+    const view = this.sourcesMode!.view;
+    let choices = prop.values?.map(v => v.value) ?? [];
+    if (prop.key === "group") choices = s.result.propertyNames ?? [];
+    if (prop.key === "columns") choices = [...new Set([...(s.result.columns ?? []), ...(s.result.propertyNames ?? []), ...(Bun.YAML.parse(current || "[]") as string[])])];
+    await view.edit(prop.key, prop.type === "list" ? JSON.stringify(Bun.YAML.parse(current || "[]")) : current, choices, prop.type === "list" && choices.length > 0, `figure:${block}:${s.line}:${prop.key}`, write, { redraw: () => host.redraw(), said: text => host.ctx.flash(text) });
+    const index = itemsOf(s, P!.folds).findIndex(x => x.kind === "param" && x.key === prop.key);
+    if (index >= 0) P!.item = index;
+    this.focusSources(host, true);
+    host.redraw();
+    return { editing: prop.key, choices };
+  }
+
+  private async patchSource(block: string, revision: number, observed: string, replacement: string, start: number, host: SurfaceHost, actor: Actor) {
+    const result = await host.ctx.board.request<{ outcome: string; reason?: string }>("draft.patch", {
+      blockId: block, revision, patches: [{ observed, replacement, range: { start, end: start + observed.length } }], mutation: mutationFor(actor),
+    });
+    if (result.outcome !== "applied") throw new ActionRefused(`text kept as a proposal · ${result.reason}`);
+    const saved = await host.ctx.board.get(block);
+    if (saved && this.msg?.id === block) this.refresh({ ...saved, childIds: this.msg.childIds });
+    outlineChanged([block]);
+  }
+
   undoSource(host: SurfaceHost, actor: Actor) {
-    return this.inTurn(() => this.undoLines(this.sourceHistory, "source parameter", host, actor)).then(r => ({ block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: mutationFor(actor) }));
+    return this.inTurn(async () => {
+      const e = this.msg && this.sourceHistory.last(partyOf(actor), this.msg.id);
+      if (e?.patch) {
+        const m = await host.ctx.board.readDraft(e.block), edit = e.edits[0]!;
+        await this.patchSource(e.block, m.revision, edit.after, edit.before, e.patch.start, host, actor);
+        this.sourceHistory.drop(e);
+        if (this.sourcesMode) await this.readSources(this.sourcesMode.panel, host);
+        return { block: e.block, line: edit.line + 1, recordedAs: mutationFor(actor) };
+      }
+      const r = await this.undoLines(this.sourceHistory, "source parameter", host, actor);
+      return { block: r.block, line: r.edits[0]!.line + 1, text: r.edits[0]!.before, revision: r.revision, recordedAs: mutationFor(actor) };
+    });
   }
 
   private sourcesModeOf(P: SourcesPanel, host: SurfaceHost): SourcesMode {
     const run = (name: string, args: Record<string, unknown> = {}) => { void this.runKey(name as keyof NoteActionArgs & string, args as never, host); };
     const mode: SourcesMode = {
-      name: "sources", of: P, word: "sources", noun: "the sources", panel: P, holdsKeys: true, editing: () => false, covers: () => false,
-      rect: { x: 0, y: 0, w: 0, h: 0 }, draw: null, view: new Inspector(),
+      name: "sources", of: P, word: "sources", noun: "the sources", panel: P, holdsKeys: true, editing: () => !!P.inspector.field, covers: () => false,
+      rect: { x: 0, y: 0, w: 0, h: 0 }, draw: null, view: P.inspector, footer: 0,
       changed: () => { if (!P.loading) void this.readSources(P, host); },
       key: k => {
+        const intent = mode.view.intent(k);
+        if (intent) { run("sources.field", intent); return true; }
         const c = k.kind === "char" && !k.ctrl ? k.ch : "";
         if (k.kind === "esc") run("sources.focus", { on: false });
         else if (k.kind === "char" && k.ctrl && k.ch === "z") run("sources.undo");
@@ -6292,7 +6370,7 @@ export class NoteSurface {
         y += this.drawn?.heroRows ?? 0;
         const r = mode.rect;
         if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) { if (this.modes.active(mode)) run("sources.focus", { on: false }); return undefined; }
-        if (y === r.y + r.h - 1) { run("sources.focus", { on: !this.modes.active(mode) }); return true; }
+        if (y >= r.y + mode.footer) { run("sources.focus", { on: !this.modes.active(mode) }); return true; }
         run("sources.focus", { on: true });
         const hit = mode.draw?.hits.filter(h => h.row === y - r.y && x - r.x >= h.from && x - r.x < h.to).sort((a, b) => (a.to - a.from) - (b.to - b.from))[0];
         if (hit) run(hit.action, hit.args);
@@ -6300,7 +6378,9 @@ export class NoteSurface {
       },
       wheel: (dir, _host, at) => { const r = mode.rect; if (!at || at.x < r.x || at.x >= r.x + r.w || at.y < r.y || at.y >= r.y + r.h) return false; run("sources.scroll", { by: wheelRows(dir) }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("sources"); return { left: "nothing" }; },
-      hint: () => "sources has keys · j k move · ⏎ open/edit · e edit · g jump · Esc reader · q close", state: () => this.modes.active(mode) ? "sources" : null,
+      leaveRefusal: () => mode.view.field ? "finish the property field · Enter saves · Esc keeps" : null,
+      unsaved: () => mode.view.unsaved(), keep: () => mode.view.keep(),
+      hint: () => mode.view.field ? `editing ${mode.view.field.key} · Enter save · Esc keeps · ctrl+z undo typing` : "sources has keys · j k move · ⏎ open/edit · e edit · g jump · Esc reader · q close", state: () => this.modes.active(mode) ? "sources" : null,
       describe: () => ({ keys: this.modes.active(mode) ? "sources" : "reader", selectedResult: (() => { const s = P.answer?.sources[P.open ?? -1]; const it = s && itemsOf(s, P.folds)[P.item]; return it?.kind === "result" ? it.block ?? null : null; })(), block: P.block, view: P.open === null ? "list" : "source", ...(P.answer ? { readAt: P.answer.readAt, sources: P.answer.sources.map((s, i) => ({ n: i + 1, name: s.name, kind: s.kind, ...(i === P.open ? { open: true, folds: { ...P.folds }, item: P.item + 1 } : {}), ...(i === P.sel ? { selected: true } : {}) })) } : {}), ...(P.error ? { error: P.error } : {}), loading: P.loading }),
     };
     return mode;
@@ -6773,6 +6853,7 @@ export class NoteSurface {
     this.dragging = false;
     const sm = this.sourcesMode, r = sm?.rect;
     if (sm && r && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+      if (y >= r.y + sm.footer) { this.gesture.press(x, y); return; }
       void this.runKey("sources.select", { phase: "start", row: y - r.y + sm.view.top, col: x - r.x }, host);
       return;
     }
@@ -6848,7 +6929,7 @@ export class NoteSurface {
   private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
     const sm = this.sourcesMode;
     if (sm?.view.pressed) {
-      const selected = !!sm.view.selection;
+      const selected = !!sm.view.selection || sm.view.editorPressed && !!sm.view.field?.session.draft.selectedText();
       sm.view.release();
       if (selected) void this.runKey("sources.copy", {}, host);
       else this.click(x, y, host);
@@ -7553,7 +7634,7 @@ const IMAGE_STALE: Stale = { flash: "that image's line changed since it was draw
 /** One line of a note rewritten: its index, its text as it was read, and what it became. */
 interface LineEdit { line: number; before: string; after: string }
 /** A change of whole lines (a callout's header, an image's layout) for undo. */
-interface LineUndo { block: string; edits: LineEdit[]; by: string; context: string }
+interface LineUndo { patch?: { start: number }; block: string; edits: LineEdit[]; by: string; context: string }
 
 /**
  * A step's status choice (PIE-472), `W` cells wide: Detail's choices in its order, each with its key, the
@@ -10688,6 +10769,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return surface.openSources(host, actor, at);
     },
   }),
+  "sources.field": def({
+    summary: "type in the inspector's property field, select a schema choice, save or cancel it", keys: "typing, paste, arrows, j k, space, enter, esc in a field; a click on a choice or save",
+    touches: "draft", draft: "write", replay: "ask", person: "the field is the person's; an agent passes value= to sources.set",
+    args: { op: { type: "string", about: "text, key, pick, toggle, save or cancel" }, value: { type: "string", optional: true, about: "typed text or key name" }, n: { type: "number", optional: true, about: "choice from zero" } },
+    examples: [{ act: "sources.field op=save", does: "writes the field through draft.patch" }],
+    run: async ({ op, value, n }, { surface, host }) => { await surface.sourcesMode?.view.input(op, value, n); host.redraw(); return { edited: true }; },
+  }),
   "sources.select": def({
     summary: "select text in the inspector without selecting the reader behind it", keys: "a drag in the panel",
     touches: "shape", replay: "safe", person: "the inspector selection belongs to the person",
@@ -10765,7 +10853,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: ({ all }, { surface, host }, actor) => surface.refreshSources(host, actor, all === true),
   }),
   "sources.set": def({
-    summary: "write one parameter of the open source back onto the note's line (a handler line's slot, a ::use's prop): the person is asked for the value in the power bar, an agent passes value=; saved through the note's save, checked against the line as read, recorded as whoever asks; ctrl+z (sources.undo) takes it back. Other kinds are written in the note",
+    summary: "edit one source parameter: figure properties use the shared inspector field and draft.patch against their YAML; handler slots and ::use props use the existing line save. Schema choices and result property names supply the figure's choices; title and query take text, with query warnings after capture. An agent passes value=. Recorded as whoever asks; ctrl+z (sources.undo) takes it back",
     keys: "e, ⏎ on a parameter", touches: "draft", draft: "write", replay: "ask",
     args: { source: { type: "string", optional: true, about: "which source: its number in sources.open's list, or its key (default: the one open in the inspector)" }, param: { type: "string", optional: true, about: "the parameter (default: the focused row's)" }, value: { type: "string", optional: true, about: "the new value (the person is asked when it is left out)" } },
     examples: [
@@ -10786,7 +10874,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const at = P && s ? itemsOf(s, P.folds)[P.item] : undefined;
       const which = part ?? (at?.kind === "copy" ? at.part : "result");
       if (which !== "query" && which !== "transform" && which !== "result") throw new ActionRefused("part is query, transform or result");
-      return surface.copySource(which, host, actor, source);
+      return surface.copySource(which, host, actor, source, !part);
     },
   }),
   "sources.download": def({

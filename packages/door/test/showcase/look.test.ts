@@ -151,6 +151,12 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     await until(() => /measure +68 +● style lab/.test(screen()), "the measure nudged by the person's +", 5000);
     ch("u");
     await until(() => /measure +64 +← style lab/.test(screen()), "the nudge taken back", 5000);
+    ch("e");
+    press({ kind: "paste", text: "72" });
+    press({ kind: "enter" });
+    await until(() => /measure +72 +● style lab/.test(screen()), "the shared inspector field saved", 5000);
+    ch("u");
+    await until(() => /measure +64 +← style lab/.test(screen()), "the field change undone", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
   }, 30_000);

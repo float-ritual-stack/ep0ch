@@ -48,6 +48,13 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     press({ kind: "esc" });
     expect(screen()).toContain("reader has keys");
     expect(screen()).toContain("Query");
+    const footerRows = screen().split("\n"), fy = footerRows.findIndex(l => l.includes("reader has keys")), fx = footerRows[fy]!.indexOf("reader has keys") + 4;
+    press({ kind: "mouse", action: "down", button: 0, x: fx, y: fy });
+    press({ kind: "mouse", action: "up", button: 0, x: fx, y: fy });
+    expect(screen()).toContain("sources has keys");
+    press({ kind: "mouse", action: "down", button: 0, x: fx, y: fy });
+    press({ kind: "mouse", action: "up", button: 0, x: fx, y: fy });
+    expect(screen()).toContain("reader has keys");
     const rows = screen().split("\n"), y = rows.findIndex(l => l.includes("Query")), x = rows[y]!.indexOf("Query") + 15;
     press({ kind: "mouse", action: "down", button: 0, x, y });
     press({ kind: "mouse", action: "up", button: 0, x, y });
@@ -57,6 +64,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     press({ kind: "esc" });
     await app.dispatch.act({ action: "sources.close", tile: "1" }, { kind: "user" });
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    (app as any).lastInput = 0;
   }, 20_000);
 
 
@@ -71,12 +79,107 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(drawn).not.toContain("view:");
   }, 20_000);
 
-  test("PIE-1100: Result rows select, Enter opens, alt+Enter opens beside, and g reveals the figure", async () => {
+  test("PIE-1100: figure properties edit in the panel, keep the note as source, and undo once", async () => {
     await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
+    screen();
+    press({ kind: "enter" });
+    const tile = S().stages.get(S().sel).top.layoutGet().tiles[0].name;
+    const before = (await board.get(seeded.notes.plotJobs.id))!;
+    await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, { kind: "user" });
+    await app.dispatch.act({ action: "sources.set", tile, args: { param: "title", value: "Jobs beside the water butt" } }, { kind: "user" });
+    expect((await board.get(before.id))!.text).toContain('title: "Jobs beside the water butt"');
+    await app.dispatch.act({ action: "sources.undo", tile }, { kind: "user" });
+    expect((await board.get(before.id))!.text).toBe(before.text);
+    await app.dispatch.act({ action: "sources.set", tile, args: { param: "density" } }, { kind: "user" });
+    expect(screen()).toContain("comfortable");
+    ch("j");
+    press({ kind: "enter" });
+    await untilAsync(async () => (await board.get(before.id))!.text.includes('density: "comfortable"'), "density saved from its schema choices");
+    await until(() => !screen().includes("[cancel]"), "the saved density field closes");
+    press({ kind: "char", ch: "z", ctrl: true });
+    await untilAsync(async () => (await board.get(before.id))!.text === before.text, "one ctrl+z restores the figure");
+    expect((await board.get(before.id))!.text).toBe(before.text);
+    await app.dispatch.act({ action: "sources.set", tile, args: { param: "title" } }, { kind: "user" });
+    press({ kind: "paste", text: "The jobs beside the gate" });
+    ch("!");
+    press({ kind: "enter" });
+    await untilAsync(async () => (await board.get(before.id))!.text.includes('title: "The jobs beside the gate!"'), "title typed in place");
+    await app.dispatch.act({ action: "sources.undo", tile }, { kind: "user" });
+    const group = await app.dispatch.act({ action: "sources.set", tile, args: { param: "group" } }, { kind: "user" }) as { choices: string[] };
+    expect(group.choices).toContain("priority");
+    const choiceRows = screen().split("\n"), cy = choiceRows.findIndex(l => l.includes("> stage")) + 1, cx = choiceRows[cy - 1]!.indexOf("> stage") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x: cx, y: cy });
+    press({ kind: "mouse", action: "up", button: 0, x: cx, y: cy });
+    press({ kind: "enter" });
+    await untilAsync(async () => (await board.get(before.id))!.text.includes('group: "priority"'), "group chosen by mouse");
+    await app.dispatch.act({ action: "sources.undo", tile }, { kind: "user" });
+    const invalid = await app.dispatch.act({ action: "sources.set", tile, args: { param: "query", value: "(" } }, { kind: "user" }) as { warning?: string };
+    expect(invalid.warning).toBeTruthy();
+    expect((await board.get(before.id))!.text).toContain('query: "("');
+    await app.dispatch.act({ action: "sources.undo", tile }, { kind: "user" });
+    await app.dispatch.act({ action: "sources.close", tile }, { kind: "user" });
+    await app.act({ action: "sources.set", tile: "2", args: { source: "1", param: "title", value: "An agent's garden jobs" }, as: "figure-gardener" });
+    expect((await board.revisions(before.id)).revisions[0]).toMatchObject({ author: "agent", actorId: "figure-gardener" });
+    await app.act({ action: "sources.undo", tile: "2", as: "figure-gardener" });
+    expect((await board.get(before.id))!.text).toBe(before.text);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    (app as any).lastInput = 0;
+  }, 20_000);
+
+  test("PIE-1100: inspector fields preserve decoded YAML and unsaved typing", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
+    screen(); press({ kind: "enter" });
+    const tile = S().stages.get(S().sel).top.layoutGet().tiles[0].name;
+    const before = (await board.get(seeded.notes.plotJobs.id))!;
+    const title = 'The "shed" \\ path';
+    const text = before.text.replace("title: Plot jobs", `title: ${JSON.stringify(title)}`).replace("columns: [title, priority]", "columns:\n  - title\n  - priority").replace("group: stage", "group: soil-hue");
+    await board.update(before.id, text, before.revision!);
+    await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, { kind: "user" });
+    for (const param of ["columns", "title", "group"]) {
+      await app.dispatch.act({ action: "sources.set", tile, args: { param } }, { kind: "user" });
+      await app.dispatch.act({ action: "sources.field", tile, args: { op: "save" } }, { kind: "user" });
+    }
+    const yaml = Bun.YAML.parse((await board.get(before.id))!.text.split("---")[1]!) as { title: string; columns: string[]; group: string };
+    expect(yaml.columns).toEqual(["title", "priority"]);
+    expect(yaml.title).toBe(title);
+    expect(yaml.group).toBe("soil-hue");
+    await app.dispatch.act({ action: "sources.set", tile, args: { param: "title" } }, { kind: "user" });
+    const fieldRows = screen().split("\n"), ey = fieldRows.findIndex(l => l.includes(title) && !l.includes("[e edit]")), ex = fieldRows[ey]!.indexOf("shed");
+    press({ kind: "mouse", action: "down", button: 0, x: ex, y: ey });
+    press({ kind: "mouse", action: "drag", button: 0, x: ex + 4, y: ey });
+    press({ kind: "mouse", action: "up", button: 0, x: ex + 4, y: ey });
+    press({ kind: "backspace" });
+    press({ kind: "paste", text: "hut" });
+    press({ kind: "enter" });
+    await untilAsync(async () => (await board.get(before.id))!.text.includes(JSON.stringify('The "hut" \\ path')), "dragged title phrase replaced");
+    await app.dispatch.act({ action: "sources.set", tile, args: { param: "title" } }, { kind: "user" });
+    press({ kind: "paste", text: "kept across fields" });
+    await app.dispatch.act({ action: "sources.set", tile, args: { param: "group" } }, { kind: "user" });
+    await app.dispatch.act({ action: "sources.field", tile, args: { op: "cancel" } }, { kind: "user" });
+    await app.dispatch.act({ action: "sources.set", tile, args: { param: "title" } }, { kind: "user" });
+    expect(screen()).toContain("kept across fields");
+    press({ kind: "paste", text: "kept across quit" });
+    expect(app.confirmQuit()).toBe(false);
+    expect(app.confirmQuit()).toBe(true);
+    await app.dispatch.act({ action: "sources.field", tile, args: { op: "cancel" } }, { kind: "user" });
+    await app.dispatch.act({ action: "sources.set", tile, args: { param: "title" } }, { kind: "user" });
+    expect(screen()).toContain("kept across quit");
+    await app.dispatch.act({ action: "sources.field", tile, args: { op: "save" } }, { kind: "user" });
+    expect((await board.get(before.id))!.text).toContain('title: "kept across fieldskept across quit"');
+    await board.update(before.id, before.text, (await board.get(before.id))!.revision!);
+    await app.dispatch.act({ action: "sources.close", tile }, { kind: "user" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    (app as any).lastInput = 0;
+  }, 20_000);
+
+  test("PIE-1100: Result rows select, Enter opens, alt+Enter opens beside, and g reveals the figure", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "live" } }, { kind: "user" });
     screen();
     press({ kind: "enter" });
     const desk = S().stages.get(S().sel).top;
     const tile = desk.layoutGet().tiles[0].name;
+    const originalTiles = desk.layoutGet().tiles.map((t: any) => t.name);
+    await app.dispatch.act({ action: "open", tile, args: { id: seeded.notes.plotJobs.id } }, { kind: "user" });
     await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, { kind: "user" });
     await until(() => screen().includes("Result"), "figure sources");
     const pane = desk.panes.get(desk.idNamed(tile));
@@ -106,7 +209,9 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     await until(() => !pane.surface.holdsKeys, "jump returns keys to reader");
     expect(pane.surface.describe().focus).toBeTruthy();
     await app.dispatch.act({ action: "sources.close", tile }, { kind: "user" });
+    for (const added of desk.layoutGet().tiles.filter((t: any) => !originalTiles.includes(t.name))) await app.dispatch.act({ action: "tile.close", tile: added.name }, { kind: "user" });
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    (app as any).lastInput = 0;
   }, 20_000);
 
   test("activity days open their notes below the reader through act (PIE-972)", async () => {

@@ -65,6 +65,20 @@ export function figureSource(lines: readonly string[], note?: string, block?: bo
   return { yaml: yaml.join("\n"), markdown, at: Math.max(0, at), ruled: open >= 0 && rule(lines[open]!), ...(note ? { note } : {}), ...(block ? { block } : {}), ...(attrs ? { attrs } : {}) };
 }
 
+/** Replace one YAML property, keeping the figure's other properties and Markdown as written. */
+export function withFigureProp(body: readonly string[], key: string, value: string): string[] {
+  const source = figureSource(body);
+  if (!source.ruled) return ["---", `${key}: ${value}`, "---", ...body];
+  const open = body.findIndex(l => /^\s*---\s*$/.test(l));
+  const close = body.findIndex((l, i) => i > open && /^\s*---\s*$/.test(l));
+  const end = close < 0 ? body.length : close;
+  const at = body.findIndex((l, i) => i > open && i < end && l.startsWith(`${key}:`));
+  if (at < 0) return [...body.slice(0, end), `${key}: ${value}`, ...(close < 0 ? ["---"] : body.slice(end))];
+  let to = at + 1;
+  while (to < end && (!body[to]!.trim() || /^\s+\S/.test(body[to]!))) to++;
+  return [...body.slice(0, at), `${key}: ${value}`, ...body.slice(to)];
+}
+
 /**
  * The warning for a figure written without its `---` lines (PIE-941): a body of only `key: value` lines (a continuation
  * indented under one is fine) naming at least one of the kind's own YAML props (its schema's: `query:`, `columns:`) is

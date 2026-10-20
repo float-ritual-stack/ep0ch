@@ -161,6 +161,8 @@ export interface DeskApi {
 }
 
 export interface Pane {
+  unsaved?(): boolean;
+  keepDrafts?(): string[];
   /**
    * Its content is a note's text: the look's `measure` holds it to that many columns, centred (PIE-673). A list, a
    * terminal or a whole screen fills its tile.
