@@ -234,7 +234,7 @@ describe("code span clicks in a scratch terminal", () => {
   });
   for (const text of ["paragraph-copy", "bullet-copy", "step-copy", "callout-copy", "callout-list-copy", "callout-task-copy", "nested-copy", "table-copy", "figure-copy", "wrapped-tail", "callout-tail", "comment-copy"]) {
     test(`${text} copies on its drawn cell`, async () => {
-      tmux("send-keys", "-t", "spans", "Escape");
+      tmux("send-keys", "-t", "spans", "-l", "\x1b[27u");
       if (text === "comment-copy") {
         tmux("send-keys", "-t", "spans", "M");
         await waitUntil(() => capture().includes(text), "the comment", 3000);
@@ -251,8 +251,7 @@ describe("code span clicks in a scratch terminal", () => {
     });
   }
   test("the expanded comment copies in the side margin too", async () => {
-    tmux("send-keys", "-t", "spans", "Escape");
-    click("comment ·", 2);
+    tmux("send-keys", "-t", "spans", "-l", "\x1b[27u");
     tmux("resize-window", "-t", "spans", "-x", "200", "-y", "65");
     await waitUntil(() => capture().split("\n")[0]!.length > 150, "the wider terminal");
     tmux("send-keys", "-t", "spans", "Home");
@@ -266,7 +265,7 @@ describe("code span clicks in a scratch terminal", () => {
     await waitUntil(() => capture().split("\n")[0]!.length < 150, "the narrow terminal");
   });
   test("the nested callout task mark opens its choices", async () => {
-    tmux("send-keys", "-t", "spans", "Escape", "M");
+    tmux("send-keys", "-t", "spans", "-l", "\x1b[27u");
     click("[ ] Task nested-copy", 1);
     await waitUntil(() => capture().includes("Mark done"), "nested task choices", 1500);
     tmux("send-keys", "-t", "spans", "x");
@@ -275,7 +274,7 @@ describe("code span clicks in a scratch terminal", () => {
     expect(saved).toContain("> > > - [x] Task `nested-copy`");
   });
   test("the task mark still toggles on its own cell", async () => {
-    tmux("send-keys", "-t", "spans", "Escape");
+    tmux("send-keys", "-t", "spans", "-l", "\x1b[27u");
     click("[ ] Task step-copy", 1);
     await waitUntil(() => capture().includes("Mark done"), "the task choices");
     tmux("send-keys", "-t", "spans", "x");

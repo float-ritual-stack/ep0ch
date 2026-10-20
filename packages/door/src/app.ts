@@ -1,3 +1,5 @@
+import { errorDetails } from "./status-log";
+import { StatusLog, messageContext, type MessageDetails } from "./status-log";
 import { WaitingAsks } from "./waiting-asks";
 import { RUNBOOK_ACTIONS } from "./runbook";
 import { outlineBoards, readNote } from "./desk/outline-boards";
@@ -10,7 +12,7 @@ import { nextFrame, onMediaChange } from "./media";
 import { onResizeEnd, resizing } from "./resize";
 import { uncover, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
-import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
+import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
@@ -148,7 +150,9 @@ export interface Ctx {
   replace(s: Screen): void;
   quit(): void;
   redraw(): void;
-  flash(msg: string, ms?: number): void;
+  readonly messages?: StatusLog;
+  readonly dispatch?: Dispatcher;
+  flash(msg: string, ms?: number, details?: MessageDetails): void;
   /**
    * The person's own key or click was refused (PIE-727): `msg` says why. The status bar has it, as `flash`'s, and the
    * focused tile says it on its frame (`refusal`). The same key refused again makes it loud: it stays up, highlighted,
@@ -248,7 +252,7 @@ export interface Ctx {
   person?(): Whereabouts;
   recordAction?(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown): unknown;
   /** Run an action as the person through the door's own dispatcher (its every screen's: `note.new`, `open`, `edit`); a refusal is said. */
-  press?(name: string, args?: Record<string, unknown>): Promise<unknown>;
+  press?(name: string, args?: Record<string, unknown>, tile?: string): Promise<unknown>;
   /**
    * Arm an edit (src/arm.ts, `edit.arm`): the status bar asks, the next key opens it (⏎, or the arming key again) or
    * lets it go and does what it does; the window running out lets it go. Absent: the edit opens at once.
@@ -462,12 +466,12 @@ export class App implements Ctx {
       if (epoch === this.yoloEpoch) this.yoloService = said;
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
-      if (on) { this.yoloHere = false; this.flash(`YOLO is off: the outline service didn't take it (${why})`, 8000); }
+      if (on) { this.yoloHere = false; this.flash(`YOLO is off: the outline service didn't take it (${why})`, 8000, errorDetails(e)); }
       else {
         // A take-back that didn't reach the service must not look done: what the service says is what shows, and a click tries again.
         const said = (await this.board.mcpAccessStatus().catch(() => undefined))?.yolo === true;
         if (epoch === this.yoloEpoch) this.yoloService = said;
-        if (said) this.flash(`YOLO is still on: the outline service didn't take it back (${why}); click YOLO to try again`, 8000);
+        if (said) this.flash(`YOLO is still on: the outline service didn't take it back (${why}); click YOLO to try again`, 8000, errorDetails(e));
       }
     }
     this.redraw();
@@ -625,7 +629,7 @@ export class App implements Ctx {
   }
   idleFor(): number { return Date.now() - this.lastInput; }
   /** An action as the person, through the door's dispatcher (Ctx.press): `note.new`'s open and edit on a screen without readers. */
-  press(name: string, args: Record<string, unknown> = {}): Promise<unknown> { return this.dispatch.press(name, args); }
+  press(name: string, args: Record<string, unknown> = {}, tile?: string): Promise<unknown> { return this.dispatch.press(name, args, tile); }
   get graphics() { return this.video !== "cells"; }
 
   /** Screens left with programs still running in them (the desk's terminals): alive until reopened or the door quits. */
@@ -718,11 +722,17 @@ export class App implements Ctx {
     return null;
   }
   private messageWarning = true;
-  private showMessage(msg: string, ms: number, warning: boolean) {
+  readonly messages = new StatusLog();
+  private showMessage(msg: string, ms: number, warning: boolean, details: MessageDetails = {}) {
+    const meta = { ...messageContext.getStore(), ...details };
+    const focus = this.person().focus;
+    const desk = focus?.startsWith("drawer:") ? this.drawer.desk : tilesOf(this.stack.at(-1));
+    const tile = meta.tile === undefined ? desk?.tileOutline().find(t => t.focused) : undefined;
+    this.messages.append(msg, { tile: tile?.id ?? focus ?? undefined, note: tile?.showing?.id, ...meta });
     this.messageWarning = warning; this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw();
   }
   /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
-  flash(msg: string, ms = 4000) { this.showMessage(msg, ms, true); }
+  flash(msg: string, ms = 4000, details: MessageDetails = {}) { this.showMessage(msg, ms, true, details); }
 
   // ── a refusal of the person's key or click (PIE-727): said on the status bar and on the focused tile's frame ──
   /**
@@ -746,14 +756,14 @@ export class App implements Ctx {
    */
   refuse(msg: string, at = this.pressCount) {
     const text = printable(msg, " ");
-    if (at !== this.pressCount) { this.flash(msg); return; }
+    if (at !== this.pressCount) { this.flash(msg, 4000, { kind: messageContext.getStore()?.kind ?? "refusal" }); return; }
     const gesture = this.gesture.join(" "), last = this.refusedLast;
     // The same refusal again, by the same gesture right after it (x x on a spine, ^W x ^W x on a locked screen, the same
     // menu row twice), with nothing else said between: loud, and up until a different key (Evan pressed q seven times
     // before he saw why). A different key between them (x j x) starts over.
     const loud = !!last && !!gesture && last.text === text && last.gesture === gesture && last.n === this.gestures - 1 && last.flashes === this.flashes;
     this.refusedNow = { text, loud, press: this.gesture.at(-1) ?? null };
-    this.flash(msg, loud ? Infinity : 4000);
+    messageContext.run({ ...messageContext.getStore(), kind: messageContext.getStore()?.kind ?? "refusal" }, () => this.flash(msg, loud ? Infinity : 4000));
     this.refusedLast = { text, gesture, n: this.gestures, flashes: this.flashes };
   }
   refusal(): Refusal | null {
@@ -993,6 +1003,7 @@ export class App implements Ctx {
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
+      messages: this.messages.rows,
       pointers: this.agentPointers.list(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
@@ -1028,8 +1039,8 @@ export class App implements Ctx {
     }
     const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} removed` : ""].filter(Boolean);
     if (said.length && this.extensionsSeen) this.flash(`extensions: ${said.join(" · ")}`);
-    if (r.problems.length) this.flash(`extensions: ${r.problems.join(" · ")}`, 12_000);
-    if (!this.extensionsSeen) await (await import("./runbook")).recoverRuns(this).catch(e => this.flash(`Run recovery: ${e.message}`));
+    if (r.problems.length) this.flash(`extensions: ${r.problems.join(" · ")}`, 12_000, { kind: "warning" });
+    if (!this.extensionsSeen) await (await import("./runbook")).recoverRuns(this).catch(e => this.flash(`Run recovery: ${e.message}`, undefined, errorDetails(e)));
     this.extensionsSeen = true;
     this.redraw();
   }
@@ -1057,9 +1068,9 @@ export class App implements Ctx {
       if (said.length && this.screensSeen) this.flash(`screens: ${said.join(" · ")}`);
       // What's wrong is said when it's new, not again on every change to a screen note.
       const wrong = r.problems.join(" · ");
-      if (wrong && wrong !== this.screensWrong) this.flash(`screens: ${wrong}`, 12_000);
+      if (wrong && wrong !== this.screensWrong) this.flash(`screens: ${wrong}`, 12_000, { kind: "warning" });
       this.screensWrong = wrong;
-    } catch (e) { this.flash(`couldn't read the outline's screen notes: ${(e as Error).message}`); }
+    } catch (e) { this.flash(`couldn't read the outline's screen notes: ${(e as Error).message}`, undefined, errorDetails(e)); }
     this.screensSeen = true;
     this.redraw();
   }
@@ -1123,22 +1134,20 @@ export class App implements Ctx {
    */
   async act(req: ActRequest): Promise<unknown> {
     const actor = agentActor(req.as);
-    const s = this.stack.at(-1);
     const who = agentLabel(actor);
-    // Finding the owner can refuse too (a name both the screen and the drawer have): said like every refusal.
-    let takes: boolean;
-    try { takes = this.dispatch.takes(req, actor); } catch (e) { this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`); throw e; }
-    if (!takes && GONE_ACTIONS[req.action]) throw new ActionRefused(GONE_ACTIONS[req.action]!);
-    if (!takes) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${this.dispatch.list().actions.map(a => a.name).join(", ")}`);
-    this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
-    try {
-      const r = await this.dispatch.act(req, actor);
-      this.redraw();
-      return r;
-    } catch (e) {
-      this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`);
-      throw e;
-    }
+    return messageContext.run({ action: req.action, ...(req.tile ? { tile: req.tile } : {}) }, async () => {
+      try {
+        if (!this.dispatch.takes(req, actor)) throw new ActionRefused(GONE_ACTIONS[req.action] ?? this.dispatch.unknownAction(req.action));
+        this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
+        const r = await this.dispatch.act(req, actor);
+        this.redraw();
+        return r;
+      } catch (e) {
+        const refused = e instanceof ActionRefused || e instanceof Offline;
+        this.flash(refused ? `${who} · ${req.action} refused: ${e.message}` : `${who} · could not run ${req.action}; status.log has the details`, 4000, { kind: refused ? "refusal" : "error", ...(!refused && e instanceof Error ? { stack: e.stack } : {}) });
+        throw e;
+      }
+    });
   }
 
   /**
@@ -1258,6 +1267,10 @@ export class App implements Ctx {
     if (k.kind === "hyper") { this.hyper(k.ch); return; }
     // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
+    if (k.kind === "mouse" && k.y === this.term.info.rows - 1) {
+      if (k.action === "down") void this.dispatch.press("status.log");
+      return;
+    }
     if (k.kind === "alt" && k.ch === "Q" && !this.stack.at(-1)?.rawKeys?.() && (this.recording.active || !this.stack.at(-1)?.holdsKeys?.())) {
       void this.dispatch.press(this.recording.active ? "macro.stop" : "macro.record"); return;
     }
@@ -1265,6 +1278,7 @@ export class App implements Ctx {
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
     // alt+y: the tune inspector on the focused tile (tile.tune, PIE-673), on the desk's screens, never in a terminal tile.
     if (k.kind === "alt" && k.ch === "y" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.holdsKeys?.()) { void this.dispatch.press("tile.tune"); return; }
+    if (k.kind === "alt" && k.ch === "M" && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press("status.log"); return; }
     // alt+w: what waits on you, the list in your drawer (host.waiting), on every screen but in a terminal tile (its program's).
     if (k.kind === "alt" && k.ch === "w" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("host.waiting"); return; }
     // alt+o: what changed since you looked, the list in your drawer (changes.open), on the same screens.

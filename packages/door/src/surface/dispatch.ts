@@ -1,3 +1,5 @@
+import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
+import { messageContext, type MessageDetails } from "../status-log";
 import type { Hint } from "./hint-card";
 // The dispatcher (PIE-514): one per screen host, the one door every action goes through. A screen registers its
 // action sets; its keys and clicks (`press`), the control socket (`act`) and a tile holding a whole screen all call
@@ -15,7 +17,7 @@ import type { Hint } from "./hint-card";
 import { INVITES } from "./invite";
 import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
-import { USER, type Actor } from "../socket";
+import { Offline, USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
 import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
@@ -140,7 +142,7 @@ export interface Delegation {
 }
 
 /** What a dispatcher's messages and repaints go through, and where it asks where the person is. */
-export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown): unknown; flash(msg: string, ms?: number): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number }
+export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown): unknown; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number }
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
@@ -319,8 +321,14 @@ export class Dispatcher {
 
   /** The def of action `name`, as the first set here that has it declares it (labels, summaries, menu rows). */
   defOf(name: string): ActionDef<any, any> | undefined {
-    for (const r of this.regs) if ("set" in r && r.set.has(name)) return r.set.def(name);
-    return undefined;
+    const req = { action: name };
+    const r = this.owner(req);
+    return r ? "set" in r ? r.set.def(name) : r.delegate(req)?.defOf(name) : undefined;
+  }
+
+  unknownAction(name: string): string {
+    const near = rankTextSearchMatches(this.list().actions.map(a => ({ id: a.name, title: a.name, text: "" })), name, 3).map(m => m.document.title);
+    return `nothing here answers to ${name}; \`actions\` lists them${near.length ? `; did you mean ${near.join(", ")}?` : ""}`;
   }
 
   /** Every action here once, in the order a name is looked up; the tiles `tile=` names. */
@@ -370,6 +378,18 @@ export class Dispatcher {
   /** Whether some set here takes this request (a set that takes only requests naming a tile, the host layer's tile.herdr). */
   takes(req: ActRequest, actor?: Actor): boolean { return !!this.owner(this.pointed(req, actor), actor); }
 
+  /** An authored press defaults tile actions to its own reader; screen and host actions keep their scope. */
+  requestIn(req: ActRequest, tile: string | undefined): ActRequest {
+    if (req.tile !== undefined || tile === undefined) return req;
+    const there = { ...req, tile };
+    return this.tileAction(there) ? there : req;
+  }
+
+  private tileAction(req: ActRequest): boolean {
+    const r = this.owner(req);
+    return !!r && ("set" in r ? r.takes === "tile" : !!r.delegate(req)?.tileAction(r.request ? r.request(req) : req));
+  }
+
   /** The set that owns a request's action: the first registered that claims it. */
   private owner(req: ActRequest, actor?: Actor): Registration | Delegation | null {
     req = this.mountedRequest(req);
@@ -385,7 +405,7 @@ export class Dispatcher {
    * reason (thrown, nothing done), and what it did said on the status bar.
    */
   act(req: ActRequest, actor: Actor): Promise<unknown> {
-    try { return Promise.resolve(this.run(req, actor)); } catch (e) { return Promise.reject(e); }
+    return messageContext.run({ ...messageContext.getStore(), action: req.action, ...(req.tile ? { tile: req.tile } : {}) }, () => { try { return Promise.resolve(this.run(req, actor)); } catch (e) { return Promise.reject(e); } });
   }
 
   bindings(): readonly KeyBinding[] {
@@ -409,7 +429,12 @@ export class Dispatcher {
    * the focused tile's frame (Ctx.refuse), never thrown at the key handler; the screen is redrawn either way. Resolves to the answer, or undefined when refused.
    */
   press(name: string, args: Record<string, unknown> = {}, tile?: string): Promise<unknown> {
-    return this.asPerson(() => this.run({ action: name, args, ...(tile !== undefined ? { tile } : {}) }, USER, true));
+    return messageContext.run({ action: name, ...(tile ? { tile } : {}) }, () => this.asPerson(() => this.run({ action: name, args, ...(tile !== undefined ? { tile } : {}) }, USER, true)));
+  }
+
+  /** A person's authored press, including parsing it: failures keep the action and its source in the log. */
+  pressDoing(action: string, details: MessageDetails, run: () => unknown): Promise<unknown> {
+    return messageContext.run({ ...messageContext.getStore(), ...details, action }, () => this.asPerson(run));
   }
 
   /**
@@ -419,7 +444,7 @@ export class Dispatcher {
   pressIn(set: ActionSet<any, any>, name: string, args: Record<string, unknown> = {}, tile?: string, say: boolean | ((why: string) => string | null) = false, given?: unknown): Promise<unknown> {
     const at = this.registered(set);
     if (!at) return this.asPerson(() => { throw new Error(`${set.scope} actions aren't registered on the ${this.host.title}`); });
-    return this.asPerson(() => at.d.runIn(at.reg, { action: name, args, ...(tile !== undefined ? { tile } : {}) }, USER, true, given), say);
+    return messageContext.run({ ...messageContext.getStore(), action: name, ...(tile ? { tile } : {}) }, () => this.asPerson(() => at.d.runIn(at.reg, { action: name, args, ...(tile !== undefined ? { tile } : {}) }, USER, true, given), say));
   }
 
   /** Where a set is registered: here, or on a dispatcher this one hands to (a desk's tile kinds). */
@@ -438,9 +463,11 @@ export class Dispatcher {
     // The key or click this answers: a refusal that lands after the person moved on is said on the status bar alone.
     const at = ctx?.pressNow?.();
     const tell = (e: unknown) => {
-      const why = e instanceof Error ? e.message : String(e), said = say === true ? null : say === false ? why : say(why);
+      const failed = !(e instanceof ActionRefused || e instanceof Offline);
+      const action = messageContext.getStore()?.action ?? "the action";
+      const why = failed ? `could not run ${action}; status.log has the details` : e.message, said = failed ? why : say === true ? null : say === false ? why : say(why);
       // Said where the person is looking (the focused tile's frame) as well as on the status bar (Ctx.refuse, PIE-727).
-      if (said) (ctx?.refuse ? ctx.refuse(said, at) : ctx?.flash?.(said));
+      if (said) messageContext.run({ ...messageContext.getStore(), kind: failed ? "error" : "refusal", ...(failed && e instanceof Error ? { stack: e.stack } : {}) }, () => (ctx?.refuse ? ctx.refuse(said, at) : ctx?.flash?.(said)));
       ctx?.redraw?.();
       return undefined;
     };
@@ -473,7 +500,7 @@ export class Dispatcher {
     }
     const r = this.owner(req, actor);
     if (!r && GONE_ACTIONS[req.action]) throw new ActionRefused(GONE_ACTIONS[req.action]!);
-    if (!r) throw new ActionRefused(`no action ${req.action} on the ${this.host.title}; \`actions\` lists what it takes`);
+    if (!r) throw new ActionRefused(this.unknownAction(req.action));
     if (!("set" in r)) {
       const d = r.delegate(req);
       if (!d) throw new ActionRefused(`no action ${req.action} on the ${this.host.title}`);
@@ -503,7 +530,7 @@ export class Dispatcher {
     const ctx = this.host.ctx();
     const on = reg.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
     // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
-    const run = () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor);
+    const run = () => messageContext.run({ ...messageContext.getStore(), action: req.action, ...(at.tile ? { tile: at.tile.id ?? at.tile.name, note: at.tile.shows ?? undefined } : {}) }, () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor));
     const recordedArgs = { ...seen };
     for (const [key, spec] of Object.entries(reg.set.argsOf(req.action) ?? {})) {
       const value = recordedArgs[key];

@@ -59,7 +59,7 @@ itself).
 
 | Request | Answer | CLI |
 |---|---|---|
-| `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()`, with the door's `pid` and `nest` (the layers it runs in) and `person`: where the person is (`focus`, `typingIn`, `busy`, `why`, `keys`, `idle` ms, `away`), the answer every agent rule reads | `ep0ch peek` |
+| `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()`, with the door's `pid` and `nest` (the layers it runs in) and `person`: where the person is (`focus`, `typingIn`, `busy`, `why`, `keys`, `idle` ms, `away`), the answer every agent rule reads; `messages` holds the last 500 status messages with time, kind, action, tile and note when known (stacks remain in the session file) | `ep0ch peek` |
 | `{"cmd":"snap","path":"x.png"}` | a PNG of exactly what the terminal was sent, written under the door's state (`path` relative to it, or inside it; default `screen.png`); anywhere else is refused | `ep0ch snap` |
 | `{"cmd":"snap","data":true}` | the same PNG, base64, for the client to write | `ep0ch snap x.png` (the command writes `x.png`, into a folder that must exist) |
 | `{"cmd":"actions"}` | every action the current screen takes, with its arguments, keys and examples (`examples`: act lines and what each does); an argument says the kind of thing it names (`kind`: `tile`, `note`, `page`, `screen`, `view`, `key`, `value` of the argument `of` names, `tile-kind`) and its `choices` when they're a fixed list (PIE-1031) | `ep0ch actions`; one action's page: `ep0ch actions --doc <name>` |
@@ -67,6 +67,8 @@ itself).
 | `{"cmd":"act","action":"open","args":{"id":"<block>","from":"<tile>"},"as":"<actor id>"}` | puts a block in front of the person (the `open` action: there is one way) | `ep0ch open <id> [from=<tile>] [--as id]` (`act open id=<id>`) |
 | `{"cmd":"act","action":"open","args":{"file":"<absolute path>","diff":true},"as":"<actor id>"}` | a file on this machine where an agent's open lands (PIE-602): Markdown drawn as the preview draws a file, any other file through the file Resource reader, `diff=true` its changes (git's diff against its last commit, else against `against=<copy>`) | `ep0ch open file:<path> [diff=true] [against=<copy>] [--as id]` |
 | `{"cmd":"subscribe","types":["focus.changed",…]}` | the live feed on this connection (below) | `ep0ch subscribe [types]` |
+
+`ep0ch log [--ws <name>] [--machine <ssh-name>]` reads the session's `messages.jsonl` and its rotated predecessor, even after the door stops. `--follow` tails new entries. `status.log` opens the same session's in-memory list; `status.filter text=...` searches it and `list.read` returns the rows. Rows stay fixed until `status.reload` (`r`) refreshes them, so numbered reads and opens name the same message. Error entries include a stack in the file, never in `peek` or the on-screen list.
 
 ## An agent's explicit pointer
 

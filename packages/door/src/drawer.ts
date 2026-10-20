@@ -1311,6 +1311,7 @@ export class AgentDrawer {
       if (isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
       if (isAlt(k, "s")) { run("host.shell", {}); return true; }
       if (isAlt(k, "g")) { run("agents.open", {}); return true; }
+      if (isAlt(k, "M") && !this.desk?.rawInput()) { void this.host.ctx?.()?.press?.("status.log"); return true; }
       const d = this.desk;
       if (!d) return true;
       // The holder has no terminal to enter; its Enter returns the program through the same action as a click.

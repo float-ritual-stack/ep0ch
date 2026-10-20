@@ -1,3 +1,4 @@
+import { errorDetails } from "../status-log";
 import { loseRuns } from "../runbook";
 // The door session (PIE-418): one door that keeps running without a terminal, and the terminals that attach to it.
 // It holds what the door holds (the screens and their layouts, the dispatcher, draft sessions, terminal tiles with
@@ -264,7 +265,7 @@ export async function serve(args: string[]): Promise<never> {
       for (const m of msgs) {
         // The session is ending: nothing more is taken, and a new terminal is told so.
         if (over) { if (m.t === "hello") link.close({ t: "bye", reason: "ended", message: "the session is ending" }); continue; }
-        try { handle(m); } catch (e) { if (e instanceof Offline) app.flash(e.message); else throw e; }
+        try { handle(m); } catch (e) { if (e instanceof Offline) app.flash(e.message, undefined, errorDetails(e)); else throw e; }
       }
     });
     function handle(m: ClientMsg) {
@@ -298,10 +299,10 @@ export async function serve(args: string[]): Promise<never> {
               appliedScreen = true;
               void app.dispatch.act({ action: "screen.open", args: { ...asked } }, USER).then(
                 () => { app.flash(`opened ${asked.name}${asked.target ? ` on ${asked.target}` : ""} · attached to the running session`, 6000); app.redraw(); },
-                e => { app.flash(`${(e as Error).message} · \`${ep0ch(process.env, place)}--screen ${asked.name}${asked.target ? ` ${asked.target}` : ""}\` asks again`, 8000); app.redraw(); });
+                e => { app.flash(`${(e as Error).message} · \`${ep0ch(process.env, place)}--screen ${asked.name}${asked.target ? ` ${asked.target}` : ""}\` asks again`, 8000, errorDetails(e)); app.redraw(); });
             } else if (asked && !h.watch) { appliedScreen = true; app.flash(`already on ${asked.name} · attached to the running session`, 5000); }
           } catch (e) {
-            app.flash((e as Error).message, 8000);
+            app.flash((e as Error).message, 8000, errorDetails(e));
           }
           // What it asked for and the session didn't do (the one that started it asked for what it did).
           const ignored = screenFlags(h.args ?? []).filter(f => !screenFlags(args).includes(f) && !(appliedScreen && f.startsWith("--screen ")));

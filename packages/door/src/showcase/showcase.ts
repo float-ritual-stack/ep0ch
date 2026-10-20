@@ -1,3 +1,4 @@
+import { errorDetails } from "../status-log";
 // The showcase (PIE-439): every shared door part, live, on the seeded showcase outline. One section per
 // row of the reuse map (docs/UI-GRAMMAR.md "Before adding a feature"), in the map's order; each is drawn
 // by the part itself, hosted on a desk of its own spec or the real board, never a copy. A parallel version still
@@ -37,7 +38,7 @@ import { ActivityPane, ReaderPane, TreePane, WhoPane, type DeskApi, type Pane, t
 import { BacklinksPane } from "../desk/backlinks-pane";
 import { FacetsPane } from "../desk/facets";
 import { TunePane } from "../desk/tune";
-import { MessageReader, SHELL_ACTIONS } from "../screens";
+import { MessageReader, StatusMessages, SHELL_ACTIONS } from "../screens";
 import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layout";
 import { FramedScreen } from "./frame";
 import { PreviewPane } from "../desk/preview";
@@ -1129,6 +1130,15 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "message-log", need: "read a message after its status flash has gone", part: "App.flash appends to the session's StatusLog; the BBS list actions and RowView show every wrapped line, LineInput and the shared search matcher search it", files: "src/status-log.ts, src/app.ts, src/screens.ts",
+    aside: "Click the status line or press alt+M from any screen. / searches whole messages, actions and tiles; r refreshes the rows; enter goes to the note or tile, PgUp/PgDn or the wheel reads a long message, q comes back. ep0ch log prints the session file; --follow tails it; peek includes the last 500 messages. Error stacks stay in the file.",
+    stage(_n, show) {
+      const list = new StatusMessages();
+      show(ctx => { ctx.flash("The garden gate needs attention; this message stays in the log after its flash ends."); list.enter(ctx); list.reload(); });
+      return list;
+    },
+  },
+  {
     key: "motion", need: "see a layout change as movement: tiles glide from where they were to where they are, and a button can ask for more", part: "the desk's transition (src/motion.ts, Desk.startMotion, the tick and the ghosts drawn in render) driven by the layout history's changes (src/desk/layout-history.ts); the person's setting (motion.set, EP0CH_MOTION) caps every actor's hint", files: "src/motion.ts, src/desk/desk.ts, src/desk/layout-history.ts, src/screens.ts",
     aside: "click ✦ Shuffle the tiles (or ⏎ on it): the two tiles beside float out, wander and settle back, a script's motion=fantasia · motion.set mode=calm glides briefly, mode=off snaps · any key or a click snaps what is moving · ctrl+z puts the run's layout back · peek and snapshots read the settled layout, never the frames in flight · movement only: no fade, no flash",
     stage(n, show) {
@@ -1597,7 +1607,7 @@ export class ActionsPane implements Pane {
     const needs = Object.entries(a.args).filter(([, s]) => !s.optional).map(([k]) => k);
     if (!["note", "desk"].includes(a.scope)) return desk.ctx.flash(`${a.name} belongs to the ${a.scope}; try it there${a.keys ? ` (${a.keys})` : ""}`);
     if (needs.length) return desk.ctx.flash(`${a.name} needs ${needs.join(", ")}: use its key${a.keys ? ` (${a.keys})` : ""} in the reader, or ep0ch-door act ${a.name} ${needs.map(n => `${n}=…`).join(" ")}`);
-    this.run?.(a.name, actor).then(() => desk.redraw(), e => desk.ctx.flash(`${a.name}: ${e instanceof Error ? e.message : String(e)}`));
+    this.run?.(a.name, actor).then(() => desk.redraw(), e => desk.ctx.flash(`${a.name}: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e)));
   }
   key(k: Key, desk: DeskApi): boolean {
     if (isUp(k)) { this.step(-1, desk); return true; }

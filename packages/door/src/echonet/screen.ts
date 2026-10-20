@@ -1,3 +1,4 @@
+import { errorDetails } from "../status-log";
 import { outlineBoards } from "../desk/outline-boards";
 // EchoNet's message areas (PIE-779): a classic BBS message base over echomail. The areas of every outline this door
 // can reach on its host (each named view or tag that starts there, and each subscription's source boards), an area's messages, the message itself
@@ -555,7 +556,7 @@ export class EchoReader extends ReaderPane {
       void board?.markRead(shown).catch(e => {
         m.fresh = true;
         if (area.fresh !== null) area.fresh++;
-        desk.ctx.flash(`couldn't mark ${subject(m.msg).slice(0, 40)} read: ${e instanceof Error ? e.message : String(e)}`);
+        desk.ctx.flash(`couldn't mark ${subject(m.msg).slice(0, 40)} read: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e));
         desk.redraw();
       });
     } else if (actor.kind === "agent") void board?.markRead(shown, actor.id).catch(() => {});

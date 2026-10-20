@@ -96,12 +96,19 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR", "EP0CH_NOW_PAGE"]) delete process.env[k];
   });
 
-  test("Detail's layout refusal names the Desk and how to save the settle target", async () => {
+  test("loading a layout from Detail opens it on the Desk and keeps the note underneath", async () => {
+    app.push(new Desk(undefined, { layout: "desk" }));
+    await app.dispatch.act({ action: "layout.lock", args: { on: true } }, { kind: "user" });
+    await app.dispatch.act({ action: "screen.save", args: { name: "reading-locked" } }, { kind: "user" });
+    app.pop();
     const detail = await openScreen("detail", { note: notes.shed.id });
     app.push(detail);
     try {
-      await expect(app.dispatch.act({ action: "layout.load", args: { name: "daily" } }, { kind: "user" })).rejects.toThrow("act screen.open name=desk");
-      await expect(app.dispatch.act({ action: "layout.load", args: { name: "daily" } }, { kind: "user" })).rejects.toThrow("screen.save name=daily");
+      expect(await app.dispatch.act({ action: "layout.load", args: { name: "reading-locked" } }, { kind: "user" })).toMatchObject({ layout: "reading-locked" });
+      expect((app as any).stack.at(-1)).toBeInstanceOf(Desk);
+      expect((app as any).stack.at(-1).layoutGet().policy.locked).toBe(true);
+      app.pop();
+      expect((app as any).stack.at(-1)).toBe(detail);
     } finally { app.pop(); }
   });
 

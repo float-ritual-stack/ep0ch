@@ -217,6 +217,9 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "The board is drawn by a render script, which writes nothing. Each free square is a press (a button in the view): a click, or ⏎ on it, runs the move script as you. Your click is the consent: it runs at once, and ctrl+z or ext.undo takes it back. The script answers with an o.",
     "ttt-board::",
     '::button{label="New game" of=ttt-reset}',
+    '::button{label="Desk" act="layout.load name=daily"}',
+    '::button{label="Waiting on me" act="host.waiting"}',
+    '::button{label="Board" act="screen.open name=board"}',
     "In prose it is a link: [start over](act: ttt-reset).",
   ].join("\n"));
   // Generated regions in prose (PIE-956): the render script's table, a ::= sentence and a written output region, each read like the page.
