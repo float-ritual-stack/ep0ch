@@ -14,7 +14,7 @@
 //
 // `xs:` and `ys:` give the axes' order (first y at the top); values not listed follow in the order seen. Narrow, a
 // cell shows a dot per point and the labels move to a legend beneath.
-import { BOLD, ellipsize, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
+import { BOLD, drawEllipsized, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { rowLines, wrap } from "../text";
 import { ACCENT, DIM, HI, INK, ordered, records, rowLink, tier, type Props, type RowLink } from "./palette";
 
@@ -34,7 +34,7 @@ export function drawQuadrant(p: Props, w: number, link?: RowLink): string[] {
   const out: string[] = [];
   const plotW = cw * xs.length;
   // Each corner's name gets half the plot's width at most; `pad` cuts what is longer.
-  const cornerLine = (l: string, r: string) => (l || r ? [" ".repeat(yw + 2) + fg(DIM) + pad(ellipsize(l, Math.max(0, plotW - Math.min(vwidth(r), plotW >> 1))), Math.max(0, plotW - Math.min(vwidth(r), plotW >> 1))) + ellipsize(r, plotW >> 1) + RESET] : []);
+  const cornerLine = (l: string, r: string) => (l || r ? [" ".repeat(yw + 2) + fg(DIM) + pad(drawEllipsized(l, Math.max(0, plotW - Math.min(vwidth(r), plotW >> 1))), Math.max(0, plotW - Math.min(vwidth(r), plotW >> 1))) + drawEllipsized(r, plotW >> 1) + RESET] : []);
   out.push(...cornerLine(corners[0] ?? "", corners[1] ?? ""));
   const legend: { n: number; point: Point }[] = [];
   const ink = (q: Point) => (q.accent ? fg(ACCENT) + BOLD : q.muted ? fg(DIM) : fg(INK));
@@ -52,7 +52,7 @@ export function drawQuadrant(p: Props, w: number, link?: RowLink): string[] {
     for (let r = 0; r < lines; r++) out.push(fg(HI) + pad(labels[r] ?? "", yw) + fg(DIM) + (r ? "  " : " │") + drawn.map(c => pad(c[r] ?? "", cw)).join("") + RESET);
   }
   out.push(" ".repeat(yw) + fg(DIM) + " └" + "─".repeat(plotW) + RESET);
-  out.push(" ".repeat(yw + 2) + xs.map(x => fg(HI) + pad(ellipsize(x, cw - 1), cw)).join("") + RESET);
+  out.push(" ".repeat(yw + 2) + xs.map(x => fg(HI) + pad(drawEllipsized(x, cw - 1), cw)).join("") + RESET);
   out.push(...cornerLine(corners[2] ?? "", corners[3] ?? ""));
   if (dropped) out.push(fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET);
   if (legend.length) {

@@ -31,7 +31,7 @@ import {
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
-import { C, ellipsize, fg, pad, RESET, width } from "../style";
+import { C, drawEllipsized, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 import { pressOn, RowView, type RowPress } from "../scroll";
@@ -69,7 +69,7 @@ export function layoutLinksStatus(parts: readonly BacklinkStatusPart[], cols: nu
   const slot = (p: BacklinkStatusPart | undefined, x: number, y: number, room: number) => {
     const w = Math.min(room, cols - x);
     if (!p || w <= 0) return;
-    const text = ellipsize(p.text, w);
+    const text = drawEllipsized(p.text, w);
     segs.push({ x, y, text, cols: width(text), sgr: sgrOf(p), ...(p.control ? { control: p.control } : {}) });
   };
   const dot = (x: number, y: number) => { if (x + 3 <= cols) segs.push({ x, y, text: " · ", cols: 3, sgr: sep }); };
@@ -94,7 +94,7 @@ export function layoutLinksStatus(parts: readonly BacklinkStatusPart[], cols: nu
     else if (x) { dot(x, y); x += 3; }
     const room = cols - x;
     if (room <= 0) continue;
-    segs.push({ x, y, text: ellipsize(p.text, room), cols: Math.min(room, width(p.text)), sgr: sgrOf(p), ...(p.control ? { control: p.control } : {}) });
+    segs.push({ x, y, text: drawEllipsized(p.text, room), cols: Math.min(room, width(p.text)), sgr: sgrOf(p), ...(p.control ? { control: p.control } : {}) });
     x += width(p.text);
   }
   // The filter's line is kept whatever the budget: what is typed in it shows.

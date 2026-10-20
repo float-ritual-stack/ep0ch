@@ -3,7 +3,7 @@ import { clipText } from "./overflow";
 // charts made of characters, one accent. Two inputs render the same way:
 //   ::graph-<kind>          Comark block with YAML props between --- lines, drawn here natively
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
-import { BOLD, C, ellipsize, fg, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
+import { BOLD, C, drawEllipsized, fg, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
 import { rowLines, withRowLimit, wrap } from "./text";
 import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from "./live";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
@@ -143,7 +143,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       const body = rowLinks(link, e.block, lines).map((l, k) => l + (inline && k === lines.length - 1 ? `${fg(DIM)}  — ${note}` : "") + RESET);
       const under = e.note && !inline ? inlineRows(String(e.note), tw, DIM, ui?.rows) : [];
       const spine = (last ? " " : fg(DIM) + "│" + RESET) + rep(" ", ind - 1);
-      const date = fg(next ? DIM : INK) + pad(ellipsize(String(e.date ?? ""), dw), dw);
+      const date = fg(next ? DIM : INK) + pad(drawEllipsized(String(e.date ?? ""), dw), dw);
       return [
         pad(`${dot}  ${date}  ${body[0]}`, w),
         ...body.slice(1).map(l => pad(spine + l, w)),
@@ -224,7 +224,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       const v = num(p.value), frac = v > 1 ? v / 100 : v;
       return [`${bar(frac, Math.max(10, Math.min(40, w - 8)))}  ${fg(ACCENT)}${Math.round(frac * 100)}%${RESET}`, ...(p.caption ? [fg(DIM) + p.caption + RESET] : [])];
     }
-    const limit = num(p.limit), unit = p.unit ? ` ${ellipsize(String(p.unit), 12)}` : "";
+    const limit = num(p.limit), unit = p.unit ? ` ${drawEllipsized(String(p.unit), 12)}` : "";
     if (!(limit > 0)) return [fg(C.lred) + `limit: ${fmt(p.limit)} · a budget is a number above 0` + RESET];
     const items: Props[] = Array.isArray(p.items) && p.items.length ? p.items.filter(it => it && typeof it === "object") : [{ label: p.label ?? "", value: p.value }];
     const lw = Math.min(Math.max(0, ...items.map(it => vwidth(String(it.label ?? "")))), Math.max(6, Math.floor(w / 3)));
@@ -304,7 +304,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     let cw = Array.from({ length: n }, (_, k) => Math.max(...all.map(r => vwidth(r[k] ?? ""))));
     const room = w - (n - 1) * 3;
     while (cw.reduce((a, b) => a + b, 0) > room && Math.max(...cw) > 1) { const k = cw.indexOf(Math.max(...cw)); cw[k]!--; }
-    const cell = (s: string, k: number) => { const t = ellipsize(s, cw[k]!), gap = rep(" ", Math.max(0, cw[k]! - vwidth(t))); return align[k] === "right" ? gap + t : t + gap; };
+    const cell = (s: string, k: number) => { const t = drawEllipsized(s, cw[k]!), gap = rep(" ", Math.max(0, cw[k]! - vwidth(t))); return align[k] === "right" ? gap + t : t + gap; };
     const line = (r: string[], style: string) => r.map((c, k) => style + cell(c, k)).join(fg(DIM) + " ┊ ") + RESET;
     const rule = fg(DIM) + rep("·", Math.min(w, cw.reduce((a, b) => a + b, 0) + (n - 1) * 3)) + RESET;
     // Each cell shares the row limit; every physical line belongs to the same note.

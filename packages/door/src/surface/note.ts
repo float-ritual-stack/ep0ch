@@ -84,7 +84,7 @@ import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
-import { visible, headOf, tailFrom, BOLD, fgRgb, ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
+import { visible, headOf, tailFrom, BOLD, fgRgb, ellipsize, drawEllipsized, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rowLines, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
@@ -336,7 +336,7 @@ export function historyKey(k: Key): -1 | 1 | 0 {
 export function historyRow(w: number, back: string | null, forward: string | null): { line: string; hits: { from: number; to: number; dir: -1 | 1 }[] } | null {
   if ((!back && !forward) || w < 12) return null;
   const room = back && forward ? Math.floor((w - 3) / 2) : w - 2;
-  const b = back ? ellipsize(`${fg(C.lcyan)}← back${fg(C.dark)} · ${printable(back)}`, room) : "", f = forward ? ellipsize(`${fg(C.dark)}${printable(forward)} · ${fg(C.lcyan)}forward →`, room) : "";
+  const b = back ? drawEllipsized(`${fg(C.lcyan)}← back${fg(C.dark)} · ${printable(back)}`, room) : "", f = forward ? drawEllipsized(`${fg(C.dark)}${printable(forward)} · ${fg(C.lcyan)}forward →`, room) : "";
   const hits: { from: number; to: number; dir: -1 | 1 }[] = [];
   let line = "";
   if (b) { line += " " + b + RESET; hits.push({ from: 0, to: 1 + width(b), dir: -1 }); }
@@ -7754,7 +7754,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   const body = (s: string, w: number, col = 2) => (draw ? draw(s, w, col) : text(s, w));
   if (trim) {
     const summary = c.tldr ? `TL;DR ${c.tldr.body}` : c.replies.at(-1)?.body ?? c.body;
-    lines.push(edge + "│ " + fg(C.grey) + ellipsize(body(summary, inner).join(" "), inner) + RESET);
+    lines.push(edge + "│ " + fg(C.grey) + drawEllipsized(body(summary, inner).join(" "), inner) + RESET);
     return { lines, images: [], links: [], controls: [
       { thread: c.id, control: "toggle", row: 0, from: W - 3, to: W, label: "Fold thread" },
       { thread: c.id, control: "card", row: 0, from: 0, to: W - 3, label: "Open thread" },
@@ -7770,7 +7770,7 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
   const quotedIn = (ids: readonly string[] | undefined, indent: string) => {
     for (const id of ids ?? []) {
       const said = `quoted in ${draw ? (draw(`((${id}))`, Math.max(4, inner - 12), 2, false)[0] ?? "") : id.slice(0, 8)}`;
-      const shown = ellipsize(said, Math.max(4, inner - indent.length));
+      const shown = drawEllipsized(said, Math.max(4, inner - indent.length));
       const on = cur === controlKey(c.id, "quoted", id);
       controls.push({ thread: c.id, control: "quoted", value: id, row: lines.length, from: 2 + indent.length, to: 2 + indent.length + width(shown), label: "quoted in" });
       lines.push(edge + "│ " + indent + (on ? ITEM_BG + fg(C.white) : fg(C.lcyan)) + shown + RESET);
@@ -7782,8 +7782,8 @@ function threadPanel(c: Comment, W: number, cur: string | null, drawDoc?: (text:
     // Each reply is a mark too: its own [Quote].
     // Each reply is a mark too: its own [Edit] (PIE-763) and [Quote].
     const stamp = " · " + ago(r.at) + editedMark(r);
-    const head = "└ " + ellipsize(printable(authorName(r.author)), Math.max(1, inner - 2 - width(stamp))) + stamp;
-    let row = edge + "│ " + fg(C.cyan) + ellipsize(head, inner) + RESET, col = 2 + Math.min(width(head), inner);
+    const head = "└ " + drawEllipsized(printable(authorName(r.author)), Math.max(1, inner - 2 - width(stamp))) + stamp;
+    let row = edge + "│ " + fg(C.cyan) + drawEllipsized(head, inner) + RESET, col = 2 + Math.min(width(head), inner);
     for (const [k, q, label] of [["edit", "[Edit]", "Edit the reply"], ["quote", "[Quote]", "Quote the reply"]] as const) {
       if (col + 1 + q.length > W) { lines.push(row); row = edge + "│ "; col = 2; }
       controls.push({ thread: c.id, control: k, value: r.id, row: lines.length, from: col + 1, to: col + 1 + q.length, label });
@@ -9342,7 +9342,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (text !== undefined && text.trim()) {
           const thread = await send(text, props);
           said.flash(action === "comment" ? "commented on the passage" : `asked @${agent!.name} · the answer lands in the margin`);
-          surface.noteAgent(actor, `${action === "comment" ? "commented on" : "asked about"} "${ellipsize(p.note.quote, 30)}"`);
+          surface.noteAgent(actor, `${action === "comment" ? "commented on" : "asked about"} "${p.note.quote}"`);
           return { thread, passage: p.target };
         }
         // Written by hand: the comment composer on the passage, opened for the person (an agent says body= or question=).
@@ -9367,7 +9367,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         if (r.copy !== undefined && actor.kind === "user") host.ctx.copy?.(r.copy);
         if (r.written.length) await surface.loadComments(host);
         if (actor.kind === "user") surface.selection = null;
-        surface.noteAgent(actor, `${choice.action.label.toLowerCase()} on "${ellipsize(p.note.quote, 30)}"`);
+        surface.noteAgent(actor, `${choice.action.label.toLowerCase()} on "${p.note.quote}"`);
         host.redraw();
         return { said: r.said, written: r.written, ...(r.copy !== undefined ? { copy: r.copy, clipboard: actor.kind === "user" } : {}), passage: r.passage ?? p.target, ...(r.undo ? { undo: r.undo } : {}) };
       };

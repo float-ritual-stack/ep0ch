@@ -2,7 +2,7 @@ import { fullText, FULL_MARKERS } from "./overflow";
 // Text helpers shared by the BBS screens and the desk panes.
 import { closesHyperlink, DRAWN_PART, OSC8_CLOSE } from "./hyperlink";
 import { pageLinkRanges, referencedBlock } from "@ep0ch/outline-core/link-syntax";
-import { balanceStyles, balanceTags, C, ellipsize, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width, visible } from "./style";
+import { balanceStyles, balanceTags, C, drawEllipsized, fg, fgRgb, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width, visible } from "./style";
 import { theme } from "./theme";
 import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
@@ -159,7 +159,7 @@ export function withRowLimit<T>(lines: number, draw: () => T): T {
 /** A display row hangs under its marker; only its last allowed line is shortened. */
 export function rowLines(text: string, w: number, lines = rowLimit, { hang }: { hang?: number } = {}): string[] {
   if (w <= 0) return [""];
-  if (lines <= 1) return [ellipsize(text, w)];
+  if (lines <= 1) return [drawEllipsized(text, w)];
   const prefix = visible(text).match(/^(?:\s*(?:[→←↓♦≡∙•*▸▾-] |[A-Z][A-Z0-9]*-\d+\s*(?:[—–·:|-]\s*)?))+/)?.[0] ?? "";
   const indent = Math.min(Math.max(hang ?? 0, width(prefix)), Math.max(0, w - 1));
   const lead = " ".repeat(indent);
@@ -169,7 +169,7 @@ export function rowLines(text: string, w: number, lines = rowLimit, { hang }: { 
   let clipped = false;
   for (let i = 0; rest && i < lines; i++) {
     const room = w - (i ? indent : 0), before = i ? lead : "";
-    if (i === lines - 1 || width(rest) <= room) { clipped = width(rest) > room; out.push(before + ellipsize(rest, room)); break; }
+    if (i === lines - 1 || width(rest) <= room) { clipped = width(rest) > room; out.push(before + drawEllipsized(rest, room)); break; }
     const joins: (string | undefined)[] = [];
     const wrapped = wrap(rest, room, { joins });
     out.push(before + wrapped[0]!);
@@ -204,7 +204,7 @@ export function colourInline(line: string, base: number = C.grey, literal = fals
   if (!literal) line = replacePropertyTokens(line, t => `${fg(C.dark)}[${fg(C.brown)}${t.key}${fg(C.dark)}::${fg(C.yellow)}${t.value}${fg(C.dark)}]${fg(base)}`);
   const back = fg(C.grey) + (base === C.grey ? "" : fg(base));
   return styleMarks(fg(base) + colourPageLinks(line, base)
-    .replace(/\(\(([0-9a-f-]{8}[0-9a-f-]*)\)\)/g, (_, id: string) => `${fg(C.cyan)}((${ellipsize(id, 9)}))${fg(base)}`)
+    .replace(/\(\(([0-9a-f-]{8}[0-9a-f-]*)\)\)/g, (_, id: string) => `${fg(C.cyan)}((${drawEllipsized(id, 9)}))${fg(base)}`)
     .replace(/`([^`]+)`/g, `${fg(C.lmagenta)}$1${back}`))
     // Links already resolved for read mode (src/refs.ts): the title or label, or an unlinked missing target.
     .replace(/\uE000/g, fg(C.lcyan)).replace(/\uE009/g, fgRgb(theme().external)).replace(/\uE002/g, fg(C.brown)).replace(/\uE001/g, fg(base))
@@ -227,5 +227,5 @@ export const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
 /** A subtitle uses only the cells the title leaves free. */
 export function subtitleSuffix(title: string, subtitle: string | undefined, cols: number): string {
   const room = cols - width(title);
-  return subtitle && room > 3 ? fg(C.dark) + " · " + ellipsize(printable(subtitle, " "), room - 3) + RESET : "";
+  return subtitle && room > 3 ? fg(C.dark) + " · " + drawEllipsized(printable(subtitle, " "), room - 3) + RESET : "";
 }

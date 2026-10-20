@@ -11,7 +11,7 @@ import type { AwayMachine } from "@ep0ch/outline-core/outline-away";
 // against a service without them the view is one flat list, as Detail's is.
 
 import { matchesSearchText, prepareSearchQuery, type SearchQuery } from "@ep0ch/outline-core/search-match";
-import { ellipsize, width } from "./style";
+import { drawEllipsized, width } from "./style";
 
 export const BACKLINK_STAGE_BUCKETS = ["waiting", "draft", "active", "done"] as const;
 /** Normalized lifecycle bucket; waiting, draft and active are open. */
@@ -450,7 +450,7 @@ export function fitBacklinkRow(title: string, suffix: string, columns: number): 
   return { title: fittedTitle, suffix: fitColumns(suffix, room - width(fittedTitle)) };
 }
 
-const fitColumns = (text: string, columns: number) => ellipsize(text, Math.max(1, columns));
+const fitColumns = (text: string, columns: number) => drawEllipsized(text, Math.max(1, columns));
 
 // ── the door's rows ──────────────────────────────────────────────────────────────────────────────────
 

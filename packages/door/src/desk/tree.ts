@@ -22,7 +22,7 @@ import type { AuthoredLinksSnapshot } from "../authored";
 import { linkBlock, linkNote, linkRowLines, linkRows, linkWords, SEP, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def } from "../surface/actions";
-import { width, ellipsize, C, dim, fg, pad, RESET, selectedRow } from "../style";
+import { width, drawEllipsized, C, dim, fg, pad, RESET, selectedRow } from "../style";
 import { Fold } from "../fold";
 import { readView, type ViewRead } from "../views";
 import { RowView, type RowPress } from "../scroll";
@@ -608,7 +608,7 @@ export class TreePane implements Pane {
         const branch = !r.via && isBranch(r.m) ? this.branches.get(r.m.id) : undefined;
         const found = branch && branch.read !== "loading" && branch.read.status === "ready" ? `V:${branch.read.total ?? branch.items.length}` : "";
         const tag = (found || (prop(r.m, "work-id") ?? prop(r.m, "status") ?? prop(r.m, "type") ?? ""));
-        const shownTag = ellipsize(tag, Math.min(14, Math.floor(w / 3)));
+        const shownTag = drawEllipsized(tag, Math.min(14, Math.floor(w / 3)));
         const room = Math.max(4, w - (shownTag ? width(shownTag) + 1 : 0) - (on && !indent ? 1 : 0));
         const here = desk.current?.id === r.m.id;
         return rowLines(`${indent}${mark} ${subject(r.m)}`, room - 1, undefined, { hang: indent.length + 2 }).map((line, j) => {

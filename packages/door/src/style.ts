@@ -248,7 +248,12 @@ export function pad(s: string, w: number): string {
 }
 
 /** `s` cut to `w` cells, ending in `…`, when it's wider; never padded, never through a wide or joined glyph. */
-export const ellipsize = (s: string, w: number): string => width(s) <= w ? s : shortened(s, w, false);
+export const ellipsize = (s: string, w: number): string => width(s) <= w ? s : w < 1 ? "" : headOf(s, w - 1) + "…";
+/** Drawing only: keep the hidden value for Canvas and the composed frame's reveal. */
+export function drawEllipsized(s: string, w: number): string {
+  const drawn = ellipsize(s, w);
+  return drawn === s || w < 1 ? drawn : fullText(s, drawn);
+}
 
 function shortened(s: string, w: number, padded: boolean): string {
   if (w < 1) return "";

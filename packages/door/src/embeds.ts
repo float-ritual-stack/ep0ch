@@ -16,9 +16,9 @@ import type { Msg } from "./board";
 import { subject } from "./board";
 import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source, prop } from "./props";
-import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, MISSING_MARK, outlineChanged, shortId, type LinkTarget } from "./refs";
+import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, MISSING_MARK, outlineChanged, drawShortId, type LinkTarget } from "./refs";
 import type { ChecklistStep, ProposalsBeside, SocketBoard, TransclusionNode } from "./socket";
-import { BOLD, C, ellipsize, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD } from "./style";
+import { BOLD, C, drawEllipsized, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD } from "./style";
 import { themed } from "./theme";
 import { readView, type ViewRead } from "./views";
 
@@ -212,7 +212,7 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
   return [S(fg(C.lred) + `${shortRef(id, fragment)} · TARGET FAILED · ${printable(st.error)}` + RESET)];
 }
 
-const shortRef = (id: string, fragment?: string) => `!((${shortId(id)}${fragment ? `^${fragment}` : ""}))`;
+const shortRef = (id: string, fragment?: string) => `!((${drawShortId(id)}${fragment ? `^${fragment}` : ""}))`;
 
 /** Tag `text` as link `to` in `sink` (or leave it as text without one). */
 const tagged = (sink: LinkTarget[] | undefined, to: LinkTarget, text: string) => (sink ? linkTag(sink.push(to) - 1) + text + LINK_END : text);
@@ -251,7 +251,7 @@ const controlsWidth = (m: Msg) => proposalOps(m).reduce((n, op) => n + op.length
 function heading(id: string, fragment: string | undefined, text: string, w: number, sink: LinkTarget[] | undefined, colour: number = C.dark, proposal: Msg | null = null) {
   const loud = colour !== C.dark;
   const room = Math.max(1, w - 1 - (proposal ? controlsWidth(proposal) : 0));
-  const shown = proposal ? ellipsize(text, room) : text;
+  const shown = proposal ? drawEllipsized(text, room) : text;
   const to: LinkTarget = { block: id, ...(fragment ? { fragment } : {}), role: "embed", ...(proposal ? { proposal: { id } } : {}) };
   return shade(fg(colour) + (loud ? BOLD : "") + tagged(sink, to, shown) + (loud ? UNBOLD : "") + (proposal ? proposalControls(proposal, sink) : "") + RESET, w);
 }

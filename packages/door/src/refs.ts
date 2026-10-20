@@ -1,4 +1,4 @@
-import { ellipsize } from "./style";
+import { drawEllipsized, ellipsize } from "./style";
 // Links in read mode, as Detail shows them: `((id))` and `[[address]]` become the target's title or the
 // authored label, without delimiters; a missing target reads `label ◌` (MISSING_MARK), quiet in running text. The service
 // resolves (`references.resolve`, `pages.resolve`); the door keeps the answers until the outline changes.
@@ -31,8 +31,10 @@ export { stripMarks };
 /** What a reference's answer is kept under: its target. Its label is how the note writes it, not what it resolves to. */
 export const refKey = (id: string, fragment?: string, outline?: string) => `${outline ? outline + ":" : ""}${id}${fragment ? `^${fragment}` : ""}`;
 
-/** The compact id keeps its full value in the shared truncation metadata. */
+/** Reference data and refusals must stay plain; reveal metadata belongs to drawing. */
 export const shortId = (id: string) => id.length > 12 ? ellipsize(id, 9) : id;
+/** The drawing counterpart; reference data and refusals use shortId. */
+export const drawShortId = (id: string) => id.length > 12 ? drawEllipsized(id, 9) : id;
 
 // ── what changed: a cached answer is asked again only when a change could have altered it ──────────
 
@@ -409,7 +411,10 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
   const mark = (v: LinkView, to: LinkTarget, external = false) => {
     const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
-    return (v.missing ? MISSING_ON : external ? EXTERNAL_ON : LINK_ON) + on + v.text + off + (external ? ADORN + "↗" : "") + LINK_OFF;
+    const block = to.block;
+    const text = block && to.label === undefined
+      ? v.text.replace(shortId(block), () => drawShortId(block)) : v.text;
+    return (v.missing ? MISSING_ON : external ? EXTERNAL_ON : LINK_ON) + on + text + off + (external ? ADORN + "↗" : "") + LINK_OFF;
   };
   // The `{{ }}` of the text, where the scan finds them, paired with the service's answers (none until it has answered).
   const answer = site ? siteAnswerOf(site.block, noteText, src, site.draft, site.call) : null;

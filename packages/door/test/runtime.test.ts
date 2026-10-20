@@ -91,6 +91,32 @@ afterAll(async () => { board?.close(); await scratch?.dispose(); rmSync(root, { 
 
 const note = async (text: string) => (await board.request<{ id: string }>("create", { parentId: null, text, author: "agent" })).id;
 
+test("peek and act keep drawing marks out of agent text", async () => {
+  const { env } = sandbox();
+  const id = await note("Seed ledger\n```\n" + "long code passage ".repeat(10) + "\n```");
+  const door = new Door(env);
+  try {
+    await door.up();
+    expect((await door.cli("open", id)).code).toBe(0);
+    const peek = await door.cli("peek");
+    expect(peek.code).toBe(0);
+    expect(peek.out).toContain("Seed ledger");
+    expect(peek.out).not.toMatch(/(?:\\u001b|\x1b)\[(?:777|778)/i);
+    const elements = await door.cli("act", "elements", "--as", "ledger-reader");
+    expect(elements.code).toBe(0);
+    expect(elements.out).toContain("code block");
+    expect(elements.out).not.toMatch(/(?:\\u001b|\x1b)\[(?:777|778)/i);
+    const refused = await door.cli("act", "passage.select", "quote=" + "missing seed ".repeat(10), "--as", "ledger-reader");
+    expect(refused.code).toBe(1);
+    expect(refused.err).toContain("isn't in the note");
+    expect(refused.err + refused.out).not.toMatch(/(?:\\u001b|\x1b)\[(?:777|778)/i);
+  } finally {
+    door.kill("SIGTERM");
+    await door.ended();
+    door.pty.close();
+  }
+}, 40_000);
+
 describe("every exit restores the terminal, copies drafts and removes the socket (F1)", () => {
   for (const sig of ["SIGINT", "SIGQUIT", "SIGTERM", "SIGHUP"] as const) {
     test(`${sig}`, async () => {

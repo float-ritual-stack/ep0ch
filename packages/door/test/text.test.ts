@@ -1,10 +1,12 @@
+import { Canvas } from "../src/canvas";
+import { Overflow } from "../src/overflow";
 // wrap() at widths a narrow pane or deep indentation can hand it: it always ends, and its callers keep
 // their rows inside the width. Fictional text only.
 import { expect, test } from "bun:test";
 import { renderDoc } from "../src/doc";
-import { width } from "../src/style";
+import { pad, width } from "../src/style";
 import { presentLinks } from "../src/refs";
-import { wrap } from "../src/text";
+import { colourBody, wrap } from "../src/text";
 
 test("single tildes in paths and approximations stay literal; only double tildes strike (PIE-899)", () => {
   for (const text of ["copies of ~/.claude/~/projects/x at the same paths", "~178 orphaned … ~", "~single~", "inline ~~~triple~~~"]) {
@@ -51,4 +53,30 @@ test("a plain wrap (not a body row) adds nothing: every row fits its width and h
     for (const r of rows) expect(width(r)).toBeLessThanOrEqual(w);
     expect(rows.join("").split("`").length - 1).toBe(2);
   }
+});
+
+
+test("a large clipped value reveals a bounded prefix and the omitted count", () => {
+  const text = "seed ".repeat(4000);
+  const canvas = new Canvas(40, 3);
+  canvas.text(0, 0, pad(text, 20));
+  expect(canvas.lines().join("\n").length).toBeLessThan(1000);
+  const overflow = new Overflow();
+  overflow.draw(canvas.lines(), 40, 0);
+  const reveal = overflow.reveal().text!;
+  expect(reveal).toStartWith("seed seed");
+  expect(reveal.length).toBeLessThan(4200);
+  expect(reveal).toMatch(/… \(\d+ more characters\)$/);
+  overflow.draw(canvas.lines(), 40, 1000);
+  expect(overflow.reveal().text).toBe(reveal);
+});
+
+
+test("a shortened reference still reveals its full id after drawing", () => {
+  const id = "12345678-1234-4234-8234-123456789abc";
+  const canvas = new Canvas(80, 3);
+  canvas.text(0, 0, colourBody(presentLinks(`((${id}))`, false, null)));
+  const overflow = new Overflow();
+  overflow.draw(canvas.lines(), 80, 0);
+  expect(overflow.reveal().text).toBe(id);
 });

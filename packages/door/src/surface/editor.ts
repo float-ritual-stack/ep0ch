@@ -9,7 +9,7 @@ import { basename, dirname, join } from "node:path";
 import { DRAFT_ACTIONS, keepCopy, patchLabel, type Draft } from "../edit";
 import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
-import { ellipsize, C, fg, pad, RESET, visible, width, type LinkRange } from "../style";
+import { drawEllipsized, C, fg, pad, RESET, visible, width, type LinkRange } from "../style";
 import { inWindow, type Placement } from "../kitty";
 import type { LinkTarget } from "../refs";
 import { rule, words } from "../text";
@@ -71,7 +71,7 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   for (const c of ctls) { controls.push({ row: 0, from: x, to: x + c.text.length, action: c.action }); x += c.text.length + 1; }
   // Where a new note lands, under the status: the whole row is its control.
   // The destination gives way first, so [move ▸] is always there to see.
-  const lands = f.lands ? (() => { const mv = "  [move ▸]", room = Math.max(1, w - mv.length), at = ellipsize(f.lands, room), t = `${at}${mv}`; controls.push({ row: 1 + f.status.length, from: 0, to: Math.min(w, width(t)), action: "lands" }); return [fg(C.lcyan) + pad(t, w) + RESET]; })() : [];
+  const lands = f.lands ? (() => { const mv = "  [move ▸]", room = Math.max(1, w - mv.length), at = drawEllipsized(f.lands, room), t = `${at}${mv}`; controls.push({ row: 1 + f.status.length, from: 0, to: Math.min(w, width(t)), action: "lands" }); return [fg(C.lcyan) + pad(t, w) + RESET]; })() : [];
   const top = [
     fg(C.yellow) + pad(`» ${f.title}`, tw) + ctls.map(c => " " + fg(C.lcyan) + c.text).join("") + RESET,
     ...f.status,

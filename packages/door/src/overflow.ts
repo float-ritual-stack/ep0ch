@@ -2,21 +2,50 @@ import { printable } from "./text";
 import { DRAWN_PART, OSC8_ALL, OSC8_CLOSE } from "./hyperlink";
 import { C, fg, headOf, pad, RESET, tailFrom, visible, width } from "./style";
 
-// Internal drawing marks, consumed by Canvas and App; the terminal sink removes them too.
+// Marks carry only a reference; hidden values never travel through composed drawing strings.
 export const FULL_END = "\x1b[778m";
-export const FULL_MARKERS = /\x1b\[(?:777;[01];[\d;]*|778)m/g;
-export function fullValue(sequence: string): { text: string; selected: boolean } | null {
-  const match = /^\x1b\[777;([01]);([\d;]*)m$/.exec(sequence);
-  return match ? { text: match[2]!.split(";").map(n => String.fromCodePoint(Number(n))).join(""), selected: match[1] === "1" } : null;
+export const FULL_MARKERS = /\x1b\[(?:777;[01];\d+|778)m/g;
+interface Full { id: number; source: string; reveal?: string }
+const values = new Map<string, Full>();
+const byId = new Map<number, Full>();
+let nextId = 0;
+
+function revealText(value: Full): string {
+  if (value.reveal !== undefined) return value.reveal;
+  const plain = fullPlainText(value.source).replace(OSC8_ALL, "").replace(/\x1b\[[\d;]*m/g, "");
+  let prefix = "", bytes = 0;
+  for (const ch of plain) {
+    const n = Buffer.byteLength(ch);
+    if (bytes + n > 4096) break;
+    prefix += ch; bytes += n;
+  }
+  return value.reveal = prefix.length < plain.length ? `${prefix}… (${plain.length - prefix.length} more characters)` : plain;
+}
+
+export function fullValue(sequence: string): { readonly text: string; selected: boolean } | null {
+  const match = /^\x1b\[777;([01]);(\d+)m$/.exec(sequence);
+  const value = match && byId.get(Number(match[2]));
+  return value ? { get text() { return revealText(value); }, selected: match![1] === "1" } : null;
 }
 export function fullPlainText(text: string): string {
-  return text.replace(/\x1b\[777;[01];([\d;]*)m[\s\S]*?\x1b\[778m/g,
-    (_, value: string) => value.split(";").map(n => String.fromCodePoint(Number(n))).join(""));
+  return text.replace(/\x1b\[777;[01];(\d+)m[\s\S]*?\x1b\[778m/g,
+    (drawn, id: string) => {
+      const value = byId.get(Number(id));
+      return value ? fullPlainText(value.source) : drawn.replace(FULL_MARKERS, "");
+    });
 }
 export function fullText(text: string, drawn: string): string {
-  const plain = fullPlainText(text).replace(OSC8_ALL, "").replace(/\x1b\[[\d;]*m/g, "");
-  const codes = [...plain].map(c => c.codePointAt(0)).join(";");
-  return `\x1b[777;0;${codes}m${drawn.replace(FULL_MARKERS, "")}${FULL_END}`;
+  let value = values.get(text);
+  if (!value) {
+    value = { id: ++nextId, source: text };
+    values.set(text, value); byId.set(value.id, value);
+    // Bound retained source references as screens and completions come and go.
+    if (values.size > 1024) {
+      const oldest = values.values().next().value!;
+      values.delete(oldest.source); byId.delete(oldest.id);
+    }
+  } else { values.delete(text); values.set(text, value); }
+  return `\x1b[777;0;${value.id}m${drawn.replace(FULL_MARKERS, "")}${FULL_END}`;
 }
 export const clipText = (text: string, cells: number): string => width(text) > cells ? fullText(text, headOf(text, cells)) : text;
 export const selectFullText = (text: string) => text.replaceAll("\x1b[777;0;", "\x1b[777;1;");
@@ -60,7 +89,7 @@ export class Overflow {
       const full = fullValue(part);
       if (full || part === FULL_END) {
         if (open) open.end = x;
-        open = full ? { ...full, x, y, end: x } : undefined;
+        open = full ? { get text() { return full.text; }, selected: full.selected, x, y, end: x } : undefined;
         if (open) this.cuts.push(open);
         return "";
       }

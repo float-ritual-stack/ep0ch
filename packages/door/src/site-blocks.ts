@@ -8,7 +8,7 @@ import type { FieldsSpec } from "@ep0ch/outline-core/site-blocks";
 import { frame } from "./graphs";
 import { siteProduced, type LiveSite } from "./live";
 import type { LinkTarget } from "./refs";
-import { C, ellipsize, fg, RESET } from "./style";
+import { C, drawEllipsized, fg, RESET } from "./style";
 
 import { rowLines } from "./text";
 
@@ -79,4 +79,4 @@ export function ifState(where: string, note: string | undefined, site?: LiveSite
 }
 
 /** An `::if` whose query can't be read, said where its body would be (the body stays hidden). */
-export const ifProblemLines = (message: string, W: number): string[] => frame("if", [fg(C.lred) + ellipsize(message, Math.max(10, W - 4)) + RESET], W);
+export const ifProblemLines = (message: string, W: number): string[] => frame("if", [fg(C.lred) + drawEllipsized(message, Math.max(10, W - 4)) + RESET], W);
