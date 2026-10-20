@@ -382,7 +382,9 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
       const latest = app.messages.rows.at(-1)!;
       const records = () => readFileSync(messageLogPath(), "utf8").trimEnd().split("\n").map(line => JSON.parse(line));
       await until(() => records().some(r => r.message === latest.message && r.stack), "its record with a stack");
-      expect(records().find(r => r.message === latest.message && r.stack).stack).toContain(latest.message);
+      // The stack is the underlying error's (its own message, then its frames); the shown line stays one line.
+      expect(records().find(r => r.message === latest.message && r.stack).stack).toMatch(/\n\s+at /);
+      expect(latest.message).not.toContain("\n");
       expect(JSON.stringify(app.describe().messages).includes('"stack":')).toBe(false);
     } finally { app.pop(); }
   });
