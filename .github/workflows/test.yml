@@ -45,7 +45,7 @@ jobs:
       - name: scroll bench (door)
         working-directory: packages/door
         env:
-          EP0CH_BENCH: "1"
+          SCROLL_BENCH: "1"
         run: bun test test/scroll-bench.test.ts
   test:
     if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review' || github.event.label.name == 'ci'
