@@ -358,7 +358,9 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         return machines.every(machine => {
           const was = before.find(l => l.machine === machine && l.direction === direction);
           const now = links.find(l => l.machine === machine && l.direction === direction && l.transport === "link");
-          return now?.running && now.pid !== was?.pid && (!(config.mode === "connect" || was?.up) || now.up);
+          // The server's side is ours to restart and check; whether a machine dials back in is that machine's (a laptop
+          // asleep or away). A connector must reach its server; a server only has to be running again.
+          return now?.running && now.pid !== was?.pid && (config.mode !== "connect" || now.up);
         });
       };
       if (!(await waitFor(ready, 60_000))) {
