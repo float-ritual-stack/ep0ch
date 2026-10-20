@@ -377,11 +377,12 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     await h.scratch.stop();
     app.push(new Conferences());
     try {
-      await Bun.sleep(100);
+      // The read fails on its own clock and more than one error can land: find the record of the one shown last.
+      await until(() => app.messages.rows.at(-1)?.kind === "error", "the read's error shown");
       const latest = app.messages.rows.at(-1)!;
-      expect(latest.kind).toBe("error");
-      const records = readFileSync(messageLogPath(), "utf8").trimEnd().split("\n").map(line => JSON.parse(line));
-      expect(records.at(-1).stack).toContain(latest.message);
+      const records = () => readFileSync(messageLogPath(), "utf8").trimEnd().split("\n").map(line => JSON.parse(line));
+      await until(() => records().some(r => r.message === latest.message && r.stack), "its record with a stack");
+      expect(records().find(r => r.message === latest.message && r.stack).stack).toContain(latest.message);
       expect(JSON.stringify(app.describe().messages).includes('"stack":')).toBe(false);
     } finally { app.pop(); }
   });
