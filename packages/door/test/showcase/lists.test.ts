@@ -35,7 +35,8 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
   test("links rows shows one, two and truncate side by side", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "links-rows" }, as: "test-agent" });
-    await until(() => screen().includes("Carry the trestle"), "the row limit exhibit");
+    // The three columns fill in on their own reads: wait for all of them, not the first.
+    await until(() => ["Carry the trestle", "Two lines", "Truncate", "garden", "…"].every(t => screen().includes(t)), "the row limit exhibit, all three columns");
     const shown = screen();
     expect(shown).toContain("Two lines");
     expect(shown).toContain("Truncate");
