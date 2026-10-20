@@ -245,8 +245,8 @@ const ITEMS: MenuItem[] = [
   { key: "J", label: "Join", open: () => new Conferences() },
   { key: "K", label: "Kanban", open: () => openScreen("board"), one: "board" },
   { key: "R", label: "Read", open: ctx => new MessageList("recent", n => ctx.board.changedSince(0, n), "most recently changed") },
-  { key: "W", label: "Who's on", open: () => openScreen("who") },
-  { key: "L", label: "Lastcall", open: () => openScreen("lastcall") },
+  { key: "W", label: "Who's on", open: () => openScreen("who"), one: "who" },
+  { key: "L", label: "Lastcall", open: () => openScreen("lastcall"), one: "lastcall" },
   { key: "F", label: "Files", open: () => new FileAreas() },
   { key: "S", label: "Stats", open: () => new Stats() },
   { key: "Q", label: "Quay", open: () => openScreen("river"), one: "river" },
@@ -272,7 +272,7 @@ const ITEMS: MenuItem[] = [
   // EchoNet's message areas (PIE-779): every named area and subscription the door reaches, their messages, the nodelist.
   { key: "A", label: "Areas", open: () => openScreen("echonet"), one: "echonet" },
   // A blank screen (PIE-565): one tile to build from, saved as a screen note with ^W w; its o opens the ones you made.
-  { key: "M", label: "Make a screen", open: () => openScreen("blank") },
+  { key: "M", label: "Make a screen", open: () => openScreen("blank"), one: "blank" },
 ];
 
 /** Every screen the menu opens, by its key: what the parity test (PIE-506) presses every key on. */
@@ -637,6 +637,14 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
         const arg = screenTargetArg(name);
         if (given !== undefined && !arg) throw new ActionRefused(`the ${name} screen takes no target · ep0ch --screen ${name}`);
         const value = arg === "note" && given ? await blockTarget(given, ctx) : given;
+        const existing = ctx.screens?.().find(s => s.name === name && (s.openArgs?.()?.target ?? undefined) === value);
+        if (existing) {
+          while (ctx.screens?.().at(-1) !== existing) {
+            if (actor.kind === "agent") agentMayLeave(ctx.screens!().at(-1)!);
+            ctx.pop();
+          }
+          return { opened: existing.title, screen: name, back: here?.title ?? null };
+        }
         const s = openScreen(name, arg && value ? { [arg]: value } : {});
         ctx.push(s);
         return { opened: s.title, screen: name, ...(value ? { target: value } : {}) };
@@ -651,7 +659,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       // By name: the brief, Waiting and the welcome are desks too (PIE-515: specs on it), and each is its own screen.
       const open = item.one && ctx.screens?.().find(x => x.name === item.one);
       // Already on the stack: go back down to it (never a second copy: a desk would start its programs twice).
-      if (open && open === here) throw new ActionRefused(`the ${open.title} is already open`);
+      if (open && open === here) return { opened: open.title, key: item.key };
       if (open) {
         const from = here?.title ?? null;
         while (ctx.screens?.().at(-1) && ctx.screens!().at(-1) !== open) {

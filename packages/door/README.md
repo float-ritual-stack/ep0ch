@@ -1345,7 +1345,7 @@ the drawer; a terminal you made yourself stays yours.
 | `q`, going to the menu | keep running: the desk stays alive in the background, and `D` on the menu brings it back as it was |
 | `!` / `^W !`, drop to shell | keep running while your shell has the terminal (the door keeps reading them and answering its control socket; it paints nothing) |
 | `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
-| the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `^W x` closes it (at once: nothing runs), `ctrl+]` goes back to the door (in the drawer, `Esc` too), other keys wait. A tab in the drawer closes by its `×` too. The drawer's own exited program clears to an empty slot with `x`, `^W x`, the frame's `×` or the exit line's x; Enter runs it again, alt+s opens a shell, alt+g opens agents. Leaving a drawer with only the empty slot puts it away; it reopens empty |
+| the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `^W x` closes it (at once: nothing runs), `ctrl+]` goes back to the door (in the drawer, `Esc` too), other keys wait. A tab in the drawer closes by its `×` too. The last tile closes too, including the drawer's own tab. An empty screen or drawer shows home with the power bar and New note / Shell / Agent buttons. Nothing respawns; alt+s opens a shell, alt+g opens agents |
 | loading a layout | a tile with the same name keeps its program; ones the layout has no place for go in a shut dock on the right |
 | detaching from a session (`ctrl+c`, logging off with `G`, closing the terminal, a dropped ssh; see [Sessions](#sessions-quit-is-detach)) | keep running, scrollback and all: the next `ep0ch` attaches to them. `E` on the main menu or `ep0ch session end` ends them with the session (asking first) |
 | quitting a door in its own terminal (`--no-daemon`: `ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
@@ -1454,8 +1454,8 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   on your PATH), each also "in Herdr" when Herdr is installed, and a shell. The choice is saved for this outline's
   session (`drawer-agent.json` in its folder of the state dir; `host.agent default=true` makes it the default for
   every outline; `in=<folder>` saves the folder it starts in with it). Pulling the drawer up with nothing chosen yet offers the picker; until then it's a shell.
-  `EP0CH_DAILY_AGENT` overrides it for one door. A new choice starts at the tab's next start: what runs now keeps
-  running (`alt+R` starts the new one in its place). `ep0ch doctor` lists each session's drawer agent, where the
+  `EP0CH_DAILY_AGENT` overrides it for one door and is named on the chip. Click that chip any time to choose again.
+  Choosing restarts the same tab, asking first if it is busy. `ep0ch agent use claude [--everywhere]` does the same from a shell. `ep0ch doctor` lists each session's drawer agent, where the
   choice came from, and the command to change it.
 - **No dead panes.** Every agent, in the drawer or in a terminal tile, starts inside your login shell. When it exits
   or crashes, the tile says so (`claude exited · shell`) and is your shell, in the same folder with the same

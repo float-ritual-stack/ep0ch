@@ -1,3 +1,4 @@
+import { buttonLabel } from "./home";
 import { withFigureProp } from "@ep0ch/outline-core/figure-props";
 import { checkValue as schemaCheck } from "@ep0ch/outline-core/component-schema";
 import { Inspector } from "./inspector";
@@ -2336,7 +2337,7 @@ export class NoteSurface {
     const buttonHook = (block: string, lines: readonly number[]): DocEnv["button"] => (call, i) => {
       const line = lines[i] ?? -1, label = printable(call.label);
       if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
-      return [fg(C.lcyan) + BOLD + tagged(drawn, { role: "control", label, press: { act: call.act, block, line } }, `[${label}]`) + RESET];
+      return [tagged(drawn, { role: "control", label, press: { act: call.act, block, line } }, buttonLabel(label))];
     };
     const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id, env.inlineList);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.

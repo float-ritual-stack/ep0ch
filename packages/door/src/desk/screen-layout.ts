@@ -775,7 +775,8 @@ class Step<I> {
   /** A tile put at a place in the tree: beside a tile, into its tabs, along an outer edge, into a named line, or the next column. */
   private putAt(id: I, at: At<I>) {
     const t = this.d.tree;
-    if (at.kind === "edge") this.d.tree = edge(t, id, at.dir);
+    if (!leaves(t).length && at.kind === "edge") this.d.tree = leaf(id);
+    else if (at.kind === "edge") this.d.tree = edge(t, id, at.dir);
     else if (at.kind === "tabs") this.d.tree = tabInto(t, at.target, id, at.index);
     else if (at.kind === "split") this.d.tree = besideSlot(t, at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair);
     else if (at.kind === "in") this.d.tree = insert(t, at.key, leaf(id), at.weight ?? 1, at.index);
@@ -855,7 +856,6 @@ class Step<I> {
       const own = chainOf(this.d.tree, id).find(c => c.id === e.by.closable && c.t === "tabs" && c.ids.length === 1);
       if (!e.closable && !(f.clearsOnClose && e.by.closable === `${f.kind} tiles`)) refuse(own ? `${name} stays: its place (${own.id}) keeps it${fold} · ^W P there turns closable on` : this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles${fold} · ^W P there turns closable on`));
       if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
-      if (!f.clearsOnClose && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse("the screen's last tile stays");
       if (this.agent && id === this.d.focus && (!f.clearsOnClose || this.ctx.person.here !== false)) refuse(`${name} has the person's keys; an agent doesn't close it`);
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
     }
@@ -1006,8 +1006,7 @@ class Step<I> {
     const heir = fl && alone ? tileOfColumn(fl.flow, fl.ci > 0 ? fl.ci - 1 : fl.ci + 1) : undefined;
     if (fl && alone) leaving(fl.flow, fl.ci, coversOf(this.d, fl.flow, this.ctx.area, x => !!this.facts(x).holds));
     const next = float ? this.d.tree : remove(this.d.tree, id);
-    if (!next) { this.d.changed = false; return; }
-    this.d.tree = normalise(next);
+    this.d.tree = normalise(next ?? { t: "tabs", ids: [], active: 0 });
     this.forget(id);
     if (this.d.focus === id) this.d.focus = (heir !== undefined && has(this.d.tree, heir) ? heir : undefined) ?? visible(this.d.tree).find(x => !this.d.collapsed.has(x)) ?? visible(this.d.tree)[0] ?? this.all()[0]!;
   }

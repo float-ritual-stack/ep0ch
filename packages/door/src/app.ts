@@ -1096,7 +1096,7 @@ export class App implements Ctx {
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1) }) },
-    { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1) }) },
+    { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: how.actor.kind !== "agent" && this.drawer.entered ? this.drawer.desk ?? undefined : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1) }) },
     { set: MACRO_ACTIONS, takes: "none", on: () => ({ ctx: this, recording: this.recording }) },
     { set: BAR_ACTIONS, takes: "none", on: () => ({ on: this.barOn }) },

@@ -38,6 +38,13 @@ describe.skipIf(!outliner)("--screen <name> [<target>], through screen.open", ()
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
+  test("opening a named screen twice returns to the existing screen and its tiles (PIE-1119)", async () => {
+    await start(["--screen", "blank"]);
+    const original = top();
+    await app.dispatch.act({ action: "screen.open", args: { name: "blank" } }, USER);
+    expect(top() === original).toBe(true);
+  });
+
   test("a built-in screen by name, over the main menu", async () => {
     await start(["--screen", "river"]);
     expect((app as any).stack[0]).toBeInstanceOf(MainMenu);
