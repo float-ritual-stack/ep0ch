@@ -249,6 +249,7 @@ test("install control returns a receipt, survives an offline connector, and hono
   const sha = "a".repeat(40);
   const target = { sha, record: { socket: here.sock, outline: "garden", id: note.id } };
   let linked = serveLink({ outlines: here.outlines, port: 0, keys: { travel: "fictional-key" }, log() {}, onResult: (machine, result, deploy) => recordLinkInstall(deploy, machine, result) });
+  let reportReady = false;
   let release = () => {};
   const installing = new Promise<void>(resolve => { release = resolve; });
   let connector: ReturnType<typeof connectLink> | undefined;
@@ -259,11 +260,12 @@ test("install control returns a receipt, survives an offline connector, and hono
     connector = connectLink({ server: `http://127.0.0.1:${linked.port}`, machine: "travel", key: "fictional-key", host: laptop.sock, statusPath: join(laptop.outlines, ".host/link-state.json"),
       autoInstall: () => { const c = readLinkConfig(laptop.outlines); return c?.mode === "connect" && c.autoInstall !== false; },
       install: async requested => {
-        await installing;
         const output: string[] = [];
         // A real install against a missing scratch checkout reports the blocked steps rather than executing a made-up command.
         const code = await setupCommand(["install", "--apply", "--as-client", "--sha", requested, "--json"], { env, repoRoot: join(laptop.root, "absent-checkout"), cwd: laptop.root, out: s => output.push(s), err: s => output.push(s) });
         const report = JSON.parse(output.join("\n"));
+        reportReady = true;
+        await installing;
         return { sha: requested, code, notDone: report.notDone, sessions: [], error: report.error };
       }, log: line => messages.push(line) });
     await until(() => !!linkInstallResult(here.outlines, "travel", sha), "disabled laptop reports why it did not install");
@@ -273,11 +275,18 @@ test("install control returns a receipt, survives an offline connector, and hono
     const toggle = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/main.ts"), "link", "auto-install", "on"], { env, stdout: "pipe", stderr: "pipe" });
     expect(await toggle.exited).toBe(0);
     await until(() => linkUpdateLabel(laptop.outlines) === "update ready · installing", "the door sees installation in progress");
+    await until(() => reportReady, "the installer has its receipt ready to return");
     const queued = "c".repeat(40);
-    publishLinkInstall(here.outlines, { ...target, sha: queued });
+    const queuedNote = await board.createBlock(null, "Next deploy on the garden host\nLocal: finished");
+    publishLinkInstall(here.outlines, { sha: queued, record: { ...target.record, id: queuedNote.id } });
     const port = linked.port;
     await linked.stop();
-    linked = serveLink({ outlines: here.outlines, port, keys: { travel: "fictional-key" }, log() {}, onResult: (machine, result, deploy) => recordLinkInstall(deploy, machine, result) });
+    let interruptReceipt = true;
+    // Finish before the connector processes ready: server presence alone cannot return a receipt.
+    linked = serveLink({ outlines: here.outlines, port, keys: { travel: "fictional-key" }, log: line => { if (line.includes(" up since ")) release(); }, onResult: async (machine, result, deploy) => {
+      await recordLinkInstall(deploy, machine, result);
+      if (result.sha === sha && interruptReceipt) { interruptReceipt = false; throw new Error("scratch receipt interrupted before acknowledgement"); }
+    } });
     await until(() => linkStates(here.outlines).length === 1, "link reconnects while the installer is still running");
     release();
     await until(() => !!linkInstallResult(here.outlines, "travel", sha)?.error?.includes("origin/main"), "install refusal returns through the link");
@@ -285,7 +294,7 @@ test("install control returns a receipt, survives an offline connector, and hono
     await until(() => readFileSync(join(here.outlines, `.remote/travel.${sha}.install.json`), "utf8").includes("origin/main"), "receipt saved");
     await until(() => !!linkInstallResult(here.outlines, "travel", queued), "the newer deploy queued during installation also returns its result");
     expect(messages.filter(m => m.includes("unexpected authentication message"))).toEqual([]);
-    expect((await board.get(note.id))?.text).toContain(queued);
+    expect((await board.get(queuedNote.id))?.text).toContain(queued);
     expect((await board.get(note.id))?.text).toContain("origin/main");
     connector.stop();
     await until(() => linkStates(here.outlines).length === 0, "laptop is offline");

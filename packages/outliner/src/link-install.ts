@@ -18,6 +18,7 @@ export interface LinkUpdate {
   sha: string;
   phase: "ready" | "installing" | "done" | "blocked";
   result?: LinkInstallResult;
+  receipts?: LinkInstallResult[];
   restart?: boolean;
 }
 
@@ -54,5 +55,5 @@ export function linkUpdateLabel(outlines: string): string {
 
 export function reconcileLinkInstall(outlines: string, result: LinkInstallResult) {
   const path = linkUpdatePath(outlines), update = readLinkFile<LinkUpdate>(path);
-  if (update?.sha === result.sha) writeLinkFile(path, { sha: result.sha, phase: result.code === 0 ? "done" : "blocked", result });
+  if (update?.sha === result.sha) writeLinkFile(path, { ...update, phase: result.code === 0 ? "done" : "blocked", result, restart: false });
 }

@@ -79,7 +79,9 @@ After a successful `ep0ch install --apply` on a link server, install publishes i
 verified origin/main commit to each configured connector. Connected laptops receive
 one `install <sha>` message; an away laptop receives the latest SHA when it next
 connects. A laptop already at that SHA reports it without running install again.
-The desired SHA and each receipt survive a server or connector restart.
+The desired SHA and each receipt survive a server or connector restart. A
+connector retains results until their content is acknowledged, including when a
+newer install arrives; reconnect resumes result delivery without repeating install.
 
 The connector calls `ep0ch install --apply --as-client --sha <sha> --json` from
 its installed checkout. `--sha` accepts a full commit SHA reachable from fetched

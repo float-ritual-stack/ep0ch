@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type Server as SocketServer } from "node:net";
 import { chmodSync, existsSync, readFileSync, readlinkSync, readdirSync, statSync, writeFileSync, renameSync, watch } from "node:fs";
 import { dirname, join } from "node:path";
@@ -23,6 +23,7 @@ function saveState(path: string, state: LinkState) {
 }
 
 const proof = (key: string, machine: string, nonce: string, role: "client" | "server" = "client") => createHmac("sha256", key).update(`ep0ch-link-${role}\n${machine}\n${nonce}`).digest();
+const receiptKey = (result: LinkInstallResult) => createHash("sha256").update(JSON.stringify(result)).digest("hex");
 type Peer = { nonce: string; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
 export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void; onResult?: (machine: string, result: LinkInstallResult, deploy: LinkDeploy) => Promise<void> }) {
   let reporting = Promise.resolve();
@@ -115,7 +116,7 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
             const saved = reporting.then(async () => {
               await o.onResult?.(p.machine!, result, deploy);
               writeLinkFile(linkResultPath(o.outlines, p.machine!, result.sha), result);
-              if (!p.closed) ws.send(JSON.stringify({ received: result.sha }));
+              if (!p.closed) ws.send(JSON.stringify({ received: receiptKey(result) }));
             });
             reporting = saved.catch(() => {});
             await saved;
@@ -139,11 +140,21 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
 export function connectLink(o: { server: string; machine: string; key: string; host: string; statusPath?: string; commit?: string; install?: (sha: string) => Promise<LinkInstallResult>; autoInstall?: () => boolean; onInstalled?: () => void; log: (line: string) => void }) {
   const updatePath = o.statusPath ? join(o.statusPath, "../link-update.json") : undefined;
   let update = updatePath ? readLinkFile<LinkUpdate>(updatePath) : undefined;
+  let receipts = update?.receipts ?? [];
   let installing = false;
   let wanted: string | undefined;
   let considerCurrent = () => {};
   let sendResult: ((result: LinkInstallResult) => void) | undefined;
-  const saveUpdate = () => { if (updatePath && update) writeLinkFile(updatePath, update); };
+  const saveUpdate = () => {
+    if (!update) return;
+    update = { ...update, receipts };
+    if (updatePath) writeLinkFile(updatePath, update);
+  };
+  const returnResult = (result: LinkInstallResult) => {
+    if (!receipts.some(r => receiptKey(r) === receiptKey(result))) receipts.push(result);
+    saveUpdate();
+    sendResult?.(result);
+  };
   let stopped = false, streams: LinkStreams | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined, heartbeat: ReturnType<typeof setInterval> | undefined;
   let delay = 1000;
@@ -158,15 +169,15 @@ export function connectLink(o: { server: string; machine: string; key: string; h
     let last = Date.now(), ended = false, authenticated = false, nonce = "";
     const consider = async () => {
       if (!authenticated || ended || !update || installing) return;
-      if (update.result && update.phase !== "ready") { socket.send(JSON.stringify({ result: update.result })); return; }
+      if (update.result && update.phase !== "ready") { returnResult(update.result); return; }
       const sha = update.sha;
       if (o.commit === sha && update.phase === "ready" && !update.result) {
-        update = { sha, phase: "done", result: { sha, code: 0, notDone: [], sessions: [] } }; saveUpdate();
-        socket.send(JSON.stringify({ result: update.result })); return;
+        update = { sha, phase: "done", result: { sha, code: 0, notDone: [], sessions: [] } };
+        returnResult(update.result!); return;
       }
       if (o.autoInstall?.() === false || !o.install) {
-        update.phase = "ready"; saveUpdate();
-        socket.send(JSON.stringify({ result: { sha: update.sha, code: 1, notDone: ["auto-install off; run ep0ch install --apply"], sessions: [] } }));
+        update.phase = "ready";
+        returnResult({ sha: update.sha, code: 1, notDone: ["auto-install off; run ep0ch install --apply"], sessions: [] });
         return;
       }
       installing = true; update = { sha, phase: "installing" }; saveUpdate();
@@ -174,15 +185,15 @@ export function connectLink(o: { server: string; machine: string; key: string; h
       try { result = await o.install(sha); }
       catch (error) { result = { sha, code: 1, notDone: ["install"], sessions: [], error: (error as Error).message }; }
       installing = false;
-      update = { sha, phase: result.code === 0 && !result.error ? "done" : "blocked", result, restart: !!result.commit && result.commit !== o.commit }; saveUpdate();
-      sendResult?.(result);
+      update = { sha, phase: result.code === 0 && !result.error ? "done" : "blocked", result, restart: !!result.commit && result.commit !== o.commit };
+      returnResult(result);
       if (wanted && wanted !== sha) { update = { sha: wanted, phase: "ready" }; saveUpdate(); considerCurrent(); }
     };
     considerCurrent = () => { void consider(); };
     const configWatch = o.statusPath ? watch(dirname(o.statusPath), (_, file) => {
       if (file === "link-update.json" && !installing && updatePath) {
         const saved = readLinkFile<LinkUpdate>(updatePath);
-        if (JSON.stringify(saved) !== JSON.stringify(update)) { update = saved; void consider(); }
+        if (JSON.stringify(saved) !== JSON.stringify(update)) { update = saved; receipts = saved?.receipts ?? []; void consider(); }
       }
       if (file === "link.json") void consider();
     }) : undefined;
@@ -208,6 +219,7 @@ export function connectLink(o: { server: string; machine: string; key: string; h
           if (typeof message.proof !== "string" || !/^[a-f0-9]{64}$/.test(message.proof) || !timingSafeEqual(proof(o.key, o.machine, nonce, "server"), Buffer.from(message.proof, "hex"))) throw new Error("server did not prove the link key");
           authenticated = true;
           sendResult = result => socket.send(JSON.stringify({ result }));
+          for (const receipt of receipts) sendResult(receipt);
           clearTimeout(timeout); delay = 1000;
           if (message.compatible) streams = new LinkStreams(data => { if (socket.bufferedAmount > 4 * 1024 * 1024) socket.close(); else socket.send(data); }, o.host);
           since = new Date().toISOString(); state(true);
@@ -218,8 +230,12 @@ export function connectLink(o: { server: string; machine: string; key: string; h
           if (installing) return;
           if (update?.sha !== message.install) update = { sha: message.install, phase: "ready" };
           void consider();
-        } else if (authenticated && typeof message.received === "string" && /^[a-f0-9]{40}$/.test(message.received)) {
-          if (update?.restart && message.received === update.sha) { update.restart = false; saveUpdate(); o.onInstalled?.(); }
+        } else if (authenticated && typeof message.received === "string" && /^[a-f0-9]{64}$/.test(message.received)) {
+          receipts = receipts.filter(r => receiptKey(r) !== message.received);
+          const restart = update?.restart && update.result && receiptKey(update.result) === message.received;
+          if (restart && update) update.restart = false;
+          saveUpdate();
+          if (restart) o.onInstalled?.();
         } else throw new Error("unexpected authentication message");
       } catch (error) { endAttempt(`${(error as Error).message}; check ep0ch install --apply on both machines`); }
     };
