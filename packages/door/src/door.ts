@@ -1,3 +1,4 @@
+import { errorDetails } from "./status-log";
 import { useMotion } from "./motion";
 import { useReadingRuler } from "./surface/selection";
 // Opening the door on a terminal: the App over a service connection, its control socket, its first screens. The
@@ -104,7 +105,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
     const start = startScreens(o.args, process.env, then => new Logon(app, then));
     for (const s of start.screens) app.push(s);
     // `--screen <name> [<target>]`: the same action a menu letter, an agent's act and a session's attach run.
-    if (start.open) await app.dispatch.act({ action: "screen.open", args: { ...start.open } }, USER).catch(e => app.flash((e as Error).message, 20_000));
+    if (start.open) await app.dispatch.act({ action: "screen.open", args: { ...start.open } }, USER).catch(e => app.flash((e as Error).message, 20_000, errorDetails(e)));
   }
   if (refused) app.flash(refused, 20_000);
   else if (others.length) app.flash(`another door (pid ${others.join(", ")}) is on this outline · marks are shared, the desk layout is whichever saves last`, 20_000);
@@ -224,7 +225,7 @@ export function guardDoor(o: { door(): Door | null; signal(sig: NodeJS.Signals):
   for (const sig of ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const) process.on(sig, () => { const c = o.signal(sig); if (c !== null) end(c); });
   const fault = (e: unknown) => {
     const d = o.door();
-    if (e instanceof Offline && d && !ending) { d.app.flash(e.message); return; }
+    if (e instanceof Offline && d && !ending) { d.app.flash(e.message, undefined, errorDetails(e)); return; }
     if (o.hangup?.(e)) return end(0);
     end(1, e);
   };

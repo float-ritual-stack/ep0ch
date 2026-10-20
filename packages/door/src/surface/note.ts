@@ -2,6 +2,8 @@ import { withFigureProp } from "@ep0ch/outline-core/figure-props";
 import { checkValue as schemaCheck } from "@ep0ch/outline-core/component-schema";
 import { Inspector } from "./inspector";
 import { coerceActionArgs } from "./actions";
+import { errorDetails } from "../status-log";
+import { messageContext } from "../status-log";
 import { mentionsExtension as mentionsExtensionLine } from "../extensions";
 import { Canvas, LINE_BOX } from "../canvas";
 import { CONFIRM_HINT } from "./hint-card";
@@ -1223,7 +1225,7 @@ export class NoteSurface {
         queueMicrotask(() => void open(true, cs.startedBy.kind === "user", side).then(() => { if (this.tileFor === cs) this.tileOpen = cs; }, e => {
           // Refused (a locked screen): the comment stays in the reader, split, and says why.
           if (this.tileFor === cs) { this.tileFor = null; cs.place = "split"; }
-          host.ctx.flash(`the comment stays in the reader: ${e instanceof Error ? e.message : String(e)}`);
+          host.ctx.flash(`the comment stays in the reader: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e));
           host.redraw();
         }));
       } else if (this.tileOpen === cs && host.hasComposerTile && !host.hasComposerTile()) {
@@ -2272,7 +2274,7 @@ export class NoteSurface {
       if (target.address && this.context) {
         const pool = outlineBoards(this.context);
         const ctx = pool.peek(target.address);
-        if (!ctx) { void pool.on(target.address).then(() => src?.redraw(), (error: Error) => this.context?.flash(error.message)); return ["reading the other outline..."]; }
+        if (!ctx) { void pool.on(target.address).then(() => src?.redraw(), (error: Error) => this.context?.flash(error.message, undefined, errorDetails(error))); return ["reading the other outline..."]; }
         source = { board: ctx.board, redraw: () => src?.redraw() };
       }
       const firstLink = drawn.length;
@@ -2735,14 +2737,14 @@ export class NoteSurface {
     catch (e) {
       // The first thing said when the tether drops is that it dropped, not something about revisions.
       const why = e instanceof Offline ? "offline · the edit will work when the outline is back" : `can't edit: ${(e as Error).message}`;
-      if (!still || still()) host.ctx.flash(why);
+      if (!still || still()) host.ctx.flash(why, undefined, errorDetails(e));
       return why;
     }
     if (still && !still()) return;
     if (!fresh || fresh.revision === undefined) { host.ctx.flash("can't edit: the outline didn't say which revision this note is at"); return; }
     if (this.msg?.id !== m.id || this.editing) return;
     try { this.startDraft(fresh, host); }
-    catch (e) { const why = e instanceof Error ? e.message : String(e); host.ctx.flash(why); return why; }
+    catch (e) { const why = e instanceof Error ? e.message : String(e); host.ctx.flash(why, undefined, errorDetails(e)); return why; }
     host.redraw();
     if (external) this.external(host);
   }
@@ -2768,7 +2770,7 @@ export class NoteSurface {
     const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: propertyListOf(fresh), by: host.actor ?? USER, position: this.position }, {
       board: host.ctx.board, redraw,
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
-      answered: (ask, by) => { void this.run("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e))); },
+      answered: (ask, by) => { void this.run("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e))); },
       closed: how => this.draftClosed(s, how, host),
     });
     s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, host); };
@@ -2985,7 +2987,7 @@ export class NoteSurface {
       // At that revision and still empty only: a save or a child by another client after this read is refused, and the note stays.
       await host.ctx.board.trash(id, undefined, { revision: base, ifEmpty: true });
     } catch (e) {
-      host.ctx.flash(changedSinceRead(e) ? "the new note was written meanwhile, so it stays" : `the empty new note stays: ${e instanceof Error ? e.message : String(e)}`);
+      host.ctx.flash(changedSinceRead(e) ? "the new note was written meanwhile, so it stays" : `the empty new note stays: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e));
       return;
     }
     host.ctx.flash("nothing written · the empty new note went to the trash");
@@ -3104,7 +3106,7 @@ export class NoteSurface {
 
   /** Outline changed: a comment on this note may have been added, answered or resolved anywhere. */
   onEvent(host: SurfaceHost) {
-    if (this.replyLinks) void this.openReplyLinks(host, USER, true).catch(e => host.ctx.flash(String(e)));
+    if (this.replyLinks) void this.openReplyLinks(host, USER, true).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e)));
     if (!this.msg) return;
     if (this.commentTimer) clearTimeout(this.commentTimer);
     this.commentTimer = setTimeout(() => void this.loadComments(host), 700);
@@ -3924,7 +3926,7 @@ export class NoteSurface {
       // e and ctrl+e arm the edit first (edit.arm): ⏎ or the key again opens it.
       if (armsEdit(starts)) { void this.runKey("edit.arm", starts === "external" ? { external: true } : {}, host); return true; }
       // The edit and the comment say their own refusals (a flash, the draft's note); the panel's are said here.
-      void this.startAsPerson(starts, host).catch(e => { if (starts === "props" || starts === "props-full") host.ctx.flash(e instanceof Error ? e.message : String(e)); host.redraw(); });
+      void this.startAsPerson(starts, host).catch(e => { if (starts === "props" || starts === "props-full") host.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); host.redraw(); });
       return true;
     }
     // c collapses where a pane can (the board's readers and lanes, which take it first); comment is C.
@@ -4055,30 +4057,33 @@ export class NoteSurface {
   async runPress(p: NonNullable<Link["press"]>, host: SurfaceHost, actor: Actor): Promise<unknown> {
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to run a press");
-    let req;
-    try { req = actRequestOf(lineWords(p.act)); } catch (e) { throw new ActionRefused(`${p.act}: ${e instanceof Error ? e.message : String(e)}`); }
-    if (req.as !== undefined) throw new ActionRefused(`${p.act}: a press runs as ${actor.kind === "user" ? "you" : "its presser"}; leave out as=`);
-    const args: Record<string, unknown> = { ...(req.args ?? {}) };
-    let action = req.action;
-    if (!d.has(action)) {
-      const scripts = scriptActions().filter(s => s.extension.name === action);
-      if (scripts.length !== 1) throw new ActionRefused(scripts.length > 1 ? `${scripts.length} scripts are named ${action}; ext ls lists them` : `nothing here answers to ${action}: \`actions\` lists the door's, \`ext ls\` the scripts`);
-      action = scripts[0]!.action.name;
-    }
-    // An extension's action acts on a note: the one this press is written in, unless the line names another.
-    if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;
-    // The person's press of a script invites its run (src/surface/invite.ts): it may move their tiles while it runs. The
-    // run's note records the button and its author beside who asked.
-    if (actor.kind === "user" && scriptActions().some(s => s.action.name === action)) {
-      args.invitation ??= INVITES.mint("you");
-      const home = p.block || this.msg?.id;
-      if (home) args.via ??= `${home}:${p.line}`;
-    }
-    const result: unknown = actor.kind === "user" ? await d.press(action, coerceActionArgs(action, d.defOf(action)!.args, args), req.tile) : await d.act({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, actor);
-    // The run it started: the invitation belongs to it from here (and is spent when it ends).
-    if (typeof args.invitation === "string" && result && typeof result === "object" && typeof (result as { undo?: unknown }).undo === "string") INVITES.bind(args.invitation, (result as { undo: string }).undo);
-    host.redraw();
-    return result;
+    const run = async () => {
+      let req;
+      try { req = actRequestOf(lineWords(p.act)); } catch (e) { throw new ActionRefused(`${p.act}: ${e instanceof Error ? e.message : String(e)}`); }
+      if (req.as !== undefined) throw new ActionRefused(`${p.act}: a press runs as ${actor.kind === "user" ? "you" : "its presser"}; leave out as=`);
+      const args: Record<string, unknown> = { ...(req.args ?? {}) };
+      let action = req.action;
+      if (!d.takes(d.requestIn(req, messageContext.getStore()?.tile))) {
+        const scripts = scriptActions().filter(s => s.extension.name === action);
+        if (scripts.length !== 1) throw new ActionRefused(scripts.length > 1 ? `${scripts.length} scripts are named ${action}; ext ls lists them` : d.unknownAction(action));
+        action = scripts[0]!.action.name;
+      }
+      // An extension's action acts on a note: the one this press is written in, unless the line names another.
+      if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;
+      // The person's press of a script invites its run (src/surface/invite.ts): it may move their tiles while it runs. The
+      // run's note records the button and its author beside who asked.
+      if (actor.kind === "user" && scriptActions().some(s => s.action.name === action)) {
+        args.invitation ??= INVITES.mint("you");
+        const home = p.block || this.msg?.id;
+        if (home) args.via ??= `${home}:${p.line}`;
+      }
+      const result: unknown = await d.act(d.requestIn({ action, args, ...(req.tile !== undefined ? { tile: req.tile } : {}) }, messageContext.getStore()?.tile), actor);
+      // The run it started: the invitation belongs to it from here (and is spent when it ends).
+      if (typeof args.invitation === "string" && result && typeof result === "object" && typeof (result as { undo?: unknown }).undo === "string") INVITES.bind(args.invitation, (result as { undo: string }).undo);
+      host.redraw();
+      return result;
+    };
+    return actor.kind === "user" ? d.pressDoing(p.act, { note: p.block || this.msg?.id }, run) : run();
   }
 
   /**
@@ -4128,7 +4133,7 @@ export class NoteSurface {
       host.redraw();
       return { refreshed: blockId, tickets: keys };
     } catch (e) {
-      host.ctx.flash(`not fetched: ${(e as Error).message}`);
+      host.ctx.flash(`not fetched: ${(e as Error).message}`, undefined, errorDetails(e));
       host.redraw();
       throw e;
     }
@@ -5444,7 +5449,7 @@ export class NoteSurface {
       const to = resourceTarget(l.resource);
       if ("refused" in to) { host.ctx.flash(to.refused); return null; }
       host.ctx.flash(`reading ${l.resource.label}…`);
-      const shown = await openResource(host.ctx.board, to, host.actor ?? USER, this.msg && isOutlineNote(this.msg) ? this.msg.id : undefined).catch((e: Error) => { host.ctx.flash(`couldn't show ${l.resource!.label}: ${e.message}`); return null; });
+      const shown = await openResource(host.ctx.board, to, host.actor ?? USER, this.msg && isOutlineNote(this.msg) ? this.msg.id : undefined).catch((e: Error) => { host.ctx.flash(`couldn't show ${l.resource!.label}: ${e.message}`, undefined, errorDetails(e)); return null; });
       if (!shown) return null;
       this.track(() => host.navigate(shown.note, how));
       if (shown.registered) host.ctx.flash(`${l.resource.label} registered and shown`);
@@ -5454,7 +5459,7 @@ export class NoteSurface {
     if (l.resourceRef) {
       const to = resourceRefTarget(l.resourceRef);
       if ("refused" in to) { host.ctx.flash(to.refused); return null; }
-      const shown = await openResource(host.ctx.board, to, host.actor ?? USER, this.msg && isOutlineNote(this.msg) ? this.msg.id : undefined).catch((e: Error) => { host.ctx.flash(`couldn't show ${l.resourceRef}: ${e.message}`); return null; });
+      const shown = await openResource(host.ctx.board, to, host.actor ?? USER, this.msg && isOutlineNote(this.msg) ? this.msg.id : undefined).catch((e: Error) => { host.ctx.flash(`couldn't show ${l.resourceRef}: ${e.message}`, undefined, errorDetails(e)); return null; });
       if (!shown) return null;
       this.track(() => host.navigate(shown.note, how));
       if (shown.registered) host.ctx.flash(`${l.resourceRef} registered and shown`);
@@ -5791,7 +5796,7 @@ export class NoteSurface {
       const why = `couldn't undo ${e.label.toLowerCase()}: ${err instanceof Error ? err.message : String(err)}`;
       // Gone from the service (undone elsewhere, or the host restarted): it can't be undone here either.
       if (/No extension change/.test(why)) EXT_UNDO.drop(e);
-      say.flash(why); host.redraw();
+      say.flash(why, undefined, errorDetails(err)); host.redraw();
       throw new ActionRefused(why);
     }
   }
@@ -5823,7 +5828,7 @@ export class NoteSurface {
     let r: QuoteReceipt;
     try { r = await host.ctx.board.quoteMarks(ids, place, actor, text); } catch (err) {
       const why = `couldn't quote: ${err instanceof Error ? err.message : String(err)}`;
-      say.flash(why); host.redraw();
+      say.flash(why, undefined, errorDetails(err)); host.redraw();
       throw new ActionRefused(why);
     }
     const label = ids.length === 1 ? "quote of a mark" : `quote of ${ids.length} marks`;
@@ -5865,7 +5870,7 @@ export class NoteSurface {
     try { saved = await board.update(m.id, lines.join("\n"), m.revision, actor); } catch (e) {
       outlineChanged([m.id]);
       const why = `not changed: ${e instanceof EditConflict ? `the note changed elsewhere since it was read; ${stale.again}` : e instanceof Error ? e.message : String(e)}`;
-      host.ctx.flash(why); host.redraw();
+      host.ctx.flash(why, undefined, errorDetails(e)); host.redraw();
       throw new ActionRefused(why);
     }
     outlineChanged([m.id]);
@@ -5889,7 +5894,7 @@ export class NoteSurface {
     let saved: Msg;
     try { saved = await host.ctx.board.update(m.id, lines.join("\n"), m.revision, actor); } catch (err) {
       outlineChanged([m.id]);
-      const why = `couldn't undo: ${err instanceof Error ? err.message : String(err)}`; host.ctx.flash(why); host.redraw(); throw new ActionRefused(why);
+      const why = `couldn't undo: ${err instanceof Error ? err.message : String(err)}`; host.ctx.flash(why, undefined, errorDetails(err)); host.redraw(); throw new ActionRefused(why);
     }
     history.drop(e);
     outlineChanged([m.id]);
@@ -5916,7 +5921,7 @@ export class NoteSurface {
     } catch (e) {
       outlineChanged([ref.block]);
       const why = `not changed: ${e instanceof Error ? e.message : String(e)}${e instanceof Refused ? " · the step is read again" : ""}`;
-      host.ctx.flash(why);
+      host.ctx.flash(why, undefined, errorDetails(e));
       host.redraw();
       throw new ActionRefused(why);
     }
@@ -6176,10 +6181,10 @@ export class NoteSurface {
     const P = this.requireSources();
     const s = P.answer?.sources[P.open ?? -1];
     if (all || !s) {
-      try { await host.ctx.board.refreshProjections(P.block, undefined, actor); } catch (e) { host.ctx.flash(`not all ran: ${e instanceof Error ? e.message : String(e)}`); }
+      try { await host.ctx.board.refreshProjections(P.block, undefined, actor); } catch (e) { host.ctx.flash(`not all ran: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e)); }
       resourceChanged(null);
     } else if (s.kind === "handler" || s.kind === "expr") {
-      try { await host.ctx.board.refreshProjections(P.block, s.line, actor); } catch (e) { host.ctx.flash(`not run: ${e instanceof Error ? e.message : String(e)}`); }
+      try { await host.ctx.board.refreshProjections(P.block, s.line, actor); } catch (e) { host.ctx.flash(`not run: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e)); }
       resourceChanged(null);
     }
     await this.readSources(P, host);
@@ -6413,7 +6418,7 @@ export class NoteSurface {
       const said = e instanceof Error ? e.message : String(e);
       // The list was drawn from an older text: it is read again (watched), and the row anchors once it is.
       const why = /changed since/.test(said) ? "not anchored: the note changed since the list was read; it is read again, press ¶ once more" : `not anchored: ${said}`;
-      host.ctx.flash(why);
+      host.ctx.flash(why, undefined, errorDetails(e));
       throw new ActionRefused(why);
     }
     const link = `((${drawnFields.from}^${anchored.fragmentId}))`;
@@ -6444,7 +6449,7 @@ export class NoteSurface {
     } catch (e) {
       outlineChanged([ref.block]);
       const why = `not changed: ${e instanceof Error ? e.message : String(e)}`;
-      host.ctx.flash(why); host.redraw();
+      host.ctx.flash(why, undefined, errorDetails(e)); host.redraw();
       throw new ActionRefused(why);
     }
   }
@@ -6516,7 +6521,7 @@ export class NoteSurface {
       catch (err) {
         this.stepHistory.drop(e);
         const why = `couldn't undo: ${err instanceof Error ? err.message : String(err)}`;
-        host.ctx.flash(why); host.redraw();
+        host.ctx.flash(why, undefined, errorDetails(err)); host.redraw();
         throw new ActionRefused(why);
       }
       this.stepHistory.drop(e);
@@ -6534,7 +6539,7 @@ export class NoteSurface {
       if (err instanceof Refused) this.stepHistory.drop(e);
       outlineChanged([e.block]);
       const why = `couldn't undo: ${err instanceof Error ? err.message : String(err)}`;
-      host.ctx.flash(why);
+      host.ctx.flash(why, undefined, errorDetails(err));
       host.redraw();
       throw new ActionRefused(why);
     }
@@ -7311,7 +7316,7 @@ export class NoteSurface {
     if (action === "sources") { void this.runKey("sources.at", {}, host); return; }
     const agent = threadAgents()[0];
     if ((action === "comment" || (action === "ask" && agent)) && host.startSession && this.selection) {
-      try { this.passageFor(USER); } catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e)); return; }
+      try { this.passageFor(USER); } catch (e) { host.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); return; }
       this.writeNext = { props: action === "ask" ? { kind: "question" } : null, text: action === "ask" ? `@${agent!.name} ` : "" };
       host.startSession("select");
       return;
@@ -8289,7 +8294,7 @@ export const PROPOSAL_ACTIONS = actionSet<{ surface?: NoteSurface; host: Pick<Su
 
 /** What `r` with no line runs: `refreshTarget`'s answer, or its refusal said on the person's status bar (the key's own is quiet). */
 function refreshOf(surface: NoteSurface, host: SurfaceHost, actor: Actor): { block: string; line?: number } {
-  try { return surface.refreshTarget(); } catch (e) { if (e instanceof ActionRefused && actor.kind === "user") host.ctx.flash(e.message); throw e; }
+  try { return surface.refreshTarget(); } catch (e) { if (e instanceof ActionRefused && actor.kind === "user") host.ctx.flash(e.message, undefined, errorDetails(e)); throw e; }
 }
 
 export const NOTE_ACTIONS = actionSet<On>()("note", {
@@ -8554,7 +8559,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         // the question named this note, so nothing opens on another.
         if (surface.msg?.id !== m.id) { host.ctx.flash("not opened: the reader shows another note now · e edits it"); host.redraw(); return; }
         if (host.startSession) return void host.startSession(kind);
-        void surface.startAsPerson(kind, host).catch(e => { host.ctx.flash(e instanceof Error ? e.message : String(e)); host.redraw(); });
+        void surface.startAsPerson(kind, host).catch(e => { host.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); host.redraw(); });
       };
       const ms = editArmMs();
       // Already editing here (ctrl+e hands that draft over), arming off, or a door that can't hold an arm: at once.
@@ -8960,7 +8965,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       }
       if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons (${hits.map(i => `${i}: ${all[i - 1]!.label}`).join(", ")}); say n=`);
       const i = hits[0]!, e = surface.element(i);
-      const r = await surface.runPress(e.link!.press!, host, actor).catch((err: Error) => { if (actor.kind === "user") { host.ctx.flash(err.message); return null; } throw err; });
+      const r = await surface.runPress(e.link!.press!, host, actor);
       surface.noteAgent(actor, `pressed ${e.label.slice(0, 40)} (${e.link!.press!.act.slice(0, 60)})`);
       return { element: i, kind: e.kind, act: e.link!.press!.act, ...(r && typeof r === "object" ? r : {}) };
     },
@@ -9010,7 +9015,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       }
       // A press (PIE-957): its action line, through the door's dispatcher, as whoever asks (the person's asks first when it writes).
       if (e.link?.press && e.kind === "control") {
-        const r = await surface.runPress(e.link.press, host, actor).catch((err: Error) => { if (actor.kind === "user") { host.ctx.flash(err.message); return null; } throw err; });
+        const r = await surface.runPress(e.link.press, host, actor);
         surface.noteAgent(actor, `pressed ${e.label.slice(0, 40)} (${e.link.press.act.slice(0, 60)})`);
         return { element: i, kind: e.kind, act: e.link.press.act, ...(r && typeof r === "object" ? r : {}) };
       }

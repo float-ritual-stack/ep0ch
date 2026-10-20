@@ -584,7 +584,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     // No wait: a move answers once the lanes are read again, so a second one straight after finds the card in Doing.
     await expect(act("card.move", { lane: "Doing", card: cards.squash.id })).rejects.toThrow("already in Doing");
     await expect(act("card.move", { lane: "Compost" })).rejects.toThrow("no lane Compost");
-    await expect(act("card.fly", {})).rejects.toThrow("no action card.fly");
+    await expect(act("card.fly", {})).rejects.toThrow("nothing here answers to card.fly; `actions` lists them");
     await expect(act("edit.save", {}, "detail9")).rejects.toThrow("no tile detail9");
   });
 

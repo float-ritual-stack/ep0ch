@@ -80,6 +80,8 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    <ssh-name> ep0ch [door flags]), like herdr --remote; an outline that
                                    machine doesn't have is asked about first, as for --machine (--create
                                    makes it there)
+  ep0ch log [--ws <name>] [--machine <ssh-name>] [--follow]
+                                   print the session message log as JSON lines; --follow tails it
   ep0ch session list [--json] | attach [--watch] | end [--yes] [--all] | upgrade [--clients] [--all] | restart
                                    the door sessions, one per outline (like herdr --session <name>): list shows
                                    every one (outline, machine, pid, code, terminals attached, programs); attach,
@@ -311,6 +313,7 @@ if (args[0] === "route") {
 }
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
 if (args[0] === "agent") process.exit(await agentCommand(args.slice(1)));
+if (args[0] === "log") process.exit(await (await import("./status-log")).logCommand(args.slice(1)));
 if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
 if (args[0] === "open" && args[1]?.startsWith("ep0ch://")) {
   try {

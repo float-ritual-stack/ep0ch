@@ -1,3 +1,4 @@
+import { errorDetails } from "./status-log";
 import { hostname } from "node:os";
 import { stat } from "node:fs/promises";
 import type { RunbookPlan, RunbookStep, RunbookStatus } from "@ep0ch/outline-core/runbook";
@@ -82,8 +83,8 @@ async function execute(ctx: Context, step: RunbookStep, actor: Actor, answers: R
       const clean = plainText(scrubCredentials(output + decoder.decode(), secrets) as string);
       output = "";
       void record(run, run.state === "stopping" || code === null ? "stopped" : code === 0 ? "ok" : "failed", clean, code ?? 130)
-        .catch(e => asActor(ctx, actor).flash(`Run record could not be saved: ${e.message}`))
-        .finally(() => { secrets.length = 0; runs.delete(run.key); void ctx.board.refreshProjections(step.block, undefined, actor).catch(e => asActor(ctx, actor).flash(e.message)); ctx.redraw(); });
+        .catch(e => asActor(ctx, actor).flash(`Run record could not be saved: ${e.message}`, undefined, errorDetails(e)))
+        .finally(() => { secrets.length = 0; runs.delete(run.key); void ctx.board.refreshProjections(step.block, undefined, actor).catch(e => asActor(ctx, actor).flash(e.message, undefined, errorDetails(e))); ctx.redraw(); });
     };
     if (!ctx.inTile?.({ cmd: [process.env.SHELL || "/bin/sh", "-lc", step.command], cwd, own: env,
       name: step.title, shows: step.title, retain: true, actor, output: collect, ready: job => { run.job = job; } }, done)) {
@@ -148,7 +149,7 @@ export async function loseRuns(): Promise<void> {
     } catch (error) {
       const message = `Run record could not be saved: ${scrubCredentials((error as Error).message, run.secrets)}`;
       console.error(message);
-      asActor(run.ctx, run.actor).flash(message);
+      asActor(run.ctx, run.actor).flash(message, undefined, errorDetails(error));
     } finally { clearTimeout(timeout); }
   }));
 }

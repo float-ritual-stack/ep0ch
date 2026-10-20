@@ -1,3 +1,4 @@
+import { errorDetails } from "../status-log";
 import { COMPLETION_ROWS, type Completer } from "../surface/completer";
 import { floatTheme } from "../theme";
 import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
@@ -793,7 +794,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   scriptUndone(run: string) {
     if (!this.history.forTxn(run)) return;
-    try { this.undoLayout(USER, run); this.ctx.flash("the run's layout changes put back"); } catch (e) { this.ctx.flash(`layout not undone: ${e instanceof Error ? e.message : String(e)}`, 6000); }
+    try { this.undoLayout(USER, run); this.ctx.flash("the run's layout changes put back"); } catch (e) { this.ctx.flash(`layout not undone: ${e instanceof Error ? e.message : String(e)}`, 6000, errorDetails(e)); }
   }
   scriptsLost() {
     // Only the runs that were waiting on the service: a transaction opened by hand (txn=) has no run to lose.
@@ -1244,7 +1245,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const asked = c0.source!;
     let got: Awaited<ReturnType<typeof src.source.tiles>>;
     try { got = await src.source.tiles(src.arg, this); }
-    catch (e) { this.ctx.flash(`couldn't fill ${c0.key ?? cid} from ${asked}: ${e instanceof Error ? e.message : String(e)}`); return; }
+    catch (e) { this.ctx.flash(`couldn't fill ${c0.key ?? cid} from ${asked}: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e)); return; }
     // The columns went, or show another source now (another hub): this answer is stale.
     const c1 = this.columnsIn().find(x => x.id === cid);
     if (!c1 || c1.source !== asked) return;
@@ -2105,7 +2106,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * cursor and what they're typing in stay where they are.
    */
   openBlock(m: Msg, by: Actor = USER) {
-    try { this.landBlock(m, by); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
+    try { this.landBlock(m, by); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); }
   }
   /**
    * Where an open naming no tile lands: the tile the spec says (`ScreenSpec.lands`) takes it its kind's way, a refusal
@@ -2620,7 +2621,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = typeof tile === "object" ? this.idOf(tile) : undefined;
     const name = typeof tile === "string" ? tile : id !== undefined ? this.nameOf(id) : undefined;
     if (by.kind !== "agent") return this.dispatch.press(action, args, name);
-    return this.dispatch.act({ action, args, ...(name !== undefined ? { tile: name } : {}) }, by).catch(e => { this.ctx.flash(e instanceof Error ? e.message : String(e)); return undefined; });
+    return this.dispatch.act({ action, args, ...(name !== undefined ? { tile: name } : {}) }, by).catch(e => { this.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); return undefined; });
   }
   /** ColumnsHost.within: another action run inside one (lane.collapse runs tile.collapse), its refusal thrown. */
   within(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown> {
@@ -2933,7 +2934,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         host.put(this, name, USER, true);
         const d = host.desks().find(x => host.isDrawer(x));
         if (d) { const ok = await this.writeNew(rd, m, d); return ok ? d.nameOfPane(rd) : null; }
-      } catch (e) { this.ctx.flash(`not in your drawer (${e instanceof Error ? e.message : String(e)}): it floats here`); }
+      } catch (e) { this.ctx.flash(`not in your drawer (${e instanceof Error ? e.message : String(e)}): it floats here`, undefined, errorDetails(e)); }
     }
     return await this.writeNew(rd, m) ? name : null;
   }
@@ -3952,7 +3953,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return open && want;
     };
     const r = startSession(rd, kind, this, still);
-    const said = (e: unknown) => { this.ctx.flash(e instanceof Error ? e.message : String(e)); return false; };
+    const said = (e: unknown) => { this.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); return false; };
     // The property panel, or a thread list whose comments are already read, opens at once: the next key is already its.
     if (rd.sessionOf()) { const now = opened(true); return r.then(() => now, said); }
     return r.then(opened, said);
@@ -4934,7 +4935,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (left) this.ctx.flash(left, 10000);
     // Still open (a save still landing, a refusal kept it): the tile stays, and says why where it is.
     if (!this.panes.has(id) || rd.surface.drafting) return this.redraw();
-    try { this.closeTile(this.nameOf(id), USER); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
+    try { this.closeTile(this.nameOf(id), USER); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); }
   }
 
   /**
@@ -5341,7 +5342,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * name and kind are kept; one holding work the new layout has no place for goes in a shut dock. The person's with
    * no name opens the picker (^W r).
    */
-  loadLayout(name: string | undefined, actor: Actor) {
+  loadLayout(name: string | undefined, actor: Actor): { layout?: string; saved?: boolean; rule?: OpenRule; tiles?: string[]; kept?: string[]; picker?: boolean; layouts?: ReturnType<typeof layoutNames> } {
     if (name === undefined || !name.trim()) {
       if (actor.kind === "agent") throw new ActionRefused(`layout.load needs name=<a layout>: ${layoutNames().map(l => l.name).join(", ")}`);
       this.overlays.push(layoutPicker(layoutNames()));
@@ -5351,9 +5352,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     name = resolveScreen(name) ?? name;
     const found = layoutNamed(name);
     if (!found) throw new ActionRefused(`no layout ${name}; layouts: ${layoutNames().map(l => l.name).join(", ")} (a screen you made is one: ^W w saves this one)`);
+    if (!this.spec.layouts) {
+      const desk = new Desk({ ...deskSpec(), layout: builtin("desk")! }, { saved: null });
+      this.ctx.push(desk);
+      return desk.loadLayout(name, actor);
+    }
     // The lock, a container's lock the person set, their keys: the module says whether the screen may be laid out again.
     this.apply({ op: "load", name }, actor);
-    if (!this.spec.layouts) throw new ActionRefused(`the ${this.title} keeps its own layout; run act screen.open name=desk, arrange its tiles, then act screen.save name=${name}; run the script there with layout=${name}`);
     this.entered.clear();
     this.ptyIn = null;
     const before = new Set(this.all());

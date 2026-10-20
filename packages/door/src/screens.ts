@@ -1,3 +1,7 @@
+import { errorDetails } from "./status-log";
+import { matchesSearchText } from "@ep0ch/outline-core/search-match";
+import { LineInput } from "./surface/line";
+import type { StatusLog, StatusMessage } from "./status-log";
 import { readNote } from "./desk/outline-boards";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { moveNote, intentOf, moveQuestion, undoMove, type MoveArgs } from "./note-move";
@@ -473,6 +477,17 @@ const SCREEN_NAMES: Record<string, string[]> = {
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q on every BBS screen, run these, as `act` does. */
 export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
+  "status.log": def({
+    summary: "open the session's message log: every status, warning, refusal and error, with time and the action and tile; / searches, enter returns to its note or tile, q comes back",
+    keys: "alt+M; click the status line",
+    touches: "screen", host: true, replay: "safe",
+    args: {},
+    run(_, { ctx }) {
+      if (!ctx.messages) throw new ActionRefused("this door has no message log");
+      ctx.push(new StatusMessages(ctx.messages));
+      return { opened: "message log" };
+    },
+  }),
   "agents.yolo": def({
     summary: "hand the door to your agents (on=true) or take it back (on=false); left out, it toggles. In yolo no person guard holds an agent back: not your typing, focus or idle, not a tile's limit or a lock, not the drawer. What keeps state valid (revisions, the layout's shape) still holds, and every agent action is still attributed and said. Loud on the status bar (YOLO; a click takes it back). Kept across an update of the same session; off after the door ends or crashes. Turning it on is the person's; an agent may turn it off",
     keys: "> agents.yolo in the power bar (ctrl+k); a click on the status bar's YOLO turns it off",
@@ -1075,13 +1090,13 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
       { act: "list.open", does: "opens the lit row as ⏎ does; q comes back" },
       { act: "list.open n=2", does: "lights the second row and opens it" },
     ],
-    run({ n }, { list, ctx }) {
+    async run({ n }, { list, ctx }, actor) {
       const at = n ?? list.sel + 1;
       const row = rowAt(list, at);
       const was = list.sel;
       list.sel = at - 1;
       // A row that opens nothing (a pack with no art) is refused, and the light goes back where it was.
-      try { list.openRow(at - 1, ctx); } catch (e) { list.sel = was; throw e; }
+      try { await list.openRow(at - 1, ctx, actor); } catch (e) { list.sel = was; throw e; }
       const opened = ctx.screens?.().at(-1);
       return { opened: opened && opened !== list ? opened.title : null, n: at, row };
     },
@@ -1131,7 +1146,7 @@ abstract class BbsList implements Screen {
   abstract render(ctx: Ctx): Frame;
   abstract listRows(): ListRow[] | null;
   /** ⏎ on row `i`: the screen it opens, pushed; or a refusal. */
-  abstract openRow(i: number, ctx: Ctx): void;
+  abstract openRow(i: number, ctx: Ctx, actor: Actor): void | Promise<void>;
   /** `t` on row `i`: its replies as a list, pushed; absent on a list whose rows have none. */
   threadRow?(i: number, ctx: Ctx): void;
   /** How far PgUp PgDn move the light. */
@@ -1166,6 +1181,103 @@ abstract class BbsList implements Screen {
     set: LIST_ACTIONS, takes: "none",
     on: (_, how) => { if (!list.ctx) throw new ActionRefused(`the ${list.title} isn't shown yet`); return { list, ctx: how.ctx }; },
   }]))(this);
+}
+
+const STATUS_LIST_ACTIONS = actionSet<{ list: StatusMessages; ctx: Ctx }>()("status", {
+  "status.filter": def({
+    summary: "search the message log's whole messages, actions and tiles; text= sets the query, editing=true opens its line",
+    keys: "/ opens search; enter or esc finishes search",
+    touches: "screen", replay: "safe",
+    args: { text: { type: "string", optional: true, about: "the search words" }, editing: { type: "boolean", optional: true, about: "show the search cursor" } },
+    examples: [{ act: 'status.filter text="layout load"', does: "finds messages about loading a layout" }],
+    run({ text, editing }, { list, ctx }) {
+      if (text !== undefined) { list.query = new LineInput(text, false, { complete: false }); list.resetScroll(); }
+      if (editing !== undefined) list.searching = editing;
+      ctx.redraw();
+      return { query: list.query.text, rows: list.listRows().length };
+    },
+  }),
+  "status.reload": def({
+    summary: "refresh the message log with the latest 500 messages; its rows stay still between refreshes so a row you read is the one you open",
+    keys: "r reload; click r reload",
+    touches: "screen", replay: "safe", args: {},
+    run(_, { list, ctx }) { list.reload(); ctx.redraw(); return { rows: list.listRows().length }; },
+  }),
+  "status.scroll": def({
+    summary: "scroll the message log by drawn rows, including inside a message taller than the screen",
+    keys: "PgUp PgDn; wheel",
+    touches: "screen", replay: "safe",
+    args: { by: { type: "number", about: "drawn rows, positive down" } },
+    examples: [{ act: "status.scroll by=10", does: "reads ten rows further down" }],
+    run({ by }, { list, ctx }) { list.scroll(by); ctx.redraw(); return { scrolled: by }; },
+  }),
+});
+
+export class StatusMessages extends BbsList {
+  readonly title = "message log";
+  hostMode() { return "none" as const; }
+  query = new LineInput("", false, { complete: false });
+  searching = false;
+  holdsKeys() { return this.searching; }
+  private view = new RowView();
+  private entries: StatusMessage[] = [];
+  constructor(private readonly log?: StatusLog) { super(); }
+  enter(ctx: Ctx) { const first = this.ctx === null; this.ctx = ctx; if (first) this.reload(); }
+  reload() {
+    const selected = this.rows()[this.sel]?.id;
+    this.entries = (this.log ?? this.ctx?.messages)?.rows.toReversed() ?? [];
+    this.sel = Math.max(0, this.rows().findIndex(r => r.id === selected));
+    this.view.reveal();
+  }
+  resetScroll() { this.sel = 0; this.view.reset(); }
+  private rows(): StatusMessage[] { return this.entries.filter(r => matchesSearchText(this.query.text, [r.message, r.kind, r.action ?? "", r.tile ?? ""])); }
+  listRows(): ListRow[] { return this.rows().map((r, i) => ({ ...r, n: i + 1, title: r.message, ...(r.note ? { id: r.note } : {}) })); }
+  async openRow(i: number, ctx: Ctx, actor: Actor) {
+    const r = this.rows()[i]!;
+    if (!r.note && !r.tile) throw new ActionRefused("this message has no note or tile to return to");
+    ctx.pop();
+    try {
+      if (r.note) await ctx.dispatch!.act({ action: "open", args: { id: r.note } }, actor);
+      else await ctx.dispatch!.act({ action: "tile.focus", tile: r.tile }, actor);
+    } catch (e) { ctx.push(this); throw e; }
+  }
+  scroll(by: number) { this.view.scroll(by); }
+  override key(k: Key, ctx: Ctx) {
+    this.ctx = ctx;
+    if (this.searching && k.kind !== "mouse") {
+      if (k.kind === "enter" || k.kind === "esc") void this.dispatch.press("status.filter", { editing: false });
+      else if (this.query.key(k)) { this.resetScroll(); ctx.redraw(); }
+      return;
+    }
+    if (ch(k) === "r") { void this.dispatch.press("status.reload"); return; }
+    if (ch(k) === "/") { void this.dispatch.press("status.filter", { editing: true }); return; }
+    if (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "mouse" && (k.action === "wheel-up" || k.action === "wheel-down")) {
+      const by = k.kind === "mouse" ? k.action === "wheel-up" ? -1 : 1 : (k.kind === "pgup" ? -1 : 1) * Math.max(1, ctx.t.rows - 5);
+      void this.dispatch.press("status.scroll", { by }); return;
+    }
+    super.key(k, ctx);
+  }
+  render(ctx: Ctx): Frame {
+    const w = ctx.t.cols, h = ctx.t.rows - 1;
+    this.ctx = ctx;
+    this.ptr.frame();
+    const rows = this.rows();
+    const lines = [pad(fg(C.white) + "Message log" + RESET, w), this.searching ? "/ " + this.query.show(w - 2) : `Search: ${this.query.text || "all messages"} (${rows.length})`];
+    const drawn = rows.flatMap((r, i) => `${new Date(r.time).toTimeString().slice(0, 8)} ${r.kind}${r.action ? " | " + r.action : ""}${r.tile ? " | " + r.tile : ""}\n${r.message}`.split("\n").flatMap(line => rowLines(line, w, Infinity)).map(text => ({ text, i })));
+    const first = drawn.findIndex(r => r.i === this.sel), last = drawn.findLastIndex(r => r.i === this.sel);
+    const top = this.view.place(this.sel, drawn.length, Math.max(1, h - lines.length - 1), [first, last]);
+    for (const r of drawn.slice(top, top + h - lines.length - 1)) {
+      this.ptr.row(lines.length, r.i, w);
+      lines.push(r.i === this.sel ? selectedRow(r.text, w) : r.text);
+    }
+    while (lines.length < h - 1) lines.push("");
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08/ search, enter return, PgUp/PgDn scroll, ", ["r reload", char("r")], ", q back"]));
+    return { lines };
+  }
+  override readonly dispatch = new Dispatcher({ title: "message log", ctx: () => this.ctx }, [
+    { set: LIST_ACTIONS, takes: "none", on: (_, how) => ({ list: this, ctx: how.ctx }) },
+    { set: STATUS_LIST_ACTIONS, takes: "none", on: (_, how) => ({ list: this, ctx: how.ctx }) },
+  ]);
 }
 
 function mergeOverlays(list: Overlay[]): Overlay[] {
@@ -1573,7 +1685,7 @@ export const MESSAGE_ACTIONS = actionSet<MessageOn>()("message", {
 export class Conferences extends BbsList {
   title = "join conference";
   private confs: Msg[] | null = null;
-  enter(ctx: Ctx) { this.ctx = ctx; ctx.board.roots().then(r => { this.confs = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
+  enter(ctx: Ctx) { this.ctx = ctx; ctx.board.roots().then(r => { this.confs = r; ctx.redraw(); }, e => ctx.flash(String(e.message), undefined, errorDetails(e))); }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols;
     this.ptr.frame();
@@ -1741,7 +1853,7 @@ export class Stats implements Screen {
   title = "board stats";
   private msgs: Msg[] | null = null;
   private readonly ptr = new Pointer();
-  enter(ctx: Ctx) { ctx.board.changedSince(0, 300).then(m => { this.msgs = m; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
+  enter(ctx: Ctx) { ctx.board.changedSince(0, 300).then(m => { this.msgs = m; ctx.redraw(); }, e => ctx.flash(String(e.message), undefined, errorDetails(e))); }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols;
     this.ptr.frame();

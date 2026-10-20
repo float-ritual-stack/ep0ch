@@ -110,7 +110,7 @@ function frameCtx(f: FramedScreen): Ctx {
     replace: s => f.replace(s),
     quit: () => o().quit(),
     redraw: () => o().redraw(),
-    flash: (m, ms) => o().flash(m, ms),
+    flash: (m, ms, details) => o().flash(m, ms, details),
     refuse: (m, at) => f.refuse(m, at),
     recordAction: (req, replay, run) => o().recordAction ? o().recordAction!(req, replay, run) : run(),
     pressNow: () => o().pressNow?.() ?? 0,
@@ -124,7 +124,8 @@ function frameCtx(f: FramedScreen): Ctx {
     inTile: (p, done) => o().inTile?.(p, done) ?? false,
     // The door's actions as the person (note.new's ctrl+n, a click on an empty reader's + New note): the outer door's
     // dispatcher, which reaches this frame's screen through its own (the showcase's editNew).
-    press: (name: string, args?: Record<string, unknown>) => { const c = o(); return c.press ? c.press(name, args) : Promise.resolve(undefined); },
+    press: (name: string, args?: Record<string, unknown>, tile?: string) => { const c = o(); return c.press ? c.press(name, args, tile) : Promise.resolve(undefined); },
+    get messages() { return o().messages; },
     idleFor: () => o().idleFor?.() ?? Infinity,
     // An edit armed in the frame is the door's (the shell takes the next key); a door without arming opens at once.
     get arm() { const c = o(); return c.arm ? (a: Arm) => c.arm!(a) : undefined; },

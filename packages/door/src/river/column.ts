@@ -1,3 +1,4 @@
+import { errorDetails } from "../status-log";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // The River (Quay) as a screen spec on the desk (PIE-515): its columns are tiles of one kind, `river.column`, in a
 // flow container, the layout engine's (PIE-513: full → peek → spine around the wide column, opens into the next
@@ -724,7 +725,7 @@ export class RiverColumn extends ReaderPane {
     if (d.fold !== undefined) { void this.surface.runKey("fold.toggle", { n: d.fold }, this.host(desk)); return; }
     if (d.link) {
       this.gesture.forget();
-      try { void this.surface.open(d.link, this.host(desk)); } catch (e) { desk.ctx.flash(e instanceof Error ? e.message : String(e)); }
+      try { void this.surface.open(d.link, this.host(desk)); } catch (e) { desk.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); }
       return;
     }
     const row = d.row;

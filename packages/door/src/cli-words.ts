@@ -4,7 +4,7 @@
 // flags (outline, session, find…): only the door's are checked here, since the door is what a typo would open.
 
 /** Every first word main.ts runs as a command. */
-export const COMMANDS = ["help", "doctor", "install", "try", "find", "show", "mcp", "new", "export", "where", "session", "peek", "snap", "open",
+export const COMMANDS = ["help", "doctor", "install", "try", "find", "show", "mcp", "new", "export", "where", "session", "log", "peek", "snap", "open",
   "actions", "act", "subscribe", "outline", "status", "init", "clients", "view", "backup", "library", "revisions", "agent", "ext", "artifact", "share", "reader", "web", "loki", "echo", "resource", "keys", "link", "machinery", "route"] as const;
 const KNOWN = new Set<string>(COMMANDS);
 

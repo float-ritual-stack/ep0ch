@@ -403,8 +403,8 @@
       "refs": [
         { "r": "door", "p": "src/app.ts", "l": 747, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
-        { "r": "door", "p": "src/surface/dispatch.ts", "l": 443, "m": "if (said) (ctx?.refuse" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6717, "m": "export function refusalHint" }
+        { "r": "door", "p": "src/surface/dispatch.ts", "l": 461, "m": "private asPerson(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6604, "m": "export function refusalHint" }
       ]
     },
     {

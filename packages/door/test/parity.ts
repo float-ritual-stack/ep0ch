@@ -19,7 +19,7 @@ import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { declaredKeys, hintKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
-import { SHELL_ACTIONS, MENU_SCREENS, MainMenu, MessageReader } from "../src/screens";
+import { SHELL_ACTIONS, MENU_SCREENS, MainMenu, MessageReader, StatusMessages } from "../src/screens";
 import { DRAWER_ACTIONS } from "../src/drawer";
 import { EXT_ACTIONS } from "../src/extensions";
 import { NEW_NOTE_ACTIONS } from "../src/new-note";
@@ -467,6 +467,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   // ── the home base, the library and EchoNet ──
   const OTHERS: Scenario[] = [
     ["message reader", () => new MessageReader(notes, 0)],
+    ["message log", () => { app.flash("The greenhouse door needs attention."); return new StatusMessages(app.messages); }],
     // The home base, opened by name on a door that is on an outline: it shows, and its choices are refused (no home).
     ["home base", () => openScreen("home", { folder: scratch.root })],
     // The same, saying a machine lacks the outline asked for (PIE-545): its offers' rows are pressed and clicked too.

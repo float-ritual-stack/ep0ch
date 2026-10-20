@@ -1,3 +1,4 @@
+import { errorDetails } from "../status-log";
 import { readNote } from "./outline-boards";
 import { TUNE_ACTIONS, TunePane } from "./tune";
 import { ch } from "../term";
@@ -94,7 +95,7 @@ const builtins = (): TileKind[] => [
     // The note it showed when the layout was saved (a restart, a handover) is shown again, with its history (PIE-643), unless something is already there.
     start: async (p, env) => {
       const r = p as ReaderPane;
-      try { await r.connect(env.desk); } catch (e) { env.desk.ctx.flash((e as Error).message); return; }
+      try { await r.connect(env.desk); } catch (e) { env.desk.ctx.flash((e as Error).message, undefined, errorDetails(e)); return; }
       if (r.pinPage && !r.msg) {
         const page = r.pinPage;
         r.context(env.desk).board.resolvePage(page).then(res => { if (res.status === "resolved" && res.block && r.pinPage === page) { r.pinned(res.block, env.desk); env.desk.redraw(); } }, () => {});

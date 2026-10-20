@@ -1,3 +1,4 @@
+import { errorDetails } from "../status-log";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // The board's lanes (PIE-511, PIE-515): what the hub source keeps for a columns container it fills, its model. The
 // lanes are query tiles (src/desk/query.ts), one per view under the hub; what they share is here: the hub shown (and
@@ -542,7 +543,7 @@ export class Lanes implements SourceModel {
       const p = this.hubPicker = this.hubList(items);
       p.sel = Math.max(0, items.findIndex(i => i.hub.id === this.hub?.id));
       this.host.redraw();
-    }, e => { this.status = ""; this.host.ctx.flash(`couldn't look for boards: ${(e as Error).message}`); this.host.redraw(); });
+    }, e => { this.status = ""; this.host.ctx.flash(`couldn't look for boards: ${(e as Error).message}`, undefined, errorDetails(e)); this.host.redraw(); });
   }
 
   /** The boards to pick from: ⏎ or a click shows one (board.hub id=), esc or q puts it away (board.hub close=true). */
@@ -717,7 +718,7 @@ export class Lanes implements SourceModel {
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
       this.lastMove = { card: card.id, to: target.name, result: `refused: ${why}`, ...by };
-      ctx.flash(`not moved: ${why.replace(/ · not moved$/, "")}`);
+      ctx.flash(`not moved: ${why.replace(/ · not moved$/, "")}`, undefined, errorDetails(e));
     } finally {
       this.status = "";
       // Either way, show the lanes as the service has them now. After a move that landed, the source and
@@ -867,7 +868,7 @@ export class Lanes implements SourceModel {
       if (this.composer !== C0 || C0.kind !== "card") return;
       C0.planning = false; C0.session.draft.note = `not created: can't create in ${lane.name}: ${e.message}`;
       if (!C0.session.dirty) { C0.session.close(); this.composer = null; }   // nothing typed yet: nothing to keep
-      this.host.ctx.flash(`can't create in ${lane.name}: ${e.message}`);
+      this.host.ctx.flash(`can't create in ${lane.name}: ${e.message}`, undefined, errorDetails(e));
       this.host.redraw();
     });
   }
@@ -1096,7 +1097,7 @@ export class Lanes implements SourceModel {
     try {
       S.read = await this.host.ctx.board.checklist(card.id);
       if (!S.read.items.length) { if (this.steps === S) this.steps = null; this.host.ctx.flash(`${titleOf(card)} has no checklist steps`); }
-    } catch (e) { if (this.steps === S) this.steps = null; this.host.ctx.flash(`couldn't read the steps: ${(e as Error).message}`); }
+    } catch (e) { if (this.steps === S) this.steps = null; this.host.ctx.flash(`couldn't read the steps: ${(e as Error).message}`, undefined, errorDetails(e)); }
     finally { S.busy = false; this.host.redraw(); }
   }
 

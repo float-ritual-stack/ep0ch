@@ -293,7 +293,7 @@ export async function controlClient(args: string[]): Promise<number> {
     else console.error(r.error);
     return cmd === "open" && wantsJson ? 0 : 1;
   }
-  if (cmd === "peek") { console.log(JSON.stringify(r.result.screen, null, 2)); console.log(r.result.text.join("\n")); }
+  if (cmd === "peek") { await Bun.write(Bun.stdout, JSON.stringify(r.result.screen, null, 2) + "\n" + r.result.text.join("\n") + "\n"); }
   else if (cmd === "actions") {
     const a = r.result;
     console.log(`${a.screen ?? "?"}${a.note ? ` · ${a.note}` : ""}${a.tiles?.length ? ` · tiles: ${a.tiles.join(", ")}` : ""}`);

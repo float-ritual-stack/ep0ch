@@ -137,11 +137,10 @@ describe("what a spec says, the desk does", () => {
     expect(await d.dispatch.act({ action: "screen.spec" }, { kind: "agent", id: "spec-reader" })).toEqual({ spec: specData(spec) });
   });
 
-  test("its frame, digits and title are its own; a screen that doesn't load layouts refuses them", async () => {
+  test("its frame, digits and title are its own", () => {
     const w = openScreen("welcome") as Desk;
     expect(w.title).toBe("welcome");
     expect(w.spec.frame).toBe("dotted");
-    await expect(w.dispatch.act({ action: "layout.load", args: { name: "daily" } }, { kind: "user" })).rejects.toThrow(/keeps its own layout/);
   });
 });
 

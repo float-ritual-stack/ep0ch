@@ -1,3 +1,4 @@
+import { errorDetails, type MessageDetails } from "./status-log";
 import type { RunbookPlan } from "@ep0ch/outline-core/runbook";
 // Extensions in the door (PIE-512): what the outline service's extension registry offers (`extensions.list`,
 // pi-herdr-outliner PIE-507, docs/extensions/README.md) bound into the door's shared parts, never drawn or run
@@ -151,7 +152,7 @@ export interface ExtensionActResult {
 }
 
 /** What an extension action needs from where it runs: the outline, and somewhere to say what happened. */
-export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number): void; redraw(): void; dispatch?: { act(req: { action: string; args?: Record<string, unknown> }, actor: Actor): Promise<unknown> }; noteInFront?(): string | null } }
+export interface ExtOn { ctx: { board: SocketBoard; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; dispatch?: { act(req: { action: string; args?: Record<string, unknown> }, actor: Actor): Promise<unknown> }; noteInFront?(): string | null } }
 /** `block`, `line`, `with`, and the action's declared arguments by name. */
 export interface ExtArgs { block?: string; line?: number; with?: string; [declared: string]: string | number | undefined }
 
@@ -376,11 +377,11 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     if (r.undo && on) EXT_UNDO.push({ undo: r.undo, label: a.label, by: partyOf(actor), context: on });
     // What it asks to have opened (PIE-754): a block or a Resource, where this actor's opens land.
     if (r.open && ctx.dispatch) await ctx.dispatch.act({ action: "open", args: isResourceRef(r.open) ? { resource: r.open } : { id: r.open } }, actor)
-      .catch((e: Error) => say.flash(`${name}: couldn't open ${oneLine(r.open)}: ${oneLine(e.message)}`));
+      .catch((e: Error) => say.flash(`${name}: couldn't open ${oneLine(r.open)}: ${oneLine(e.message)}`, undefined, errorDetails(e)));
     ctx.redraw();
     return { ...r, ...(message !== undefined ? { message } : {}), said };
   } catch (e) {
-    say.flash(`${name}: ${a.label.toLowerCase()} refused: ${oneLine(e instanceof Error ? e.message : String(e))}`);
+    say.flash(`${name}: ${a.label.toLowerCase()} refused: ${oneLine(e instanceof Error ? e.message : String(e))}`, undefined, errorDetails(e));
     ctx.redraw();
     // A field the note's form asks for (PIE-828) isn't one of the action's own arguments: `act` takes it in with=.
     if (a.fieldsFrom === "block" && e instanceof Error && / needs [a-z][a-z0-9_-]*=/.test(e.message)) throw new ActionRefused(`${e.message} · give the note's fields as with='{"<field>":"<value>"}'`);

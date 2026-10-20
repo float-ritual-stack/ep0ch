@@ -402,7 +402,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
 
     test("list.select and list.open are refused on a screen with no list, with the reason", async () => {
       home(); idle();
-      await expect(act("list.select", { n: 1 })).rejects.toThrow(/no list|no action/);
+      await expect(act("list.select", { n: 1 })).rejects.toThrow(/no list|nothing here answers to list.select/);
     });
 
     test("`open <id>` from the menu opens the note in a message reader over it", async () => {
