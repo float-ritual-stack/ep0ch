@@ -151,7 +151,7 @@ if (request.input.request === "describe the beds") {
   }
   notes.scriptTarget = await make(notes.root.id, "Planting checklist\n- [ ] Prepare the seed labels");
   notes.scripts = await make(notes.root.id, [
-    "Seed report [script::seed-report] [effects::write] [keys::alt+S]",
+    "Seed report [script::seed-report] [results::keep] [effects::write] [keys::alt+S]",
     "Scripts default to read. This example declares [effects::write]; its run and writes belong to script:seed-report, with the requester recorded separately. Files opt in with // ep0ch-script under .ep0ch/scripts/; ext ls explains ignored files.",
     "Press alt+S, or type seed-report in the power bar or / search. Keep typing; its progress arrives below. One ext.undo takes back the run. Keys never interrupt an edit; a clash says which action holds the key.",
     "The Seed count example below runs from @seed-count in a note, or [rule-on::script:seed-count] on a rule. Agent-written asks run by default; loop guards can hold them for r.",
@@ -185,9 +185,33 @@ if (request.input.request === "describe the beds") {
   const publishedCount = await make(notes.root.id, "Seed count template [page::showcase-seed-count] [publish::public:showcase-seed-count]\npublished-seed-count::\npublished-shelf-read::\nprivate-script-label::");
   await make(notes.root.id, `Published script lines [page::showcase-published-script-lines] [publish::public:published-script-lines]\nOn a published page each drawing says Seeds shown here: 1, although the outline holds two packets. The locked packet does not count. The shelf read is complete with zero children because its only packet is private. Both forms draw the script through the same handler as its own page. The private script says not shared.\n\n!((${publishedCount.id}))\n\n::use{of=[[showcase-seed-count]]}`);
   // A view that can be pressed (PIE-981): a render script draws the board, each free square a press that runs the move script.
-  await make(notes.scripts.id, "Noughts board [script::ttt-board] [mode::render]\n```js\nconst b = (await resolve('this.board')).values[0] ?? '.........';\nconst square = i => b[i] === '.' ? view.badge({ label: String(i + 1), act: `ttt-move at=${i + 1}` }) : view.badge({ label: b[i], tone: b[i] === 'x' ? 'accent' : 'warn' });\nreturn view.stack({ children: [0, 3, 6].map(r => view.row({ minWidth: 4, children: [square(r), square(r + 1), square(r + 2)] })) });\n```");
-  await make(notes.scripts.id, "Noughts move [script::ttt-move] [effects::write]\n```js\nconst at = Number(props.at[0]);\nconst b = [...(await resolve('this.board')).values[0]];\nif (!(at >= 1 && at <= 9) || b[at - 1] !== '.') return `square ${props.at[0]} is not free`;\nb[at - 1] = 'x';\nconst reply = b.indexOf('.');\nif (reply >= 0) b[reply] = 'o';\nawait tools.outline_set_property({ ref: this.id, key: 'board', value: b.join(''), revision: this.revision });\nreturn `x on ${at}`;\n```");
-  await make(notes.scripts.id, "Noughts reset [script::ttt-reset] [effects::write]\n```js\nawait tools.outline_set_property({ ref: this.id, key: 'board', value: '.........', revision: this.revision });\nreturn 'new game';\n```");
+  const tttOutcome = "const outcome = b => { for (const [a, c, d] of [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]) if (b[a] !== '.' && b[a] === b[c] && b[a] === b[d]) return b[a] + ' wins'; return b.includes('.') ? '' : 'draw'; };";
+  await make(notes.scripts.id, `Noughts board [script::ttt-board] [mode::render]
+\`\`\`js
+${tttOutcome}
+const b = (await resolve('this.board')).values[0] ?? '.........';
+const ended = outcome(b);
+const square = i => b[i] === '.' ? view.badge({ label: ended ? '.' : String(i + 1), ...(ended ? {} : { act: 'ttt-move at=' + (i + 1) }) }) : view.badge({ label: b[i], tone: b[i] === 'x' ? 'accent' : 'warn' });
+return view.stack({ children: [...[0, 3, 6].map(r => view.row({ minWidth: 4, children: [square(r), square(r + 1), square(r + 2)] })), ...(ended ? [view.text({ text: ended })] : [])] });
+\`\`\``);
+  await make(notes.scripts.id, `Noughts move [script::ttt-move] [effects::write]
+\`\`\`js
+${tttOutcome}
+const at = Number(props.at[0]);
+const b = [...(await resolve('this.board')).values[0]];
+if (outcome(b)) throw new Error(outcome(b) + '; press New game to play again');
+if (!(at >= 1 && at <= 9) || b[at - 1] !== '.') throw new Error('That square is not free; choose a numbered square');
+b[at - 1] = 'x';
+let answer = 'x on ' + at;
+if (!outcome(b)) {
+  const reply = b.indexOf('.');
+  b[reply] = 'o';
+  answer += ' · o answers on ' + (reply + 1);
+}
+await tools.outline_set_property({ ref: this.id, key: 'board', value: b.join(''), revision: this.revision });
+return answer + (outcome(b) ? ' · ' + outcome(b) : '');
+\`\`\``);
+  await make(notes.scripts.id, "Noughts reset [script::ttt-reset] [effects::write]\n\`\`\`js\nawait tools.outline_set_property({ ref: this.id, key: 'board', value: '.........', revision: this.revision });\nreturn 'New game';\n\`\`\`");
   notes.press = await make(notes.root.id, [
     `${SEED.press} [board::.........]`,
     "The board is drawn by a render script, which writes nothing. Each free square is a press (a button in the view): a click, or ⏎ on it, runs the move script as you. Your click is the consent: it runs at once, and ctrl+z or ext.undo takes it back. The script answers with an o.",
@@ -209,14 +233,14 @@ if (request.input.request === "describe the beds") {
     "Press S for Sources. Open the table, then c downloads its raw rows as CSV and J as JSON; the same controls are clickable. Published pages have the same Query, Transform and Result folds behind Sources.",
   ].join("\n"));
   // Motion (PIE-958): a button runs a script whose layout changes glide; its tiles float, wander and settle, then land where the layout is.
-  await make(notes.scripts.id, "Shuffle tiles [script::shuffle-tiles] [effects::write]\n```js\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: true, motion: 'fantasia' });\nawait wait(1400);\nawait act('float.place', { tile: 'source', dx: 10, dy: 3, motion: 'fantasia' });\nawait act('float.place', { tile: 'extra', dx: -8, dy: 2, motion: 'fantasia' });\nawait wait(1400);\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: false, motion: 'fantasia' });\nreturn 'settled';\n```");
+  await make(notes.scripts.id, "Shuffle tiles [script::shuffle-tiles] [results::keep] [effects::write]\n```js\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: true, motion: 'fantasia' });\nawait wait(1400);\nawait act('float.place', { tile: 'source', dx: 10, dy: 3, motion: 'fantasia' });\nawait act('float.place', { tile: 'extra', dx: -8, dy: 2, motion: 'fantasia' });\nawait wait(1400);\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: false, motion: 'fantasia' });\nreturn 'settled';\n```");
   notes.motion = await make(notes.root.id, [
     `${SEED.motion}`,
     "Press the button: its script floats the two tiles beside this one, moves them, and settles them back. Each change glides from where the tile was to where it is (a script asks for motion=fantasia; the setting caps it: motion.set mode=calm or off). Nothing flashes or changes brightness, and any key or click snaps it. ctrl+z puts the whole run's layout back.",
     '::button{label="✦ Shuffle the tiles" of=shuffle-tiles}',
   ].join("\n"));
   // Fantasia (PIE-959): the acceptance script. A press floats every tile it may, dances them with motion=fantasia and settles them.
-  await make(notes.scripts.id, "Fantasia [script::fantasia] [effects::write]\n```js\n"+FANTASIA+"\n```");
+  await make(notes.scripts.id, "Fantasia [script::fantasia] [results::keep] [effects::write]\n```js\n"+FANTASIA+"\n```");
   notes.fantasia = await make(notes.root.id, [
     SEED.fantasia,
     "Press the button: a script floats the tiles, dances them a few beats with motion=fantasia and settles them back into the layout. Your press invites it, so it may move the tile you are in too; an agent's run (act ext.<id>.run) leaves that one where it is. Nothing you type is touched. esc stops it between beats and the layout is put back; ctrl+z (layout.undo) takes the whole run back in one step.",

@@ -5,6 +5,7 @@
 // Scratch services in temp folders; every note and name is made up.
 import { expect, test } from "bun:test";
 import type { ExtensionsListResult } from "../src/extension-registry";
+import type { ScriptEnded } from "@ep0ch/outline-core/protocol";
 import type { RuleListEntry } from "../src/extension-rules";
 import { setup, until } from "./script-harness";
 
@@ -42,9 +43,47 @@ test("a returned string shows as plain text, and a run with no note says why thi
   expect(blind.text).toContain("this run has no note; pass at= or run it from a note");
 });
 
+test("short answers and property-only runs leave no note; documents, views, explicit output and requested records are kept", async () => {
+  const { store, create, client, extensionOf } = await setup();
+  const ended = new Map<string, ScriptEnded>();
+  let connected = false;
+  const watcher = client.watch({ client: { clientId: "answer-reader", role: "observer", contextId: "answers" },
+    onConnect: () => { connected = true; }, onEvent: e => { if (e.ended) ended.set(e.ended.run, e.ended); } });
+  try {
+    await until("the answer reader", () => connected);
+    const note = create("Garden [colour::grey]");
+    const cases = [
+      { code: "return 'just words';", answer: "just words" },
+      { code: "return 42;", answer: "42" },
+      { code: "await tools.outline_set_property({ ref: this.id, key: 'colour', value: 'blue', revision: this.revision });", answer: "Plain done" },
+      { code: "return 'One\\nTwo';", kept: "One\nTwo" },
+      { code: "return { count: 42 };", kept: '{"count":42}' },
+      { code: "return view.text({ text: 'Kept view' });", kept: "Kept view" },
+      { code: "text('Kept output'); return 'Done';", answer: "Done", kept: "Kept output" },
+      { code: "return 'Keep this answer';", answer: "Keep this answer", kept: "Keep this answer", record: true },
+    ];
+    for (const [i, scenario] of cases.entries()) {
+      const name = `answer-${i}`;
+      const script = create(`Plain [script::${name}] [effects::write]${scenario.record ? " [results::keep]" : ""}\n\`\`\`js\n${scenario.code}\n\`\`\``);
+      const extension = await extensionOf(name);
+      const run = await client.request<{ undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", blockId: note.id, clientId: "answer-reader" });
+      const answer = await until("the script's answer", () => ended.get(run.undo));
+      expect(answer.reason).toBe("done");
+      if (scenario.answer) expect(answer.message).toBe(scenario.answer);
+      const notes = store.children(script.id);
+      if (scenario.kept) {
+        expect(notes).toHaveLength(1);
+        expect(notes[0]!.text).toContain(scenario.kept);
+        expect(answer.written).toEqual([notes[0]!.id]);
+      } else expect(notes).toEqual([]);
+    }
+    expect(store.require(note.id).text).toContain("[colour::blue]");
+  } finally { await watcher.stop(); }
+});
+
 test("a rule-fired script is told the matched block as this, and its caller", async () => {
   const { store, create, client } = await setup();
-  const script = create("Stamper [script::stamper]\n```js\nreturn `stamped ${this.title} from ${caller.block === this.id}`;\n```");
+  const script = create("Stamper [script::stamper] [results::keep]\n```js\nreturn `stamped ${this.title} from ${caller.block === this.id}`;\n```");
   create("Stamp rule [rule-name::stamp] [rule-match::#shipit] [rule-on::script:stamper]");
   await until("the stamp rule to load", async () => (await client.request<{ rules: RuleListEntry[] }>({ action: "extensions.list" })).rules.some(rule => rule.name === "stamp"));
   const hit = create("Ship the beans #shipit");
@@ -123,7 +162,7 @@ test("wait is bounded by the script's deadline, and stop ends one run", async ()
   const slept = await run("sleeper");
   expect(slept.text).toContain("· failed");
   expect(slept.text).toContain("past its deadline");
-  create("Forever [script::forever]\n```js\nwhile (true) await wait(25);\n```");
+  create("Forever [script::forever] [results::keep]\n```js\nwhile (true) await wait(25);\n```");
   const extension = await extensionOf("forever");
   const started = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
   await Bun.sleep(150);
@@ -162,7 +201,7 @@ test("a render line is drawn again when its script's code changes, and when a qu
 
 test("stop refuses a run's next call, and a script run on its own note has that note as this", async () => {
   const { store, client, create, extensionOf, run } = await setup();
-  const looper = create("Reader loop [script::reader-loop]\n```js\nwhile (true) { await read(self.id); await wait(10); }\n```");
+  const looper = create("Reader loop [script::reader-loop] [results::keep]\n```js\nwhile (true) { await read(self.id); await wait(10); }\n```");
   const extension = await extensionOf("reader-loop");
   const started = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
   await Bun.sleep(100);

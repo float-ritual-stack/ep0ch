@@ -721,7 +721,7 @@ function toolsFor(outlines: McpOutlines) {
   return [
     {
       name: "script_run",
-      description: "Start a script block asynchronously; results stream into its run note. Writes use this caller's MCP access: proposals at propose, applied at full.",
+      description: "Start a script block asynchronously; scripts.ended carries its answer. Documents and explicit output are kept as run notes; [results::keep] requests a full run record. Writes use this caller's MCP access: proposals at propose, applied at full.",
       inputSchema: addressSchema,
     },
     {

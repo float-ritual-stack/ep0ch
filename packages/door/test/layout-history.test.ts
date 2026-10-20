@@ -184,7 +184,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     const before = names();
     const [a, b] = before.filter(n => n !== D().layoutGet().focus) as [string, string];
     // It gives the keys to one tile (what the person's own keys are the screen's about), then closes two others.
-    await board.request("create", { author: "user", text: 'Tidy tiles [script::tidy-tiles] [effects::write]\n```js\nawait act("tile.focus", { tile: props.f[0] });\nawait act("tile.close", { tile: props.a[0] });\nawait act("tile.close", { tile: props.b[0] });\nreturn "closed two";\n```' });
+    await board.request("create", { author: "user", text: 'Tidy tiles [script::tidy-tiles] [results::keep] [effects::write]\n```js\nawait act("tile.focus", { tile: props.f[0] });\nawait act("tile.close", { tile: props.a[0] });\nawait act("tile.close", { tile: props.b[0] });\nreturn "closed two";\n```' });
     const note = await board.request<{ id: string }>("create", { author: "user", text: "Scratch note for the script" });
     await board.request("extensions.list", { reload: true });
     await app.loadExtensions(true);
@@ -216,7 +216,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
   }, 60_000);
 
   test("ext.undo restores Fantasia's saved screen and reports the writes and layout", async () => {
-    const note = await board.request<{ id: string }>("create", { author: "user", text: `Dance [script::restore-dance] [effects::write]\n\x60\x60\x60js\n${FANTASIA}\n\x60\x60\x60` });
+    const note = await board.request<{ id: string }>("create", { author: "user", text: `Dance [script::restore-dance] [results::keep] [effects::write]\n\x60\x60\x60js\n${FANTASIA}\n\x60\x60\x60` });
     const reader = await person("tile.open", { kind: "detail", note: note.id }) as { tile: string };
     await person("screen.save", { name: "before-dance" });
     await person("tile.close", {}, names().find(n => n !== reader.tile)!);
@@ -242,7 +242,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
   test("a run that is stopped ends its transaction early: the layout it changed is put back, and the screen says so", async () => {
     const before = names();
     const b = before.find(n => n !== D().layoutGet().focus)!;
-    await board.request("create", { author: "user", text: 'Slow tidy [script::slow-tidy] [effects::write]\n```js\nawait act("tile.close", { tile: props.b[0] });\nawait wait(30000);\nreturn "never";\n```' });
+    await board.request("create", { author: "user", text: 'Slow tidy [script::slow-tidy] [results::keep] [effects::write]\n```js\nawait act("tile.close", { tile: props.b[0] });\nawait wait(30000);\nreturn "never";\n```' });
     const note = await board.request<{ id: string }>("create", { author: "user", text: "Another scratch note" });
     await board.request("extensions.list", { reload: true });
     await app.loadExtensions(true);
@@ -326,7 +326,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
   test("a script can't name a transaction of its own to escape its run's end rule", async () => {
     const before = names();
     const b = before.find(n => n !== D().layoutGet().focus)!;
-    await board.request("create", { author: "user", text: 'Sneaky tidy [script::sneaky-tidy] [effects::write]\n```js\nawait act("tile.close", { tile: props.b[0], txn: "custom" });\nawait wait(30000);\nreturn "never";\n```' });
+    await board.request("create", { author: "user", text: 'Sneaky tidy [script::sneaky-tidy] [results::keep] [effects::write]\n```js\nawait act("tile.close", { tile: props.b[0], txn: "custom" });\nawait wait(30000);\nreturn "never";\n```' });
     const note = await board.request<{ id: string }>("create", { author: "user", text: "A third scratch note" });
     await board.request("extensions.list", { reload: true });
     await app.loadExtensions(true);

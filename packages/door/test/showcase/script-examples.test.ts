@@ -29,11 +29,12 @@ describe.skipIf(!outliner)("the showcase screen: script examples", () => {
     // A move through the script's own run (as ^K ttt-play cell=5 would), attributed to the script; the property is the state.
     const game = seeded.notes.exampleGame.id;
     const play = extensionList()!.extensions.find(e => e.name === "ttt-play")!;
-    const ran = await app.dispatch.act({ action: `ext.${play.id}.run`, args: { block: game, cell: "5" } }, USER) as { written: string[] };
+    await app.dispatch.act({ action: `ext.${play.id}.run`, args: { block: game, cell: "5" } }, USER);
     await until(() => (screen().match(/O to play/) ?? []).length > 0, "the drawing follows the move", 15_000);
     const note = (await board.get(game))!;
     expect(note.text).toContain("[board::....X....]");
-    expect((await board.get(ran.written[0]!))!.text).toContain("X played 5");
+    await until(() => (app as any).message.includes("X played 5"), "the move's answer");
+    expect((await board.children((await board.queryNotes("script=ttt-play", 1)).notes[0]!.id))).toEqual([]);
     // Example 4: the rule stamped the checklist under the note that matched, once.
     const match = (await board.children(seeded.notes.scriptExamples.id)).find(c => c.text.startsWith("Beans for the swap"))!;
     let stamped: Awaited<ReturnType<typeof board.children>> = [];

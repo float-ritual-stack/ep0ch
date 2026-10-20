@@ -62,7 +62,7 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
     expect(note.text).not.toContain("screen.list");
     expect(note.text).toContain("block.mark");
     expect(note.text).toContain(`to="${sourceTile}"`);
-    await board.update(note.id, note.text.replace("#beans", "#{{props.tag}}").replace("recorded-query", "replayed-query"), note.revision!, USER);
+    await board.update(note.id, note.text.replace("\n", " [results::keep]\n").replace("#beans", "#{{props.tag}}").replace("recorded-query", "replayed-query"), note.revision!, USER);
     await until(() => !!extensionList()?.extensions.find(e => e.name === "planting-layout" && e.actions.some(a => a.args?.some(x => x.name === "tag"))), "the edited macro loaded its slot");
     const extension = extensionList()!.extensions.find(e => e.name === "planting-layout")!;
     const run = await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { tag: 'peas "quoted"' } }, USER) as { written: string[] };
@@ -274,9 +274,8 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     expect(saved.text).toContain(body.replaceAll('"', '\\"').replaceAll("\\ path", "\\\\ path"));
     await until(() => !!extensionList()?.extensions.find(e => e.name?.startsWith("recording-")), "the multiline recording loaded");
     const extension = extensionList()!.extensions.find(e => e.name?.startsWith("recording-"))!;
-    const run = await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER) as { written: string[] };
-    await untilAsync(async () => !(await board.get(run.written[0]!))!.text.includes("· working"), "the multiline comment replayed");
-    expect((await board.get(run.written[0]!))!.text).toContain("· done");
+    await app.dispatch.act({ action: `ext.${extension.id}.run` }, USER);
+    await until(() => (app as any).message.includes("done · ctrl+z"), "the multiline comment replayed");
     await app.dispatch.act({ action: "comment.close", tile: "notes" }, USER);
     screen();
   }, 30_000);
@@ -304,7 +303,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
   test("scripts run by name with slots from slash and by their bound key", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "scripts" }, as: "test-agent" });
-    const made = await board.request<{ id: string }>("create", { author: "user", text: 'Bound seeds [script::bound-seeds] [effects::write]\n```actions\nblock.mark id="{{props.note}}" reason="Check seeds"\n```' });
+    const made = await board.request<{ id: string }>("create", { author: "user", text: 'Bound seeds [script::bound-seeds] [results::keep] [effects::write]\n```actions\nblock.mark id="{{props.note}}" reason="Check seeds"\n```' });
     await board.request("extensions.list", { reload: true });
     await until(() => !!extensionList()?.extensions.find(e => e.name === "bound-seeds"), "bound script loaded");
     await app.dispatch.act({ action: "bar.open", args: { query: `bound-seeds note=${seeded.notes.shed.id}`, scope: "notes" } }, USER);
@@ -312,19 +311,19 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await app.dispatch.act({ action: "bar.pick" }, USER);
     await untilAsync(async () => (await board.children(made.id)).some(n => n.text.includes("· done")), "named script ran");
     expect(JSON.stringify(await app.dispatch.act({ action: "marks.list" }, USER))).toContain("Check seeds");
-    const keyed = await board.request<{ id: string }>("create", { author: "user", text: 'Key seeds [script::key-seeds] [keys::alt+J]\n```js\nreturn "Key seeds ran";\n```' });
+    const keyed = await board.request<{ id: string }>("create", { author: "user", text: 'Key seeds [script::key-seeds] [results::keep] [keys::alt+J]\n```js\nreturn "Key seeds ran";\n```' });
     await board.request("extensions.list", { reload: true });
     await until(() => !!extensionList()?.extensions.find(e => e.name === "key-seeds"), "key script loaded");
     press({ kind: "alt", ch: "J" });
     await untilAsync(async () => (await board.children(keyed.id)).some(n => n.text.includes("Key seeds ran")), "bound key ran the script");
-    const clash = await board.request<{ id: string }>("create", { author: "user", text: 'Clashing seeds [script::clashing-seeds] [keys::ctrl+k]\n```js\nreturn "Must not run";\n```' });
+    const clash = await board.request<{ id: string }>("create", { author: "user", text: 'Clashing seeds [script::clashing-seeds] [results::keep] [keys::ctrl+k]\n```js\nreturn "Must not run";\n```' });
     await app.loadExtensions(true);
     await until(() => (app as any).message.includes("ctrl+k is held by"), "the key clash is explained");
     press({ kind: "char", ch: "k", ctrl: true });
     expect(app.bar).toBeTruthy();
     press({ kind: "esc" });
     expect(await board.children(clash.id)).toHaveLength(0);
-    const inline = await board.request<{ id: string }>("create", { author: "user", text: `While typing [script::while-typing] [effects::write]\n\`\`\`js\nawait act("marks.list");\nawait act("open", {id: "${seeded.notes.shed.id}"}); return "Opened beside";\n\`\`\`` });
+    const inline = await board.request<{ id: string }>("create", { author: "user", text: `While typing [script::while-typing] [results::keep] [effects::write]\n\`\`\`js\nawait act("marks.list");\nawait act("open", {id: "${seeded.notes.shed.id}"}); return "Opened beside";\n\`\`\`` });
     await board.request("extensions.list", { reload: true });
     await until(() => !!extensionList()?.extensions.find(e => e.name === "while-typing"), "inline script loaded");
     screen();
@@ -386,7 +385,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     }) : null;
     if (mode === "dismiss") press({kind: "paste", text: `\n!((${proposed!.proposalId}))\n`});
     const source = await board.request<{ id: string }>("create", { author: "agent", provenance: { actorId: "seed-writer" }, text: [
-      `Draft labels [script::draft-labels-${mode}] [effects::write]`, "```js",
+      `Draft labels [script::draft-labels-${mode}] [results::keep] [effects::write]`, "```js",
       `const note = await read('${target}');`,
       mode === "proposal" ? `await act('proposal.apply', {id:'${proposed!.proposalId}'});` : `await tools.outline_patch({ref: note.id, revision: note.revision, patches: [{observed:'Prepare', replacement:'Sort'}]});`,
       `await tools.outline_patch({ref: note.id, revision: note.revision, patches: [{observed:'seed labels', replacement:'seed envelopes'}]});`,
@@ -434,7 +433,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     const stage = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top;
     const target = await board.request<{id: string}>("create", {author: "user", text: "Seed plan\n\nPrepare the labels."});
     await app.act({action: "open", args: {id: target.id}, tile: "notes", as: "test-agent"});
-    await board.request("create", {author: "user", text: "Open seed plan [script::open-seed-plan] [effects::write]\n```js\nawait act('edit');\n```"});
+    await board.request("create", {author: "user", text: "Open seed plan [script::open-seed-plan] [results::keep] [effects::write]\n```js\nawait act('edit');\n```"});
     await board.request("extensions.list", {reload: true});
     await until(() => !!extensionList()?.extensions.find(e => e.name === "open-seed-plan"), "edit script bound");
     const extension = extensionList()!.extensions.find(e => e.name === "open-seed-plan")!;
@@ -480,7 +479,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     expect(draft.text).toContain("Still writing this note.");
     const { idle: _idle, ...person } = app.person();
     const source = await board.request<{id: string}>("create", {author: "user", text:
-      `Open the shed [script::open-the-shed] [effects::write]\n\`\`\`js\nawait act('open', {id:'${seeded.notes.shed.id}'});\n\`\`\``});
+      `Open the shed [script::open-the-shed] [results::keep] [effects::write]\n\`\`\`js\nawait act('open', {id:'${seeded.notes.shed.id}'});\n\`\`\``});
     await board.request("extensions.list", {reload: true});
     await until(() => !!extensionList()?.extensions.find(e => e.name === "open-the-shed"), "open script bound");
     const extension = extensionList()!.extensions.find(e => e.name === "open-the-shed")!;

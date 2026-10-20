@@ -3,6 +3,7 @@
 // again. Edit and rich edit keep the board drawn under its line, read-only. One of the showcase's test files.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
+import { C, fg } from "../../src/style";
 import { USER } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -30,6 +31,10 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
 
   const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
   const status = () => (app as any).armedNow?.a?.say as string | undefined;
+  const squarePresses = async () => {
+    const { elements } = await app.dispatch.act({ action: "elements", tile: "notes" }, USER) as { elements: { kind: string; label: string }[] };
+    return elements.filter(e => e.kind === "control" && /^\[[1-9]\]$/.test(e.label));
+  };
 
   test("a click on a square runs the move at once, as the person; ⏎ on the element, act and an agent's act run the same line; the board is drawn again", async () => {
     (app as any).lastInput = 0;
@@ -50,19 +55,25 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     // An agent's act of the same action: attributed, with no one to ask (element.open in the person's own reader is refused).
     await untilAsync(async () => (await board.get(seeded.notes.press.id))!.text.includes("[board::oo"), "the reply o on 2");
     const extension = extensionList()!.extensions.find(e => e.name === "ttt-move")!;
-    await app.act({ action: `ext.${extension.id}.run`, args: { block: seeded.notes.press.id, at: "4" }, as: "test-agent" });
-    await untilAsync(async () => (await boardOf()).charAt(3) === "x", "x on 4 by an agent's act");
+    await app.act({ action: `ext.${extension.id}.run`, args: { block: seeded.notes.press.id, at: "3" }, as: "test-agent" });
+    await untilAsync(async () => (await boardOf()).charAt(2) === "x", "x on 3 by an agent's act");
     // And by the action itself, as the person would run it, with the slot it carries.
     await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { block: seeded.notes.press.id, at: "7" } }, USER);
     await untilAsync(async () => (await boardOf()).charAt(6) === "x", "x on 7 by act");
+    await until(() => screen().includes("x wins"), "the winning board");
+    await until(() => (app as any).message.includes("x wins"), "the winning answer");
+    expect((app as any).message).toBe("x on 7 · x wins · ctrl+z undoes");
+    expect(await squarePresses()).toEqual([]);
   }, 90_000);
 
   test("a ::button runs a script with its slots, and the prose link is the same press", async () => {
-    await at("1").catch(() => null);
     await until(() => screen().includes("[New game]"), "the button drawn", 15_000);
     const rows = screen().split("\n"), y = rows.findIndex(r => r.includes("[New game]"));
     click(rows[y]!.indexOf("[New game]") + 1, y);
     await untilAsync(async () => (await boardOf()) === ".........", "a new game");
+    await until(() => (app as any).message.includes("ctrl+z"), "the reset answer");
+    expect((app as any).message).toBe("New game · ctrl+z undoes");
+    expect((app as any).statusBar(h.sc, 200)).toContain(fg(C.lcyan) + "New game · ctrl+z undoes");
     // The inline form: [start over](act: ttt-reset) after a move.
     const extension = extensionList()!.extensions.find(e => e.name === "ttt-move")!;
     await app.dispatch.act({ action: `ext.${extension.id}.run`, args: { block: seeded.notes.press.id, at: "3" } }, USER);
@@ -96,6 +107,42 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     const refused = await app.act({ action: "button.press", args: { label: "no such button" }, as: "test-agent" }).then(() => "", (e: Error) => e.message);
     expect(refused).toContain("no button says");
     expect(refused).toContain('Example: button.press label="');
+    for (const name of ["ttt-move", "ttt-reset"]) {
+      const script = (await board.queryNotes(`script=${name}`, 1)).notes[0]!;
+      expect(await board.children(script.id)).toEqual([]);
+    }
+  }, 60_000);
+
+  test("a game ends on o's row or a draw; Enter plays a square and New game restores the presses", async () => {
+    for (const [moves, ending] of [[[5, 9, 4], "o wins"], [[2, 4, 5, 7, 9], "draw"]] as const) {
+      await until(() => screen().includes("[New game]"), "New game drawn");
+      const rows = screen().split("\n"), y = rows.findLastIndex(row => row.includes("[New game]"));
+      click(rows[y]!.indexOf("[New game]") + 1, y);
+      await untilAsync(async () => (await boardOf()) === ".........", "the empty board");
+      for (const [index, square] of moves.entries()) {
+        const atSquare = await at(String(square));
+        if (ending === "draw" && index === 0) {
+          const { elements } = await app.dispatch.act({ action: "elements", tile: "notes" }, USER) as { elements: { n: number; label: string }[] };
+          const element = elements.find(e => e.label === `[${square}]`)!;
+          await app.dispatch.act({ action: "element.select", tile: "notes", args: { n: element.n } }, USER);
+          press({ kind: "enter" });
+        } else click(atSquare.x, atSquare.y);
+        await untilAsync(async () => (await boardOf())[square - 1] === "x", `x on ${square}`);
+      }
+      await until(() => screen().split("\n").some(row => new RegExp(`[║│]\\s+${ending}\\s+[║│]`).test(row)), ending);
+      await until(() => (app as any).message.includes(ending), "the final answer");
+      expect(app.refusal()).toBeNull();
+      expect(await squarePresses()).toEqual([]);
+    }
+    const move = extensionList()!.extensions.find(e => e.name === "ttt-move")!;
+    await app.dispatch.act({ action: `ext.${move.id}.run`, args: { block: seeded.notes.press.id, at: "1" } }, USER);
+    await until(() => (app as any).message.includes("press New game to play again"), "a finished game's refusal");
+    expect((app as any).statusBar(h.sc, 200)).toContain(fg(C.yellow) + (app as any).message);
+    await app.act({ action: `ext.${move.id}.run`, args: { block: seeded.notes.press.id, at: "1" }, as: "test-agent" });
+    await until(() => (app as any).message.startsWith("an agent (test-agent)") && (app as any).message.includes("press New game to play again"), "the agent's attributed refusal");
+    expect(app.refusal()).toBeNull();
+    await app.dispatch.act({ action: "button.press", args: { label: "New game" }, tile: "notes" }, USER);
+    await at("1");
   }, 60_000);
 
   test("edit and rich edit keep the board drawn under its line, read-only, while the lines around it are edited", async () => {

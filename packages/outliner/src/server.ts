@@ -538,7 +538,8 @@ export class OutlinerServer {
         const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === blockId);
         if (!extension) throw new Error("The answer's script needs a closed js or ts fence");
         const run = this.scriptRuns.start(extension, { extension: extension.id, action: "run", clientId, background: true });
-        void this.scriptRuns.finished(run.undo!);
+        const error = await this.scriptRuns.finished(run.undo!);
+        if (error !== undefined) throw new Error(error);
         return run;
       },
       script: async request => {
