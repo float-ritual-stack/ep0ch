@@ -27,7 +27,9 @@ function world(o: { status?: { code: number; out: string; err?: string }; forwar
     answers: async () => { clock += o.slowAnswers ?? 0; return connected && !o.hostDown; },
     privateDir: () => {},
     read: path => files.get(path) ?? null,
+    exists: path => files.has(path),
     remove: path => { files.delete(path); },
+    routeLink: () => {},
     createExclusive: (path, text) => (files.has(path) ? false : (files.set(path, text), true)),
     pid: 4242,
     alive: pid => alive.has(pid),
@@ -51,7 +53,7 @@ describe("a machine's forward", () => {
     expect(forward.slice(forward.indexOf("-S"), forward.indexOf("-S") + 4)).toEqual(["-S", "/home/sam/outlines/.remote/box-a.ctl", "-E", "/home/sam/outlines/.remote/box-a.log"]);
     expect(forward.at(-2)).toBe("--");
     const before = w.calls.length;
-    expect(await ensureForward("box-a", OPTS(w.io))).toEqual({ socket: "/home/sam/outlines/.remote/box-a.sock", how: "up" });
+    expect(await ensureForward("box-a", OPTS(w.io))).toEqual({ socket: "/home/sam/outlines/.remote/box-a.sock", how: "up", transport: "ssh" });
     expect(w.calls.length).toBe(before);
     expect([...w.files.keys()].filter(f => f.endsWith(".lock"))).toEqual([]);   // the lock is let go
   });

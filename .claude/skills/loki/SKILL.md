@@ -65,8 +65,12 @@ what needs him or what changed; if nothing changed and nothing's wrong, one line
    `date -u -d '-40 min' +%Y-%m-%dT%H:%M`), and whether intake wrote a prior-art note for each. Also list every
    request copy created after Oct 12 carrying `#pie-request` with no reply annotation, and answer it: a ticket and a
    reply, or a patch note. When a fix for a request has shipped, reply on its copy with a patch note (below).
-3. **The laptop** (`laptop`, which dials in): its ssh is gated by work policy, so unreachable is normal. Report it only
-   as status ("laptop: away"), never as a warning. Reachable and behind main:
+3. **The laptop** (`laptop`, which dials in): read `ep0ch link status --json` on float-2. The inbound `laptop` row
+   with `transport: "link"` owns presence: `up: false` (or no row) means "laptop: away"; retain its last-up time
+   and down reason when useful. Use `ep0ch find --ws float-hub --machine laptop` for outline reads; it tries the
+   link before SSH. Inbound SSH is gated by work policy and is not a presence probe. Report away as status,
+   never as a warning. When the link is up and a deploy is needed, SSH is still required to execute the install;
+   if policy keeps it off, leave the laptop update for Evan's local install. Reachable over SSH and behind main:
    `ssh laptop 'ep0ch install --apply'` (install refreshes the unchanged copies of the built-in extensions, echonet
    among them, and lists any changed there; its PATH must
    include `~/.bun/bin`, `~/.local/bin` and `/opt/homebrew/bin`).

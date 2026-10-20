@@ -4,7 +4,7 @@ import type { Ctx } from "../app";
 import type { Msg } from "../board";
 import { watchedOn } from "../watched";
 import { outlineChanged } from "../refs";
-import { forwardTo } from "../machine";
+import { forwardSaying, forwardTo } from "../machine";
 import { readMissing } from "../outlines";
 import { SocketBoard, type OutlineEvent } from "../socket";
 
@@ -44,6 +44,7 @@ export class OutlineBoards {
         const missing = await readMissing({ outline: address.outline, path, ...(!sameHost || own.machine ? { machine } : {}) });
         if (missing) throw new Error(missing);
         const board = new SocketBoard(path, undefined, address.outline);
+        if (!sameHost) board.prepare = async () => forwardSaying(machine, await forwardTo(machine));
         try {
           const info = await board.info();
           const ctx = ctxOn(own, board, address.outline, machine, info.workspace);

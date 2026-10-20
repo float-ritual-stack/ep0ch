@@ -28,7 +28,7 @@ beforeAll(async () => {
   work = local.folder("worktree");  // like a builder's worktree: no .ep0ch above it
   // The forward to the other machine is up, as a person's is once they have opened it.
   const up = await ep0ch(["outline", "list", "--machine", "far-box"]);
-  expect(up.err).toBe("");
+  expect(up.err).toContain("far-box via ssh");
   expect(up.code).toBe(0);
 }, 60_000);
 

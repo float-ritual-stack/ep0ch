@@ -324,7 +324,9 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     }
     case "machine-link": {
       const { linkKey, linkKeyGroup } = await import("@ep0ch/outliner/link-config");
+      const { linkStatus } = await import("@ep0ch/outliner/link");
       const config = f.linkConfig!;
+      const before = (await linkStatus(f.host.folder)).filter(l => l.transport === "link");
       for (const machine of config.mode === "serve" ? config.machines : [config.machine]) {
         try { await linkKey(machine, env); }
         catch {
@@ -349,7 +351,23 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
           await must(["launchctl", "bootstrap", domain, join(f.home, "Library/LaunchAgents/io.ep0ch.link.plist")], "run ep0ch install --apply again", { env });
         }
       }
-      say("machine link installed and started; ep0ch link status reports connections");
+      const machines = config.mode === "serve" ? config.machines : [config.machine];
+      const direction = config.mode === "serve" ? "inbound" : "outbound";
+      const ready = async () => {
+        const links = await linkStatus(f.host.folder);
+        return machines.every(machine => {
+          const was = before.find(l => l.machine === machine && l.direction === direction);
+          const now = links.find(l => l.machine === machine && l.direction === direction && l.transport === "link");
+          return now?.running && now.pid !== was?.pid && (!(config.mode === "connect" || was?.up) || now.up);
+        });
+      };
+      if (!(await waitFor(ready, 60_000))) {
+        const links = await linkStatus(f.host.folder);
+        throw new StepFailed(`The machine link did not return within a minute: ${links.filter(l => l.transport === "link").map(l => `${l.machine}: ${l.up ? "up" : l.reason}`).join("; ")}`,
+          "run ep0ch link status on both ends, then ep0ch install --apply on the end that is down");
+      }
+      const links = (await linkStatus(f.host.folder)).filter(l => l.transport === "link");
+      say(`machine link verified; ${links.map(l => `${l.machine}: ${l.up ? "up" : "away"}${l.reason ? ` (${l.reason})` : ""}`).join("; ")}`);
       return;
     }
     case "backups": {

@@ -161,8 +161,8 @@ describe.skipIf(!outliner)("the gateway's live route: the laptop's own host when
     laptopAway();
     clock += 1000;
     const read = await tool("outline_read", { ref: ids.keys, outline: "attic-notes" });
-    expect(read.json.reachability).toMatchObject({ source: "mirror", liveTried: { why: expect.stringContaining(`${FAR} didn't answer over ssh`) } });
-    expect(read.json.reachability.reason).toContain(`${FAR} didn't answer over ssh (tried just now)`);
+    expect(read.json.reachability).toMatchObject({ source: "mirror", liveTried: { why: expect.stringContaining(`${FAR} didn't answer over link or ssh`) } });
+    expect(read.json.reachability.reason).toContain(`${FAR} didn't answer over link or ssh (tried just now)`);
     expect(read.json.reachability.reason).toContain("read-only copy");
     const row = (await tool("list_outlines", {})).json.outlines[0];
     expect(row).toMatchObject({ source: "mirror", writes: "queued", route: { via: "mirror", why: expect.stringContaining("didn't answer") } });

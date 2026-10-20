@@ -49,13 +49,13 @@ describe("--machine: an outline on another machine, through the forward", () => 
     const first = await connectTarget(["--machine", "box-a", "--ws", "garden"]);
     if ("error" in first) throw new Error(first.error);
     expect(first.service.outline).toBe("garden");
-    expect(first.notice).toBe("started the forward to box-a");
+    expect(first.notice).toBe("box-a via ssh");
     // It asked the machine (ep0ch status --json in a login shell there) before forwarding what it said.
     expect(log().some(a => a.at(-1)?.includes("ep0ch status --json"))).toBe(true);
     expect(log().find(a => a.includes("-L"))).toContain(`${join(here, "outlines", ".remote", "box-a.sock")}:${host.sock}`);
     const second = await connectTarget(["--machine", "box-a", "--ws", "garden"]);
     if ("error" in second) throw new Error(second.error);
-    expect(second.notice).toBeUndefined();
+    expect(second.notice).toBe("box-a via ssh");
     expect(forwards()).toBe(1);
     first.board.close(); second.board.close();
     const { serveLink, connectLink, linkStates } = await import("@ep0ch/outliner/link");
@@ -122,7 +122,7 @@ describe("--machine: an outline on another machine, through the forward", () => 
     process.kill(forwarderPid());
     await until(() => said.some(s => s.startsWith("restored")), "the door to reconnect", 15_000);
     expect(said[0]).toBe("lost: outline connection lost · reconnecting");
-    expect(said.find(s => s.startsWith("restored"))).toMatch(/^restored: started the forward to box-a · caught up/);
+    expect(said.find(s => s.startsWith("restored"))).toMatch(/^restored: box-a via ssh · caught up/);
     expect(forwards()).toBe(before + 1);
     expect((await opened.board.info()).outline).toBe("garden");
     opened.board.close();

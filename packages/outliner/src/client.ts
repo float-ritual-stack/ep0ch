@@ -222,7 +222,7 @@ export class OutlinerClient {
     readonly outline?: string,
     /** Set when no outline could be named: every request and subscription fails with it. */
     readonly refusal?: string,
-    /** Makes the socket answer when nobody does (a machine's forward, started): run before a retry and every reconnect. */
+    /** Choose the machine transport before requests and reconnects. */
     private readonly ensure?: () => Promise<void>,
   ) {}
 
@@ -239,6 +239,7 @@ export class OutlinerClient {
    */
   async request<T>(input: RequestInput, timeoutMs = this.requestTimeoutMs): Promise<T> {
     if (this.refusal) throw new Error(this.refusal);
+    await this.ensure?.();
     let answer: T;
     try { answer = await this.send<T>(input, timeoutMs); }
     catch (error) {
