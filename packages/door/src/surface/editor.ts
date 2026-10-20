@@ -302,6 +302,7 @@ export function recoverEdits(alive: (pid: number) => boolean): string[] {
 /** A query uses the same draft, with line breaks flattened at the input edge. */
 export function editorLineKey(d: Draft, k: Key, copy: (text: string) => void): boolean {
   if (["enter", "esc", "tab", "backtab", "up", "down", "pgup", "pgdn", "mouse"].includes(k.kind)) return false;
+  if (k.kind === "alt-backspace") k = { kind: "char", ch: "w", ctrl: true };
   if (k.kind === "char" && k.ctrl) {
     if (k.ch === "u") { d.splice(0, d.text.length, ""); return true; }
     if (k.ch === "w") {

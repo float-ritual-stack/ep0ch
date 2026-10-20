@@ -12,7 +12,7 @@ import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import { Offline, SocketBoard, USER, type Actor } from "../src/socket";
 import { askInBar } from "../src/bar/ask";
-import type { Key } from "../src/term";
+import { KeyDecoder, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -96,7 +96,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(app.whatChanged.count()).toBe(1);
   });
 
-  test("typed, every source answers under its heading; a prefix, alt+← alt+→ and backspace move between scopes; esc puts it away", async () => {
+  test("typed, every source answers under its heading; a prefix and alt+← alt+→ move between scopes; esc puts it away", async () => {
     key(ctrlK); type("garden");
     await until(() => peek().bar.rows.some((r: any) => r.source === "notes"), "the notes search answered", 5000);
     const rows = peek().bar.rows;
@@ -118,10 +118,32 @@ describe.skipIf(!outliner)("the power bar", () => {
     key({ kind: "alt", ch: "b" });
     expect(peek().bar.scope).toBe("notes");
     key({ kind: "backspace" });
-    expect(peek().bar.scope).toBe("all");
+    expect(peek().bar.scope).toBe("notes");
     key({ kind: "esc" });
     expect(peek().bar).toBeUndefined();
     expect(app.person().busy).toBe(false as boolean);
+  });
+
+  test("backspacing past an empty action query keeps its scope until an explicit exit", () => {
+    key(ctrlK); type(">so");
+    for (let i = 0; i < 4; i++) key({ kind: "backspace" });
+    expect(peek().bar).toMatchObject({ scope: "actions", query: "" });
+    key({ kind: "alt-left" });
+    expect(peek().bar.scope).toBe("notes");
+    key({ kind: "esc" });
+    expect(peek().bar).toBeUndefined();
+  });
+
+  test.each(["\x1b\x7f", "\x1b[127;3u"])("Alt+Backspace (%j) deletes a word through terminal input without leaving the scope", bytes => {
+    const decoder = new KeyDecoder({ cols: 140, rows: 44, cellW: 9, cellH: 16, kitty: false });
+    decoder.keyHandler = k => key(k);
+    key(ctrlK); type(">garden path");
+    decoder.feed(bytes);
+    expect(peek().bar).toMatchObject({ scope: "actions", query: "garden " });
+    decoder.feed(bytes);
+    expect(peek().bar).toMatchObject({ scope: "actions", query: "" });
+    decoder.feed(bytes);
+    expect(peek().bar).toMatchObject({ scope: "actions", query: "" });
   });
 
   test("the line selects and deletes text, and esc clears before closing its scope", () => {
