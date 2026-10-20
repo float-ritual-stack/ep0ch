@@ -646,7 +646,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (tunedLines !== undefined) source.yaml = source.yaml.replace(/^lines:.*$/m, "") + `\nlines: ${tunedLines}`;
       if (env.figures) env.figures.drawn ??= { n: 0, titles: new Map() };
       const graph = renderGraph(gk, source, W, env.link, { ...env.figures, lines: componentLines(i, figure.attrs) }, rows);
-      out.push(...(env.inlineList && (gk === "table" || gk === "tabs") ? env.inlineList(graph, W) : graph));
+      out.push(...(env.inlineList ? env.inlineList(graph, W) : graph));
       i = figure.end;
       continue;
     }

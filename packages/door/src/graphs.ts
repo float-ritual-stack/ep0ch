@@ -174,12 +174,15 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
 
   kpi: (p, w) => KINDS.stat!(p, w),
 
-  rank: (p, w) => {
+  rank: (p, w, link) => {
     const items: Props[] = p.items ?? [];
     const lw = Math.min(Math.max(...items.map(i => vwidth(String(i.label)))), Math.max(1, Math.floor(w / 3))), vw = Math.max(...items.map(i => fmt(i.value).length));
     const max = Math.max(...items.map(i => num(i.value)), 1), bw = Math.max(6, Math.min(40, w - lw - vw - 6));
     // A bold row (Markdown) or `accent: true` is the accent; an italic one (`muted: true`) recedes.
-    return items.flatMap(i => rowLines(String(i.label), lw).map((label, n) => `${fg(i.accent ? ACCENT : i.muted ? DIM : HI)}${pad(label, lw)}${n ? "" : `  ${fg(DIM)}[${bar(num(i.value) / max, bw - 2, i.muted ? INK : ACCENT).replace(/█/g, "=")}${fg(DIM)}]  ${fg(i.accent ? ACCENT : INK)}${fmt(i.value).padStart(vw)}`}${RESET}`));
+    return items.flatMap(i => {
+      const rows = rowLines(String(i.label), lw).map((label, n) => `${fg(i.accent ? ACCENT : i.muted ? DIM : HI)}${pad(label, lw)}${n ? "" : `  ${fg(DIM)}[${bar(num(i.value) / max, bw - 2, i.muted ? INK : ACCENT).replace(/█/g, "=")}${fg(DIM)}]  ${fg(i.accent ? ACCENT : INK)}${fmt(i.value).padStart(vw)}`}${RESET}`);
+      return rowLinks(link, i.query ? "" : i.block, rows, undefined, i.query);
+    });
   },
 
   funnel: (p, w) => KINDS.rank!({ items: (p.steps ?? []).map((s: Props) => ({ label: s.label, value: s.display ?? s.value, raw: s.value })) }, w),
@@ -366,6 +369,9 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   const n = ++count.n, same = count.titles.get(title) ?? 0;
   count.titles.set(title, same + 1);
   const key = `${title}#${same}`;
+  // All kinds lend their row targets the same figure identity, including rows outside the current viewport.
+  const rowLink = link;
+  link = rowLink ? (block, text, _figure, query) => rowLink(block, text, key, query) : undefined;
   const chosen = figures?.ui?.(key);
   const writtenLines = props.lines === undefined ? undefined : Number(props.lines);
   const validLines = writtenLines === undefined || Number.isSafeInteger(writtenLines) && writtenLines >= 0;

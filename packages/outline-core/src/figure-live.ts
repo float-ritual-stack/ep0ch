@@ -160,7 +160,7 @@ export function liveProps(kind: string, p: Props, a: FigureAnswer): { props: Pro
     }
     case "rank":
       // The service's groups, most first; a match without the property is the NONE group.
-      return { props: { ...p, items: [...(a.groups ?? [])].sort((x, y) => y.count - x.count).map(g => ({ label: g.value ?? NONE, value: g.count })) } };
+      return { props: { ...p, items: [...(a.groups ?? [])].sort((x, y) => y.count - x.count).map(g => ({ label: g.value ?? NONE, value: g.count, query: `(${p.query}) AND ${g.value === null ? `NOT ${p.group ?? "status"}` : `${p.group ?? "status"}=${JSON.stringify(g.value)}`}` })) } };
     case "table":
       return { props: { ...p, ...tableOf(p, items) } };
     case "tabs": {
