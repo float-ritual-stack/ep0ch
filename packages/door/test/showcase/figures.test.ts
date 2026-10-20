@@ -122,6 +122,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
       expect((await selected())?.label).toContain(kind === "rank" ? "group-11" : "Walk 11");
       expect(desk.layoutGet().tiles.find((t: any) => t.name === tile).showing.id).toBe(note.id);
       const picked = await selected();
+      await app.dispatch.act({ action: "tile.focus", tile }, { kind: "user" });
       press({ kind: "esc" });
       expect((await elements()).some((e: any) => e.current)).toBe(false);
       await app.dispatch.act({ action: "element.select", tile, args: { n: picked.n } }, { kind: "user" });
@@ -578,17 +579,14 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect((await els()).find(e => e.current)?.label).toBe("sow under glass");
     press({ kind: "enter" });
     await until(() => screen().includes("Apr: sow under glass") && !screen().includes("SQUASH BEDS"), "the child bullet's note open in the reader", 5000);
-    // Back (backspace), then a click selects the child row; Enter opens its note.
+    // Back (backspace), where the reader was, then by mouse: a click on another child row opens its note.
     press({ kind: "backspace" });
     // Back where it was, the figure block's row on screen (the reader keeps its place).
     const rowAt = () => sc.render(app).lines.map(plain).findIndex(l => /┊ ●  Apr  sow under glass/.test(l));
     await until(() => rowAt() >= 0, "back on the figures note, the child row on screen", 5000);
     const y = rowAt(), x = sc.render(app).lines.map(plain)[y]!.indexOf("sow under glass") + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
-    expect(screen()).toContain("BEAN ROWS (CHILD BULLETS)");
-    expect((await els()).find(e => e.current)?.label).toBe("sow under glass");
-    press({ kind: "enter" });
-    await until(() => !screen().includes("BEAN ROWS (CHILD BULLETS)"), "the selected child bullet's note opened by Enter", 5000);
+    await until(() => !screen().includes("BEAN ROWS (CHILD BULLETS)"), "the child bullet's note opened by a click", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 });

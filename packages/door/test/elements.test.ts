@@ -330,7 +330,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(B().details[0].msg.id).toBe(n.jobs.id);
   }, 30_000);
 
-  test("a click toggles a fold or comment mark and selects a figure row; Enter opens it", async () => {
+  test("a click does what ⏎ does and sets the [ ] position: a fold, a comment mark, a figure row", async () => {
     await fresh();
     const p = B().preview as ReaderPane;
     { const at = where(frame(), "## Beds", rect("preview")); click({ x: rect("preview").col + 1, y: at.y }); }
@@ -346,11 +346,8 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     frame();
     await until(() => p.surface.expanded.size === 0, "the thread folded");
     click(where(frame(), "Turn the compost", rect("preview")));
-    await until(() => { frame(); return current(p)?.label === "Turn the compost"; }, "the clicked row selected");
+    await until(() => B().details[0]?.msg?.id === n.compost.id, "the row's note in a detail");
     expect(current(p)).toMatchObject({ kind: "row", label: "Turn the compost" });
-    expect(B().details.length).toBe(0);
-    key({ kind: "enter" });
-    await until(() => B().details[0]?.msg?.id === n.compost.id, "the selected row's note in a detail");
     // A drag across the same row still selects text, and opens nothing.
     const d0 = B().details.length, at = where(frame(), "Water the seedlings", rect("preview"));
     key({ kind: "mouse", action: "down", button: 0, x: at.x, y: at.y });

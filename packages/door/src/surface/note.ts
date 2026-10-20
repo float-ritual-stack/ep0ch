@@ -2301,7 +2301,7 @@ export class NoteSurface {
           const ps = projected.get(line)?.filter(({ p }) => p.output?.component?.placement !== "replace");
           return ps ? { rows: ps.flatMap(({ p }) => extensionRegion(p, width, Date.now(), (to, text) => tagged(drawn, to, text), { note: target.id, markdown: inert, row: (block, text) => tagged(drawn, { block, role: "row" }, text) }).rows) } : [];
         },
-        link: (block, t, _figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row" }, t),
+        link: (block, t, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
         // The template is the definition (`self`); the chain says the host is `this`, so a figure over `{{this.project}}` reads the host.
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
@@ -2321,7 +2321,7 @@ export class NoteSurface {
       const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
         ...env, width, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
-        link: (block, t, _figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row" }, t),
+        link: (block, t, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
         use: useHook(target.id, lines, { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) }, depth + 1),
@@ -5366,7 +5366,7 @@ export class NoteSurface {
     // position; its preview and a preview linked to this reader follow), a second click on it soon after opens it (⏎),
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
     const lbk = h.link.linksBlock;
-    if (e && (lbk?.row || e.link?.inlineList) && !host.opensOnClick?.(h.link)) {
+    if (e && !e.link?.figure && (lbk?.row || e.link?.inlineList) && !host.opensOnClick?.(h.link)) {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
       const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was });

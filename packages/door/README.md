@@ -2599,7 +2599,7 @@ Bodies render with `src/doc.ts`:
   The note stores the question, so status lives in one place. Footer reads `live · N results`.
   Up/Down selects rows and keeps focus at the first and last; Left/Right switches tabs,
   Enter opens the selected note (a rank bar opens its matching notes), and Esc leaves.
-  A click on a tab switches it; a click on a row selects it.
+  A click on a tab switches it; a click on a row selects it and shows its note where opens land.
   - `check`: `done: "outbox=done"` ticks rows, `note: waiting-on` adds a property line
   - `stat`/`kpi`: each item takes its own `query`/`view`; the value is a live count
   - `rank`: `group: ticket` counts per value · `table`: `columns: [ticket, title, waiting-on, updated]`
