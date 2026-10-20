@@ -241,7 +241,7 @@ describe("what a running agent knows", () => {
     expect(knowsLabel({ state: "unknown", why: "" })).toBe("");
   });
 
-  test("the chip says `door tools`, still after the mod changes (it reloads live); when stale, its chip still opens the picker and an explicit restart continues the agent", async () => {
+  test("the chip says `door tools`, still after the mod changes (it reloads live); when stale, a click on ⟳ restarts the agent alone, continuing", async () => {
     const mod = installMod();
     process.env.EP0CH_DAILY_AGENT = standin;
     const bystander = Bun.spawn(["sleep", "30"]);                     // never signalled
@@ -262,14 +262,12 @@ describe("what a running agent knows", () => {
       expect(await d.app.act({ action: "agent.knows", args: {}, as: "helper" })).toMatchObject({ knows: { state: "stale" } });
       expect(d.app.drawer.chipText()).toMatch(/^▼ claude \(from EP0CH_DAILY_AGENT\) · (idle|working) · started before update ⟳$/);
 
-      // Even the stale mark opens the picker; restarting remains an explicit action.
+      // A click on ⟳ restarts the agent alone (the rest of the chip toggles the drawer; alt+click is the picker).
       const shown = d.paint();
       const chip = d.app.drawer.chipAt!;
       expect(shown.at(-1)!.slice(chip.to - 1, chip.to)).toBe("⟳");
       d.key({ kind: "mouse", action: "down", button: 0, x: chip.to - 1, y: chip.row });
-      expect(d.app.drawer.desk!.overlaid()).toBe(true);
-      d.key({ kind: "esc" });
-      await d.app.dispatch.act({ action: "agent.restart" }, { kind: "user" });
+      expect(d.app.drawer.open).toBe(true);                               // not toggled
       await until(() => starts().length === 2 && d.app.drawer.tile?.running === true, "the restart");
       expect(d.app.drawer.tile!.pid).not.toBe(first);
       expect(starts()[1]!.argv).toBe("--continue");                     // a bare claude continues its conversation

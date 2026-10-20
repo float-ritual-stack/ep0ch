@@ -1449,7 +1449,12 @@ export class AgentDrawer {
       return true;
     }
     if (onChip) {
-      if (k.action === "down") run("host.agent", {});
+      // A click toggles the drawer (the person's most frequent click: never anything else); ⟳, the chip's last cell when it
+      // offers one, restarts the agent; alt+click or a right click opens the agent picker.
+      if (k.action === "down") {
+        const picker = k.button === 2 || ((k.mods ?? 0) & 8) !== 0;
+        run(picker ? "host.agent" : this.offersRestart && k.x >= chip!.to - 1 ? "agent.restart" : "host.toggle", {});
+      }
       return true;
     }
     if (!r) return false;
@@ -1622,7 +1627,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "host.agent": def({
     summary: "the drawer's own agent (its first tab): name=<agent> chooses one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door), saved for this outline's session (default=true: for every outline). Choosing restarts the same tab inside the person's login shell; a busy agent asks first. No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",
-    keys: "a click on the agent chip always opens the picker; the power bar finds agent or claude",
+    keys: "alt+click or a right click on the agent chip opens the picker (a plain click opens and closes the drawer); the power bar finds agent or claude",
     touches: "screen", replay: "ask",
     says: (out: { agent?: string }) => (out.agent ? `· chose ${out.agent} for the drawer` : null),
     args: { confirm: { type: "boolean", optional: true, about: "replace a busy agent after confirming" }, name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, herdr: { type: "boolean", optional: true, about: "run it in this session's own Herdr pane (it outlives the door)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" }, in: { type: "string", optional: true, about: "the folder it starts in (~ is your home); left out: the project's .ep0ch folder, else the outline's own" } },

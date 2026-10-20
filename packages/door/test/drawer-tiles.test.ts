@@ -82,7 +82,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
-  test("the agent chip always opens the picker and choices replace the same tab (PIE-1117)", async () => {
+  test("a click on the agent chip toggles the drawer, alt+click opens the picker, and choices replace the same tab (PIE-1117)", async () => {
     const bin = join(state, "bin");
     mkdirSync(bin);
     for (const name of ["pi", "claude"]) {
@@ -101,7 +101,14 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       for (const name of ["pi", "claude"]) {
         d.paint();
         const chip = d.app.drawer.chipAt!;
+        // A plain click only opens or closes the drawer: never the picker (the person's most frequent click).
+        const open = d.app.drawer.open;
         d.key(mouse("down", chip.from + 1, chip.row));
+        expect(d.app.drawer.open).toBe(!open);
+        expect(d.app.drawer.desk?.overlaid() ?? false).toBe(false);
+        d.paint();
+        const at = d.app.drawer.chipAt!;
+        d.key({ kind: "mouse", action: "down", button: 0, x: at.from + 1, y: at.row, mods: 8 });
         expect(d.app.drawer.desk!.overlaid()).toBe(true);
         if (name === "pi") expect(d.paint().some(l => l.includes("EP0CH_DAILY_AGENT overrides"))).toBe(true);
         d.key({ kind: "esc" });

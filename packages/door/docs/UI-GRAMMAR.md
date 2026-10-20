@@ -1303,7 +1303,7 @@ that tile, including a tile in the drawer.
 A mode's key hints belong in its tile footer once. The drawer edge and the status line show state and controls;
 they do not repeat the tile's mode hints. An explicit keys figure can teach the home or empty panel's first steps.
 
-Clicking the drawer agent chip always opens `host.agent`'s picker. Choosing replaces its own agent tab and
+A plain click on the drawer agent chip opens and closes the drawer (the most frequent click: never anything else); alt+click or a right click opens `host.agent`'s picker. Choosing replaces its own agent tab and
 asks first when it is busy. The picker includes the folder and this-outline/every-outline scope. An
 `EP0CH_DAILY_AGENT` override is named on the chip, explained in the picker and doctor, with the shell line to
 remove. `ep0ch agent use <name> [--everywhere]` uses that same action.
