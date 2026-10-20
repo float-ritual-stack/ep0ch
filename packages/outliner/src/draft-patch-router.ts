@@ -9,16 +9,9 @@ import { wholeTextSpan } from "./extension-writes";
  * under a revision check. Several notes apply together or not at all: every
  * part is checked, the drafts are patched, then the saved notes are written in
  * one transaction; a failure anywhere reverts the drafts already patched and
- * the whole patch lands as a proposal instead.
- *
- * The rule a matching patch is held to (`policy`) is the patch's: `edit`, the
- * default, is the guard every agent edit has (`droppedLinkedStructure`, shared
- * with outline_edit), and a patch it refuses is an error, nothing written, as
- * outline_edit's is: it never parks as a proposal. `prose` (a tidy of the
- * person's words) keeps every structural token, and what it refuses becomes a
- * proposal for the person. Only a compare that fails (the note changed since
- * it was read, the passage isn't there, the cursor is in it) or a prose refusal
- * becomes a proposal.
+ * the whole interactive patch is refused. Explicit suggestions and queued deliveries
+ * request `propose: true`; only these are parked beside the note for a decision.
+ * The `edit` and `prose` policy checks and the draft/saved merge path stay shared.
  */
 import {
   applyLocated,
@@ -32,7 +25,6 @@ import {
 } from "@ep0ch/outline-core/draft-patch-compare";
 import {
   DRAFT_PATCH_POLICIES,
-  DRAFT_PATCH_PROPOSE_WHEN,
   DRAFT_PROPOSAL_TYPE,
   draftPatchPolicy,
   droppedStructure,
@@ -180,7 +172,7 @@ function alongside(write: (() => void) | undefined): void {
 /** A refusal by the `edit` policy: nothing was written, and the agent hears why. */
 export class DraftPatchRefusal extends Error {
   constructor(reason: string) {
-    super(`Not applied, nothing was written: ${reason}`);
+    super(`not applied: ${reason}`);
     this.name = "DraftPatchRefusal";
   }
 }
@@ -327,14 +319,7 @@ export class DraftPatchRouter {
     for (const edit of edits) this.deps.store.requireActive(edit.blockId);
     if (mark) this.deps.store.requireActive(mark.blockId);
     const sent = { policy, ...(allowStructural ? { allowStructural } : {}) };
-    if (input.propose !== undefined && !DRAFT_PATCH_PROPOSE_WHEN.includes(input.propose)) {
-      throw new Error(`propose is ${DRAFT_PATCH_PROPOSE_WHEN.join(" or ")}`);
-    }
-    if (input.propose === "always") return this.propose("its writer may propose changes here, not make them", edits, mutation, mark, sent);
-    if (input.propose === "held") {
-      const held = edits.find(edit => this.routeOf(edit.blockId).hold);
-      if (held) return this.propose("the note is open in a draft, which a remote write never changes", edits, mutation, mark, sent);
-    }
+    if (input.propose === true) return this.propose("its writer may propose changes here, not make them", edits, mutation, mark, sent);
     if (policy === "prose") {
       const total = proposalChanges({ edits });
       let change = 0;
@@ -342,14 +327,29 @@ export class DraftPatchRouter {
         for (const span of edit.patches) {
           change += 1;
           const reason = draftPatchPolicy(span, anchor => this.inboundLinks(edit.blockId, anchor));
-          if (reason) return this.propose(blamed(reason, change, total), edits, mutation, mark, sent);
+          if (reason) {
+            const why = blamed(reason, change, total);
+            if (input.propose === "on-conflict") return this.propose(why, edits, mutation, mark, sent);
+            throw this.patchRefusal(edits, why);
+          }
         }
       }
     }
     const outcome = await this.run(edits, { mutation, mark, output, replyTo: input.replyTo, replyGroup: input.replyGroup, ...sent, ...(input.current === true ? { current: true } : {}) });
     if (outcome.ok) return { outcome: "applied", edits: outcome.applied };
     if (outcome.refused || output) throw new DraftPatchRefusal(outcome.reason);
-    return this.propose(outcome.reason, edits, mutation, mark, sent);
+    if (input.propose === "on-conflict") return this.propose(outcome.reason, edits, mutation, mark, sent);
+    throw this.patchRefusal(edits, outcome.reason);
+  }
+
+  private patchRefusal(edits: DraftPatchEdit[], reason: string): DraftPatchRefusal {
+    const notes = edits.map(edit => {
+      const block = this.deps.store.requireActive(edit.blockId);
+      const revision = this.holderOf(edit.blockId)?.revision ?? block.revision;
+      const changed = revision !== edit.revision ? "changed since you read it" : `could not accept the patch: ${reason}`;
+      return `${blockDisplayTitle(block)} ((${block.id})) ${changed} (revision ${edit.revision}, now ${revision})`;
+    });
+    return new DraftPatchRefusal(`${notes.join("; ")}; read it again and send the patch against the new text.`);
   }
 
   /**
@@ -862,7 +862,7 @@ export class DraftPatchRouter {
    * Whether the patch's part for one note, applied to `text` (the note as saved, or the draft as typed), passes
    * the patch's policy. `edit`: the guard every agent edit has, `droppedLinkedStructure` (unless
    * `allowStructural`), and a refusal is final, never a proposal. `prose`: every structural token kept, and a
-   * refusal becomes a proposal. Null when it passes.
+   * refusal is an error. Null when it passes.
    */
   private async policyFailure(edits: DraftPatchEdit[], edit: DraftPatchEdit, text: string, options: RunOptions, locate: Locator = locateSpans): Promise<Extract<Outcome, { ok: false }> | null> {
     if (options.force) return null;

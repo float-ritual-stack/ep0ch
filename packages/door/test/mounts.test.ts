@@ -112,7 +112,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     for (const op of ["dismiss", "apply"]) {
       const note = await board.request<any>("create", { parentId: null, text: "Seed plan\nPlant beans." });
       const proposal = await board.request<any>("draft.patch", { blockId: note.id, revision: note.revision,
-        patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: "always",
+        patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: true,
         mutation: { author: "agent", actorId: AS } });
       await expect(act(`proposal.${op}`, { id: proposal.proposalId }, "missing-898")).rejects.toThrow("no tile missing-898");
       expect(prop((await board.get(proposal.proposalId))!, "proposal-status")).toBe("open");

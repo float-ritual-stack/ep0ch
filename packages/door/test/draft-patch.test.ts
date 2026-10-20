@@ -245,7 +245,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const e = await editing("Garden");
     try {
       const saved = (await board.get(e.id))!;
-      const pending = await agent.request<{proposalId: string}>("draft.patch", {blockId: e.id, revision: saved.revision, propose: "always", patches: [{observed: "", replacement: "\nNew line."}], mutation: {author: "agent", actorId: "gardener"}});
+      const pending = await agent.request<{proposalId: string}>("draft.patch", {blockId: e.id, revision: saved.revision, propose: true, patches: [{observed: "", replacement: "\nNew line."}], mutation: {author: "agent", actorId: "gardener"}});
       e.d.replace("", undefined, undefined, true);
       const result = await board.request<{outcome: string; message: string}>("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
       expect(result.outcome).toBe("open");
@@ -267,7 +267,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
       e.type(" here.");
       const before = e.d.text;
       const saved = (await board.get(e.id))!;
-      const pending = await agent.request<{proposalId: string}>("draft.patch", {blockId: e.id, revision: saved.revision, propose: "always", patches, mutation: {author: "agent", actorId: "gardener"}});
+      const pending = await agent.request<{proposalId: string}>("draft.patch", {blockId: e.id, revision: saved.revision, propose: true, patches, mutation: {author: "agent", actorId: "gardener"}});
       const result = await board.request<{outcome: string; undo: string}>("draft.proposal.resolve", {proposalId: pending.proposalId, mutation: {author: "user"}});
       expect(result.outcome).toBe("resolved");
       expect(e.d.text).toBe(before.replace("Remove this sentence.\n", ""));
@@ -562,7 +562,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     } finally { unregister(); }
   });
 
-  /** tidy's patch of the sentence in a draft Evan has open, sent while his cursor is in it: it becomes a proposal beside the note, and his draft is as he typed it (PIE-725). */
+  /** tidy's intentional suggestion in a draft Evan has open, sent while his cursor is in it: it is a proposal beside the note, and his draft is as he typed it (PIE-725). */
   async function proposedInDraft(e: Awaited<ReturnType<typeof editing>>, typeInIt = false) {
     const read = await agent.readDraft(e.id);
     expect(read.route).toBe("draft");
@@ -572,7 +572,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     e.d.place(1, 9);
     if (typeInIt) e.type("sugar ");
     const r = await agent.request("draft.patch", {
-      blockId: e.id, revision: read.revision, mark: { text: tidyMark }, mutation: { author: "agent", actorId: "tidy" },
+      blockId: e.id, revision: read.revision, propose: true, mark: { text: tidyMark }, mutation: { author: "agent", actorId: "tidy" },
       patches: [{ observed, replacement: "The peas climb the net.", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 48) }],
     });
     expect(r).toMatchObject({ outcome: "proposed", beside: e.id });
@@ -584,7 +584,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
   test("PIE-1065: an append proposal offers apply and lands at the end of the draft", async () => {
     const e = await editing("Garden\nMy words.");
     const result = await agent.request("draft.patch", { blockId: e.id, revision: e.d.base,
-      patches: [{ observed: "", replacement: "\nA proposed addition." }], propose: "always",
+      patches: [{ observed: "", replacement: "\nA proposed addition." }], propose: true,
       mutation: { author: "agent", actorId: "tidy" } });
     const proposal = (await board.get(result.proposalId))!;
     const reader = new NoteSurface(), h = host();
@@ -599,7 +599,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     e.s.dispose();
   });
 
-  test("an edit at the cursor fails cleanly into a proposal beside the note, and A applies it anyway in the draft", async () => {
+  test("an intentional suggestion at the cursor is a proposal beside the note, and A applies it anyway in the draft", async () => {
     const e = await editing(`Allotment\nThe peas   climb  the net.\n\n${tidyMark}\n`);
     const id = await proposedInDraft(e);
     expect(e.d.text).toContain("The peas   climb  the net.");

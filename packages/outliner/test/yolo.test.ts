@@ -84,7 +84,7 @@ describe("yolo in the service", () => {
     const dismiss = (proposalId: string) => client.request({ action: "draft.proposal.dismiss", proposalId, mutation: OTHER });
     const propose = async (text: string) => {
       const note = store.create(`Plan\n${text}\n@tidy go`);
-      const result = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [spanOf(note.text, text, "beans here")], propose: "always", mutation: TIDY });
+      const result = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [spanOf(note.text, text, "beans here")], propose: true, mutation: TIDY });
       if (result.outcome !== "proposed") throw new Error("expected a proposal");
       return result.proposalId;
     };
@@ -129,7 +129,7 @@ describe("yolo in the service", () => {
   test("an agent applies a proposal that only the person may apply (a prose edit that drops structure), still as the agent", async () => {
     const { store, client, door, activity } = await service();
     const note = store.create("Beds [season::spring]\nThe fence bed holds the beans.");
-    const proposed = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [spanOf(note.text, "Beds [season::spring]", "Beds")], policy: "prose", mutation: TIDY });
+    const proposed = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [spanOf(note.text, "Beds [season::spring]", "Beds")], policy: "prose", propose: true, mutation: TIDY });
     if (proposed.outcome !== "proposed") throw new Error("expected a proposal");
     const apply = () => client.request({ action: "draft.proposal.apply", proposalId: proposed.proposalId, mutation: OTHER });
     await expect(apply()).rejects.toThrow("only the person applies that anyway");

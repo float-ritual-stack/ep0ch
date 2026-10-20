@@ -31,8 +31,8 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
   let shed = "", beds = "", view = "";
 
   /**
-   * A note embedding a note, a fragment and a view, and a proposal tidy's patch left beside it: the person
-   * retitled the note after tidy read it, so the patch couldn't apply and became a proposal (PIE-725: drawn after the
+   * A note embedding a note, a fragment and a view, and tidy's intentional suggestion beside it. The person
+   * retitled the note after tidy read it; propose: true retains the proposal controls fixture (PIE-725: drawn after the
    * note's last line, where its embed line used to go, without a word of the note changed). With
    * `gone`, the person reworded the very sentence instead: the proposal can't be applied, only dismissed.
    */
@@ -43,7 +43,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     const observed = "The peas   climb  the net.", start = read.text.indexOf(observed);
     await board.update(id, gone ? read.text.replace(observed, "The peas sugar   climb  the net.") : read.text.replace(observed, `${observed} Mind the slugs.`), read.revision!);
     const r = await agent.request<any>("draft.patch", {
-      blockId: id, revision: read.revision, mutation: { author: "agent", actorId: "tidy" },
+      blockId: id, revision: read.revision, propose: true, mutation: { author: "agent", actorId: "tidy" },
       patches: [{ observed, replacement: "The peas climb the net.", range: { start, end: start + observed.length }, unit: "utf16", before: read.text.slice(0, start), after: read.text.slice(start + observed.length, start + observed.length + 48) }],
     });
     expect(r).toMatchObject({ outcome: "proposed", beside: id });

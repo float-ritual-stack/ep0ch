@@ -195,15 +195,14 @@ test("a request line an agent wrote runs; a line still being changed runs once, 
   expect(store.agentRequests(mine.id).map((row) => row.request)).toEqual(["all"]);
 });
 
-test("a patch whose compare fails becomes a proposal under the line; a reply shows under it; a failure says why", async () => {
+test("a patch whose compare fails reports an error without a proposal; replies still show under the line", async () => {
   const { store, create, agentOf, writeAgent } = await setup();
   await writeAgent("stale", `process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "text the note never had", replacement: "x" }] } }));`);
   const note = await create("Plan\nthe real text\n@stale");
-  const proposed = await agentOf(note.id, (p) => p.status === "ready");
-  const proposalId = proposed.agent!.proposalId!;
-  expect(proposed.agent!.status).toBe("proposed");
-  expect(proposed.summary).toStartWith("proposed instead: ");
-  expect(store.get(proposalId)?.parentId).toBe(note.id);
+  const refused = await agentOf(note.id, (p) => p.status === "unavailable");
+  expect(refused.agent!.status).toBe("failed");
+  expect(refused.reason).toContain("read it again and send the patch");
+  expect(store.children(note.id)).toEqual([]);
   expect(store.get(note.id)!.text).toContain("the real text");
 
   await writeAgent("answer", `const request = await Bun.stdin.json();
@@ -217,27 +216,6 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "two items", r
   const bad = await create("x\n@broken");
   const failed = await agentOf(bad.id, (p) => p.status === "unavailable");
   expect(failed.reason).toBe("@broken answered something the service can't apply: patches must be a list of at most 20");
-});
-
-test("a request's proposal, applied anyway or dismissed, says so under the line (PIE-510)", async () => {
-  const { store, client, create, agentOf, writeAgent } = await setup();
-  await writeAgent("stale", `process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "two  beans", replacement: "two beans" }] } }));`);
-  const dropped = await create("Plan\nthe real text\n@stale");
-  const first = await agentOf(dropped.id, (p) => p.agent?.status === "proposed");
-  const dismissed = await client.request<{ outcome: string }>({ action: "draft.proposal.dismiss", proposalId: first.agent!.proposalId!, mutation: PERSON });
-  expect(dismissed.outcome).toBe("dismissed");
-  const after = await agentOf(dropped.id, (p) => p.agent?.status === "dismissed");
-  expect(after.summary).toBe("its proposal was dismissed");
-
-  const kept = await create("Plan\nthe real text\n@stale");
-  const second = await agentOf(kept.id, (p) => p.agent?.status === "proposed");
-  // The passage the agent meant turns up after all; the person applies the proposal anyway.
-  const now = store.get(kept.id)!;
-  await client.request({ action: "update", blockId: kept.id, text: now.text.replace("the real text", "two  beans"), expectedRevision: now.revision, mutation: PERSON });
-  await client.request({ action: "draft.proposal.apply", proposalId: second.agent!.proposalId!, mutation: PERSON });
-  const applied = await agentOf(kept.id, (p) => p.agent?.status === "applied");
-  expect(applied.summary).toBe("its proposal was applied anyway");
-  expect(store.get(kept.id)!.text).toStartWith("Plan\ntwo beans\n@stale");
 });
 
 test("only a request a person's save adds runs: lines from before the install wait, note-level r doesn't ask, typing elsewhere still applies", async () => {
@@ -536,7 +514,7 @@ else console.log(JSON.stringify({patches: [{observed: "grow beans", replacement:
   for (const conflict of [false, true]) {
     let note = await create("Garden plan\ngrow beans\ndelivery Monday");
     for (let i = 2; i <= 4; i++) note = await client.request<Block>({action: "update", blockId: note.id, text: `Garden plan ${i}\ngrow beans\ndelivery Monday`, expectedRevision: note.revision, mutation: PERSON});
-    const proposal = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: 4, propose: "always", patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "gardener"}});
+    const proposal = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: 4, propose: true, patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "gardener"}});
     const current = await client.request<Block>({action: "update", blockId: note.id, text: note.text.replace(conflict ? "grow beans" : "Monday", conflict ? "grow carrots" : "Tuesday"), expectedRevision: 4, mutation: PERSON});
     const api = hostApi(client, {actorId: "resolver-test"}, {mcpAccess: "full"});
     const tool = conflict ? await api.tool.outline_proposal_resolve!({ref: proposal.proposalId}) as {outcome: string; undo?: string} : undefined;
@@ -567,7 +545,7 @@ else console.log(JSON.stringify({patches: [{observed: "grow beans", replacement:
   expect(rules.rules?.find(rule => rule.name === "invalid-resolver")?.problem).toContain("proposal isn't installed");
   await create("Resolve stale proposals [rule-name::resolve-stale] [rule-on::tidy/resolve] [rule-match::type=proposal stale=true] [rule-quiet::1s]");
   const auto = await create("Auto garden\ngrow beans\ndelivery Monday");
-  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: auto.id, revision: auto.revision, propose: "always", patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "gardener"}});
+  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: auto.id, revision: auto.revision, propose: true, patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "gardener"}});
   await client.request({action: "update", blockId: auto.id, text: auto.text.replace("Monday", "Tuesday"), expectedRevision: auto.revision, mutation: PERSON});
   await until("the rule resolving the stale proposal", () => store.get(pending.proposalId)!.properties.some(p => p.key === "proposal-status" && p.value === "resolved"));
   expect(store.get(auto.id)!.text).toContain("grow peas\ndelivery Tuesday");
@@ -583,7 +561,7 @@ test("resolution respects the proposal's request boundary", async () => {
   const answer = ["bun", "-e", `await Bun.stdin.text(); console.log(${JSON.stringify(JSON.stringify({patches, message: "Changed the crop."}))});`];
   const {client, store, create} = await setup({answer});
   const note = await create("Garden\n@tidy\ngrow beans");
-  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: "always", patches, mark: {text: "@tidy", blockId: note.id}, mutation: {author: "agent", actorId: "gardener"}});
+  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: true, patches, mark: {text: "@tidy", blockId: note.id}, mutation: {author: "agent", actorId: "gardener"}});
   const result = await client.request<{outcome: string; message: string}>({action: "draft.proposal.resolve", proposalId: pending.proposalId, mutation: PERSON});
   expect(result.outcome).toBe("open");
   expect(result.message).toContain("the mark or below");
@@ -601,7 +579,7 @@ test("three-way resolution merges independent words and appends without calling 
     const {client, store, create, counted} = await setup();
     const calls = await counted("tidy");
     const note = await create("Garden\n" + c.base);
-    const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: "always", patches: c.patches, mutation: {author: "agent", actorId: "gardener"}});
+    const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: true, patches: c.patches, mutation: {author: "agent", actorId: "gardener"}});
     const current = await client.request<Block>({action: "update", blockId: note.id, expectedRevision: note.revision, text: "Garden\n" + c.ours, mutation: PERSON});
     const result = await client.request<{outcome: string; undo: string}>({action: "draft.proposal.resolve", proposalId: pending.proposalId, mutation: PERSON});
     expect(calls()).toEqual([]);
@@ -624,7 +602,7 @@ if (data.region_base === "Monday") {
 }`];
   const {client, store, create} = await setup({answer});
   const note = await create("Garden [kind::plan]\nWe grow beans every Monday.\nsee [[Seed list]] ^seeds\nUntouched  spaces  ");
-  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: "always", patches: [{observed: "beans", replacement: "peas"}, {observed: "Monday", replacement: "Wednesday"}], mutation: {author: "agent", actorId: "gardener"}});
+  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: true, patches: [{observed: "beans", replacement: "peas"}, {observed: "Monday", replacement: "Wednesday"}], mutation: {author: "agent", actorId: "gardener"}});
   const proposal = store.require(pending.proposalId);
   await client.request({action: "update", blockId: proposal.id, expectedRevision: proposal.revision, text: proposal.text.replace("\nTo ", "\nKeep both crops.\nTo "), mutation: PERSON});
   const current = await client.request<Block>({action: "update", blockId: note.id, expectedRevision: note.revision, text: note.text.replace("beans", "carrots").replace("Monday", "Tuesday"), mutation: PERSON});
@@ -650,7 +628,7 @@ console.log(JSON.stringify(data.region_base === "beans" && data.region_ours === 
   const {client, store, create} = await setup({answer});
   const middle = Array.from({length: 1100}, (_, i) => `unchanged${i}`).join(" ");
   const note = await create(`Garden\nbeans ${middle} Monday`);
-  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: "always", patches: [{observed: "beans", replacement: "peas"}, {observed: "Monday", replacement: "Wednesday"}], mutation: {author: "agent", actorId: "gardener"}});
+  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: true, patches: [{observed: "beans", replacement: "peas"}, {observed: "Monday", replacement: "Wednesday"}], mutation: {author: "agent", actorId: "gardener"}});
   await client.request({action: "update", blockId: note.id, expectedRevision: note.revision, text: `Garden\ncarrots ${middle} Tuesday`, mutation: PERSON});
   const result = await client.request<{outcome: string; message: string}>({action: "draft.proposal.resolve", proposalId: pending.proposalId, mutation: PERSON});
   expect(result).toMatchObject({outcome: "resolved"});
@@ -660,10 +638,14 @@ console.log(JSON.stringify(data.region_base === "beans" && data.region_ours === 
 test("undoing resolution restores the agent request's proposed row and projection", async () => {
   const answer = ["bun", "-e", 'await Bun.stdin.text(); console.log(JSON.stringify({replacement: "peas and carrots"}));'];
   const {client, store, create, agentOf, writeAgent} = await setup({answer});
-  await writeAgent("grower", `await Bun.stdin.json(); await Bun.sleep(400); console.log(JSON.stringify({ok: true, value: {patches: [{observed: "beans", replacement: "peas"}], message: "Changed the crop."}}));`);
+  await writeAgent("grower", `await Bun.stdin.json(); console.log(JSON.stringify({ok: true, value: {message: "A suggestion follows."}}));`);
   const note = await create("Garden\nbeans\n@grower");
-  await until("grower running", () => store.agentRequests(note.id)[0]?.status === "running");
+  await agentOf(note.id, p => p.status === "ready");
+  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: true,
+    patches: [{observed: "beans", replacement: "peas"}], mutation: {author: "agent", actorId: "grower"}});
   await client.request({action: "update", blockId: note.id, expectedRevision: note.revision, text: "Garden\ncarrots\n@grower", mutation: PERSON});
+  // An existing request-linked proposal must still restore its request row when resolution is undone.
+  store.putAgentRequest({...store.agentRequests(note.id)[0]!, status: "proposed", proposalId: pending.proposalId});
   const projected = await agentOf(note.id, p => p.agent?.status === "proposed");
   const before = store.agentRequests(note.id)[0]!;
   const result = await client.request<{outcome: string; undo: string}>({action: "draft.proposal.resolve", proposalId: projected.agent!.proposalId!, mutation: PERSON});
@@ -681,7 +663,7 @@ test("undo restores every byte after resolution empties a held draft", async () 
   const {client, store, create} = await setup();
   const note = await create("Garden\r\nKeep  these bytes.  \r\n日本語 👩🏽‍💻\r\n");
   const door = await fakeDoor(client, "door-empty-resolution", note);
-  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: "always", patches: [{observed: note.text, replacement: ""}], mutation: {author: "agent", actorId: "gardener"}});
+  const pending = await client.request<{proposalId: string}>({action: "draft.patch", blockId: note.id, revision: note.revision, propose: true, patches: [{observed: note.text, replacement: ""}], mutation: {author: "agent", actorId: "gardener"}});
   const result = await client.request<{outcome: string; undo: string}>({action: "draft.proposal.resolve", proposalId: pending.proposalId, mutation: PERSON});
   expect(result.outcome).toBe("resolved");
   expect(door.text).toBe("");

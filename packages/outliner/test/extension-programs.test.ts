@@ -109,7 +109,7 @@ test("every extension process gets its connection, HOME, WITH_SECRETS_DIR and th
   expect(liveGrants()).toBe(0);
 });
 
-test("a cross-note write over the connection is ext:<id>'s with who asked, runs no extension, and becomes a proposal while the person types", async () => {
+test("a cross-note write over the connection is ext:<id>'s with who asked, runs no extension, and is refused while the person types", async () => {
   const { store, client, install, feed, create } = await setup();
   const elsewhere = await create("Seed swap\nbring marigolds\nmore later");
   const shelf = await create("Shelf");
@@ -140,7 +140,7 @@ else {
   await Bun.sleep(400);
   expect(store.extensionOutputs(first.made)).toEqual([]);
 
-  // A door holds the note and the person is typing in that passage: the update is a proposal, not a write.
+  // A door holds the passage: the extension receives a refusal it can act on, without a proposal for the person.
   const holding = store.get(elsewhere.id)!;
   const connected = Promise.withResolvers<void>();
   const watcher = client.watch({
@@ -155,10 +155,10 @@ else {
   cleanups.push(() => watcher.stop());
   await connected.promise;
   await client.request({ action: "drafts.hold", blockId: elsewhere.id, clientId: "door-typing", revision: holding.revision });
-  const second = JSON.parse((await client.request<{ message: string }>({ action: "extensions.act", extension: "courier", extensionAction: "deliver",
-    args: { note: elsewhere.id, shelf: shelf.id, from: "sunflowers", to: "beans" }, mutation: LOKI })).message) as { outcome: string; proposalId: string | null };
-  expect(second.outcome).toBe("proposed");
-  expect(second.proposalId).toBeString();
+  await expect(client.request({ action: "extensions.act", extension: "courier", extensionAction: "deliver",
+    args: { note: elsewhere.id, shelf: shelf.id, from: "sunflowers", to: "beans" }, mutation: LOKI })).rejects.toThrow("command exited with code 1");
+  expect(store.require(elsewhere.id).text).toBe(holding.text);
+  expect(store.children(elsewhere.id)).toEqual([]);
 
   // A grant is good only while its process runs.
   const kept = (await client.request<{ message: string }>({ action: "extensions.act", extension: "courier", extensionAction: "keepgrant" })).message;

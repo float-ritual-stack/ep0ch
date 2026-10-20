@@ -20,7 +20,7 @@ function spec(operation: string, properties: Record<string, ToolSchema>, require
 }
 
 /** The writes that may become a proposal take `propose` (the MCP gateway's access setting decides it). */
-const EXTRA: Readonly<Record<string, Record<string, ToolSchema>>> = { patch: { propose: {} }, "set-property": { propose: {} } };
+const EXTRA: Readonly<Record<string, Record<string, ToolSchema>>> = { "set-property": { propose: { type: "boolean" } } };
 
 /** The checked operations, keyed as the CLI names them. */
 export const AGENT_OPERATION_SPECS: Readonly<Record<string, ToolArgsSpec>> = {

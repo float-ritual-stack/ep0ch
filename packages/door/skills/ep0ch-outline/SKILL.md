@@ -112,9 +112,8 @@ revision, so concurrent edits rarely collide.
   `^anchor` another note links to, is refused, as an error, unless you pass `allowStructural: true`
   because that removal is the point. `policy: "prose"` is opt-in, for tidy-style edits that must keep every
   link, anchor and property. A patch read at an older revision still applies when every `observed` span is present once at the
-  newer one and nobody rewrote its line (a rebase; the answer says `rebasedFrom: <revision you read>`). It becomes one
-  proposal they can apply or dismiss when a span is gone, changed or ambiguous, when it touches the paragraph, list item or heading at the cursor or selection endpoint, when the draft is busy or unavailable,
-  or when `prose` refuses. The cursor matters because the patch must leave the passage the person is typing in alone;
+  newer one and nobody rewrote its line (a rebase; the answer says `rebasedFrom: <revision you read>`). It is refused with an error when a span is gone, changed or ambiguous, when it touches the paragraph, list item or heading at the cursor or selection endpoint, when the draft is busy or unavailable,
+  or when `prose` refuses. Treat that error as a task now: re-read the note and send the change against the new text in the same turn. Nothing was written, and there is no proposal to dismiss. Use `propose: true` only for an intentional suggestion for Evan to decide. Queued/offline writes and propose-only access still create proposals. The cursor matters because the patch must leave the passage the person is typing in alone;
   an unmarked patch can land above or below that block. With `mark`, spans must also stay above the mark,
   and above the cursor's block when the cursor is before the mark.
 - **Settle a proposal by id:** `outline_proposal_apply {ref: "<proposal id>"}` or

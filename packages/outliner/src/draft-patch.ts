@@ -11,10 +11,9 @@
  *   `allowStructural`. `prose` (opt-in, for tidying text the person is typing)
  *   keeps every structural token (`draftPatchPolicy`, `draftPatchTextPolicy`).
  *   Either way the spans end above the mark;
- * - failure: the patch lands as a proposal block beside the note (`proposalText`,
- *   a child of it), never in the note's text, and "apply anyway" applies it as
- *   an ordinary edit. Readers draw it after the mark line or at the note's end
- *   (`draft.proposals.list`, PIE-725).
+ * - failure: refused without writing anything; the agent re-reads and retries.
+ *   Explicit suggestions (`propose: true`) and queued delivery remain proposals
+ *   beside the note, with the person's apply/dismiss/resolve flows.
  *
  * Routing is the service's: a door that holds a live draft of the note
  * (`DraftHolds`, a lease it renews) gets the patch; with none, the saved block
@@ -80,19 +79,12 @@ export interface DraftPatchInput {
    * `current`: on a saved note, compare the spans (and
    * the mark) against the text as it is now instead of requiring `revision`:
    * a person typing elsewhere in the note doesn't turn the patch into a
-   * proposal; typing in the passage still does. A live draft compares this way already.
+   * refusal; typing in the passage still does. A live draft compares this way already.
    */
   current?: boolean;
-  /**
-   * When it becomes a proposal instead of applying, whatever the compare says (PIE-615, the remote MCP gateway).
-   * `always`: its writer may only propose here (an outline's `propose` access). `held`: a door holds a live draft of
-   * the note, so the patch is proposed into that draft rather than changing it; a saved note is patched as usual.
-   */
-  propose?: DraftPatchProposeWhen;
+  /** `true`: an intentional suggestion. `on-conflict`: deferred delivery, with no agent present to retry a refusal. */
+  propose?: boolean | "on-conflict";
 }
-
-export type DraftPatchProposeWhen = "always" | "held";
-export const DRAFT_PATCH_PROPOSE_WHEN: readonly DraftPatchProposeWhen[] = ["always", "held"];
 
 export type DraftPatchRoute = "draft" | "saved";
 

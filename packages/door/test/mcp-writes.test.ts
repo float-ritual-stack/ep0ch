@@ -110,7 +110,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     for (const op of ["apply", "dismiss"]) {
       const note = await attic.request<any>("create", { parentId: null, text: "Seed plan\nPlant beans." });
       const proposal = await attic.request<any>("draft.patch", { blockId: note.id, revision: note.revision,
-        patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: "always",
+        patches: [{ observed: "Plant beans.", replacement: "Plant peas." }], propose: true,
         mutation: { author: "agent", actorId: "mcp:chat.example.test" } });
       ids[`settle-${op}`] = proposal.proposalId;
     }
@@ -411,19 +411,23 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect((await tool("outline_comment", { ref: `[file::${file}]`, outline: "quiet-notes", quote: "cache", body: "x" })).isError).toBe(true);
   });
 
-  test("full: a stale revision becomes a proposal, never an overwrite", async () => {
-    const uri = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.seeds! });
-    const stale = await tool("outline_patch", { uri, revision: 1, patches: [{ observed: "allotment", replacement: "community garden" }] });
-    expect(stale.json.outcome).toBe("proposed");
-    expect(stale.json.said).toContain("proposed, not applied");
-    const note = await textOf(here, "garden-notes", HERE, ids.seeds!);
-    expect(note.text).toContain("allotment next door");
-    expect(note.text).not.toContain(stale.json.detail.proposalId);
-    // The same patch again (a retry): the open proposal comes back, deduped, and nothing new is written (PIE-725).
-    const again = await tool("outline_patch", { uri, revision: 1, patches: [{ observed: "allotment", replacement: "community garden" }] });
-    expect(again.json).toMatchObject({ outcome: "proposed", deduped: true, detail: { proposalId: stale.json.detail.proposalId, deduped: true } });
-    expect(again.json.said).toContain("already proposed");
-    expect((await textOf(here, "garden-notes", HERE, ids.seeds!)).revision).toBe(note.revision);
+  test("full: a conflicting patch is an error with revisions; rereading and retrying applies (PIE-1125)", async () => {
+    await make("garden-notes", "retry", "Garden retry\nPlant beans.");
+    const uri = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.retry! });
+    const before = await textOf(here, "garden-notes", HERE, ids.retry!);
+    await boardOn(here, "garden-notes", HERE).request("update", { blockId: ids.retry!, text: "Garden retry\nPlant peas.", expectedRevision: before.revision, mutation: { author: "user" } });
+    const read = await textOf(here, "garden-notes", HERE, ids.retry!);
+    const stale = await tool("outline_patch", { uri, revision: before.revision, patches: [{ observed: "Plant beans.", replacement: "Plant carrots." }] });
+    expect(stale.isError).toBe(true);
+    expect(stale.text).toContain(`revision ${before.revision}, now ${read.revision}`);
+    expect(stale.text).toContain("read it again and send the patch");
+    expect((await textOf(here, "garden-notes", HERE, ids.retry!)).text).toBe(read.text);
+    const again = await tool("outline_patch", { uri, revision: read.revision, patches: [{ observed: read.text, replacement: read.text + "\nWater in the evening." }] });
+    expect(again.isError).toBe(false);
+    expect(again.json.outcome).toBe("applied");
+    const suggestion = await tool("outline_patch", { uri, revision: again.json.detail.edits[0].revision, propose: true, patches: [{ observed: "Water in the evening.", replacement: "Water at dawn." }] });
+    expect(suggestion.isError).toBe(false);
+    expect(suggestion.json.outcome).toBe("proposed");
   });
 
   test("full: outline_assign_id stamps the next work id as the note's page address, attributed; again it is unchanged; stale is refused", async () => {
@@ -522,7 +526,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     // The mod's and MCP's outline_proposal_dismiss: refused at propose, and for another agent's proposal; both lift while yolo is on.
     const pond = boardOn(here, "pond-notes", HERE);
     const note = await pond.request<any>("create", { parentId: null, text: "Reeds\nTall and green.", author: "user" });
-    const theirs = await pond.request<any>("draft.patch", { blockId: note.id, revision: note.revision, patches: [{ observed: "Tall", replacement: "Short" }], propose: "always", mutation: { author: "agent", actorId: "other-agent" } });
+    const theirs = await pond.request<any>("draft.patch", { blockId: note.id, revision: note.revision, patches: [{ observed: "Tall", replacement: "Short" }], propose: true, mutation: { author: "agent", actorId: "other-agent" } });
     const dismissUri = formatEp0chBlockUri({ outline: "pond-notes", machine: HERE, blockId: theirs.proposalId });
     const refusedDismiss = await tool("outline_proposal_dismiss", { uri: dismissUri });
     expect(refusedDismiss.isError).toBe(true);

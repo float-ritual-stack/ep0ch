@@ -153,7 +153,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
   }, 20_000);
 
 
-  test("the proposals section (PIE-725): the race's loser is a proposal beside the guide, a retry is deduped, and its agent dismisses it by act", async () => {
+  test("the proposals section (PIE-725): the race's loser is refused, then offers an intentional proposal beside the guide, a retry is deduped, and its agent dismisses it by act", async () => {
     const guide = (await board.get(seeded.notes.race.id))!;
     // @fern won: the guide reads as @fern left it, and @moss's patch wrote nothing into it.
     expect(guide.text).toContain(RACE_LINE.replace(RACE_PATCH.winner.observed, RACE_PATCH.winner.replacement));
@@ -168,7 +168,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await until(() => marks.proposals!.every(m => screen().includes(m)), "the proposals section");
     // Another retry now, at the revision @moss read: the same proposal back, still one beside the guide, the guide untouched.
     const at = RACE.indexOf(RACE_PATCH.loser.observed);
-    const again = await board.request<any>("draft.patch", { blockId: guide.id, revision: seeded.notes.race.revision! - 1, mutation: { author: "agent", actorId: RACE_AGENTS.loser },
+    const again = await board.request<any>("draft.patch", { blockId: guide.id, revision: seeded.notes.race.revision! - 1, propose: true, mutation: { author: "agent", actorId: RACE_AGENTS.loser },
       patches: [{ ...RACE_PATCH.loser, range: { start: at, end: at + RACE_PATCH.loser.observed.length }, unit: "utf16" }] });
     expect(again).toMatchObject({ outcome: "proposed", proposalId: seeded.race.proposal, deduped: true, beside: guide.id });
     expect((await board.get(guide.id))!.revision).toBe(guide.revision);
@@ -184,7 +184,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await board.listExtensions(true);
     const make = async () => {
       const note = await board.request<any>("create", {text: "Resolution garden\ngrow beans\ndelivery Monday", author: "user"});
-      const proposal = await board.request<any>("draft.patch", {blockId: note.id, revision: note.revision, propose: "always", patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "moss"}});
+      const proposal = await board.request<any>("draft.patch", {blockId: note.id, revision: note.revision, propose: true, patches: [{observed: "grow beans", replacement: "grow peas"}], mutation: {author: "agent", actorId: "moss"}});
       await board.update(note.id, note.text.replace("Monday", "Tuesday"), note.revision);
       return {note, proposal: proposal.proposalId};
     };

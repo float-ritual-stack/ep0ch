@@ -395,7 +395,7 @@ copy from the marker down.
 | `outline_bind` | `name`, `machine?` | Binds this session's outline, workboard and mention tools to the outline `name` for the rest of the session (`/outline <name> [machine]` is the same call). It beats `EP0CH_WS` and every folder; an outline that does not exist is refused with the ones that do. Every "not bound" refusal names this call with a real name |
 | `outline_changes` | `since` (an ISO time or a returned `cursor`), `author?`, `actor?`, `limit?`, `before?` | each changed block once, newest first, with who changed it; `complete`, with `before` for the older page when it is false; the next `cursor` |
 | `view_order` | `ref` (the view: id, `((id))` or `[[page]]`), `ids?` (block ids, `((id))`s or Work IDs) | the view's hand-set order (`{view, ref, order: [{id, title, workId?}]}`); with `ids`, those members first in that order, the rest after them as they were, recorded as the agent. A sorted view refuses, naming the `[sort::]` to remove |
-| `outline_patch` | `ref`, `revision`, `patches: [{observed, replacement}]`, `mark?`, `policy?` (`edit`, the default, or `prose`), `allowStructural?` | `draft.patch`'s outcome: `applied`, or `proposed` with the reason |
+| `outline_patch` | `ref`, `revision`, `patches: [{observed, replacement}]`, `mark?`, `policy?` (`edit`, the default, or `prose`), `allowStructural?`, `propose?` | `applied`, or an error to re-read and retry; `propose: true` offers an intentional suggestion |
 | `outline_proposal_apply` | `ref` (the proposal's id or `((id))`) | applies the proposal without a reader, under the service's patch comparison and policy; cannot force it over changed text |
 | `outline_proposal_dismiss` | `ref` (the proposal's id or `((id))`) | dismisses your own proposal and puts it in Trash without a reader; another agent's proposal is refused |
 | `outline_set_property` | `ref`, `key`, `value`, `revision` | one header chip set as a `draft.patch` span: `applied`, `proposed` with the reason, or `unchanged` |
@@ -436,9 +436,9 @@ code as `packages/outline-core/src/tool-args.ts` (hooks can't import it); the do
   `draft.patch`: the door holding the live draft applies it in place, and with
   none it is an ordinary edit of the saved note. Its default policy, `edit`, is
   `outline_edit`'s guard (`allowStructural` likewise), refused as an error;
-  `policy: "prose"` keeps every link, anchor and property. A patch whose text
-  changed under it, or that `prose` refuses, becomes one proposal the person
-  can apply.
+  `policy: "prose"` keeps every link, anchor and property. A patch whose text changed under it, or that `prose` refuses, returns an error.
+  Treat it as a task now: re-read and retry against the new text in the same turn.
+  Use `propose: true` for an intentional suggestion; queued delivery and propose-only access still propose.
 - Every write is `author: agent`, with the session id as provenance, and an
   actor id `<persona>/claude-code@<machine>`. The persona is the call's `actor`,
   else `OUTLINER_ACTOR`, else `EP0CH_AGENT` (the name the door shows for the

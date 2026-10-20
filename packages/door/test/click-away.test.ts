@@ -28,14 +28,14 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
   const message = () => ((app as any).message ?? "") as string;
   const type = (s: string) => { for (const c of s) key(char(c)); };
 
-  /** The note open in the desk's reader, the person in its edit (their own `e`). */
+  /** Open through the shared action: parallel arming fixtures may make a single e only arm the edit. */
   async function editing(text: string) {
     const id = await create(text);
     desk.openBlock((await board.get(id))!);
     desk.focusOn("reader");
     await until(() => reader()?.msg?.id === id && !reader().msg!.partial, "the reader to show the note");
     const rd = reader();
-    key(char("e"));
+    await D().dispatch.press("edit", {}, D().nameOf(D().focus));
     await until(() => !!rd.draft, "the draft");
     await D().dispatch.press("draft.place", { line: 1 }, D().nameOf(D().focus));
     return { id, rd, name: D().nameOf(D().focus) as string };

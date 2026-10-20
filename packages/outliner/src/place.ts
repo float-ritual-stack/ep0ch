@@ -209,7 +209,7 @@ export async function placeOutput(drafts: Pick<import("./draft-patch-router").Dr
   const plan = planPlace(draft.text, input);
   if (!plan.ok && plan.kind === "refused") throw new Error(plan.reason);
   const result = await drafts.patch({ blockId: input.blockId, revision: draft.revision, patches: plan.spans, mutation: input.mutation, current: true, policy: "edit",
-    ...(plan.mark ? { mark: { text: plan.mark } } : {}), ...(!plan.ok || input.propose ? { propose: "always" as const } : {}) }, plan.ok);
+    ...(plan.mark ? { mark: { text: plan.mark } } : {}), ...(!plan.ok || input.propose ? { propose: true as const } : {}) }, plan.ok);
   const message = plan.ok ? plan.summary : plan.reason;
   return { ...result, anchor: plan.anchor, ...(plan.ok ? { created: plan.created } : {}), message: result.outcome === "applied" ? message : `proposed: ${result.reason ?? message}` };
 }
