@@ -1,3 +1,4 @@
+import { Inspector } from "./inspector";
 import { coerceActionArgs } from "./actions";
 import { mentionsExtension as mentionsExtensionLine } from "../extensions";
 import { Canvas, LINE_BOX } from "../canvas";
@@ -628,7 +629,7 @@ const LEAVE_SAYS: Record<LeaveChoice, string> = {
 };
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
 type LinksMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { block: string; describe(): { block: string; title: string | null; selected: string | null; typing: string | null } };
-type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; top: number; followed: number; describe(): unknown };
+type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; describe(): unknown };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
 /** How long a missing page's offer stands (PIE-544): the next ⏎ or click on its link within it makes the page. */
@@ -1195,14 +1196,9 @@ export class NoteSurface {
       sm.rect = { x: col, y: row, w: cols, h: rows };
       rows = Math.max(1, rows - 1);
       const full = drawSources(sm.panel, cols, 10_000, Date.now());
-      // Moving the focus scrolls it into view; scrolling by hand (the wheel, PgDn) leaves the focus where it is.
-      if (sm.followed !== full.focus) {
-        sm.followed = full.focus;
-        if (full.focus < sm.top) sm.top = full.focus;
-        else if (full.focus >= sm.top + rows) sm.top = full.focus - rows + 1;
-      }
-      sm.top = Math.max(0, Math.min(sm.top, Math.max(0, full.lines.length - rows)));
-      sm.draw = { ...full, lines: full.lines.slice(sm.top, sm.top + rows), hits: full.hits.map(x => ({ ...x, row: x.row - sm.top })).filter(x => x.row >= 0 && x.row < rows) };
+      sm.view.lines = full.lines;
+      const top = sm.view.place(full.focus, full.lines.length, rows);
+      sm.draw = { ...full, lines: full.lines.slice(top, top + rows).map((l, i) => sm.view.paint(l, top + i)), hits: full.hits.map(x => ({ ...x, row: x.row - top })).filter(x => x.row >= 0 && x.row < rows) };
       const lines = [...sm.draw.lines];
       while (lines.length < rows) lines.push("");
       lines.push(pad(this.modes.active(sm) ? "sources has keys · j k move · Esc reader" : "reader has keys · click panel or S enter", cols));
@@ -6041,7 +6037,7 @@ export class NoteSurface {
     if (at !== undefined && P.answer) {
       const i = this.sourceIndex(P.answer, at);
       if (i < 0) { host.ctx.flash(`no generated region holds that line`); }
-      else { P.open = i; P.sel = i; P.item = 0; mode.top = 0; }
+      else { P.open = i; P.sel = i; P.item = 0; mode.view.reset(); }
     }
     host.redraw();
     return { opened: true, ...(P.answer ? this.sourcesRead(P.answer) : { block: m.id, sources: [] }), ...(P.open !== null ? { at: P.open + 1 } : {}) };
@@ -6108,9 +6104,9 @@ export class NoteSurface {
   scrollSources(host: SurfaceHost, by: number) {
     const mode = this.sourcesMode;
     if (!mode) throw new ActionRefused("the Sources inspector isn't open here · S opens it");
-    mode.top = Math.max(0, mode.top + by);
+    mode.view.scroll(by);
     host.redraw();
-    return { top: mode.top };
+    return { top: mode.view.top };
   }
 
   private requireSources(): SourcesPanel {
@@ -6187,7 +6183,7 @@ export class NoteSurface {
 
   async copySource(part: "query" | "transform" | "result", host: SurfaceHost, actor: Actor, source?: string) {
     const { s } = await this.sourceFor(host, source);
-    const text = this.sourcePart(s, part);
+    const text = this.sourcesMode?.view.text() || this.sourcePart(s, part);
     if (actor.kind === "user") { host.ctx.copy?.(text); host.ctx.flash(`copied ${s.name}'s ${part}`); }
     host.redraw();
     return { part, text, ...(actor.kind === "user" ? { copied: true } : {}) };
@@ -6270,7 +6266,7 @@ export class NoteSurface {
     const run = (name: string, args: Record<string, unknown> = {}) => { void this.runKey(name as keyof NoteActionArgs & string, args as never, host); };
     const mode: SourcesMode = {
       name: "sources", of: P, word: "sources", noun: "the sources", panel: P, holdsKeys: true, editing: () => false, covers: () => false,
-      rect: { x: 0, y: 0, w: 0, h: 0 }, draw: null, top: 0, followed: -1,
+      rect: { x: 0, y: 0, w: 0, h: 0 }, draw: null, view: new Inspector(),
       changed: () => { if (!P.loading) void this.readSources(P, host); },
       key: k => {
         const c = k.kind === "char" && !k.ctrl ? k.ch : "";
@@ -6775,6 +6771,11 @@ export class NoteSurface {
   press(x: number, y: number, host: SurfaceHost, shift = false, keepCursor = false): void {
     this.use(host);
     this.dragging = false;
+    const sm = this.sourcesMode, r = sm?.rect;
+    if (sm && r && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+      void this.runKey("sources.select", { phase: "start", row: y - r.y + sm.view.top, col: x - r.x }, host);
+      return;
+    }
     const n = this.gesture.press(x, y);
     // In a draft a press puts the cursor there (shift+click: selects from where it was), a drag from it selects, a
     // double click selects the word and a triple click the line (Draft's own selection, through draft.place).
@@ -6809,6 +6810,8 @@ export class NoteSurface {
 
   /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
   drag(x: number, y: number, host: SurfaceHost): void {
+    const sm = this.sourcesMode;
+    if (sm?.view.pressed) { void this.runKey("sources.select", { phase: "drag", row: Math.max(0, y - sm.rect.y) + sm.view.top, col: Math.max(0, x - sm.rect.x) }, host); return; }
     if (this.replyLinks?.dragFrom) { this.gesture.drag(x, y); return; }
     const g = this.gesture.pressed;
     if (this.editing && (!this.replyParent || this.editPress)) { this.gesture.drag(x, y); if (this.editPress && this.modes.press(x, y - (this.drawn?.heroRows ?? 0), host, true)) host.redraw(); return; }
@@ -6843,6 +6846,14 @@ export class NoteSurface {
   }
 
   private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
+    const sm = this.sourcesMode;
+    if (sm?.view.pressed) {
+      const selected = !!sm.view.selection;
+      sm.view.release();
+      if (selected) void this.runKey("sources.copy", {}, host);
+      else this.click(x, y, host);
+      return true;
+    }
     const r = this.gesture.release(x, y);
     const from = this.replyLinks?.dragFrom;
     if (this.replyLinks) this.replyLinks.dragFrom = undefined;
@@ -10675,6 +10686,20 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const at = line !== undefined ? { line: line - 1 } : actor.kind === "user" ? surface.regionHere() : null;
       if (!at || ("line" in at && at.line < 0)) throw new ActionRefused("say which line: line=<from 1>, or select words (or put [ ] on a line) in a generated region first");
       return surface.openSources(host, actor, at);
+    },
+  }),
+  "sources.select": def({
+    summary: "select text in the inspector without selecting the reader behind it", keys: "a drag in the panel",
+    touches: "shape", replay: "safe", person: "the inspector selection belongs to the person",
+    args: { phase: { type: "string", about: "start or drag" }, row: { type: "number", about: "content row from zero" }, col: { type: "number", about: "column from zero" } },
+    examples: [{ act: "sources.select phase=start row=2 col=0", does: "starts selecting panel text" }],
+    run: ({ phase, row, col }, { surface, host }) => {
+      const mode = surface.sourcesMode;
+      if (!mode) throw new ActionRefused("S opens the Sources inspector");
+      surface.focusSources(host, true);
+      if (phase === "start") mode.view.begin({ row, col }); else mode.view.extend({ row, col });
+      host.redraw();
+      return { text: mode.view.text() };
     },
   }),
   "sources.focus": def({

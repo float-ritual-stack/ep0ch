@@ -39,6 +39,12 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     await until(() => screen().includes("Sources ·"), "the sources panel");
     press({ kind: "enter" });
     await until(() => screen().includes("Query"), "the source open");
+    const selectedRows = screen().split("\n"), sy = selectedRows.findIndex(l => l.includes("Query")), sx = selectedRows[sy]!.indexOf("Query");
+    const sent = written.length;
+    press({ kind: "mouse", action: "down", button: 0, x: sx, y: sy });
+    press({ kind: "mouse", action: "drag", button: 0, x: sx + 4, y: sy });
+    press({ kind: "mouse", action: "up", button: 0, x: sx + 4, y: sy });
+    await until(() => written.slice(sent).includes(osc52("Query")), "panel text copied");
     press({ kind: "esc" });
     expect(screen()).toContain("reader has keys");
     expect(screen()).toContain("Query");

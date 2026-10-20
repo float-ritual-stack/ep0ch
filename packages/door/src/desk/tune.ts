@@ -29,7 +29,8 @@ import type { Actor } from "../socket";
 import { ActionRefused, actionSet, agentLabel, def } from "../surface/actions";
 import { bgRgb, C, chip, ellipsize, fg, pad, RESET, selected, selectedRow, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
-import { RowView, type RowPress } from "../scroll";
+import { type RowPress } from "../scroll";
+import { Inspector } from "../surface/inspector";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
 /** The levels the inspector offers: where each value comes from, or one level for every nudge. */
@@ -135,7 +136,7 @@ export class TunePane implements Pane {
   offer: { row: string; by: number; shadow: Shadow } | null = null;
   /** A reset of a level, or a revert, waiting for its confirmation (the same key again, or [confirm]). */
   armed: Armed | null = null;
-  private view = new RowView();
+  private view = new Inspector();
   private head = 0;
   private controls: { y: number; x: number; cols: number; action: string; args: Record<string, unknown> }[] = [];
   /** The rows' screen lines as last drawn: the row each is, or the value cell a wheel nudges. */

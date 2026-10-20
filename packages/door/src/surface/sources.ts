@@ -70,21 +70,23 @@ const cut = (s: string, w: number) => rowLines(s, w, 1)[0]!;
 export function drawSources(p: SourcesPanel, w: number, h: number, now: number): PanelDraw {
   const lines: string[] = [], hits: PanelHit[] = [];
   const put = (text: string, hit?: { from: number; to: number; action: string; args?: Record<string, unknown> }[]) => {
-    for (const x of hit ?? []) hits.push({ row: lines.length, from: x.from, to: x.to, action: x.action, args: x.args ?? {} });
-    lines.push(pad(cut(text, w), w) + RESET);
+    for (const line of rowLines(text, w)) {
+      for (const x of hit ?? []) hits.push({ row: lines.length, from: x.from, to: x.to, action: x.action, args: x.args ?? {} });
+      lines.push(pad(line, w) + RESET);
+    }
   };
   const a = p.answer;
   const updated = a ? `Updated ${age(a.readAt, now) || "just now"}` : "";
   const refresh = "⟳ r";
   const head = (title: string) => {
-    const right = a ? `${updated} ${refresh}  ✕` : "✕";
-    const gap = Math.max(1, w - width(title) - width(right) - 2);
-    const at = 1 + width(title) + gap;
-    put(` ${fg(C.yellow)}${BOLD}${title}${UNBOLD}${RESET}${" ".repeat(gap)}${a ? `${dim(updated)} ${fg(C.lcyan)}${refresh}${RESET}  ` : ""}${fg(C.lcyan)}✕${RESET}`, a
-      ? [{ from: at + width(updated) + 1, to: at + width(updated) + 1 + refresh.length, action: "sources.refresh" }, { from: at + width(updated) + 1 + refresh.length + 2, to: at + width(updated) + 1 + refresh.length + 3, action: "sources.close" }]
-      : [{ from: Math.max(0, w - 2), to: w - 1, action: "sources.close" }]);
+    put(` ${fg(C.yellow)}${BOLD}${title}${UNBOLD}${RESET}`);
+    const left = a ? `${updated} ` : "";
+    put(` ${dim(left)}${a ? fg(C.lcyan) + refresh + RESET + "  " : ""}${fg(C.lcyan)}✕${RESET}`, [
+      ...(a ? [{ from: 1 + width(left), to: 1 + width(left) + width(refresh), action: "sources.refresh" }] : []),
+      { from: 1 + width(left) + (a ? width(refresh) + 2 : 0), to: 2 + width(left) + (a ? width(refresh) + 2 : 0), action: "sources.close" },
+    ]);
   };
-  if (p.error) { head("Sources"); put(""); put(` ${fg(C.lred)}${cut(p.error, w - 2)}${RESET}`); return { lines, hits, items: [], focus: 0 }; }
+  if (p.error) { head("Sources"); put(""); put(` ${fg(C.lred)}${p.error}${RESET}`); return { lines, hits, items: [], focus: 0 }; }
   if (!a) { head("Sources"); put(""); put(` ${dim("reading what this note generates…")}`); return { lines, hits, items: [], focus: 0 }; }
   const s = p.open !== null ? a.sources[p.open] : undefined;
 
@@ -136,9 +138,9 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
   if (p.folds.transform) {
     if (s.transform.block) { row(i, `  ${fg(C.lcyan)}[g jump to its note]${RESET}`, "sources.jump", {}); i++; }
     if (s.transform.text !== undefined) {
-      const body = s.transform.text.split("\n").slice(0, Math.max(3, h - 14));
-      for (const l of body) put(`    ${fg(C.grey)}${cut(l, w - 6)}${RESET}`);
-      if (s.transform.text.split("\n").length > body.length) put(`    ${dim("…")}`);
+      const body = s.transform.text.split("\n");
+      for (const l of body) put(`    ${fg(C.grey)}${l}${RESET}`);
+
       row(i, `  ${fg(C.lcyan)}[y copy]${RESET}`, "sources.copy", { part: "transform" }); i++;
     } else put(`    ${dim("nothing to show: it reads what the line says")}`);
   }
@@ -146,18 +148,16 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
   if (p.folds.result) {
     const table = s.result.table;
     if (table && s.result.columns) {
-      const cols = s.result.columns, wide = Math.max(4, Math.floor((w - 6) / Math.max(1, cols.length)) - 2);
-      put(`    ${fg(C.white)}${cols.map(c => pad(cut(c, wide), wide)).join("  ")}${RESET}`);
-      for (const r of table) { row(i, `  ${fg(C.grey)}${r.map(c => pad(cut(c, wide), wide)).join("  ")}${RESET}`, "sources.pick", { n: i + 1 }); i++; }
-      if (table.length > Math.max(3, h - 22)) put(`    ${dim(`… ${s.result.rows - Math.max(3, h - 22)} more · copy has them all`)}`);
-    } else for (const l of s.result.text.split("\n").filter(Boolean)) { row(i, `  ${fg(C.grey)}${cut(l, w - 6)}${RESET}`, "sources.pick", { n: i + 1 }); i++; }
+      const cols = s.result.columns;
+      for (const r of table) { row(i, `  ${fg(C.grey)}${r.map((c, n) => `${cols[n]}: ${c}`).join(" · ")}${RESET}`, "sources.pick", { n: i + 1 }); i++; }
+    } else for (const l of s.result.text.split("\n").filter(Boolean)) { row(i, `  ${fg(C.grey)}${l}${RESET}`, "sources.pick", { n: i + 1 }); i++; }
     row(i, `  ${fg(C.lcyan)}[y copy result]${RESET}`, "sources.copy", { part: "result" }); i++;
     row(i, `  ${fg(C.lcyan)}[c download CSV]${RESET}`, "sources.download", { format: "csv" }); i++;
     row(i, `  ${fg(C.lcyan)}[J download JSON]${RESET}`, "sources.download", { format: "json" }); i++;
     put("");
     put(` ${dim("Outline")}  ${fg(C.white)}${p.outline || "this outline"}${RESET}`);
     put(` ${dim("Read")}     ${fg(C.white)}${s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written"}${RESET}`);
-    put(` ${dim("Query")}    ${fg(C.white)}${cut(s.query.text.replace(/^\s*>\s*/, ""), w - 12)}${RESET}`);
+    put(` ${dim("Query")}    ${fg(C.white)}${s.query.text.replace(/^\s*>\s*/, "")}${RESET}`);
   }
   put("");
   put(` ${dim(p.note || "j k move · ⏎ fold or edit · e edit · y copy · g jump · esc back")}`);

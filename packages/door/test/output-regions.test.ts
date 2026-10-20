@@ -139,6 +139,20 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
   });
 
   describe("the Sources inspector (PIE-956 S6b)", () => {
+    test("PIE-1100: scrolling reveals whole result values and transform lines in a narrow panel", async () => {
+      await board.createBlock(null, `A long result with many words before inspector-wrap-tail [type::inspector-wrap]`);
+      const { s } = await reader('Figure\n\n::graph-tabs\n---\ntitle: A long title that ends in inspector-title-tail\nquery: type=inspector-wrap\ngroup: type\n---\n::', /Figure/);
+      await NOTE_ACTIONS.run("sources.at", { line: 3 }, { surface: s, host }, USER);
+      await NOTE_ACTIONS.run("sources.fold", { fold: "transform" }, { surface: s, host }, USER);
+      const seen: string[] = [];
+      for (let i = 0; i < 45; i++) {
+        const lines = s.render(60, 22, host).lines.map(plain), r = s.sourcesMode!.rect;
+        seen.push(lines.slice(r.y, r.y + r.h - 1).map(l => l.slice(r.x, r.x + r.w)).join("\n"));
+        await NOTE_ACTIONS.run("sources.scroll", { by: 2 }, { surface: s, host }, USER);
+      }
+      expect(seen.join("\n")).toContain("inspector-wrap-tail");
+      expect(seen.join("\n")).toContain("inspector-title-tail");
+    }, 20_000);
     const AGENT = { kind: "agent" as const, id: "sources-agent" };
     const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
     const SOURCES_NOTE = async () => {
