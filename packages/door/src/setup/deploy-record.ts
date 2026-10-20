@@ -1,8 +1,10 @@
+import { linkInstallSummary, type LinkDeploy, type LinkInstallResult } from "@ep0ch/outliner/link";
 import { sessionPersona, whichOutline } from "@ep0ch/outline-core/outline-location";
 import { configuredMachineName, hostMachineName } from "@ep0ch/outliner/machine-name";
 import { disk } from "../discover";
 import { hostRequest } from "../socket";
 import { pluginCode, run } from "./facts";
+import { sshInstallClients } from "./plan";
 import type { Facts } from "./model";
 
 interface Note { id: string; revision: number; text: string }
@@ -37,16 +39,18 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   const machine = f.machineName?.chosen || configuredMachineName(env, f.host.folder) || hostMachineName();
   const heading = `Deploy ${when.toISOString()} on ${machine} [type::deploy] [machine::install]`;
   const identity = [`When: ${when.toISOString()}`, `Machine: ${machine}`, `Who: ${actor || "person"}`, ...(sessionId ? [`Session: ${sessionId}`] : []), `From: ${f.repo.checkout.head ?? "unknown"}`];
-  const legs = new Map((f.installClients?.names ?? []).map(name => [name, `${name}: not run`]));
+  const legs = new Map(sshInstallClients(f).map(name => [name, `${name}: not run`]));
+  const links = new Map<string, string>();
   let local = "running; if unfinished, inspect the install output before deploying again";
   let to = "pending", protocol = f.repo.protocol;
-  const text = () => [heading, "", ...identity, `To: ${to}`, `Protocol: ${protocol ?? "unknown"}`, `Local: ${local}`, "", "Client legs:", ...(legs.size ? legs.values() : ["none configured"])].join("\n");
+  const text = () => [heading, "", ...identity, `To: ${to}`, `Protocol: ${protocol ?? "unknown"}`, `Local: ${local}`, "", "Client legs:", ...(legs.size ? legs.values() : ["none configured"]), ...[...links].map(([machine, line]) => `\nLink ${machine}:\n${line}\n`)].join("\n");
   let note = await request<Note>("create", { parentId: parent.id, text: text(), author, provenance });
   const save = async () => {
     note = await request<Note>("update", { blockId: note.id, expectedRevision: note.revision, text: text(), mutation: { author, ...provenance } });
   };
   return {
     id: note.id,
+    linkRecord: { socket: f.host.socket, outline, id: note.id },
     async local(outcome: string) {
       local = outcome;
       const head = await run(["git", "-C", f.repo.root, "rev-parse", "HEAD"], { env });
@@ -54,6 +58,21 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
       protocol = (await pluginCode(f.repo.outliner)).protocol;
       await save();
     },
+    async link(name: string, line: string) { links.set(name, line); await save(); },
     async client(name: string, line: string) { legs.set(name, line); await save(); },
   };
+}
+
+/** A reconnect may deliver the receipt after the invoking installer has exited. */
+export async function recordLinkInstall(deploy: LinkDeploy, machine: string, result: LinkInstallResult) {
+  if (!deploy.record) return;
+  const { socket, outline, id } = deploy.record;
+  const note = await hostRequest<Note>(socket, "get", { outline, blockId: id });
+  const marker = `\nLink ${machine}:\n`;
+  const start = note.text.indexOf(marker);
+  const end = start < 0 ? -1 : note.text.indexOf("\nLink ", start + marker.length);
+  const section = marker + linkInstallSummary(machine, result) + "\n";
+  const text = start < 0 ? note.text + section : note.text.slice(0, start) + section + (end < 0 ? "" : note.text.slice(end));
+  if (text === note.text) return;
+  await hostRequest(socket, "update", { outline, blockId: id, expectedRevision: note.revision, text, mutation: { author: "agent", actorId: "ep0ch-install" } });
 }

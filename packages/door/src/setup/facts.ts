@@ -114,10 +114,13 @@ export const fetchRace = (error: string) => /cannot lock ref '[^']+': is at \S+ 
 /** How long a `git fetch` may take: a slow link needs more than a few seconds, and the person sees it run. */
 export const FETCH_TIMEOUT_MS = 90_000;
 
-export async function inspectCheckout(root: string, fetch = true, env: Env = process.env, onLine?: OnLine): Promise<Checkout> {
+export async function inspectCheckout(root: string, fetch = true, env: Env = process.env, onLine?: OnLine, sha?: string): Promise<Checkout> {
   const git = (...args: string[]) => run(["git", "-C", root, ...args], { env });
   const none: Checkout = { root, git: false, branch: null, head: null, upstream: null, ahead: 0, behind: 0, dirty: false };
-  if (!existsSync(root) || (await git("rev-parse", "--is-inside-work-tree")).out !== "true") return none;
+  if (!existsSync(root) || (await git("rev-parse", "--is-inside-work-tree")).out !== "true") {
+    if (sha) throw new Error(`install ${sha} cannot verify origin/main: ${root} is not a checkout; run ep0ch install --apply from the installed checkout`);
+    return none;
+  }
   let fetchError: string | undefined, fetchRaced = false;
   if (fetch) {
     // --progress: git's counting and receiving lines, for the line under the spinner (stderr isn't a terminal).
@@ -126,10 +129,12 @@ export async function inspectCheckout(root: string, fetch = true, env: Env = pro
     // Another git process (an editor's, a second install's) fetched at the same moment and wrote origin/main first.
     if (fetchError && fetchRace(fetchError)) { fetchError = undefined; fetchRaced = true; }
   }
-  const [branch, head, upstream, status] = await Promise.all([git("symbolic-ref", "--quiet", "--short", "HEAD"), git("rev-parse", "HEAD"), git("rev-parse", "--verify", "--quiet", "origin/main"), git("status", "--porcelain", "--untracked-files=no")]);
+  if (sha && (fetchError || (await git("merge-base", "--is-ancestor", sha, "origin/main")).code !== 0)) throw new Error(`install ${sha} is not verified on origin/main${fetchError ? `: ${fetchError}` : ""}; run git fetch origin main, then ep0ch install --apply`);
+  const target = sha ?? "origin/main";
+  const [branch, head, upstream, status] = await Promise.all([git("symbolic-ref", "--quiet", "--short", "HEAD"), git("rev-parse", "HEAD"), git("rev-parse", "--verify", "--quiet", target), git("status", "--porcelain", "--untracked-files=no")]);
   let ahead = 0, behind = 0;
   if (upstream.code === 0) {
-    const counts = await git("rev-list", "--left-right", "--count", "HEAD...origin/main");
+    const counts = await git("rev-list", "--left-right", "--count", `HEAD...${target}`);
     [ahead, behind] = counts.out.split(/\s+/).map(Number) as [number, number];
   }
   return { root, git: true, branch: branch.code === 0 ? branch.out : null, head: head.code === 0 ? head.out : null, upstream: upstream.code === 0 ? upstream.out : null,
@@ -513,10 +518,10 @@ export function claudeModIn(root: string): { dir: string | null; installer: stri
 }
 
 /** The ep0ch checkout at `root`: the checkout, its packages, the protocol its code speaks. */
-export async function repoFacts(root: string, fetch: boolean, env: Env, onLine?: OnLine): Promise<RepoFacts> {
+export async function repoFacts(root: string, fetch: boolean, env: Env, onLine?: OnLine, sha?: string): Promise<RepoFacts> {
   const outliner = join(root, "packages/outliner");
   const mod = claudeModIn(root);
-  const [checkout, code] = await Promise.all([inspectCheckout(root, fetch, env, onLine), pluginCode(outliner)]);
+  const [checkout, code] = await Promise.all([inspectCheckout(root, fetch, env, onLine, sha), pluginCode(outliner)]);
   return { root, checkout, deps: depsState(root), entry: join(root, "packages/door/src/main.ts"), door: join(root, "packages/door"), outliner,
     claudeMod: mod.dir, claudeModInstaller: mod.installer, protocol: code.protocol };
 }
@@ -536,7 +541,7 @@ function which(name: string, pathDirs: string[]): string | null {
 export interface GatherProgress { done: number; total: number; waiting: string[] }
 export interface GatherOptions {
   /** `repoRoot`: the ep0ch checkout (default: the one this door runs from). `cwd`: the folder `here` is about. */
-  env?: Env; fetch?: boolean; repoRoot?: string; platform?: string; cwd?: string;
+  env?: Env; fetch?: boolean; repoRoot?: string; platform?: string; cwd?: string; sha?: string;
   /** Called as each part (bun, Herdr, the plugin, the door checkout …) is gathered. */
   onProgress?: (p: GatherProgress) => void;
   /** The fetches' output as it arrives, prefixed with what is fetched. */
@@ -571,7 +576,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     part("Herdr", herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null),
     part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
     part("the Outliner plugin", herdrPath ? pluginFacts({ ...env, HERDR_BIN_PATH: herdrPath }, fetch, lines("plugin")) : null),
-    part("the ep0ch checkout", repoFacts(repoRoot, fetch, env, lines("ep0ch"))),
+    part("the ep0ch checkout", repoFacts(repoRoot, fetch, env, lines("ep0ch"), o.sha)),
     part("the outline host", hostFacts(folder, platform, home, env)),
     part("door agents", doorAgents(env).catch(() => undefined)),
     part("the door sessions", doorSessions(env).catch(() => [])),

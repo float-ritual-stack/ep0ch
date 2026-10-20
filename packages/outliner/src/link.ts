@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type Server as SocketServer } from "node:net";
-import { chmodSync, existsSync, readFileSync, readlinkSync, readdirSync, statSync, writeFileSync, renameSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, readFileSync, readlinkSync, readdirSync, statSync, writeFileSync, renameSync, watch } from "node:fs";
+import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
 import { forwardPaths, sshArgv, withForwardLock } from "@ep0ch/outline-core/machine";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
@@ -9,6 +9,9 @@ import { hostAnswers, nodeMachineIO } from "./machine-forward";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { LinkStreams } from "./link-streams";
 import { readLinkConfig } from "./link-config";
+import { linkDeployPath, linkDeployAt, linkResultPath, readLinkFile, writeLinkFile, type LinkDeploy, type LinkInstallResult, type LinkUpdate } from "./link-install";
+export { publishLinkInstall, linkInstallResult, linkInstallSummary, linkUpdateLabel, reconcileLinkInstall } from "./link-install";
+export type { LinkDeploy, LinkInstallResult } from "./link-install";
 
 type LinkState = { machine: string; since?: string; pid: number; up: boolean; reason?: string };
 const savedState = (path: string): LinkState | undefined => {
@@ -20,12 +23,24 @@ function saveState(path: string, state: LinkState) {
 }
 
 const proof = (key: string, machine: string, nonce: string) => createHmac("sha256", key).update(`ep0ch-link\n${machine}\n${nonce}`).digest();
-type Peer = { nonce: string; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string };
-export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void }) {
+type Peer = { nonce: string; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
+export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void; onResult?: (machine: string, result: LinkInstallResult, deploy: LinkDeploy) => Promise<void> }) {
+  let reporting = Promise.resolve();
   const io = nodeMachineIO(), peers = new Map<string, ServerWebSocket<Peer>>();
   if (new Set(Object.values(o.keys)).size !== Object.keys(o.keys).length) throw new Error("Each link key must name only one machine");
   for (const machine of Object.keys(o.keys)) forwardPaths(o.outlines, machine);
   io.privateDir(join(o.outlines, ".remote"));
+  const sendInstall = (ws: ServerWebSocket<Peer>) => {
+    const deploy = readLinkFile<LinkDeploy>(linkDeployPath(o.outlines));
+    if (deploy && ws.data.authenticated && ws.data.sent !== deploy.sha) {
+      ws.data.sent = deploy.sha;
+      ws.send(JSON.stringify({ install: deploy.sha }));
+    }
+  };
+  io.privateDir(join(o.outlines, ".host"));
+  const updates = watch(join(o.outlines, ".host"), (_, file) => {
+    if (file === "link-deploy.json") for (const ws of peers.values()) sendInstall(ws);
+  });
   const cleanup = (ws: ServerWebSocket<Peer>, code?: number, reason?: string) => {
     const p = ws.data;
     p.closed = true; clearTimeout(p.timer); p.streams?.close(); p.listener?.close();
@@ -52,10 +67,10 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
       async message(ws, bytes) {
         const p = ws.data;
         try {
-          if (!p.streams) {
+          if (!p.authenticated) {
             if (typeof bytes !== "string" || p.machine) throw new Error("authentication required");
             const auth = JSON.parse(bytes);
-            if (auth.protocol !== PROTOCOL) throw new Error("protocol mismatch; run ep0ch install --apply on both machines");
+            if (!Number.isInteger(auth.protocol)) throw new Error("invalid protocol");
             if (typeof auth.machine !== "string" || !isMachineName(auth.machine) || typeof auth.proof !== "string" || !/^[a-f0-9]{64}$/.test(auth.proof)) throw new Error("invalid proof");
             const key = Object.hasOwn(o.keys, auth.machine) ? o.keys[auth.machine] : undefined;
             if (!key || !timingSafeEqual(proof(key, auth.machine, p.nonce), Buffer.from(auth.proof, "hex"))) throw new Error("unknown machine or wrong key");
@@ -75,23 +90,39 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
                 if (existsSync(paths.socket)) throw new Error("SSH forward has not released its socket; reconnect");
               }
               if (p.closed) return;
-              const linkSocket = join(paths.dir, `${auth.machine}.link.sock`);
-              io.remove(linkSocket);
-              const streams = p.streams = new LinkStreams(data => ws.send(data));
-              p.listener = createServer(socket => streams.open(socket));
-              await new Promise<void>((resolve, reject) => { p.listener!.once("error", reject); p.listener!.listen(linkSocket, resolve); });
-              if (p.closed) { p.listener.close(); return; }
-              chmodSync(linkSocket, 0o600);
-              io.routeLink(paths.socket, linkSocket);
+              if (auth.protocol === PROTOCOL) {
+                const linkSocket = join(paths.dir, `${auth.machine}.link.sock`);
+                io.remove(linkSocket);
+                const streams = p.streams = new LinkStreams(data => ws.send(data));
+                p.listener = createServer(socket => streams.open(socket));
+                await new Promise<void>((resolve, reject) => { p.listener!.once("error", reject); p.listener!.listen(linkSocket, resolve); });
+                if (p.closed) { p.listener.close(); return; }
+                chmodSync(linkSocket, 0o600);
+                io.routeLink(paths.socket, linkSocket);
+              }
               const since = new Date().toISOString();
               const stateFile = join(paths.dir, `${auth.machine}.link.json`);
               saveState(stateFile, { machine: auth.machine, since, pid: process.pid, up: true });
-              clearTimeout(p.timer); ws.send(JSON.stringify({ ready: true })); o.log(`link ${auth.machine} up since ${since}`);
+              p.authenticated = true;
+              clearTimeout(p.timer); ws.send(JSON.stringify({ ready: true, compatible: auth.protocol === PROTOCOL, proof: proof(key, auth.machine, p.nonce + "\nserver").toString("hex") })); sendInstall(ws); o.log(`link ${auth.machine} up since ${since}`);
             });
           } else if (typeof bytes === "string") {
-            if (bytes !== "ping") throw new Error("unexpected message");
-            p.last = Date.now(); ws.send("pong");
-          } else p.streams.receive(Buffer.from(bytes));
+            if (bytes === "ping") { p.last = Date.now(); ws.send("pong"); return; }
+            const message = JSON.parse(bytes), result = message.result;
+            if (!result || typeof result.sha !== "string" || !/^[a-f0-9]{40}$/.test(result.sha) || !Number.isInteger(result.code) || !Array.isArray(result.notDone) || !result.notDone.every((s: unknown) => typeof s === "string") || !Array.isArray(result.sessions)) throw new Error("invalid install result");
+            const deploy = readLinkFile<LinkDeploy>(linkDeployAt(o.outlines, result.sha));
+            if (!deploy) throw new Error("unexpected install result");
+            const saved = reporting.then(async () => {
+              await o.onResult?.(p.machine!, result, deploy);
+              writeLinkFile(linkResultPath(o.outlines, p.machine!, result.sha), result);
+              if (!p.closed) ws.send(JSON.stringify({ received: result.sha }));
+            });
+            reporting = saved.catch(() => {});
+            await saved;
+          } else {
+            if (!p.streams) throw new Error("protocol mismatch; run ep0ch install --apply on both machines");
+            p.streams.receive(Buffer.from(bytes));
+          }
         } catch (error) { p.reason = (error as Error).message; o.log(`link refused: ${p.reason}`); ws.close(1008, p.reason); }
       },
       close: cleanup,
@@ -102,10 +133,17 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
     saveState(path, { machine, since: savedState(path)?.since, pid: process.pid, up: false, reason: "waiting for connector" });
   }
   const heartbeat = setInterval(() => { for (const ws of peers.values()) if (Date.now() - ws.data.last > 25_000) { ws.data.reason = "heartbeat timed out"; ws.terminate(); } }, 10_000);
-  return { port: server.port!, async stop() { clearInterval(heartbeat); for (const ws of peers.values()) { ws.data.reason = "link server stopped"; cleanup(ws); ws.terminate(); } await server.stop(true); } };
+  return { port: server.port!, async stop() { updates.close(); clearInterval(heartbeat); for (const ws of peers.values()) { ws.data.reason = "link server stopped"; cleanup(ws); ws.terminate(); } await server.stop(true); } };
 }
 
-export function connectLink(o: { server: string; machine: string; key: string; host: string; statusPath?: string; log: (line: string) => void }) {
+export function connectLink(o: { server: string; machine: string; key: string; host: string; statusPath?: string; commit?: string; install?: (sha: string) => Promise<LinkInstallResult>; autoInstall?: () => boolean; onInstalled?: () => void; log: (line: string) => void }) {
+  const updatePath = o.statusPath ? join(o.statusPath, "../link-update.json") : undefined;
+  let update = updatePath ? readLinkFile<LinkUpdate>(updatePath) : undefined;
+  let installing = false;
+  let wanted: string | undefined;
+  let considerCurrent = () => {};
+  let sendResult: ((result: LinkInstallResult) => void) | undefined;
+  const saveUpdate = () => { if (updatePath && update) writeLinkFile(updatePath, update); };
   let stopped = false, streams: LinkStreams | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined, heartbeat: ReturnType<typeof setInterval> | undefined;
   let delay = 1000;
@@ -117,11 +155,41 @@ export function connectLink(o: { server: string; machine: string; key: string; h
     if (stopped) return;
     const url = new URL(o.server); url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(url); socket.binaryType = "arraybuffer";
-    let last = Date.now(), ended = false;
+    let last = Date.now(), ended = false, authenticated = false, nonce = "";
+    const consider = async () => {
+      if (!authenticated || ended || !update || installing) return;
+      if (update.result && update.phase !== "ready") { socket.send(JSON.stringify({ result: update.result })); return; }
+      const sha = update.sha;
+      if (o.commit === sha && update.phase === "ready" && !update.result) {
+        update = { sha, phase: "done", result: { sha, code: 0, notDone: [], sessions: [] } }; saveUpdate();
+        socket.send(JSON.stringify({ result: update.result })); return;
+      }
+      if (o.autoInstall?.() === false || !o.install) {
+        update.phase = "ready"; saveUpdate();
+        socket.send(JSON.stringify({ result: { sha: update.sha, code: 1, notDone: ["auto-install off; run ep0ch install --apply"], sessions: [] } }));
+        return;
+      }
+      installing = true; update = { sha, phase: "installing" }; saveUpdate();
+      let result: LinkInstallResult;
+      try { result = await o.install(sha); }
+      catch (error) { result = { sha, code: 1, notDone: ["install"], sessions: [], error: (error as Error).message }; }
+      installing = false;
+      update = { sha, phase: result.code === 0 && !result.error ? "done" : "blocked", result, restart: !!result.commit && result.commit !== o.commit }; saveUpdate();
+      sendResult?.(result);
+      if (wanted && wanted !== sha) { update = { sha: wanted, phase: "ready" }; saveUpdate(); considerCurrent(); }
+    };
+    considerCurrent = () => { void consider(); };
+    const configWatch = o.statusPath ? watch(dirname(o.statusPath), (_, file) => {
+      if (file === "link-update.json" && !installing && updatePath) {
+        const saved = readLinkFile<LinkUpdate>(updatePath);
+        if (JSON.stringify(saved) !== JSON.stringify(update)) { update = saved; void consider(); }
+      }
+      if (file === "link.json") void consider();
+    }) : undefined;
     const timeout = setTimeout(() => endAttempt("connection timed out"), 10_000);
     finish = (reason: string) => {
       if (ended) return;
-      ended = true;
+      ended = true; configWatch?.close(); sendResult = undefined;
       clearTimeout(timeout); clearInterval(heartbeat); streams?.close(); streams = undefined;
       socket.close(); state(false, reason);
       if (!stopped) { o.log(`link down: ${reason}; reconnect in ${delay / 1000}s`); retry = setTimeout(dial, delay); delay = Math.min(delay * 2, 15_000); }
@@ -133,15 +201,25 @@ export function connectLink(o: { server: string; machine: string; key: string; h
         if (typeof event.data !== "string") { if (!streams) throw new Error("not authenticated"); streams.receive(Buffer.from(event.data)); return; }
         if (event.data === "pong") { last = Date.now(); return; }
         const message = JSON.parse(event.data);
-        if (typeof message.challenge === "string" && !streams) {
-          if (message.protocol !== PROTOCOL) throw new Error("protocol mismatch");
+        if (typeof message.challenge === "string" && !authenticated) {
+          nonce = message.challenge;
           socket.send(JSON.stringify({ protocol: PROTOCOL, machine: o.machine, proof: proof(o.key, o.machine, message.challenge).toString("hex") }));
-        } else if (message.ready === true && !streams) {
+        } else if (message.ready === true && !authenticated) {
+          if (typeof message.proof !== "string" || !/^[a-f0-9]{64}$/.test(message.proof) || !timingSafeEqual(proof(o.key, o.machine, nonce + "\nserver"), Buffer.from(message.proof, "hex"))) throw new Error("server did not prove the link key");
+          authenticated = true;
+          sendResult = result => socket.send(JSON.stringify({ result }));
           clearTimeout(timeout); delay = 1000;
-          streams = new LinkStreams(data => { if (socket.bufferedAmount > 4 * 1024 * 1024) socket.close(); else socket.send(data); }, o.host);
+          if (message.compatible) streams = new LinkStreams(data => { if (socket.bufferedAmount > 4 * 1024 * 1024) socket.close(); else socket.send(data); }, o.host);
           since = new Date().toISOString(); state(true);
           o.log(`link ${o.machine} up since ${since}`);
           heartbeat = setInterval(() => { if (Date.now() - last > 25_000) endAttempt("heartbeat timed out"); else socket.send("ping"); }, 10_000);
+        } else if (authenticated && typeof message.install === "string" && /^[a-f0-9]{40}$/.test(message.install)) {
+          wanted = message.install;
+          if (installing) return;
+          if (update?.sha !== message.install) update = { sha: message.install, phase: "ready" };
+          void consider();
+        } else if (authenticated && message.received === update?.sha) {
+          if (update?.restart) { update.restart = false; saveUpdate(); o.onInstalled?.(); }
         } else throw new Error("unexpected authentication message");
       } catch (error) { endAttempt(`${(error as Error).message}; check ep0ch install --apply on both machines`); }
     };

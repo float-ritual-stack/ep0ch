@@ -572,6 +572,8 @@ export function dialsStep(f: Facts): Step | null {
     : { id: "dials", title, status: "do", why: "this machine is called like any other again; a machine that learned it dials in keeps waiting for its call until its own `.remote/<this machine>.json` says `\"dialsIn\": false`", commands: [`rm ${d.file}`], dialsIn: false };
 }
 
+export const sshInstallClients = (f: Facts) => (f.installClients?.names ?? []).filter(n => f.linkConfig?.mode !== "serve" || !f.linkConfig.machines.includes(n));
+
 export function buildPlan(f: Facts, o: PlanOptions): Plan {
   let repo = repoStep(f);
   // The outlines' schema against the code the checkout ends on: one that can't be migrated holds the update back, so
@@ -589,15 +591,16 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const dials = dialsStep(f);
   const sweep = sweepStep(f);
   const clients = f.installClients;
+  const sshClients = sshInstallClients(f);
   const clientList: Step[] = clients?.changed ? [{ id: "client-list", title: "Save this host's clients", status: "do", why: `${clients.file}: ${clients.names.join(", ") || "none"}`, commands: [], writes: [{ path: clients.file, text: clients.names.length ? clients.names.join("\n") + "\n" : "" }] }] : [];
   // Last: an optional link that fails never stops the host's restart or the session's upgrade.
   const ext = [...(f.ext ? [extStep(f)] : []), ...(f.skills ? [skillsStep(f)] : [])];
   let host = hostStep(f, updates, schema?.status === "do" && !!schema.migrate?.stopsHost);
   // Outlines that can't take the step: a stopped host (a migration that failed) stays stopped rather than serving some.
   if (schema?.status === "manual" && host.status === "do") host = { ...host, status: "manual", why: `held back: not every outline can be migrated to the schema the code opens, and started it would serve only some; see "${schema.title}"`, commands: [] };
-  const clientLegs: Step[] = clients?.names.length ? [{ id: "clients", title: "Update this host's clients", status: host.status === "manual" || repo.status === "manual" ? "manual" : "do",
-    why: `after the host is current: ${clients.names.join(", ")}; sequentially; every session is handed over with its open drafts kept${host.status === "manual" || repo.status === "manual" ? "; held back until the host and checkout steps are resolved" : ""}`,
-    commands: clients.names.map(name => `ssh -- ${name} 'ep0ch install --apply --as-client'`) }] : [];
+  const clientLegs: Step[] = sshClients.length ? [{ id: "clients", title: "Update this host's clients", status: host.status === "manual" || repo.status === "manual" ? "manual" : "do",
+    why: `after the host is current: ${sshClients.join(", ")}; sequentially; every session is handed over with its open drafts kept${host.status === "manual" || repo.status === "manual" ? "; held back until the host and checkout steps are resolved" : ""}`,
+    commands: sshClients.map(name => `ssh -- ${name} 'ep0ch install --apply --as-client'`) }] : [];
   // The MCP gateway after the host it talks to.
   const mcp = f.mcp ? [mcpStep(f, updates)] : [];
   const machineLink = linkInstallStep(f, updates);

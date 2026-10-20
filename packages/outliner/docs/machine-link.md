@@ -37,11 +37,11 @@ service-manager success without recovery fails the step with the status command
 for both ends. Install never edits Caddy or DNS.
 
 The server sends a fresh random challenge. The connector proves its machine's key
-with HMAC-SHA256 over a domain-separated machine name and challenge. Both compare
-PROTOCOL. Unknown machines, wrong keys, duplicate live connections and invalid
-frames are refused; the server logs the reason without the proof or key. The only
-destination is the connector's own outline-host socket. No frame can name a host,
-port or executable.
+with HMAC-SHA256 over a domain-separated machine name and challenge. The outline tunnel requires matching PROTOCOL. Install control remains available
+when the versions differ, so an update can repair that mismatch. The server also
+proves the link key before the connector accepts an install request. Unknown machines, wrong keys, duplicate live connections and invalid
+frames are refused; the server logs the reason without the proof or key. The only tunnel destination is the connector's own outline-host socket. No frame can name a host,
+port or executable. The one control verb is `install <sha>`; it never carries a shell command.
 
 Binary WebSocket messages carry an operation byte, a four-byte big-endian stream
 id, and optional data. OPEN, DATA, CLOSE and ACK multiplex Unix connections.
@@ -71,3 +71,46 @@ macOS logs go to `~/Library/Logs/ep0ch-link.log`.
 This is a process/transport feature, so its demo is the scratch-host WebSocket
 workflow in `packages/door/test/link.test.ts`, not a showcase tile. Neither test
 nor install validation requires a real laptop or public endpoint.
+
+## Installing over the link
+
+After a successful `ep0ch install --apply` on a link server, install publishes its
+verified origin/main commit to each configured connector. Connected laptops receive
+one `install <sha>` message; an away laptop receives the latest SHA when it next
+connects. A laptop already at that SHA reports it without running install again.
+The desired SHA and each receipt survive a server or connector restart.
+
+The connector calls `ep0ch install --apply --as-client --sha <sha> --json` from
+its installed checkout. `--sha` accepts a full commit SHA reachable from fetched
+origin/main, requires clean main and a fast-forward, and never pulls past the
+requested commit. Backups, migrations, host restarts and session handover remain
+install's own steps. A link-initiated install defers its own connector restart
+until the server acknowledges the saved receipt; the service manager then starts
+it on the installed code.
+
+The receipt contains the actual exit code, unfinished steps, and the session
+step's handover outcomes and recovery commands. The invoking install prints it,
+and the server saves it under the same Deploys record even if the laptop reconnects
+after the invoking install has exited. An offline laptop is reported as queued.
+A later manual install reconciles a blocked receipt with its actual result.
+
+Auto-install is on unless turned off on the connecting laptop:
+
+```sh
+ep0ch link auto-install off
+ep0ch link auto-install on
+```
+
+The setting takes effect without restarting the link. While an install runs,
+the door's status bar shows `update ready · installing`; when automatic install
+is off or blocked it shows `update ready · ep0ch install --apply`. Ordinary
+refusals and save errors keep their own status-message space.
+
+The install demonstration needs two independent checkouts, a Git origin, service
+restarts and an authenticated link. Its scratch-machine journey is in
+`packages/door/test/install-migrate.test.ts`; it cannot run as a showcase tile
+inside one outline. `test/link.test.ts` covers the setting, receipts and reconnects.
+
+The wire changes require a PROTOCOL bump at the final merge rebase. Install this
+implementation once on both ends to bootstrap install control; a connector from
+before this verb was implemented cannot install itself over the link.

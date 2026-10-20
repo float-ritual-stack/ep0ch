@@ -124,7 +124,14 @@ process.exit(await p.exited);
 verb=$1; name=$2; pidf='${units}'/$name.pid
 alive() { [ -f "$pidf" ] && kill -0 "$(cat "$pidf")" 2>/dev/null; }
 case "$verb" in
-  start) [ "$name" = outliner-host.service ] || exit 1
+  daemon-reload|enable) exit 0 ;;
+  is-enabled) exit 0 ;;
+  is-active) alive && exit 0; exit 3 ;;
+  start) if [ "$name" = ep0ch-link ]; then
+      alive || { setsid '${bun}' '${repo}/packages/door/src/main.ts' link serve >>'${units}'/link.log 2>&1 </dev/null & echo $! >"$pidf"; }
+      exit 0
+    fi
+    [ "$name" = outliner-host.service ] || exit 1
     alive || { cd '${repo}/packages/outliner' && EP0CH_OUTLINES='${outlines}' setsid '${bun}' src/host-main.ts >>'${units}'/host.log 2>&1 </dev/null & echo $! >"$pidf"; } ;;
   stop) if alive; then p=$(cat "$pidf"); kill "$p"; while kill -0 "$p" 2>/dev/null; do sleep 0.1; done; fi; rm -f "$pidf" ;;
   restart) "$0" --user stop "$name" && "$0" --user start "$name" ;;
@@ -177,6 +184,7 @@ process.exit(r.ok ? 0 : 1);
 afterAll(async () => {
   if (!linux) return rmSync(root, { recursive: true, force: true });
   await ep0ch("session", "end", "--all", "--yes").catch(() => undefined);
+  try { fakeSystemctl("stop", "ep0ch-link"); } catch {}
   try { fakeSystemctl("stop", "outliner-host.service"); } catch { /* gone */ }
   rmSync(root, { recursive: true, force: true });
 }, 60_000);
@@ -361,5 +369,50 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     latest = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
     expect(latest.blocks[0].author).toBe("user");
     expect(latest.blocks[0].text).toContain("Who: person");
+
+    // A newer host protocol reaches a laptop that can only dial out; the real installer hands over its remote session.
+    const { createServer } = await import("node:net");
+    const reservation = createServer();
+    await new Promise<void>(resolve => reservation.listen(0, "127.0.0.1", resolve));
+    const port = (reservation.address() as import("node:net").AddressInfo).port;
+    await new Promise<void>(resolve => reservation.close(() => resolve()));
+    const clientEnv = { ...env, HOME: clientHome, PATH: [clientBin, dirname(bun), "/usr/bin", "/bin"].join(":"), EP0CH_OUTLINES: clientOutlines, EP0CH_STATE: join(root, "linked-client-state"), EP0CH_SOCKET: sock, EP0CH_WS: "allotment", EP0CH_DAILY_AGENT: "sh", XDG_CONFIG_HOME: join(clientHome, ".config"), XDG_STATE_HOME: join(clientHome, ".local/state") };
+    writeFileSync(join(root, "start-linked-session.ts"), readFileSync(join(root, "start-session.ts"), "utf8").replaceAll(repo, clientRepo));
+    const started = Bun.spawnSync([bun, join(root, "start-linked-session.ts")], { cwd: clientHome, env: clientEnv, stdout: "pipe", stderr: "pipe", timeout: 60_000 });
+    expect({ code: started.exitCode, error: started.stderr.toString(), out: started.stdout.toString() }).toMatchObject({ code: 0 });
+    const wire = join(repo, "packages/outline-core/src/protocol.ts");
+    writeFileSync(wire, readFileSync(wire, "utf8").replace(/export const PROTOCOL = (\d+);/, (_, n) => `export const PROTOCOL = ${Number(n) + 1};`));
+    git("add", "packages/outline-core/src/protocol.ts"); git("commit", "-qm", "the garden host speaks the next protocol"); git("push", "-q", "origin", "main");
+    const linkedHead = git("rev-parse", "HEAD");
+    writeFileSync(join(outlines, ".host/link.json"), JSON.stringify({ mode: "serve", port, machines: ["travel"] }));
+    mkdirSync(join(home, ".config/secrets"), { recursive: true });
+    writeFileSync(join(home, ".config/secrets/link-travel.env"), "LINK_KEY=fictional-key\n", { mode: 0o600 });
+    // The helper is the connector's production assembly, using its own checkout and installer, without a public TLS endpoint.
+    writeFileSync(join(root, "linked-client.ts"), `import { connectLink } from "${clientRepo}/packages/outliner/src/link";
+import { installLinkedSha } from "${clientRepo}/packages/door/src/link";
+const commit = Bun.spawnSync(["git", "-C", "${clientRepo}", "rev-parse", "HEAD"]).stdout.toString().trim();
+const connector = connectLink({server: "http://127.0.0.1:${port}", machine: "travel", key: "fictional-key", host: "${sock}", statusPath: "${clientOutlines}/.host/link-state.json", commit, install: installLinkedSha, log: console.error, onInstalled: () => {connector.stop();process.exit(0);}});
+process.once("SIGTERM",()=>{connector.stop();process.exit(0)});
+`);
+    let linkedClient = Bun.spawn([bun, join(root, "linked-client.ts")], { cwd: clientHome, env: clientEnv, stdout: "ignore", stderr: Bun.file(join(root, "linked-client.log")) });
+    try {
+      const delivered = await ep0ch("install", "--apply", "--json");
+      const report = JSON.parse(delivered.out);
+      expect({ code: delivered.code, err: delivered.err, step: report.steps.find((s: {error?:string}) => s.error) }).toMatchObject({ code: 0, step: undefined });
+      expect(report.linked.join("\n")).toContain(`travel: installed ${linkedHead}`);
+      expect(report.linked.join("\n")).toContain("session was handed over");
+      expect(sh(["git", "-C", clientRepo, "rev-parse", "HEAD"])).toBe(linkedHead);
+      expect(await linkedClient.exited).toBe(0);
+      linkedClient = Bun.spawn([bun, join(root, "linked-client.ts")], { cwd: clientHome, env: clientEnv, stdout: "ignore", stderr: Bun.file(join(root, "linked-client-again.log")) });
+      await until(() => { try { return JSON.parse(readFileSync(join(outlines, ".remote/travel.link.json"), "utf8")).up; } catch { return false; } }, "updated connector comes back");
+      const record = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
+      expect(record.blocks[0].text).toContain(`travel: installed ${linkedHead}`);
+      expect(record.blocks[0].text).toContain("session was handed over");
+    } finally {
+      linkedClient.kill(); await linkedClient.exited;
+      const end = Bun.spawn([bun, join(clientRepo, "packages/door/src/main.ts"), "session", "end", "--all", "--yes"], { env: clientEnv, cwd: clientHome, stdout: "ignore", stderr: "ignore" });
+      await end.exited;
+    }
+
   }, 600_000);
 });

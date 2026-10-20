@@ -634,6 +634,13 @@ and adds `mcp__ep0ch` to `permissions.allow` without prompting. `--no-allow` ski
 It lists user systemd units and launchd agents still naming the old tools without rewriting them.
 See [the mod installer](../claude-mod/README.md#use) for the rename and saved UI state decision.
 
+Connected machine links carry the installed origin/main SHA to their laptops;
+those away install on their next connection. Install prints the exit code,
+unfinished work and session outcomes, also saved in Deploys. On the laptop,
+`ep0ch link auto-install off` leaves an update prompt in the door;
+`ep0ch link auto-install on` resumes it without restarting the link.
+See [machine-link installation](../outliner/docs/machine-link.md#installing-over-the-link).
+
 ## Run
 
     bun install
