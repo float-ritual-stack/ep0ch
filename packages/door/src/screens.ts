@@ -635,7 +635,16 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       if (here instanceof MainMenu) here.selected = ITEMS.indexOf(item);
       // By name: the brief, Waiting and the welcome are desks too (PIE-515: specs on it), and each is its own screen.
       const open = item.one && ctx.screens?.().find(x => x.name === item.one);
-      if (open) throw new ActionRefused(`the ${open.title} is already open${open === here ? "" : " under this screen; screen.back gets back to it"}`);
+      // Already on the stack: go back down to it (never a second copy: a desk would start its programs twice).
+      if (open && open === here) throw new ActionRefused(`the ${open.title} is already open`);
+      if (open) {
+        const from = here?.title ?? null;
+        while (ctx.screens?.().at(-1) && ctx.screens!().at(-1) !== open) {
+          if (actor.kind === "agent") agentMayLeave(ctx.screens!().at(-1)!);
+          ctx.pop();
+        }
+        return { opened: open.title, key: item.key, back: from };
+      }
       const s = openItem(item, ctx);
       return { opened: s?.title ?? item.label, key: item.key };
     },
