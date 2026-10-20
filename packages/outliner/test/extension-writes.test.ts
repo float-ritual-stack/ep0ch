@@ -499,7 +499,7 @@ test("ext add over an install never leaves the folder without its extension.json
 test("a running script keeps its undo while ordinary extension writes fill the history", async () => {
   const { store, client, scribe, act } = await setup();
   await scribe();
-  const source = store.create("Waiting [script::waiting]\n```js\nwhile (!(await q('signal=history-ready')).blocks.length) {}\nreturn 'Ready';\n```", null, "user");
+  const source = store.create("Waiting [script::waiting] [results::keep]\n```js\nwhile (!(await q('signal=history-ready')).blocks.length) {}\nreturn 'Ready';\n```", null, "user");
   const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
   const extension = listed.extensions.find(e => e.name === "waiting")!;
   const run = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });

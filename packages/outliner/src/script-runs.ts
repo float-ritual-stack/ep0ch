@@ -1,3 +1,4 @@
+import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
 import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { createPatch } from "diff";
@@ -227,9 +228,20 @@ export class ScriptRuns {
       } catch (error) { finish(); throw error; }
     };
     this.captures.set(undo, { actor, run: captured });
-    const log = captured(() => this.store.create(lines.join("\n"), source.blockId ?? null, actor.author,
-      actor.author === "agent" ? { actorId: actor.actorId ?? "agent", sessionId: undo, taskId: actor.taskId } : undefined));
+    let log: Block | undefined;
+    const written: string[] = [];
+    const keep = () => {
+      if (log) return;
+      log = captured(() => this.store.create(lines.join("\n"), source.blockId ?? null, actor.author,
+        actor.author === "agent" ? { actorId: actor.actorId ?? "agent", sessionId: undo, taskId: actor.taskId } : undefined));
+      written.push(log.id);
+    };
+    if (source.blockId && this.store.get(source.blockId)?.properties.some(p => p.key === "results" && p.value === "keep")) keep();
+    const title = source.blockId ? firstLineWithoutPropertyTokens(this.store.get(source.blockId)?.text ?? "")?.trim() : undefined;
+    let message = `${title || extension.name} done`;
+    const result = { extension: extension.id, action: "run", message: `${extension.name} working`, written, undo, undoOn: request.blockId ?? source.blockId, writtenAs: actor.actorId ?? actor.author } satisfies ExtensionActResult;
     const update = () => captured(() => {
+      if (!log) return;
       const now = this.store.require(log.id);
       this.store.update(log.id, lines.join("\n"), now.revision, actor);
     });
@@ -238,7 +250,7 @@ export class ScriptRuns {
       if (s.phase === "start") return;
       lines.push(`\n${s.seq}. ${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}`);
       // A tight host-call loop must not flood readers and delay the person's save behind progress events.
-      progress ??= setTimeout(() => {
+      if (log) progress ??= setTimeout(() => {
         progress = undefined;
         try { update(); } catch (error) { controller.abort(error); }
       }, 50);
@@ -309,9 +321,15 @@ export class ScriptRuns {
         lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}] [machine::script]`;
         for (const output of result.output) if (output.type === "text") lines.push(output.text);
         if (result.ok) {
-          if (result.value !== undefined) lines.push(scriptText(result.value));
+          if (result.value !== undefined) {
+            const text = scriptText(result.value);
+            lines.push(text);
+            if (!text.includes("\n") && (result.value === null || typeof result.value !== "object")) message = text || message;
+            else keep();
+          }
         }
         else { failure = result.error.message; lines.push(failure); }
+        if (result.output.some(output => output.type === "text")) keep();
       } catch (error) {
         lines[0] = `${extension.name} · failed [script-run::${undo}] [machine::script]`;
         failure = error instanceof Error ? error.message : String(error);
@@ -324,11 +342,13 @@ export class ScriptRuns {
         const stoppedBy = why instanceof Error && /^Stopped by/.test(why.message);
         const reason = stoppedBy ? "stopped" as const : failure !== undefined || (why instanceof Error && /^The script ran past/.test(why.message)) ? "failed" as const : "done" as const;
         controller.abort();
+        let undoAvailable = true;
         try {
           const drafts = await this.inverse(undo);
           this.writes.finishRun(undo, drafts);
         } catch (error) {
           const problem = error instanceof Error ? error.message : String(error);
+          undoAvailable = false;
           lines.push(`Undo unavailable: ${problem}`);
           this.writes.finishRun(undo, [], problem);
         }
@@ -336,7 +356,10 @@ export class ScriptRuns {
           this.captures.delete(undo);
           this.running.delete(controller);
           this.runs.delete(undo);
-          this.ended?.({ run: undo, reason: failure !== undefined && reason === "done" ? "failed" : reason });
+          result.message = failure !== undefined ? `${failure || "Script failed"} · check the script and run it again`
+            : reason === "done" ? message : "Script stopped; run it again when ready";
+          this.ended?.({ run: undo, reason, message: result.message, written, requestedBy, undo: reason === "done" && undoAvailable,
+            ...(request.clientId && !request.background ? { targetClientId: request.clientId } : {}) });
         }
       }
       return failure;
@@ -344,7 +367,7 @@ export class ScriptRuns {
     this.tasks.set(undo, task);
     // Inline asks consume their completion after ExtensionCalls has returned, even for a fast parse failure.
     if (!request.background) void task.finally(() => { this.tasks.delete(undo); }).catch(() => {});
-    return { extension: extension.id, action: "run", message: `running as ${actor.actorId ?? actor.author}; results in ((${log.id}))`, written: [log.id], undo, undoOn: source.blockId ?? log.id, writtenAs: actor.actorId ?? actor.author };
+    return result;
   }
 
   async stop(): Promise<void> {

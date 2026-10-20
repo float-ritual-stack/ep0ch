@@ -45,6 +45,10 @@ export async function setup() {
   const extensionOf = async (name: string) => (await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true })).extensions.find(e => e.name === name)!;
   /** Runs a script by name, as a person would, with the note it is about and its slots. */
   const run = async (name: string, options: { blockId?: string; args?: Record<string, string>; line?: number } = {}) => {
+    const script = store.queryBlocks({ where: `script=${name}` }).blocks[0]!;
+    const source = store.require(script.id);
+    if (!source.properties.some(p => p.key === "results" && p.value === "keep"))
+      store.update(source.id, source.text.replace("\n", " [results::keep]\n"), source.revision, { author: "user" });
     const extension = await extensionOf(name);
     const started = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", ...options });
     const note = () => store.get(started.written[0]!)!.text;

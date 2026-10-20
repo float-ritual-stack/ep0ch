@@ -88,7 +88,7 @@ The code is the body of an async function: `await` and `return` work at the top.
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. A render line keeps repeats (`tag=a tag=b` is two values); every action run path gives one value per key. | `packages/outliner/src/script-runtime.ts:27` |
 | `view` | The builders of [view.*](#view). | `packages/outliner/src/script-runtime.ts:49` |
 | `tools` | The agent tools, `await tools.outline_read({ ref })`. See [tools.*](#tools). | `packages/outliner/src/script-runtime.ts:38` |
-| `text(value)`, `console.log(...)` | Add a line to the run note's output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:311` |
+| `text(value)`, `console.log(...)` | Keep a line as run-note output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:311` |
 | `exit()` | Ends the script successfully, keeping its output (the sandbox's own). | |
 
 `text`, `console`, `exit`, `store`/`load` and `ALL_TOOLS` come from the QuickJS sandbox
@@ -225,7 +225,7 @@ The returned value becomes text, the same way in a run note and a drawn line:
 |---|---|---|
 | `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:34` |
 | `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:28` |
-| `undefined` | nothing (a run note ends at the output lines) | `packages/outliner/src/script-runs.ts:312` |
+| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:312` |
 | `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:38` |
 
 ## Record shapes
@@ -283,7 +283,7 @@ examples lean on:
 | Entry | Source |
 |---|---|
 | `slotProps` | `packages/outliner/src/script-runs.ts:41` |
-| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:804` |
+| `scriptRender` (the one producer path of every handler line) | `packages/outliner/src/extension-calls.ts:808` |
 | `DEFAULT_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:417` |
 
 ## Effects, access and attribution
@@ -312,28 +312,36 @@ examples lean on:
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4313` |
 | `viaYolo` | `packages/outliner/src/server.ts:4343` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:327` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:346` |
 
 ## Lifecycle
 
-1. **Start.** A run returns at once with its run note (`<name> · working [script-run::<undo id>] [machine::script]`, a
-   child of the script's note) and the undo id. Machinery: a run note counts for no backlink.
-2. **Progress.** Each finished tool call appends a line `N. tool: result` to the run note (`q` and `read` log their `outline_find` and `outline_read`; `resolve`, `act` and `wait` log nothing). `text()` and `console.log` lines
-   come after the calls; the returned value is last. The first line becomes `· done` or `· failed`.
+1. **Start.** A run returns at once with its undo id. A one-line scalar answer is shown in the door's plain status voice;
+   a run that returns nothing says `<script title> done`. Property-only writes and short answers create no run note.
+   Script identity remains in attribution, revisions and inspection, with the requester recorded separately.
+2. **Keep content.** A returned document (a string with newlines), structured data or a view, and explicit `text()` or
+   `console.log()` output, create a run note under the script. `[results::keep]` on the script asks for a full run record
+   from the start, even for a short answer or no return. A run note is machinery and counts for no backlink.
+   Tool-call progress is buffered; when a record is requested it streams there as `N. tool: result`. `q` and `read` log
+   their `outline_find` and `outline_read`; `resolve`, `act` and `wait` log nothing. The return value is last.
+   `place()` still writes an output region in its note, and a render line's `.keep` still keeps its drawn output.
 3. **Deadline.** Default 5 minutes (the maximum), or `[deadline::2m]`. A render drawing defaults to 15 seconds.
    A run past it fails with "The script ran past its deadline (Ns)".
 4. **Stop.** `scripts.stop` with the run's undo id (`script.stop run=<undo id>` in the door) ends one run; its next call
-   is refused and the note says "Stopped by <who>". `{ stopped: false }` when it isn't running.
+   is refused and the completion says "Stopped by <who>". `{ stopped: false }` when it isn't running.
 5. **Edits.** Changing the script's **code** while it runs ends it ("The script source changed; run its saved revision
    again"). The check is made at the run's next host call, not at the edit. A script that writes into its own note goes on: only the fence counts. At the end, a changed script setting (its stamp) discards the output ("The script source changed during this run").
-6. **End.** The run's undo is prepared; "Undo unavailable: why" is added when it can't be.
+6. **End.** The run's undo is prepared; "Undo unavailable: why" is added to a kept record when it can't be.
+   `scripts.ended` carries the answer (`message`), retained note ids (`written`), requester and end reason. The initiating
+   door shows that answer, with `ctrl+z undoes` on success; actual failures use the refusal voice with a next action.
+   An inline `@script` ask uses the same answer when there is no retained note to link.
 
 | Entry | Source |
 |---|---|
 | `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:193` |
 | `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:205` |
 | `stopRun` | `packages/outliner/src/script-runs.ts:186` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:255` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:263` |
 | `scripts.stop` | `packages/outliner/src/server.ts:1998` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2494` |
 

@@ -71,7 +71,7 @@ async function setup(prepare?: (root: string) => Promise<void>) {
 test("script blocks and outline script files load through the extension registry", async () => {
   const { client, root } = await setup();
   const api = hostApi(client, { actorId: "seed-author" });
-  await api.call("outline_create", { parent: "root", text: "Seed count [script::seed-count]\n```js\nreturn await q('type=supply');\n```" });
+  await api.call("outline_create", { parent: "root", text: "Seed count [script::seed-count] [results::keep]\n```js\nreturn await q('type=supply');\n```" });
   await Bun.write(join(root, ".ep0ch", "scripts", "labels.ts"), "// ep0ch-script\nreturn await read('root');");
   const listed = await client.request<{ extensions: { name?: string; state: string }[] }>({ action: "extensions.list", reload: true });
   expect(listed.extensions.find(e => e.name === "seed-count")?.state).toBe("active");
@@ -81,7 +81,7 @@ test("script blocks and outline script files load through the extension registry
 test("a block script starts at once, writes as the script, and its complete run undoes in one step", async () => {
   const { client, store } = await setup();
   const api = hostApi(client, { actorId: "seed-author" });
-  const source = await api.call("outline_create", { parent: "root", text: "Seed report [script::seed-report] [effects::write]\n```js\nconst a = await tools.outline_create({ parent: 'root', text: 'Labels [type::supply]' });\nawait tools.outline_patch({ ref: a.id, revision: a.revision, patches: [{observed: 'Labels', replacement: 'Paper labels'}] });\nreturn 'Ready for planting';\n```" }) as { id: string };
+  const source = await api.call("outline_create", { parent: "root", text: "Seed report [script::seed-report] [results::keep] [effects::write]\n```js\nconst a = await tools.outline_create({ parent: 'root', text: 'Labels [type::supply]' });\nawait tools.outline_patch({ ref: a.id, revision: a.revision, patches: [{observed: 'Labels', replacement: 'Paper labels'}] });\nreturn 'Ready for planting';\n```" }) as { id: string };
   const listed = await client.request<{ extensions: { id: string; name?: string }[] }>({ action: "extensions.list", reload: true });
   const extension = listed.extensions.find(e => e.name === "seed-report")!;
   const run = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
@@ -192,7 +192,7 @@ test("a script can patch whitespace source spans but cannot patch an empty span"
 test("undo never trashes somebody else's child added while a script is running", async () => {
   const { client, store } = await setup();
   const api = hostApi(client, { actorId: "seed-author" });
-  await api.call("outline_create", { parent: "root", text: `Seed family [script::seed-family] [effects::write]
+  await api.call("outline_create", { parent: "root", text: `Seed family [script::seed-family] [results::keep] [effects::write]
 \`\`\`js
 const parent = await tools.outline_create({ parent: 'root', text: 'Seed tray [type::tray]' });
 while (!(await q('signal=ready')).blocks.length) {}
@@ -217,18 +217,19 @@ test("script asks run from a person's line and an agent's line by default", asyn
   await client.request({ action: "extensions.list", reload: true });
   const ask = await client.request<{ id: string }>({ action: "create", text: "Seed plan\n@count-seeds", author: "user" });
   const deadline = Date.now() + 4000;
-  while (!store.children(source.id).some(n => n.text.includes("· done")) && Date.now() < deadline) await Bun.sleep(20);
-  expect(store.children(source.id).map(n => n.text).join("\n")).toContain("Seeds counted");
+  while (store.agentRequests(ask.id)[0]?.status !== "replied" && Date.now() < deadline) await Bun.sleep(20);
+  expect(store.agentRequests(ask.id)[0]?.reply).toBe("Seeds counted");
   expect(store.get(ask.id)?.text).toContain("@count-seeds");
   const automatic = await client.request<{ id: string }>({ action: "create", text: "Another plan\n@count-seeds", author: "agent", provenance: { actorId: "seed-helper" } });
   while (store.agentRequests(automatic.id)[0]?.status === "running" && Date.now() < deadline) await Bun.sleep(20);
   expect(store.agentRequests(automatic.id)[0]).toMatchObject({ status: "replied", requestedBy: "agent:seed-helper" });
-  expect(store.children(source.id).filter(n => n.text.includes("· done") && n.text.includes("Seeds counted"))).toHaveLength(2);
+  expect(store.agentRequests(automatic.id)[0]?.reply).toBe("Seeds counted");
+  expect(store.children(source.id)).toEqual([]);
 }, 10_000);
 
 test("a rule names a script through the existing trigger path", async () => {
   const { client, store } = await setup();
-  const source = store.create("Seed alarm [script::seed-alarm]\n```js\nreturn 'Time to sow';\n```", null, "user");
+  const source = store.create("Seed alarm [script::seed-alarm] [results::keep]\n```js\nreturn 'Time to sow';\n```", null, "user");
   await client.request({ action: "extensions.list", reload: true });
   await client.request({ action: "create", text: "Sowing rule [rule-name::sowing] [rule-match::planting=ready] [rule-on::script:seed-alarm] [rule-quiet::1s]", author: "user" });
   await client.request({ action: "create", text: "Peas [planting::ready]", author: "user" });
@@ -240,7 +241,7 @@ test("a rule names a script through the existing trigger path", async () => {
 test("a granted script ask keeps the invocation chain while its writes arrive", async () => {
   const { client, store } = await setup();
   store.create("Seed permission [invoke-from::seed-helper] [invoke-to::count-again] [max-hops::2]", null, "user");
-  const source = await client.request<{ id: string }>({ action: "create", author: "agent", provenance: { actorId: "seed-helper" }, text: "Repeat count [script::count-again] [effects::write]\n```js\nawait tools.outline_create({ parent: 'root', text: 'Follow-up seeds\\n@count-again' });\nreturn 'Counted once';\n```" });
+  const source = await client.request<{ id: string }>({ action: "create", author: "agent", provenance: { actorId: "seed-helper" }, text: "Repeat count [script::count-again] [results::keep] [effects::write]\n```js\nawait tools.outline_create({ parent: 'root', text: 'Follow-up seeds\\n@count-again' });\nreturn 'Counted once';\n```" });
   await client.request({ action: "extensions.list", reload: true });
   await client.request({ action: "create", author: "agent", provenance: { actorId: "seed-helper" }, text: "Seed plan\n@count-again" });
   const deadline = Date.now() + 4000;
@@ -257,7 +258,7 @@ test.each([
   ["js", "throw new Error('');", ""],
 ])("a failed inline %s script says failed on its ask: %s", async (format, code, message) => {
   const { client, store } = await setup();
-  store.create(`Broken seeds [script::broken-seeds]\n\`\`\`${format}\n${code}\n\`\`\``, null, "user");
+  store.create(`Broken seeds [script::broken-seeds] [results::keep]\n\`\`\`${format}\n${code}\n\`\`\``, null, "user");
   await client.request({ action: "extensions.list", reload: true });
   const ask = await client.request<{ id: string }>({ action: "create", text: "Plan\n@broken-seeds", author: "user" });
   const deadline = Date.now() + 4000;
@@ -279,18 +280,28 @@ test("only opted-in dotted-folder scripts run, read-only unless they declare wri
   expect(listed.extensions.some(e => e.error?.includes("scripts/stray.ts"))).toBe(true);
   expect(listed.extensions.some(e => e.error?.includes("helper.ts") && e.error.includes("opt in"))).toBe(true);
   expect(await cliExt()).toContain("opt in");
-  for (const name of ["reader", "writer"]) {
-    const extension = listed.extensions.find(e => e.name === name)!;
-    expect(extension?.state).toBe("active");
-    const run = await client.request<{ written: string[] }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", mutation: { author: "agent", actorId: "seed-requester" } });
-    const deadline = Date.now() + 4000;
-    while (store.get(run.written[0]!)?.text.includes("· working") && Date.now() < deadline) await Bun.sleep(10);
-    const log = store.require(run.written[0]!);
-    expect(log.actorId).toBe(`script:${name}`);
-    expect(log.text).toContain("onBehalfOf: seed-requester");
-    expect(log.text).toContain(name === "reader" ? "read-only" : "· done");
-    expect(store.queryBlocks({ where: "type=packet" }).blocks.length).toBe(name === "reader" ? 0 : 1);
-  }
+  const completed = new Map<string, import("@ep0ch/outline-core/protocol").ScriptEnded>();
+  let connected = false;
+  const watcher = client.watch({ client: { clientId: "file-reader", contextId: "files", role: "observer" },
+    onConnect: () => { connected = true; }, onEvent: e => { if (e.ended) completed.set(e.ended.run, e.ended); } });
+  try {
+    const connectBy = Date.now() + 4000;
+    while (!connected && Date.now() < connectBy) await Bun.sleep(10);
+    expect(connected).toBe(true);
+    for (const name of ["reader", "writer"]) {
+      const extension = listed.extensions.find(e => e.name === name)!;
+      expect(extension?.state).toBe("active");
+      const run = await client.request<{ undo: string; writtenAs: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", mutation: { author: "agent", actorId: "seed-requester" } });
+      const deadline = Date.now() + 4000;
+      while (!completed.has(run.undo) && Date.now() < deadline) await Bun.sleep(10);
+      const answer = completed.get(run.undo)!;
+      expect(run.writtenAs).toBe(`script:${name}`);
+      expect(answer.requestedBy).toMatchObject({ author: "agent", actorId: "seed-requester" });
+      expect(answer.reason).toBe(name === "reader" ? "failed" : "done");
+      expect(answer.message).toContain(name === "reader" ? "read-only" : "writer done");
+      expect(store.queryBlocks({ where: "type=packet" }).blocks.length).toBe(name === "reader" ? 0 : 1);
+    }
+  } finally { await watcher.stop(); }
   const made = store.queryBlocks({ where: "type=packet" }).blocks[0]!;
   expect(store.require(made.id).actorId).toBe("script:writer");
   const page = store.changes.since(0, 1000);

@@ -351,11 +351,17 @@ export function connectScriptActions(ctx: ExtOn["ctx"]): void {
   };
 }
 
+export function scriptPressMessage(message: string, undo: boolean): string {
+  return `${oneLine(message)}${undo ? " · ctrl+z undoes" : ""}`;
+}
+
 export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, extension: string, target: { blockId?: string; line?: number; args?: Record<string, string>; passage?: Passage; invitation?: string; button?: { block: string; line?: number } }, actor: Actor): Promise<ExtensionActResult & { said: string }> {
   connectScriptActions(ctx);
   const say = asActor(ctx, actor);
-  const name = extensionNamed(extension)?.name ?? oneLine(extension);
-  say.flash(`${name}: ${a.label.toLowerCase()}…`);
+  const entry = extensionNamed(extension);
+  const name = entry?.name ?? oneLine(extension);
+  const script = !!entry?.script && !a.builtIn;
+  if (!script) say.flash(`${name}: ${a.label.toLowerCase()}…`);
   try {
     // Who asked goes with it (`mutation`): the writes stay the extension's, the feed records this as `requestedBy`.
     const r = await ctx.board.actExtension(extension, a.id, extension === "runbook" && a.id === "run-step" ? { ...target, args: undefined } : target, actor);
@@ -363,8 +369,8 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     if (r.runbook) await (await import("./runbook")).runBook(ctx, r.runbook, actor, target.args);
     // The extension's own words (its message) are drawn as text, never as escapes.
     const message = r.message !== undefined ? oneLine(r.message) : undefined;
-    const said = `${name}: ${message || a.label}${r.written.length ? ` · written as ${oneLine(r.writtenAs ?? `ext:${extension}`)}` : ""}${r.undo ? " · ctrl+z undoes it" : ""}`;
-    say.flash(said);
+    const said = script ? scriptPressMessage(message ?? `${name} done`, false) : `${name}: ${message || a.label}${r.written.length ? ` · written as ${oneLine(r.writtenAs ?? `ext:${extension}`)}` : ""}${r.undo ? " · ctrl+z undoes it" : ""}`;
+    if (!script) say.flash(said);
     // One undo step (PIE-784): kept for whoever asked, against the note it acted on, for that reader's ctrl+z (ext.undo).
     const on = r.undoOn ?? target.blockId ?? target.passage?.subject;
     if (r.undo && on) EXT_UNDO.push({ undo: r.undo, label: a.label, by: partyOf(actor), context: on });

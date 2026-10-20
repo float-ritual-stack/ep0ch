@@ -11,7 +11,7 @@ import { onResizeEnd, resizing } from "./resize";
 import { uncover, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
-import { ActionRefused, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
+import { ActionRefused, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
@@ -25,7 +25,7 @@ import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, connectScriptActions } from "./extensions";
+import { EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
@@ -717,8 +717,12 @@ export class App implements Ctx {
     this.quit();
     return null;
   }
+  private messageWarning = true;
+  private showMessage(msg: string, ms: number, warning: boolean) {
+    this.messageWarning = warning; this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw();
+  }
   /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
-  flash(msg: string, ms = 4000) { this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw(); }
+  flash(msg: string, ms = 4000) { this.showMessage(msg, ms, true); }
 
   // ── a refusal of the person's key or click (PIE-727): said on the status bar and on the focused tile's frame ──
   /**
@@ -907,6 +911,13 @@ export class App implements Ctx {
     if (e.ended) {
       INVITES.spendRun(e.ended.run);
       for (const s of screens) s.scriptEnded?.(e.ended.run, e.ended.reason);
+      if (e.ended.targetClientId === this.board.clientId) {
+        const by = e.ended.requestedBy;
+        const actor: Actor = by.author === "agent" ? { kind: "agent", id: by.actorId ?? "agent" } : { kind: "user" };
+        const said = scriptPressMessage(e.ended.message, e.ended.undo);
+        const say = e.ended.reason === "done" ? { flash: (message: string) => this.showMessage(message, 4000, false) } : this;
+        asActor(say, actor).flash(said);
+      }
     } else if (e.undone && !this.scriptUndos.delete(e.undone.run)) for (const s of screens) s.scriptUndone?.(e.undone.run);
     this.redraw();
   }
@@ -1507,7 +1518,7 @@ export class App implements Ctx {
     this.waitingAt = waiting.plain && waitFrom >= 0 ? { from: waitFrom, to: waitFrom + width(waiting.plain), row: this.term.info.rows - 1 } : null;
     // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
     const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
-    const middle = this.message ? ` ${fg(C.yellow)}${loud ? BOLD : ""}${this.message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
+    const middle = this.message ? ` ${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${this.message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);
   }
 }

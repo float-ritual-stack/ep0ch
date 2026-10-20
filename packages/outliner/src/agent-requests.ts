@@ -673,7 +673,7 @@ export class AgentRequests {
         const result = await this.deps.script!({ extension: extension.id, action: "run", blockId, clientId: draft.holder, background: true,
           args: req.args as Record<string, string>,
           requestedBy: by.startsWith("agent:") ? { author: "agent", actorId: by.slice(6) } : { author: "user" } });
-        const reply = result.written.map(id => `((${id}|Script run))`).join("\n");
+        const reply = result.written.length ? result.written.map(id => `((${id}|Script run))`).join("\n") : result.message ?? "Script finished";
         answer = { status: result.error !== undefined ? "failed" : "replied", message: `${result.error ?? "Script finished"} · ${reply}`, reply };
         return;
       }
@@ -754,7 +754,7 @@ export class AgentRequests {
           body = `((${source.id}|Edit or keep the script))`;
           try {
             const run = await this.deps.runSource!(source.id, draft.holder);
-            body += `\n${run.written.map(id => `!((${id}))`).join("\n")}`;
+            body += `\n${run.written.length ? run.written.map(id => `!((${id}))`).join("\n") : run.message ?? "Script finished"}`;
           } catch (error) { body += `\n⚠ ${message(error)}`; }
         }
         const outcome = await this.store.changes.run(
