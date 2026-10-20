@@ -32,6 +32,115 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+  test("PIE-1099: arrows enter a tab's rows on the first press and keep working after repaint", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
+    await until(() => screen().includes("doing 2"), "live tabs");
+    press({ kind: "enter" });
+    const elements = async () => {
+      screen();
+      return ((await app.act({ action: "elements", tile: "1", as: "figure-reader" })) as any).elements;
+    };
+    ch("]");
+    press({ kind: "down" });
+    expect((await elements()).find((e: any) => e.current)?.label).toContain("Rebuild the leaning");
+    press({ kind: "down" });
+    expect((await elements()).find((e: any) => e.current)?.label).toContain("Sow the broad beans");
+    press({ kind: "right" });
+    press({ kind: "down" });
+    expect((await elements()).find((e: any) => e.current)?.label).toContain("Mend the netting");
+    const figures = ((await app.act({ action: "figures", tile: "1", as: "figure-reader" })) as any).figures;
+    for (const tab of figures[0].tabs) {
+      const label = (await elements()).find((e: any) => e.kind === "figure" && e.label.startsWith(tab.value + " "));
+      await app.dispatch.act({ action: "element.select", tile: "1", args: { n: label.n } }, { kind: "user" });
+      press({ kind: "enter" }); screen();
+      press({ kind: "down" });
+      const es = await elements(), current = es.find((e: any) => e.current);
+      expect(current?.kind).toBe(tab.count ? "row" : "figure");
+      press({ kind: "right" }); screen();
+      const now = ((await app.act({ action: "figures", tile: "1", as: "figure-reader" })) as any).figures[0].tab;
+      expect(now).not.toBe(tab.value);
+    }
+    press({ kind: "esc" });
+    expect((await elements()).some((e: any) => e.current)).toBe(false);
+    await app.dispatch.act({ action: "figure.tab", tile: "1", args: { tab: "doing" } }, { kind: "user" });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
+  for (const kind of ["tabs", "table", "check", "decision", "rank", "links"]) {
+    test(`PIE-1099: ${kind} rows keep arrow, click and Enter parity across live answers`, async () => {
+      await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
+      screen(); press({ kind: "enter" });
+      const notes: { id: string }[] = [];
+      for (let i = 0; i < 14; i++) {
+        const n = i;
+        notes[n] = await board.createBlock(null,
+          `Walk ${String(n).padStart(2, "0")} [walk::${kind}] [walk-order::${n}] [walk-group::group-${String(n).padStart(2, "0")}]`);
+      }
+      const query = `walk=${kind}`;
+      const props = [`query: ${query}`, "sort: walk-order", "direction: asc", "columns: [title]",
+        ...(kind === "tabs" ? ["group: walk", `order: [${kind}, empty]`] : []),
+        ...(kind === "rank" ? ["group: walk-group"] : [])];
+      const text = `Walking ${kind}\n\n${kind === "links" ? "::links" : `::graph-${kind}`}\n---\ntitle: Walking\n${(kind === "links" ? [`query: ${query}`] : props).join("\n")}\n---\n::`;
+      const note = await board.createBlock(null, text);
+      const desk = S().stages.get(S().sel).top;
+      const tile = desk.layoutGet().tiles[0].name;
+      const originalTiles = desk.layoutGet().tiles.map((t: any) => t.name);
+      await app.dispatch.act({ action: "open", tile, args: { id: note.id } }, { kind: "user" });
+      const elements = async () => {
+        screen();
+        return ((await app.act({ action: "elements", tile, as: "figure-walker" })) as any).elements;
+      };
+      await untilAsync(async () => (await elements()).some((e: any) => e.kind === "row"), `${kind} rows`);
+      const first = (await elements()).find((e: any) => e.kind === "row");
+      await app.dispatch.act({ action: "element.select", tile, args: { n: first.n } }, { kind: "user" });
+      if (kind === "links") await app.dispatch.act({ action: "links.enter", tile, args: { block: "1", on: true } }, { kind: "user" });
+      screen();
+      press({ kind: "down" });
+      const selected = () => elements().then((es: any[]) => es.find(e => e.current));
+      expect((await selected())?.label).toContain(kind === "rank" ? "group-01" : "Walk 01");
+      press({ kind: "up" });
+      expect((await selected())?.label).toContain(kind === "rank" ? "group-00" : "Walk 00");
+      // A burst reaches a row beyond the viewport before the next paint.
+      for (let n = 0; n < 12; n++) press({ kind: "down" });
+      if (kind === "tabs") {
+        press({ kind: "right" });
+        expect(((await app.act({ action: "figures", tile, as: "figure-walker" })) as any).figures[0].tab).toBe("empty");
+        screen(); press({ kind: "down" }); press({ kind: "left" }); screen(); press({ kind: "down" });
+        for (let n = 0; n < 12; n++) press({ kind: "down" });
+      }
+      expect((await selected())?.label).toContain(kind === "rank" ? "group-12" : "Walk 12");
+      press({ kind: "down" }); screen(); press({ kind: "down" });
+      expect((await selected())?.label).toContain(kind === "rank" ? "group-13" : "Walk 13");
+      await board.createBlock(null, `Walk 14 [walk::${kind}] [walk-order::14] [walk-group::group-14]`);
+      await untilAsync(async () => (await selected())?.list?.total === 15, "selection after a live answer adds a row");
+      press({ kind: "up" });
+      expect((await selected())?.label).toContain(kind === "rank" ? "group-12" : "Walk 12");
+      const rows = screen().split("\n"), y = rows.findIndex(l => l.includes(kind === "rank" ? "group-11" : "Walk 11"));
+      const x = rows[y]!.indexOf(kind === "rank" ? "group-11" : "Walk 11") + 2;
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "up", button: 0, x, y });
+      expect((await selected())?.label).toContain(kind === "rank" ? "group-11" : "Walk 11");
+      expect(desk.layoutGet().tiles.find((t: any) => t.name === tile).showing.id).toBe(note.id);
+      const picked = await selected();
+      press({ kind: "esc" });
+      expect((await elements()).some((e: any) => e.current)).toBe(false);
+      await app.dispatch.act({ action: "element.select", tile, args: { n: picked.n } }, { kind: "user" });
+      press({ kind: "enter" });
+      await until(() => {
+        screen();
+        return kind === "rank" ? desk.layoutGet().tiles.some((t: any) => t.kind === "query" && t.query?.includes("group-11") && t.cards?.some((c: any) => c.id === notes[11]!.id))
+          : desk.layoutGet().tiles.some((t: any) => t.showing?.id === notes[11]!.id);
+      }, `${kind} Enter opens its row`);
+      await app.dispatch.act({ action: "tile.focus", tile }, { kind: "user" });
+      press({ kind: "esc" });
+      expect((await elements()).some((e: any) => e.current)).toBe(false);
+      for (const added of desk.layoutGet().tiles.filter((t: any) => !originalTiles.includes(t.name)))
+        await app.dispatch.act({ action: "tile.close", tile: added.name }, { kind: "user" });
+      await app.dispatch.act({ action: "open", tile, args: { id: seeded.notes.plotJobs.id } }, { kind: "user" });
+      for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    }, 30_000);
+  }
+
   test("PIE-1100: the sources panel takes keys on click and Esc returns them to the reader", async () => {
     await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
     press({ kind: "enter" });
@@ -469,14 +578,17 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect((await els()).find(e => e.current)?.label).toBe("sow under glass");
     press({ kind: "enter" });
     await until(() => screen().includes("Apr: sow under glass") && !screen().includes("SQUASH BEDS"), "the child bullet's note open in the reader", 5000);
-    // Back (backspace), where the reader was, then by mouse: a click on another child row opens its note.
+    // Back (backspace), then a click selects the child row; Enter opens its note.
     press({ kind: "backspace" });
     // Back where it was, the figure block's row on screen (the reader keeps its place).
     const rowAt = () => sc.render(app).lines.map(plain).findIndex(l => /┊ ●  Apr  sow under glass/.test(l));
     await until(() => rowAt() >= 0, "back on the figures note, the child row on screen", 5000);
     const y = rowAt(), x = sc.render(app).lines.map(plain)[y]!.indexOf("sow under glass") + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
-    await until(() => !screen().includes("BEAN ROWS (CHILD BULLETS)"), "the child bullet's note opened by a click", 5000);
+    expect(screen()).toContain("BEAN ROWS (CHILD BULLETS)");
+    expect((await els()).find(e => e.current)?.label).toBe("sow under glass");
+    press({ kind: "enter" });
+    await until(() => !screen().includes("BEAN ROWS (CHILD BULLETS)"), "the selected child bullet's note opened by Enter", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 });

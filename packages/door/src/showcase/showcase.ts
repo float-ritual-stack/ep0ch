@@ -671,7 +671,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "tabs", need: "switch a live figure's tabs, or how many lines its rows take", part: "a figure's reading state: ::graph-tabs (a query's results grouped by a property, a tab each) and a table's density, kept by the reader, switched by figure.tab and figure.density (tab shift+tab ← →, =, a click, act)", files: "src/graphs.ts, src/live.ts, src/surface/note.ts",
-    aside: "[ ] onto a tab, then ← → or tab shift+tab switch; = steps compact, cozy, comfortable (titles wrap past PLOT-1 — ); a click on a tab or ≡ does the same; these are reading choices. S opens the shared inspector: Enter/e edits a property in its YAML, ctrl+z undoes; two readers of one note keep their own tab and density",
+    aside: "[ ] onto a tab, then ← → or tab shift+tab switch; ↑ ↓ select rows, Enter opens their notes, Esc leaves the figure; a click on a row selects it; = steps compact, cozy, comfortable (titles wrap past PLOT-1 — ); a click on a tab or ≡ does the same; these are reading choices. S opens the shared inspector: Enter/e edits a property in its YAML, ctrl+z undoes; two readers of one note keep their own tab and density",
     // Two readers on one note: each keeps its own tab and density.
     stage(n, show) { const a = new ReaderPane(), b = new ReaderPane(); return deskOf({ title: "showcase · tabs", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.plotJobs], [b, n.plotJobs]]); },
   },

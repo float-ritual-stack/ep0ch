@@ -831,7 +831,7 @@ export class NoteSurface {
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
-  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number] } | null = null;
+  private drawn: { w: number; h: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number; bx: number; my: number; titleRows: [number, number] } | null = null;
   /** The last render brought the current element in (reveal), so it's brought in again once the header's rows are known. */
   private lastReveal = false;
   /** The last draw was a host's digest (`digest`): its elements are current, whole, with no scroll of the surface's own. */
@@ -942,7 +942,7 @@ export class NoteSurface {
   /** The header image the last render drew above the note (PIE-532): its rows, and its image's element. */
   private hero: { line: number; full: number; pinned: boolean; over: boolean } | null = null;
   /** The last digest's layout (its note, doc and note lines), for its host's sticky header (stickyHeader). */
-  private digested: { m: Msg; doc: Doc; lines: number[] } | null = null;
+  private digested: { m: Msg; w: number; maxImageRows: number; doc: Doc; lines: number[] } | null = null;
   /** The header's backdrop the last render drew (PIE-598): its image and note line, its step, and how it was drawn. */
   private backdropShown: { image: string; line: number; step: number; of: number; mode: HeroMode; drawn: "kitty" | "cells" | "making" | null; over?: string; focus?: Focus } | null = null;
   /** The note drawn as written, without the rules' decorations (PIE-600): `R`, decor.raw. The reader's own state. */
@@ -1736,7 +1736,7 @@ export class NoteSurface {
     room = roomAt(this.scroll);
     const heroRows = pinned ? full : Math.max(0, full - this.scroll);
     h -= heroRows;
-    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : [0, 1] };
+    this.drawn = { w, h, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : [0, 1] };
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
     if (comp?.inline && writingIn) placeBox(writingIn, comp.inline.box, top + comp.inline.at - this.scroll, this.bx);
     this.composerRows = comp?.passage ? [top + comp.passage[0] - this.scroll, top + Math.max(comp.passage[1], comp.after ?? 0) - this.scroll] : null;
@@ -2387,7 +2387,7 @@ export class NoteSurface {
     this.hero = null;
     const { doc: rendered, points, lines: noteLines } = this.body(m, this.docEnv(Math.max(1, w), host, maxImageRows), src, drawn);
     const { doc, picks } = this.pickerRows(rendered, drawn, Math.max(1, w));
-    this.digested = { m, doc, lines: noteLines };
+    this.digested = { m, w, maxImageRows, doc, lines: noteLines };
     this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0, this.imageRefOf(m, noteLines));
     this.keepCurrent(host);
     const current = this.elems.find(e => e.key === this.cur);
@@ -3476,7 +3476,7 @@ export class NoteSurface {
 
   /** The person goes into component `b` (its list takes j k ⏎ / esc), or comes out of it. */
   enterLinks(b: LinkBlockInfo, on: boolean) {
-    if (!on) { this.leaveLinks(b.key); return; }
+    if (!on) { this.leaveLinks(b.key); this.letGo(); return; }
     this.modes.push(this.linksMode(b.key, b.title));
     if (b.sel) this.selectLinkRow(b, b.sel);
     else if (b.rows[0]) this.selectLinkRow(b, b.rows[0].key);
@@ -3524,11 +3524,9 @@ export class NoteSurface {
       host.redraw();
       return true;
     }
-    const n = b.rows.length, at = b.rows.findIndex(r => r.key === b.sel), c = ch(k);
+    const n = b.rows.length, c = ch(k);
     const to = (i: number) => { if (n && i >= 0 && i < n) void this.runKey("links.pick", { block: String(b.n), n: i + 1 }, host); return true; };
     if (isDown(k) || isUp(k)) {
-      const next = at + (isDown(k) ? 1 : -1);
-      if (next < 0 || next >= n) this.leaveLinks();
       void this.runKey("reading.step", { by: isDown(k) ? 1 : -1 }, host);
       return true;
     }
@@ -4366,6 +4364,19 @@ export class NoteSurface {
 
   stepReading(by: 1 | -1) {
     const current = this.selectedElement();
+    const figure = current?.link?.figure?.figure;
+    const links = current?.link?.linksBlock?.key;
+    if (figure || links) {
+      const entries = this.elems.filter(e => e.kind === "row" && (figure ? e.link?.figure?.figure === figure : e.link?.linksBlock?.key === links));
+      const entry = entries[0];
+      const inline = current.link?.inlineList ?? entry?.link?.inlineList;
+      if (inline && entry) {
+        const list = this.inlineLists.get(inline.key)!;
+        const row = current.link?.inlineList ? current.link.inlineList.row + by : by > 0 ? 0 : list.rows.length - 1;
+        this.selectInlineRow(entry, Math.max(0, Math.min(list.rows.length - 1, row)));
+      }
+      return;
+    }
     const inline = current?.link?.inlineList;
     if (inline) {
       const list = this.inlineLists.get(inline.key)!;
@@ -4428,7 +4439,7 @@ export class NoteSurface {
   /** The current element's figure's keys, for the hint: its tabs and its density. */
   private figureHint(): string {
     const f = this.currentFigure();
-    return f ? `${f.tabs ? " · ← → tab · ⇥ ⇤" : ""} · = ${nextDensity(f.density)}` : "";
+    return f ? ` · ↑ ↓ row · esc out${f.tabs ? " · ← → tab · ⇥ ⇤" : ""}${f.kind === "tabs" || f.kind === "table" ? ` · = ${nextDensity(f.density)}` : ""}` : "";
   }
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
@@ -4466,7 +4477,7 @@ export class NoteSurface {
 
   /** The current element while the person can see it (or it's about to be brought into view). */
   inView(): Element | null {
-    const e = this.elems.find(x => x.key === this.cur), d = this.drawn;
+    const e = this.selectedElement(), d = this.drawn;
     // A host's digest: its column keeps the current element in view.
     if (e && !d && this.digesting) return e;
     if (!e || !d) return null;
@@ -4928,10 +4939,18 @@ export class NoteSurface {
    * Show tab `value` of figure `f`. `select` (the person's): when their `[ ]` position is in that figure (a tab, a row
    * of the tab that's going), it moves to the new tab's label, so ← → go on from there.
    */
-  setFigureTab(f: FigureInfo, value: string, select: boolean) {
+  setFigureTab(f: FigureInfo, value: string, select: boolean, host: SurfaceHost) {
     this.figureUI.set(f.key, { ...this.figureUI.get(f.key), tab: value });
     f.tab = value;
-    if (select && this.inView()?.link?.figure?.figure === f.key) { this.cur = `${figureElemBase({ figure: f.key, tab: value })}#0`; this.link = -1; this.reveal = true; }
+    if (select && this.inView()?.link?.figure?.figure === f.key) {
+      this.cur = `${figureElemBase({ figure: f.key, tab: value })}#0`; this.link = -1; this.reveal = true;
+      // Another key in this input chunk must see the new tab's rows before the host paints.
+      const d = this.drawn, digest = this.digested;
+      withFigureBoard(host.ctx.board, () => host.redraw(), () => {
+        if (d) this.renderReading(d.w, d.h, host, null);
+        else if (this.digesting && digest) this.digest(digest.m, digest.w, host, digest.maxImageRows);
+      });
+    }
   }
 
   /** Draw figure `f` at density `d`. */
@@ -4950,7 +4969,7 @@ export class NoteSurface {
     if (!f) return null;
     const figure = String(f.n), e = this.inView();
     if (f.tabs && (k.kind === "tab" || k.kind === "backtab" || k.kind === "left" || k.kind === "right")) return { name: "figure.tab", args: { figure, by: k.kind === "tab" || k.kind === "right" ? 1 : -1 } };
-    if (ch(k) === "=") return { name: "figure.density", args: { figure } };
+    if (ch(k) === "=" && (f.kind === "tabs" || f.kind === "table")) return { name: "figure.density", args: { figure } };
     if (k.kind === "enter" && e?.kind === "figure") return e.link?.figure?.tab !== undefined ? { name: "figure.tab", args: { figure, tab: e.link.figure.tab } } : { name: "figure.density", args: { figure } };
     return null;
   }
@@ -4959,7 +4978,7 @@ export class NoteSurface {
    * A key this reader takes ahead of its host's own while a live figure's element is current (tab and shift+tab
    * cycle a desk's tiles, ← → step a river's columns or a BBS reader's messages otherwise): the host asks first.
    */
-  claims(k: Key): boolean { return !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H"); }
+  claims(k: Key): boolean { return (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H"); }
 
   /**
    * The image action key `k` runs while an image is the current element (PIE-532): + - its size (a header's height),
@@ -10048,7 +10067,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "reading.step": def({
-    summary: "move the reading line to the next or previous logical block; a tall block advances a screen before leaving it",
+    summary: "move within a live figure or links list by rows, keeping its boundary until Esc; elsewhere move the reading line by logical blocks, a screen at a time in a tall block",
     touches: "tile", replay: "safe", person: "the reading position belongs to the person", keys: "↑ ↓ j k",
     args: { by: { type: "number", about: "1 next block, -1 previous block" } },
     examples: [
@@ -10225,7 +10244,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       else { const v = String(n).trim(); i = /^\d+$/.test(v) ? Number(v) - 1 : tabs.findIndex(t => t.value.toLowerCase() === v.toLowerCase()); }
       const t = tabs[i];
       if (!t) throw new ActionRefused(`${f.title} has no tab ${n ?? tab}; its tabs: ${tabs.map((x, j) => `${j + 1} ${x.value}`).join(", ")}`);
-      surface.setFigureTab(f, t.value, actor.kind === "user");
+      surface.setFigureTab(f, t.value, actor.kind === "user", host);
       surface.noteAgent(actor, `showed the ${t.value} tab of ${f.title}`);
       host.redraw();
       return { figure: f.n, title: f.title, tab: t.value, count: t.count, tabs: tabs.map((x, j) => ({ n: j + 1, ...x, shown: x === t })) };

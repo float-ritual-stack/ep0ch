@@ -24,9 +24,9 @@ export const rowLink = (link: RowLink | undefined, block: unknown, text: string,
  * Every line of a row that stands for one note, tagged as that one link: a row a density wraps over two or three
  * lines is one element, opened from any of them.
  */
-export function rowLinks(link: RowLink | undefined, block: unknown, lines: string[], figure?: string): string[] {
+export function rowLinks(link: RowLink | undefined, block: unknown, lines: string[], figure?: string, query?: string): string[] {
   if (!link || typeof block !== "string") return lines;
-  const [open, close] = link(block, "\u0000", figure).split("\u0000");
+  const [open, close] = link(block, "\u0000", figure, query).split("\u0000");
   return lines.map(l => open + l + close);
 }
 
