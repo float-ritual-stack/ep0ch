@@ -138,7 +138,14 @@ test("the connector recovers after a refused dial and status keeps the last conn
     await until(() => messages.some(m => m.includes("reconnect")), "refused connection schedules another dial");
     server = serveLink({ outlines: here.outlines, port, keys: { travel: "fictional-key" }, log() {} });
     await until(() => linkStates(here.outlines).length === 1, "link after refused dial");
-    const before = await linkStatus(here.outlines), outboundBefore = await linkStatus(laptop.outlines);
+    // Each end writes its own "up since" on its own clock: wait for both before reading them.
+    let before = await linkStatus(here.outlines), outboundBefore = await linkStatus(laptop.outlines);
+    const end = Date.now() + 10_000;
+    while (!(before[0]?.since && outboundBefore[0]?.since) && Date.now() < end) {
+      await Bun.sleep(20);
+      before = await linkStatus(here.outlines); outboundBefore = await linkStatus(laptop.outlines);
+    }
+    expect(outboundBefore[0]?.since).toBeTruthy();
     expect(before.find(l => l.machine === "travel")).toMatchObject({ up: true, transport: "link" });
     const disconnects = messages.filter(m => m.includes("link down")).length;
     await server.stop();
