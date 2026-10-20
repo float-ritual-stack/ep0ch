@@ -627,6 +627,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "live", need: "put live data in a note", part: "live figures: ::graph-* blocks that read views with views.read and blocks.query; the comparison kinds (quadrant, matrix, compare, flow, a meter's limit) and one width rule for every kind (tier: narrow, cozy, wide)", files: "src/live.ts, src/graphs.ts, src/figures/, src/views.ts",
+    aside: "S opens the sources inspector; click it to give it keys, Esc returns to reading. Enter or e on a figure property edits its YAML in place; density uses schema choices, group and columns use the result rows' properties. Enter saves, ctrl+z undoes; g reveals its line. Result rows select with j/k or a click; Enter opens, alt+Enter opens beside.",
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · live", panes: [r] }, show, [[r, n.figures]]); },
   },
   {
@@ -669,7 +670,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "tabs", need: "switch a live figure's tabs, or how many lines its rows take", part: "a figure's reading state: ::graph-tabs (a query's results grouped by a property, a tab each) and a table's density, kept by the reader, switched by figure.tab and figure.density (tab shift+tab ← →, =, a click, act)", files: "src/graphs.ts, src/live.ts, src/surface/note.ts",
-    aside: "[ ] onto a tab, then ← → or tab shift+tab switch; = steps compact, cozy, comfortable (titles wrap past PLOT-1 — ); a click on a tab or ≡ does the same; the note is never written; two readers of one note, each with its own tab and density",
+    aside: "[ ] onto a tab, then ← → or tab shift+tab switch; = steps compact, cozy, comfortable (titles wrap past PLOT-1 — ); a click on a tab or ≡ does the same; these are reading choices. S opens the shared inspector: Enter/e edits a property in its YAML, ctrl+z undoes; two readers of one note keep their own tab and density",
     // Two readers on one note: each keeps its own tab and density.
     stage(n, show) { const a = new ReaderPane(), b = new ReaderPane(); return deskOf({ title: "showcase · tabs", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.plotJobs], [b, n.plotJobs]]); },
   },

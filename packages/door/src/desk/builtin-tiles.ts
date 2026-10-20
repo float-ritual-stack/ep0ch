@@ -213,6 +213,7 @@ const builtins = (): TileKind[] => [
     keys: [{ key: "y", label: "tune", spec: at => ({ source: `tile:${at.name}` }) }],
     make: s => { const src = s.source && sourceOf(s.source); return new TunePane(src && "tile" in src ? src.tile : "reader"); },
     actions: TUNE_ACTIONS,
+    holdsWork: p => (p as TunePane).unsaved(),
     check: s => (s.source && !/^tile:./.test(s.source) ? "a tune tile's source is tile:<name>" : null),
     defaults: (s, at) => (s.source ? {} : { source: `tile:${at.name}` }),
     describe: (p, full) => ({ source: `tile:${(p as TunePane).source}`, ...(full ? { tune: (p as TunePane).describe() } : {}) }),

@@ -115,7 +115,7 @@ three layout models and four searches (§4).
 | list, find and press the desk's `^W` keys; keep the keys box, the hint row, the tile menu and the power bar saying the same (PIE-704) | the **`^W` key table** (`src/desk/wkeys.ts`, `W_KEYS`): one row per key after `^W`, each with its action, group and (for the short box) a word; `Desk.command` reads its binding there, `Desk.wRows` joins each key's label and summary from its action's def (`Dispatcher.defOf`: the table's own label, else the tile menu's `ctrl+w <key>` row, else the summary), `wBoxLines` draws the keys box, and the power bar's `>actions` scope on the `^W` prefix lists them (`wKeyRows`, `^W ?`). A new `^W` key is a row there, with its action; its binding, hint, menu row and bar row follow | a second hand-written hint string; a key bound in `Desk.command` and not in the table (`test/wkeys.test.ts` fails on both); a popup of the desk's own for the same list | the `wkeys` section |
 | reach the door's own actions from anywhere, even while typing in a draft or a terminal tile; see exactly what a chord arrives as (PIE-699) | the **hyper layer**: ⌃⌥⇧⌘ held together (Kitty modifiers 15), read by `reportKey` as a `hyper` key only while the layer is on (off by default: `EP0CH_HYPER=1` or `hyper.set`), taken by the App before any tile's keys (and by the decoder before a terminal tile's program), each chord pressing an existing action through the door's dispatcher; the whole keymap is `HYPER_KEYS`; hints and the power bar show `✦`. **`keys.probe`** describes the next keys instead of running them: their bytes, modifiers and the key the door read | `src/hyper.ts`, `src/key-probe.ts`, `src/kbd.ts` (`reportKey`), `src/term.ts` (`KeyDecoder`), `src/app.ts` (`App.hyper`, `probeKeys`); the hyper section of the showcase |
 
-| edit a component where it is drawn | `ElementEdit` projects the existing `DraftSession.draft`; `ElementEditor` adapters map fields to source spans and supply drawing and structural edits. Markdown tables use outline-core's `table-shape` for both reading and editing; static graph-table flow rows use the same table drawing. `rich.*` actions own keys, clicks and agent requests, and `Ctrl+O` returns to raw source on that draft. | `src/surface/element-editor.ts`, `src/surface/note.ts`, `outline-core/src/table-shape.ts`; the rich-edit showcase |
+| edit a component where it is drawn | `ElementEdit` projects the existing `DraftSession.draft`; `ElementEditor` adapters map fields to source spans and supply drawing and structural edits. Markdown tables use outline-core's `table-shape` for both reading and editing; static graph-table flow rows use the same table drawing. `rich.*` actions own keys, clicks and agent requests, and `Ctrl+O` returns to raw source on that draft. For its properties, `Inspector`, shared by tune and Sources: a `RowView` viewport, the reader's `Selection`, `DraftSession` and `Draft` property field, schema choices, and inline save/cancel. Sources is a reader mode; `ModeStack.focus` returns keys to reading while keeping its panel visible. Figure YAML changes use `withFigureProp` and `draft.patch`; the service supplies the result rows' property names. An element panel builds on this part. | `src/surface/element-editor.ts`, `src/surface/note.ts`, `outline-core/src/table-shape.ts`; the rich-edit showcase; `src/surface/inspector.ts`, `src/surface/sources.ts`, `src/desk/tune.ts`; showcase `tabs` and `style` |
 
 | keep typing while an ask answers | `AgentRequests` owns asks and grants; `draft.patch` lands each reply chunk in the held `DraftSession`, with `replyGroup` keeping the answer one undo step across intervening typing. `Draft` uses `foldPoints` and its existing patch anchor. `AnswerTile` draws that same source with `NoteSurface.snippetDoc` and follows links through the source reader's dispatcher; `Desk.openPair` is shared with the comment tile. Script views use the component primitives and QuickJS run notes. | `src/edit.ts`, `src/desk/answer-tile.ts`, outliner `src/agent-requests.ts`; the asks showcase |
 
@@ -1235,6 +1235,24 @@ Replies are notes; whole-note comments and patch notes keep their existing behav
 | `ctrl+z` in a reader or the outline tile | puts the last move of that note back | In a reader it joins the chain (callout, image, step, extension, move: whichever came last). In the tile only for a row with a move newer than the last trash; otherwise the desk's untrash |
 | a drag in the outline tile | onto a row: under it (first); onto its `▸` mark at the left edge: above it (it started below) or below it | A press on a row selects; double-click opens. A match of a view's row doesn't drag (it's a copy) and says so; a drop outside the tile or inside the note itself moves nothing |
 
+
+### Sources inspector keys (PIE-1100)
+
+`S` or the header's Sources control opens and enters the inspector; a click anywhere in it also
+enters it. `Esc` returns keys to the reader while keeping it visible; `S` enters it again. The panel's
+footer names who has the keys and is clickable to transfer them; `sources.focus on=true|false` is the
+same action. The back arrow returns to the source list; `q` or `S` inside closes it.
+
+Inside it, `j k`, arrows and Tab select rows; PgUp/PgDn, space and the wheel scroll. Text wraps and
+a drag selects and copies through the reader's selection part. Result rows select by click, open
+with Enter and open beside with alt+Enter, using the reader's usual navigation. `g` reveals the
+figure's line in its host note, or opens a separate transform note when the source has one.
+
+Enter or `e` on a figure property opens the shared inspector field. Density uses schema values;
+group and column choices come from the result rows' property names. Space toggles multiple columns.
+Enter or [save] writes through `draft.patch`, attributed as the actor; ctrl+z undoes it once.
+Query checks warn after capture. Esc or [cancel] keeps its typing for the next edit. The tune inspector uses the same
+field with `e` or Enter and keeps its existing nudge/save behavior. Other screens' keys are unchanged.
 
 ### Sources downloads (PIE-956)
 

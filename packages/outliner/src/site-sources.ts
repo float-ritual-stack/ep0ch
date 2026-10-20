@@ -45,7 +45,8 @@ const resultOf = (text: string): SourceEntry["result"] => {
 /** A produced list of notes as a table: id and title. */
 function blocksResult(blocks: readonly unknown[]): SourceEntry["result"] {
   const table = (blocks as { id?: string; title?: string; text?: string }[]).map(b => [String(b.id ?? ""), String(b.title ?? (b.text ?? "").split("\n")[0] ?? "")]);
-  return { rows: blocks.length, columns: ["id", "title"], table, text: table.map(r => r.join("\t")).join("\n") };
+  const propertyNames = [...new Set((blocks as { properties: { key: string }[] }[]).flatMap(b => b.properties.map(p => p.key)))];
+  return { rows: blocks.length, columns: ["id", "title"], table, text: table.map(r => r.join("\t")).join("\n"), propertyNames };
 }
 
 export function readSources(deps: SourcesDeps, request: SourcesRequest): SourcesAnswer {
@@ -103,7 +104,7 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
         const answer = read({ blockId: host.id, produce: { kind: "figure", figure: c.figure.kind, props } });
         const produced = answer.produced as Extract<SiteProduced, { kind: "figure" }> | undefined;
         const question = typeof props.query === "string" ? props.query : typeof props.view === "string" ? `view ${props.view}` : "";
-        out.push({ ...base, readAt, live: true, query: { params: [...yamlParams(c.figure.yaml), ...c.params], text: question || c.text, editable: false },
+        out.push({ ...base, readAt, live: true, query: { params: [...yamlParams(c.figure.yaml), ...c.params], text: question || c.text, editable: true },
           transform: { kind: "figure", label: `${c.name} figure`, text: c.figure.yaml || lines.slice(c.line, c.endLine + 1).join("\n") },
           result: produced ? blocksResult(produced.blocks) : { rows: 0, text: "" }, ...(produced?.error ? { problem: produced.error } : {}) });
       } else if (c.kind === "fields") {

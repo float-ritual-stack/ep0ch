@@ -104,9 +104,16 @@ export class Modes<H, M extends Mode<H>> {
 
 /** A reader's open modes, in PRECEDENCE order. */
 export class ModeStack<H> extends Modes<H, ReaderMode<H>> {
+  private parked = new Set<ReaderMode<H>>();
   constructor() { super(PRECEDENCE); }
 
-  get holdsKeys() { return this.all().some(m => m.holdsKeys); }
+  override push<N extends ReaderMode<H>>(mode: N): N { this.drop(mode.name); return super.push(mode); }
+  focus(mode: ReaderMode<H>, on: boolean) { if (on) this.parked.delete(mode); else this.parked.add(mode); }
+  active(mode: ReaderMode<H>) { return !this.parked.has(mode); }
+  override top() { return this.all().find(m => this.active(m)) ?? null; }
+  override drop(m: string | ReaderMode<H>) { for (const x of this.all()) if (x === m || x.name === m) this.parked.delete(x); super.drop(m); }
+
+  get holdsKeys() { return this.all().some(m => this.active(m) && m.holdsKeys); }
   get editing() { return this.all().some(m => m.editing()); }
   /** Something is drawn in place of the note: the note itself doesn't scroll. */
   get covers() { return this.all().some(m => m.covers()); }

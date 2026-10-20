@@ -1,3 +1,4 @@
+import { Inspector } from "./inspector";
 // The Sources inspector's drawing (PIE-956 S6b): what "where this comes from" opens over a reader. A page shows none of the
 // mechanics behind it; this lists every generated region of the note (when each last read), and for one of them shows three
 // folds, as the claude.ai artifact's data panel does: Query (its parameters, each editable and written back to the note's
@@ -6,13 +7,14 @@
 // the one a published page's panel draws too. State and drawing only: the reader's mode (src/surface/note.ts) keeps it.
 import type { SourceEntry, SourcesAnswer } from "@ep0ch/outline-core/sources";
 import { relativeAge } from "../projection";
-import { BOLD, C, ellipsize, fg, pad, RESET, UNBOLD, width } from "../style";
+import { BOLD, C, fg, pad, RESET, UNBOLD, width } from "../style";
 import { rowLines, wrap } from "../text";
 
 export type SourcesFold = "query" | "transform" | "result";
 export const FOLDS: readonly SourcesFold[] = ["query", "transform", "result"];
 
 export interface SourcesPanel {
+  inspector: Inspector;
   block: string;
   answer: SourcesAnswer | null;
   /** Why it can't be read (a service without `site.sources`, a failed read), or null. */
@@ -25,17 +27,19 @@ export interface SourcesPanel {
   /** The focused row of the open source (its items, in order). */
   item: number;
   note: string;
+  warnings: Record<string, string>;
   /** The outline's name, as the door knows the connection. */
   outline: string;
 }
 
-export const newPanel = (block: string, outline: string): SourcesPanel => ({ block, answer: null, error: null, loading: true, sel: 0, open: null, folds: { query: true, transform: false, result: true }, item: 0, note: "", outline });
+export const newPanel = (block: string, outline: string): SourcesPanel => ({ inspector: new Inspector(), block, answer: null, error: null, loading: true, sel: 0, open: null, folds: { query: true, transform: false, result: true }, item: 0, note: "", warnings: {}, outline });
 
 /** A row the open source can act on: a fold header, a parameter to edit, the jump to the transform's note, a copy. */
 export type PanelItem =
   | { kind: "fold"; fold: SourcesFold }
   | { kind: "param"; key: string; value: string }
   | { kind: "jump"; block: string }
+  | { kind: "result"; row: number; block?: string }
   | { kind: "download"; format: "csv" | "json" }
   | { kind: "copy"; part: "query" | "transform" | "result" };
 
@@ -51,35 +55,38 @@ export function itemsOf(s: SourceEntry, folds: Record<SourcesFold, boolean>): Pa
   out.push({ kind: "fold", fold: "transform" });
   if (folds.transform) { if (s.transform.block) out.push({ kind: "jump", block: s.transform.block }); if (s.transform.text !== undefined) out.push({ kind: "copy", part: "transform" }); }
   out.push({ kind: "fold", fold: "result" });
-  if (folds.result) out.push({ kind: "copy", part: "result" }, { kind: "download", format: "csv" }, { kind: "download", format: "json" });
+  if (folds.result) {
+    const rows = s.result.table ?? s.result.text.split("\n").filter(Boolean).map(x => [x]);
+    rows.forEach((r, row) => out.push({ kind: "result", row, ...(s.kind === "figure" && r[0] ? { block: r[0] } : {}) }));
+    out.push({ kind: "copy", part: "result" }, { kind: "download", format: "csv" }, { kind: "download", format: "json" });
+  }
   return out;
 }
 
 const dim = (s: string) => fg(C.dark) + s + RESET;
 const age = (iso: string | undefined, now: number) => (iso ? relativeAge(iso, now) : "");
 
-/** One text cell row per line: `text` cut to `w`. */
-const cut = (s: string, w: number) => rowLines(s, w, 1)[0]!;
-
-/** The panel at `w` x `h` rows, its click targets, its items and the focused row. */
-export function drawSources(p: SourcesPanel, w: number, h: number, now: number): PanelDraw {
+/** The fully wrapped panel, its click targets, its items and the focused row; Inspector owns the viewport. */
+export function drawSources(p: SourcesPanel, w: number, now: number): PanelDraw {
   const lines: string[] = [], hits: PanelHit[] = [];
   const put = (text: string, hit?: { from: number; to: number; action: string; args?: Record<string, unknown> }[]) => {
-    for (const x of hit ?? []) hits.push({ row: lines.length, from: x.from, to: x.to, action: x.action, args: x.args ?? {} });
-    lines.push(pad(cut(text, w), w) + RESET);
+    for (const line of rowLines(text, w)) {
+      for (const x of hit ?? []) hits.push({ row: lines.length, from: x.from, to: x.to, action: x.action, args: x.args ?? {} });
+      lines.push(pad(line, w) + RESET);
+    }
   };
   const a = p.answer;
   const updated = a ? `Updated ${age(a.readAt, now) || "just now"}` : "";
   const refresh = "⟳ r";
   const head = (title: string) => {
-    const right = a ? `${updated} ${refresh}  ✕` : "✕";
-    const gap = Math.max(1, w - width(title) - width(right) - 2);
-    const at = 1 + width(title) + gap;
-    put(` ${fg(C.yellow)}${BOLD}${title}${UNBOLD}${RESET}${" ".repeat(gap)}${a ? `${dim(updated)} ${fg(C.lcyan)}${refresh}${RESET}  ` : ""}${fg(C.lcyan)}✕${RESET}`, a
-      ? [{ from: at + width(updated) + 1, to: at + width(updated) + 1 + refresh.length, action: "sources.refresh" }, { from: at + width(updated) + 1 + refresh.length + 2, to: at + width(updated) + 1 + refresh.length + 3, action: "sources.close" }]
-      : [{ from: Math.max(0, w - 2), to: w - 1, action: "sources.close" }]);
+    put(` ${fg(C.yellow)}${BOLD}${title}${UNBOLD}${RESET}`);
+    const left = a ? `${updated} ` : "";
+    put(` ${dim(left)}${a ? fg(C.lcyan) + refresh + RESET + "  " : ""}${fg(C.lcyan)}✕${RESET}`, [
+      ...(a ? [{ from: 1 + width(left), to: 1 + width(left) + width(refresh), action: "sources.refresh" }] : []),
+      { from: 1 + width(left) + (a ? width(refresh) + 2 : 0), to: 2 + width(left) + (a ? width(refresh) + 2 : 0), action: "sources.close" },
+    ]);
   };
-  if (p.error) { head("Sources"); put(""); put(` ${fg(C.lred)}${cut(p.error, w - 2)}${RESET}`); return { lines, hits, items: [], focus: 0 }; }
+  if (p.error) { head("Sources"); put(""); put(` ${fg(C.lred)}${p.error}${RESET}`); return { lines, hits, items: [], focus: 0 }; }
   if (!a) { head("Sources"); put(""); put(` ${dim("reading what this note generates…")}`); return { lines, hits, items: [], focus: 0 }; }
   const s = p.open !== null ? a.sources[p.open] : undefined;
 
@@ -94,7 +101,6 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
       const on = i === p.sel, when = age(x.readAt, now) || (x.kind === "output" ? "written" : ""), kind = KIND_WORDS[x.kind];
       const left = ` ${on ? fg(C.yellow) + "▸" : " "} ${on ? fg(C.white) + BOLD : fg(C.lcyan)}${x.name}${UNBOLD}${RESET}${x.problem ? fg(C.yellow) + " !" + RESET : ""}`;
       const right = `${dim(kind)}  ${dim(when)}`;
-      const gap = Math.max(1, w - width(left) - width(visibleOf(right)) - 1);
       for (const text of rowLines(`${left}  ${right}`, w, undefined, { hang: 3 })) put(text, [{ from: 0, to: w, action: "sources.enter", args: { n: i + 1 } }]);
     });
     put("");
@@ -121,7 +127,15 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
   };
   fold("query", "Query", `${s.query.params.length} parameter${s.query.params.length === 1 ? "" : "s"}`);
   if (p.folds.query) {
-    for (const x of s.query.params) { row(i, `  ${fg(C.grey)}${pad(x.key, 12)}${RESET} ${fg(C.white)}${x.value}${RESET}${s.query.editable ? "  " + fg(C.lcyan) + "[e edit]" + RESET : ""}`, "sources.item", { n: i + 1 }); i++; }
+    for (const x of s.query.params) { row(i, `  ${fg(C.grey)}${pad(x.key, 12)}${RESET} ${fg(C.white)}${x.value}${RESET}${s.query.editable ? "  " + fg(C.lcyan) + "[e edit]" + RESET : ""}`, "sources.item", { n: i + 1 });
+      if (p.warnings[x.key]) put(`    ${fg(C.yellow)}${p.warnings[x.key]}${RESET}`);
+      if (p.inspector.field?.key === x.key) {
+        const start = lines.length, field = p.inspector.fieldDraw(w, start);
+        if (i === at) focus = start + field.focus;
+        for (const line of field.lines) put(line);
+        for (const hit of field.hits) hits.push({ ...hit, row: start + hit.row, action: "sources.field" });
+      }
+      i++; }
     if (!s.query.params.length) put(`    ${dim("takes no parameters")}`);
     for (const l of wrap(s.query.text, w - 6)) put(`    ${fg(C.grey)}${l}${RESET}`);
     row(i, `  ${fg(C.lcyan)}[y copy query]${RESET}`, "sources.copy", { part: "query" }); i++;
@@ -131,9 +145,9 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
   if (p.folds.transform) {
     if (s.transform.block) { row(i, `  ${fg(C.lcyan)}[g jump to its note]${RESET}`, "sources.jump", {}); i++; }
     if (s.transform.text !== undefined) {
-      const body = s.transform.text.split("\n").slice(0, Math.max(3, h - 14));
-      for (const l of body) put(`    ${fg(C.grey)}${cut(l, w - 6)}${RESET}`);
-      if (s.transform.text.split("\n").length > body.length) put(`    ${dim("…")}`);
+      const body = s.transform.text.split("\n");
+      for (const l of body) put(`    ${fg(C.grey)}${l}${RESET}`);
+
       row(i, `  ${fg(C.lcyan)}[y copy]${RESET}`, "sources.copy", { part: "transform" }); i++;
     } else put(`    ${dim("nothing to show: it reads what the line says")}`);
   }
@@ -141,26 +155,21 @@ export function drawSources(p: SourcesPanel, w: number, h: number, now: number):
   if (p.folds.result) {
     const table = s.result.table;
     if (table && s.result.columns) {
-      const cols = s.result.columns, wide = Math.max(4, Math.floor((w - 6) / Math.max(1, cols.length)) - 2);
-      put(`    ${fg(C.white)}${cols.map(c => pad(cut(c, wide), wide)).join("  ")}${RESET}`);
-      for (const r of table.slice(0, Math.max(3, h - 22))) put(`    ${fg(C.grey)}${r.map(c => pad(cut(c, wide), wide)).join("  ")}${RESET}`);
-      if (table.length > Math.max(3, h - 22)) put(`    ${dim(`… ${s.result.rows - Math.max(3, h - 22)} more · copy has them all`)}`);
-    } else for (const l of s.result.text.split("\n").slice(0, 8)) put(`    ${fg(C.grey)}${cut(l, w - 6)}${RESET}`);
+      const cols = s.result.columns;
+      for (const r of table) { row(i, `  ${fg(C.grey)}${r.map((c, n) => `${cols[n]}: ${c}`).join(" · ")}${RESET}`, "sources.pick", { n: i + 1 }); i++; }
+    } else for (const l of s.result.text.split("\n").filter(Boolean)) { row(i, `  ${fg(C.grey)}${l}${RESET}`, "sources.pick", { n: i + 1 }); i++; }
     row(i, `  ${fg(C.lcyan)}[y copy result]${RESET}`, "sources.copy", { part: "result" }); i++;
     row(i, `  ${fg(C.lcyan)}[c download CSV]${RESET}`, "sources.download", { format: "csv" }); i++;
     row(i, `  ${fg(C.lcyan)}[J download JSON]${RESET}`, "sources.download", { format: "json" }); i++;
     put("");
     put(` ${dim("Outline")}  ${fg(C.white)}${p.outline || "this outline"}${RESET}`);
     put(` ${dim("Read")}     ${fg(C.white)}${s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written"}${RESET}`);
-    put(` ${dim("Query")}    ${fg(C.white)}${cut(s.query.text.replace(/^\s*>\s*/, ""), w - 12)}${RESET}`);
+    put(` ${dim("Query")}    ${fg(C.white)}${s.query.text.replace(/^\s*>\s*/, "")}${RESET}`);
   }
   put("");
   put(` ${dim(p.note || "j k move · ⏎ fold or edit · e edit · y copy · g jump · esc back")}`);
   return { lines, hits, items, focus };
 }
-
-/** Text the way a row draws it, for measuring: its colour codes taken out. */
-const visibleOf = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
 
 /** The source whose lines hold note line `line` (from 0), the nearest enclosing: the innermost when regions nest. */
 export function sourceAt(a: SourcesAnswer, line: number): number {

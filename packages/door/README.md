@@ -2129,6 +2129,17 @@ Agents can use `margin` and `thread.toggle` for the person, attributed on screen
 
 ## Reading notes
 
+The header's Sources control or `S` opens the sources inspector with the keys. A click in it also gives
+it the keys; `Esc` returns them to the reader while leaving it visible. Its footer names who has the
+keys and can be clicked to transfer them. `j k` or arrows select rows, the wheel and PgUp/PgDn scroll,
+and dragging text selects and copies it. Enter on a Result row opens its note; alt+Enter opens beside.
+`g` reveals the figure's line. The back arrow returns to the source list; `q` closes the inspector.
+
+Enter or `e` on a figure property edits it in place: schema choices for density, the rows' property names
+for group and columns, text for title and query. Enter or [save] writes its YAML through `draft.patch`;
+ctrl+z undoes it once. Query errors are shown after saving the text. Esc or [cancel] keeps its typing for the next edit.
+The tune inspector uses the same field (`e` or Enter), with its existing nudges and save behavior.
+
 Every reader (board, desk, river, the BBS message reader) shows a note the way the outliner's Detail does:
 the title, a one-line **summary** of chosen properties, then the body. The block's `[key::value]` metadata
 lines aren't printed; they are in the **property panel**, one key away.

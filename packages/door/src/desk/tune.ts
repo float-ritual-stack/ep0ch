@@ -29,7 +29,8 @@ import type { Actor } from "../socket";
 import { ActionRefused, actionSet, agentLabel, def } from "../surface/actions";
 import { bgRgb, C, chip, ellipsize, fg, pad, RESET, selected, selectedRow, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
-import { RowView, type RowPress } from "../scroll";
+import { type RowPress } from "../scroll";
+import { Inspector } from "../surface/inspector";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
 /** The levels the inspector offers: where each value comes from, or one level for every nudge. */
@@ -135,7 +136,7 @@ export class TunePane implements Pane {
   offer: { row: string; by: number; shadow: Shadow } | null = null;
   /** A reset of a level, or a revert, waiting for its confirmation (the same key again, or [confirm]). */
   armed: Armed | null = null;
-  private view = new RowView();
+  readonly view = new Inspector();
   private head = 0;
   private controls: { y: number; x: number; cols: number; action: string; args: Record<string, unknown> }[] = [];
   /** The rows' screen lines as last drawn: the row each is, or the value cell a wheel nudges. */
@@ -144,7 +145,11 @@ export class TunePane implements Pane {
   constructor(public source: string) {}
 
   title() { return `tune · ${this.source}`; }
-  hint() { return "j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all"; }
+  typing() { return !!this.view.field; }
+  unsaved() { return this.view.unsaved(); }
+  keepDrafts() { return this.view.keep(); }
+  dispose() { void this.view.field?.session.leave(); }
+  hint() { if (this.view.field) return "editing · Enter save · Esc cancel"; return "e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all"; }
   spec() { return { source: `tile:${this.source}` }; }
 
   info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
@@ -207,7 +212,25 @@ export class TunePane implements Pane {
     };
   }
 
+  async editField(desk: DeskApi) {
+    const row = TUNE_ROWS[this.sel]!, t = this.info(desk);
+    if (!t || row.tokens.length !== 1) throw new ActionRefused("choose a single value row to edit");
+    const token = row.tokens[0]!, kind = STYLE_TOKENS[token].type;
+    const choices = kind.kind === "enum" ? [...kind.values] : kind.kind === "bool" ? ["on", "off"] : [];
+    const target = this.aimAt(t, token);
+    if (!target) throw new ActionRefused("choose a level this value can be written at");
+    await this.view.edit(row.name, styleValueText(this.values(t).values[token]), choices, false, `tune:${target.target}:${row.name}`,
+      value => TUNE_ACTIONS.run("tune.set", { row: row.name, value }, { pane: this, desk }, { kind: "user" }), { redraw: () => desk.redraw(), said: text => desk.ctx.flash(text) });
+    desk.redraw();
+    return { editing: row.name };
+  }
+
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
+    if (this.view.field) {
+      const field = this.view.fieldDraw(w), top = this.view.place(field.focus, field.lines.length, h);
+      this.controls = field.hits.map(hit => ({ y: hit.row - top, x: hit.from, cols: hit.to - hit.from, action: "tune.field", args: hit.args }));
+      return { lines: field.lines.slice(top, top + h) };
+    }
     this.controls = []; this.rowAt.clear();
     const t = this.info(desk);
     if (!t) return { lines: [fg(C.dark) + pad(`tile ${this.source} isn't on this screen · tune.aim target=<name>, or alt+y in the tile to tune`, w) + RESET] };
@@ -304,7 +327,10 @@ export class TunePane implements Pane {
   }
 
   key(k: Key, desk: DeskApi): boolean {
+    const intent = this.view.intent(k);
+    if (intent) { this.run(desk, "tune.field", intent); return true; }
     const c = ch(k);
+    if (c === "e" || k.kind === "enter") { this.run(desk, "tune.edit", {}); return true; }
     // A step waiting in place: its own key again confirms; any other lets it go (and esc is only that).
     if (this.armed) {
       const again = (c === "X" && this.armed.action === "tune.resetlevel") || (c === "R" && this.armed.action === "tune.revert");
@@ -337,6 +363,15 @@ export class TunePane implements Pane {
 
   /** A click on a control runs its action; on a row picks it; the wheel over a value nudges it, elsewhere moves the pick. */
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+    if (this.view.field) {
+      if (k.action === "down") {
+        const hit = this.controls.find(c => c.y === y && x >= c.x && x < c.x + c.cols);
+        if (hit) this.run(desk, hit.action, hit.args);
+        else this.run(desk, "tune.field", { op: "start", row: y + this.view.top, col: x });
+      } else if (k.action === "drag" && this.view.pressed) this.run(desk, "tune.field", { op: "drag", row: y + this.view.top, col: x });
+      else if (k.action === "up" && this.view.pressed) this.run(desk, "tune.field", { op: "release" });
+      return true;
+    }
     const at = this.rowAt.get(y);
     if (k.action === "wheel-up" || k.action === "wheel-down") {
       const up = k.action === "wheel-up";
@@ -347,7 +382,7 @@ export class TunePane implements Pane {
     if (k.action !== "down") return true;
     const c = this.controls.find(s => s.y === y && x >= s.x && x < s.x + s.cols);
     if (c) { this.run(desk, c.action, c.args); return true; }
-    if (at) { this.view.press(at.row, press ?? {}); this.run(desk, "tune.pick", { n: at.row + 1 }); }
+    if (at) { const gesture = this.view.press(at.row, press ?? {}); this.run(desk, "tune.pick", { n: at.row + 1 }); if (gesture === "open") this.run(desk, "tune.edit", {}); }
     return true;
   }
 
@@ -456,6 +491,18 @@ function listOnly(target: TuneTarget, field: string, t: TuneTargetInfo, tuning: 
 const stepSaid = (actor: Actor, desk: DeskApi, words: string) => { desk.ctx.flash(says(actor, words)); return words; };
 
 export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
+  "tune.edit": def({
+    summary: "edit the selected inspector value in place with the shared property field", keys: "e enter, a double click on a value row",
+    touches: "tile", replay: "ask", person: "the field belongs to the person; an agent uses tune.set",
+    args: {}, run: (_, { pane, desk }) => pane.editField(desk),
+  }),
+  "tune.field": def({
+    summary: "type, choose, save or cancel the shared inspector field", keys: "typing, paste, arrows, j k, enter, esc in a field; a click saves",
+    touches: "tile", replay: "ask", person: "the field belongs to the person; an agent uses tune.set",
+    args: { op: { type: "string", about: "text, key, pick, save or cancel" }, value: { type: "string", optional: true, about: "typed text or key name" }, n: { type: "number", optional: true, about: "choice from zero" }, row: { type: "number", optional: true, about: "content row from zero" }, col: { type: "number", optional: true, about: "content column from zero" } },
+    examples: [{ act: "tune.field op=save", does: "sets the typed value" }],
+    run: async ({ op, value, n, row, col }, { pane, desk }) => { const copied = await pane.view.input(op, value, n, row, col); if (copied) desk.ctx.copy?.(copied); desk.redraw(); return { edited: true }; },
+  }),
   "tune.pick": def({
     summary: "pick a row of the tune inspector (n from 1, as peek lists them)",
     keys: "j k ↑ ↓, a click on a row, the wheel off the values",

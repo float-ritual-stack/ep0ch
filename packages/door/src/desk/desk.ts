@@ -2960,7 +2960,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   keepLayout() { this.save(); }
   layoutUndoSeq(): number | undefined { return this.history.newest()?.seq; }
   keepPlace() { this.save(); }
-  keepDrafts() { return [...this.drafts().flatMap(p => p.keepDrafts()), ...[...this.models.values()].flatMap(m => m.keepDrafts?.() ?? [])]; }
+  keepDrafts() { return [...this.drafts().flatMap(p => p.keepDrafts?.() ?? []), ...[...this.models.values()].flatMap(m => m.keepDrafts?.() ?? [])]; }
   /** The edits open here, by tile: what a session's next daemon opens again (src/session/restore.ts). */
   reopen(): (Step & { tile: string })[] {
     // The note first (a reader that comes back shows what its layout says), then its edit or comment (PIE-847).
@@ -2979,7 +2979,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** ctrl+e editors still open when the door ends: their files copied to drafts/ (keepEditFile). */
   keepEdits() { return [...this.panes.values()].flatMap(p => p instanceof PtyPane && p.run.temp && p.run.file ? [keepEditFile(p.run.file)].filter((x): x is string => !!x) : []); }
-  private drafts() { return [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && p.unsaved()); }
+  private drafts() { return [...this.panes.values()].filter(p => p.unsaved?.()); }
   /** Quitting the door ends the desk's programs: said first, and asked twice (App). Leaving the desk doesn't. */
   leaveWarning(): string | null {
     // An agent attached from Herdr keeps running in its pane when the door quits: nothing of it ends here.
