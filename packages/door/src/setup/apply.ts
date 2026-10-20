@@ -1,3 +1,4 @@
+import { publishLinkInstall, linkInstallResult, linkInstallSummary, linkStates, reconcileLinkInstall } from "@ep0ch/outliner/link";
 import { withSecretsFacts } from "@ep0ch/outliner/with-secrets";
 import { fixOutlineFiles, outlineFiles } from "./outline-files";
 // `ep0ch doctor` and `ep0ch install [--apply]` (PIE-450). The dry run (the default) prints the plan; --apply runs
@@ -10,9 +11,9 @@ import { formatDoctor, doctorReport } from "./doctor";
 import { databases, depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, outlineSchema, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
 import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
 import { type Facts, type OutlineSchema, PLUGIN_SOURCE, short, staleness } from "./model";
-import { withSecretsStep, backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Migration, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
+import { withSecretsStep, backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Migration, type Plan, type PlanOptions, repoStep, sshInstallClients, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
 import { hostLive } from "../discover";
-import type { Handover } from "../session/client";
+import type { Handover, UpgradeResult } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
 import { programStatusEmitter, type StatusEmitter } from "@ep0ch/outliner/program-status-emit";
 import { writeDialsIn, writeMachineName } from "@ep0ch/outliner/machine-name";
@@ -24,7 +25,7 @@ import { prepareInstallBackups, pruneInstallBackups } from "./install-backups";
 import { startDeployRecord } from "./deploy-record";
 
 type Env = Record<string, string | undefined>;
-export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in] [--no-allow] [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client]";
+export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in] [--no-allow] [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client] [--sha <origin-main-sha>]";
 
 const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" };
 
@@ -118,9 +119,9 @@ export const withoutProgress = (err: string) =>
   err.split(/\r?\n/).map(l => l.split("\r").at(-1)!).filter(l => l.trim() && !/:\s+\d+% \(/.test(l)).join("\n");
 
 /** Fast-forwards a checkout, then installs its packages when the pull (or anything before) left them stale. */
-async function updateCheckout(root: string, name: string, say: (s: string) => void, child: OnLine, env: Env) {
+async function updateCheckout(root: string, name: string, say: (s: string) => void, child: OnLine, env: Env, sha?: string) {
   const before = (await run(["git", "-C", root, "rev-parse", "HEAD"], { env })).out;
-  await must(["git", "-C", root, "pull", "--ff-only", "--progress", "origin", "main"], `nothing was merged (--ff-only); see git -C ${root} status, fix it, and rerun ep0ch install`, { env, onLine: child });
+  await must(sha ? ["git", "-C", root, "merge", "--ff-only", sha] : ["git", "-C", root, "pull", "--ff-only", "--progress", "origin", "main"], `nothing was merged (--ff-only); see git -C ${root} status, fix it, and rerun ep0ch install`, { env, onLine: child });
   const after = (await run(["git", "-C", root, "rev-parse", "HEAD"], { env })).out;
   say(before === after ? `${name} already at ${short(after)}` : `${name} fast-forwarded ${short(before)} → ${short(after)}`);
   const changed = before === after ? "" : (await run(["git", "-C", root, "diff", "--name-only", before, after], { env })).out;
@@ -162,7 +163,7 @@ export async function hostReady(f: Facts, verb: "restart" | "start", was: number
 }
 
 /** What a step runs, reported through its task: what it did (`say`), its children's output, its items. */
-async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[], clientOutcome?: (name: string, line: string) => Promise<void>, allowTools = true): Promise<void> {
+async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[], clientOutcome?: (name: string, line: string) => Promise<void>, allowTools = true, sha?: string): Promise<void | UpgradeResult[]> {
   // `said` is what --json reports, whole; the person sees the same as a ✓ line, or (record, then show) tidied up.
   const record = (s: string) => { said.push(s); };
   const show = (line: string) => task.say(line);
@@ -183,7 +184,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       return;
     }
     case "clients": {
-      for (const [i, name] of f.installClients!.names.entries()) {
+      for (const [i, name] of sshInstallClients(f).entries()) {
         const command = step.commands[i]!;
         const r = await run([sshBin(env), "-o", "BatchMode=yes", "--", name, `ep0ch install --apply --as-client${allowTools ? "" : " --no-allow"}`], { env, timeoutMs: 900_000, onLine: child });
         const line = r.code === 0 ? `✓ ${name}: installed; sessions were handed over or their recovery commands were reported`
@@ -254,7 +255,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       return;
     }
     case "repo": {
-      const changed = await updateCheckout(f.repo.root, "the ep0ch checkout", say, child, env);
+      const changed = await updateCheckout(f.repo.root, "the ep0ch checkout", say, child, env, sha);
       if (changed.length) say("RUN AGAIN: ep0ch install --apply — the checkout changed, but the remaining steps in this run use the code install started with. A second run picks up newly added or changed install steps.");
       if (changed.includes("packages/outliner/herdr-plugin.toml") && f.plugin?.kind === "local") say(`the plugin's manifest changed: herdr plugin link ${f.repo.outliner} --enabled refreshes Herdr's copy of it`);
       return;
@@ -268,7 +269,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       if (handed.length) handoverLines(handed.map(r => r.handover!)).forEach(show);
       // A door left on its old code needs attention, but must not strand the extensions and skills after it.
       for (const r of rs.filter(r => !r.ok)) { record(r.message); show(`    ✗ ${r.message}`); }
-      return;
+      return rs;
     }
     case "name": {
       const name = step.machineName!;
@@ -575,6 +576,12 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
     clientChange = { name, add: flag === "--add-client" };
     rest = rest.filter((_, n) => n !== i && !(n === i + 1 && !rest[i]!.includes("=")));
   }
+  const shaAt = rest.indexOf("--sha");
+  const sha = shaAt < 0 ? undefined : rest[shaAt + 1];
+  if (shaAt >= 0) {
+    if (args[0] !== "install" || !sha || !/^[a-f0-9]{40}$/.test(sha)) { io.err("ep0ch: --sha takes a full origin/main commit sha"); return 2; }
+    rest = rest.filter((_, i) => i !== shaAt && i !== shaAt + 1);
+  }
   // `--dials-in`: this machine calls the others for EchoNet and is never called; `--no-dials-in` undoes it.
   const dials = rest.includes("--dials-in") ? true : rest.includes("--no-dials-in") ? false : undefined;
   const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--no-allow", "--fix", "--move-scripts", "--backups", "--dials-in", "--no-dials-in", "--as-client"].includes(a));
@@ -594,17 +601,22 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
     process.exit(130);
   };
   if (io.terminal) process.on("SIGINT", interrupted);
-  try { return await setup(rest, io, env, json, progress, status, machineName, dials, clientChange); }
+  try { return await setup(rest, io, env, json, progress, status, machineName, dials, clientChange, sha); }
+  catch (error) {
+    if (json) io.out(JSON.stringify({ ok: false, steps: [], notDone: ["install"], error: (error as Error).message }));
+    else io.err(`ep0ch ${args[0]}: ${(error as Error).message}`);
+    return 1;
+  }
   finally {
     progress.close();
     if (io.terminal) process.off("SIGINT", interrupted);
   }
 }
 
-async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null, machineName?: string, dials?: boolean, clientChange?: { name: string; add: boolean }): Promise<number> {
+async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null, machineName?: string, dials?: boolean, clientChange?: { name: string; add: boolean }, sha?: string): Promise<number> {
   // Checking the stack (git fetches among it) can take a while on a slow link: a phase, gone once it's done.
   const checking = progress.task({ mark: "·", title: "Checking the stack", transient: true });
-  const facts = await gatherFacts({ env, repoRoot: io.repoRoot, platform: io.platform, cwd: io.cwd,
+  const facts = await gatherFacts({ env, repoRoot: io.repoRoot, platform: io.platform, cwd: io.cwd, sha,
     ...(args[0] === "doctor" ? { backups: args.includes("--backups") ? "restore" as const : "check" as const } : {}),
     onProgress: p => checking.count(p.done, p.total, p.waiting.length ? `waiting on ${p.waiting.join(", ")}` : undefined), onLine: checking.child });
   checking.end(true);
@@ -618,6 +630,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     io.out(json ? JSON.stringify({ ...report, repaired }, null, 2) : [...repaired, formatDoctor(facts, report.checks)].join("\n"));
     return report.ok ? 0 : 1;
   }
+  if (sha && (facts.repo.checkout.branch !== "main" || facts.repo.checkout.ahead > 0 || facts.repo.checkout.dirty)) throw new Error(`install ${sha} needs a clean main branch that can fast-forward to that origin/main commit; see git -C ${facts.repo.root} status`);
   const apply = args.includes("--apply");
   if (facts.machineName) {
     // Unnamed and at a terminal: asked once, the short host name offered (Enter takes it). Named, it isn't asked again.
@@ -638,11 +651,16 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   }
   const options: PlanOptions = { now: io.now ?? new Date(), backupDir: backupDirOf(facts.home) };
   const plan = buildPlan(facts, options);
+  if (sha) {
+    const repo = plan.steps.find(s => s.id === "repo")!;
+    repo.commands = repo.commands.map(c => c.startsWith("git ") ? `git -C ${sh(facts.repo.root)} merge --ff-only ${sha}` : c);
+  }
   if (!apply) {
     io.out(json ? JSON.stringify({ platform: facts.platform, apply: false, steps: plan.steps, notes: plan.notes }, null, 2) : formatPlan(facts, plan, false));
     return 0;
   }
   const say = (s: string) => progress.line(s);
+  const connectedBeforeRestart = new Set(linkStates(facts.host.folder).map(l => l.machine));
   say(`ep0ch install · ${facts.platform} · applying`);
   let deploy: Awaited<ReturnType<typeof startDeployRecord>> | undefined;
   let creatingRecord = false;
@@ -662,8 +680,10 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   if (!args.includes("--as-client") && facts.host.running) await beginRecord();
   const results: (Step & { done?: string[]; error?: string; recover?: string })[] = [];
   let current = facts;
+  const sessionFailures: string[] = [];
   for (const [i, planned] of plan.steps.entries()) {
     let step = planned;
+    if (sha && args.includes("--as-client") && step.id === "machine-link" && current.linkConfig?.mode === "connect") step = { ...step, status: "skip", why: "the connector restarts on the installed code after the server receives this result" };
     // The repo step may have brought a newer script even when the original plan called it current.
     if (step.id === "with-secrets") {
       current = { ...current, withSecrets: withSecretsFacts(current.home, current.repo.root) };
@@ -697,7 +717,8 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     try {
       if (step.id === "schema" && deploy) await record(() => deploy!.local(`running: ${step.title}; final outcome requires the host to return`));
       if (step.id === "clients" && deploy) await record(() => deploy!.local("local steps complete; installing clients"));
-      await execute(step, current, env, task, done, deploy ? (name, line) => record(() => deploy!.client(name, line)) : undefined, !args.includes("--no-allow"));
+      const handed = await execute(step, current, env, task, done, deploy ? (name, line) => record(() => deploy!.client(name, line)) : undefined, !args.includes("--no-allow"), sha);
+      if (handed) sessionFailures.push(...handed.filter(s => !s.ok).map(s => s.message));
       if (step.id === "host" && !creatingRecord && !args.includes("--as-client")) await beginRecord();
       task.end(true);
       results.push({ ...step, done });
@@ -706,17 +727,52 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       const error = (e as Error).message, recover = e instanceof StepFailed || e instanceof LinkFailed ? e.recover : "rerun ep0ch install to see the plan";
       results.push({ ...step, done, error, recover });
       if (deploy) await record(() => deploy!.local(`failed at ${step.title}: ${error}; ${recover}`));
-      if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: false, steps: results, notes: plan.notes }, null, 2));
+      if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: false, steps: results, notDone: [...results.filter(s => s.status === "manual" || s.error).map(s => `${s.title}: ${s.error ?? s.why}${s.recover ? `; ${s.recover}` : ""}`), ...plan.steps.slice(i + 1).filter(s => s.status !== "skip").map(s => `${s.title}: not run after ${step.title}`)], notes: plan.notes }, null, 2));
       else io.err(`    ✗ ${error}\n    recover: ${recover}\n    stopped: nothing after step ${i + 1} ran`);
       status?.report({ state: "error", msg: `step ${i + 1} (${step.title}) failed: ${error}` });
       return 1;
     }
   }
   const waiting = results.filter(s => s.status === "manual");
-  const clientBlocked = args.includes("--as-client") && results.some(s => s.id === "repo" && (s.status === "manual" || s.unchecked));
+  const clientBlocked = args.includes("--as-client") && (results.some(s => (s.id === "repo" || (sha && ["host", "schema"].includes(s.id))) && (s.status === "manual" || s.unchecked)) || sessionFailures.length > 0);
   if (deploy) await record(() => deploy!.local(waiting.length ? `finished; needs attention: ${waiting.map(s => `${s.title}: ${s.why}`).join("; ")}` : "finished"));
+  if (!args.includes("--as-client") && facts.linkConfig?.mode === "connect") {
+    const head = await run(["git", "-C", facts.repo.root, "rev-parse", "HEAD"], { env });
+    if (head.code === 0) reconcileLinkInstall(facts.host.folder, { sha: head.out, commit: head.out, code: results.some(s => ["repo", "host", "schema"].includes(s.id) && s.status === "manual") || sessionFailures.length ? 1 : 0, notDone: [...waiting.map(s => `${s.title}: ${s.why}`), ...sessionFailures], sessions: results.filter(s => s.id === "session") });
+  }
+  const linked: string[] = [];
+  if (!args.includes("--as-client") && facts.linkConfig?.mode === "serve" && !results.some(s => ["repo", "host", "schema"].includes(s.id) && (s.status === "manual" || s.error))) {
+    const head = await run(["git", "-C", facts.repo.root, "rev-parse", "HEAD"], { env });
+    const verified = await run(["git", "-C", facts.repo.root, "merge-base", "--is-ancestor", head.out, "origin/main"], { env });
+    if (head.code === 0 && verified.code === 0) {
+      const returning = facts.linkConfig.machines.filter(machine => connectedBeforeRestart.has(machine));
+      if (returning.length) {
+        say(`    waiting up to 60s for machine links: ${returning.join(", ")}`);
+        // Restart health is local; a connector that stays away only queues its install.
+        await waitFor(async () => {
+          const up = new Set(linkStates(facts.host.folder).map(l => l.machine));
+          return returning.every(machine => up.has(machine));
+        }, 60_000);
+      }
+      const connected = new Set(linkStates(facts.host.folder).map(l => l.machine));
+      for (const machine of facts.linkConfig.machines) if (deploy) {
+        const receipt = linkInstallResult(facts.host.folder, machine, head.out);
+        await record(() => deploy!.link(machine, receipt ? linkInstallSummary(machine, receipt) : `${machine}: ${connected.has(machine) ? "install pending over the link" : "away; install queued for its next connection"}`));
+      }
+      publishLinkInstall(facts.host.folder, { sha: head.out, record: deploy?.linkRecord });
+      for (const machine of facts.linkConfig.machines) {
+        let receipt = linkInstallResult(facts.host.folder, machine, head.out);
+        if (connected.has(machine)) {
+          say(`    ${machine}: install ${head.out} sent over the link`);
+          await waitFor(async () => !!(receipt = linkInstallResult(facts.host.folder, machine, head.out)), 900_000);
+        }
+        const line = receipt ? linkInstallSummary(machine, receipt) : `${machine}: ${connected.has(machine) ? "no install result; check ep0ch link status" : "away; install queued for its next connection"}`;
+        linked.push(line); say(`    ${line}`);
+      }
+    } else { linked.push("machine links: checkout is not verified on origin/main; nothing sent"); say(`    ! ${linked[0]}`); }
+  }
   status?.report({ state: "done", msg: results.some(s => s.done) ? `installed${waiting.length ? `; ${waiting.length} step${waiting.length === 1 ? "" : "s"} left for you` : ""}` : "nothing to do" });
-  if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: !clientBlocked, steps: results, notes: plan.notes }, null, 2));
+  if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: !clientBlocked, steps: results, linked, notDone: [...waiting.map(s => `${s.title}: ${s.why}`), ...sessionFailures], notes: plan.notes }, null, 2));
   else {
     if (plan.notes.length) { say(""); say("not done by install:"); plan.notes.forEach(n => say(`  · ${n}`)); }
     say("");

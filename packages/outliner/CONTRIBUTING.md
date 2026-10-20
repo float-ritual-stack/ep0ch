@@ -56,7 +56,7 @@ Pi/OMP users can invoke `/outliner`; supported coding clients can use the projec
 
 ## Source boundaries
 
-- `src/link.ts`, `link-streams.ts` and `link-frame.ts` own the outbound machine transport. They expose the existing shared forward socket, reuse `machine.ts`'s lock and `extension-secrets.ts`'s key storage, and never interpret outline requests. See [Outbound machine links](docs/machine-link.md).
+- `src/link.ts`, `link-streams.ts`, `link-frame.ts` and `link-install.ts` own the outbound machine transport. They expose the existing shared forward socket, reuse `machine.ts`'s lock and `extension-secrets.ts`'s key storage, and never interpret outline requests. `link-install.ts` keeps the desired install SHA and receipts; the door calls its existing installer and deploy-record writer. See [Outbound machine links](docs/machine-link.md).
 
 The pinned Pi TUI patch in `patches/` supplies rendered lines and exact normalized
 selection ranges to `copySelection`. Its third argument identifies the originating

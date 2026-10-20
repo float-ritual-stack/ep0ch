@@ -1,3 +1,5 @@
+import { linkUpdateLabel } from "@ep0ch/outliner/link";
+import { outlinesDir } from "./discover";
 import { errorDetails } from "./status-log";
 import { StatusLog, messageContext, type MessageDetails } from "./status-log";
 import { WaitingAsks } from "./waiting-asks";
@@ -1357,7 +1359,13 @@ export class App implements Ctx {
   /** Option characters are read as alt keys here (a test sets it). */
   optionKeys = optionKeysOn();
 
+  private linkLabel = "";
+  private linkChecked = 0;
   private tick() {
+    if (Date.now() - this.linkChecked >= 1000) {
+      this.linkChecked = Date.now();
+      this.linkLabel = linkUpdateLabel(outlinesDir());
+    }
     const s = this.stack.at(-1);
     let expired = !!this.message && Date.now() > this.messageUntil;
     if (expired) this.message = "";
@@ -1371,7 +1379,7 @@ export class App implements Ctx {
   /** The status bar's time, as it would read now: the uptime and the clock; and the drawer's chip, which changes on its own. */
   private timeShown(): string {
     const now = this.now();
-    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() }).plain}|${this.whatChanged.count()}`;
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() }).plain}|${this.whatChanged.count()}|${this.linkLabel}`;
   }
 
   /** The drawer's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
@@ -1532,7 +1540,8 @@ export class App implements Ctx {
     this.waitingAt = waiting.plain && waitFrom >= 0 ? { from: waitFrom, to: waitFrom + width(waiting.plain), row: this.term.info.rows - 1 } : null;
     // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
     const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
-    const middle = this.message ? ` ${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${this.message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
+    const message = this.message || this.linkLabel;
+    const middle = message ? ` ${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);
   }
 }
