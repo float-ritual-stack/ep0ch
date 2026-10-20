@@ -996,9 +996,65 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 
+  test("reference completion keeps the typing line clear and reveals a body match (PIE-1104)", async () => {
+    const journal = await create(null, "Winter ledger\n" + Array.from({ length: 40 }, (_, i) => `Ledger entry ${i}.`).join("\n") + "\nInsurance return passage.\nKeep the receipt.");
+    for (const height of [24, 36, 60]) for (const line of [2, Math.floor(height / 2), height - 8]) {
+      size.rows = height;
+      const note = await create(null, "Picker practice\n" + Array.from({ length: height }, () => "Typing here").join("\n"));
+      const desk = openScreen("detail", { note: note.id, persist: false }) as Desk;
+      app.push(desk);
+      try {
+        await until(() => screen().some(l => l.includes("Picker practice")), "reader");
+        key(char("e")); key(K("enter"));
+        const rd = [...(desk as any).panes.values()].find((p: any) => "surface" in p) as ReaderPane;
+        await until(() => !!rd.draft, "edit");
+        for (let i = 0; i < line; i++) key(K("down"));
+        key(K("end")); type(" ((Insurance ret");
+        await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "matches");
+        expect(screen().some(l => l.includes("Typing here ((Insurance ret"))).toBe(true);
+        expect(screen().some(l => l.includes("((Insurance ret▌"))).toBe(true);
+        await until(() => screen().some(l => l.includes("Insurance return passage.")), "body match revealed", 3000);
+        expect(completionOf(rd.draft!)!.items[0]!.blockId).toBe(journal.id);
+        const picked = completionOf(rd.draft!)!.index, beforeScroll = screen().join("\n");
+        key({ kind: "up", shift: true });
+        expect(completionOf(rd.draft!)!.index).toBe(picked);
+        expect(screen().join("\n")).not.toBe(beforeScroll);
+        if (height === 60 && line === height - 8) {
+          type(' in:"Items" type:');
+          await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "scoped query");
+          expect(screen().join("\n")).toContain('((Insurance ret in:"Items" type:▌');
+          expect(screen().join("\n")).toContain("in: Items");
+        }
+      } finally { app.pop(); size.rows = 48; }
+    }
+  });
+
+  test("scrolling reference results loads beyond the first page (PIE-1104)", async () => {
+    for (let i = 0; i < 45; i++) await create(null, `Marigold register ${String(i).padStart(2, "0")}\nA register entry.`);
+    const note = await create(null, "Paging practice\n");
+    const desk = openScreen("detail", { note: note.id, persist: false }) as Desk;
+    app.push(desk);
+    try {
+      await until(() => screen().some(l => l.includes("Paging practice")), "reader");
+      key(char("e")); key(K("enter"));
+      const rd = [...(desk as any).panes.values()].find((p: any) => "surface" in p) as ReaderPane;
+      await until(() => !!rd.draft, "edit");
+      key(K("down")); key(K("end")); type("((Marigold register");
+      await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "first page");
+      await until(() => {
+        key(K("down")); screen();
+        return completionOf(rd.draft!)!.items[completionOf(rd.draft!)!.index]?.label === "Marigold register 03";
+      }, "later results", 3000);
+      key(K("enter"));
+      await until(() => !completionOf(rd.draft!), "insert");
+      const id = rd.draft!.text.match(/\(\(([a-f0-9-]+)\)\)/)![1]!;
+      expect((await board.get(id))!.text).toContain("Marigold register 03");
+    } finally { app.pop(); }
+  });
+
   test("reference float previews passages, scrolls, and starts the next completion with notes", async () => {
     const note = await create(null, "Reference practice\n");
-    const journal = await create(null, "Orchard journal\n## Orchard passage ^harvest\n" + Array.from({ length: 35 }, (_, i) => `Harvest detail ${i}: baskets beside the gate.`).join("\n"));
+    const journal = await create(null, "Orchard journal\n## Orchard passage ^harvest\n" + Array.from({ length: 125 }, (_, i) => `Harvest detail ${i}: baskets beside the gate.`).join("\n\n"));
     await create(null, "Orchard weather\nClouds over the orchard. ^clouds");
     const desk = openScreen("detail", { note: note.id, persist: false }) as Desk;
     app.push(desk);
@@ -1025,8 +1081,15 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       type(" ((Orchard");
       await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "fresh notes");
       expect(completionOf(rd.draft!)!.items[0]!.kind).toStartWith("block");
+      key(K("esc")); type(` ((${journal.id}^Harvest detail`);
+      await until(() => !!completionOf(rd.draft!) && !completionOf(rd.draft!)!.loading, "passage results");
+      await until(() => {
+        key(K("down")); screen();
+        return completionOf(rd.draft!)!.items[completionOf(rd.draft!)!.index]?.label.includes("Harvest detail 110:") ?? false;
+      }, "later passages", 20_000);
+      expect(screen().join("\n")).toContain("Harvest detail 110:");
     } finally { app.pop(); }
-  });
+  }, 30_000);
 
   test("completion fills a wide tile beyond its narrow text measure (PIE-1026)", async () => {
     const note = await create(null, "Completion practice [style.measure::40] [style.pad::2]\n");

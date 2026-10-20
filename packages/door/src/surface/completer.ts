@@ -1,7 +1,7 @@
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import type { Ctx } from "../app";
 import type { NoteSurface, SurfaceHost } from "./note";
-import { Canvas } from "../canvas";
+import { Canvas, type Rect } from "../canvas";
 import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 // Reference completion in the edit control (PIE-416): typing `[[`, `((` or `[file::` in a draft offers
 // pages and Work IDs, blocks and fragments, or workspace paths, from the service's lookups (`pages.complete`,
@@ -19,7 +19,10 @@ import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 // and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order. The
 // triggers stay here until ADR 0004's source contract (slice 6, PIE-750) moves them into outline-core.
 import { ListPicker, pickRows, pickRow } from "./picker";
+import { actionSet, def } from "./actions";
 import { listPreview } from "../bar/list-preview";
+import { litCells } from "../bar/filter";
+import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { subject, type Msg } from "../board";
 import {
   completionTargetAtCursor, filterTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
@@ -28,7 +31,7 @@ import {
 import type { Draft, DraftAction } from "../edit";
 import { USER, type Actor, type FragmentCandidate, type SocketBoard } from "../socket";
 import { lineCompletionHooks, type LineCompletion, type LineInput } from "./line";
-import { bg, C, fg, pad, RESET, TAGS, MARKS } from "../style";
+import { bg, C, chip, fg, pad, RESET, TAGS, MARKS } from "../style";
 import type { Key } from "../term";
 import { rowLines, printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
@@ -55,7 +58,7 @@ export const jevOff = new WeakSet<object>();
 export const COMPLETION_ROWS = 14;
 export const COMPLETION_HINT = "up/down or wheel choose · enter inserts (styles/properties: after choosing) · tab/double click inserts · esc dismisses";
 /** A `((` popup's: what a reference does once it's in (PIE-762). */
-export const REFERENCE_HINT = "up/down choose · enter/double click inserts · PgUp/PgDn/wheel preview · ^/# narrow · esc dismisses";
+export const REFERENCE_HINT = "up/down choose · enter/double click inserts · shift+up/down/PgUp/PgDn/wheel preview · ^/# narrow · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
 export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage">;
@@ -123,7 +126,7 @@ export interface CompletionLookup {
 export const nearOf = (d: CompletionField | null | undefined, own?: OwnNote): string | undefined => own?.blockId ?? d?.near;
 
 /** How the lookup is asked: `semantic` has Jev re-order it; `near` is the note the draft writes in. */
-export interface LookupOptions { semantic?: boolean; near?: string }
+export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number }
 
 /** The note a note draft is writing, for `((#heading` in itself; comments and replies have none. */
 export interface OwnNote { blockId: string; text: string }
@@ -251,7 +254,7 @@ async function blockCandidates(board: CompletionBoard, query: string, own: OwnNo
     board.searchBlocks(query, opts),
     anchored && /^[A-Za-z0-9_-]+$/.test(q) ? anchors({ fragmentQuery: q, mode: "id", limit: COMPLETION_LIMIT, ...draft }) : null,
   ]);
-  const notes: CompletionItem[] = r.matches.slice(0, COMPLETION_LIMIT).map(m => ({
+  const notes: CompletionItem[] = r.matches.map(m => ({
     label: m.title, subtitle: m.subtitle, blockId: m.block.id, kind: m.reason ? `block · ${REASON[m.reason]}` : "block", insertion: `((${m.block.id}))`,
     context: [m.path, hitSnippet(m.title, m.snippet)].filter(Boolean).join(" » "),
   }));
@@ -273,7 +276,7 @@ async function blockCandidates(board: CompletionBoard, query: string, own: OwnNo
     for (const c of (parts?.items ?? []).filter(c => c.blockId === n.blockId && !c.fragmentId && EMBEDDABLE.has(c.kind)).slice(0, PARTS_OF_TOP)) add(fragmentItem(c, false, true));
   }
   return {
-    items, truncated: r.matches.length > COMPLETION_LIMIT || r.completeness.kind === "truncated" ? COMPLETION_LIMIT : null,
+    items, truncated: r.completeness.kind === "truncated" ? r.completeness.limit ?? r.matches.length : null,
     ranked: r.semantic.status === "ranked", off: notConfigured(r.semantic),
   };
 }
@@ -293,7 +296,7 @@ async function fragmentLookup(board: CompletionBoard, fragment: { blockQuery: st
     if (!blockIds.length) return { items: [], truncated: null, empty: `no note matches ${JSON.stringify(note)}` };
   }
   const mode = blockIds ? (fragment.mode === "id" ? "passage" : "heading") : fragment.mode;
-  const r = await board.fragmentCandidates({ ...(blockIds ? { blockIds } : {}), fragmentQuery: fragment.fragmentQuery, mode, limit: COMPLETION_LIMIT, ...draft });
+  const r = await board.fragmentCandidates({ ...(blockIds ? { blockIds } : {}), fragmentQuery: fragment.fragmentQuery, mode, limit: opts.limit ?? COMPLETION_LIMIT, offset: opts.offset, ...draft });
   const one = blockIds?.length === 1;
   const title = one ? r.items[0]?.title : undefined;
   return {
@@ -460,6 +463,7 @@ export async function insertCompletion(board: CompletionBoard, d: CompletionFiel
 }
 
 export interface CompletionState extends CompletionLookup {
+  previewRect?: Rect;
   listWidth?: number;
   listCol?: number;
   target: CompletionTarget;
@@ -479,6 +483,8 @@ export class Completer {
   private preview: { item: CompletionItem; surface: NoteSurface; host: SurfaceHost } | null = null;
   private generation = 0;
   private accepting = false;
+  private loadingMore = false;
+  private limit = COMPLETION_LIMIT;
   private prefix: string | null | undefined;
   constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: () => OwnNote | undefined = () => undefined) {}
 
@@ -535,7 +541,7 @@ export class Completer {
       s.jev = "asking";
       this.redraw();
       try {
-        const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { semantic: true, near: this.near() });
+        const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { semantic: true, near: this.near(), limit: this.limit });
         if (r.jevOff) jevOff.add(this.board);
         const now = this.state;
         if (now !== s) return;
@@ -557,6 +563,7 @@ export class Completer {
     const target = this.target();
     if (!target || this.d.busy) { this.dismiss(); return; }
     this.stopJev();
+    this.limit = COMPLETION_LIMIT;
     // A re-ask of the same query keeps the pick; a changed query picks its best match.
     const same = this.state?.target.kind === target.kind && this.state.target.query === target.query;
     const picked = explicit || (same && this.state?.picked);
@@ -566,7 +573,7 @@ export class Completer {
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
       if (this.prefix === undefined) this.prefix = await this.board.workIdPrefix().catch(() => undefined);
-      const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { near: this.near() });
+      const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { near: this.near(), limit: this.limit });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(generation)) return;
       // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
@@ -591,7 +598,9 @@ export class Completer {
       if (ctx.selected) {
         this.preview?.surface.dispose();
         const surface = new NoteSurface();
-        const host: SurfaceHost = { ctx: { board: this.board, t: { cols: 80, rows: 20, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash: (s: string) => { this.d.note = s; }, redraw: this.redraw } as unknown as Ctx, redraw: this.redraw, navigate() {} };
+        const host: SurfaceHost = { ctx: { board: this.board, t: { cols: 80, rows: 20, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash: (s: string) => { this.d.note = s; }, redraw: this.redraw } as unknown as Ctx, redraw: this.redraw, navigate() {},
+          header: (m, w) => [fg(C.grey) + pad([subject(m), ...ctx.ancestors.map(title), m.author].filter(Boolean).join(" · "), w) + RESET],
+        };
         const own = this.own();
         const note = own?.blockId === item.blockId ? { ...ctx.selected, text: own.text } : ctx.selected;
         surface.show(note, host);
@@ -600,6 +609,10 @@ export class Completer {
         else if (item.passageLine !== undefined) {
           const offset = note.text.split("\n").slice(0, item.passageLine).reduce((n, l) => n + l.length + 1, 0);
           await surface.revealAt(offset, host);
+        } else {
+          const lines = note.text.split("\n");
+          const hit = rankTextSearchMatches(lines.map((text, line) => ({ id: String(line), title: "", text, line })), this.state!.target.query, 1)[0]?.document;
+          if (hit) await surface.revealAt(lines.slice(0, hit.line).reduce((n, l) => n + l.length + 1, 0), host);
         }
         item.preview = (w, h) => surface.render(w, h, host).lines.slice(0, h).map(l => l.replace(TAGS, "").replace(MARKS, ""));
       }
@@ -611,7 +624,21 @@ export class Completer {
   scrollPreview(by: number): boolean {
     const p = this.preview;
     if (!p || p.item !== this.shown?.items[this.shown.index]) return false;
-    void p.surface.act("scroll", { by }, p.host, USER);
+    void COMPLETION_ACTIONS.run("complete.preview", { by }, this, USER);
+    return true;
+  }
+
+  overPreview(x: number, y: number): boolean {
+    const r = this.shown?.previewRect, at = this.drawn;
+    if (!r || !at) return false;
+    x -= at.col ?? 0; y -= at.row;
+    return x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows;
+  }
+
+  previewBy(by: number, actor: Actor): boolean {
+    const p = this.preview;
+    if (!p || p.item !== this.shown?.items[this.shown.index]) return false;
+    void p.surface.act("scroll", { by }, p.host, actor);
     return true;
   }
 
@@ -652,8 +679,32 @@ export class Completer {
     picker.sel = s.index;
     for (let i = 0; i < Math.abs(delta); i++) picker.key({ kind: delta < 0 ? "up" : "down" }, undefined);
     s.index = picker.sel;
+    if (delta > 0 && s.index >= s.items.length - 3) void this.more();
     this.redraw();
     void this.enrich();
+  }
+
+  private async more(): Promise<void> {
+    const s = this.shown, generation = this.generation;
+    if (!s || s.target.kind !== "block" || !s.truncated || this.loadingMore) return;
+    this.loadingMore = true;
+    this.stopJev();
+    const fragment = parseFragmentCompletionQuery(s.target.query);
+    const offset = fragment ? this.limit : undefined;
+    const limit = this.limit + COMPLETION_LIMIT;
+    try {
+      const r = await lookupCompletion(this.board, s.target, this.prefix ?? null, this.own(), { near: this.near(), limit: fragment ? COMPLETION_LIMIT : limit, offset });
+      if (!this.current(generation) || this.state !== s) return;
+      this.limit = limit;
+      const seen = new Set(s.items.map(i => i.insertion));
+      s.items.push(...r.items.filter(i => !seen.has(i.insertion)));
+      s.truncated = r.truncated;
+      s.message = fragment && r.truncated ? "scroll for more fragments" : r.message;
+      this.redraw();
+      void this.enrich();
+    } catch (e) {
+      if (this.current(generation)) { s.message = `more matches: ${e instanceof Error ? e.message : String(e)}`; this.redraw(); }
+    } finally { this.loadingMore = false; }
   }
 
   /** Enter / Tab: insert the selected candidate (checked with the service first). */
@@ -674,6 +725,21 @@ export class Completer {
     } finally { this.accepting = false; }
   }
 }
+
+export const COMPLETION_PREVIEW = {
+    summary: "scroll the selected reference's note preview, keeping the selection in the list",
+    keys: "shift+up/down, PgUp/PgDn, wheel over the reference preview",
+    touches: "tile", replay: "safe",
+    args: { by: { type: "number", about: "rows to scroll; negative goes up" } },
+    examples: [{ act: "complete.preview by=3", does: "reads three rows further in the selected reference" }],
+} as const;
+
+export const COMPLETION_ACTIONS = actionSet<Completer>()("completion", {
+  "complete.preview": def({
+    ...COMPLETION_PREVIEW,
+    run({ by }, c, actor) { return c.previewBy(by, actor); },
+  }),
+});
 
 const byDraft = new WeakMap<CompletionField, Completer>();
 
@@ -706,7 +772,7 @@ const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" |
  * the popup took the key.
  */
 function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boolean {
-  if (c.shown && (k.kind === "pgup" || k.kind === "pgdn") && c.scrollPreview(k.kind === "pgup" ? -8 : 8)) return true;
+  if (c.shown && (k.kind === "pgup" || k.kind === "pgdn" || ((k.kind === "up" || k.kind === "down") && k.shift)) && c.scrollPreview(k.kind === "pgup" ? -8 : k.kind === "pgdn" ? 8 : k.kind === "up" ? -1 : 1)) return true;
   if (c.state && !c.shown) c.dismiss();
   const s = c.state;
   if (s) {
@@ -812,20 +878,32 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   rows.unshift(null); rows.push(null, null);
   s.listCol = (s.listCol ?? 0) + 1;
   s.listWidth = (s.listWidth ?? w - 3) + 1;
+  if (s.previewRect) s.previewRect = { ...s.previewRect, col: s.previewRect.col + 1, row: s.previewRect.row + 1 };
   return canvas.lines();
 }
 
 function completionLines(s: CompletionState, w: number, h: number, rows: (number | null)[] = [], anchor = 0): string[] {
   rows.length = 0;
+  s.previewRect = undefined;
   if (h <= 0) return [];
   // Titles come from notes: text.ts's printable takes out what a terminal acts on, pad cuts by cells, and a glyph
   // the VGA font lacks goes as its lookalike at the sink (App, CP437_NEAREST).
   const line = (text: string, colour: string, back = "") => back + colour + pad(printable(text, " "), w) + RESET;
-  if (!s.items.length) { rows.push(null); return [line(` ${s.message || "no matches"}`, fg(s.loading ? C.grey : C.yellow))]; }
-  const header = h >= 3, footer = h >= 2;
+  const reference = s.target?.kind === "block" || s.target?.kind === "page";
+  const echo = reference ? `  ${printable(s.at.line.slice(s.target.start, s.at.col), " ")}▌` : "";
+  const scopes = reference ? [...s.target.query.matchAll(/(?:^|\s)([A-Za-z][A-Za-z0-9_.-]*):[ \t]*("[^"]*"|'[^']*'|[^\s:]*(?=\s|$))/g)]
+    .map(m => chip(C.blue) + ` ${m[1]}: ${printable(m[2]!.replace(/^['"]|['"]$/g, ""), " ")} ` + RESET).join(" ") : "";
+  if (!s.items.length) {
+    const out = reference && h > 1 ? [fg(C.lcyan) + pad(echo + (scopes ? ` ${scopes}` : ""), w) + RESET] : [];
+    out.push(line(` ${s.message || "no matches"}`, fg(s.loading ? C.grey : C.yellow)));
+    rows.push(...out.map(() => null));
+    return out;
+  }
+  const header = h >= 3, footer = h >= 2 && (!reference || h >= 6);
   const out: string[] = [];
   const heading = { component: "components", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
-  if (header) rows.push(null), out.push(line(` ${s.heading ?? heading} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan)));
+  const ranking = !footer && s.jev ? ` · jev ${s.jev}` : "";
+  if (header) rows.push(null), out.push(fg(C.lcyan) + pad(` ${printable(s.heading ?? heading, " ")} ${s.index + 1}/${s.items.length}${echo}${ranking}${scopes ? ` ${scopes}` : ""}${s.loading ? " · finding..." : ""}`, w) + RESET);
   const picker = completionPicker(s);
   picker.sel = s.index;
   const selected = s.items[s.index]!;
@@ -836,7 +914,8 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
     return [fg(C.lcyan) + pad(description, pw) + RESET, ...(selected.preview?.(pw, Math.max(0, ph - 1)) ?? [])].slice(0, ph);
   };
   const labelWidth = Math.max(...s.items.map(it => cells(printable(it.label, " ")) + 3));
-  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, s.target?.kind === "block" || s.target?.kind === "page" ? Math.max(90, w) : w, { col: anchor, width: labelWidth });
+  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, reference && selected.preview ? Math.max(90, w) : w, { col: anchor, width: labelWidth });
+  if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(header) };
   s.listCol = drawn.listCol;
   s.listWidth = drawn.listWidth;
   rows.push(...drawn.rows); out.push(...drawn.lines);
@@ -859,7 +938,12 @@ function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> 
   let picker = pickers.get(s);
   if (!picker) {
     picker = new ListPicker({ name: "completion", items: () => s.items,
-      row: (it, _i, on, w) => [...pickRows(` ${on ? "»" : " "} ${printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " ")}` + (it.addition ? fg(C.dark) + it.addition + RESET : "") + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : ""), on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])],
+      row: (it, _i, on, w) => {
+        const label = printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " ") + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : "");
+        const lit = litCells(label, s.target.query);
+        const words = [...label].map((c, i) => lit.has(i) ? fg(C.yellow) + c + fg(C.grey) : c).join("");
+        return [...pickRows(` ${on ? "»" : " "} ${words}` + (it.addition ? fg(C.dark) + it.addition + RESET : ""), on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])];
+      },
       heading: (it, i, w) => it.group && it.group !== s.items[i - 1]?.group ? fg(C.dark) + pad(` ${it.group}`, w) + RESET : null,
       choose: () => {},
     });

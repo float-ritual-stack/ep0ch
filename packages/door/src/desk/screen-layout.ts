@@ -1671,10 +1671,20 @@ class Step<I> {
 }
 
 /** A float's rectangle kept in `area`: never smaller than a float is drawn (unless the screen is), never off it. */
-export function keepOnScreen(r0: Rect, area: Rect): Rect {
+export function keepOnScreen(r0: Rect, area: Rect, anchor?: Rect): Rect {
   const r = { ...r0 }, W = area.cols, H = area.rows, top = area.row;
-  r.cols = Math.max(0, Math.min(W, Math.max(FLOAT_MIN.cols, Math.round(r.cols)))); r.rows = Math.max(0, Math.min(H, Math.max(FLOAT_MIN.rows, Math.round(r.rows))));
+  const minimum = anchor ? { cols: 0, rows: 0 } : FLOAT_MIN;
+  r.cols = Math.max(0, Math.min(W, Math.max(minimum.cols, Math.round(r.cols)))); r.rows = Math.max(0, Math.min(H, Math.max(minimum.rows, Math.round(r.rows))));
   r.col = Math.max(0, Math.min(W - r.cols, Math.round(r.col))); r.row = Math.max(top, Math.min(top + H - r.rows, Math.round(r.row)));
+  if (anchor) {
+    if (anchor.row + anchor.rows + r.rows <= top + H) r.row = anchor.row + anchor.rows;
+    else if (anchor.row - r.rows >= top) r.row = anchor.row - r.rows;
+    else {
+      const right = area.col + W - anchor.col - anchor.cols, left = anchor.col - area.col;
+      r.cols = Math.min(r.cols, Math.max(left, right));
+      r.col = right >= left ? anchor.col + anchor.cols : anchor.col - r.cols;
+    }
+  }
   return r;
 }
 

@@ -2085,7 +2085,8 @@ export class OutlinerServer {
     if (request.action === "tree.search") {
       try {
         if (request.semantic !== undefined && typeof request.semantic !== "boolean") throw new Error("semantic must be a boolean");
-        let result = this.store.searchTree(request.query, request.contextBlockId, parseMachineryMode(request.machinery));
+        if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive integer");
+        let result = this.store.searchTree(request.query, request.contextBlockId, parseMachineryMode(request.machinery), request.limit);
         if (request.semantic && this.activeGotoRankings < 2) {
           this.activeGotoRankings++;
           try { result = await rankGotoWithJev(request.query, result, { promptDirectory: this.promptDirectory, ...(result.context ? { note: { title: result.context.title, path: result.context.path } } : {}) }); }
@@ -2098,7 +2099,7 @@ export class OutlinerServer {
         } else if (request.semantic) {
           result.semantic = { status: "unavailable", message: "Jev busy; showing text matches" };
         }
-        return { id: request.id, ok: true, result: visibleGotoResults(result), sequence: this.store.sequence };
+        return { id: request.id, ok: true, result: visibleGotoResults(result, request.limit), sequence: this.store.sequence };
       } catch (error) {
         if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
@@ -2594,7 +2595,8 @@ export class OutlinerServer {
           break;
         case "tree.search":
           if (request.semantic) throw new Error("Semantic search requires asynchronous dispatch");
-          result = visibleGotoResults(this.store.searchTree(request.query, request.contextBlockId));
+          if (request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1)) throw new Error("limit must be a positive integer");
+          result = visibleGotoResults(this.store.searchTree(request.query, request.contextBlockId, parseMachineryMode(request.machinery), request.limit), request.limit);
           break;
         case "events.subscribe":
           result = { subscribed: true, client: subscribedClient ?? request.client };
