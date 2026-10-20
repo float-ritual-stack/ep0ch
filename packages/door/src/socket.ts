@@ -451,7 +451,7 @@ export interface SearchHits {
   semantic: { status: "lexical" | "ranked" | "unavailable"; message?: string };
 }
 /** How a search is asked: `semantic` has Jev re-order the candidates; `near` is the note it's asked from. */
-export interface SearchOptions { semantic?: boolean; near?: string }
+export interface SearchOptions { semantic?: boolean; near?: string; limit?: number }
 
 /** What the service says of a selection's facets (SocketBoard.facetList). */
 export interface FacetAnswer {
@@ -886,7 +886,7 @@ export class SocketBoard implements Board {
    * `text` lists what's linked and edited around it.
    */
   searchBlocks(text: string, opts: SearchOptions = {}): Promise<SearchHits> {
-    return this.request<SearchHits>("tree.search", { query: text, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) });
+    return this.request<SearchHits>("tree.search", { query: text, ...(opts.limit !== undefined ? { limit: opts.limit } : {}), ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) });
   }
 
   /** `searchBlocks`, at most `limit` hits read whole for a preview, with what Jev did (`semantic`). */
@@ -1631,7 +1631,7 @@ export class SocketBoard implements Board {
    * `((note#…` / `((note^…` completion over every note, or only `blockIds` (PIE-762), by the service's fragment rules
    * (PIE-424): each match with its note and, for one without an anchor, the anchor it would get; each note's anchors first.
    */
-  fragmentCandidates(query: { noteQuery?: string; blockIds?: string[]; fragmentQuery: string; mode: "heading" | "id" | "passage"; limit: number; draft?: { blockId: string; text: string } }) {
+  fragmentCandidates(query: { noteQuery?: string; blockIds?: string[]; fragmentQuery: string; mode: "heading" | "id" | "passage"; limit: number; offset?: number; draft?: { blockId: string; text: string } }) {
     return this.request<{ items: FragmentCandidate[]; completeness: { kind: string; limit?: number }; searched: number }>("fragments.candidates", { query });
   }
 

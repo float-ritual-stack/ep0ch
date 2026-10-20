@@ -29,6 +29,7 @@ export interface FragmentCandidateQuery {
    */
   blockIds?: string[];
   limit?: number;
+  offset?: number;
   /** The note being edited, as typed now: searched first, in its draft text. */
   draft?: { blockId: string; text: string };
 }
@@ -63,6 +64,8 @@ const normalize = (value: string) => value.normalize("NFKC").toLocaleLowerCase()
 export function searchFragmentCandidates(blocks: readonly Block[], query: FragmentCandidateQuery): FragmentCandidateCollection {
   if (!query || typeof query !== "object") throw new Error("fragments.candidates needs a query");
   const limit = query.limit ?? FRAGMENT_CANDIDATE_DEFAULT_LIMIT;
+  const offset = query.offset ?? 0;
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Fragment candidate offset must be a non-negative integer");
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > FRAGMENT_CANDIDATE_MAX_LIMIT) {
     throw new Error(`Fragment candidate limit must be between 1 and ${FRAGMENT_CANDIDATE_MAX_LIMIT}`);
   }
@@ -85,13 +88,14 @@ export function searchFragmentCandidates(blocks: readonly Block[], query: Fragme
   const order = draftBlock && !byId && (!noteQuery || ordered.includes(draftBlock))
     ? [draftBlock, ...ordered.filter(block => block !== draftBlock)] : ordered;
   const items: FragmentCandidateHit[] = [];
-  let searched = 0;
+  let searched = 0, matched = 0;
   for (const block of order) {
     const source = block.id === draft?.blockId ? draft.text : block.text;
     if (mode !== "passage" && !source.includes(mode === "heading" ? "#" : "^") && !source.includes("^")) continue;
     if (wanted && !normalize(source).includes(wanted)) continue;
     searched++;
     for (const candidate of fragmentCandidates(source, fragmentQuery, mode)) {
+      if (matched++ < offset) continue;
       if (items.length >= limit) return { items, completeness: { kind: "truncated", limit }, searched };
       const hit: FragmentCandidateHit = {
         blockId: block.id, title: blockDisplayTitle(block), revision: block.revision,

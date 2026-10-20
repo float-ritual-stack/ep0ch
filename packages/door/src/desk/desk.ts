@@ -1,6 +1,6 @@
 import { errorDetails } from "../status-log";
 import { HomeSurface } from "../surface/home";
-import { COMPLETION_ROWS, type Completer } from "../surface/completer";
+import { type Completer } from "../surface/completer";
 import { floatTheme } from "../theme";
 import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
 import { HintCard, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
@@ -3193,8 +3193,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const completion = this.views.get(this.focus)?.view.completion;
     const origin = this.contents.get(this.focus);
     if (completion?.shown && completion.drawn && origin) {
-      const height = Math.min(COMPLETION_ROWS, area.rows);
-      const rect = { col: area.col, row: Math.max(area.row, Math.min(origin.row + completion.drawn.row, area.row + area.rows - height)), cols: area.cols, rows: height };
+      const height = Math.min(Math.floor(origin.rows / 2), area.rows);
+      const cursor = { col: origin.col, row: origin.row + completion.drawn.row - 1, cols: origin.cols, rows: 1 };
+      const rect = keepOnScreen({ col: area.col, row: cursor.row + 1, cols: area.cols, rows: height }, area, cursor);
       completion.drawn.row = rect.row - origin.row;
       const lines = withRowLimit(this.lookAt(this.panes.get(this.focus)!, rect.cols).values["rows.lines"], () => completion.inFrame(rect.cols, rect.col - origin.col, height, this.lookAt(this.panes.get(this.focus)!, rect.cols).values));
       canvas.backdrop(this.lookAt(this.panes.get(this.focus)!, rect.cols).values);
@@ -3973,7 +3974,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (completer.shown && k.x >= rect.col && k.x < rect.col + rect.cols && k.y >= rect.row && k.y < rect.row + rect.rows) {
         if (k.action === "wheel-up" || k.action === "wheel-down") {
           const dir = k.action === "wheel-up" ? -1 : 1;
-          if (k.x >= rect.col + (completer.shown.listWidth ?? rect.cols)) completer.scrollPreview(dir * 3);
+          if (completer.overPreview(k.x - origin.col, k.y - origin.row)) completer.scrollPreview(dir * 3);
           else completer.move(dir);
         } else if (k.action === "up") completer.click(k.y - origin.row, k.x - origin.col);
         this.redraw();

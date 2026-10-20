@@ -112,7 +112,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTar
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
-import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -1648,7 +1648,7 @@ export class NoteSurface {
     // The look's margin.y: blank rows above the body (edge rows: never copied), then one blank row between the header
     // and the body (PIE-657); a rule only under the property panel, which it closes.
     for (let r = 0; r < this.my; r++) head.push("");
-    head.push(this.panel ? rule(w) : "");
+    if (this.panel || !host?.header || head.length + 1 < h) head.push(this.panel ? rule(w) : "");
     const top = head.length;
     const laid = this.layOut(m, w, h, head, summaryRow, summary ? summaryLinks : [], host, src);
     const { doc, drawn, picks, controls, body, marks, lines: noteLines } = laid;
@@ -1715,7 +1715,7 @@ export class NoteSurface {
     this.reveal = false;
     const markRows = this.focusMark ? this.focusRows(this.focusMark.spec, m, doc, noteLines, top) : null;
     // A followed fragment comes to the top (a line of what's above it kept); an agent's mark only as far as needed.
-    if (this.revealMark && markRows) { if (this.focusMark?.fragment || this.focusMark?.line) this.scroll = Math.max(0, markRows[0] - top - 1); else bringIn(markRows); }
+    if (this.revealMark && markRows) { if (this.focusMark?.fragment || this.focusMark?.line) this.scroll = Math.max(0, markRows[0] - top - Number(room > 1)); else bringIn(markRows); }
     this.revealMark = false;
     // The comment being written (PIE-770) comes into view when it opens and as it's typed in: the inline box (its
     // cursor's row, when the box is taller than the view), else its passage. Otherwise the note holds still.
@@ -3881,7 +3881,7 @@ export class NoteSurface {
   /** The wheel over text being written: through an open completion popup's candidates, else its preview under the pointer (PIE-846), else the draft's view (its cursor stays). */
   private writeWheel(d: Draft, dir: 1 | -1, at?: { x: number; y: number }): boolean {
     const c = completerOf(d);
-    if (c?.shown) { c.move(dir); return true; }
+    if (c?.shown) { if (at && c.overPreview(at.x, at.y)) c.scrollPreview(wheelRows(dir)); else c.move(dir); return true; }
     const preview = !!at && wheelTarget(d, at.x, at.y) === "preview";
     if (!d.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(dir), ...(preview ? { preview: true } : {}) }, d, USER);
     return true;
@@ -8434,6 +8434,15 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "draft.undo": forwardDraft("draft.undo"),
   "draft.redo": forwardDraft("draft.redo"),
   "draft.copy": forwardDraft("draft.copy"),
+  "complete.preview": def({
+    ...COMPLETION_PREVIEW,
+    run(args, { surface }: On, actor) {
+      const draft = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
+      const c = draft && completerOf(draft);
+      if (!c?.shown) throw new ActionRefused("no reference preview is open; type (( in an edit or comment first");
+      return COMPLETION_ACTIONS.run("complete.preview", args, c, actor);
+    },
+  }),
   "complete": def({
     summary: "completion, as typing [[, ((, [file::, > [!, ::component, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile); refine=^ or refine=# opens the finished ((reference)) at the draft's cursor again to search inside its note, as typing ^ or # in it does (PIE-762): a passage with no anchor gets one when inserted. Property keys and values come from the component schemas (PIE-618)",
     keys: "[[ (( [file:: > [! ::component [key:: while writing; tab, ctrl+space · up/down, enter/tab, esc · ^ or # in a ((reference))",

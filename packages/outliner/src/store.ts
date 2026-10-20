@@ -4528,11 +4528,12 @@ export class OutlinerStore {
   }
 
   /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
-  searchTree(query: string, contextBlockId?: string, machinery: MachineryMode = "show") {
+  searchTree(query: string, contextBlockId?: string, machinery: MachineryMode = "show", limit?: number) {
     return this.database.transaction(() => {
       const normalized = typeof query === "string" ? tryNormalizePageAddress(query) : null;
       const address = normalized ? this.resolvePageAddressFromCurrentRead(normalized) : null;
       return gotoCandidates([...this.loadGraph().byId.values()].filter(block => machineryAllows(machinery, isMachinery(block.properties))), query, {
+        limit,
         exactAddressId: address?.status === "resolved" ? address.block?.id : undefined,
         contextBlockId,
         resolveAddress: reference => {

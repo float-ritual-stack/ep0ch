@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { App } from "../../src/app";
 import { SHOWCASE_ASSETS, SEED, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
+import { completionOf } from "../../src/surface/completer";
 import { SocketBoard } from "../../src/socket";
 import type { ReaderPane } from "../../src/desk/panes";
 import { outliner, Scratch, until } from "../scratch";
@@ -30,6 +31,27 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+
+  test("the editing demo previews a reference through the same action as shift+arrows (PIE-1104)", async () => {
+    ch("5"); press({ kind: "enter" });
+    await until(() => !!S().stages.get(4), "editing stage");
+    const desk = S().stages.get(4).top;
+    ch("e"); press({ kind: "enter" });
+    const reader = [...desk.panes.values()][0] as ReaderPane;
+    await until(() => !!reader.draft, "edit");
+    for (let i = 0; i < 5; i++) press({ kind: "pgdn" });
+    press({ kind: "end" }); press({ kind: "enter" });
+    for (const c of "((Kitchen") ch(c);
+    await until(() => !!completionOf(reader.draft!) && !completionOf(reader.draft!)!.loading, "references");
+    await until(() => screen().includes("((Kitchen▌"), "query echo");
+    const selected = completionOf(reader.draft!)!.items[completionOf(reader.draft!)!.index]!.insertion;
+    await untilAsync(async () => !!(await desk.dispatch.act({ action: "complete.preview", args: { by: 1 } }, { kind: "user" })), "preview action");
+    expect(completionOf(reader.draft!)!.items[completionOf(reader.draft!)!.index]!.insertion).toBe(selected);
+    press({ kind: "esc" });
+    press({ kind: "char", ch: "z", ctrl: true });
+    press({ kind: "char", ch: "z", ctrl: true });
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
 
   test("editing works in a section, by keys: e, type, a click away and back keeps it (PIE-812), ctrl+s writes to the showcase outline", async () => {
     ch("5"); press({ kind: "enter" });
