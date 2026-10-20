@@ -336,7 +336,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       expect(titles()).toEqual(["main menu"]);
     });
 
-    test("an agent can't open a second copy of a screen already on the stack (a desk would start its programs twice)", async () => {
+    test("a screen already on the stack is gone back to, never opened twice (a desk would start its programs twice)", async () => {
       home();
       app.push(openScreen("river"));
       idle();
@@ -345,9 +345,12 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       await act("screen.open", { name: "S" });
       expect(top()).toBeInstanceOf(Stats);
       idle();
-      await expect(act("screen.open", { name: "river" })).rejects.toThrow(/already open under this screen/);
+      // Opening one that is already under this screen goes back down to it, never a second copy.
+      await act("screen.open", { name: "river" });
+      expect(top().name).toBe("river");
+      expect(top()).not.toBeInstanceOf(Stats);
       expect(titles().filter(t => t === titles()[1])).toHaveLength(1);
-      key(char("q")); key(char("q"));
+      key(char("q"));
       expect(titles()).toEqual(["main menu"]);
     });
 
