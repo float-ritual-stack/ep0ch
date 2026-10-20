@@ -1963,10 +1963,10 @@ kitchen sink's actions section.
   where it's set up), the actions you can do here (the focused tile's menu first, each with its key), what changed and
   the screens, each under its heading.
 - **One scope:** start with `%` tiles, `/` notes, `>` actions, `+` recent, `@` screens, `&` extensions, or an extension's own prefix
-  (`~` for the glyphs example); alt+← and alt+→ cycle (or a click on a scope), backspace on an empty line goes back to all. The desk's `/`
+  (`~` for the glyphs example); alt+← and alt+→ cycle (or a click on a scope), backspace on an empty line keeps the scope. The desk's `/`
   and a river column's `g` open it in its notes scope.
 - **Editing:** the shared editor supports mouse drag or double-click selection, Shift+arrows, delete, Ctrl+X cut,
-  paste and Ctrl+Z undo. Ctrl+U clears the line; Ctrl+W deletes the preceding word.
+  paste and Ctrl+Z undo. Ctrl+U clears the line; Alt+Backspace or Ctrl+W deletes the preceding word.
 - **Completing:** Tab extends the common prefix of rows starting with your text, otherwise advances the lit row
   by one word per press. The fill is selected: typing replaces it, Backspace removes it. A non-prefix fill replaces
   the line in one undo step. Inline completion in a draft is unchanged: Tab inserts.

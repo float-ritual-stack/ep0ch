@@ -86,7 +86,7 @@ export function reportKey(r: KeyReport): Key | null {
     case 13: return alt ? { kind: "alt-enter" } : { kind: "enter", ...(shift ? { shift: true as const } : {}), ...(ctrl ? { ctrl: true as const } : {}) };
     case 27: return { kind: "esc" };
     case 9: return shift ? { kind: "backtab" } : { kind: "tab" };
-    case 8: case 127: return { kind: "backspace" };
+    case 8: case 127: return { kind: alt ? "alt-backspace" : "backspace" };
   }
   if (r.code < 32 || (r.code >= 0xe000 && r.code <= 0xf8ff) || r.code > 0x10ffff) return null;   // PUA: keypad and modifier keys
   const plain = String.fromCodePoint(r.code);
@@ -188,6 +188,7 @@ export function keyBytes(k: Key, appCursor = false, flags = 0): string | null {
     case "alt-enter": return kitty ? "\x1b[13;3u" : "\x1b\r";
     case "esc": return kitty ? "\x1b[27u" : "\x1b";
     case "backspace": return "\x7f";
+    case "alt-backspace": return kitty ? "\x1b[127;3u" : "\x1b\x7f";
     case "tab": return "\t";
     case "backtab": return "\x1b[Z";
     case "up": return arrow("A");

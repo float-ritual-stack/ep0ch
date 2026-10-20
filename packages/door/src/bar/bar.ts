@@ -130,7 +130,7 @@ export class PowerBar {
 
   /**
    * The keys it takes before the list's: alt+← alt+→ (or ESC b, ESC f: Option+arrows in some terminals) through the scopes, tab to complete the line (as a shell does: the
-   * lit row's words, the bar stays open), a prefix typed first, backspace out of a scope, alt+⏎.
+   * lit row's words, the bar stays open), a prefix typed first, alt+⏎.
    */
   private ownKey(k: Key): boolean {
     if (this.compact()?.choice && k.kind === "char" && !k.ctrl && (k.ch === "j" || k.ch === "k")) return false;
@@ -148,12 +148,12 @@ export class PowerBar {
       if (k.kind === "tab") void this.host.dispatch.press("bar.edit", { op: "complete" });
       return true;
     }
-    if (k.kind === "backspace" && !this.input.text && this.scope) { this.setScope(null); return true; }
     if (k.kind === "char" && !k.ctrl && !this.input.text && !this.scope) {
       const s = barSources().find(x => x.prefix === k.ch);
       if (s) { this.setScope(s.id); return true; }
     }
     if (k.kind === "alt-enter") { if (this.items.length) this.pick(this.picker.sel + 1, true); return true; }
+    if (k.kind === "alt-backspace") { void this.host.dispatch.press("bar.edit", { op: "delete-word" }); return true; }
     if (k.kind === "char" && k.ctrl && ["u", "w", "x", "z"].includes(k.ch) && !k.shift) {
       void this.host.dispatch.press("bar.edit", { op: k.ch === "u" ? "clear" : k.ch === "w" ? "delete-word" : k.ch === "x" ? "cut" : "undo" });
       return true;
@@ -171,7 +171,7 @@ export class PowerBar {
     if (op === "complete") this.complete();
     else if (op === "clear") this.clear();
     else if (op !== "select") {
-      const k: Key = op === "paste" ? { kind: "paste", text: o.text ?? "" } : { kind: "char", ctrl: true, ch: op === "cut" ? "x" : op === "delete-word" ? "w" : "z" };
+      const k: Key = op === "paste" ? { kind: "paste", text: o.text ?? "" } : op === "delete-word" ? { kind: "alt-backspace" } : { kind: "char", ctrl: true, ch: op === "cut" ? "x" : "z" };
       editorLineKey(this.input, k, text => { if (clipboard && !(this.scope === "ask" && maskedQuestion())) this.host.ctx.copy?.(text); });
       if (this.scope === "ask" && maskedQuestion()) { this.input.undos = []; this.input.redos = []; }
       this.refresh();

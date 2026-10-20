@@ -32,7 +32,7 @@ export type Key =
    */
   | { kind: "hyper"; ch: string }
   /** `shift`: held with an arrow, Home or End (CSI 1;2 A…D H F): a draft selects as the cursor moves. Elsewhere it's the key. */
-  | { kind: "up" | "down" | "left" | "right" | "alt-enter" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete"; shift?: true }
+  | { kind: "up" | "down" | "left" | "right" | "alt-enter" | "alt-backspace" | "esc" | "backspace" | "tab" | "backtab" | "pgup" | "pgdn" | "home" | "end" | "delete"; shift?: true }
   /**
    * Enter. `shift`, `ctrl`: held with it, as only a terminal speaking the Kitty keyboard protocol can say (src/kbd.ts).
    * It's Enter wherever nothing reads them; in a draft Shift+Enter is a plain line break, as alt+enter.
@@ -375,6 +375,7 @@ export class KeyDecoder {
       }
       if (hit) continue;
       if (p[0] === "\x1b" && (p[1] === "\r" || p[1] === "\n")) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt-enter" }); continue; }
+      if (p[0] === "\x1b" && (p[1] === "\x7f" || p[1] === "\x08")) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt-backspace" }); continue; }
       // Alt+letter or digit arrives as ESC and the key together. `[ O P _ ]` start CSI, SS3, DCS, APC and OSC
       // sequences, so an ESC before one of them keeps its old meaning.
       if (p[0] === "\x1b" && p.length >= 2 && /^[A-NQ-Za-z0-9]$/.test(p[1]!)) { this.lastSeq = p.slice(0, 2); this.pending = p.slice(2); this.keyHandler({ kind: "alt", ch: p[1]! }); continue; }

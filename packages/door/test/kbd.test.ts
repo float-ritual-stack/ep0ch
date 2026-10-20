@@ -16,7 +16,7 @@ describe("reading key reports", () => {
     expect(key("\x1b[13u")).toEqual({ kind: "enter" });
     expect(key("\x1b[27u")).toEqual({ kind: "esc" });
     expect(key("\x1b[9;2u")).toEqual({ kind: "backtab" });
-    expect(key("\x1b[127;3u")).toEqual({ kind: "backspace" });
+    expect(key("\x1b[127;3u")).toEqual({ kind: "alt-backspace" });
     expect(key("\x1b[27;2;13~")).toEqual({ kind: "enter", shift: true });       // xterm's modifyOtherKeys form
   });
 
