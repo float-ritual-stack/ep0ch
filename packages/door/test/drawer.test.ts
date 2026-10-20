@@ -188,7 +188,8 @@ describe("the drawer", () => {
       await wait(() => d.app.drawer.tile?.running === true);
       d.key(CTRL_RB);
       expect(d.app.drawer.entered).toBe(false);
-      expect(d.A.message).toContain("ctrl+] or a click goes back in");
+      expect(d.A.message).not.toContain("ctrl+]");
+      expect(d.paint().join("\n")).toContain("ctrl+] back to the door");
       // Right away again: back in, and the agent gets the ctrl+] (the tty echoes it as ^]).
       d.key(CTRL_RB);
       expect(d.app.drawer.entered).toBe(true);

@@ -1324,7 +1324,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return c ? [...new Set(leaves(c).flatMap(id => this.followers(id)))] : [];
   }
   nameOfPane(p: Pane): string { const id = this.idOf(p); return id === undefined ? "" : this.nameOf(id); }
-  enterSession(p: ReaderPane) { this.entered.enter(p); this.ctx.flash(`in ${sessionName(p)} · ${p.hint()}`); this.redraw(); }
+  enterSession(p: ReaderPane) { this.entered.enter(p); this.ctx.flash(`in ${sessionName(p)}`); this.redraw(); }
   leave() { this.shell("screen.back"); }
   /** The tiles a columns container's source supplied, in its order (wherever they are now). */
   private sourcedIn(c: Columns<number>): number[] {
@@ -3925,6 +3925,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         ? paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET
         : paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · |15Tab/1-9|08 focus · |15^W|08 window`));
     }
+    if (!this.prefix && !this.all().length) return line("");
     const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";
     if (this.prefix === "wm") this.hintBox = wBoxLines(this.wRows());
     const s = this.prefix === "wm"
@@ -3954,7 +3955,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const opened = (open: boolean) => {
       const want = still();
       if (this.pending === token) this.pending = null;
-      if (open && want) { this.entered.enter(rd); this.ctx.flash(`${this.readerLabel(this.focus)} · ${rd.surface.state()} · ${rd.hint()}`); }
+      if (open && want) { this.entered.enter(rd); this.ctx.flash(`${this.readerLabel(this.focus)} · ${rd.surface.state()}`); }
       this.redraw();
       return open && want;
     };
@@ -4137,7 +4138,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       } else if (k.kind !== "mouse" && !this.prefix && !this.collapsed.has(this.focus)) {
         // One they aren't in (and can see: a spine's is out of sight) (an agent's, or theirs after moving away): e or ⏎ enters it, j k PgDn scroll,
         // and the desk's keys keep working. None of its own keys get here.
-        if (c === "e" || k.kind === "enter") { this.entered.enter(focused); ctx.flash(`in ${sessionName(focused)} · ${focused.hint()}`); return this.redraw(); }
+        if (c === "e" || k.kind === "enter") { this.entered.enter(focused); ctx.flash(`in ${sessionName(focused)}`); return this.redraw(); }
         if (focused.scrollKey(k, this)) return;
       }
     }
@@ -5219,7 +5220,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Said by what its header calls it (the drawer's own tile: what runs in it, never its tile name).
     const said = (p as Pane).headName?.() ?? name;
     if (send) { p.input(send); this.ctx.flash(`sent ctrl+] to ${said}`); }
-    else this.ctx.flash(`typing in ${said} · ${ESCAPE_CHORD} back to the door`);
+    else this.ctx.flash(`typing in ${said}`);
     return { tile: name, typing: true };
   }
 
@@ -5231,7 +5232,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.ptyIn;
     if (!p) throw new ActionRefused("the person isn't typing in a terminal tile");
     this.ptyIn = null; this.chord = { pane: p, at: Date.now() };
-    this.ctx.flash(`back to the door · ctrl+] again sends ctrl+] to ${this.nameOf(this.focus)} · e or ⏎ types in it again`);
+    this.ctx.flash("back to the door");
     return { tile: this.nameOf(this.focus), typing: false };
   }
 

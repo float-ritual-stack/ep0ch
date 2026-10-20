@@ -127,7 +127,7 @@ class DrawerTile extends PtyPane {
   private takeNext() { if (!this.next) return; const { shows, ...run } = this.next; Object.assign(this.run, run); this.shows = shows; this.next = null; }
   protected override start(cols: number, rows: number) { if (this.away) return; this.takeNext(); super.start(cols, rows); }
 }
-/** The drawer's own kind, registered once: a terminal's actions and keys; a running program stays (its policy), said in a person's words. */
+/** The drawer's own kind, registered once: the terminal's actions and close behavior, with its own program and identity. */
 function registerDrawerKind() {
   if (tileKind(DRAWER_KIND)) return;
   // The terminal kind's own hooks (its keys, its views, what it holds), all but how one is made, its ^W o keys and its
@@ -1357,7 +1357,7 @@ export class AgentDrawer {
     const d = this.desk, t = this.shownTabOf(), q = t && d ? d.pane(t.name) : undefined;
     if (q instanceof PtyPane && !q.running && q.exited !== null) {
       if (restart) { d!.run("tile.restart", {}, t!.name); this.host.redraw(); return { entered: true, restarted: true }; }
-      this.host.flash(d!.exitedSay(t!.name, t!.name === DRAWER_TILE_ID ? this.name : t!.name));
+      this.host.flash(`${t!.name === DRAWER_TILE_ID ? this.name : t!.name} exited`);
       d!.run("tile.focus", {}, t!.name);
       this.host.redraw();
       return { entered: true };
@@ -1377,7 +1377,7 @@ export class AgentDrawer {
     this.wantIn = null;
     this.leftAt = Date.now();
     if (!this.tabs().length) { this.set(false, USER); return { entered: false }; }
-    if (said) this.host.flash(`back to the ${screen?.title ?? "screen"} · ${ESCAPE_CHORD} or a click goes back in (${ESCAPE_CHORD} again now sends it to ${this.name}) · Esc or alt+a puts it away`);
+    if (said) this.host.flash(`back to the ${screen?.title ?? "screen"}`);
     this.host.redraw();
     return { entered: false };
   }
@@ -1550,7 +1550,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "host.shell": def({
     summary: "a new shell in the drawer (the person's $SHELL, in the drawer's folder), as a tab shown: the person's goes into it; an agent's opens it behind the tab shown, their keys where they were",
-    keys: "alt+s (on every screen, and in the drawer)",
+    keys: "alt+s (on every screen, and in the drawer), or a click on Shell at home",
     touches: "shape", replay: "ask",
     says: (out: { tile?: string }) => `· opened a shell in the drawer (${out.tile ?? "shell"})`,
     args: {},
@@ -1673,7 +1673,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   }),
   "agents.new": def({
     summary: "a new agent session: the person's picks the program (the outline's agent configs, the agents installed here), then the folder, and starts it (agent.start). An agent names them: agents.new program=<name> in=<folder> is agent.start",
-    keys: "n in the agent panel",
+    keys: "n in the agent panel, or a click on New Agent in its empty state",
     touches: "shape", replay: "ask",
     args: { program: { type: "string", optional: true, about: "as agent.start's" }, in: { type: "string", optional: true, about: "as agent.start's" } },
     examples: [
