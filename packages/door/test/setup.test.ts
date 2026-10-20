@@ -1360,7 +1360,7 @@ for (const platform of ["darwin", "linux"]) for (const kind of ["link", "backup"
   const { scratchDir, until } = await import("./scratch");
   const home = scratchDir("units-"), bin = join(home, ".local/bin"), repo = join(home, "repo");
   const outlines = join(home, "outlines");
-  for (const dir of [bin, join(outlines, ".host"), join(home, ".config/secrets"), join(repo, "packages/door/src")]) mkdirSync(dir, { recursive: true });
+  for (const dir of [bin, join(outlines, ".host"), join(home, ".config/secrets"), join(repo, "packages/door/src")]) mkdirSync(dir, { recursive: true, mode: 0o700 });
   writeFileSync(join(repo, "packages/door/src/main.ts"), "");
   let connector: ReturnType<typeof import("@ep0ch/outliner/link").connectLink> | undefined;
   if (kind === "link") {

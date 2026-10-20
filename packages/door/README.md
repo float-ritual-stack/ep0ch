@@ -635,7 +635,9 @@ It lists user systemd units and launchd agents still naming the old tools withou
 See [the mod installer](../claude-mod/README.md#use) for the rename and saved UI state decision.
 
 Connected machine links carry the installed origin/main SHA to their laptops;
-those away install on their next connection. Install prints the exit code,
+after restarting the link server, install waits up to 60 seconds for previously
+connected machines to return. Those still away queue the install for their next
+connection without failing the deploy. Install prints the exit code,
 unfinished work and session outcomes, also saved in Deploys. On the laptop,
 `ep0ch link auto-install off` leaves an update prompt in the door;
 `ep0ch link auto-install on` resumes it without restarting the link.

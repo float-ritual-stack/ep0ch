@@ -660,6 +660,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     return 0;
   }
   const say = (s: string) => progress.line(s);
+  const connectedBeforeRestart = new Set(linkStates(facts.host.folder).map(l => l.machine));
   say(`ep0ch install · ${facts.platform} · applying`);
   let deploy: Awaited<ReturnType<typeof startDeployRecord>> | undefined;
   let creatingRecord = false;
@@ -744,6 +745,15 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     const head = await run(["git", "-C", facts.repo.root, "rev-parse", "HEAD"], { env });
     const verified = await run(["git", "-C", facts.repo.root, "merge-base", "--is-ancestor", head.out, "origin/main"], { env });
     if (head.code === 0 && verified.code === 0) {
+      const returning = facts.linkConfig.machines.filter(machine => connectedBeforeRestart.has(machine));
+      if (returning.length) {
+        say(`    waiting up to 60s for machine links: ${returning.join(", ")}`);
+        // Restart health is local; a connector that stays away only queues its install.
+        await waitFor(async () => {
+          const up = new Set(linkStates(facts.host.folder).map(l => l.machine));
+          return returning.every(machine => up.has(machine));
+        }, 60_000);
+      }
       const connected = new Set(linkStates(facts.host.folder).map(l => l.machine));
       for (const machine of facts.linkConfig.machines) if (deploy) {
         const receipt = linkInstallResult(facts.host.folder, machine, head.out);

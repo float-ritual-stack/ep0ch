@@ -134,7 +134,10 @@ case "$verb" in
     [ "$name" = outliner-host.service ] || exit 1
     alive || { cd '${repo}/packages/outliner' && EP0CH_OUTLINES='${outlines}' setsid '${bun}' src/host-main.ts >>'${units}'/host.log 2>&1 </dev/null & echo $! >"$pidf"; } ;;
   stop) if alive; then p=$(cat "$pidf"); kill "$p"; while kill -0 "$p" 2>/dev/null; do sleep 0.1; done; fi; rm -f "$pidf" ;;
-  restart) "$0" --user stop "$name" && "$0" --user start "$name" ;;
+  restart) if [ "$name" = ep0ch-link ] && [ -f '${root}/away-on-restart.pid' ]; then
+      kill "$(cat '${root}/away-on-restart.pid')"; rm -f '${root}/away-on-restart.pid'
+    fi
+    "$0" --user stop "$name" && "$0" --user start "$name" ;;
   show) if alive; then printf 'ActiveState=active\\nSubState=running\\nMainPID=%s\\n' "$(cat "$pidf")"; else printf 'ActiveState=inactive\\nSubState=dead\\nMainPID=0\\n'; fi; echo ExecMainStatus=0 ;;
   *) exit 1 ;;
 esac
@@ -386,9 +389,10 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     writeFileSync(installer, readFileSync(installer, "utf8").replace("  const plan = buildPlan(facts, options);", '  if (args.includes("--as-client")) writeFileSync(join(facts.home, "new-garden-support"), "installed by the target code");\n  const plan = buildPlan(facts, options);'));
     git("add", "packages/outline-core/src/protocol.ts", "packages/door/src/setup/apply.ts"); git("commit", "-qm", "the garden host speaks the next protocol"); git("push", "-q", "origin", "main");
     const linkedHead = git("rev-parse", "HEAD");
-    writeFileSync(join(outlines, ".host/link.json"), JSON.stringify({ mode: "serve", port, machines: ["travel"] }));
+    writeFileSync(join(outlines, ".host/link.json"), JSON.stringify({ mode: "serve", port, machines: ["travel", "roam"] }));
     mkdirSync(join(home, ".config/secrets"), { recursive: true });
     writeFileSync(join(home, ".config/secrets/link-travel.env"), "LINK_KEY=fictional-key\n", { mode: 0o600 });
+    writeFileSync(join(home, ".config/secrets/link-roam.env"), "LINK_KEY=fictional-roam-key\n", { mode: 0o600 });
     // The helper is the connector's production assembly, using its own checkout and installer, without a public TLS endpoint.
     writeFileSync(join(root, "linked-client.ts"), `import { connectLink } from "${clientRepo}/packages/outliner/src/link";
 import { installLinkedSha } from "${clientRepo}/packages/door/src/link";
@@ -398,12 +402,19 @@ process.once("SIGTERM",()=>{connector.stop();process.exit(0)});
 `);
     fakeSystemctl("start", "ep0ch-link");
     let linkedClient = Bun.spawn([bun, join(root, "linked-client.ts")], { cwd: clientHome, env: clientEnv, stdout: "ignore", stderr: Bun.file(join(root, "linked-client.log")) });
+    writeFileSync(join(root, "roaming-client.ts"), readFileSync(join(root, "linked-client.ts"), "utf8").replace('machine: "travel"', 'machine: "roam"').replace("fictional-key", "fictional-roam-key").replace("link-state.json", "roam-link-state.json"));
+    const roamingClient = Bun.spawn([bun, join(root, "roaming-client.ts")], { cwd: clientHome, env: clientEnv, stdout: "ignore", stderr: Bun.file(join(root, "roaming-client.log")) });
     try {
       await until(() => { try { return JSON.parse(readFileSync(join(outlines, ".remote/travel.link.json"), "utf8")).up; } catch { return false; } }, "laptop linked before the deploy", 20_000);
+      await until(() => { try { return JSON.parse(readFileSync(join(outlines, ".remote/roam.link.json"), "utf8")).up; } catch { return false; } }, "roaming laptop linked before the deploy", 20_000);
+      // This laptop leaves during the restart; only travel can receive this deploy now.
+      writeFileSync(join(root, "away-on-restart.pid"), String(roamingClient.pid));
       const delivered = await ep0ch("install", "--apply", "--json");
       const report = JSON.parse(delivered.out);
       expect({ code: delivered.code, err: delivered.err, step: report.steps.find((s: {error?:string}) => s.error) }).toMatchObject({ code: 0, step: undefined });
       expect(report.linked.join("\n")).toContain(`travel: installed ${linkedHead}`);
+      expect(report.linked.join("\n")).toContain("roam: away; install queued for its next connection");
+      expect(await roamingClient.exited).toBe(0);
       expect(report.linked.join("\n")).toContain("session was handed over");
       expect(sh(["git", "-C", clientRepo, "rev-parse", "HEAD"])).toBe(linkedHead);
       expect(readFileSync(join(clientHome, "new-garden-support"), "utf8")).toBe("installed by the target code");
@@ -420,6 +431,7 @@ process.once("SIGTERM",()=>{connector.stop();process.exit(0)});
       expect(repeatedRecord.blocks[0].text).toContain(`travel: installed ${linkedHead}`);
       expect(repeatedRecord.blocks[0].text).not.toContain("install pending");
     } finally {
+      roamingClient.kill(); await roamingClient.exited;
       linkedClient.kill(); await linkedClient.exited;
       const end = Bun.spawn([bun, join(clientRepo, "packages/door/src/main.ts"), "session", "end", "--all", "--yes"], { env: clientEnv, cwd: clientHome, stdout: "ignore", stderr: "ignore" });
       await end.exited;
