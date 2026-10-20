@@ -27,6 +27,26 @@ jobs:
           key: bun-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
       - run: bun run check
+  bench:
+    # The outline tile's scroll budget over 2,600 notes (PIE-1094): minutes of seeding, so its own job, beside the suites.
+    if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review' || github.event.label.name == 'ci'
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - name: scroll bench (door)
+        working-directory: packages/door
+        env:
+          SCROLL_BENCH: "1"
+        run: bun test test/scroll-bench.test.ts
   test:
     if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review' || github.event.label.name == 'ci'
     strategy:
@@ -37,8 +57,8 @@ jobs:
           - { pkg: outliner, runner: blacksmith-8vcpu-ubuntu-2404, args: "" }
           - { pkg: outline-core, runner: blacksmith-2vcpu-ubuntu-2404, args: "" }
     runs-on: ${{ matrix.runner }}
-    # The run's own 12 minutes, the reruns' 4 and the setup.
-    timeout-minutes: 20
+    # The run's own 16 minutes, the reruns' 4 and the setup.
+    timeout-minutes: 24
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -57,7 +77,7 @@ jobs:
         run: |
           export HOME="$RUNNER_TEMP/home"; mkdir -p "$HOME"
           for v in $(compgen -e | grep '^EP0CH_'); do unset "$v"; done
-          # A run still going at 12 minutes (a full run takes about 8) is stopped, after scripts/ci-hang-report.sh has
+          # A run still going at 16 minutes (a full run takes about 8-13 on a busy runner: the same commit took 558 s on Oct 19 and 765 s on Oct 20) is stopped, after scripts/ci-hang-report.sh has
           # written what each process and the machine were doing to the log and the hang-report artifact. Hung or slow:
           # a run whose output last moved 3 minutes or more before is hung (a worker spinning after its tests, PIE-831);
           # one still passing tests is slow (Oct 13-14: every parity test 2-3x slower at once, PIE-831), said apart.
@@ -68,7 +88,7 @@ jobs:
           bash ../../scripts/ci-machine-sample.sh "$machine" & sampler=$!
           setsid bun test ${{ matrix.args }} --reporter=junit --reporter-outfile="$RUNNER_TEMP/junit-${{ matrix.pkg }}.xml" > >(tee "$out") 2>&1 & run=$!
           hung="$RUNNER_TEMP/hung-${{ matrix.pkg }}"; hang="$RUNNER_TEMP/hang-${{ matrix.pkg }}.txt"
-          ( sleep 720; kill -0 $run 2>/dev/null || exit 0
+          ( sleep 960; kill -0 $run 2>/dev/null || exit 0
             quiet=$(( $(date +%s) - $(stat -c %Y "$out" 2>/dev/null || echo 0) ))
             if [ $quiet -ge 180 ]; then echo "hung: no output for ${quiet}s" > "$hung"; else echo "slow: still passing tests (output ${quiet}s ago)" > "$hung"; fi
             timeout 150 bash ../../scripts/ci-hang-report.sh $run "$out" > "$hang" 2>&1 || true
@@ -78,8 +98,8 @@ jobs:
           if [ -e "$hung" ]; then
             wait $watchdog 2>/dev/null || true
             case $(cat "$hung") in
-              hung*) echo "::error title=Test run hung::bun test (${{ matrix.pkg }}) stopped making output and was stopped at 12 minutes ($(cat "$hung")): what it was doing is below and in the hang-report artifact" ;;
-              *) echo "::error title=Test run too slow::bun test (${{ matrix.pkg }}) was still passing tests at 12 minutes, a full run takes about 8 ($(cat "$hung")): what the machine was doing is below and in the hang-report artifact" ;;
+              hung*) echo "::error title=Test run hung::bun test (${{ matrix.pkg }}) stopped making output and was stopped at 16 minutes ($(cat "$hung")): what it was doing is below and in the hang-report artifact" ;;
+              *) echo "::error title=Test run too slow::bun test (${{ matrix.pkg }}) was still passing tests at 16 minutes, a full run takes about 8-13 ($(cat "$hung")): what the machine was doing is below and in the hang-report artifact" ;;
             esac
             cat "$hang" 2>/dev/null || true
             echo "== the machine through the run (every 30 s)"; cat "$machine" 2>/dev/null || true

@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 
-test("keys and wheel paint a 2,600-child outline within the scroll budget", async () => {
+// Seeding 2,600 notes takes minutes on a shared runner: CI runs this in its own job (test.yml `bench`, SCROLL_BENCH=1),
+// not inside the door suite's 12-minute run. Locally: SCROLL_BENCH=1 bun test test/scroll-bench.test.ts.
+test.skipIf(!process.env.SCROLL_BENCH)("keys and wheel paint a 2,600-child outline within the scroll budget", async () => {
   const p = Bun.spawn(["bun", join(import.meta.dir, "../scripts/bench-scroll.ts"), "--check", "--json"], {
     stdout: "pipe", stderr: "pipe", env: process.env as Record<string, string>,
   });
