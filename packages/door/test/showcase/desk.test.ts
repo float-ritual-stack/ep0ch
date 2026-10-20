@@ -774,6 +774,8 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       const close = () => drawer.dispatch.act({ action: "tile.close", tile: t.name }, { kind: "user" });
       try { await close(); } catch (e) { if (!(e as Error).message.includes("closing ends it")) throw e; await close(); }
     }
+    // One more close on the empty home says so in words, not "no tile undefined".
+    await expect(drawer.dispatch.act({ action: "tile.close" }, { kind: "user" })).rejects.toThrow(/this screen is empty · ctrl\+n a note/);
     (app as any).paint();
     const rows = h.painted.map(plain);
     const y = rows.findIndex(l => l.includes("[New note]"));

@@ -4557,6 +4557,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * named: the focused one. The grammar itself (ids, numbers, block ids, aliases) is the dispatcher's alone.
    */
   private tileNamed(sel: string | undefined, refuse = true): { name: string; id: number } | null {
+    // An empty screen is its home: say so, and what starts something, never "no tile undefined".
+    if (!this.all().length) {
+      if (!refuse) return null;
+      throw new ActionRefused("this screen is empty · ctrl+n a note, alt+s a shell, ctrl+k the power bar");
+    }
     if (!sel || sel === "focused") return { name: this.nameOf(this.focus), id: this.focus };
     const byName = this.idNamed(sel);
     if (byName !== undefined) return { name: sel, id: byName };
