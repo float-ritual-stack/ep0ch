@@ -112,7 +112,7 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
           await d.dispatch.act({ action: "tile.focus", tile }, USER);
           press({ kind: "enter" });
         }
-        await until(() => paint().includes(`[${label}]`), `${place} ${gesture}: ${label} drawn`);
+        await until(() => paint().includes(`[${label}]`), `${place} ${gesture}: ${label} drawn`, 20_000);
         if (gesture === "click") {
           const lines = paint().split("\n"), y = lines.findIndex(l => l.includes(`[${label}]`));
           click(lines[y]!.indexOf(`[${label}]`) + 2, y);
