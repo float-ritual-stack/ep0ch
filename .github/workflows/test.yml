@@ -27,6 +27,26 @@ jobs:
           key: bun-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile
       - run: bun run check
+  bench:
+    # The outline tile's scroll budget over 2,600 notes (PIE-1094): minutes of seeding, so its own job, beside the suites.
+    if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review' || github.event.label.name == 'ci'
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
+      - name: scroll bench (door)
+        working-directory: packages/door
+        env:
+          EP0CH_BENCH: "1"
+        run: bun test test/scroll-bench.test.ts
   test:
     if: github.event_name != 'pull_request' || github.event.action == 'ready_for_review' || github.event.label.name == 'ci'
     strategy:
