@@ -125,6 +125,7 @@ import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData
 import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
 import { readState, writeState } from "../state";
+import { menuRow } from "../desk/tile-menu";
 import { ListPicker } from "./picker";
 import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
 import { headingStylesOf, headingStylesStamp } from "../heading-styles";
@@ -1258,14 +1259,15 @@ export class NoteSurface {
     this.hero = hero && { line: hero.line, full: hero.box.rows, pinned: hero.look.scroll === "pinned", over: hero.look.title === "over" };
     let v = this.renderNote(w, h, host);
     const shown = this.drawn?.heroRows ?? 0;
-    // A split that doesn't fit the reader (too narrow or short to share) is drawn as a popup meanwhile.
-    if (writing && writing.cs.place !== "inline") v = this.overComposer(v, w, h - shown, writing, writing.cs.place === "split" || writing.cs.place === "tile" ? "popup" : writing.cs.place, host?.focused !== false);
-    if (!hero || !shown) return v;
-    const cut = this.hero?.pinned ? 0 : Math.min(this.scroll, hero.box.rows), lines = Array.from({ length: shown }, () => "");
-    if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
-    const above = hero.placement?.row ?? 0;
-    const p = hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
-    return { ...v, headerBand: v.headerBand && { ...v.headerBand, row: shown }, lines: [...lines, ...v.lines], gutter: v.gutter?.map(g => ({ ...g, row: g.row + shown })), placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
+    if (hero && shown) {
+      const cut = this.hero?.pinned ? 0 : Math.min(this.scroll, hero.box.rows), lines = Array.from({ length: shown }, () => "");
+      if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
+      const above = hero.placement?.row ?? 0;
+      const p = hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
+      v = { ...v, headerBand: v.headerBand && { ...v.headerBand, row: shown }, lines: [...lines, ...v.lines], gutter: v.gutter?.map(g => ({ ...g, row: g.row + shown })), placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
+    }
+    // A split that does not fit shares the popup path.
+    return writing && writing.cs.place !== "inline" ? this.overComposer(v, w, h, writing, writing.cs.place === "split" || writing.cs.place === "tile" ? "popup" : writing.cs.place, host?.focused !== false) : v;
   }
 
   /**
@@ -1274,7 +1276,8 @@ export class NoteSurface {
    * image. A picture under the box isn't drawn while it's there.
    */
   private overComposer(v: SurfaceView, w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>, place: "floating" | "popup", focused: boolean): SurfaceView {
-    const lines = [...v.lines], room = Math.max(lines.length, h);
+    const heroRows = this.drawn?.heroRows ?? 0;
+    const lines = v.lines.slice(heroRows), room = Math.max(lines.length, h - heroRows);
     let box!: ComposerBox;
     this.boxRect = attachedRect(place, w, room, {
       moved: c.cs.float, passage: this.composerRows, from: this.drawn?.top ?? 0,
@@ -1291,8 +1294,8 @@ export class NoteSurface {
     }, place === "floating");
 
     placeBox(c.d, box, row, col);
-    const under = (p: Placement) => p.row < row + box.lines.length + 2 && p.row + p.rows > row && p.col < col + box.width && p.col + p.cols > col;
-    return { ...v, lines: painted, placements: [...(focused ? [] : (v.placements ?? []).filter(p => !under(p))), ...previewPictures(c.d, 0, room)] };
+    const under = (p: Placement) => p.row < heroRows + row + box.lines.length + 2 && p.row + p.rows > heroRows + row && p.col < col + box.width && p.col + p.cols > col;
+    return { ...v, lines: [...v.lines.slice(0, heroRows), ...painted], placements: [...(v.placements ?? []).filter(p => p.row + p.rows <= heroRows || !focused && !under(p)), ...previewPictures(c.d, 0, room).map(p => ({ ...p, row: p.row + heroRows }))] };
   }
 
   /**
@@ -5337,11 +5340,11 @@ export class NoteSurface {
    */
   click(x: number, y: number, host: SurfaceHost): boolean {
     this.use(host);
+    if (this.placementMenu) return this.modes.click(x, y, host) ?? false;
     // The note's rows are under its header image (PIE-532).
     y -= host.attachment ? 0 : this.drawn?.heroRows ?? 0;
     // The `[ ]` position as the click found it: a click's own reading.place lets go of it first.
     const was = this.cur;
-    if (this.placementMenu) return this.modes.click(x, y, host) ?? false;
     const float = this.floatAt(x, y + (this.drawn?.heroRows ?? 0), host);
     if (float) { this.modes.get(float)?.click(x, y, host); return true; }
     const h = this.hitAt(x, y);
@@ -6143,9 +6146,15 @@ export class NoteSurface {
   openPlacementMenu(target: "comment" | "sources", host: SurfaceHost) {
     const place = target === "comment" ? this.session?.place : this.sourcesMode?.place;
     if (!place) throw new ActionRefused(`open ${target} first`);
+    const control = this.session?.composer?.frame?.controls.find(c => c.action === "place");
+    if (target === "comment" && !control) throw new ActionRefused("write a comment in a reader at least 28 columns wide to show its placement chip");
+    const sm = this.sourcesMode;
+    const chip = target === "comment"
+      ? { col: control!.from, row: control!.row + (place === "tile" ? 0 : this.drawn?.heroRows ?? 0) }
+      : { col: sm!.rect.x + sm!.rect.w - `[${place} ▸]`.length, row: sm!.rect.y };
     const list = new ListPicker<AttachedPlace, SurfaceHost>({
       name: "placement", items: () => ATTACHED_PLACES.filter(p => p !== "tile" || !!(target === "comment" ? host.composerTile : host.sourcesTile)),
-      row: p => [`${p === place ? "*" : " "} ${p}`], clickChooses: true, wraps: true,
+      row: (p, _i, on, w) => [menuRow({ label: p }, p === place ? "current" : on, w)], clickChooses: true, wraps: true,
       choose: p => { void this.runKey("placement.choose", { place: p }, host); },
       closed: () => { void this.runKey("placement.close", {}, host); },
       clicked: (x, y) => {
@@ -6154,7 +6163,12 @@ export class NoteSurface {
         if (local >= 0 && local < 15) { void this.runKey("placement.choose", { place: "split", direction: local < 8 ? "right" : "down" }, host); return true; }
         return false;
       },
-      frame: area => ({ tail: ["[beside] [below]"], rect: { col: Math.max(0, area.cols - 22), row: Math.min(2, Math.max(0, area.rows - 10)), cols: Math.min(22, area.cols), rows: Math.min(10, area.rows) }, title: "Placement", foot: "Enter choose · Esc close" }),
+      frame: area => {
+        const cols = Math.min(22, area.cols), rows = Math.min(10, area.rows);
+        const col = Math.max(0, Math.min(chip.col, area.cols - cols));
+        const row = Math.max(0, Math.min(chip.row + 1 + rows <= area.rows ? chip.row + 1 : chip.row - rows, area.rows - rows));
+        return { tail: ["[beside] [below]"], rect: { col, row, cols, rows }, title: "Placement", foot: "Enter choose · Esc close" };
+      },
     });
     list.sel = list.items.indexOf(place);
     this.modes.push({ name: "placement", of: list, word: "placement", noun: "the placement menu", list, target,
@@ -6597,6 +6611,7 @@ export class NoteSurface {
         return true;
       },
       click: (x, y, host) => {
+        if (mode.place === "tile" && host.attachment !== "sources") return undefined;
         y += host.attachment ? 0 : this.drawn?.heroRows ?? 0;
         const r = mode.rect;
         if (this.floatAt(x, y, host) === "comment") return undefined;
@@ -6612,7 +6627,7 @@ export class NoteSurface {
         if (hit) run(hit.action, hit.args);
         return true;
       },
-      wheel: (dir, _host, at) => { const r = mode.rect; if (!at || at.x < r.x || at.x >= r.x + r.w || at.y < r.y || at.y >= r.y + r.h) return false; run("sources.scroll", { by: wheelRows(dir) }); return true; },
+      wheel: (dir, host, at) => { if (mode.place === "tile" && host.attachment !== "sources") return false; const r = mode.rect; if (!at || at.x < r.x || at.x >= r.x + r.w || at.y < r.y || at.y >= r.y + r.h) return false; run("sources.scroll", { by: wheelRows(dir) }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("sources"); return { left: "nothing" }; },
       leaveRefusal: () => mode.view.field ? "finish the property field · Enter saves · Esc keeps" : null,
       unsaved: () => mode.view.unsaved(), keep: () => mode.view.keep(),
@@ -7094,7 +7109,7 @@ export class NoteSurface {
     const sm = this.sourcesMode, r = sm?.rect;
     const zone = sm?.place === "floating" && sm.frame && this.floatAt(x, y, host) !== "comment" ? frameZone(sm.frame, x, y) : null;
     if (zone && sm?.frame) { this.frameDrag = { target: "sources", zone, x, y, from: sm.frame }; return; }
-    if (sm && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) && this.floatAt(x, y, host) !== "comment" && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+    if (sm && (sm.place !== "tile" || host.attachment === "sources") && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) && this.floatAt(x, y, host) !== "comment" && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
       if (y >= r.y + sm.footer) { this.gesture.press(x, y); return; }
       void this.runKey("sources.select", { phase: "start", row: y - r.y - 1 + sm.view.top, col: x - r.x }, host);
       return;

@@ -15,6 +15,88 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
   let board!: typeof h.board, app!: typeof h.app, seeded!: typeof h.seeded;
   beforeAll(() => { ({ board, app, seeded } = h); });
 
+  test("a Sources tile leaves the reader's presses, clicks and wheel with the note", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes");
+    if (!(pane instanceof ReaderPane)) throw new Error("notes must be a reader");
+    const act = (action: string, args = {}) => app.dispatch.act({ action, tile: "notes", args }, USER);
+    await act("sources.open");
+    await act("sources.place", { place: "tile" });
+    screen();
+    await act("sources.focus", { on: false });
+    const sm = pane.surface.sourcesMode!;
+    const top = sm.view.top;
+    const scroll = pane.surface.scroll;
+    pane.wheel(1, stage, { x: 8, y: 8 });
+    expect(pane.surface.scroll).toBeGreaterThan(scroll);
+    expect(sm.view.top).toBe(top);
+    pane.press(8, 8, stage);
+    expect(sm.view.pressed).toBeFalsy();
+    pane.release(8, 8, stage);
+    await Bun.sleep(20);
+    expect(sm.describe()).toMatchObject({ keys: "reader" });
+    await act("sources.place", { place: "split" });
+    await act("sources.close");
+  });
+
+  test("a top floating comment keeps its painted row under a hero when Sources opens", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "hero" } }, USER);
+    const video = app.video;
+    app.video = "kitty";
+    await until(() => h.sc.render(app).placements?.some(p => p.key.includes("hero:img:")) === true, "the hero loaded");
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane(stage.readerPanes()[0]!.name);
+    if (!(pane instanceof ReaderPane)) throw new Error("hero must be a reader");
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, stage.readerPanes()[0]!.name);
+    await act("comment.note");
+    pane.key({ kind: "paste", text: "Keep my hero comment here" }, stage);
+    await act("comment.place", { place: "floating" });
+    screen();
+    await act("comment.move", { row: 10, col: 2, cols: 60, rows: 12 });
+    const before = screen().split("\n").findIndex(l => l.includes("Keep my hero comment here"));
+    expect(before).toBeGreaterThan(10);
+    await act("sources.open");
+    await act("sources.place", { place: "floating" });
+    await act("sources.move", { row: 0, col: 65, cols: 30, rows: 10 });
+    await act("sources.focus", { on: false });
+    expect(screen().split("\n").findIndex(l => l.includes("Keep my hero comment here"))).toBe(before);
+    await act("comment.close", { discard: true });
+    await act("sources.close");
+    app.video = video;
+  });
+
+  test("the placement menu opens below its moved chip by mouse and by key", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes");
+    if (!(pane instanceof ReaderPane)) throw new Error("notes must be a reader");
+    const act = (action: string, args = {}) => app.dispatch.act({ action, tile: "notes", args }, USER);
+    await act("sources.open");
+    await act("sources.place", { place: "floating" });
+    screen();
+    await act("sources.move", { row: 12, col: 4, cols: 44, rows: 14 });
+    const rows = screen().split("\n");
+    const chipRow = rows.findIndex(l => l.includes("[floating ▸]"));
+    const chipCol = rows[chipRow]!.indexOf("[floating ▸]");
+    for (const mouse of [true, false]) {
+      if (mouse) {
+        const r = pane.surface.sourcesMode!.rect;
+        pane.click(r.x + r.w - "[floating ▸]".length, r.y, stage);
+      } else await act("placement.menu", { target: "sources" });
+      await until(() => screen().includes("Placement"), "placement menu open");
+      const menu = screen().split("\n");
+      const row = menu.findIndex(l => l.includes("Placement"));
+      expect(row).toBe(chipRow + 1);
+      expect(menu[row]!.indexOf("Placement") - 3).toBe(chipCol);
+      await act("placement.close");
+    }
+    await act("sources.place", { place: "split" });
+    await act("sources.close");
+  });
+
   test("overlapping attachments give the top float the wheel and restore keys after closing it", async () => {
     await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
     screen();

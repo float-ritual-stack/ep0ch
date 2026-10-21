@@ -201,7 +201,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     click(chip.x + 2, chip.y);
     await until(() => screen().includes("Placement"), "the chip opens the placement menu");
     expect(cs()?.place).toBe("split");
-    const popupChoice = find("  popup");
+    const popupChoice = find(" popup");
     click(popupChoice.x + 2, popupChoice.y);
     await until(() => cs()?.place === "popup" && rows().join("\n").includes("[popup ▸]"), "the menu chooses popup");
     // In the popup the mouse still selects: " night" dragged across and taken out.
