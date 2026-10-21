@@ -1,3 +1,4 @@
+import { completeCommand, commandButton, runAnswer } from "./command";
 import { clipText } from "../overflow";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { lookFor } from "../look";
@@ -21,17 +22,18 @@ import type { Msg } from "../board";
 import { ListPicker, pickRow } from "../surface/picker";
 import { Draft } from "../edit";
 import { editorLineKey } from "../surface/editor";
-import { Gesture, rowsOf, wordAt } from "../surface/selection";
-import { NoteSurface, draftPreview, type SurfaceHost } from "../surface/note";
-import { keyCaption } from "../surface/actions";
-import { MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
+import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, modeKey } from "../surface/selection";
+import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";
+import { keyCaption, keyName, keyOfName, lineWords, shownLine, ActionRefused } from "../surface/actions";
+import { shellWord } from "../machine";
+import { RowView, wheelRows, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
 import { C, chip, dim, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, width } from "../style";
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
 import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 import "./sources";
-import { compactQuestion, formOpen, maskedQuestion, clearPrivateForm } from "./ask";
+import { compactQuestion, formOpen, formLine, maskedQuestion, clearPrivateForm } from "./ask";
 
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
 export interface BarItem { source: BarSource; row: BarRow; heading?: string }
@@ -76,6 +78,20 @@ export class PowerBar {
   private tabSpots: { from: number; to: number; scope: string | null }[] = [];
   /** The preview's reader and the notes it read. */
   private readonly surface = new NoteSurface();
+  private readonly docsView = new RowView();
+  private readonly docsGesture = new Gesture();
+  private docsSelection: Selection | null = null;
+  private docsRect: Rect | null = null;
+  private docsLines: string[] = [];
+  private docsDoc: ReturnType<typeof draftPreviewDoc> | null = null;
+  private docsRows() {
+    const rows = rowsOf(this.docsLines, undefined, r => this.docsDoc?.trims.get(r));
+    return { ...rows, joins: (r: number) => this.docsDoc?.wraps?.get(r + 1) };
+  }
+  private docsKey = "";
+  private docsMode = false;
+  private docsExamples = new Map<number, string>();
+  private menuSpots: { from: number; to: number; action: string; args: Record<string, unknown> }[] = [];
   private shownNote: string | null = null;
   private readonly notes = new Map<string, Msg | null | "…" | { offline: string }>();
   private readonly reads = new Map<string, number>();
@@ -89,6 +105,7 @@ export class PowerBar {
     // The query is plain words for every source (the service's search, a filter over rows): no outline-text completion.
     this.input = new Draft("power-bar", 0, o.query ?? "");
     this.picker = new ListPicker<BarItem, PowerBar>({
+      stays: true,
       name: "power bar", items: () => this.items,
       heading: (it, _i, w) => (!this.compact() && it.heading ? fg(C.dark) + ` ${it.heading} ${"─".repeat(Math.max(0, w - width(it.heading) - 2))}` + RESET : null),
       row: (it, _i, on, w) => this.rowText(it, on, w),
@@ -145,6 +162,12 @@ export class PowerBar {
     // In an action's form (PIE-1031) shift+tab, and backspace on an empty line, go back a field.
     const form = this.scope === "ask" && formOpen();
     if (form && (k.kind === "backtab" || (k.kind === "backspace" && !this.input.text))) { void this.host.dispatch.press("bar.form", { op: "back" }); return true; }
+    if (k.kind === "alt" && k.ch === "v") { void this.host.dispatch.press("bar.docs", { op: "focus" }); return true; }
+    if (k.kind === "alt" && (k.ch === "j" || k.ch === "k")) { void this.host.dispatch.press("bar.docs", { op: "scroll", by: k.ch === "j" ? 3 : -3 }); return true; }
+    if (this.docsMode && this.docsSelection && (["up", "down", "left", "right", "pgup", "pgdn", "home", "end", "enter", "esc"].includes(k.kind) || k.kind === "char" && "hjklvy".includes(k.ch) || isCopyKey(k))) {
+      void this.host.dispatch.press("bar.docs", { op: "key", key: keyName(k) }); return true;
+    }
+    if (isCopyKey(k) && this.docsSelection && !this.input.selectedText()) { void this.host.dispatch.press("bar.docs", { op: "copy" }); return true; }
     if (k.kind === "tab" || k.kind === "backtab") {
       if (k.kind === "tab") void this.host.dispatch.press("bar.edit", { op: "complete" });
       return true;
@@ -153,6 +176,9 @@ export class PowerBar {
       const s = barSources().find(x => x.prefix === k.ch);
       if (s) { this.setScope(s.id); return true; }
     }
+    if (k.kind === "up" && this.scope !== "ask" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }
+    if (k.kind === "alt" && ["o", "y", "i", "m"].includes(k.ch)) { void this.host.dispatch.press(k.ch === "i" ? "bar.insert" : "bar.command", k.ch === "i" ? {} : { op: k.ch === "o" ? "copy" : k.ch === "y" ? "button" : "menu" }); return true; }
+    if (k.kind === "right" && this.scope !== "ask" && this.input.col === this.query.length && /\s/.test(this.query) && this.host.dispatch.has(this.query.split(/\s/)[0]!)) { void this.host.dispatch.press("bar.edit", { op: "complete" }); return true; }
     if (k.kind === "alt-enter") { if (this.items.length) this.pick(this.picker.sel + 1, true); return true; }
     if (k.kind === "alt-backspace") { void this.host.dispatch.press("bar.edit", { op: "delete-word" }); return true; }
     if (k.kind === "char" && k.ctrl && ["u", "w", "x", "z"].includes(k.ch) && !k.shift) {
@@ -167,9 +193,9 @@ export class PowerBar {
     return took;
   }
 
-  edit(op: string, o: { text?: string; from?: number; to?: number } = {}, clipboard = true) {
+  async edit(op: string, o: { text?: string; from?: number; to?: number } = {}, clipboard = true) {
     if (op === "select" || o.from !== undefined || o.to !== undefined) { this.input.place(0, o.from ?? 0); this.input.place(0, o.to ?? this.query.length, true); }
-    if (op === "complete") this.complete();
+    if (op === "complete") await this.complete();
     else if (op === "clear") this.clear();
     else if (op !== "select") {
       const k: Key = op === "paste" ? { kind: "paste", text: o.text ?? "" } : op === "delete-word" ? { kind: "alt-backspace" } : { kind: "char", ctrl: true, ch: op === "cut" ? "x" : "z" };
@@ -180,7 +206,13 @@ export class PowerBar {
     this.host.ctx.redraw();
   }
 
-  complete() {
+  async complete() {
+    const before = this.query;
+    if (this.scope !== "ask" && this.host.dispatch.has(before.split(/\s/)[0]!) && /\s/.test(before)) {
+      const completed = await completeCommand(before, this.host);
+      if (before !== this.query || this.done) return;
+      if (completed !== null) { this.input.splice(0, this.query.length, completed); this.refresh(); this.host.ctx.redraw(); return; }
+    }
     if (this.scope === "ask" && maskedQuestion()) return;
     const it = this.items[this.picker.sel];
     if (!it) return;
@@ -209,10 +241,25 @@ export class PowerBar {
   /** A key or a click while it's open: everything is the bar's. Mouse reports are made relative to where it was drawn. */
   key(k: Key, ctx: Ctx) {
     const was = this.picker.sel;
-    if (k.kind === "esc" && this.query && !this.compact()) { void this.host.dispatch.press("bar.edit", { op: "clear" }); return; }
+    if (k.kind === "esc" && this.query && !this.compact() && !this.docsMode) { void this.host.dispatch.press("bar.edit", { op: "clear" }); return; }
     if (k.kind === "mouse") {
       const r = this.rect;
       if (!r) return;
+      const dr = this.docsRect;
+      if (dr && (this.docsGesture.pressed || k.x >= r.col + dr.col && k.x < r.col + dr.col + dr.cols && k.y >= r.row + dr.row && k.y < r.row + dr.row + dr.rows)) {
+        const x = k.x - r.col - dr.col, y = k.y - r.row - dr.row + this.docsView.top;
+        if (k.action === "wheel-up" || k.action === "wheel-down") void this.host.dispatch.press("bar.docs", { op: "scroll", by: wheelRows(k.action === "wheel-down" ? 1 : -1) });
+        else if (k.action === "down") {
+          const clicks = this.docsGesture.press(k.x, k.y);
+          void this.host.dispatch.press("bar.docs", { op: "select", row: y, col: x, clicks });
+        } else if (k.action === "drag" && this.docsGesture.drag(k.x, k.y)) void this.host.dispatch.press("bar.docs", { op: "extend", row: y, col: x });
+        else if (k.action === "up") {
+          const release = this.docsGesture.release(k.x, k.y);
+          if (release.copy) void this.host.dispatch.press("bar.docs", { op: "copy" });
+          else if (release.click && this.docsExamples.has(y)) void this.host.dispatch.press("bar.docs", { op: "example", row: y });
+        }
+        ctx.redraw(); return;
+      }
       const compact = this.compact();
       const inputX = compact ? 2 + width(compact.title) : 3;
       const x = k.x - r.col - inputX, y = k.y - r.row - (compact ? 1 : 2);
@@ -238,9 +285,12 @@ export class PowerBar {
       if (k.action === "up" || k.action === "drag") return;
       this.alt = !!((k.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL)) || k.button === MOUSE_MIDDLE;
       const at = { ...k, x: k.x - r.col, y: k.y - r.row };
-      this.picker.key(at, this);
+      if (k.action === "down" && k.button === 2) {
+        const hit = this.picker.itemAt(at.y);
+        if (hit !== null) { this.picker.sel = hit; void this.host.dispatch.press("bar.command", { op: "menu" }); }
+      } else this.picker.key(at, this);
       this.alt = false;
-    } else this.picker.key(k, this);
+    } else if (this.docsMode && k.kind === "esc") this.ownKey(k); else this.picker.key(k, this);
     if (this.picker.sel !== was) this.moved = true;
     ctx.redraw();
   }
@@ -249,8 +299,12 @@ export class PowerBar {
   private sourceHead: string[] = [];
 
   private clickTab(x: number, y: number): boolean {
+    if (this.menuOpen && y === 3) {
+      const hit = this.menuSpots.find(s => x >= s.from && x < s.to);
+      if (hit) { void this.host.dispatch.press(hit.action, hit.args); return true; }
+    }
     // A line of the scoped source's head (a form's field, its act line): under the bar's line.
-    if (y >= 3 && y < 3 + this.sourceHead.length) { const s = this.scope ? barSource(this.scope) : undefined; return !!s?.headClick?.(y - 3, this.host); }
+    if (y >= 3 + Number(this.menuOpen) && y < 3 + Number(this.menuOpen) + this.sourceHead.length) { const s = this.scope ? barSource(this.scope) : undefined; return !!s?.headClick?.(y - 3 - Number(this.menuOpen), this.host); }
     if (y !== 1) return false;
     const t = this.tabSpots.find(s => x >= s.from && x < s.to);
     if (t) this.setScope(t.scope);
@@ -326,7 +380,17 @@ export class PowerBar {
     const guests = scoped && !scoped.alone && q ? barSources().filter(s => s !== scoped && s.named).flatMap((s): BarItem[] => {
       try { const row = s.named!(q, this.host); return row ? [{ source: s, row: { ...row, exact: true }, heading: s.title }] : []; } catch { return []; }
     }) : [];
-    this.items = [...guests, ...out];
+    const runs: BarSource = {
+      id: "runs", title: "runs", prefix: "", by: "door", about: "this session's answers", main: { empty: false, typed: false },
+      rows: () => [], preview: row => ({ lines: [row.detail ?? ""] }),
+      pick: async (row, host, how) => {
+        const source = barSource("actions")!;
+        const command = source.named!(row.fill!, host) ?? (await source.rows(row.fill!, host, "actions")).find(r => r.fill === row.fill);
+        if (!command) throw new Error("this action is no longer available");
+        return source.pick(command, host, how);
+      },
+    };
+    this.items = [...guests, ...out, ...(!scoped || scoped.id === "actions" || guests.length ? [...this.host.runs].reverse() : []).map((run, i): BarItem => ({ source: runs, heading: i === 0 ? "this session" : undefined, row: { key: `run:${i}`, label: run.line, fill: run.line, detail: `${run.refused ? "refused: " : ""}${run.answer}` } }))];
     const at = keep ? this.items.findIndex(it => `${it.source.id}\0${it.row.key}` === keep) : -1;
     this.picker.sel = at >= 0 ? at : 0;
     this.litKey = keep;
@@ -368,7 +432,13 @@ export class PowerBar {
     const line = paint("|14› ") + (this.scope === "ask" && maskedQuestion() ? "*".repeat(Math.min(this.query.length, Math.max(10, w - 30))) : this.input.render(Math.max(10, w - 30), 1)[0]) + paint(` |08${busy || count}`);
     const scoped = this.scope ? barSource(this.scope) : undefined;
     this.sourceHead = scoped?.head?.(w, this.host) ?? [];
-    const head = [tabs, line, ...this.sourceHead, fg(C.blue) + "─".repeat(w) + RESET];
+    this.menuSpots = [];
+    let menu = " ";
+    for (const [label, action, args] of [["copy command", "bar.command", { op: "copy" }], ["copy button", "bar.command", { op: "button" }], ["insert button", "bar.insert", {}]] as const) {
+      this.menuSpots.push({ from: menu.length + 1, to: menu.length + label.length + 3, action, args });
+      menu += `[${label}] `;
+    }
+    const head = [tabs, line, ...(this.menuOpen ? [menu] : []), ...this.sourceHead, fg(C.blue) + "─".repeat(w) + RESET];
     const tail = said ? [fg(C.lred) + pad(` ${said}`, w) + RESET] : [];
     const it = this.items[this.picker.sel];
     const empty = !this.items.length && !this.asking.size;
@@ -376,9 +446,9 @@ export class PowerBar {
     const preview = (pw: number, ph: number) => it ? this.previewLines(it, pw, ph) : empty ? wrap(hint, pw).map(l => dim(l)) : [];
     return {
       rect, title: " power bar ",
-      foot: scoped?.foot?.() ?? "esc clears / empty closes · ^U clear · ↑↓ pick · ⏎ go · ⇥ complete · alt+←→ scope",
+      foot: this.docsMode ? "docs: arrows / page keys select · y or cmd+c copy · enter example · esc returns to line" : scoped?.foot?.() ?? "esc clear/close · ↑↓ pick · ⏎ run · ⇥ complete · alt+o copy · alt+y button · alt+i insert · alt+m menu · alt+v docs",
       head, ...(tail.length ? { tail } : {}),
-      preview,
+      preview, previewPlaced: (rect: Rect | null) => { this.docsRect = this.docsLines.length ? rect : null; },
     };
   }
 
@@ -398,10 +468,32 @@ export class PowerBar {
         } else p = got;
       } catch (e) { p = { lines: [e instanceof Error ? e.message : String(e)] }; }
     }
+    if (!p || p === "…" || "note" in p) this.docsLines = [];
     if (p === "…") return [dim("…")];
     if (!p) return [];
-    if ("lines" in p) return p.lines.slice(0, h).map(l => fg(C.grey) + clipText(paintable(l), w) + RESET);
-    if ("markdown" in p) return draftPreview(p.markdown, w, { board: this.host.ctx.board, redraw: () => this.host.ctx.redraw() }).slice(0, h);
+    if ("lines" in p || "markdown" in p) {
+      if (this.docsKey !== key + w) { this.docsKey = key + w; this.docsView.reset(); this.docsSelection = null; this.docsMode = false; }
+      this.docsDoc = "markdown" in p ? draftPreviewDoc(p.markdown, w, { board: this.host.ctx.board, redraw: () => this.host.ctx.redraw() }) : null;
+      this.docsLines = this.docsDoc?.lines ?? ("lines" in p ? p.lines.flatMap(l => rowLines(paintable(l), w)).map(l => fg(C.grey) + l + RESET) : []);
+      this.docsExamples.clear();
+      const info = this.host.dispatch.list().actions.find(a => a.name === (it.row.data as { action?: string })?.action);
+      const plain = this.docsLines.map(l => rowsOf([l]).cells(0).join(""));
+      let after = plain.findIndex(l => l.includes("EXAMPLES"));
+      for (const ex of info?.examples ?? []) {
+        const first = ex.act.split(/\s+/)[0]!;
+        const found = plain.findIndex((l, i) => i > after && l.includes(first));
+        if (found >= 0) {
+          this.docsExamples.set(found, ex.act);
+          for (let i = found + 1; i < plain.length && !plain[i]!.includes("→") && plain[i]!.replace(/[┊│ ]/g, ""); i++) this.docsExamples.set(i, ex.act);
+          after = found;
+        }
+      }
+      const top = this.docsView.place(null, this.docsLines.length, h);
+      return this.docsLines.slice(top, top + h).map((l, i) => {
+        const span = this.docsSelection?.span(top + i, width(l));
+        return span ? paintRange(l, span[0], span[1], SELECT_BG) : l;
+      });
+    }
     return this.notePreview(p.note, w, h);
   }
 
@@ -446,9 +538,16 @@ export class PowerBar {
     return { rect: { ...r, cols: r.cols + 1, rows: r.rows + 1 }, lines: canvas.lines() };
   }
 
+  private recordRun(line: string, result: unknown, refused: boolean) {
+    this.host.runs.push({ line, answer: runAnswer(line, result), refused });
+    if (this.host.runs.length > 8) this.host.runs.shift();
+    this.refresh(); this.host.ctx.redraw();
+  }
+
   /** What `peek` and `bar.open` say: the scope, the query and the rows, numbered from 1, the lit one marked. */
   describe(): Record<string, unknown> {
     return {
+      runs: this.host.runs, docs: { top: this.docsView.top, total: this.docsLines.length, rect: this.docsRect, examples: [...this.docsExamples].map(([row, line]) => ({ row, line })) },
       scope: this.scope ?? "all", query: this.scope === "ask" && maskedQuestion() ? "[hidden]" : this.query, selected: this.items.length ? this.picker.sel + 1 : null,
       ...(() => { const st = this.scope ? barSource(this.scope)?.state?.() : null; return st ? { form: st } : {}; })(),
       ...(this.asking.size ? { asking: [...this.asking] } : {}), ...(this.said.size ? { said: Object.fromEntries(this.said) } : {}), ...(this.problems.size ? { problems: Object.fromEntries(this.problems) } : {}),
@@ -465,12 +564,85 @@ export class PowerBar {
     return i + 1;
   }
 
+  docs(op: string, o: { by?: number; row?: number; col?: number; clicks?: number; key?: string } = {}): { top: number; text: string } | { text: string } {
+    const rows = this.docsRows(), pos = { row: Math.max(0, Math.min(rows.count - 1, o.row ?? 0)), col: Math.max(0, o.col ?? 0) };
+    if (op === "key" && this.docsSelection) {
+      const key = keyOfName(o.key!);
+      if (!key) throw new ActionRefused("name a docs key: arrows, pgup, pgdn, home, end, y, enter or esc");
+      const result = modeKey(key, this.docsSelection, rows, this.docsView.room);
+      if (result === "copy") return this.docs("copy");
+      if (result === "done") this.docsMode = false;
+      if (result === "moved") this.docsView.place(this.docsSelection.head.row, this.docsLines.length, this.docsView.room);
+      if (key.kind === "enter") return this.docs("example", { row: this.docsSelection.head.row });
+    }
+    else if (op === "focus") { this.docsMode = !this.docsMode; if (this.docsMode) this.docsSelection = new Selection({ row: this.docsView.top, col: 0 }, { row: this.docsView.top, col: 0 }, true); }
+    else if (op === "scroll") this.docsView.scroll(o.by ?? 1);
+    else if (op === "select") { this.docsSelection = o.clicks === 3 ? new Selection({ row: pos.row, col: 0 }, { row: pos.row, col: rows.cells(pos.row).length - 1 }) : o.clicks === 2 ? wordAt(rows, pos) : new Selection(pos, pos); }
+    else if (op === "extend" && this.docsSelection) this.docsSelection.head = pos;
+    else if (op === "copy") { const text = this.docsSelection?.text(rows) ?? ""; if (text) this.host.ctx.copy?.(text); return { text }; }
+    else if (op === "example") {
+      const line = this.docsExamples.get(o.row ?? 0);
+      if (!line) throw new Error("click an example's command line");
+      this.docsMode = false;
+      this.input.splice(0, this.query.length, line.replace(/^ep0ch act /, "")); this.refresh();
+    }
+    this.host.ctx.redraw();
+    return { top: this.docsView.top, text: this.docsSelection?.text(rows) ?? "" };
+  }
+
+  commandLine(n = this.selected + 1): string {
+    if (this.scope === "ask") {
+      const line = formLine();
+      if (line === null) throw new ActionRefused("this is an answer, not a command; finish or close the question first");
+      return line;
+    }
+    const it = this.items[n - 1];
+    if (it?.source.id === "runs" || it?.row.key.startsWith("line:")) return it.row.fill!;
+    if (it?.source.id === "actions") {
+      const d = it.row.data as { action: string; args?: Record<string, unknown>; tile?: string };
+      return shownLine(d.action, d.args, d.tile);
+    }
+    return this.query;
+  }
+
+  menuOpen = false;
+  async command(op: string, n?: number) {
+    if (op === "recall" && this.scope === "ask") throw new ActionRefused("recall belongs to the command line; finish or close the question first");
+    if (op === "menu") { this.menuOpen = !this.menuOpen; this.host.ctx.redraw(); return; }
+    const line = op === "recall" ? this.host.runs.at(-1)?.line : this.commandLine(n);
+    if (!line) throw new Error("type an act line first");
+    if (op === "recall") { this.input.splice(0, this.query.length, line); this.refresh(); return { line }; }
+    // Each word shell-quoted, so a value like "$HOME" or `cmd` pastes as written, never expanded.
+    const text = op === "button" ? commandButton(line) : ["ep0ch", "act", ...lineWords(line)].map(shellWord).join(" ");
+    this.host.ctx.copy?.(text);
+    return { text };
+  }
+
+  keepsRun(n: number): boolean {
+    const it = this.items[n - 1];
+    if (!it) return false;
+    if (it.source.id === "runs") return true;
+    if (it.source.id !== "actions") return false;
+    const d = it.row.data as { action: string; form?: boolean };
+    // Only a typed act line stays with its answer; a picked action row runs and closes, as it always has.
+    return !d.form && it.row.key.startsWith("line:");
+  }
+
   /** Pick row `n` (from 1): its source does it, as `actor`. */
   async pickRow(n: number, alt: boolean, actor: Actor): Promise<unknown> {
     const it = this.items[n - 1];
     if (!it) throw new Error(this.items.length ? `pick 1 to ${this.items.length}` : "the bar lists nothing to pick");
     this.picker.sel = n - 1;
-    return { picked: rowFacts(it, n), result: await it.source.pick(it.row, this.host, { alt, actor }) ?? null };
+    const keep = actor.kind === "user" && this.keepsRun(n), line = keep ? this.commandLine(n) : "";
+    if (keep) { this.input.splice(0, this.query.length, line); this.refresh(); }
+    try {
+      const result = await it.source.pick(it.row, this.host, { alt, actor }) ?? null;
+      if (keep) this.recordRun(line, result, false);
+      return { picked: rowFacts(it, n), result };
+    } catch (e) {
+      if (keep) this.recordRun(line, e instanceof Error ? e.message : String(e), true);
+      throw e;
+    }
   }
 }
 

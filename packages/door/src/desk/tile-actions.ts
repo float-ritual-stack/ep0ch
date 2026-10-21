@@ -64,7 +64,7 @@ const loadLayout = {
   touches: "screen", replay: "safe", confirms: true,
   says: (r: { layout?: string; kept?: string[]; picker?: boolean }, a: { name?: string }) => (r?.picker ? null : `laid out ${a.name}${r?.kept?.length ? ` · kept ${r.kept.join(", ")} in a shut dock (⇥ on the hint row)` : ""}`),
   menu: { label: "lay it out as a screen…", group: SCREEN, key: "ctrl+w r", now: ({ d }: On) => (d.spec.layouts ? null : { hide: true }) },
-  args: { name: { type: "string", optional: true, about: "the layout's or screen's name (left out: the person picks)" } },
+  args: { name: { type: "string", kind: "layout", optional: true, about: "the layout's or screen's name (left out: the person picks)" } },
   examples: [
     { act: "layout.load name=daily", does: "lays the screen out as the built-in daily layout" },
     { act: "layout.load name=garden-planning", does: "lays the screen out as the screen note garden-planning" },

@@ -4,6 +4,7 @@
 // paths (the dispatcher's actions, `open`, the drawer's goTo). The built-ins are src/bar/sources.ts; an extension's
 // come from the outline service (`extensions.list`'s `barSources`, asked with `extensions.bar`), registered here by
 // the extension binding (src/extensions.ts), as its tile kinds register in the tile-kind registry.
+import type { BarRun } from "./command";
 import type { Ctx, Screen } from "../app";
 import type { Msg } from "../board";
 import type { Dispatcher } from "../surface/dispatch";
@@ -43,6 +44,7 @@ export interface PickHow { alt: boolean; actor: Actor }
 /** What a source reaches: the door (its outline, dispatcher, drawer and screens) and the note in front of the person. */
 export interface BarHost {
   ctx: Ctx;
+  runs: BarRun[];
   /** The door's dispatcher (every screen's, then the screen shown's). */
   dispatch: Dispatcher;
   /** The screens, the one shown last; and those kept in the background. */

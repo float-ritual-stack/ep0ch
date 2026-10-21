@@ -529,9 +529,10 @@ export class App implements Ctx {
     try { const s = this.stack.at(-1); return s?.noteContext?.() ?? tilesOf(s)?.current?.id ?? null; } catch { return null; }
   }
   /** What the bar's sources reach: this door, its dispatcher, its screens, the note the person is on. */
+  private readonly barRuns: import("./bar/command").BarRun[] = [];
   barHost(): BarHost {
     return {
-      ctx: this, dispatch: this.dispatch, screens: () => this.stack, kept: () => this.background,
+      ctx: this, runs: this.barRuns, dispatch: this.dispatch, screens: () => this.stack, kept: () => this.background,
       near: () => this.noteInFront(),
       note: id => readNote(this, id),
     };

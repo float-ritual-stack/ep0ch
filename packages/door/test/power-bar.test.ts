@@ -6,6 +6,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { cpSync } from "node:fs";
 import { join } from "node:path";
+import { buttonCallsOf } from "@ep0ch/outline-core/button-call";
+import { shellWord } from "../src/machine";
+import { lineWords } from "../src/surface/actions";
+import { ReaderPane } from "../src/desk/panes";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
@@ -438,10 +442,10 @@ describe.skipIf(!outliner)("the power bar", () => {
   test("boolean action arguments in the power bar set yolo rather than toggle it (PIE-1004)", async () => {
     try {
       for (const on of [true, true, false, false]) {
-        key(ctrlK); type(`> agents.yolo on=${on}`);
+        closeBar(); key(ctrlK); type(`> agents.yolo on=${on}`);
         expect(peek().bar.rows[0].refused).toBeUndefined();
         key({ kind: "enter" });
-        await until(() => peek().bar === undefined, "the action picked", 3000);
+        await until(() => peek().bar?.runs.at(-1)?.line === `agents.yolo on=${on}`, "the action answered in the bar", 3000);
         expect(app.agentsYolo).toBe(on);
         expect((await board.mcpAccessStatus()).yolo === true).toBe(on);
       }
@@ -458,8 +462,9 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query query=#build-report" });
     const tiles = (desk as any).all().length;
     key({ kind: "enter" });
-    expect(peek().bar).toBeUndefined();
+    await until(() => peek().bar?.runs.at(-1)?.line === "tile.open kind=query query=#build-report", "the command answer", 5000);
     await until(() => (desk as any).all().length === tiles + 1, "the query tile opened", 5000);
+    closeBar();
     // An argument the action doesn't take is said on the row, typed key by key as well as pasted.
     key(ctrlK); type("tile.open kind=query colour=red");
     expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query colour=red" });
@@ -490,6 +495,8 @@ describe.skipIf(!outliner)("the power bar", () => {
     const tiles = (desk as any).all().length;
     key({ kind: "enter" });
     await until(() => (desk as any).all().length === tiles + 1, "the query tile opened from the notes scope", 5000);
+    await until(() => peek().bar.rows.some((r: any) => r.source === "runs" && r.label.includes("#seed-list")), "the run answer stays visible in the notes scope");
+    closeBar();
     // A row the person moved to stays lit as the rows come again, below the line's row.
     key(ctrlK); type('/tile.open kind=query query="#seed-list"');
     await (app as any).bar.settled();
@@ -631,4 +638,128 @@ describe.skipIf(!outliner)("the power bar", () => {
     await until(() => peek().bar?.scope === "notes", "the notes scope", 3000);
     closeBar();
   });
+  test("a mistyped command shows its corrected run, completes arguments and keeps its answer for recall", async () => {
+    const query = "tile.colapse tile=reader on=true direction=v";
+    const answer = await app.act({ action: "bar.open", args: { query }, as: "wren-agent" }) as any;
+    expect(answer.rows[0]?.label).toBe("run tile.collapse tile=reader on=true dir=v");
+    expect(answer.rows[0]?.detail).toContain("tile.colapse -> tile.collapse");
+    expect(answer.rows[0]?.detail).toContain("direction -> dir");
+    await app.dispatch.press("bar.open", { query });
+    const clickRow = frame().findIndex(l => l.includes("run tile.collapse"));
+    const clickCol = (app as any).bar.rect.col + 5;
+    key({ kind: "mouse", action: "down", x: clickCol, y: clickRow, button: 0 });
+    key({ kind: "mouse", action: "up", x: clickCol, y: clickRow, button: 0 });
+    expect(desk.tileOutline().find(t => t.name === "reader")?.collapsed).toBe(false);
+    await app.dispatch.press("bar.pick");
+    expect(peek().bar.runs.at(-1).line).toBe("tile.collapse tile=reader on=true dir=v");
+    expect(peek().bar.runs.at(-1)).toMatchObject({ refused: false });
+    expect(desk.tileOutline().find(t => t.name === "reader")?.collapsed).toBe(true);
+    await app.dispatch.press("bar.edit", { op: "clear" });
+    key({ kind: "up" });
+    expect(peek().bar.query).toBe("tile.collapse tile=reader on=true dir=v");
+    await app.dispatch.press("bar.edit", { op: "clear" });
+    key({ kind: "paste", text: "tile.collapse di" });
+    await app.dispatch.press("bar.edit", { op: "complete" });
+    expect(peek().bar.query).toBe("tile.collapse dir=");
+    await app.dispatch.press("bar.edit", { op: "complete" });
+    expect(peek().bar.query).toMatch(/^tile.collapse dir=[hv]$/);
+    const tile = await app.act({ action: "bar.edit", args: { op: "complete", query: "tile.collapse tile=read" }, as: "wren-agent" }) as any;
+    expect(tile.query).toBe("tile.collapse tile=reader");
+    const layout = await app.act({ action: "bar.edit", args: { op: "complete", query: "layout.load name=da" }, as: "wren-agent" }) as any;
+    expect(layout.query).toBe("layout.load name=daily");
+    await app.dispatch.press("tile.open", { kind: "reader", name: "tile-sample" }, "reader");
+    const named = await app.act({ action: "bar.edit", args: { op: "complete", query: 'tile.collapse tile="tile-s"' }, as: "wren-agent" }) as any;
+    expect(named.query).toBe("tile.collapse tile=tile-sample");
+    await app.dispatch.press("tile.close", {}, "tile-sample");
+    await app.dispatch.press("tile.collapse", { on: false }, "reader");
+  });
+
+
+  test("docs scroll, select and load examples; a command copies and inserts as one unsaved button step", async () => {
+    await app.dispatch.press("tile.focus", {}, "reader");
+    desk.setCurrent(notes.garden!);
+    await app.dispatch.press("bar.open", { query: "tile.collapse tile=reader on=true dir=v" });
+    frame();
+    const docs = () => peek().bar.docs;
+    expect(docs().examples).toHaveLength(2);
+    const first = docs().examples[0];
+    await app.dispatch.press("bar.docs", { op: "select", row: first.row, col: 0, clicks: 3 });
+    const copied = await app.dispatch.press("bar.docs", { op: "copy" }) as { text: string };
+    expect(copied.text).toContain("tile.collapse");
+    const b = (app as any).bar, r = docs().rect;
+    key({ kind: "mouse", action: "wheel-down", x: b.rect.col + r.col + 3, y: b.rect.row + r.row + 2, button: 0 });
+    frame();
+    expect(docs().top).toBeGreaterThan(0);
+    await app.dispatch.press("bar.docs", { op: "scroll", by: -100 });
+    frame();
+    const x = b.rect.col + r.col + 3, y = b.rect.row + r.row + first.row;
+    key({ kind: "mouse", action: "down", x, y, button: 0 });
+    key({ kind: "mouse", action: "up", x, y, button: 0 });
+    expect(peek().bar.query).toBe(first.line);
+    await app.dispatch.press("bar.edit", { op: "clear" });
+    key({ kind: "paste", text: 'tile.title text="A \\"quoted\\" title" tile=reader' });
+    const command = await app.dispatch.press("bar.command", { op: "copy" }) as { text: string };
+    const button = await app.dispatch.press("bar.command", { op: "button" }) as { text: string };
+    expect(command.text).toStartWith("ep0ch act tile.title");
+    // The CLI copy is the same words, each shell-quoted, so pasting it into a shell runs what the button runs.
+    expect(command.text).toBe(["ep0ch", "act", ...lineWords(buttonCallsOf(button.text)[0]!.act!)].map(shellWord).join(" "));
+    await app.dispatch.press("bar.edit", { op: "clear" });
+    key({ kind: "paste", text: 'tile.title text="$HOME and `date`" tile=reader' });
+    const quoted = await app.dispatch.press("bar.command", { op: "copy" }) as { text: string };
+    expect(quoted.text).toContain("'text=$HOME and `date`'");
+    await app.dispatch.press("bar.edit", { op: "clear" });
+    key({ kind: "paste", text: 'tile.title text="A \\"quoted\\" title" tile=reader' });
+    const before = (await board.get(notes.garden!.id))!.text;
+    await app.dispatch.press("bar.insert");
+    const reader = desk.pane("reader") as ReaderPane;
+    expect(reader.draft!.text).toContain(button.text);
+    expect(reader.draft!.text.split("\n")[0]).toBe(before.split("\n")[0]);
+    expect((await board.get(notes.garden!.id))!.text).toBe(before);
+    closeBar();
+    await app.dispatch.press("draft.undo", {}, "reader");
+    expect(reader.draft!.text).toBe(before);
+    await app.dispatch.press("edit.close", {}, "reader");
+    const invalid = await app.act({ action: "bar.open", args: { query: "tile.collapse dir=diagonal" }, as: "wren-agent" }) as any;
+    expect(invalid.rows[0].refused).toContain("allowed values: v, h");
+    const typoValue = await app.act({ action: "bar.open", args: { query: "tile.collapse on=treu" }, as: "wren-agent" }) as any;
+    expect(typoValue.rows[0].label).toBe("run tile.collapse on=true");
+    expect(typoValue.rows[0].detail).toContain("on=treu -> on=true");
+    (app as any).lastInput = 0;
+    await app.act({ action: "edit", tile: "reader", as: "wren-agent" });
+    await app.dispatch.press("bar.open", { query: "tile.collapse on=true" });
+    await expect(app.dispatch.act({ action: "bar.insert" }, USER)).rejects.toThrow("draft belongs to an agent");
+    closeBar();
+    await app.dispatch.press("edit.close", {}, "reader");
+  });
+
+  test("command helpers leave form navigation and private answers alone", async () => {
+    await app.dispatch.press("bar.open", { query: "tile.collapse tile=reader on=false" });
+    await app.dispatch.press("bar.pick");
+    closeBar();
+    await app.dispatch.press("bar.form", { op: "open", action: "layout.move" });
+    await (app as any).bar.settled();
+    key({ kind: "up" });
+    expect(peek().bar.query).toBe("");
+    await app.dispatch.press("bar.form", { op: "set", field: "tile", value: "reader" });
+    const button = await app.dispatch.press("bar.command", { op: "button" }) as { text: string };
+    expect(buttonCallsOf(button.text)[0]?.act).toBe("layout.move tile=reader");
+    closeBar();
+    await askInBar(app as any, "A private answer", [{ name: "token", type: "text", masked: true }], {}, USER, async () => {});
+    key({ kind: "paste", text: "tile.collapse dir=" });
+    const completed = await app.dispatch.press("bar.edit", { op: "complete" }) as { query: string };
+    expect(completed.query).toBe("tile.collapse dir=");
+    await expect(app.dispatch.act({ action: "bar.command", args: { op: "button" } }, USER)).rejects.toThrow("answer");
+    closeBar();
+  });
+
+  test("typing the next command survives a run's answer", async () => {
+    await app.dispatch.press("bar.open", { query: "tile.collapse tile=reader on=false" });
+    const running = app.dispatch.press("bar.pick");
+    key({ kind: "char", ch: "u", ctrl: true });
+    key({ kind: "paste", text: "tile.zoom on=true" });
+    await running;
+    expect(peek().bar.query).toBe("tile.zoom on=true");
+    expect(peek().bar.runs.at(-1).line).toBe("tile.collapse tile=reader on=false");
+  });
+
 });

@@ -94,3 +94,8 @@ registerArgKind("file", async typed => {
   const entries = await readdir(folder, { withFileTypes: true });
   return entries.filter(e => e.name.startsWith(prefix)).map(e => ({ value: join(folder, e.name) + (e.isDirectory() ? "/" : ""), label: e.name + (e.isDirectory() ? "/" : "") }));
 });
+
+registerArgKind("layout", async (typed, host) => {
+  const result = await host.dispatch.act({ action: "layout.list" }, USER) as { layouts: { name: string; title?: string }[] };
+  return filtered(result.layouts.map(l => ({ value: l.name, label: l.title ?? l.name })), typed, r => [r.value, r.label]);
+});

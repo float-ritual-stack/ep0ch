@@ -16,7 +16,7 @@ import { LineInput } from "./line";
 import type { Mode } from "./modes";
 
 /** Its box, title and foot, lines above and below the list, and a preview drawn beside or below the list. */
-export interface PickerFrame { rect: Rect; title: string; foot: string; head?: string[]; tail?: string[]; preview?: PickerPreview }
+export interface PickerFrame { rect: Rect; title: string; foot: string; head?: string[]; tail?: string[]; preview?: PickerPreview; previewPlaced?(rect: Rect | null): void }
 
 /** How a picker was put away: esc, one of its closing letters (q), or a click outside it. */
 export type PickerClose = "esc" | "letter" | "click";
@@ -126,7 +126,7 @@ export class ListPicker<T, H> implements Mode<H> {
     if (!r) return;                                          // never drawn (the reader's status choice): not its click
     // A panel that stays open (the policy rows, the steps) has controls for rows: a click on one is its change.
     if (hit && this.spec.clickedItem?.(this.items[hit.i]!, x - r.col - 1, host)) return;
-    if (hit) { const g = this.spec.stays || this.spec.clickChooses ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
+    if (hit) { const g = (this.spec.clickChooses ?? this.spec.stays) ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
     else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.close(host, "click");
   }
 
@@ -177,6 +177,7 @@ export class ListPicker<T, H> implements Mode<H> {
     head.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
     const room = Math.max(0, r.rows - 2 - head.length - tail.length), y0 = r.row + 1 + head.length;
     const drawn = listPreview(this, w, room, f.preview, y0, r.cols);
+    f.previewPlaced?.(drawn.preview ? { ...drawn.preview, col: r.col + 1 + drawn.preview.col, row: y0 + drawn.preview.row } : null);
     this.listW = drawn.listWidth;
     drawn.lines.forEach((line, i) => canvas.text(r.col + 1, y0 + i, line, w));
     if (this.spec.scrolls) canvas.thumb({ col: r.col, row: y0 - 1, cols: r.cols, rows: room + 2 }, { top: this.view.top, room, total: this.total }, fg(C.yellow));

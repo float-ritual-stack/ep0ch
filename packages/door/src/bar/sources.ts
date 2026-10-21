@@ -19,7 +19,9 @@ import { authorName, USER } from "../socket";
 import { ago } from "../text";
 import { filtered } from "./filter";
 import { hyperKeysOf, hyperOn } from "../hyper";
-import { actionPage } from "../surface/action-page";
+import { closest } from "../cli-words";
+import { formFields, SELECTOR } from "./form";
+import { actionLead, actionPage } from "../surface/action-page";
 import type { Screen } from "../app";
 import type { BarHost, BarRow, BarSource, PickHow } from "./source";
 import { openNote, registerBarSource } from "./source";
@@ -219,7 +221,7 @@ const ACTIONS: BarSource = {
   id: "actions", title: "actions", prefix: ">", by: "door",
   about: "what you can do here: the focused tile's menu (its ⋯), then every action of this screen and the door's, each with its key, found by its name or what it does; ⏎ runs one that takes nothing as its key would, and opens the form of one that takes arguments (alt+⏎ runs it as it is when it needs none)",
   main: { empty: false, typed: true, most: 6 },
-  rows(q, host) {
+  rows(q, host, scope) {
     const top = host.screens().at(-1);
     const w = W_QUERY.exec(q);
     if (w) { const desk = tilesOf(top); return desk ? wKeyRows(desk, w[1]!, host) : []; }
@@ -237,7 +239,7 @@ const ACTIONS: BarSource = {
     }
     // By name, and by what it says it does (its summary: an extension's action by its label and description).
     const found = filtered(rows, q, r => [r.label, r.fill ?? "", r.detail ?? "", (r.data as { summary?: string } | undefined)?.summary ?? ""]);
-    const line = actionLine(q, host);
+    const line = actionLine(q, host, scope === "actions" && !found.length);
     return line ? [line, ...found] : found;
   },
   named: (q, host) => actionLine(q, host),
@@ -261,7 +263,8 @@ const ACTIONS: BarSource = {
     }
     // A menu row runs in its tile on the screen's dispatcher, as its ⋯ menu runs it; the rest on the door's.
     const on = d.tile !== undefined && top?.dispatch ? top.dispatch : host.dispatch;
-    return how.actor.kind === "agent" ? on.act({ action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor) : on.press(d.action, d.args, d.tile);
+    if (row.key.startsWith("line:") || row.key === d.action || how.actor.kind === "agent") return on.act({ action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor);
+    return on.press(d.action, d.args, d.tile);
   },
 };
 
@@ -271,15 +274,39 @@ const ACTIONS: BarSource = {
  * needs arguments. Its row runs it as typed, as the person; an argument the action doesn't take, of the wrong type
  * or missing is said on the row (refused), and its summary and arguments are on the right. Anything else: none.
  */
-function actionLine(q: string, host: BarHost): BarRow | null {
+function actionLine(q: string, host: BarHost, command = false): BarRow | null {
   const words = lineWords(q);
   let req: ActRequest;
-  try { req = actRequestOf(words); } catch { return null; }
+  try { req = actRequestOf(words); } catch (e) {
+    if (!q.includes("=") && !words[0]?.includes(".")) return null;
+    return { key: `line:${q}`, label: q, fill: q, exact: true, refused: e instanceof Error ? e.message : String(e), data: { action: words[0], args: {} } };
+  }
   const scripts = scriptActions().filter(s => s.extension.name === req.action);
   if (scripts.length === 1 && !host.dispatch.has(req.action)) req.action = scripts[0]!.action.name;
-  const info = host.dispatch.list().actions.find(a => a.name === req.action);
+  const actions = host.dispatch.list().actions;
+  const corrections: string[] = [];
+  let info = actions.find(a => a.name === req.action);
+  if (!info && (command || req.action.includes(".") || words.some(w => w.includes("=")))) {
+    const near = closest(req.action, actions.map(a => a.name));
+    if (near) { corrections.push(`did you mean ${req.action} -> ${near}`); req.action = near; info = actions.find(a => a.name === near); }
+    else return { key: `line:${q}`, label: q, fill: q, exact: true, refused: `no action ${req.action} here; > lists actions`, data: { action: req.action, args: {} } };
+  }
+  if (info) {
+    const fields = formFields(info);
+    for (const key of Object.keys(req.args ?? {})) {
+      if (fields.some(f => f.name === key)) continue;
+      const names = fields.map(f => f.name);
+      const prefixes = names.filter(n => key.startsWith(n));
+      const near = closest(key, names) ?? (prefixes.length === 1 ? prefixes[0]! : null);
+      if (near && req.args![near] === undefined && (near !== SELECTOR || req.tile === undefined)) {
+        corrections.push(`${key} -> ${near}`);
+        if (near === SELECTOR) req.tile = String(req.args![key]); else req.args![near] = req.args![key];
+        delete req.args![key];
+      }
+    }
+  }
   // A name alone that needs nothing is the action's own row already.
-  if (!info || (words.length < 2 && bare(info) && !scripts.length)) return null;
+  if (!info || (words.length < 2 && bare(info) && !scripts.length && !corrections.length)) return null;
   // An argument it doesn't take or one of the wrong type: the row says which, as `ep0ch act` would. One it needs and
   // wasn't given opens its form (PIE-1031), the rest answered as typed.
   let refused: string | undefined;
@@ -287,11 +314,21 @@ function actionLine(q: string, host: BarHost): BarRow | null {
   if (req.as !== undefined) refused = "the power bar runs it as you: leave out as=";
   else try {
     const spec = Object.fromEntries(Object.entries(info.args).map(([k, s]) => [k, missing.includes(k) ? { ...s, optional: true } : s]));
+    for (const [key, value] of Object.entries(req.args ?? {})) {
+      const spec = info.args[key];
+      const choices = spec?.type === "boolean" ? ["true", "false"] : spec?.choices;
+      if (spec?.type === "boolean" && ["yes", "no", "0", "1"].includes(String(value))) continue;
+      if (choices?.length && !choices.includes(String(value)) && !info.args[key]?.kind) {
+        const near = closest(String(value), choices);
+        if (near) { corrections.push(`${key}=${value} -> ${key}=${near} (allowed: ${choices.join(", ")})`); req.args![key] = near; }
+        else throw new ActionRefused(`${key}=${value}: allowed values: ${choices.join(", ")}`);
+      }
+    }
     req.args = coerceActionArgs(req.action, spec, req.args ?? {});
   } catch (e) { refused = e instanceof Error ? e.message : String(e); }
   const shown = shownLine(scripts.length === 1 ? scripts[0]!.extension.name! : req.action, req.args ?? {}, req.tile);
   return {
-    key: `line:${shown}`, label: `run ${shown}`, fill: shown, detail: missing.length && !refused ? `needs ${missing.map(k => `${k}=`).join(" ")} · ⏎ its form` : info.summary, exact: true, ...(refused ? { refused } : {}),
+    key: `line:${shown}`, label: `run ${shown}`, fill: shown, detail: [...corrections, ...(missing.length && !refused ? [`needs ${missing.map(k => `${k}=`).join(" ")} · ⏎ its form`] : corrections.length ? [] : [actionLead(info.summary)])].join("; "), exact: true, ...(refused ? { refused } : {}),
     data: { action: req.action, args: req.args ?? {}, ...(req.tile !== undefined ? { tile: req.tile } : {}), summary: info.summary, keys: info.keys, ...(missing.length ? { form: true, missing } : {}) },
   };
 }

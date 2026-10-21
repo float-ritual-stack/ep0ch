@@ -34,7 +34,7 @@ export type ArgType = "string" | "number" | "boolean";
  * - `tile-kind`: a kind of tile (the tile-kind registry).
  * A boolean needs none (true or false), nor does a value from a fixed list (`choices`).
  */
-export type ArgKind = "outline" | "tile" | "note" | "page" | "screen" | "view" | "key" | "value" | "tile-kind" | "file";
+export type ArgKind = "outline" | "tile" | "note" | "page" | "screen" | "view" | "key" | "value" | "tile-kind" | "file" | "layout";
 /**
  * One argument: its type, whether it may be left out, and what it means; `kind`: the kind of thing it names (ArgKind);
  * `choices`: the values it takes, when they are a fixed list (`where=left|right|…`), offered first (with a kind, the
