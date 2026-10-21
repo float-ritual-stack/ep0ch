@@ -757,7 +757,7 @@ export class Completer {
     if (i !== null && i !== undefined && s.items[i] && !s.loading) {
       if (s.index !== i) { s.previewTop = 0; s.previewSelection = undefined; this.previewGesture.cancel(); }
       s.index = i; s.picked = true;
-      if (s.items[i]!.componentSchema && at.items[y - at.row - 1] !== i && x === (at.col ?? 0) + (s.listWidth ?? 0) - 2) {
+      if (s.items[i]!.componentSchema && at.items[y - at.row - 1] !== i && x === (at.col ?? 0) + (s.listWidth ?? 0) - 1) {
         void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, this, USER);
         return true;
       }
@@ -1111,7 +1111,8 @@ function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> 
           const name = ` ${on ? "»" : " "} ${label}`;
           const room = Math.max(0, w - cells(name) - 3);
           const purpose = room ? " " + ellipsize(printable(it.context ?? "", " "), room) : "";
-          return [pickRow(pad(name + fg(C.dark) + purpose, w - 2) + fg(C.grey) + " ›", on, w)];
+          const arrow = it.componentSchema ? " ›" : "";
+          return [pickRow(pad(name + fg(C.dark) + purpose, w - cells(arrow)) + fg(C.grey) + arrow, on, w)];
         }
         const label = printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " ") + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : "");
         const lit = litCells(label, s.target.query);

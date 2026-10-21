@@ -582,7 +582,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const shown = e.screen().split("\n");
     const row = shown.findIndex(l => l.includes("Meter"));
     const col = shown[row]!.indexOf("Meter");
-    e.s.click(e.pop()!.listWidth! - 2, row, e.h);
+    e.s.click(shown[row]!.indexOf("›"), row, e.h);
     expect(e.pop()?.heading).toContain("variations and arguments");
     e.press(K("left"));
     e.screen();
