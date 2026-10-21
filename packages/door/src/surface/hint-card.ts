@@ -7,6 +7,7 @@ import { wrap } from "../text";
 import type { ActRequest } from "./actions";
 
 export interface Hint {
+  id?: string;
   title: string;
   lines: readonly string[];
   keys?: readonly { keys: string; does: string }[];
@@ -22,9 +23,10 @@ export class HintCard {
   private placed: { key: string; col: number; row: number } | null = null;
   readonly view = new RowView();
   constructor(readonly hint: Hint, readonly tile: string, readonly anchor: number, readonly by?: string) {}
+  get id() { return this.hint.id ?? "hint.show"; }
 
   draw(canvas: Canvas, anchor: Rect, area: Rect, brief: boolean, pointer?: { x: number; y: number }, tone: number = C.cyan, values?: StyleValues): Rect {
-    const cols = Math.max(4, Math.min(64, area.cols, Math.max(30, anchor.cols - 2)));
+    const cols = Math.max(4, Math.min(64, area.cols, Math.max(38, anchor.cols - 2)));
     const w = cols - 4;
     const lines = (brief ? this.hint.lines.slice(0, 1) : this.hint.lines).flatMap(l => wrap(l.replace(/^([^:]+:)/, BOLD + "$1" + UNBOLD), w));
     if (!brief) for (const k of this.hint.keys ?? []) lines.push(menuRow({ label: k.does, key: k.keys }, false, w));
@@ -50,10 +52,11 @@ export class HintCard {
     }
     const { col, row } = this.placed;
     const rect = this.rect = { col, row, cols, rows };
-    canvas.float(rect, this.hint.title + (this.by ? ` - ${this.by}` : ""), fg(C.dark) + (this.pinned ? "pinned  [dismiss]" : "[pin]  [dismiss]"), () => {
+    canvas.float(rect, this.hint.title + (this.by ? ` - ${this.by}` : ""), fg(C.dark) + (this.pinned ? "pinned  [dismiss]  [never]" : "[pin]  [dismiss]  [never]"), () => {
     this.hits = [
       { rect: { col: col + 3, row: row + rows - 1, cols: this.pinned ? 0 : 5, rows: 1 }, act: { action: "hint.pin", tile: this.tile } },
       { rect: { col: col + (this.pinned ? 11 : 10), row: row + rows - 1, cols: 9, rows: 1 }, act: { action: "hint.dismiss", tile: this.tile } },
+      { rect: { col: col + (this.pinned ? 22 : 21), row: row + rows - 1, cols: 7, rows: 1 }, act: { action: "hint.never", tile: this.tile } },
     ];
     const top = this.view.place(null, content.length, Math.max(0, rows - 2));
     content.slice(top, top + rows - 2).forEach((line, i) => {
@@ -71,7 +74,7 @@ export class HintCard {
   at(x: number, y: number): ActRequest | undefined {
     return this.hits.find(h => y === h.rect.row && x >= h.rect.col && x < h.rect.col + h.rect.cols)?.act;
   }
-  describe() { return { ...this.hint, tile: this.tile, pinned: this.pinned, ...(this.by ? { by: this.by } : {}) }; }
+  describe() { return { ...this.hint, id: this.id, tile: this.tile, pinned: this.pinned, ...(this.by ? { by: this.by } : {}) }; }
 }
 
 export const MOVE_HINT: Hint = { title: "Moving", lines: ["Choose the tile to move beside. A header makes tabs; an edge splits."], keys: [{ keys: "h j k l", does: "choose a neighbour" }, { keys: "esc", does: "cancel" }] };
@@ -79,3 +82,13 @@ export const RESIZE_HINT: Hint = { title: "Resizing", lines: ["Drag the border t
 export const GATHER_HINT: Hint = { title: "Gathering", lines: ["Pick tiles to put together in one group."], keys: [{ keys: "shift+click", does: "pick a tile" }, { keys: "esc", does: "clear the selection" }] };
 
 export const CONFIRM_HINT: Hint = { title: "Confirm", lines: ["Open this note for editing? Any other key keeps reading."], keys: [{ keys: "enter", does: "open the edit" }, { keys: "esc", does: "cancel" }] };
+
+export const MODE_HINTS = {
+  move: { ...MOVE_HINT, id: "move", trigger: "Move, drag or tab a tile" },
+  resize: { ...RESIZE_HINT, id: "resize", trigger: "Resize a tile by keys or border drag" },
+  gather: { ...GATHER_HINT, id: "gather", trigger: "Select tiles to gather" },
+  confirm: { ...CONFIRM_HINT, id: "confirm", trigger: "Arm an edit for confirmation" },
+  link: { id: "link", trigger: "Choose a wire destination" },
+  frame: { id: "frame", trigger: "Show frame controls with ? or xray" },
+  "hint.show": { id: "hint.show", trigger: "Show an explicit hint with hint.show" },
+} as const;

@@ -1,3 +1,5 @@
+import { declaredHints, HINT_SETTINGS } from "../surface/hints";
+import { rowLines } from "../text";
 // The tune inspector (PIE-673, PIE-675): a tile under the one it tunes, like devtools' computed styles. It lists the
 // look's values for that tile (or, in a reader, the `::box` its `[ ]` is in), each with where it comes from, and nudges
 // them: a nudge goes into the connection's tuning (src/look.ts), in memory, and the tiles draw with it in the next frame,
@@ -130,6 +132,8 @@ export class TunePane implements Pane {
    * applies: a named style, the page, the tile's kind…; the tile's kind for a built-in), or one picked.
    */
   level: TuneLevel = "auto";
+  section: "values" | "hints" = "values";
+  hintSel = 0;
   /** A nudge is for every width, or for the width the tile is in now (its breakpoint's variant). */
   scope: "all" | "this" = "all";
   /** A nudge held on a row where something nearer wins: the choices it offers (a, o, c, or a click). */
@@ -149,7 +153,7 @@ export class TunePane implements Pane {
   unsaved() { return this.view.unsaved(); }
   keepDrafts() { return this.view.keep(); }
   dispose() { void this.view.field?.session.leave(); }
-  hint() { if (this.view.field) return "editing · Enter save · Esc cancel"; return "e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all"; }
+  hint() { if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; if (this.view.field) return "editing · Enter save · Esc cancel"; return "e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all"; }
   spec() { return { source: `tile:${this.source}` }; }
 
   info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
@@ -225,7 +229,39 @@ export class TunePane implements Pane {
     return { editing: row.name };
   }
 
+  hintRows(desk: DeskApi) { return declaredHints(this.info(desk)?.look.values.hints ?? "full"); }
+
+  private renderHints(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
+    const rows = this.hintRows(desk), lines: string[] = [], starts: number[] = [];
+    this.controls = [];
+    const hits: typeof this.controls = [];
+    rows.forEach((r, n) => {
+      starts.push(lines.length);
+      const start = lines.length;
+      const body = `${n === this.hintSel ? ">" : " "} ${r.id}  ${r.setting}${r.own ? " (yours)" : " (default)"}`;
+      lines.push(...rowLines(body, w).map(l => n === this.hintSel ? selectedRow(l, w, focused) : fg(C.grey) + l + RESET));
+      lines.push(...rowLines(r.trigger, Math.max(1, w - 2)).map(l => "  " + fg(C.dark) + l + RESET));
+      const y = lines.length;
+      let x = 2;
+      for (const to of HINT_SETTINGS) {
+        const text = `[${to}]`;
+        hits.push({ y, x, cols: text.length, action: "hints.set", args: { id: r.id, to } });
+        x += text.length + 1;
+      }
+      lines.push("  " + HINT_SETTINGS.map(to => fg(to === r.setting ? C.lgreen : C.cyan) + `[${to}]` + RESET).join(" "));
+      for (let row = start; row < y; row++) hits.push({ y: row, x: 0, cols: w, action: "tune.hint.pick", args: { id: r.id } });
+    });
+    const top = this.view.place(this.hintSel, lines.length, Math.max(1, h - 2), [starts[this.hintSel] ?? 0, (starts[this.hintSel + 1] ?? lines.length) - 1]);
+    this.controls = [
+      { y: 0, x: 0, cols: 8, action: "tune.section", args: { section: "values" } },
+      { y: 1, x: 0, cols: 11, action: "hints.reset", args: {} },
+      ...hits.filter(c => c.y >= top && c.y < top + h - 2).map(c => ({ ...c, y: c.y - top + 2 })),
+    ];
+    return { lines: [fg(C.cyan) + "[values] Hints" + RESET, fg(C.cyan) + "[reset all]" + RESET, ...lines.slice(top, top + h - 2)] };
+  }
+
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
+    if (this.section === "hints") return this.renderHints(w, h, focused, desk);
     if (this.view.field) {
       const field = this.view.fieldDraw(w), top = this.view.place(field.focus, field.lines.length, h);
       this.controls = field.hits.map(hit => ({ y: hit.row - top, x: hit.from, cols: hit.to - hit.from, action: "tune.field", args: hit.args }));
@@ -247,6 +283,7 @@ export class TunePane implements Pane {
       lines.push(line);
     };
     const sp = { text: " ", sgr: "" };
+    put([{ text: "[values] ", sgr: fg(C.grey) }, { text: "[Hints] H", sgr: fg(C.cyan), action: "tune.section", args: { section: "hints" } }]);
     if (this.besideShort) put([{ text: "too short to split; inspector beside it", sgr: fg(C.yellow) }]);
     else put([{ text: `${t.kind}${t.title !== t.kind ? ` ${t.title}` : ""} · ${t.cols} cols · `, sgr: fg(C.grey) }, { text: widthWords(t.look), sgr: fg(C.lcyan) }, ...(t.box ? [{ text: " · in a box", sgr: fg(C.yellow) }] : [])]);
     // The levels a save goes to; the one picked lit. A level this tile hasn't (no page shown) is dim.
@@ -330,6 +367,15 @@ export class TunePane implements Pane {
     const intent = this.view.intent(k);
     if (intent) { this.run(desk, "tune.field", intent); return true; }
     const c = ch(k);
+    if (c === "H") { this.run(desk, "tune.section", { section: this.section === "hints" ? "values" : "hints" }); return true; }
+    if (this.section === "hints") {
+      const rows = this.hintRows(desk);
+      if (isUp(k) || isDown(k)) { this.run(desk, "tune.hint.pick", { id: rows[Math.max(0, Math.min(rows.length - 1, this.hintSel + (isUp(k) ? -1 : 1)))]!.id }); return true; }
+      const to = c === "c" ? "card" : c === "s" ? "status" : c === "o" ? "off" : null;
+      if (to) { this.run(desk, "hints.set", { id: rows[this.hintSel]!.id, to }); return true; }
+      if (c === "R") { this.run(desk, "hints.reset", {}); return true; }
+      return false;
+    }
     if (c === "e" || k.kind === "enter") { this.run(desk, "tune.edit", {}); return true; }
     // A step waiting in place: its own key again confirms; any other lets it go (and esc is only that).
     if (this.armed) {
@@ -363,6 +409,16 @@ export class TunePane implements Pane {
 
   /** A click on a control runs its action; on a row picks it; the wheel over a value nudges it, elsewhere moves the pick. */
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+    if (this.section === "hints") {
+      if (k.action === "wheel-up" || k.action === "wheel-down") {
+        const rows = this.hintRows(desk), n = Math.max(0, Math.min(rows.length - 1, this.hintSel + (k.action === "wheel-up" ? -1 : 1)));
+        this.run(desk, "tune.hint.pick", { id: rows[n]!.id });
+      } else if (k.action === "down") {
+        const hit = this.controls.find(c => c.y === y && x >= c.x && x < c.x + c.cols);
+        if (hit) this.run(desk, hit.action, hit.args);
+      }
+      return true;
+    }
     if (this.view.field) {
       if (k.action === "down") {
         const hit = this.controls.find(c => c.y === y && x >= c.x && x < c.x + c.cols);
@@ -386,7 +442,7 @@ export class TunePane implements Pane {
     return true;
   }
 
-  run(desk: DeskApi, name: string, args: Record<string, unknown>) { runOwn(TUNE_ACTIONS, name, args, { pane: this, desk }); }
+  run(desk: DeskApi, name: string, args: Record<string, unknown>) { if (name.startsWith("hints.")) { void desk.perform?.(name, args); return; } runOwn(TUNE_ACTIONS, name, args, { pane: this, desk }); }
 
   /**
    * What `peek` and `act` read: the tile tuned, its width, every value with its source (and, with a level or a width
@@ -394,6 +450,7 @@ export class TunePane implements Pane {
    * waiting for its confirmation.
    */
   describe(desk?: DeskApi) {
+    if (this.section === "hints" && desk) return { section: "hints", hints: this.hintRows(desk), selected: this.hintRows(desk)[this.hintSel]?.id };
     const t = desk ? this.info(desk) : null;
     const tuning = desk ? tuningOf(desk.ctx.board) : null;
     if (!t) return { tile: this.source, level: this.level, scope: this.scope, found: false };
@@ -491,6 +548,15 @@ function listOnly(target: TuneTarget, field: string, t: TuneTargetInfo, tuning: 
 const stepSaid = (actor: Actor, desk: DeskApi, words: string) => { desk.ctx.flash(says(actor, words)); return words; };
 
 export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
+  "tune.section": def({ summary: "show values or the personal Hints list in the tune inspector", keys: "H, click", touches: "tile", replay: "safe", args: { section: { type: "string", about: "values or hints" } }, examples: [{ act: "tune.section section=hints", does: "shows every hint and its setting" }], run: (a, { pane, desk }) => {
+    if (a.section !== "hints" && a.section !== "values") throw new ActionRefused("section is values or hints");
+    pane.section = a.section; pane.view.top = 0; desk.redraw(); return { section: pane.section };
+  } }),
+  "tune.hint.pick": def({ summary: "select a hint in the inspector", keys: "j, k, up, down, wheel, click", touches: "tile", replay: "safe", args: { id: { type: "string", about: "hint id" } }, examples: [{ act: "tune.hint.pick id=tile.collapse", does: "selects the folding hint" }], run: (a, { pane, desk }) => {
+    const n = pane.hintRows(desk).findIndex(r => r.id === a.id);
+    if (n < 0) throw new ActionRefused("hints.list shows the declared hints");
+    pane.hintSel = n; desk.redraw(); return { selected: a.id };
+  } }),
   "tune.edit": def({
     summary: "edit the selected inspector value in place with the shared property field", keys: "e enter, a double click on a value row",
     touches: "tile", replay: "ask", person: "the field belongs to the person; an agent uses tune.set",

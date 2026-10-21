@@ -3177,5 +3177,13 @@ surface. The showcase's `hints` section demonstrates linking live.
 `ep0ch peek --xray` reads every visible tile's card as data without displaying it.
 `hint.show text="Choose a destination" for=reader` shows an attributed card;
 `hint.get`, `hint.pin`, and `hint.dismiss` read, keep, or close it.
+Every card has `[never]` (`Alt+Shift+N`, `hint.never`): future occurrences of that hint
+use one status line. In tune, click `[Hints]` or press `H` for every declared hint,
+its trigger and setting. Pick with j/k or a click; c/s/o chooses card/status/off,
+or click the setting. `R` / `[reset all]` restores defaults. `hints.list` reads the
+list; `hints.set id=tile.collapse to=status` and `hints.reset` change the person's
+settings through the dispatcher's person-only rules. These choices live under
+`EP0CH_STATE` across outlines and restarts; `peek` includes them. Unset hints inherit
+the global hints setting; edit confirmation defaults to a status line.
 
 Cut-short text stays readable: hover it, select a list row by keys, or press Alt+? to cycle clipped values. A value wider than the screen scrolls. The status line still opens the message log on a click (Alt+M by keys); `status.list` returns recent messages in full alongside waiting programs.

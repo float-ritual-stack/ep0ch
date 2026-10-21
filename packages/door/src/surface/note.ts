@@ -8571,6 +8571,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run(_, { surface, host }) { return host.ctx.board.revisions(surface.requireNote().id); },
   }),
   "edit.arm": def({
+    hintId: "confirm",
     hint: (_, { surface, host }) => host.ctx.armed?.()?.of === surface ? CONFIRM_HINT : null,
     summary: "the person's e (ctrl+e: for $EDITOR) in a reader: arm the edit instead of opening it. The status bar asks `edit <title>? ⏎ · any other key cancels` and the reader's frame turns the edit's colour; ⏎ or the same key again within the window (edit.arm.set, or EP0CH_EDIT_ARM over it; default 2000 ms) opens it (edit), any other key lets it go and does what it does, and the window running out lets it go. edit.arm.set on=false (or EP0CH_EDIT_ARM=off) opens it at once. A click on an edit control, and an agent's edit, open at once",
     keys: "e, ctrl+e", touches: "nothing", replay: "ask",
