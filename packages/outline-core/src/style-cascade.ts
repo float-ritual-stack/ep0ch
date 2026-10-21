@@ -15,7 +15,7 @@
 // - this tile (PIE-675): one tile's own look, kept in its tile spec (`look`), so one links tile or one reader can be
 //   airy while the others of its kind stay tight.
 // - block: a box written into the note, `::box{margin.x=2 list.gap=1}` … `::` (PIE-549's block attributes); a list's own
-//   (PIE-675: `[style.list.gap::1]` on its lead-in line or the heading of its section, by placement, listLayers); and a
+//   (`[style.list.gap::1]` on its first item, over its lead-in and section heading defaults, listLayers); and a
 //   heading line's own `heading-*` fields.
 //
 // Any field takes a width variant, `style.narrow.margin.x` (`narrow.margin.x=0` in a box): it applies while the tile
@@ -173,7 +173,7 @@ export const STYLE_LEVELS = ["base", "component", "global", "tile", "screen", "p
 export type StyleLevel = (typeof STYLE_LEVELS)[number];
 /**
  * The levels a value can be saved to from a tool: the outline's, this tile's (its tile spec), and this list's (its
- * lead-in or heading line). A box is edited in its note.
+ * first item). A box is edited in its note.
  */
 export const SAVE_LEVELS = ["global", "tile", "screen", "page", "instance", "list"] as const;
 /** The cascade level a save level is (this list is a block's). */
@@ -552,7 +552,7 @@ export function listStart(lines: readonly string[], at: number): number | null {
 /**
  * Where a list's own look is written, by placement (PIE-675): its lead-in, the line just above its first item when that
  * line isn't blank, an item or a heading (the line the list belongs to), and the heading of the section it's in. Either
- * can be null. A save goes to the lead-in when there is one, else the heading.
+ * can be null. These are inherited defaults; a save for one list goes to its first item.
  */
 export function listOwners(lines: readonly string[], first: number): { lead: number | null; heading: number | null } {
   const code = fencedLines(lines);
@@ -587,13 +587,13 @@ export function listFieldsOn(line: string): Record<FieldKey, string> {
 }
 
 /**
- * A list's own layers (block level, "this list"), the heading's then the lead-in's (nearer), for the list whose first
+ * A list's own layers (block level, "this list"), the heading's, the lead-in's, then the first item's (nearest), for the list whose first
  * item is line `first` of `lines`. `line(n)`: line n's number as the inspector names it (a reader's body line to the
  * note's), for each layer's source; `block`: the note.
  */
 export function listLayers(lines: readonly string[], first: number, block?: string, line: (n: number) => number = n => n): StyleLayer[] {
   const { lead, heading } = listOwners(lines, first);
-  return [heading, lead].flatMap(n => {
+  return [heading, lead, first].flatMap(n => {
     if (n === null) return [];
     const fields = listFieldsOn(lines[n]!);
     return [{ level: "block" as const, label: "this list", ...(block ? { block } : {}), line: line(n), fields }];
