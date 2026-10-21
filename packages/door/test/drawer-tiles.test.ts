@@ -348,7 +348,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
 
   test("round 2: the shown Herdr terminal and built-in session retain independent polls (PIE-1172)", async () => {
     const herdr = join(state, "herdr");
-    writeFileSync(herdr, '#!/bin/sh\necho "$*" >> "' + join(state, "polls") + '"\nif [ "$3" = "other" ]; then while [ ! -e "' + join(state, "release") + '" ]; do sleep 0.01; done; fi\nif [ "$1 $2" = "agent get" ]; then\ncase "$3" in\nown) echo \'{"result":{"agent":{"agent_status":"blocked"}}}\';;\n*) echo \'{"result":{"agent":{"agent_status":"idle"}}}\';;\nesac\nfi\n');
+    writeFileSync(herdr, '#!/bin/sh\nif [ "$3" = "other" ]; then while [ ! -e "' + join(state, "release") + '" ]; do sleep 0.01; done; fi\nif [ "$1 $2" = "agent get" ]; then\ncase "$3" in\nown) echo \'{"result":{"agent":{"agent_status":"blocked"}}}\';;\n*) echo \'{"result":{"agent":{"agent_status":"idle"}}}\';;\nesac\nfi\n');
     chmodSync(herdr, 0o755);
     process.env.EP0CH_HERDR_BIN = herdr;
     const d = await door();
@@ -362,7 +362,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await drawer.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
       d.app.drawer.state();
       d.app.drawer.sessions();
-      await until(() => existsSync(join(state, "polls")) && readFileSync(join(state, "polls"), "utf8").includes("agent get own"), "the built-in polls while the shown terminal's poll is pending", 1000);
+      await until(() => d.app.drawer.sessions().some(s => s.shown.in === "drawer" && s.shown.own && s.state === "waiting"), "the built-in needs you while the shown terminal's poll is pending", 1000);
       writeFileSync(join(state, "release"), "");
       await until(() => {
         const shown = d.app.drawer.state();
