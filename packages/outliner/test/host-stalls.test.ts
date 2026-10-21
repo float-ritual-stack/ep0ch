@@ -12,12 +12,21 @@ import type { Block, TreeIndexSnapshot } from "../src/types";
 
 // What keeps the outline host answering (PIE-625). The timing guard is scripts/bench-host-stalls.ts (a note read
 // answered in under 200 ms at start-up, under load, during a backup and after a restart). The bounded-read
-// regressions compare the same requests on small and large outlines on this runner.
+// regressions count whole-outline graph accesses while exercising real scratch stores.
 
 function scratch(name: string) {
   const root = mkdtempSync(join(tmpdir(), `${name}-`));
   const store = new OutlinerStore(join(root, "outline.sqlite"));
   return { root, store, done: () => { store.close(); rmSync(root, { recursive: true, force: true }); } };
+}
+
+// Count graph accesses, not elapsed time: a scheduler pause is not a whole-outline scan.
+function graphReads(store: OutlinerStore) {
+  const internals = store as unknown as { loadGraph(): unknown };
+  const loadGraph = internals.loadGraph.bind(store);
+  let reads = 0;
+  internals.loadGraph = () => { reads += 1; return loadGraph(); };
+  return () => reads;
 }
 
 const graphOf = (store: OutlinerStore) => (store as unknown as { loadGraph(): { byId: Map<string, Block> } }).loadGraph();
@@ -57,44 +66,21 @@ test("a write's fan-out in a 50,000-block outline leaves another outline respons
     })).ok).toBe(true);
     const client = new OutlinerClient(join(root, "large.sock"));
     const second = new OutlinerClient(join(root, "small.sock"));
-    const measure = async (replacement: string) => {
-      delivered = Promise.withResolvers<void>();
-      const current = store.require(target.id);
-      const started = performance.now();
-      const write = client.request<{ outcome: string }>({ action: "draft.patch", blockId: target.id, revision: current.revision,
-        patches: [{ observed: current.text, replacement: `${replacement} [kind::seed]` }], mutation: { author: "agent", actorId: "mender" } });
-      const delivery = delivered.promise.then(() => performance.now() - started);
-      const read = new Promise<void>(resolve => setImmediate(resolve)).then(async () => {
-        const answer = await second.request<Block>({ action: "get", blockId: note.id });
-        return { answer, ms: performance.now() - started };
-      });
-      const [result, fanoutMs, reading] = await Promise.all([write, delivery, read]);
-      expect(result.outcome).toBe("applied");
-      expect(reading.answer.text).toBe("Small note");
-      return { fanoutMs, readMs: reading.ms };
-    };
-    // The same sockets, watches and write on an idle outline price in this runner's scheduling and I/O.
-    await measure("Needle, mended");
-    const idle: number[] = [];
-    for (let i = 0; i < 7; i++) {
-      const sample = await measure(i % 2 ? "Needle, mended" : "Needle");
-      idle.push(Math.max(sample.fanoutMs, sample.readMs));
-    }
-    const baseline = idle.sort((a, b) => a - b)[3]!;
     store.database.transaction(() => {
       const insert = store.database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, NULL, ?, ?, 'user', ?, ?)");
       for (let i = 0; i < 50_000; i++) insert.run(crypto.randomUUID(), i + 100, `Note ${i}`, target.createdAt, target.createdAt);
     })();
     expect((await ask("warm", { action: "blocks.query", query: { where: "kind=seed", limit: 20 } })).ok).toBe(true);
-    const samples = [];
-    for (let i = 0; i < 7; i++) samples.push(await measure(i % 2 ? "Needle" : "Needle, mended"));
-    const fanoutMs = samples.map(sample => sample.fanoutMs).sort((a, b) => a - b)[3]!;
-    const readMs = samples.map(sample => sample.readMs).sort((a, b) => a - b)[3]!;
+    const reads = graphReads(store);
+    const current = store.require(target.id);
+    const write = client.request<{ outcome: string }>({ action: "draft.patch", blockId: target.id, revision: current.revision,
+      patches: [{ observed: current.text, replacement: "Needle, mended [kind::seed]" }], mutation: { author: "agent", actorId: "mender" } });
+    const read = second.request<Block>({ action: "get", blockId: note.id });
+    const [result, reading] = await Promise.all([write, read, delivered.promise]);
+    expect(result.outcome).toBe("applied");
+    expect(reading.text).toBe("Small note");
     expect(store.get(target.id)?.text).toBe("Needle, mended [kind::seed]");
-    console.log(`PIE-1001: idle ${baseline.toFixed(1)} ms; fan-out ${fanoutMs.toFixed(1)} ms; second outline ${readMs.toFixed(1)} ms`);
-    // Unrelated notes must not turn a bounded write into a whole-outline scan.
-    expect(fanoutMs / baseline).toBeLessThan(10);
-    expect(readMs / baseline).toBeLessThan(10);
+    expect(reads()).toBe(0);
   } finally {
     socket?.destroy();
     await server.close();
@@ -233,35 +219,19 @@ test.each(["backlinks", "records-1", "records-20", "draft.patch", "draft.patch-a
     const small = smallStore.create("Small note");
     let server = largeServer = new OutlinerServer(store, join(root, "large.sock"));
     const measure = async () => {
-      const started = performance.now();
       const request = Promise.resolve().then(() => server.handleAsync(action === "backlinks" ? {
         id: action, action: "references.backlinks", query: { targetBlockId: target.id, limit: 10 },
       } : action === "draft.patch" || action === "draft.patch-anchor" ? {
         id: action, action: "draft.patch", blockId: target.id, revision: store.require(target.id).revision,
         patches: [action === "draft.patch-anchor" ? { observed: " ^tip", replacement: "" } : { observed: "Needle", replacement: "Needle, mended" }],
         mutation: { author: "agent", actorId: "mender" },
-      } : { id: action, action: "blocks.records", ids: ids.slice(0, action === "records-1" ? 1 : 20) })).then(result => ({ result, ms: performance.now() - started }));
+      } : { id: action, action: "blocks.records", ids: ids.slice(0, action === "records-1" ? 1 : 20) }));
       const read = new Promise<Awaited<ReturnType<typeof smallServer.handleAsync>>>(resolve => setImmediate(() => {
         resolve(smallServer.handleAsync({ id: "read", action: "get", blockId: small.id }));
-      })).then(result => ({ result, ms: performance.now() - started }));
+      }));
       const [answer, note] = await Promise.all([request, read]);
       return { answer, note };
     };
-    const idle: number[] = [];
-    for (let i = 0; i < 7; i++) {
-      await server.close();
-      store.close();
-      store = new OutlinerStore(join(root, "outline.sqlite"));
-      server = largeServer = new OutlinerServer(store, join(root, "large.sock"));
-      const { answer, note } = await measure();
-      expect(answer.result.ok).toBe(true);
-      expect(note.result.ok).toBe(true);
-      idle.push(Math.max(answer.ms, note.ms));
-      if (action === "draft.patch" || action === "draft.patch-anchor") {
-        store.update(target.id, target.text, store.require(target.id).revision);
-      }
-    }
-    const baseline = idle.sort((a, b) => a - b)[3]!;
     store.database.transaction(() => {
       const insert = store.database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, NULL, ?, ?, 'user', ?, ?)");
       for (let i = 0; i < 50_000; i++) {
@@ -273,30 +243,17 @@ test.each(["backlinks", "records-1", "records-20", "draft.patch", "draft.patch-a
     })();
     await server.close();
     store.close();
-    const samples = [];
-    // Reopen every sample: a warm graph must not hide a cold-read regression.
-    for (let i = 0; i < 7; i++) {
-      store = new OutlinerStore(join(root, "outline.sqlite"));
-      server = largeServer = new OutlinerServer(store, join(root, "large.sock"));
-      samples.push(await measure());
-      if (action === "draft.patch" || action === "draft.patch-anchor") {
-        expect(store.require(target.id).text).toBe(action === "draft.patch-anchor" ? "Needle\nPassage" : "Needle, mended");
-        store.update(target.id, target.text, store.require(target.id).revision);
-      }
-      await server.close();
-      store.close();
-    }
-    const { answer, note } = samples[0]!;
-    const requestMs = samples.map(sample => sample.answer.ms).sort((a, b) => a - b)[3]!;
-    const readMs = samples.map(sample => sample.note.ms).sort((a, b) => a - b)[3]!;
-    console.log(`PIE-1001: idle ${baseline.toFixed(1)} ms; ${action} ${requestMs.toFixed(1)} ms; second outline ${readMs.toFixed(1)} ms`);
-    if (action === "backlinks") expect(answer.result).toMatchObject({ ok: true, result: { sources: [{ blockId: source.id }] } });
+    store = new OutlinerStore(join(root, "outline.sqlite"));
+    server = largeServer = new OutlinerServer(store, join(root, "large.sock"));
+    const reads = graphReads(store);
+    const { answer, note } = await measure();
+    if (action === "backlinks") expect(answer).toMatchObject({ ok: true, result: { sources: [{ blockId: source.id }] } });
     else if (action === "draft.patch" || action === "draft.patch-anchor") {
-      expect(answer.result).toMatchObject({ ok: true, result: { outcome: "applied" } });
-    } else expect(answer.result).toMatchObject({ ok: true, result: { records: ids.slice(0, action === "records-1" ? 1 : 20).map(id => ({ id, backlinks: id === target.id ? [source.id] : [] })) } });
-    expect(note.result).toMatchObject({ ok: true, result: { text: "Small note" } });
-    expect(requestMs / baseline).toBeLessThan(10);
-    expect(readMs / baseline).toBeLessThan(10);
+      expect(answer).toMatchObject({ ok: true, result: { outcome: "applied" } });
+      expect(store.require(target.id).text).toBe(action === "draft.patch-anchor" ? "Needle\nPassage" : "Needle, mended");
+    } else expect(answer).toMatchObject({ ok: true, result: { records: ids.slice(0, action === "records-1" ? 1 : 20).map(id => ({ id, backlinks: id === target.id ? [source.id] : [] })) } });
+    expect(note).toMatchObject({ ok: true, result: { text: "Small note" } });
+    expect(reads()).toBe(0);
   } finally {
     await largeServer?.close();
     store.close();
