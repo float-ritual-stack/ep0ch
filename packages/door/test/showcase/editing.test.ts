@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { App } from "../../src/app";
 import { SHOWCASE_ASSETS, SEED, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
+import { wheelRows } from "../../src/scroll";
 import { completionOf } from "../../src/surface/completer";
 import { SocketBoard } from "../../src/socket";
 import type { ReaderPane } from "../../src/desk/panes";
@@ -436,6 +437,10 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
           const ends = lines.flatMap((l, i) => l.includes("End marker") ? [i] : []);
           expect(ends).toHaveLength(1);
           expect(lines[ends[0]!]!.match(/End marker/g)).toHaveLength(2);
+          const p = d.frame!.preview!, top = p.top;
+          reader.surface.wheel(-1, reader.host(desk), { x: p.col + 2, y: p.row + 2 });
+          reader.render(130, 28, true, desk);
+          expect(d.frame!.preview!.top).toBe(top + wheelRows(-1));
         } else if (symptom === "images") {
           app.video = "kitty";
           d.replace(`Draft\n[img::${SHOWCASE_ASSETS}/seed-packet.webp] [height::4]`);

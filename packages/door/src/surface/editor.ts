@@ -151,16 +151,15 @@ export function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>,
   const cursorRow = aligned ? Math.max(0, (d.frame?.row ?? 1) + d.cursorRow - row - 1) : 0;
   const sourceRow = shown.source.findIndex(line => line >= d.row);
   const lead = aligned && sourceRow >= 0 ? Math.min(Math.max(0, room - 1), Math.max(0, cursorRow - sourceRow)) : 0;
-  const body = [...pad0(lead), ...shown.body], source = [...Array<number>(lead).fill(-1), ...shown.source];
+  // Beside the draft, leave room below the last source line for alignment and manual scrolling.
+  const body = [...pad0(lead), ...shown.body, ...pad0(aligned ? room - 1 : 0)], source = [...Array<number>(lead).fill(-1), ...shown.source];
   const last = Math.max(0, body.length - room);
   // Where the wheel put it (PIE-846), while the text is as it was then; else the part around the cursor's line.
   const scrolled = d.previewScroll?.text === text ? d.previewScroll : null;
   if (scrolled === null) d.previewScroll = null;
   const projected = new PositionRows({ ...d.position, view: { line: d.row + (scrolled?.lineDelta ?? 0), row: scrolled?.row ?? cursorRow } });
   projected.source = source;
-  const at = aligned && !scrolled ? projected.top : Math.min(last, projected.top);
-  // Beside the draft, the cursor line keeps its row even when earlier preview lines expanded.
-  if (aligned) body.push(...pad0(at + room - body.length));
+  const at = Math.min(last, projected.top);
   // Its pictures (PIE-846) on the rows of the part shown, one column in as its text is.
   const placements = shown.placements.flatMap(p => { const q = inWindow({ ...p, row: p.row + lead }, at, room, row + 1); return q ? [{ ...q, col: q.col + col + 1 }] : []; });
   if (d.frame) d.frame.preview = { row, col, cols: w, rows: h, top: at, total: body.length, source, placements };
