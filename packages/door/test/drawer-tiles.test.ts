@@ -299,6 +299,33 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  test("the chip, edge and peek report the shown terminal after the built-in agent closes (PIE-1172)", async () => {
+    const d = await door();
+    try {
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tile.close", tile: "drawer.agent" }, USER);
+      expect(d.app.describe().drawer.state).toBe("empty");
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      const p = d.pane("kettle") as PtyPane;
+      for (const state of ["working", "idle", "blocked"] as const) {
+        await drawer.dispatch.act({ action: "tile.type", tile: "kettle", args: { text: `\x1b]7501;state=${state}\x07\n` } }, USER);
+        await until(() => p.status.urgent()?.state === state, `kettle reports ${state}`);
+        const shown = d.paint();
+        const word = state === "blocked" ? "needs you" : state;
+        expect(d.app.describe().drawer.state).toBe(state);
+        expect(d.app.describe().drawer.tile).toMatchObject({ name: "kettle" });
+        expect(shown.at(-1)).toContain(`kettle · ${word}`);
+        expect(shown[d.app.drawer.rect!.row]).toContain(`kettle · ${word}`);
+        expect(shown[d.app.drawer.rect!.row]).toContain("drag this edge");
+      }
+      await drawer.dispatch.act({ action: "tile.type", tile: "kettle", args: { text: "\x04" } }, USER);
+      await until(() => p.exited !== null, "kettle exits");
+      await drawer.dispatch.act({ action: "tile.close", tile: "kettle" }, USER);
+      expect(d.app.describe().drawer.state).toBe("empty");
+      expect(d.paint().at(-1)).toContain("empty");
+    } finally { d.app.quit(); }
+  });
+
   test("an agent puts a terminal tile by act: moved, not started again; said; the dock and the person's keys stay put", async () => {
     const d = await door();
     try {
