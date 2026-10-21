@@ -36,6 +36,8 @@ export const REPLIES_KEYS: readonly ModeKey[] = [
   ...[...REPLIES_CONTROLS, "note.thread.pick", "note.thread.open", "note.thread.unfold"].map(action => row("click", action, "")),
   row("wheel", "note.thread.pick", ""),
 ];
+export const REPLIES_FOLD_KEYS: readonly ModeKey[] = REPLIES_KEYS.map(row => row.action === "note.thread.open" ? { ...row, action: "note.thread.unfold", args: undefined, label: "unfold" } : row);
+
 export const COMMENT_KEYS: readonly ModeKey[] = [
   row("esc", "comment.escape", "close comment"), row("ctrl+s", "comment.send", "send"),
   row("ctrl+o", "comment.place", "placement"), row("ctrl+g", "comment.grip", "move"), row("ctrl+r", "comment.reload", "find quote"), row("click", "comment.place", ""),
@@ -50,4 +52,4 @@ export const EDIT_PREVIEW_KEYS: readonly ModeKey[] = [
 
 export const EDIT_PREVIEW_READER_KEYS = EDIT_PREVIEW_KEYS.filter(row => row.action === "draft.preview");
 
-export const ATTACHED_KEYS = [SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, COMMENT_KEYS, EDIT_PREVIEW_KEYS];
+export const ATTACHED_KEYS = [SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, COMMENT_KEYS, EDIT_PREVIEW_KEYS];

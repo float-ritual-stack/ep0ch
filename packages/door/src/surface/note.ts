@@ -1,4 +1,4 @@
-import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
+import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
@@ -3064,18 +3064,21 @@ export class NoteSurface {
     const go = (n?: number, fresh = false) => run(row(n)?.kind === "fold" ? "note.thread.unfold" : "note.thread.open", { ...(n === undefined ? {} : { n }), ...(fresh && row(n)?.kind !== "fold" ? { fresh: true } : {}) });
     const run = (action: "note.thread.close" | "note.thread.pick" | "note.thread.open" | "note.thread.unfold" | "note.thread.groups" | "note.thread.full", args: Record<string, unknown> = {}) => { void this.runKey(action, args, host); };
     const mode: ReplyLinksMode = {
-      keys: REPLIES_KEYS, controls: [],
+      get keys() {
+        const picked = row(), keys = picked?.kind === "fold" ? REPLIES_FOLD_KEYS : REPLIES_KEYS;
+        return picked?.kind === "child" ? keys : keys.filter(binding => binding.action !== "note.move" && binding.action !== "note.move.undo");
+      },
+      controls: [],
       name: "replies", of: m, word: "replies", holdsKeys: true, editing: () => false, covers: () => false,
       data, thread, unfolded: new Set(), presses: new RowPresses(), picked: false, top: 0, truncated: replies.truncated || thread.truncated,
       selected: Math.max(0, threadRows(thread).findIndex(r => r.kind === "child" && r.thread?.here)), group: "thread", rect: { x: 0, y: 0, w: 0, h: 0 }, rowsAt: [], drawnItems: [],
       key: k => {
-        const binding = modeBinding(REPLIES_KEYS, k);
+        const binding = modeBinding(mode.keys!, k);
         if (!binding) return true;
         const picked = row();
         if (binding.action === "note.move" || binding.action === "note.move.undo") {
           if (picked?.kind === "child") void this.runKey(binding.action, { id: picked.child.block.id, ...(binding.action === "note.move" ? { revision: picked.child.block.revision } : {}), ...binding.args }, host);
-        } else if (binding.action === "note.thread.open") go(undefined, !!binding.args?.fresh);
-        else run(binding.action as Parameters<typeof run>[0], binding.args);
+        } else run(binding.action as Parameters<typeof run>[0], binding.args);
         return true;
       },
       click: (x, y, host) => {
@@ -3097,7 +3100,7 @@ export class NoteSurface {
       },
       wheel: (dir, _host, at) => { if (!at || at.x < mode.rect.x || at.y < mode.rect.y) return false; run("note.thread.pick", { by: dir }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("replies"); return { left: "nothing" }; },
-      hint: () => modeHint(REPLIES_KEYS, action => NOTE_ACTIONS.def(action)), state: () => "replies",
+      hint: () => modeHint(mode.keys!, action => NOTE_ACTIONS.def(action)), state: () => "replies",
       describe: () => ({ replies: mode.data.children?.kind === "ready" ? mode.data.children.value.map(c => c.block.id) : [], truncated: mode.truncated, group: mode.group, rows: mode.rowsAt.map((r, i) => describeLinkRow(r, i + 1, i === mode.selected)) }),
     };
     this.modes.push(mode); host.redraw(); return out;
@@ -9344,7 +9347,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const target = row && linkTargetOf(row); if (!target) return { opened: null }; surface.closeReplyLinks(); const note = await surface.open(target, host, fresh); return { opened: note && "id" in note ? note.id : null }; },
   }),
   "note.thread.unfold": def({
-    summary: "show the posts a fold row of the thread hides", keys: "enter, a second click or a double click on a fold row", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
+    summary: "show the posts a fold row of the thread hides", keys: modeActionKeys(ATTACHED_KEYS, "note.thread.unfold"), touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" } },
     examples: [
       { act: "note.thread.unfold n=4", does: "shows the posts the fourth row of the thread, a fold, hides" },
     ],
