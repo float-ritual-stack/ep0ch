@@ -129,6 +129,8 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
         if (place === "welcome") {
           await until(() => paint().includes("Launch pad"), "the Welcome notes listed");
           await app.dispatch.act({ action: "welcome.read", args: { id: note.id } }, USER);
+          // Welcome already owns the keys; after a repaint, Enter would press its first button.
+          paint();
         }
         if (place === "drawer") {
           await app.dispatch.act({ action: "tile.drawer", tile }, USER);
@@ -136,7 +138,7 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
           await app.drawer.desk!.dispatch.act({ action: "tab.select", tile }, USER);
           await app.dispatch.act({ action: "host.enter" }, USER);
           tile = app.drawer.desk!.layoutGet().tiles.find(t => t.name === "launch")!.id!;
-        } else {
+        } else if (place === "desk") {
           await d.dispatch.act({ action: "tile.focus", tile }, USER);
           press({ kind: "enter" });
         }

@@ -38,7 +38,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
   beforeEach(() => {
-    for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_CWD"]) saved[k] = process.env[k];
+    for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_CWD", "EP0CH_HERDR_BIN", "CLAUDE_CODE_PLUGIN_DIRS"]) saved[k] = process.env[k];
     state = mkdtempSync(join(tmpdir(), "ep0ch-drawertiles-"));
     process.env.EP0CH_STATE = state;
     process.env.EP0CH_DAILY_AGENT = "cat";
@@ -296,6 +296,141 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       restored.dispose();
       d.key({ kind: "alt", ch: "s" });
       await until(() => d.app.drawer.tabs().some(t => (d.pane(t.name) as PtyPane).running), "new shell runs from home");
+    } finally { d.app.quit(); }
+  });
+
+  test("the chip, edge and peek report the shown terminal after the built-in agent closes (PIE-1172)", async () => {
+    const d = await door();
+    try {
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tile.close", tile: "drawer.agent" }, USER);
+      expect(d.app.describe().drawer.state).toBe("empty");
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      const p = d.pane("kettle") as PtyPane;
+      for (const state of ["working", "idle", "blocked"] as const) {
+        await drawer.dispatch.act({ action: "tile.type", tile: "kettle", args: { text: `\x1b]7501;state=${state}\x07\n` } }, USER);
+        await until(() => p.status.urgent()?.state === state, `kettle reports ${state}`);
+        const shown = d.paint();
+        const word = state === "blocked" ? "needs you" : state;
+        expect(d.app.describe().drawer.state).toBe(state);
+        expect(d.app.describe().drawer.tile).toMatchObject({ name: "kettle" });
+        expect(shown.at(-1)).toContain(`kettle · ${word}`);
+        expect(shown[d.app.drawer.rect!.row]).toContain(`kettle · ${word}`);
+        expect(shown[d.app.drawer.rect!.row]).toContain("drag this edge");
+      }
+      await drawer.dispatch.act({ action: "tile.type", tile: "kettle", args: { text: "\x04" } }, USER);
+      await until(() => p.exited !== null, "kettle exits");
+      await drawer.dispatch.act({ action: "tile.close", tile: "kettle" }, USER);
+      expect(d.app.describe().drawer.state).toBe("empty");
+      expect(d.paint().at(-1)).toContain("empty");
+    } finally { d.app.quit(); }
+  });
+
+  test("round 2: choosing an agent still confirms a busy built-in while an idle terminal is shown (PIE-1172)", async () => {
+    const program = join(state, "busy");
+    writeFileSync(program, "#!/bin/sh\nprintf '\\033]7501;state=working\\007'\nexec cat\n");
+    chmodSync(program, 0o755);
+    process.env.EP0CH_DAILY_AGENT = program;
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      const own = d.app.drawer.tile!;
+      await until(() => own.status.urgent()?.state === "working", "the built-in reports working");
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
+      await drawer.dispatch.act({ action: "tile.type", tile: "kettle", args: { text: "\x1b]7501;state=idle\x07\n" } }, USER);
+      await until(() => d.app.drawer.state() === "idle", "the shown terminal is idle");
+      await expect(d.app.act({ action: "host.agent", args: { name: "shell" }, as: AS })).rejects.toThrow("the drawer agent is busy");
+      expect(own.running).toBe(true);
+    } finally { d.app.quit(); }
+  });
+
+  test("round 3: reading the shown tile's chip does not repeatedly scan hidden terminal text (PIE-1172)", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
+      d.paint();
+      const hidden = d.pane("kettle") as PtyPane;
+      let reads = 0;
+      const text = hidden.text;
+      hidden.text = function () { reads++; return text.call(this); };
+      try {
+        // A tick and a status repaint may ask for the same chip several times; the hidden scrollback stays put.
+        for (let i = 0; i < 20; i++) {
+          expect(d.app.drawer.state()).not.toBe("empty");
+          expect(d.app.drawer.chipText()).toContain("cat");
+        }
+        expect(reads).toBeLessThanOrEqual(1);
+      } finally { hidden.text = text; }
+    } finally { d.app.quit(); }
+  });
+
+  test("round 2: the shown Herdr terminal and built-in session retain independent polls (PIE-1172)", async () => {
+    const herdr = join(state, "herdr");
+    writeFileSync(herdr, '#!/bin/sh\nif [ "$3" = "other" ]; then while [ ! -e "' + join(state, "release") + '" ]; do sleep 0.01; done; fi\nif [ "$1 $2" = "agent get" ]; then\ncase "$3" in\nown) echo \'{"result":{"agent":{"agent_status":"blocked"}}}\';;\n*) echo \'{"result":{"agent":{"agent_status":"idle"}}}\';;\nesac\nfi\n');
+    chmodSync(herdr, 0o755);
+    process.env.EP0CH_HERDR_BIN = herdr;
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => !!d.app.drawer.tile?.running, "the built-in runs");
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tile.herdr", tile: "drawer.agent", args: { pane: "own", name: "own" } }, USER);
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      await drawer.dispatch.act({ action: "tile.herdr", tile: "kettle", args: { pane: "other", name: "other" } }, USER);
+      await drawer.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
+      d.app.drawer.state();
+      d.app.drawer.sessions();
+      await until(() => d.app.drawer.sessions().some(s => s.shown.in === "drawer" && s.shown.own && s.state === "waiting"), "the built-in needs you while the shown terminal's poll is pending", 1000);
+      writeFileSync(join(state, "release"), "");
+      await until(() => {
+        const shown = d.app.drawer.state();
+        const own = d.app.drawer.sessions().find(s => s.shown.in === "drawer" && s.shown.own);
+        return shown === "idle" && own?.state === "waiting";
+      }, "the chip is idle while the built-in session needs you");
+      await drawer.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
+      expect(d.app.drawer.state()).toBe("blocked");
+      await drawer.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
+      expect(d.app.drawer.state()).toBe("idle");
+    } finally { writeFileSync(join(state, "release"), ""); d.app.quit(); }
+  });
+
+  test("round 2: a moved terminal's stale knowledge never advertises an unavailable restart (PIE-1172)", async () => {
+    const mod = join(state, "claude-mod"), manifest = join(mod, ".claude-plugin", "plugin.json");
+    mkdirSync(join(mod, ".claude-plugin"), { recursive: true });
+    writeFileSync(manifest, '{"name":"garden-mod"}');
+    process.env.CLAUDE_CODE_PLUGIN_DIRS = mod;
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.open", tile: "reader", args: { kind: "pty", name: "old-agent", cmd: "env EP0CH_CONTROL=/tmp/fictional-door.sock EP0CH_CLAUDE_MOD_NAME=old-mod cat" } }, USER);
+      await until(() => (d.desk.pane("old-agent") as PtyPane)?.running, "the old agent runs");
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "old-agent" }, USER);
+      await d.app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "old-agent" }, USER);
+      await until(() => { d.app.drawer.chipText(); return d.app.describe().drawer.knows?.state === "stale"; }, "the shown agent's stale environment is read");
+      expect(d.app.drawer.chipText()).toContain("started before update");
+      expect(d.app.drawer.offersRestart).toBe(false);
+      expect(d.app.drawer.chipText()).not.toContain("⟳");
+    } finally { d.app.quit(); }
+  });
+
+  test("round 2: peek reports knowledge only for the tile that was polled (PIE-1172)", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => !!d.app.drawer.tile?.running, "the built-in runs");
+      const own = d.app.drawer.tile!;
+      await d.app.act({ action: "agent.knows", args: {}, as: AS });
+      expect(d.app.describe().drawer.knows?.pid).toBe(own.pid);
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
+      expect(d.app.describe().drawer.knows).toBeNull();
+      await until(() => { d.app.drawer.chipText(); return d.app.describe().drawer.knows?.pid === (d.pane("kettle") as PtyPane).pid; }, "kettle's own knowledge is read");
+      await drawer.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
+      expect(d.app.describe().drawer.knows?.pid).toBe(own.pid);
     } finally { d.app.quit(); }
   });
 
