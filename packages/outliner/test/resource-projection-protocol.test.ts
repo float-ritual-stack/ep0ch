@@ -293,19 +293,32 @@ test("one unreadable stored copy makes only its own projection unavailable", () 
   ]);
 });
 
-test("a large note with deep, large ancestors is read within a bounded time", () => {
-  // 3,000 provider lines (only 16 are resolved) under 50 ancestors of about 55 KB of keys, properties and tags.
-  const text = ["Subject", ...Array.from({ length: 3000 }, () => "jira::")].join("\n");
-  const ancestors = Array.from({ length: 50 }, (_, index) => ({
-    id: `ancestor-${index}`,
-    text: `Ancestor ${index}\n${"body ACME-5 [status::open] #tag note\n".repeat(1500)}`,
-  }));
-  const source = fakeSource(text, ancestors);
-  readResourceProjections(source, { blockId: "note" });
-  const started = performance.now();
-  const result = readResourceProjections(source, { blockId: "note" });
-  const elapsed = performance.now() - started;
-  expect(result.projections).toHaveLength(16);
-  expect(result.projections.every((projection) => projection.status === "no-key")).toBe(true);
-  expect(elapsed).toBeLessThan(200);
-});
+test("thousands of provider lines reuse the same ancestor context", async () => {
+  const { store, client } = await start();
+  let parentId: string | null = null;
+  store.database.transaction(() => {
+    const insert = store.database.query("INSERT INTO blocks (id, parent_id, position, text, author, created_at, updated_at) VALUES (?, ?, 0, ?, 'user', '2026-01-01', '2026-01-01')");
+    for (let i = 0; i < 50; i++) {
+      const id = crypto.randomUUID();
+      insert.run(id, parentId, `Ancestor ${i}\n${"body ACME-5 [status::open] #tag note\n".repeat(1500)}`);
+      parentId = id;
+    }
+  })();
+  const one = store.create("Subject\njira::", parentId);
+  const many = store.create(["Subject", ...Array.from({ length: 3000 }, () => "jira::")].join("\n"), parentId);
+  const timed = async (id: string) => {
+    const started = performance.now();
+    const answer = await read(client, id);
+    return { answer, ms: performance.now() - started };
+  };
+  const baseline: number[] = [], samples: number[] = [];
+  for (let i = 0; i < 7; i++) {
+    baseline.push((await timed(one.id)).ms);
+    const sample = await timed(many.id);
+    expect(sample.answer.projections).toHaveLength(16);
+    expect(sample.answer.projections.every(projection => projection.status === "no-key")).toBe(true);
+    samples.push(sample.ms);
+  }
+  // Resolving the first 16 lines must share the ancestor parse rather than repeating it for each line.
+  expect(samples.sort((a, b) => a - b)[3]! / baseline.sort((a, b) => a - b)[3]!).toBeLessThan(8);
+}, 30_000);

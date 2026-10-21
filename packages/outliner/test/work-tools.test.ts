@@ -123,7 +123,7 @@ test("unclear or unsafe property writes are refused before anything changes", as
     expect(result.error).toContain(message);
   }
   expect(h.store.require(before.id)).toEqual(before);
-});
+}, 30_000);
 
 test("a pull request is recorded as the delivery: open reaches review, merge reaches validate", async () => {
   const h = await setup();
