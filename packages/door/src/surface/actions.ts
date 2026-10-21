@@ -114,6 +114,11 @@ export interface ActionDef<A, H> {
   /** Whether a restarted door may run it again by itself (Replay). */
   replay: Replay;
   /**
+   * `false`: a macro never records it. For a read that follows the pointer (text.hover fires on every mouse move), which
+   * would fill a recording with thousands of steps and slow the door while it records.
+   */
+  record?: false;
+  /**
    * What an agent may do to a tile the screen limits (PIE-639) is decided by the action's own rule, not the dispatcher's
    * level check: `tile.agent` lets an agent tighten a limited tile, and the layout module refuses it loosening one.
    */

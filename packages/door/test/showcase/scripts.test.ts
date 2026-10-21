@@ -49,6 +49,8 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
     await app.act({ action: "tile.open", args: { kind: "query", query: "#agent-only", name: "agent-query" }, as: "test-agent" });
     await app.dispatch.act({ action: "block.mark", tile: "notes", args: { reason: "check planting" } }, USER);
     await app.dispatch.act({ action: "tile.link", tile: "notes", args: { to: "source", role: "target" } }, USER);
+    // The pointer moving over the screen presses text.hover on every move (Evan, Oct 21: a recording full of them slowed the door).
+    for (let x = 0; x < 40; x++) await app.dispatch.press("text.hover", { x, y: 2 });
     const sourceTile = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top.dispatch.tile("source").id;
     const stopping = app.dispatch.act({ action: "macro.stop" }, USER);
     await expect(app.dispatch.act({ action: "macro.record" }, USER)).rejects.toThrow("saving");
@@ -61,6 +63,7 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
     expect(note.text).not.toContain("macro.stop");
     expect(note.text).not.toContain("no-such-kind");
     expect(note.text).not.toContain("screen.list");
+    expect(note.text).not.toContain("text.hover");
     expect(note.text).toContain("block.mark");
     expect(note.text).toContain(`to="${sourceTile}"`);
     await board.update(note.id, note.text.replace("\n", " [results::keep]\n").replace("#beans", "#{{props.tag}}").replace("recorded-query", "replayed-query"), note.revision!, USER);
