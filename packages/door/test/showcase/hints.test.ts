@@ -258,21 +258,25 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     const lines = h.painted.map(visible), y = lines.findIndex(l => l.includes("Greenhouse planting"));
     const x = lines[y]!.indexOf("Greenhouse planting") + 3;
     const focus = d.layoutGet().focus;
+    // The title scrolls in place in its own cells (PIE-1140): its ending comes into view, never a band across the screen.
+    const ending = "seed order for next spring";
     h.press({ kind: "mouse", action: "drag", button: 3, x, y });
-    await until(() => painted().includes(title), "the full title on hover", 1500);
+    await until(() => painted().includes(ending), "the title's ending scrolled in on hover", 12_000);
+    const frame = lines[y]!.lastIndexOf("┌─", x) + 2;
+    expect(h.painted.map(visible)[y]!.slice(0, frame)).toBe(lines[y]!.slice(0, frame));
     h.press({ kind: "mouse", action: "drag", button: 3, x: 0, y: 0 });
-    await until(() => !painted().includes(title), "the hover leaving the title");
-    for (let n = 0; n < 80 && !painted().includes(title); n++) {
+    await until(() => !painted().includes(ending), "the hover leaving the title");
+    for (let n = 0; n < 6 && !painted().includes(ending); n++) {
       h.press({ kind: "alt", ch: "?" });
-      await Bun.sleep(30);
+      for (let t = 0; t < 40 && !painted().includes(ending); t++) await Bun.sleep(250);
     }
-    expect(painted()).toContain(title);
+    expect(painted()).toContain(ending);
     h.app.flash(`Title changed: ${title}`);
     const log = await h.app.act({ action: "status.list", as: "reader-1113" }) as { messages: { message: string }[] };
     expect(log.messages.some(m => m.message.includes(title))).toBe(true);
     expect(d.layoutGet().focus).toBe(focus);
     expect((d as unknown as { overlays: { top(): unknown } }).overlays.top()).toBeFalsy();
     await d.dispatch.press("tile.title", { text: "Garden notes" }, "source");
-  });
+  }, 40_000);
 
 });
