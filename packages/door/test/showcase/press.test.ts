@@ -200,7 +200,7 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     expect(app.screens().length).toBe(base);
     await app.dispatch.press("status.log");
     app.screens().at(-1)!.key({ kind: "esc" } as any, app as any);
-    expect(app.screens().length).toBe(base);
+    await until(() => app.screens().length === base, "esc leaving the log");
   });
 
   test("the session log keeps errors with stacks in its rotated file, and CLI and peek read the log", async () => {

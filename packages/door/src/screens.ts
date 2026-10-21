@@ -1283,7 +1283,8 @@ export class StatusMessages extends BbsList {
       else if (this.query.key(k)) { this.resetScroll(); ctx.redraw(); }
       return;
     }
-    if (k.kind === "esc") { ctx.pop(); return; }
+    // Esc leaves the log as q does (Evan, Oct 21: "my instinct was to hit escape to dismiss"), through screen.back.
+    if (k.kind === "esc") return back(this, ctx);
     if (ch(k) === "r") { void this.dispatch.press("status.reload"); return; }
     if (ch(k) === "/") { void this.dispatch.press("status.filter", { editing: true }); return; }
     if (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "mouse" && (k.action === "wheel-up" || k.action === "wheel-down")) {
