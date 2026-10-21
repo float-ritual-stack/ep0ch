@@ -1,3 +1,4 @@
+import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
 import { buttonLabel } from "./home";
 import { withFigureProp } from "@ep0ch/outline-core/figure-props";
@@ -8596,7 +8597,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       // Already editing here (ctrl+e hands that draft over), arming off, or a door that can't hold an arm: at once.
       if (surface.draft || surface.session || !ms || !host.ctx.arm) { open(); return { opened: m.id }; }
       const title = subject(m);
-      host.ctx.arm({ of: surface, what: title, say: hintStatus(CONFIRM_HINT), key: external ? { kind: "char", ch: "e", ctrl: true } : { kind: "char", ch: "e" }, ms, run: open });
+      const say = hintSetting("confirm", host.look?.values.hints ?? surface.lastLook?.values.hints ?? "full") === "status" ? hintStatus(CONFIRM_HINT) : "confirm";
+      host.ctx.arm({ of: surface, what: title, say, key: external ? { kind: "char", ch: "e", ctrl: true } : { kind: "char", ch: "e" }, ms, run: open });
       host.redraw();
       return { armed: m.id, ms };
     },

@@ -110,6 +110,12 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     d.key({ kind: "alt", ch: "N" }, h.app);
     expect(d.hintsList().hints.find(r => r.id === "link")?.setting).toBe("status");
     await act("tile.link", { ask: false }, "source");
+    await act("hints.set", { id: "confirm", to: "off" });
+    await act("edit.arm", {}, "reader");
+    h.screen();
+    const quiet = await h.app.dispatch.act({ action: "status.list" }, { kind: "user" }) as { messages: { message: string }[] };
+    expect(quiet.messages.at(-1)?.message).toBe("confirm");
+    h.press({ kind: "esc" });
     await act("hints.set", { id: "confirm", to: "card" });
     await act("edit.arm", {}, "reader");
     h.screen();
