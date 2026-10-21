@@ -167,6 +167,19 @@ revision, so concurrent edits rarely collide.
   ## Next
   - **Felt:** order two rolls ((a1b2c3d4-…|quote from the merchant))
   ```
+- **A decision or task is a short line, its detail indented under it.** The checkbox line is the subject in a few
+  words (and `(Recommended)` when it is); everything else goes on indented lines below it, one fact a bullet,
+  using the formatting there is (bold leads, `code`, a nested list). Never one long run-on sentence after `- [ ]`
+  (Evan, Oct 21: "this burns my soul every time I see that wall of text"). Fictional example:
+
+  ```text
+  > [!warning] Two calls (nothing builds until they're ticked)
+  > - [ ] **Hover opens a preview** (Recommended)
+  >   - **Modes:** off, on, sticky, from a status-bar glyph.
+  >   - **Timing:** opens after 300 ms; closes 600 ms after the pointer leaves.
+  > - [ ] **Its stack is per session** (Recommended)
+  >   - Up to 30 entries; ←/→ flips through them.
+  ```
 
 **Programmable notes end to end:** [PROGRAMMABLE-NOTES.md](../../../outliner/docs/PROGRAMMABLE-NOTES.md) covers the Site and the five scratch tasks.
 
