@@ -52,7 +52,7 @@ export interface Placement {
  */
 export interface PropsSpec {
   [name: string]: {
-    kind: "text" | "choice" | "tag" | "note" | `property:${string}` | "number";
+    kind: "text" | "choice" | "tag" | "note" | "property" | `property:${string}` | "number";
     choices?: string[];
     default?: string;
     required?: boolean;

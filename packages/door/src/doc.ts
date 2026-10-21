@@ -36,6 +36,7 @@ import { STEP_BOX, type ChecklistStatus } from "@ep0ch/outline-core/checklist-ma
 
 export interface DocEnv {
   fields?: FieldsDrawing;
+  fieldsAnswer?: Extract<import("@ep0ch/outline-core/protocol").SiteProduced, { kind: "fields" }>;
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
   /**
    * The look (PIE-673): its list rows (gap, divider, zebra) and heading spacing, and the layers it came from, which a
@@ -639,7 +640,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // answer. An `::if` whose query holds draws its body in place of its two lines; any other state draws nothing.
     const sb = siteBlockAt(src, i, componentAt);
     if (sb?.kind === "fields") {
-      out.push(...renderFields(sb.spec, env.note, W, env.tag, env.site, env.fields));
+      out.push(...renderFields(sb.spec, env.note, W, env.tag, env.site, env.fields, env.fieldsAnswer));
       i = sb.end;
       continue;
     }

@@ -11,10 +11,10 @@ const yaml = (key: string, type: PropSchema["type"], meaning: string, extra: Par
 
 const TITLE = yaml("title", "text", "the title in the figure's frame", { samples: ["Plot jobs", "Moth counts"] });
 const CAPTION = yaml("caption", "text", "a quiet line under the figure", { samples: ["the last seven days"] });
-const QUERY = yaml("query", "query", "makes the figure live: the blocks this query holds for are its rows, asked of the outline", { samples: ["type=task", "type=roadmap-item project=house"] });
+const QUERY = yaml("query", "query", "makes the figure live: the blocks this query holds for are its rows, asked of the outline", { complete: "query", samples: ["type=task", "type=roadmap-item project=house"] });
 const VIEW = yaml("view", "ref", "a saved view named by ((id)), [[page]], [[page|label]] or a bare page address, in place of `query:`");
 const LIMIT = yaml("limit", "int", "the most results a live figure asks for", { min: 1, max: 1000, default: "200" });
-const SORT = yaml("sort", "text", "a live figure's sort field (updated when left out)", { default: "updated", samples: ["updated", "created", "title"] });
+const SORT = yaml("sort", "property", "a live figure's sort field (updated when left out)", { default: "updated", samples: ["updated", "created", "title"] });
 const DIRECTION = yaml("direction", "enum", "a live figure's sort direction", { default: "desc", values: enumOf({ asc: "oldest or smallest first", desc: "newest or largest first" }) });
 const MACHINERY = yaml("machinery", "enum", "what a live figure's query holds of the notes tools write for their own bookkeeping ([machine::…]): left out unless this says show or only", { default: "hide", values: enumOf({ hide: "leave them out", show: "hold them with the rest", only: "hold just them (backup runs, tosses)" }) });
 const LIVE = [QUERY, VIEW, MACHINERY];
@@ -33,7 +33,7 @@ interface Kind {
 function figure(k: Kind): ComponentSchema {
   const id = `graph-${k.kind}`;
   return {
-    id, title: `${k.title} (::${id})`, intro: k.intro, where: k.where ?? `a \`::${id}\` block: its options in the YAML between \`---\` lines, its rows in Markdown after them`,
+    id, group: "figures", title: `${k.title} (::${id})`, intro: k.intro, where: k.where ?? `a \`::${id}\` block: its options in the YAML between \`---\` lines, its rows in Markdown after them`,
     props: [...k.props, yaml("lines", "int", "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", { min: 0, samples: ["0", "1", "2", "3"] })], source: { use: `::${id}\n---\n{{props.yaml}}\n---\n${k.rows ? `${k.rows}\n` : ""}::` }, example: k.example,
     sweep: k.sweep, grids: k.grids ?? [], space: k.space ?? k.sweep,
   };
@@ -53,7 +53,7 @@ const FIGURES: Kind[] = [
   {
     kind: "rank", title: "Rank", intro: "Bars sized by a count, longest first as written; the accent row is bold (`accent: true`), a receding one italic (`muted: true`). Rows are `- label: 12`. Live, the results are counted by the value of the `group:` property." + LIVE_WORDS,
     props: [TITLE, yaml("items", "list", "the bars, each { label, value }, optionally accent or muted", { samples: ["[{ label: docs, value: 12 }, { label: code, value: 30, accent: true }]", "[{ label: a, value: 3 }, { label: b, value: 1, muted: true }]"] }), ...LIVE,
-      yaml("group", "text", "a live figure's property whose values are counted", { default: "status", samples: ["status", "type"] })],
+      yaml("group", "property", "a live figure's property whose values are counted", { default: "status", samples: ["status", "type"] })],
     example: { title: "where the work went", items: "[{ label: docs, value: 12 }, { label: code, value: 30, accent: true }]" }, sweep: ["items"],
   },
   {
@@ -102,8 +102,8 @@ const FIGURES: Kind[] = [
     example: { title: "what the research cost", headers: "[Agent, Tokens, Time]", rows: "[[Inks, \"115,207\", 16m], [Patterns, \"186,716\", 18m]]", footer: "[Total, \"301,923\", 34m]", align: "[left, right, right]" }, sweep: ["align", "footer", "density"], grids: [["align", "footer"]],
   },
   {
-    kind: "tabs", title: "Tabs", intro: "A live query's results grouped by a property, a tab each with its count, the chosen tab's rows drawn as a table. Tabs switch by a click, `tab` and `shift+tab`, or `figure.tab`. It is always live: the library shows its frame and says so." + LIVE_WORDS,
-    props: [TITLE, ...LIVE, yaml("group", "text", "the property whose values make the tabs", { default: "status", samples: ["status", "work-stage"] }), yaml("order", "list", "tabs listed first, even when empty; the rest follow alphabetically", { samples: ["[doing, review, queued]"] }),
+    kind: "tabs", title: "Tabs", intro: "A live query's results grouped by a property, a tab each with its count, the chosen tab's rows drawn as a table. Tabs switch by a click, `tab` and `shift+tab`, or `figure.tab`. It is always live: the library draws sample results with the same table renderer." + LIVE_WORDS,
+    props: [TITLE, ...LIVE, yaml("group", "property", "the property whose values make the tabs", { default: "status", samples: ["status", "work-stage"] }), yaml("order", "list", "tabs listed first, even when empty; the rest follow alphabetically", { samples: ["[doing, review, queued]"] }),
       yaml("columns", "list", "each tab's table columns (title, subtitle when present, and updated: the defaults)", { samples: ["[title, updated]"] }), yaml("limit", "int", "rows a tab shows before saying how many more", { min: 1, max: 1000, default: "50" }), DENSITY],
     example: { title: "Jobs by stage", query: "type=task", group: "status" }, sweep: ["group", "order"],
   },

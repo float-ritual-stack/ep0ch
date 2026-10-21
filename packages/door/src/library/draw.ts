@@ -14,6 +14,8 @@ import { renderDoc, type DocEnv } from "../doc";
 import { headingStylesOf } from "../heading-styles";
 import type { ListSource } from "../outline-lists";
 import type { Decoration } from "../projection";
+import { figureDemo, linksDemo, fieldsDemo } from "./demo";
+import { buttonLabel } from "../surface/home";
 import { presentLinks } from "../refs";
 
 type PreviewBoard = { rulePreview?: (note: string, text: string) => Promise<{ decorations: Decoration[] }> };
@@ -58,7 +60,7 @@ export function drawVariation(v: Variation, width: number, src: ListSource | nul
   const declared = v.note ? [{ id: "library-declaring-note", properties: propertyTokensInLine(v.note).map(t => ({ key: t.key, value: t.value })) }] : [];
   const headings = headingStyleRegistry([...headingStylesOf(src).styles.filter(s => s.block), ...headingStylesFromBlocks(declared).styles]);
   const callouts = calloutRegistry([...calloutsOf(src).types.filter(t => t.block), ...calloutTypesFromBlocks(declared).types]);
-  const env: DocEnv = { width: Math.max(10, width), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts, headings };
+  const env: DocEnv = { width: Math.max(10, width), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts, headings, linkBlocks: { data: linksDemo }, figures: { answer: figureDemo }, fieldsAnswer: fieldsDemo, button: call => [buttonLabel(call.label)] };
   const body = v.use.split("\n");
   const decorations = ruleDecorations(v, src).decorations ?? [];
   if (decorations.length) {

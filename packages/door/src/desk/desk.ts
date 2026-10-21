@@ -4117,7 +4117,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           const dir = k.action === "wheel-up" ? -1 : 1;
           if (completer.overPreview(k.x - origin.col, k.y - origin.row)) completer.scrollPreview(dir * 3);
           else completer.move(dir);
-        } else if (k.action === "up") completer.click(k.y - origin.row, k.x - origin.col);
+        } else if (k.action === "down" && k.button === 0) completer.previewPress(k.x - origin.col, k.y - origin.row, false);
+        else if (k.action === "drag" && k.button === 0) completer.previewPress(k.x - origin.col, k.y - origin.row, true);
+        else if (k.action === "up") completer.click(k.y - origin.row, k.x - origin.col, text => ctx.copy?.(text, "component preview"));
         this.redraw();
         return;
       }

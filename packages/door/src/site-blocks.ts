@@ -34,11 +34,11 @@ const problemLines = (message: string, didYouMean: readonly string[]) =>
 /**
  * A `::fields` drawn `W` wide. `tag`: how the reader makes a row an element it can step to and open (without one the rows are text).
  */
-export function renderFields(spec: FieldsSpec, note: string | undefined, W: number, tag?: (to: LinkTarget, text: string) => string, site?: LiveSite, drawn?: FieldsDrawing): string[] {
+export function renderFields(spec: FieldsSpec, note: string | undefined, W: number, tag?: (to: LinkTarget, text: string) => string, site?: LiveSite, drawn?: FieldsDrawing, answer?: Extract<SiteProduced, { kind: "fields" }>): string[] {
   const title = spec.title ?? spec.key ?? "fields";
   if (spec.problem) return frame(title, [fg(C.lred) + spec.problem + RESET], W);
-  if (!note) return frame(title, [fg(C.dark) + "a note's fields: this one is drawn outside a note" + RESET], W);
-  const read = siteProduced(note, { kind: "fields", key: spec.key, ...(spec.of ? { of: spec.of } : {}) }, site);
+  if (!note && !answer) return frame(title, [fg(C.dark) + "a note's fields: this one is drawn outside a note" + RESET], W);
+  const read = answer ? { state: "ready", value: answer } as const : siteProduced(note, { kind: "fields", key: spec.key, ...(spec.of ? { of: spec.of } : {}) }, site);
   if (!read) return frame(title, [fg(C.dark) + "no outline connection" + RESET], W);
   if (read.state === "loading") return frame(title, [fg(C.dark) + "asking the outline…" + RESET], W, "live");
   if (read.state === "error" && !read.value) return frame(title, [fg(C.lred) + read.error + RESET], W, "live");

@@ -434,7 +434,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "extension.json"), JSON.stringify({
       contract: 2, id: "moods", version: 1, name: "Moods", components: [{
-        id: "mood", title: "Mood", intro: "How a standup went.", where: "`[mood::…]` on a standup's note",
+        id: "mood", group: "controls", title: "Mood", intro: "How a standup went.", where: "`[mood::…]` on a standup's note",
         props: [{ key: "mood", where: "line", type: "enum", meaning: "how it went", values: [{ value: "calm", meaning: "nothing on fire" }] }],
         source: { use: "Standup [mood::{mood}]" }, example: { mood: "calm" }, sweep: ["mood"], grids: [], space: ["mood"],
       }],

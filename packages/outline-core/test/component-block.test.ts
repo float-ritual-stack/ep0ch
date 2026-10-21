@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { componentAttrs, componentBlockAt, componentBlocks } from "../src/component-block";
 import { interpolationSpans } from "../src/interpolation";
 import { COMARK_NOTE, COMARK_NOTE_BLOCKS } from "./fixtures/component-notes";
-import * as modCopy from "../../claude-mod/hooks/component-block";
+import * as modCopy from "../../claude-mod/hooks/link-grammar.js";
 
 test("a component block runs from its ::name line through its closing ::", () => {
   const figure = "::graph-stat\n---\ntitle: Open\n---\n::\n";
@@ -53,11 +53,8 @@ test("componentBlocks: a figure inside a code fence is the code's text; an unclo
   ]);
 });
 
-test("the Claude mod's copy (a hooks module can't import outside its plugin) stays this file, and answers the same", async () => {
-  const read = (path: string) => Bun.file(new URL(path, import.meta.url)).text();
-  const [own, copy] = await Promise.all([read("../src/component-block.ts"), read("../../claude-mod/hooks/component-block.ts")]);
-  expect(copy.slice(copy.indexOf("\n") + 1)).toBe(own);
-  expect(modCopy.componentBlocks(COMARK_NOTE)).toEqual(componentBlocks(COMARK_NOTE));
+test("the Claude mod's bundled grammar keeps component boundaries through code fences", () => {
+  expect(modCopy.componentBlocks(COMARK_NOTE)).toEqual(COMARK_NOTE_BLOCKS);
 });
 
 test("a placeholder inside the call-site braces is still a component line, and the reader agrees (design examples 13 and 14)", () => {

@@ -5,7 +5,7 @@
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { TUNE_ROWS } from "../../src/desk/tune";
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
-import { osc52, SELECT_BG } from "../../src/surface/selection";
+import { osc52, SELECT_BG, rowsOf } from "../../src/surface/selection";
 import { surfaceBg } from "../../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -376,6 +376,52 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     await until(() => screen().includes("Quadrant (::graph-quadrant)") && screen().includes("Minimal example"), "a figure's overview", 5000);
   }, 20_000);
 
+
+  test("the library's component picker previews Tabs once, opens variations and inserts through act (PIE-1127)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "library" }, as: "test-agent" });
+    await app.dispatch.act({ action: "section.try" }, { kind: "user" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "library")).top;
+    const reader = [...desk.panes.values()].find(p => p.kind === "reader") as import("../../src/desk/panes").ReaderPane;
+    screen();
+    const original = reader.msg!.text;
+    try {
+      const actions = await desk.dispatch.act({ action: "complete", tile: "reader", args: { text: '::button{act="tile.collapse on=' } }, { kind: "user" }) as { items: { insertion: string }[] };
+      expect(actions.items.some(i => i.insertion === 'tile.collapse on=true"')).toBe(true);
+      expect(actions.items.some(i => i.insertion === 'tile.collapse on=false"')).toBe(true);
+      await desk.dispatch.act({ action: "edit.text", tile: "reader", args: { text: "Component practice\n" } }, { kind: "user" });
+      await desk.dispatch.act({ action: "tile.focus", tile: "reader" }, { kind: "user" });
+      press({ kind: "pgdn" }); press({ kind: "end" }); press({ kind: "enter" });
+      for (const c of "::tab") ch(c);
+      const { completionOf } = await import("../../src/surface/completer");
+      await until(() => !!completionOf(reader.draft!) && !completionOf(reader.draft!)!.loading, "components");
+      const pop = () => completionOf(reader.draft!)!;
+      expect(pop().items.filter(i => i.label === "Tabs")).toHaveLength(1);
+      const tabs = pop().items.findIndex(i => i.label === "Tabs");
+      for (let i = 0; i < tabs; i++) press({ kind: "down" });
+      expect(screen()).toContain("Water the beds");
+      const beforeSelection = pop().previewSelection;
+      expect(await desk.dispatch.act({ action: "complete.preview", tile: "reader", args: { text: "Water the beds" } }, { kind: "agent", id: "preview-reader" })).toMatchObject({ result: "Water the beds" });
+      expect(pop().previewSelection).toBe(beforeSelection);
+      const frame = screen().split("\n"), y = frame.findIndex(line => line.includes("Water the beds")), x = frame[y]!.indexOf("Water the beds");
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "drag", button: 0, x: x + "Water the beds".length - 1, y });
+      press({ kind: "mouse", action: "up", button: 0, x: x + "Water the beds".length - 1, y });
+      expect(pop().previewSelection?.text(rowsOf(pop().previewLines ?? []))).toBe("Water the beds");
+      expect(written.join("")).toContain(osc52("Water the beds"));
+      expect(await desk.dispatch.act({ action: "complete.preview", tile: "reader", args: { text: "Water the beds" } }, { kind: "user" })).toMatchObject({ result: "Water the beds" });
+      await desk.dispatch.act({ action: "complete.step", tile: "reader", args: { direction: "right" } }, { kind: "user" });
+      expect(pop().heading).toContain("variations and arguments");
+      expect(pop().items.some(i => i.label.includes("group"))).toBe(true);
+      await desk.dispatch.act({ action: "complete", tile: "reader", args: { insert: 1 } }, { kind: "user" });
+      expect(reader.draft!.text).toContain("::graph-tabs");
+    } finally {
+      await desk.dispatch.act({ action: "edit.text", tile: "reader", args: { text: original } }, { kind: "user" });
+      await desk.dispatch.act({ action: "edit.close", tile: "reader", args: { discard: true } }, { kind: "user" });
+      await desk.dispatch.act({ action: "tile.focus", tile: "library" }, { kind: "user" });
+      await app.dispatch.act({ action: "section.leave" }, { kind: "user" });
+    }
+  }, 20_000);
 
   test("the library examples select and copy by dragging, word and line, without an agent taking the clipboard (PIE-1025)", async () => {
     (app as any).lastInput = 0;

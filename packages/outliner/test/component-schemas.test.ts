@@ -17,7 +17,7 @@ const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 
 const MOOD: ComponentSchema = {
-  id: "mood", title: "Mood", intro: "How a standup went, on its note.", where: "`[mood::…]` on a standup's note",
+  id: "mood", group: "controls", title: "Mood", intro: "How a standup went, on its note.", where: "`[mood::…]` on a standup's note",
   props: [
     { key: "mood", where: "line", type: "enum", meaning: "how it went", values: [{ value: "calm", meaning: "nothing on fire" }, { value: "stormy", meaning: "something is" }] },
     { key: "mood-note", where: "line", type: "text", meaning: "a word on why", samples: ["the shelf fell"] },

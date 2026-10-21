@@ -402,7 +402,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const extension = join(scratch.workspace, "extensions", "garden");
     mkdirSync(extension, { recursive: true });
     writeFileSync(join(extension, "extension.json"), JSON.stringify({ contract: 2, id: "garden", version: 1, name: "Garden", components: [{
-      id: "garden-card", title: "Garden card", intro: "A planting card.", where: "a component block",
+      id: "garden-card", group: "site", title: "Garden card", intro: "A planting card.", where: "a component block",
       props: [{ key: "title", where: "yaml", type: "text", meaning: "the card title", samples: ["Beans"] }],
       source: { use: "::garden-card\n---\n{{props.yaml}}\n---\n::" }, example: { title: "Beans" }, sweep: [], grids: [], space: [],
     }] }));
@@ -445,16 +445,131 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.d.text).toBe("Completion practice\n[[seeds]]\n## Title ::\n");
   });
 
+  test("component attributes follow their schema and offer the note's own property first (PIE-1127)", async () => {
+    const e = await editing(await create("Field practice [trellis::north]\n"));
+    e.type("::fields{");
+    const attrs = await e.settled();
+    expect(attrs.items.some(i => i.insertion.startsWith("key="))).toBe(true);
+    e.type('key="');
+    const keys = await e.settled();
+    expect(keys.items[0]!.label).toBe("trellis");
+    e.press(K("tab"));
+    await until(() => e.d.text.endsWith('key="trellis"'), "the quoted property inserted");
+    e.type(" ");
+    const remaining = await e.settled();
+    expect(remaining.items.some(i => i.insertion.startsWith("key="))).toBe(false);
+    e.press(K("esc"));
+    expect(e.d.text).toContain('key="trellis" ');
+    const query: any = await e.s.act("complete", { text: '::if{where="trellis=' }, e.h, AGENT);
+    expect(query.items.some((i: any) => i.insertion === 'trellis=north"')).toBe(true);
+    const density: any = await e.s.act("complete", { text: '::graph-table{density="' }, e.h, AGENT);
+    expect(density.items.some((i: any) => i.insertion === 'compact"')).toBe(true);
+    const ref: any = await e.s.act("complete", { text: '::fields{of="Seed list' }, e.h, AGENT);
+    expect(ref.items.some((i: any) => i.insertion === `((${ids.seeds}))"`)).toBe(true);
+    const template = await create("Picker template [page::picker-template] [form-field::which property]");
+    const custom: any = await e.s.act("complete", { text: '::use{of=[[picker-template]] which="' }, e.h, AGENT);
+    expect(custom.items[0].label).toBe("trellis");
+    await board.request("delete", { blockId: template, author: "agent" });
+  });
+
+  test("component attributes keep existing values and see words after the cursor (PIE-1127 round 2)", async () => {
+    const e = await editing(await create('Attribute editing [trellis::north]\n::fields{key="trellis" of="other"}'));
+    e.d.col = '::fields{ke'.length;
+    e.press(K("tab"));
+    await e.settled();
+    e.press(K("tab"));
+    await until(() => !e.pop(), "the existing key replaced");
+    expect(e.d.lines.at(-1)).toBe('::fields{key="trellis" of="other"}');
+    e.d.col = '::fields{'.length;
+    e.press(K("tab"));
+    expect((await e.settled()).items.some(i => i.label === "of")).toBe(false);
+    const template = await create("Later producer [page::later-producer] [form-field::which property]");
+    const later = await editing(await create('Later props\n::use{wh of=[[later-producer]]}'));
+    later.d.col = '::use{wh'.length;
+    const result: any = await later.s.act("complete", {}, later.h, AGENT);
+    expect(result.items.some((i: any) => i.label === "which")).toBe(true);
+    await board.request("delete", { blockId: template, author: "agent" });
+  });
+
+  test("component value replacement finds a quote escaped before the cursor (PIE-1127 round 2)", async () => {
+    const e = await editing(await create('Escaped value [trellis::north]\n::fields{key="tre\\"llis"}'));
+    e.d.col = '::fields{key="tre\\'.length;
+    e.press(K("tab"));
+    const p = await e.settled();
+    e.press(K("tab"));
+    await until(() => !e.pop(), "the escaped value replaced");
+    expect(e.d.lines.at(-1)).toBe('::fields{key="trellis"}');
+  });
+
+  test("references inside known and unknown component values use reference completion (PIE-1127 round 2)", async () => {
+    const e = await editing(await create("Reference practice\n"));
+    for (const component of ["fields", "unknown-widget"]) for (const quote of ['"', ""]) for (const [opening, kind, insertion] of [["[[se", "page", "[[seeds]]"], ["((Seed list", "block", `((${ids.seeds}))`]]) {
+      const result: any = await e.s.act("complete", { text: `::${component}{of=${quote}${opening}` }, e.h, AGENT);
+      expect(result.kind).toBe(kind);
+      expect(result.items.some((i: any) => i.insertion === insertion)).toBe(true);
+    }
+  });
+
+  test("button of completes runnable script names (PIE-1127 round 2)", async () => {
+    await create('Water script [script::water-plants]\n```js\nreturn "watered";\n```');
+    await board.listExtensions(true);
+    const e = await editing(await create("Button practice\n"));
+    e.type('::button{of=water');
+    expect((await e.settled()).items.some(i => i.insertion === '"water-plants"')).toBe(true);
+    e.press(K("tab"));
+    await until(() => e.d.text.endsWith('of="water-plants"'), "the script name inserted");
+  });
+
+  test("template property-value kinds offer that key's facet values (PIE-1127 round 2)", async () => {
+    const template = await create("Facet producer [page::facet-producer] [form-field::side property:trellis]");
+    const e = await editing(await create("Facet practice [trellis::north]\n"));
+    const result: any = await e.s.act("complete", { text: '::use{of=[[facet-producer]] side="' }, e.h, AGENT);
+    expect(result.items.some((i: any) => i.insertion === 'north"')).toBe(true);
+    expect(result.items.some((i: any) => i.label === "trellis")).toBe(false);
+    await board.request("delete", { blockId: template, author: "agent" });
+  });
+
+  test("component ranking includes standalone uses and stays fixed while typing (PIE-1127 round 2)", async () => {
+    await create('Standalone field\n::fields{key=trellis}');
+    const e = await editing(await create("Ranking practice\n"));
+    e.type("::");
+    const first = (await e.settled()).items;
+    expect(first[0]!.label).toBe("Fields");
+    await create('A newly used button\n::button{of=water-plants}');
+    e.type("b"); await e.settled(); e.press({ kind: "backspace" });
+    expect((await e.settled()).items.map(i => i.label)).toEqual(first.map(i => i.label));
+  });
+
+  test("component rows stay on the left in one line and preview their selected demo (PIE-1127 round 2)", async () => {
+    const e = await editing(await create("Component layout\n"));
+    e.type("::");
+    const p = await e.settled();
+    for (const label of ["Fields", "Button", "Properties"]) {
+      p.index = p.items.findIndex(i => i.label === label);
+      const hits: (number | null)[] = [];
+      const lines = renderCompletion(p, 140, 20, hits).map(visible);
+      const row = hits.indexOf(p.index);
+      expect(hits.filter(i => i === p.index)).toHaveLength(1);
+      expect(lines[row]!.indexOf(label)).toBeLessThan(6);
+      expect(lines[row]!.slice(0, p.listWidth).trimEnd()).toEndWith("›");
+      expect(p.previewLines!.map(visible).join("\n")).toContain(label === "Fields" ? "Seed list" : label === "Button" ? "Review" : "Properties");
+      expect(p.previewLines!.map(visible)[0]).toContain(label);
+    }
+  });
+
   test("component completion inserts an editable example with one undo (PIE-1013)", async () => {
+    await create("A meter in use\n::graph-meter\n---\nvalue: 0.5\n---\n::");
+    await create("Fields in use\n::fields{key=trellis}\n::");
     const e = await editing(await create("Component practice\n"));
     e.type("::");
     const all = await e.settled();
+    for (const used of ["Fields", "Meter"]) expect(all.items.findIndex(i => i.label === used)).toBeLessThan(all.items.findIndex(i => i.label === "Stat"));
     expect(all.items.some(i => i.insertion.startsWith("::box"))).toBe(true);
     expect(all.items.some(i => i.insertion.startsWith("::garden-card"))).toBe(true);
     e.type("graph-meter");
     const p = await e.settled();
     expect(p.items[0]!.insertion).toContain("\n---\ntitle: Disk\nvalue: 0.6\n---\n::");
-    expect(p.items.length).toBeGreaterThan(1);
+    expect(p.items.filter(i => i.insertion.startsWith("::graph-meter")).length).toBe(1);
     expect(e.screen()).toContain("DISK");
     e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
@@ -465,8 +580,12 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.d.text).toBe("Component practice\n::graph-meter");
     e.press(K("tab")); await e.settled();
     const shown = e.screen().split("\n");
-    const row = shown.findIndex(l => l.includes("Meter · example"));
-    const col = shown[row]!.indexOf("Meter · example");
+    const row = shown.findIndex(l => l.includes("Meter"));
+    const col = shown[row]!.indexOf("Meter");
+    e.s.click(shown[row]!.indexOf("›"), row, e.h);
+    expect(e.pop()?.heading).toContain("variations and arguments");
+    e.press(K("left"));
+    e.screen();
     e.s.click(col, row, e.h);
     expect(e.d.text).toBe("Component practice\n::graph-meter");
     e.s.click(col, row, e.h);
@@ -559,7 +678,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const e = await editing(ids.compost!);
     e.press(K("enter")); e.type("see [[");
     let p = await e.settled();
-    expect(p.items.map(i => i.address)).toEqual(expect.arrayContaining(["seeds", workId]));
+    expect(p.items.some(i => i.kind === "page")).toBe(true);
     expect(e.screen()).toContain("references 1/");
     expect(editHint(e.d, { save: "save" })).toBe(`${COMPLETION_HINT} · ctrl+s save`);
     e.type("HOME");

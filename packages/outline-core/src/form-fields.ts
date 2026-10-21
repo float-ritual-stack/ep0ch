@@ -18,7 +18,7 @@ export const FORM_FIELD_KEY = "form-field";
  * (PIE-533 S4): `note` (a note, picked by its words) and `tag` (a #tag). A template's props are these fields (props-spec.ts).
  */
 export const FORM_FIELD_TYPES = ["text", "number", "choice", "property", "note", "tag"] as const;
-export type FormFieldType = typeof FORM_FIELD_TYPES[number];
+export type FormFieldType = typeof FORM_FIELD_TYPES[number] | `property:${string}`;
 /** A field's name: what the action's `args` holds it under (the declared arguments' rule). */
 export const FORM_FIELD_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
 /** Names an action's request already uses: neither a declared argument nor a note's field may be one. */
@@ -61,7 +61,7 @@ export function parseFormField(value: string, reserved: ReadonlySet<string> = RE
   if (name in Object.prototype) return bad(`${name} is a name every object already has; call the field something else`);
   if (reserved.has(name)) return bad(`${name} is a name ${reserved === RESERVED_ARG_NAMES ? "the action's request already uses" : "the call already uses"} (${[...reserved].join(", ")}); call the field something else`);
   if (!type) return bad(`it says no type: add one of ${FORM_FIELD_TYPES.join(", ")} after ${name}`);
-  if (!(FORM_FIELD_TYPES as readonly string[]).includes(type)) {
+  if (!(FORM_FIELD_TYPES as readonly string[]).includes(type) && !/^property:[A-Za-z][A-Za-z0-9_.-]*$/.test(type)) {
     const near = closest(type, FORM_FIELD_TYPES);
     return bad(`${type} isn't a field type (${FORM_FIELD_TYPES.join(", ")})${near ? `; did you mean ${near}?` : ""}`);
   }

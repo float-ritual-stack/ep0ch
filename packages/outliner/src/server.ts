@@ -298,7 +298,7 @@ const EXTENSION_WRITES: ReadonlySet<string> = new Set(["create", "update", "draf
 const EXTENSION_READS: ReadonlySet<string> = new Set([
   "children", "blocks.read", "blocks.context", "block.revisions", "blocks.authored-links", "changes.since", "activity.recent",
   "annotations.get", "fragments.read", "transclusions.read", "references.resolve", "tree.query", "properties.inventory",
-  "properties.preview", "properties.catalog", "components.schemas", "headings.styles", "callouts.types", "styles.list",
+  "properties.preview", "properties.catalog", "components.schemas", "components.usage", "headings.styles", "callouts.types", "styles.list",
   "extensions.list", "extensions.args", "work-ids.status", "notes.render", "notes.address", "site.answer", "site.sources", "template.use", "template.props",
 ]);
 
@@ -3394,6 +3394,9 @@ export class OutlinerServer {
           result = this.extensionRules.preview(request.note, request.text);
           break;
         }
+        case "components.usage":
+          result = this.store.componentUsage();
+          break;
         case "components.schemas": {
           // PIE-618: every component's schema in one read: the built-ins with the outline's own styles and types among
           // their values (as headings.styles and callouts.types read them), then the schemas the extensions ship.
