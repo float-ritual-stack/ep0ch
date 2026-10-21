@@ -10,6 +10,101 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Typing never lands in the wrong place while a note is opening in edit, and a failed open keeps what you typed (PIE-1153)
+
+The key that opens or resumes an edit (`e`, ⏎) is no longer typed into the draft, also when the door was restarted
+under you. While a slow read is still opening the edit, what you type waits for that edit and goes only to it; a
+command or a click cancels the wait and is routed as usual (ctrl+w, menu filter keys and esc work; repeated ⏎ no
+longer inserts a newline). If the read fails, the typing is kept as a copy on disk and the tile menu offers
+"recover typed text": copy it, or open a fresh edit with it inserted. No protocol change (#824).
+
+### Typing `::` offers each component once, and its attributes and values complete from the schema (PIE-1127)
+
+`::` lists one row per component (its name and what it's for), grouped by the component's own group and ranked by
+what this outline uses most; the preview shows the selected component's library demo, and → or a click on `›` opens
+its variations and arguments. After `::fields{`, props come from the schema with the ones you wrote left out
+(attributes after the cursor too); `key="`, `sort=` and `group=` offer this note's keys first, then the outline's;
+`where="key=` offers that key's values; `act="` offers the actions with their arguments; `of=` offers script names or
+references. Protocol 252: update the host and clients together (`ep0ch install --apply`) (#823).
+
+### A list previews the selected item's children beside it (PIE-1139)
+
+Mark a list `[children::preview]` (or press `p` on its fold chip, or use the reader menu) and each item is one line;
+the selected item's children draw in the attached surface beside it. `j`/`k` or a click select and preview, ⏎ or a
+second click unfolds in place, `e` edits the children. List items inside callouts now fold individually (`f`), and a
+callout can carry metadata (`> [!success|preview] Five calls`). Protocol 251: update the host and clients together
+(`ep0ch install --apply`) (#821).
+
+### The edit preview draws live components from the unsaved draft (PIE-1141)
+
+In the door's edit preview (ctrl+p), `::fields`, `::if` and `{{ }}` now draw as the note being edited, so a
+`mode:: bam` you've just typed shows in the preview before you save. While an answer is pending the previous value
+draws dimmed, never as current. No protocol change (#818).
+
+### Sources takes the comment box's placements (PIE-1138)
+
+The comment box and the Sources panel share one attached surface: inline, floating, split (beside or below, with a
+divider), popup or a tile. Clicking the placement chip opens a menu at the chip with the current placement drawn as the
+selected row (ctrl+o still cycles). A floating comment no longer vanishes when Sources opens, a covered float no longer
+takes clicks or the wheel, and Sources in a tile shows Query, Transform and Result side by side when wide (#817).
+
+### Cut-off text scrolls in place, not as a band across the screen (PIE-1140)
+
+Hovering or selecting a string the door cut short now scrolls it in its own cells, on its own row, in the selection's
+colours, and the tiles beside it stay as they were (#816).
+
+### Style one list of several without touching the others (PIE-1135)
+
+Tuning the middle of three lists through tune's "this list" changed the first list's spacing too, because a list's
+first item took the layer before it. A list now saves to and reads from its own layer only. The kitchen sink has a
+"style one list of several" section. Protocol 250: update the host and clients together (`ep0ch install --apply`)
+(#812).
+
+### The tune panel never hides your choice and groups its values; a note's header is one band with a rule (PIE-1128, PIE-1129)
+
+In tune, the level and width rows wrap, the chosen level says what it means, the revert-all warning wraps and leads
+with what it drops, and the tokens sit in collapsible groups (Text, Space, Surface, Header, Lists, Headings, Figures,
+Images, Other) that remember their folds; `header.image` says "none (this note has no hero)" when there isn't one. A
+note's header is one band across every header row, so `header.bg` colours all of it, in a dark red where you asked
+for red. New tokens `header.rule` (none, line, dots, heavy) and `header.rule.tone` draw a rule under it. Protocol
+249: update the host and clients together (`ep0ch install --apply`) (#807).
+
+### Where did that open: the tile an open landed in stands out (PIE-1131)
+
+The tile an open, preview or agent action just landed in gets a bright frame and a ✶ in its title until you focus,
+scroll or click it (or 10 seconds pass); the status line says "opened in 2 · detail3", an agent's too. Tile names are
+unique across the drawer and the screen (a clash in a saved layout is renamed once on load, and said), and on a drawer
+tile alt+l lists the screen's tiles by number and name (#808).
+
+### Alt or ctrl + drag on a tile's title resizes it instead of moving it
+
+With alt or ctrl held, the whole header row is the border above: drag the title up and the tile gets taller. A plain
+drag still moves the tile and shift+click still gathers (#806).
+
+### A click on a figure's row selects it, as in every list
+
+One click on a row of a live figure (tabs, table, check, decision, rank) selects it and the preview follows; a second
+click or ⏎ opens it and alt+click opens fresh. A click no longer fires the open wire at once (#805).
+
+### The scripts page's noughts and crosses plays on a click, and one esc closes the power bar after a run
+
+Each empty square on the scripts page's Example 3 is a badge you click, with a "new game" badge; a view row of short
+children stays one row in Markdown. The kitchen sink's seed-report demo is a button that ticks its checklist, and in
+the power bar one esc closes the bar right after a typed line ran (↑ still recalls it) (#809, #810).
+
+### Note links in Claude replies show their titles again (PIE-1130)
+
+A note link in a Claude reply had fallen back to the first eight characters of its id, because the title lookup was
+refused and never asked again. It is asked again with backoff and drawn as the title. Reload the mod
+(`/reload-plugins`) in a running Claude (#804).
+
+### Grouped tiles keep taking opens and previews, and a group travels whole through the drawer (PIE-1120)
+
+A tile inside a group is a target like any other: opens, previews and wires reach it, `b` from a detail reuses the
+grouped links and preview instead of opening new ones, and alt+l wires across a group's boundary both ways.
+`tile.drawer` on a group moves it whole (tiles, tabs, wires, drafts) and brings it back the same way, and a note's
+`::button` with `host.toggle` or `tile.collapse tile=<group>` pops the drawer or a group up and down (#803).
+
 ### The power bar corrects commands and lets you take them into notes (PIE-1126)
 
 A mistyped action, argument or fixed value shows its correction or allowed values on the run row. Tab and right
@@ -18,6 +113,101 @@ select and copy; clicking an example puts it on the line. Runs keep their answer
 and up on an empty line recalls the last. Alt+o copies the command, Alt+y copies a note button, Alt+i inserts
 it at your note cursor as one unsaved draft step, and Alt+m or a row's right click opens the copy menu. Alt+j/k
 scroll the docs; Alt+v gives them selection keys (esc returns to the line).
+
+### Every hint card can be turned off for good, stays put, and marks the current choice (PIE-1096)
+
+A hint card has `[pin] [dismiss] [never]` (alt+shift+N is never); never sends that hint to a short line in the status
+line, kept per person. Tune › Hints lists every hint with its setting (card, status or off) and a reset; `hints.list`,
+`hints.set id= to=card|status|off` and `hints.reset` are the same by `act`. Edit mode's prompt now defaults to the
+status line. A card also stays where it was placed while the pointer moves across it, and the wire card (alt+l) draws
+the wire being changed as a selected row (#801, #799, #800).
+
+### No dead ellipsis: anything the door cuts short can be read whole (PIE-1113)
+
+Every string the door cuts short carries its full value: hover it, or select it with the keys, and it shows whole;
+status lines scroll as a marquee; alt+? cycles the clipped values in view. Fewer cuts to begin with: the sources panel
+wraps, tables drop the id column before cutting titles, and recent status messages keep their full text. Copies,
+refusals, `act` and `peek` results and CLI output stay plain (#798).
+
+### The reference picker never covers what you're typing (PIE-1104)
+
+The `((` picker opens below the line you're typing when it fits, else above it, never over it, up to half the tile
+tall. Its header echoes your query with the scope chips (`references 1/17  ((Kitchen`), rows highlight the matched
+characters, scrolling past the first page loads more, and the preview opens at the passage that matched with its
+line highlighted. Protocol 248: update the host and clients together (`ep0ch install --apply`) (#797).
+
+### Deploys reach the Mac over the machine link (PIE-1124)
+
+`ep0ch install --apply` on float-2 sends an install request over the link to each connected machine; the machine runs
+the install on a clean `main` (fast-forward to that exact commit, nothing else) and sends its result back to the
+Deploys note. An offline machine installs on its next connect; the door shows "update ready · installing". With
+`ep0ch link auto-install off` it shows "update ready · ep0ch install --apply" instead. A deploy is no longer stopped
+by a machine that is away: the server's link step checks only its own service. A machine that never ran this needs one
+manual `ep0ch install --apply` first. Protocol 247: update the host and clients together (#792, #794).
+
+### An agent's edit that can't apply is refused like a stale file edit (PIE-1125)
+
+An agent's `outline_patch` or `outline_edit` on a note that changed since it read it is refused with nothing written:
+"not applied: <title> changed since you read it (revision N, now M); read it again and send the patch against the new
+text." The agent re-reads and retries, and no proposal pile builds up under "waiting on you". A clean merge into your
+live draft still applies; `propose: true`, queued netmail writes and propose-only access still make proposals.
+Protocol 246: update the host and clients together (#795).
+
+### Arrow keys step through every live figure's tabs and rows reliably (PIE-1099)
+
+On a live figure, ← → move between tabs, ↑ ↓ between rows (crossing into and out of the tab bar), ⏎ opens and esc
+leaves; it no longer stops working for a while after a tab switch. Protocol 245: update the host and clients together
+(`ep0ch install --apply`) (#790).
+
+### Machine links come back after restarts, and remote reads try the link before ssh (PIE-1118)
+
+A silent or dropped link reconnects with backoff after either end restarts (install, reboot, sleep and wake), and
+`ep0ch link status` keeps a short history (last up, why down). Everything that reaches another machine's outline
+(`--machine`, a `.ep0ch` machine, the door's remote sessions, the mod) tries the link, then ssh, and says which it
+used (`box-a via link` / `via ssh`); a refusal names both routes and the fix for each. `ep0ch install --apply` checks
+the link came back. Protocol 244: update the host and clients together (#789).
+
+### Backspace on an empty power bar keeps its scope, and alt+backspace deletes a word (PIE-1101)
+
+Backspace on an empty line no longer jumps you back to "all"; leaving a scope is alt+← or esc. Alt+backspace deletes a
+word in the power bar (and wherever the shared editor does), including over kitty-protocol terminals (#788).
+
+### Every tile closes into a calm home, and the drawer's agent changes with one click (PIE-1119, PIE-1117)
+
+An empty screen, drawer or agent panel shows a home with Search or command, New note, Shell and Agent buttons and a
+"Getting about" list, and a shell is still one key away; one more ctrl+w x on an empty home says what to press.
+"New note" in the drawer opens a draft in that tile, returning to an open screen reuses it, and a mode's keys appear in
+the tile footer only. The drawer chip's agent picker replaces the agent tab (asking first if it's busy), says when
+`EP0CH_DAILY_AGENT` overrides it and which line removes that, and `ep0ch agent use <name> [--everywhere]` does the same.
+A plain click on the chip opens and closes the drawer as before; the picker is alt+click or right click. Protocol 243:
+update the host and clients together (`ep0ch install --apply`) (#786, #787).
+
+### Note buttons run the screen's actions, and every status message is kept in a log you can open (PIE-1115)
+
+A note's `::button{label="Desk" act="layout.load name=daily-test-ride"}` runs any action the screen has, attributed,
+instead of flashing a raw error; an unknown action is refused in words with a did-you-mean. Every status line,
+refusal, warning and error is kept in the session's message log: `status.log` (a click on the status line, the keys, or
+`act`) opens it and `/` searches; `ep0ch log` prints it and `--follow` tails it (#785).
+
+### The sources panel is a real panel (PIE-1100)
+
+A click in the sources panel beside a live figure gives it the keys; `j`/`k` and the wheel move inside, esc gives the
+keys back, and clicks no longer fall through to the reader. Each Result row is selectable: ⏎ opens its note, alt+⏎
+opens it beside, and `g` jumps to the figure's line. Whole values wrap, and a figure's properties (density, group, sort,
+title, query…) edit in the shared inspector and save back to the figure as one undo step. Protocol 242: update the
+host and clients together (`ep0ch install --apply`) (#784).
+
+### A button that opens a screen already under this one goes back to it
+
+`screen.open name=board` pressed on a screen opened over the board used to refuse ("already open under this screen");
+it now pops back down to the board, never a second copy (#782).
+
+### A script press says its own answer, and keeps only useful output (PIE-1112)
+
+Pressing a script button shows the script's own answer plus `ctrl+z undoes`, not "running as script:x; results in
+((id))" in the warning slot, and it leaves a results note only for multiline or structured output, explicit output
+writes, or `[results::keep]`. The script's identity stays in revisions, attribution, peek and x-ray. Protocol 241:
+update the host and clients together (`ep0ch install --apply`) (#781).
 
 ### A page's figure or view can no longer freeze the outline host; the publisher says "busy" instead of failing (PIE-1047, PIE-1009)
 
