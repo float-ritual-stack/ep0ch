@@ -269,6 +269,207 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
   });
 
 
+  test("list preview keeps five calls still while keys and mouse change the children", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "list-folds" }, as: "fold-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "list-folds")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => !!reader && screen().includes("Keep the beans"), "garden calls");
+    const before = (await board.get(seeded.notes.listFolds.id))!;
+    const rows = () => screen().split("\n");
+    const at = () => rows().findIndex(l => l.includes("Share the apples"));
+    const bottom = at();
+    expect(screen()).toContain("Save seeds from the strongest plants.");
+    expect(screen()).not.toContain("Give the vines the sunny bed.");
+    await desk.dispatch.press("reading.place", { line: 4 }, "reader");
+    await desk.dispatch.press("reading.step", { by: 1 }, "reader");
+    expect(screen()).toContain("Give the vines the sunny bed.");
+    expect(screen()).not.toContain("Save seeds from the strongest plants.");
+    expect(at()).toBe(bottom);
+    const clickCall = () => {
+      const ls = rows(), y = ls.findIndex(l => l.includes("[ ] Mend the gate")), x = ls[y]!.indexOf("Mend the gate");
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "up", button: 0, x, y });
+    };
+    clickCall();
+    await until(() => screen().includes("Replace the loose hinge."), "mouse selection preview");
+    expect(screen()).toContain("Replace the loose hinge.");
+    expect(screen()).not.toContain("Give the vines the sunny bed.");
+    expect(at()).toBe(bottom);
+    expect((await board.get(before.id))!.revision).toBe(before.revision);
+    expect((await board.get(before.id))!.text).toBe(before.text);
+    clickCall();
+    await until(() => at() > bottom, "second click unfolds in place");
+    expect(at()).toBeGreaterThan(bottom);
+    await desk.dispatch.press("list.preview", { on: false, text: "Mend the gate" }, "reader");
+    expect(screen()).toContain("Give the vines the sunny bed.");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
+  test("plain-list previews patch their own lines, keep reader state and use the shared placements and select wire", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "list-folds" }, as: "preview-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "list-folds")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => reader.msg?.id === seeded.notes.listFolds.id && !reader.msg.partial && screen().includes("Keep the beans"), "the showcase reader ready");
+    const text = "Orchard plans\n[children::preview]\n- First call\n  - [ ] First detail\n- Second call\n  - Second detail\n\n## Other list\n- Third call\n  - Third detail";
+    const made = await board.createBlock(null, text);
+    await desk.dispatch.press("open", { id: made.id }, "reader");
+    await until(() => reader.msg?.id === made.id && !reader.msg.partial && screen().includes("First detail"), "the plain preview");
+    expect(screen()).not.toContain("Second detail");
+    expect(screen()).toContain("Third detail");
+    const narrow = () => reader.render(70, 35, true, desk).lines.map(plain);
+    expect(narrow().findIndex(l => l.includes("Children"))).toBeGreaterThan(narrow().findIndex(l => l.includes("Third call")));
+    const wide = reader.render(150, 35, true, desk).lines.map(plain);
+    expect(wide.findIndex(l => l.includes("Children"))).toBeLessThan(wide.findIndex(l => l.includes("Third call")));
+    screen();
+    press({ kind: "tab" });
+    await desk.dispatch.press("tile.focus", {}, "reader");
+    await until(() => { screen(); return reader.surface.describeElements().some(e => e.kind === "task"); }, "the service reading the child step");
+    const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("First detail")), x = lines[y]!.indexOf("[ ]");
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => screen().includes("Mark done"), "the child task's shared status choice");
+    press({ kind: "esc" });
+    await desk.dispatch.press("list.preview.edit", {}, "reader");
+    press({ kind: "paste", text: "  - Rewritten first detail" });
+    const editor = screen().split("\n"), saveRow = editor.findIndex(l => l.includes("[save]")), saveCol = editor[saveRow]!.indexOf("[save]");
+    press({ kind: "mouse", action: "down", button: 0, x: saveCol + 20, y: saveRow });
+    press({ kind: "mouse", action: "up", button: 0, x: saveCol + 1, y: saveRow });
+    await Bun.sleep(100);
+    expect(reader.surface.editing).toBe(true);
+    press({ kind: "mouse", action: "down", button: 0, x: saveCol + 1, y: saveRow });
+    press({ kind: "mouse", action: "up", button: 0, x: saveCol + 1, y: saveRow });
+    await until(() => screen().includes("Rewritten first detail") && !reader.surface.editing, "children typed by keys and saved by mouse");
+    expect((await board.get(made.id))!.text).toBe(text.replace("  - [ ] First detail", "  - Rewritten first detail"));
+    expect(screen()).toContain("Rewritten first detail");
+    await desk.dispatch.press("list.preview", { text: "First call", on: false }, "reader");
+    expect(screen()).toContain("Second detail");
+    await desk.dispatch.press("open", { id: seeded.notes.listFolds.id }, "reader");
+    await desk.dispatch.press("back", {}, "reader");
+    await until(() => reader.msg?.id === made.id && screen().includes("Second detail"), "the reader's preview override after back");
+    await desk.dispatch.press("list.preview", { text: "First call", on: true }, "reader");
+    for (const place of ["inline", "floating", "popup", "split"]) {
+      await desk.dispatch.press("list.preview.place", { place }, "reader");
+      expect(screen()).toContain("Rewritten first detail");
+    }
+    await desk.dispatch.press("placement.menu", { target: "list-preview" }, "reader");
+    await desk.dispatch.press("placement.choose", { place: "tile" }, "reader");
+    await until(() => screen().includes("list children") && desk.layoutGet().tiles.some(t => t.kind === "list-preview"), "the shared attached tile");
+    expect(screen()).toContain("Rewritten first detail");
+    const attached = desk.layoutGet().tiles.find(t => t.kind === "list-preview")!;
+    await desk.dispatch.press("tile.focus", {}, attached.name);
+    press({ kind: "char", ch: "e" });
+    await until(() => screen().includes("[save]"), "the attached children editor");
+    press({ kind: "paste", text: "  - Attached" });
+    expect(desk.isIn(reader)).toBe(true);
+    for (const ch of " keys") press({ kind: "char", ch });
+    press({ kind: "char", ch: "s", ctrl: true });
+    await untilAsync(async () => (await board.get(made.id))!.text.includes("  - Attached keys\n- Second call"), "all attached edit keys saved");
+    await until(() => reader.msg?.text.includes("Attached keys") === true, "saved attached children refreshed");
+    await desk.dispatch.press("list.preview.edit", { text: "  - Rewritten first detail" }, "reader");
+    await until(() => screen().includes("Rewritten first detail"), "restored children");
+    await desk.dispatch.press("list.preview.place", { side: "down" }, "reader");
+    expect(screen()).toContain("Rewritten first detail");
+    await desk.dispatch.press("list.preview.place", { place: "split" }, "reader");
+    await until(() => !desk.layoutGet().tiles.some(t => t.kind === "list-preview"), "the preview back inside its reader");
+    await desk.dispatch.press("tile.open", { kind: "preview", name: "children", source: "tile:reader" }, "reader");
+    await desk.dispatch.press("tile.link", { to: "children", verb: "select" }, "reader");
+    await until(() => screen().includes("Rewritten first detail"), "the wired preview");
+    expect(screen().match(/Rewritten first detail/g)?.length).toBe(1);
+    const preview = desk.layoutGet().tiles.find(t => t.kind === "preview")!;
+    await desk.dispatch.press("tile.focus", {}, preview.name);
+    press({ kind: "char", ch: "e" });
+    await until(() => screen().includes("[save]"), "e opens the children editor in the wired preview");
+    expect((desk.pane(preview.name) as ReaderPane).host(desk).entered).toBe(true);
+    press({ kind: "paste", text: "  - Edited from the wire" });
+    press({ kind: "char", ch: "s", ctrl: true });
+    await until(() => screen().includes("Edited from the wire") && !reader.surface.editing, "typing in the wired preview");
+    expect((await board.get(made.id))!.text).toContain("  - Edited from the wire\n- Second call");
+
+    await desk.dispatch.press("reading.place", { line: 3 }, "reader");
+    await desk.dispatch.press("reading.step", { by: 1 }, "reader");
+    expect(screen()).toContain("Second detail");
+    expect(screen()).not.toContain("Edited from the wire");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
+  test("handover keeps reopen steps safe with the children editor open and preview off", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "list-folds" }, as: "handover-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "list-folds")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => !!reader.msg && !reader.msg.partial && !!screen(), "the initial reader");
+    const note = await board.createBlock(null, "Hidden preview\n[children::preview]\n- First call\n  - First detail");
+    await desk.dispatch.press("open", { id: note.id }, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial && screen().includes("First detail"), "the children");
+    await desk.dispatch.press("list.preview.edit", {}, "reader");
+    await desk.dispatch.press("list.preview", { text: "First call", on: false }, "reader");
+    expect(reader.surface.editing).toBe(true);
+    try { expect(desk.reopen()).toEqual([]); }
+    finally { await desk.dispatch.press("list.preview.field", { op: "cancel" }, "reader"); }
+  });
+
+  test("a saved v2 reader restores its folds and back and forward history", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "list-folds" }, as: "restore-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "list-folds")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => !!reader.msg && !reader.msg.partial && !!screen(), "the initial reader");
+    const note = await board.createBlock(null, "Saved garden\n## Beds\nThe hidden seed ledger.\n## Tools\nThe rake.");
+    await desk.dispatch.press("open", { id: note.id }, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial, "the garden note");
+    screen();
+    await desk.dispatch.press("fold", { text: "Beds" }, "reader");
+    await desk.dispatch.press("open", { id: seeded.notes.listFolds.id }, "reader");
+    await desk.dispatch.press("back", {}, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial, "back at the folded garden");
+    const raw = JSON.parse(JSON.stringify(reader.surface.saveNav()));
+    raw.v = 2;
+    for (const place of [raw.here, ...raw.backs, ...raw.aheads]) {
+      delete place.previewLists;
+      delete place.previewOpen;
+    }
+    await desk.dispatch.press("unfold", { all: true }, "reader");
+    expect(screen()).toContain("The hidden seed ledger.");
+    expect(reader.surface.restoreNav(raw)).toBe(true);
+    expect(screen()).not.toContain("The hidden seed ledger.");
+    expect(reader.surface.describeHistory().back.length).toBeGreaterThan(0);
+    await desk.dispatch.press("forward", {}, "reader");
+    await until(() => reader.msg?.id === seeded.notes.listFolds.id, "the restored forward history");
+    await desk.dispatch.press("back", {}, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial, "the restored back history");
+    expect(screen()).not.toContain("The hidden seed ledger.");
+    await desk.dispatch.press("open", { id: seeded.notes.listFolds.id }, "reader");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
+  test("list preview cuts a long item to one row and keeps its full text for reveal", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "list-folds" }, as: "row-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "list-folds")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => !!reader.msg && !reader.msg.partial && !!screen(), "the initial reader");
+    const label = "First call " + "runner beans ".repeat(30) + "lastpod";
+    const note = await board.createBlock(null, `Long calls\n[children::preview]\n- ${label}\n  - First detail\n- Second call\n  - Second detail`);
+    await desk.dispatch.press("open", { id: note.id }, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial, "long preview list");
+    const drawn = reader.render(70, 35, true, desk).lines;
+    const rows = drawn.map(plain);
+    const first = rows.findIndex(l => l.includes("First call"));
+    expect(rows.findIndex(l => l.includes("Second call")) - first).toBe(1);
+    expect(rows[first]).toContain("…");
+    expect(rows[first]).toMatch(/…\s+p/);
+    const { fullPlainText, Overflow } = await import("../../src/overflow");
+    expect(fullPlainText(drawn[first]!)).toContain(label);
+    const overflow = new Overflow();
+    overflow.hover(20, first);
+    overflow.draw(drawn, 70, 0);
+    expect(overflow.draw(drawn, 70, 60_000).overlay).toMatchObject({ row: first, rows: 1 });
+    await desk.dispatch.press("open", { id: seeded.notes.listFolds.id }, "reader");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
   test("reading a tall paragraph upward starts at its last page and keeps the same block while paging", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "reading-line" }, as: "place-check" });

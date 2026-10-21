@@ -925,6 +925,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "list-folds", need: "preview a list item without moving its siblings", part: "foldPoints, embedRegion and the attached surface", files: "src/doc.ts, src/embeds.ts, src/surface/attached.ts, src/surface/note.ts",
+    aside: "Five fictional garden calls. A click or j/k selects and previews children; Enter or a second click unfolds in place. The p fold chip or reader menu switches this list's preview. Click the preview's placement chip to move it, its text to edit.",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · callout list folds", panes: [r] }, show, [[r, n.listFolds]]);
+    },
+  },
+  {
     key: "images", need: "draw an image or video in a note; size it, place it, make it the note's header", part: "the media line (PIE-532): [img::path] and the layout properties beside it ([size::] [height::] [align::] [layout::hero] [alt::]), parsed once (parseMediaLine), laid out by renderDoc into Kitty placements (scaled by sharp to the box, never up), the header drawn by NoteSurface above the title; image.size, image.align and image.hero write the line through the note's save", files: "src/media.ts, src/doc.ts, src/surface/note.ts, src/kitty.ts",
     aside: "[ ] to an image, then + - size it, ← → move it, H makes it the header (or click its caption's [−][+] [◂][▸] [▀]) · ctrl+z undoes · an agent: images, then image.size n=2 to=50%, image.align, image.hero · images draw under Kitty graphics; elsewhere each line says what it is",
     stage(n, show) {

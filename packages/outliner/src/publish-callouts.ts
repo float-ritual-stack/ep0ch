@@ -50,13 +50,13 @@ export function calloutExtension(registry: () => CalloutRegistry): TokenizerAndR
       const lines = all.slice(0, run);
       const first = calloutBlocks(lines).find(block => block.line === 0 && block.depth === 1);
       if (!first) return undefined;
-      const { fold, title, type } = first;
+      const { fold, title, type, metadata } = first;
       const end = first.end;
       const body = lines.slice(1, end).map(line => stripQuotes(line, 1)).join("\n");
       return {
         type: "callout",
         raw: all.slice(0, end).join("\n") + (end < all.length ? "\n" : ""),
-        header: { type, fold, title },
+        header: { type, metadata, fold, title },
         body,
         // Lexed here, in the page's lexer, so the page's reference definitions (`[a]: url`) reach it.
         tokens: lexer.blockTokens(body, []),

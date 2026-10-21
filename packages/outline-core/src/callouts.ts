@@ -156,15 +156,16 @@ export function stripQuotes(line: string, n: number): string {
   return rest;
 }
 
-/** A callout's header, as written: its type (lowercased), its `+` or `-`, its title (empty: the type's title). */
-export interface CalloutHeader { type: string; fold: "+" | "-" | null; title: string }
+/** A callout's header, as written: its type (lowercased), ordered metadata, its `+` or `-`, its title (empty: the type's title). */
+export interface CalloutHeader { type: string; metadata: string[]; fold: "+" | "-" | null; title: string }
 
 /** The callout header `content` (a line without its quote markers) is, or null. */
 export function parseCalloutHeader(content: string): CalloutHeader | null {
   const m = CALLOUT_HEADER.exec(content);
-  const type = m?.[1]!.trim().toLowerCase();
+  const [name, ...metadata] = m?.[1]!.split("|").map(part => part.trim()) ?? [];
+  const type = name?.toLowerCase();
   if (!m || !type) return null;
-  return { type, fold: m[2] === "+" || m[2] === "-" ? m[2] : null, title: m[3]?.trim() ?? "" };
+  return { type, metadata, fold: m[2] === "+" || m[2] === "-" ? m[2] : null, title: m[3]?.trim() ?? "" };
 }
 
 /**
@@ -209,7 +210,8 @@ export function rewriteCalloutHeader(line: string, change: { type?: string; fold
   const m = depth ? /^\[!([^\]\r\n]+)\]([+-]?)/.exec(content) : null;
   if (!m || !parseCalloutHeader(content)) return null;
   const prefix = line.slice(0, line.length - content.length);
-  const type = change.type ?? m[1]!, fold = change.fold === undefined ? m[2]! : change.fold ?? "";
+  const meta = m[1]!.indexOf("|");
+  const type = change.type === undefined ? m[1]! : change.type + (meta < 0 ? "" : m[1]!.slice(meta)), fold = change.fold === undefined ? m[2]! : change.fold ?? "";
   return `${prefix}[!${type}]${fold}${content.slice(m[0].length)}`;
 }
 

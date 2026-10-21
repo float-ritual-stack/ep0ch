@@ -335,10 +335,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   composerTile(r: ReaderPane, on: boolean, keys = true, side?: Dir): Promise<unknown> {
     return this.attachedTile(r, "comment", on, keys, side);
   }
+  listPreviewTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> { return this.attachedTile(r, "list-preview", on, false, side); }
+  hasListPreviewTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "list-preview"); }
   sourcesTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> {
     return this.attachedTile(r, "sources", on, true, side);
   }
-  private async attachedTile(r: ReaderPane, attachment: "comment" | "sources", on: boolean, keys: boolean, side?: Dir): Promise<unknown> {
+  private async attachedTile(r: ReaderPane, attachment: "comment" | "sources" | "list-preview", on: boolean, keys: boolean, side?: Dir): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     if (at === undefined) return null;
     const reader = this.nameOf(at);
@@ -390,7 +392,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Reader `r`'s comment tile is open. */
   hasComposerTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "comment"); }
   hasSourcesTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "sources"); }
-  private hasAttachedTile(r: ReaderPane, attachment: "comment" | "sources"): boolean {
+  private hasAttachedTile(r: ReaderPane, attachment: "comment" | "sources" | "list-preview"): boolean {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     return at !== undefined && [...this.panes.values()].some(p => p instanceof AttachedTilePane && p.attachment === attachment && p.source === this.nameOf(at));
   }
@@ -996,6 +998,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private followers(id: number): Pane[] {
     return [...selectTargets(this.layout, id).flatMap(to => { const p = this.panes.get(to); return p ? [p] : []; }), ...(this.ext.get(id) ?? []).flatMap(w => { const target = w.verb === "select" ? this.extTarget(id, "select", w) : undefined; return target ? [target.pane] : []; })];
+  }
+  selectionSource(p: ReaderPane): Pane | null {
+    const bound = boundSource.get(p);
+    if (bound) return bound === NO_SOURCE ? null : bound;
+    const id = this.idOf(p), source = id === undefined ? undefined : this.followsOf(id).source;
+    return source === undefined ? null : this.panes.get(source) ?? null;
+  }
+  hasWiredPreview(p: ReaderPane): boolean {
+    const id = this.idOf(p);
+    return id !== undefined && this.followers(id).some(p => p instanceof PreviewPane);
   }
   /** This desk's tiles bound to follow `src`, a tile on another desk now (the drawer's, or the screen's). */
   boundTo(src: Pane): Pane[] { return [...this.panes.values()].filter(q => boundSource.get(q) === src); }
@@ -4317,6 +4329,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kind = focused && !focused.holdsKeys && !pane?.typing?.() && focused.msg ? sessionStart(k) : null;
     const start = kind && !(pane instanceof ReaderPane && pane.refuses(kind)) ? kind : null;
     if (focused && start) {
+      const host = focused.host(this);
+      if (start === "edit" && host.attachment === "list-preview") return void focused.surface.runKey("list.preview.edit", {}, host);
       // e and ctrl+e arm the edit (edit.arm); a click on the hint row's e is the mouse's, and opens it at once (armsEdit).
       if (armsEdit(start)) return void focused.surface.runKey("edit.arm", start === "external" ? { external: true } : {}, focused.host(this));
       return void this.startSession(focused, start);
