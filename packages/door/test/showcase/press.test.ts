@@ -192,6 +192,17 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     } finally { off(); while (app.screens().at(-1) !== d) app.pop(); app.pop(); d.dispose(); }
   });
 
+  test("a second status.log closes the message log, and esc leaves it: they never stack", async () => {
+    const base = app.screens().length;
+    await app.dispatch.press("status.log");
+    expect(app.screens().length).toBe(base + 1);
+    await app.dispatch.press("status.log");
+    expect(app.screens().length).toBe(base);
+    await app.dispatch.press("status.log");
+    app.screens().at(-1)!.key({ kind: "esc" } as any, app as any);
+    expect(app.screens().length).toBe(base);
+  });
+
   test("the session log keeps errors with stacks in its rotated file, and CLI and peek read the log", async () => {
     const dir = placeOf({ outline: "scratch", socket: h.scratch.sock }).dir;
     useOutlineState(dir);

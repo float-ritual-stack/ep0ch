@@ -508,12 +508,14 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     run({ x, y }, { ctx }) { ctx.overflow?.hover(x, y); ctx.redraw(); },
   }),
   "status.log": def({
-    summary: "open the session's message log: every status, warning, refusal and error, with time and the action and tile; / searches, enter returns to its note or tile, q comes back",
+    summary: "open the session's message log: every status, warning, refusal and error, with time and the action and tile; / searches, enter returns to its note or tile, q or esc comes back; pressed again (a click on the status line, alt+M) it closes",
     keys: "alt+M; click the status line",
     touches: "screen", host: true, replay: "safe",
     args: {},
     run(_, { ctx }) {
       if (!ctx.messages) throw new ActionRefused("this door has no message log");
+      // A second press (a click on the status line, alt+M) closes the log it opened, never stacks another.
+      if (ctx.screens?.().at(-1) instanceof StatusMessages) { ctx.pop(); return { closed: "message log" }; }
       ctx.push(new StatusMessages(ctx.messages));
       return { opened: "message log" };
     },
@@ -1281,6 +1283,7 @@ export class StatusMessages extends BbsList {
       else if (this.query.key(k)) { this.resetScroll(); ctx.redraw(); }
       return;
     }
+    if (k.kind === "esc") { ctx.pop(); return; }
     if (ch(k) === "r") { void this.dispatch.press("status.reload"); return; }
     if (ch(k) === "/") { void this.dispatch.press("status.filter", { editing: true }); return; }
     if (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "mouse" && (k.action === "wheel-up" || k.action === "wheel-down")) {

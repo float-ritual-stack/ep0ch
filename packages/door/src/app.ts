@@ -153,6 +153,8 @@ export interface Ctx {
   get graphics(): boolean;
   push(s: Screen): void;
   pop(): void;
+  /** The screens on the stack, the top last (absent: a context with no stack). */
+  screens?(): readonly Screen[];
   replace(s: Screen): void;
   quit(): void;
   redraw(): void;
