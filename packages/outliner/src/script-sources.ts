@@ -33,10 +33,10 @@ export const scriptSourceId = (identity: string) => `script-${hash(identity).sli
 
 const FENCES = SCRIPT_FENCE.languages;
 
-/** The script a note holds: the code of its first closed js, ts or actions fence (empty when there is none). */
+/** A named script, or the note script's first unnamed eligible fence (empty when unclosed or absent). */
 export function scriptFence(text: string, named?: ScriptSource["fence"]): { code: string; format?: "actions" } {
   const lines = text.split("\n");
-  const fence = codeBlocks(lines).fences.filter(f => FENCES.includes(codeFenceInfo(f.fence.info).language) && (!named || codeFenceInfo(f.fence.info).attrs.script === named.name))[named?.occurrence ?? 0];
+  const fence = codeBlocks(lines).fences.filter(f => FENCES.includes(codeFenceInfo(f.fence.info).language) && (named ? codeFenceInfo(f.fence.info).attrs.script === named.name : !codeFenceInfo(f.fence.info).attrs.script))[named?.occurrence ?? 0];
   const code = fence?.closed ? lines.slice(fence.start + 1, fence.end).map(line => line.slice(Math.min(fence.fence.indent, line.length))).join("\n") : "";
   return { code, ...(fence && codeFenceInfo(fence.fence.info).language === "actions" ? { format: "actions" as const } : {}) };
 }
@@ -73,9 +73,10 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
     const named = fences.filter(f => codeFenceInfo(f.fence.info).attrs.script);
     const noteName = block.properties.find(p => p.key === "script")?.value;
     const definitions: { fence: (typeof fences)[number] | undefined; language: string; attrs: Record<string, string>; named: boolean }[] = named.map(f => ({ fence: f, ...codeFenceInfo(f.fence.info), named: true }));
-    // Giving a named fence's note the same name does not register its first fence twice.
+    // A differently named fence never supplies the note script's code.
     if (noteName && !named.some(f => codeFenceInfo(f.fence.info).attrs.script === noteName)) {
-      definitions.unshift({ fence: fences[0], language: fences[0] ? codeFenceInfo(fences[0].fence.info).language : "js", attrs: { script: noteName }, named: false });
+      const fence = fences.find(f => !codeFenceInfo(f.fence.info).attrs.script);
+      definitions.unshift({ fence, language: fence ? codeFenceInfo(fence.fence.info).language : "js", attrs: { script: noteName }, named: false });
     }
     if (!definitions.length) continue;
     const revision = store.revisions(block.id).revisions[0]!;

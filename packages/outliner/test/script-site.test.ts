@@ -328,3 +328,54 @@ test("named fences register separately, resolve nearest first and keep their nam
   await client.request({ action: "extensions.act", extension: "script:pair", extensionAction: "run", blockId: local.id });
   await until("the relocated fence's write", () => store.require(local.id).text.includes("[result::near]"));
 });
+
+
+test("a note script never borrows a differently named fence", async () => {
+  const { store, create, client, run } = await setup();
+  const note = create("Outer [script::outer] [effects::write]\n```js script=inner effects=read\nreturn 'inner';\n```");
+  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+  expect(listed.extensions.find(e => e.name === "outer" && e.state === "active")).toBeUndefined();
+  expect(listed.extensions.find(e => e.name === "inner")?.actions[0]?.effects).toBe("read");
+  store.update(note.id, note.text + "\n```js\nreturn 'outer';\n```", note.revision, { author: "user" });
+  expect((await run("outer")).text.split("\n").pop()).toBe("outer");
+});
+
+test("moving a named fence preserves its explicit effects and ordinary note effects do not configure it", async () => {
+  const { store, create, client } = await setup();
+  const note = create("Workbench [effects::write]");
+  const target = create("Garden");
+  for (const effects of ["read", "write", undefined]) {
+    const fence = "```js script=traveller" + (effects ? ` effects=${effects}` : "") + "\nawait tools.outline_set_property({ ref: this.id, key: 'visited', value: 'yes', revision: this.revision });\nreturn 'visited';\n```";
+    for (const matching of [false, true, false]) {
+      const current = store.require(note.id);
+      store.update(note.id, `Workbench [effects::${matching ? "read" : "write"}] [results::keep]${matching ? " [script::traveller]" : ""}\n${fence}`, current.revision, { author: "user" });
+      const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+      const entry = listed.extensions.find(e => e.name === "traveller")!;
+      expect(entry.actions[0]?.effects).toBe(effects ?? "read");
+      const before = store.children(note.id).map(b => b.id);
+      await client.request({ action: "extensions.act", extension: entry.id, extensionAction: "run", blockId: target.id });
+      const answer = await until("the moved fence's answer", () => store.children(note.id).find(b => !before.includes(b.id) && !b.text.split("\n")[0]!.includes("· working")));
+      if (effects === "write") {
+        expect(answer.text.split("\n").pop()).toBe("visited");
+        expect(store.require(target.id).text).toContain("[visited::yes]");
+      } else {
+        expect(answer.text).toContain("read-only");
+      }
+    }
+  }
+});
+
+test("removing a failed named fence removes its registry entry without a manual reload", async () => {
+  const { store, create, client } = await setup();
+  for (const fence of ["```js script=unfinished\nreturn 'x';", "```js script=invalid effects=write mode=render\nreturn 'x';\n```"]) {
+    const note = create("Workbench\n" + fence);
+    const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+    const failed = listed.extensions.find(e => e.state === "failed" && e.error?.includes(fence.includes("unfinished") ? "closed" : "mode=render"))!;
+    expect(failed?.error).toBeTruthy();
+    store.update(note.id, "Workbench", note.revision, { author: "user" });
+    await until("the removed failed fence to disappear", async () => {
+      const current = await client.request<ExtensionsListResult>({ action: "extensions.list" });
+      return !current.extensions.some(e => e.id === failed.id);
+    }, 1000);
+  }
+});

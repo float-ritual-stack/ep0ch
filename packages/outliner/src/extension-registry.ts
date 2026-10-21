@@ -208,6 +208,7 @@ export interface BoundHandler {
 }
 
 interface Slot {
+  readonly scriptBlockId?: string;
   readonly id: string;
   readonly origin: ExtensionOrigin;
   readonly directory: string;
@@ -294,9 +295,9 @@ export class ExtensionRegistry {
       if (source.error) throw new ExtensionLoadError(source.error);
       if (!source.script?.code.trim()) throw new ExtensionLoadError("Add a closed js or ts code fence to this script block, then run it again");
       const extension = loadExtensionManifest(source);
-      return { id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, loadedAt: now };
+      return { id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, scriptBlockId: source.script?.blockId, loadedAt: now };
     } catch (error) {
-      return { id: source.expectedId, origin: source.origin, directory: source.directory, state: "failed", error: error instanceof Error ? error.message : String(error) };
+      return { id: source.expectedId, origin: source.origin, directory: source.directory, state: "failed", scriptBlockId: source.script?.blockId, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
@@ -432,6 +433,11 @@ export class ExtensionRegistry {
   /** The copy an extension's folder last loaded, whatever its state (a disabled one's too); none when shadowed or never loaded. */
   loaded(id: string): LoadedExtension | undefined {
     return this.slots.find((candidate) => candidate.id === id && candidate.state !== "shadowed")?.serving;
+  }
+
+  /** Includes failed sources, whose removal must invalidate the registry too. */
+  hasScriptSource(blockId: string): boolean {
+    return this.slots.some(slot => slot.scriptBlockId === blockId);
   }
 
   /** Every extension that serves now (active, or failed on its last good copy), in the registry's order. */

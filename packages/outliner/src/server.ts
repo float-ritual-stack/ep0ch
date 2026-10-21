@@ -3918,7 +3918,7 @@ export class OutlinerServer {
     if (changes.some(change => change.blockId && (
       this.store.get(change.blockId)?.properties.some(p => p.key === "script") ||
       this.store.get(change.blockId)?.text.includes("script=") ||
-      this.extensionRegistry.serving().some(e => e.script?.blockId === change.blockId)
+      this.extensionRegistry.hasScriptSource(change.blockId)
     ))) void this.extensionRegistry.reload();
     const events: OutlinerEvent[] = changes.map(change => ({
       ...(base ?? {}),

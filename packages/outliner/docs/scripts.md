@@ -56,18 +56,18 @@ and read records are `null`; checking them still records a dependency for the pa
 A named fence accepts `script=<name>`, `effects=write` and `mode=render` in its info string, for example
 `js script=week-sentence mode=render`. The language may also be `javascript`, `ts`, `typescript` or `actions`.
 An `actions script=name` fence runs the same action-line format as an `actions` fence in a script note.
-When the note is `[script::same-name]`, fence settings override that script note's settings. Other notes' properties do not configure their fences. An unclosed fence saves as written and runs no code.
+A named fence is its own script, with its own effects: `script=x` and `effects=` on the fence decide x's effects; absent `effects=`, it is read-only. An ordinary note's `[effects::]` does not pass down. The one exception is a matching script note (`[script::x]` with `script=x`): the fence's `effects=` wins when written, otherwise the note's `[effects::]` applies. Other fence settings also override a matching script note's settings. Other notes' properties do not configure their fences. An unclosed fence saves as written and runs no code.
 
-For a script in its own note, the first eligible fence supplies the code:
+A note's `[script::y]` script is its first eligible fence with no `script=` name, or the fence named `y`. A fence named something else is never also the note's script. If there is no unnamed or matching fence, the note script has no code:
 
 
 | Part | Written | Means | Source |
 |---|---|---|---|
 | `script` | `[script::name]` | The script's name: its power-bar name, its `name::` handler line, its `@name` responder (an `@name` responder only when it starts with a lower-case letter and is lower case, digits and hyphens, up to 32). | `packages/outliner/src/script-sources.ts:47` |
-| the fence | a closed `js` or `ts` fence | The first `js`, `javascript`, `ts`, `typescript` or `actions` fence is the code. TypeScript is stripped, not type-checked. For the note form, only the first such fence counts; if it is unclosed the script is empty (nothing runs, nothing is refused). | `packages/outliner/src/script-sources.ts:36` |
+| the fence | a closed `js` or `ts` fence | The matching named fence, or the first unnamed `js`, `javascript`, `ts`, `typescript` or `actions` fence, is the code. TypeScript is stripped, not type-checked. For the note form, only that fence counts; if it is unclosed the script is empty (nothing runs, nothing is refused). | `packages/outliner/src/script-sources.ts:44` |
 | `mode` | `[mode::render]` | A handler: a line `name::` draws what the script returns. See [Modes](#modes). | `packages/outliner/src/script-sources.ts:61` |
-| `effects` | `[effects::write]` | May call write tools and `act`. Absent: read-only. | `packages/outliner/src/script-sources.ts:84` |
-| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:86` |
+| `effects` | `[effects::write]` | May call write tools and `act`. Absent: read-only. | `packages/outliner/src/script-sources.ts:87` |
+| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:89` |
 | `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:93` |
 
 Other ways a script exists: a file `<outline folder>/.ep0ch/scripts/name.js` or `.ts` whose first line is
@@ -301,7 +301,7 @@ examples lean on:
 
 ## Effects, access and attribution
 
-- **Effects.** A script is read-only unless the note says `[effects::write]` (a file: `// ep0ch-script effects=write`).
+- **Effects.** A named fence is read-only unless it says `effects=write`; a matching `[script::name]` note supplies `[effects::]` only when the fence omits `effects=`. An unnamed note script uses `[effects::write]` (a file: `// ep0ch-script effects=write`).
   Read-only means the write tools and `act` refuse; reads, `q`, `read`, `resolve` and `wait` work.
 - **Who wrote it.** Every write is `author: agent` with the actor id `script:<name>`, the run's undo id as the session, and
   the task id `trigger:script:<extension id>`. Whoever asked is recorded as `requestedBy` (the person at their keyboard,
