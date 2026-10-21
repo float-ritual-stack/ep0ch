@@ -564,13 +564,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** What a tile is, as the layout's rules need it (its kind, its kind's policy, what keeps it, what it holds). */
   /**
    * A list's home (PIE-794): the reader it belongs to (the links tile's), where its opens land when nothing else says,
-   * if that reader is here and isn't the list itself. Held or following, it is the home: ⏎ replaces its note
+   * if that reader is reachable and isn't the list itself. Held or following, it is the home: ⏎ replaces its note
    * (`replace`), and the mode it is in says what else moves.
    */
   private homeName(id: number): string | undefined {
     const p = this.panes.get(id), name = p ? kindOf(p)?.home?.(p) : null;
-    const at = name ? this.idNamed(name) : undefined, r = at !== undefined ? this.panes.get(at) : undefined;
-    return at !== undefined && at !== id && r instanceof ReaderPane ? name! : undefined;
+    const bound = p && boundSource.get(p);
+    const r = name ? bound && bound !== NO_SOURCE ? bound : this.paneAtPath(name) : undefined;
+    return r !== p && r instanceof ReaderPane ? this.pathTo(r) : undefined;
   }
 
   private facts(id: number, actor?: Actor): TileFacts {
@@ -1052,6 +1053,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // change, the drawer shut and opened, and the link is still its path (PIE-700).
     if (!desk || !e.pane) { if (e.path?.includes("@")) e.pane = undefined; else if (e.found) this.cutExt(id, e); return undefined; }
     e.found = true;
+    const path = this.pathTo(e.pane);
+    if (path?.includes("@")) e.path = path;
     return { pane: e.pane, desk, verb: e.verb, rule: e.rule };
   }
   private addExt(id: number, wire: ExtLink) {
@@ -1536,6 +1539,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const ext = this.extTarget(id);
     if (ext) return { short: this.plainPath(this.pathTo(ext.pane)), says: `${this.plainPath(this.pathTo(ext.pane))} (its link, across the drawer)`, change, unlink };
     const to = landing(this.layout, id, "open", this.facts(id));
+    if (to && "across" in to) return { short: to.across, says: `${to.across}, its reader (⏎ replaces its note, alt+⏎ a new detail beside it)`, change };
     if (to && "to" in to) {
       const via = this.linkVia(id), target = this.nameOf(to.to);
       if (via === "link") return { short: target, says: `${target} (its link: only what ⏎ opens)`, change, unlink };
@@ -1574,6 +1578,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private landFrom(at: number, m: Msg, opts: OpenHow & { reveal?: boolean }, by: Actor): boolean {
     const from = this.panes.get(at), to = landing(this.layout, at, opts.fresh ? "alt" : "open", this.facts(at), id => this.facts(id));
+    if (to && "across" in to && !this.extTarget(at) && (!opts.fresh || !this.extTarget(at, "alt"))) {
+      const target = this.paneAtPath(to.across), desk = target && this.relatives().find(d => d.idOf(target) !== undefined);
+      if (desk && target) {
+        const id = desk.idOf(target)!;
+        if (to.rule === "tab") return desk.openReader(m, { kind: "tabs", target: id }, by, undefined, true, true);
+        if (to.rule !== "tile") return desk.openReader(m, { kind: "split", target: id, dir: "right" }, by, undefined, true, true);
+        this.follow(at, m, by);
+        return desk.openIntoPane(target, m, to.across, by);
+      }
+    }
     const held = from instanceof ReaderPane && from.follows && from.holding;
     if (to && "into" in to) {
       // A held tile there following its own link changes only itself.
@@ -1928,12 +1942,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const forKeys = (f instanceof ReaderPane && !this.inShutting(f) ? f : undefined) ?? this.readerOfFocus()
       ?? readers.find(r => this.columnsIn().some(c => leaves(c).some(id => this.followers(id).includes(r)))) ?? readers[0];
     // b in the list itself aims it at its home's note (PIE-794).
-    const home = this.focus === lid ? this.panes.get(this.idNamed(L.source) ?? -1) : undefined;
+    const home = this.focus === lid ? this.paneAtPath(L.source) : undefined;
     const reader = given ?? (m ? readers.find(r => r.msg?.id === m.id) : undefined) ?? (home instanceof ReaderPane ? home : undefined) ?? forKeys;
     const note = m ?? reader?.msg ?? null;
     if (!note) throw new ActionRefused("nothing in that reader to find backlinks for");
-    const rid = this.idOf(reader);
-    if (rid !== undefined) L.source = this.nameOf(rid);
+    if (reader) { L.source = this.pathTo(reader) ?? L.source; boundSource.set(L, reader); }
+    this.revealPane(L, USER, true);
     const d = dockOf(this.root, lid);
     if (d && !d.open) this.apply({ op: "slide", tile: lid, open: true });
     if (this.focus !== lid) { this.keysTo(lid); this.entered.clear(); }
@@ -1955,8 +1969,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (rid === undefined || !m) throw new ActionRefused("that reader isn't on this screen");
     const person = actor.kind !== "agent";
     // The screen's list `b` aims (a kind with `aim`: the links tile), one on screen first.
-    const lists = [...this.panes.values()].flatMap(p => { const a = kindOf(p)?.aim?.(p); return a ? [a] : []; });
-    let L = lists.find(p => this.shownNow(p)) ?? lists[0];
+    const lists = this.relatives().flatMap(d => [...d.panes.values()].flatMap(p => {
+      const list = kindOf(p)?.aim?.(p);
+      return list ? [{ desk: d, list }] : [];
+    }));
+    const found = lists.find(({ desk, list }) => desk.shownNow(list)) ?? lists[0];
+    let L = found?.list;
+    const owner = found?.desk ?? this;
     let opened = false;
     if (!L) {
       const kind = tileKinds().find(k => k.aim);
@@ -1968,14 +1987,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       L = kind.aim!(made);
       opened = true;
     }
-    if (person) await this.aimBacklinks(L, m, r as ReaderPane);
+    if (person) await owner.aimBacklinks(L, m, r as ReaderPane);
     else if (opened) await L.show(m, this);                                       // its own new tile: nobody else's list
     else {
       // The person's list stays as it is (its note, its selection): an agent reads the note's links instead.
-      return { tile: this.nameOf(this.idOf(L)!), of: m.id, opened, links: await readLinks(this.ctx.board, m.id) };
+      return { tile: this.pathTo(L), of: m.id, opened, links: await readLinks(this.ctx.board, m.id) };
     }
     this.redraw();
-    return { tile: this.nameOf(this.idOf(L)!), of: m.id, opened, links: L.describe() };
+    return { tile: this.pathTo(L), of: m.id, opened, links: L.describe() };
   }
 
   /**
@@ -5102,6 +5121,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { tile: t.name };
   }
 
+  /** Reveal through the holding tiles too: a group's tab, spine or dock can hide a live target. */
+  private revealPane(pane: Pane, actor: Actor, focus = false): void {
+    const id = this.idOf(pane)!;
+    const holder = this.holder;
+    const parent = holder?.desk();
+    if (parent) parent.revealPane(holder!.tile, actor, focus);
+    else if (focus) this.ctx?.hostLayer?.goTo(pane, actor);
+    this.apply({ op: "reveal", tile: id }, actor);
+    if (focus) this.focusTile(this.nameOf(id), actor);
+    this.save(); this.redraw();
+  }
+
   /**
    * `tile.dock`: put the tile (its tab set, as one) in a dock where it is (`pin` false: tile.dock on=true), or take
    * its dock away so what it holds is back in the layout there (`pin` true: on=false); toggles by default. With `edge`, the dock slides from that
@@ -5196,6 +5227,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const k = kindOf(p);
     const verb: WireVerb = k?.accepts?.notes && !k.previewSource ? "open" : "select";
     const had = verb === "select" ? selectTargets(this.layout, t.id)[0] : wireTarget(this.layout, t.id);
+    const across = this.extTarget(t.id, verb);
+    if (had === undefined && across) {
+      across.desk.revealPane(across.pane, actor, actor.kind !== "agent");
+      return { tile: this.pathTo(across.pane)!, from: t.name, existing: true, verb };
+    }
     if (had !== undefined) {
       this.apply({ op: "reveal", tile: had }, actor);
       const name = this.nameOf(had);
@@ -5911,6 +5947,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * others (a row or columns), where its container's policy lets it; an agent never folds the tile the person has.
    */
   collapseTile(sel: string | undefined, on: boolean | undefined, actor: Actor, dir?: "v" | "h"): TileDone {
+    if (sel !== "all" && this.ctx?.hostLayer?.isDrawer(this)) return this.ctx.hostLayer.collapse(this.tile(sel).name, on, actor);
     // tile=all opens every spine (alt+c on the board): each its own step, one the layout keeps folded (and why) said.
     if (sel === "all") {
       if (on !== false) throw new ActionRefused("tile=all only reopens every spine (on=false); fold tiles one by one");

@@ -67,6 +67,50 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   /** Another screen (last callers), on top: the screen switch. */
   const otherScreen = () => new Desk({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "notes" }] } as any } });
 
+  test("a group travels through the drawer with tabs, wires and a draft, and note buttons toggle it (PIE-1120)", async () => {
+    const d = await door();
+    try {
+      const note = await board.createBlock(null, 'Carry the seed tray\n::button{label="Drawer" act="host.toggle"}\n::button{label="Bundle" act="tile.collapse tile=bundle"}');
+      await d.desk.dispatch.act({ action: "open", args: { id: note.id }, tile: "reader" }, USER);
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", name: "destination", note: note.id }, tile: "tree" }, USER);
+      await d.desk.dispatch.act({ action: "tile.group", args: { with: "replies", name: "bundle" }, tile: "reader" }, USER);
+      d.paint();
+      const group = d.desk.pane("bundle") as any, inner = group.inner as Desk;
+      await inner.dispatch.act({ action: "tile.open", args: { kind: "detail", note: note.id, name: "draft", where: "tabs" }, tile: "reader" }, USER);
+      await until(() => (inner.pane("draft") as any)?.msg?.id === note.id, "draft tab loaded");
+      await inner.dispatch.act({ action: "tile.link", args: { to: "reader" }, tile: "replies" }, USER);
+      await inner.dispatch.act({ action: "tile.link", args: { to: "../destination" }, tile: "reader" }, USER);
+      await inner.dispatch.act({ action: "edit.text", args: { text: "Seed tray\nKeep this unsaved" }, tile: "draft" }, USER);
+      const draft = (inner.pane("draft") as any).surface.draft;
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "bundle" }, USER);
+      expect(d.inDrawer("bundle")).toBe(true);
+      expect(d.pane("bundle")).toBe(group);
+      const next = otherScreen(); d.app.push(next); d.paint();
+      expect(d.pane("bundle")).toBe(group);
+      await d.app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Drawer" } }, USER);
+      expect(d.app.drawer.open).toBe(false);
+      await d.app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Bundle" } }, USER);
+      expect(d.app.drawer.open).toBe(true);
+      await d.app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Bundle" } }, USER);
+      expect(d.app.drawer.open).toBe(false);
+      await d.app.act({ action: "tile.drawer", args: { on: false }, tile: "bundle", as: AS });
+      expect(next.pane("bundle")).toBe(group);
+      expect(group.inner).toBe(inner);
+      expect((inner.pane("draft") as any).surface.draft).toBe(draft);
+      expect(draft.text).toContain("Keep this unsaved");
+      expect((inner.layoutGet() as any).tiles.find((t: any) => t.name === "replies").wires).toContainEqual({ verb: "open", to: "reader" });
+      expect((inner.layoutGet() as any).tiles.filter((t: any) => t.name === "reader" || t.name === "draft").every((t: any) => t.tabs?.includes("reader") && t.tabs?.includes("draft"))).toBe(true);
+      await next.dispatch.act({ action: "tile.drawer", tile: "bundle" }, USER);
+      d.app.pop(); d.paint();
+      await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
+      await d.app.act({ action: "tile.drawer", args: { on: false }, tile: "bundle", as: AS });
+      const second = await board.createBlock(null, "Another seed tray");
+      await inner.dispatch.act({ action: "open", args: { id: second.id, from: "reader" } }, USER);
+      expect((d.desk.pane("destination") as any).msg?.id).toBe(second.id);
+    } finally { d.app.quit(); }
+  });
+
   test("New note in an empty drawer detail opens its draft in that tile (PIE-1119)", async () => {
     const d = await door();
     try {
@@ -80,6 +124,29 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       d.key(ctrl("n"));
       await until(() => !!(drawer.pane("writing") as any)?.surface?.draft, "the drawer detail has the new draft");
     } finally { d.app.quit(); }
+  });
+
+  test("the first b after restarting opens a group saved in a shut drawer (PIE-1120)", async () => {
+    const first = await door();
+    const note = await board.createBlock(null, "Seed tray instructions");
+    try {
+      await first.desk.dispatch.act({ action: "tile.group", args: { with: "replies", name: "bundle" }, tile: "reader" }, USER);
+      first.paint();
+      await first.desk.dispatch.act({ action: "tile.drawer", tile: "bundle" }, USER);
+      await first.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
+    } finally { first.app.quit(); }
+    const next = await door();
+    try {
+      await next.desk.dispatch.act({ action: "tile.close", tile: "replies" }, USER);
+      await next.desk.dispatch.act({ action: "open", args: { id: note.id }, tile: "reader" }, USER);
+      await next.desk.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
+      expect(next.app.drawer.tabs().some(t => t.name === "bundle")).toBe(true);
+      next.key(char("b"));
+      const links = () => (next.pane("bundle") as any)?.inner?.pane("replies");
+      await until(() => { next.paint(); return links()?.target?.id === note.id && !!links()?.data; }, "the restored grouped links loaded on the first b");
+      expect(next.app.drawer.open).toBe(true);
+      expect(next.desk.layoutGet().tiles.some(t => t.kind === "backlinks")).toBe(false);
+    } finally { next.app.quit(); }
   });
 
   test("a click on the agent chip toggles the drawer, alt+click opens the picker, and choices replace the same tab (PIE-1117)", async () => {

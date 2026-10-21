@@ -106,6 +106,8 @@ export interface HostLayer {
   openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: import("./reveal").Reveal): Promise<{ reader: string | null; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
+  /** Fold a drawer tab by putting the drawer away; unfold it by showing that tab. */
+  collapse(name: string, on: boolean | undefined, actor: Actor): TileDone;
   /** Every agent session this door holds (PIE-737): the agent panel's rows. */
   sessions?(): AgentSession[];
 }
