@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "0f40cc0a", "outliner": "0f40cc0a", "on": "2026-10-21" },
+  "verified": { "door": "f5f2f1a9", "outliner": "f5f2f1a9", "on": "2026-10-21" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -314,7 +314,7 @@
         { "r": "door", "p": "src/surface/modes.ts", "l": 138, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 54, "m": "export const PRECEDENCE" },
         { "r": "door", "p": "src/surface/note.ts", "l": 158, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 8913, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 8916, "m": "export const NOTE_ACTIONS" },
         { "r": "door", "p": "src/surface/note.ts", "l": 1114, "m": "staleOn(e: OutlineEvent): boolean" },
         { "r": "door", "p": "src/surface/note.ts", "l": 1131, "m": "reread(host: SurfaceHost)" }
       ]
