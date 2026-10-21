@@ -1851,7 +1851,7 @@ async function openUri($: EngineInterface, workspace: Workspace, uri: string, su
 const TOOL_ROWS_PREFS = { plugin: 'ep0ch', key: 'toolRows' } as const
 /** Which tool rows are folded open, by tool_use_id. */
 const TOOL_ROW_OPEN = { plugin: 'ep0ch', key: 'toolRowOpen' } as const
-/** Block titles a tool row names, by block id: looked up once a session, off the draw. */
+/** Block titles replies and tool rows share, by block address, resolved off the draw. */
 const TOOL_TITLES = { plugin: 'ep0ch', key: 'toolTitles' } as const
 const TOOL_OUTLINES = { plugin: 'ep0ch', key: 'toolOutlines' } as const
 const askedTitles = new Set<string>()
@@ -1859,7 +1859,7 @@ const askedTitles = new Set<string>()
 const drawnToolRows = new Set<string>()
 
 /**
- * A block's title, from state; one not looked up yet is resolved through the CLI off the draw, once a session
+ * A block's title, from state; one lookup chain per address runs off the draw
  * (the draw that asked draws again when it lands). Only in a folder bound to an outline.
  */
 async function titleFor($: EngineInterface, id: string): Promise<string | undefined> {
@@ -1868,22 +1868,32 @@ async function titleFor($: EngineInterface, id: string): Promise<string | undefi
   if (value) return value
   if (workspace && !askedTitles.has(id)) {
     askedTitles.add(id)
-    $.clock.after(0, () => void runOutlinerCli($, workspace, ['resolve', `pi-outliner://block/${encodeURIComponent(id)}`])
-      .then(async out => {
-        const result = JSON.parse(out);
-        if (typeof result.outline === 'string') await $.state.set({ ...TOOL_OUTLINES, id }, result.outline);
-        const title: unknown = result.title;
-        return typeof title === 'string' && title.trim() ? $.state.set({ ...TOOL_TITLES, id }, title.trim()) : undefined
-      })
-      .catch(() => {}))
+    $.clock.after(0, () => void resolveTitle($, workspace, id))
   }
   return undefined
+}
+
+/** A failed first read must not leave the short id stuck for the rest of the session. */
+async function resolveTitle($: EngineInterface, workspace: Workspace, id: string, attempt = 0): Promise<void> {
+  try {
+    const ran = await runOutliner($, workspace, ['resolve', `pi-outliner://block/${encodeURIComponent(id)}`])
+    if (ran.exitCode !== 0) throw Error('Title lookup failed')
+    const result = JSON.parse(ran.stdout)
+    const title: unknown = result.title
+    if (typeof title !== 'string' || !title.trim()) throw Error('No title yet')
+    if (typeof result.outline === 'string') await $.state.set({ ...TOOL_OUTLINES, id }, result.outline)
+    await $.state.set({ ...TOOL_TITLES, id }, title.trim())
+  } catch {
+    const delays = [2000, 10_000, 60_000]
+    const next = Math.min(attempt, delays.length - 1)
+    $.clock.after(delays[next]!, () => void resolveTitle($, workspace, id, next + 1))
+  }
 }
 
 /**
  * The titles of the blocks a tool row names by id. Each is read from state (so
  * the row draws again when it lands); one not looked up yet is resolved through
- * the CLI off the draw, once a session. Only in a folder bound to an outline.
+ * the CLI off the draw, retrying failures with backoff. Only in a folder bound to an outline.
  */
 async function toolTitlesOf($: EngineInterface, view: { tool: string; input: unknown }): Promise<Map<string, string>> {
   const titles = new Map<string, string>()
