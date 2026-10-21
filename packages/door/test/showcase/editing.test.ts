@@ -85,7 +85,8 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     const desk = S().stages.get(SECTIONS.findIndex(s => s.key === "library")).top;
     const reader = [...desk.panes.values()].find((p: any) => p.surface) as ReaderPane;
     await until(() => !!reader.msg, "library reader note");
-    await desk.dispatch.press("tile.focus", {}, "reader");
+    const tile = desk.nameOf(desk.idOf(reader)!);
+    await desk.dispatch.press("tile.focus", {}, tile);
     ch("e"); press({ kind: "enter" });
     await until(() => !!reader.draft, "library reader draft");
     const d = reader.draft!, original = d.text;
@@ -111,7 +112,7 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     expect(clipboard()).toContain(Buffer.from(source).toString("base64"));
     press({ kind: "right" });
     expect(pop()!.items.some(i => i.label === "::fields{key=owner}")).toBe(true);
-    expect(await desk.dispatch.act({ action: "complete.copy", args: {}, tile: "reader" }, { kind: "agent", id: "test-agent" })).toMatchObject({ result: source });
+    expect(await desk.dispatch.act({ action: "complete.copy", args: {}, tile }, { kind: "agent", id: "test-agent" })).toMatchObject({ result: source });
     press({ kind: "esc" });
     press({ kind: "enter" });
     for (const c of "@seed-count") ch(c);
@@ -122,13 +123,13 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     expect(definition).toContain("[g] Seed count");
     expect(definition).toContain("```js");
     expect(definition).toContain("return (await q('script')).blocks.length;");
-    const jump: any = await desk.dispatch.act({ action: "complete.definition", args: {}, tile: "reader" }, { kind: "agent", id: "test-agent" });
+    const jump: any = await desk.dispatch.act({ action: "complete.definition", args: {}, tile }, { kind: "agent", id: "test-agent" });
     expect((await board.get(jump.blockId))!.text).toStartWith("Seed count [script::seed-count]");
     press({ kind: "down" }); press({ kind: "up" });
     ch("g");
     await until(() => [...desk.panes.values()].some((p: any) => p !== reader && p.msg?.id === jump.blockId), "script opened beside the draft");
     expect(reader.draft).toBe(d);
-    await desk.dispatch.press("tile.focus", {}, "reader");
+    await desk.dispatch.press("tile.focus", {}, tile);
     press({ kind: "esc" });
     for (let i = 0; d.text !== original && i < 50; i++) press({ kind: "char", ch: "z", ctrl: true });
     expect(d.text).toBe(original);
