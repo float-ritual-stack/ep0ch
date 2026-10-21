@@ -219,6 +219,74 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     }
   }, 30_000);
 
+  for (const scenario of ["repeat Enter", "window keys", "mouse menu", "failed read"]) test(`held opening: ${scenario}`, async () => {
+    window(scenario === "repeat Enter" ? "60000" : "off");
+    const note = await board.request<{ id: string }>("create", { parentId: null, text: "Seed tray\nWater daily", author: "agent" });
+    const { desk, rd, rows } = await deskOnHedge(note.id);
+    const get = board.get.bind(board);
+    let release!: () => void, reading!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { reading = resolve; });
+    board.get = async (...args) => {
+      const fresh = await get(...args);
+      if (args[0] === note.id) {
+        reading(); await held;
+        if (scenario === "failed read") throw new Error("scratch read interrupted");
+      }
+      return fresh;
+    };
+    try {
+      key(char("e"));
+      if (scenario === "repeat Enter") key(ENTER);
+      await started;
+      if (scenario === "repeat Enter") {
+        key(ENTER); key(char("X"));
+        release();
+        await until(() => !!rd.surface.draft && desk.entered.in(rd), "confirmed edit entered");
+        expect(rd.surface.draft.text).toBe("XSeed tray\nWater daily");
+      } else if (scenario === "window keys") {
+        key({ kind: "char", ch: "w", ctrl: true });
+        expect(desk.prefix).toBe("wm");
+        key(char("w"));
+        expect(desk.overlays.top()).not.toBeNull();
+        key({ kind: "esc" });
+        release();
+        await Bun.sleep(100);
+        expect(rd.surface.draft).toBeNull();
+        expect((await get(note.id))!.text).toBe("Seed tray\nWater daily");
+      } else if (scenario === "mouse menu") {
+        const r = desk.layoutGet().tiles.find((t: any) => t.name === desk.nameOf(desk.focus)).rect;
+        key({ kind: "mouse", action: "down", button: 2, x: r.col + 5, y: r.row + 6 });
+        key({ kind: "mouse", action: "up", button: 2, x: r.col + 5, y: r.row + 6 });
+        expect(desk.overlays.top()?.name).toBe("tile menu");
+        key(char("z")); key(char("z")); key(char("z"));
+        expect(rows().join("\n")).toContain("zzz");
+        key({ kind: "esc" });
+        expect(desk.overlays.top()).toBeNull();
+        release();
+        await Bun.sleep(100);
+        expect(rd.surface.draft).toBeNull();
+      } else {
+        key(char("a")); key(char("b")); key({ kind: "backspace" });
+        key({ kind: "tab" }); key(ENTER); key({ kind: "paste", text: "kept" });
+        release();
+        await until(() => message().includes("scratch read interrupted"), "read failure explained");
+        expect(rd.surface.draft).toBeNull();
+        expect(rows().join("\n")).toContain("recover typed text");
+        // Recovery runs through the real action path, and only the later successful read supplies the draft base.
+        board.get = get;
+        const recovered = await app.press("edit.recover", { op: "copy" }, desk.nameOf(desk.focus)) as any;
+        expect(recovered.text).toBe("a\t\nkept");
+        await app.press("edit.recover", { op: "open" }, desk.nameOf(desk.focus));
+        await until(() => !!rd.surface.draft && desk.entered.in(rd), "typed text recovered into a fresh draft");
+        expect(rd.surface.draft.text).toBe("a\t\nkeptSeed tray\nWater daily");
+      }
+    } finally {
+      release(); board.get = get;
+      rd.surface.closeDraftAction(true); desk.entered.clear(); window("60000");
+    }
+  }, 30_000);
+
   test("the person's setting (edit.arm.set): off opens on the first e, kept for the next start; EP0CH_EDIT_ARM wins over it", async () => {
     delete process.env.EP0CH_EDIT_ARM;
     try {
