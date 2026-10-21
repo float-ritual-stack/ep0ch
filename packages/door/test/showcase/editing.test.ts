@@ -411,4 +411,64 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 20_000);
 
+  for (const symptom of ["alignment", "images", "wheel"] as const) {
+    test(`Round 2: detached edit preview ${symptom} (PIE-1142)`, async () => {
+      (app as any).lastInput = 0;
+      await app.act({ action: "section", args: { name: "edit" }, as: "preview-builder" });
+      press({ kind: "enter" });
+      const desk = S().stages.get(S().sel).top;
+      ch("e"); press({ kind: "enter" });
+      await until(() => [...desk.panes.values()].some((p: any) => p.editing), "the edit");
+      const reader = [...desk.panes.values()].find((p: any) => p.editing) as ReaderPane;
+      const d = reader.draft!, original = d.text, video = app.video;
+      const act = (action: string, args = {}) => desk.dispatch.act({ action, args }, { kind: "user" });
+      try {
+        await act("draft.preview", { on: true });
+        screen();
+        if (symptom === "alignment") {
+          const embed = await board.createBlock(null, "Expanded passage\n" + Array.from({ length: 12 }, (_, i) => `expanded ${i}`).join("\n"));
+          d.replace(`Draft\n!((${embed.id}))\nEnd marker`);
+          d.place(2, 3);
+          await act("placement.menu", { target: "edit-preview" });
+          await act("placement.choose", { place: "split", direction: "right" });
+          await until(() => screen().includes("expanded 11"), "expanded preview");
+          const lines = reader.render(130, 28, true, desk).lines.map(plain);
+          const ends = lines.flatMap((l, i) => l.includes("End marker") ? [i] : []);
+          expect(ends).toHaveLength(1);
+          expect(lines[ends[0]!]!.match(/End marker/g)).toHaveLength(2);
+        } else if (symptom === "images") {
+          app.video = "kitty";
+          d.replace(`Draft\n[img::${SHOWCASE_ASSETS}/seed-packet.webp] [height::4]`);
+          d.place(0, 0);
+          await act("edit.preview.place", { place: "tile" });
+          await until(() => [...desk.panes.values()].some((p: any) => p.kind === "edit-preview"), "preview tile");
+          const tile = [...desk.panes.values()].find((p: any) => p.kind === "edit-preview") as any;
+          await until(() => !!tile.render(70, 28, false, desk).placements?.length, "preview image");
+          expect(reader.render(70, 28, true, desk).placements ?? []).toHaveLength(0);
+          expect(tile.render(70, 28, false, desk).placements).toHaveLength(1);
+        } else {
+          d.replace("Draft\n" + Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n") + "\n");
+          d.place(d.lines.length - 1, 0);
+          await act("edit.preview.place", { place: "floating" });
+          for (const c of "::gr") ch(c);
+          await until(() => !!completionOf(d)?.items.length && !completionOf(d)?.loading, "completion");
+          press({ kind: "down" });
+          reader.render(130, 28, true, desk);
+          const pop = completionOf(d)!, selected = pop.index;
+          const p = d.frame!.preview!;
+          const before = p.top;
+          reader.surface.wheel(-1, reader.host(desk), { x: p.col + 2, y: p.row + 2 });
+          reader.render(130, 28, true, desk);
+          expect(completionOf(d)!.index).toBe(selected);
+          expect(d.frame!.preview!.top).toBeLessThan(before);
+        }
+      } finally {
+        app.video = video;
+        await act("edit.preview.place", { place: "inline" });
+        d.replace(original);
+        for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
+      }
+    }, 20_000);
+  }
+
 });

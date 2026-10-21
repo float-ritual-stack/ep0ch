@@ -1727,7 +1727,7 @@ export class NoteSurface {
     this.use(host);
     this.lookAt(m, w, host);
     const covered = this.modes.rows(w, h, host);
-    if (covered) return { lines: covered, ...(this.draft ? { placements: this.draft.frame?.preview?.placements } : {}), completion: this.draft ? completerOf(this.draft) ?? undefined : undefined, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
+    if (covered) return { lines: covered, ...(this.draft ? { placements: this.editPreview.place === "tile" ? [] : this.draft.frame?.preview?.placements } : {}), completion: this.draft ? completerOf(this.draft) ?? undefined : undefined, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
@@ -2907,7 +2907,7 @@ export class NoteSurface {
   private editPreviewRows(w: number, h: number, row: number, col: number, host: SurfaceHost, aligned = false): SurfaceView {
     const d = this.draft!, m = this.msg!, p = this.editPreview;
     p.rect = { row, col, cols: w, rows: h };
-    const lines = previewRows(d, (t, pw, links) => this.snippetDoc(t, pw, host, links, false, isOutlineNote(m) ? m.id : undefined), w, h, row, col, aligned);
+    const lines = previewRows(d, (t, pw, links) => this.snippetDoc(t, pw, host, links, true, isOutlineNote(m) ? m.id : undefined), w, h, row, col, aligned);
     const chip = `[${p.place} ▸]`;
     lines[0] = pad(lines[0]!, Math.max(0, w - chip.length)) + fg(C.lcyan) + chip + RESET;
     return { lines, placements: d.frame?.preview?.placements };
@@ -4133,11 +4133,11 @@ export class NoteSurface {
     if (p && x >= p.col && x < p.col + p.cols && y >= p.row && y < p.row + p.rows) return false;
     return !d.busy && (drag || !completionOf(d)) && editorClick(d, x, y, drag, USER, undefined, 0, d !== this.draft || this.editPreview.place !== "tile");
   }
-  /** The wheel over text being written: through an open completion popup's candidates, else its preview under the pointer (PIE-846), else the draft's view (its cursor stays). */
+  /** The preview under the pointer owns the wheel before draft-local completion; elsewhere completion or the draft scrolls. */
   private writeWheel(d: Draft, dir: 1 | -1, at?: { x: number; y: number }, previewHere = true): boolean {
-    const c = completerOf(d);
-    if (c?.shown) { if (at && c.overPreview(at.x, at.y)) c.scrollPreview(wheelRows(dir)); else c.move(dir); return true; }
     const preview = previewHere && !!at && wheelTarget(d, at.x, at.y) === "preview";
+    const c = completerOf(d);
+    if (!preview && c?.shown) { if (at && c.overPreview(at.x, at.y)) c.scrollPreview(wheelRows(dir)); else c.move(dir); return true; }
     if (!d.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(dir), ...(preview ? { preview: true } : {}) }, d, USER);
     return true;
   }
@@ -4409,6 +4409,7 @@ export class NoteSurface {
     }
     // A mode first (a draft's view or its preview, a comment's box or thread list, the full panel's rows), else the note scrolls.
     const float = at && this.floatAt(at.x, at.y, host);
+    if (float === "draft") { void this.runKey("draft.scroll", { by: wheelRows(dir), preview: true }, host); host.redraw(); return; }
     if (float) { this.modes.get(float)?.wheel?.(dir, host, at); host.redraw(); return; }
     if (this.modes.wheel(dir, host, at)) { host.redraw(); return; }
     const d = this.drawn;

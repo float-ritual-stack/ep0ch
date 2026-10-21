@@ -158,7 +158,9 @@ export function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>,
   if (scrolled === null) d.previewScroll = null;
   const projected = new PositionRows({ ...d.position, view: { line: d.row + (scrolled?.lineDelta ?? 0), row: scrolled?.row ?? cursorRow } });
   projected.source = source;
-  const at = Math.min(last, projected.top);
+  const at = aligned && !scrolled ? projected.top : Math.min(last, projected.top);
+  // Beside the draft, the cursor line keeps its row even when earlier preview lines expanded.
+  if (aligned) body.push(...pad0(at + room - body.length));
   // Its pictures (PIE-846) on the rows of the part shown, one column in as its text is.
   const placements = shown.placements.flatMap(p => { const q = inWindow({ ...p, row: p.row + lead }, at, room, row + 1); return q ? [{ ...q, col: q.col + col + 1 }] : []; });
   if (d.frame) d.frame.preview = { row, col, cols: w, rows: h, top: at, total: body.length, source, placements };
