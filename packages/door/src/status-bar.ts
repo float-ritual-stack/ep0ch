@@ -107,11 +107,13 @@ export class StatusBarNote {
           const warningId = `${note.id}:${warning}`;
           if (!this.duplicateWarnings.has(warningId)) this.warn(warning);
           this.duplicateWarnings.add(warningId);
+          i = button.endLine;
           continue;
         }
         labels.set(key, i + 1);
         const alt = button.alt;
         out.push({ id: `button:${i}`, text: button.label, place: "left", after: " │ ", click: { action: "button.press", args: { note: note.id, label: button.label, line: i + 1 } }, ...(alt ? { alt: { action: "button.press", args: { note: note.id, label: button.label, line: i + 1, alt: true } } } : {}) });
+        i = button.endLine;
       } else throw new Error(`line ${i + 1}: use - <built-in id> or ::button{label="Collapse" act="tile.collapse tile=screen"}`);
     }
     return out;

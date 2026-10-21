@@ -2492,6 +2492,7 @@ export type OutlinerRequestAction =
    * `{ undone, extension, action, written }`.
    */
   | { id: string; action: "extensions.undo"; undo: string; mutation?: MutationProvenance }
+  | { id: string; action: "scripts.sequence"; blockId: string; line: number; clientId: string; invitation?: string; mutation: MutationProvenance }
   | { id: string; action: "scripts.stop"; run: string; mutation?: MutationProvenance }
   | { id: string; action: "scripts.run"; blockId: string; access: import("@ep0ch/outline-core/protocol").McpAccessLevel; mutation: MutationProvenance; /** The door a script's `act` goes to (PIE-957); with none, the only door here, else a refusal naming them. */ door?: string }
   | { id: string; action: "scripts.answer"; requestId: string; clientId: string; result?: unknown; error?: string }

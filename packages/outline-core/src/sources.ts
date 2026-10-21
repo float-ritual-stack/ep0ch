@@ -2,6 +2,7 @@
 // answered: the one answer the door's Sources inspector draws (a published page's read-only panel is a follow-up: PIE-996), so a second client agrees with it. A page
 // shows none of it by default (generated output reads as the note's own content); this is what "where this comes from"
 // opens. Pure: no I/O. The service fills it (outliner `site-sources.ts`, the `site.sources` request).
+import { buttonCallAt, type ButtonCall } from "./button-call";
 import { slotPairs } from "./action-line";
 import { codeBlocks } from "./code-fence";
 import { componentAttrs, componentBlocks } from "./component-block";
@@ -11,7 +12,7 @@ import { findOutputRegions } from "./output-region";
 import { useCallAt } from "./template-use";
 
 /** What produced the region: a handler line (`weekly:: week=42`), a `::=` line, a `::use`, a `::graph-*` figure, `::fields`, `::if`, or a written `[!output]` callout. */
-export type SourceKind = "handler" | "expr" | "use" | "figure" | "fields" | "if" | "output";
+export type SourceKind = "button" | "handler" | "expr" | "use" | "figure" | "fields" | "if" | "output";
 
 export interface SourceParam { key: string; value: string }
 
@@ -60,6 +61,7 @@ export interface SourceCall {
   text: string;
   /** For a figure: its kind (`table` of `graph-table`) and where its YAML is (the lines between `---`). */
   figure?: { kind: string; yaml: string };
+  button?: ButtonCall;
   /** For a `::use`: the template as written. For `::fields`: the key. For `::if`: the query. For an output region: its producer's block id. */
   of?: string;
   /** For an output region: its anchor and whether its person edited it. */
@@ -80,6 +82,12 @@ export function sourceCalls(text: string): SourceCall[] {
   const inRegion = new Set(regions.flatMap(r => Array.from({ length: r.endLine - r.startLine + 1 }, (_, i) => r.startLine + i)));
   for (let i = 0; i < lines.length; i++) {
     if (fenced.has(i) || inRegion.has(i)) continue;
+    const button = buttonCallAt(lines, i);
+    if (button?.sequence) {
+      out.push({ kind: "button", line: i, endLine: button.endLine, name: button.label, params: [], text: lines.slice(i, button.endLine + 1).join("\n"), button });
+      i = button.endLine;
+      continue;
+    }
     const use = useCallAt(lines, i);
     if (use) {
       out.push({ kind: "use", line: i, endLine: i, name: `::use ${use.of ?? "(no template)"}`, params: use.props, text: lines[i]!, ...(use.of ? { of: use.of } : {}) });

@@ -5,7 +5,7 @@ import { figureProps } from "@ep0ch/outline-core/figure-props";
 // how a page or Work-ID is written (`[[WORK-ID|title]]`, else `[[address]]`), Work-ID recognition
 // (src/work-ids.ts), and how a typed `((note#heading` / `((note^anchor` splits. Fragments themselves are
 // the service's (see below).
-import { componentAttributeAtCursor } from "@ep0ch/outline-core/component-block";
+import { COMPONENT_CLOSE, componentAttributeAtCursor, componentBlocks } from "@ep0ch/outline-core/component-block";
 import { calloutTypeAtCursor } from "@ep0ch/outline-core/callouts";
 import { propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core/component-schema";
 import { codeSpanRanges, cursorInCode } from "@ep0ch/outline-core/code-ranges";
@@ -14,7 +14,7 @@ import { codeSpanRanges, cursorInCode } from "@ep0ch/outline-core/code-ranges";
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
  * `yaml-value` the same inside a component block's YAML.
  */
-export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting";
+export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting" | "button-step";
 
 export interface CompletionTarget {
   kind: CompletionKind;
@@ -67,6 +67,8 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
   }
   const end = Math.max(0, Math.min(column, line.length));
   const beforeCursor = line.slice(0, end);
+  const button = lines && row !== undefined && componentBlocks([...lines.slice(0, row + 1), "::"]).find(b => b.name === "button" && row > b.start && row <= b.end);
+  if (button && row === button.end && COMPONENT_CLOSE.test(line)) return null;
   const component = /^( {0,3})::([^{}\n]*)$/.exec(beforeCursor);
   if (component) return { kind: "component", start: component[1]!.length, end: end + /^[a-z0-9-]*/.exec(line.slice(end))![0].length, query: component[2]! };
   let target: CompletionTarget | null = null;
@@ -93,6 +95,7 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
       target = { kind: syntax.kind, start, end: replacementEnd, query: beforeCursor.slice(start + syntax.opening.length) };
     }
   }
+  if (button && (!target || target.kind === "block")) return { kind: "button-step", start: target?.start ?? 0, end: target?.end ?? line.length, query: target ? "((" + target.query : beforeCursor };
   if (target) return target;
   const attribute = componentAttributeAtCursor(line, column);
   if (attribute) return attribute;

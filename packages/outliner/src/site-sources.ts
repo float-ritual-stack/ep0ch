@@ -21,6 +21,7 @@ export interface SourcesDeps {
   projections: readonly ResourceProjection[];
   transformOf(extension: string, handler: string): TransformOf;
   clock?: () => number;
+  sequenceSource?(blockId: string, button: import("@ep0ch/outline-core/button-call").ButtonCall, text: string): SourceEntry | undefined;
   depend?: (ids: string[]) => void;
 }
 
@@ -88,7 +89,10 @@ export function readSources(deps: SourcesDeps, request: SourcesRequest): Sources
   for (const c of sourceCalls(text)) {
     const base = { key: c.kind === "output" ? `#${c.region?.anchor ?? c.line}` : String(c.line), kind: c.kind, name: c.name, line: c.line, endLine: c.endLine } as const;
     try {
-      if (c.kind === "use") {
+      if (c.kind === "button" && c.button) {
+        const source = deps.sequenceSource?.(host.id, c.button, c.text);
+        if (source) out.push(source);
+      } else if (c.kind === "use") {
         const a = templateUse(store, { block: host.id, line: c.line }, clock);
         deps.depend?.(a.deps);
         if (a.deps.some(id => request.hidden?.includes(id))) throw new Error("hidden here");

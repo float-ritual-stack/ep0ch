@@ -934,7 +934,7 @@ export class App implements Ctx {
     const screens = [...this.stack, ...this.background];
     if (e.ended) {
       INVITES.spendRun(e.ended.run);
-      for (const s of screens) s.scriptEnded?.(e.ended.run, e.ended.reason);
+      for (const s of screens) s.scriptEnded?.(e.ended.run, e.ended.sequence ? "done" : e.ended.reason);
       if (e.ended.targetClientId === this.board.clientId) {
         const by = e.ended.requestedBy;
         const actor: Actor = by.author === "agent" ? { kind: "agent", id: by.actorId ?? "agent" } : { kind: "user" };

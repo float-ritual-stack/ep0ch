@@ -1089,7 +1089,7 @@ export class NoteSurface {
     const e = this.inView(), i = e ? this.elems.indexOf(e) : -1;
     // A proposal's keys go first: in a narrow tile the hint is cut from the end.
     // An extension's line or control: its keys go first, as a proposal's do.
-    if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act)}`;
+    if (e?.link?.press) return `[ ] ${i + 1}/${this.elems.length} · press ${printable(e.label)} · ⏎ runs ${printable(e.link.press.act.replaceAll("\n", " -> "))}`;
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
     if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label)} · ⏎ ${verbOf(e, e.kind === "comment" && this.threadShown(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" || e.kind === "block" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
@@ -2536,7 +2536,7 @@ export class NoteSurface {
     const buttonHook = (block: string, lines: readonly number[]): DocEnv["button"] => (call, i) => {
       const line = lines[i] ?? -1, label = printable(call.label);
       if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
-      return [tagged(drawn, { role: "control", label, press: { act: call.act, ...(call.alt ? { alt: call.alt } : {}), block, line } }, buttonLabel(label))];
+      return [tagged(drawn, { role: "control", label, press: { act: call.act, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line } }, buttonLabel(label))];
     };
     const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id, env.inlineList);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
@@ -4266,7 +4266,11 @@ export class NoteSurface {
     if (k.kind === "enter" || k.kind === "alt-enter") {
       const fresh = k.kind === "alt-enter", e = this.inView();
       if (!fresh && this.selectedFold()) { void this.runKey("fold.toggle", {}, host); return true; }
-      if (e) { if (fresh && !opens(e) && !e.link?.press?.alt) return false; void this.runKey("element.open", fresh ? { fresh } : {}, host); return true; }
+      if (e) {
+        if (fresh && !opens(e) && !e.link?.press?.alt) return false;
+        void this.runKey(e.link?.press ? "button.press" : "element.open", e.link?.press ? { n: this.elems.indexOf(e) + 1, ...(fresh ? { alt: true } : {}) } : fresh ? { fresh } : {}, host);
+        return true;
+      }
       if (!this.cur && this.links[this.link]) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
       return false;
     }
@@ -4342,6 +4346,18 @@ export class NoteSurface {
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     if (!d) throw new ActionRefused("this screen has no dispatcher to run a press");
     const run = async () => {
+      const note = p.block ? await host.ctx.board.get(p.block) : null;
+      const button = note ? buttonCallAt(note.text.split("\n"), p.line) : null;
+      if (button?.sequence && p.act === button.act) {
+        const invitation = actor.kind === "user" ? INVITES.mint("you") : undefined;
+        const r = await host.ctx.board.request<import("../extensions").ExtensionActResult>("scripts.sequence", {
+          blockId: note!.id, line: p.line, clientId: host.ctx.board.clientId, invitation, mutation: mutationFor(actor),
+        });
+        if (invitation && r.undo) INVITES.bind(invitation, r.undo);
+        if (r.undo) EXT_UNDO.push({ undo: r.undo, label: button.label, by: partyOf(actor), context: note!.id });
+        host.redraw();
+        return r;
+      }
       let req;
       try { req = actRequestOf(lineWords(p.act)); } catch (e) { throw new ActionRefused(`${p.act}: ${e instanceof Error ? e.message : String(e)}`); }
       if (req.as !== undefined) throw new ActionRefused(`${p.act}: a press runs as ${actor.kind === "user" ? "you" : "its presser"}; leave out as=`);
@@ -5469,6 +5485,11 @@ export class NoteSurface {
     else void this.runKey("figure.density", { figure: String(f.n) }, host);
   }
 
+  buttonHint(): string[] {
+    const press = this.inView()?.link?.press;
+    return press?.steps?.map((step, i) => `${i + 1}. ${step.kind}: ${step.source}`) ?? [];
+  }
+
   statusButtonLine(label?: string): string | null {
     const m = this.msg;
     if (!m) return null;
@@ -5477,7 +5498,7 @@ export class NoteSurface {
     const hits = label !== undefined ? buttons.filter(b => b.label === label)
       : call?.block === m.id ? buttons.filter(b => b.line === call.line)
       : buttons.length === 1 ? buttons : [];
-    return hits.length === 1 ? m.text.split("\n")[hits[0]!.line]! : null;
+    return hits.length === 1 ? m.text.split("\n").slice(hits[0]!.line, hits[0]!.endLine + 1).join("\n") : null;
   }
 
   describeElements() {
@@ -5747,7 +5768,7 @@ export class NoteSurface {
     }
     // A step's box: its status choice opens under it, as ⏎ on it does (PIE-472); a link (or a summary-line
     // value) opens where ⏎ on it would. Both are element.open on that element.
-    if (e) { void this.runKey("element.open", { n: this.elems.indexOf(e) + 1, ...(host.freshClick && e.link?.press?.alt ? { fresh: true } : {}) }, host); host.redraw(); return true; }
+    if (e) { void this.runKey(e.link?.press ? "button.press" : "element.open", { n: this.elems.indexOf(e) + 1, ...(host.freshClick && e.link?.press?.alt ? { alt: true } : {}) }, host); host.redraw(); return true; }
     const i = this.links.findIndex(x => sameLink(x, h.link));
     if (i >= 0 && h.value === undefined) { void this.runKey("link.follow", { n: i + 1 }, host); return true; }
     // A link drawn outside the note's elements and links (none today): opened as ⏎ on it would.
@@ -9617,7 +9638,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "button.press": def({
-    summary: "press a button or a pressable square of a view in this note by its label (or n from elements): its action line runs through the door's dispatcher as whoever asks, attributed and undoable. It opens nothing and moves nothing the person is reading, so it works on the reader they hold; tile= names another reader, and note=<id> presses a ::button or an [label](act: …) link written in a note that is open nowhere (the door reads the note's text), with no focus moved",
+    summary: "press a button or a pressable square of a view in this note by its label (or n from elements): a button runs its ordered action taps and script pipe stages as one undo group over reversible effects; a view square runs its action line. The dispatcher attributes whoever asks, and the first sequence failure reports the step and effects that remain. It opens nothing and moves nothing the person is reading, so it works on the reader they hold; tile= names another reader, and note=<id> presses a ::button or an [label](act: …) link written in a note that is open nowhere (the door reads the note's text), with no focus moved",
     keys: "a click on a button, or ⏎ on it (element.open does the same)", touches: "nothing", replay: "ask",
     args: {
       label: { type: "string", optional: true, about: "the button's label, or part of it (`Fantasia` finds `✦ Fantasia`); the one pressable element that has it" },
@@ -9714,7 +9735,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       // A press (PIE-957): its action line, through the door's dispatcher, as whoever asks (the person's asks first when it writes).
       if (e.link?.press && e.kind === "control") {
         const act = fresh && e.link.press.alt ? e.link.press.alt : e.link.press.act;
-        const r = await surface.runPress({ ...e.link.press, act }, host, actor);
+        const r = await host.ctx.dispatch!.act({ action: "button.press", args: { n: i, ...(fresh ? { alt: true } : {}) }, ...(messageContext.getStore()?.tile ? { tile: messageContext.getStore()!.tile } : {}) }, actor);
         surface.noteAgent(actor, `pressed ${e.label} (${act})`);
         return { element: i, kind: e.kind, act, ...(r && typeof r === "object" ? r : {}) };
       }

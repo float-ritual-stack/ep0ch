@@ -69,6 +69,7 @@ export const SEED = {
   scripts: "Seed report",
   asks: "Keep writing while the answer arrives",
   scriptTarget: "Planting checklist",
+  buttonSequences: "One button, two tiles",
   scriptsInPlace: "Scripts in place",
   press: "Noughts and crosses",
   statusBar: "Your buttons on the status bar",

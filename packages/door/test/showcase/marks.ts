@@ -156,6 +156,7 @@ export const marks: Record<string, string[]> = {
   "rich-edit": ["Seed inventory", "Beans", "Packets"],
   asks: ["Keep writing while the answer arrives"],
   scripts: ["Seed report", "Press alt+S"],
+  "button-sequences": ["One button, two tiles", "Fold the bottom", "Sugar"],
   "scripts-in-place": ["Scripts in place", "beds-table"],
   press: ["Noughts and crosses", "ttt-board"],
   "status-bar": ["Your buttons on the status bar", "[Collapse]"],

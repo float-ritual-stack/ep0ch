@@ -730,8 +730,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const failed: string[] = [];
     const results = await Promise.all(runs.map(run => this.ctx.board.stopScript(run, actor).then(r => ({ run, ended: true as const, r }), (e: Error) => { failed.push(e.message); return { run, ended: false as const, r: null }; })));
     const stopped: string[] = [];
-    for (const { run, ended } of results) if (ended) { try { this.endTxn(run, "stopped", actor); } catch { /* gone */ } stopped.push(run); }
-    asActor(this.ctx, actor).flash(failed.length ? `could not stop the dance: ${failed[0]}` : stopped.length ? "stopped the dance; the layout is put back" : "nothing to stop", failed.length ? 6000 : undefined);
+    for (const { run, ended, r } of results) if (ended) { try { this.endTxn(run, r?.sequence ? "done" : "stopped", actor); } catch { /* gone */ } stopped.push(run); }
+    asActor(this.ctx, actor).flash(failed.length ? `could not stop the dance: ${failed[0]}` : stopped.length ? results.some(r => r.ended && r.r?.sequence) ? "stopped; completed sequence steps remain; ctrl+z undoes what is reversible" : "stopped the dance; the layout is put back" : "nothing to stop", failed.length ? 6000 : undefined);
     this.redraw();
     return { stopped };
   }
@@ -2461,7 +2461,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.redraw(); return this.hintGet();
   }
   private controlsHint(id: number): Hint {
-    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND] };
+    const pane = this.panes.get(id);
+    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND, ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])] };
   }
   linkingHint(): Hint | null {
     if (!this.linking) return null;

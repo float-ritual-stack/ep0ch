@@ -1,3 +1,4 @@
+import { BUTTON_SEQUENCES } from "./seed/button-sequences";
 // The showcase outline (PIE-439): a fictional household's notes that exercise every shared door part.
 // Written through the service API (create, work-ids.configure, roadmap.items.create, properties.patch,
 // annotations.*), never into SQLite, so seeding runs the same write paths the door does and keeps
@@ -188,6 +189,7 @@ if (request.input.request === "describe the beds") {
   ].join("\n"));
   await make(notes.scripts.id, "Seed count [script::seed-count]\n```js\nreturn (await q('script')).blocks.length;\n```");
   await make(notes.scripts.id, "Beds table [script::beds-table] [mode::render]\n```js\nconst owner = (await resolve('this.owner')).values[0];\nreturn view.table({ columns: ['Owner', 'Week', 'Crop'], rows: [[owner, props.week[0], this.title]] });\n```");
+  notes.buttonSequences = await make(notes.root.id, BUTTON_SEQUENCES);
   notes.scriptsInPlace = await make(notes.root.id, [
     `${SEED.scriptsInPlace} [owner::Sam] [crop::beans] [publish::public:scripts-in-place]`,
     "A script written with [mode::render] draws where a line asks for it, and again when a note it read changes. It writes nothing: this note stays as you typed it.",

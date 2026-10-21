@@ -319,7 +319,15 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     const before = bar();
     click("Video", true);
     await until(() => bar() !== before, "the alternate action");
-    await board.update(note.id, 'My status [status-bar::true]\n- brand\n::button{label="Broken"}', note.revision!);
+    let current = note;
+    for (const button of ['::button{label="Both"}\nvideo.cycle\ntheme.cycle\n::', '::button{label="Both" act=["video.cycle", "theme.cycle"]}']) {
+      current = await board.update(note.id, 'My status [status-bar::true]\n- brand\n' + button, current.revision!);
+      await until(() => bar().includes("Both"), "the sequence on the status bar");
+      const videoBefore = app.video, themeBefore = theme().name;
+      click("Both");
+      await until(() => app.video !== videoBefore && theme().name !== themeBefore, "both status steps").catch(async e => { throw new Error(`${e.message}: ${JSON.stringify(await board.request("site.sources", { blockId: note.id }))}`); });
+    }
+    await board.update(note.id, 'My status [status-bar::true]\n- brand\n::button{label="Broken"}', current.revision!);
     await until(() => app.messages.rows.some(m => m.message.includes("::button needs")), "the broken line in the message log");
     expect((await board.get(note.id))!.text).toContain('label="Broken"');
     app.flash("");

@@ -1132,6 +1132,16 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "button-sequences", need: "one press runs acts and scripts in order, with one undo group", part: "outline-core button-call and component bodies, actionScript, ScriptRuns, dispatcher transactions and Sources", files: "outline-core/src/button-call.ts, outliner/src/script-runs.ts, src/surface/note.ts",
+    aside: "One button, two tiles: click Fold the bottom, then ctrl+z to unfold both · Sugar is the same ordered steps · Pipe shows three scripts with an act as tap · Refused stops before folding links · Nothing makes an undefined return visible · S opens Sources: each step carries its input, output, answer and remaining effects · one action per line; ((name)) runs a script",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
+      return deskOf({ title: "showcase · button sequences", panes: [a, b, c], names: ["notes", "links", "preview"],
+        layout: ([x, y, z]) => pair("row", 0.6, leaf(x!), pair("col", 0.5, leaf(y!), leaf(z!))) }, show,
+        [[a, n.buttonSequences], [b, n.scripts], [c, n.scriptsInPlace]]);
+    },
+  },
+  {
     key: "scripts-in-place", need: "a script that knows its note and draws where it is written, live", part: "the Site's script globals (this, self, caller, props), render mode through ExtensionCalls' one producer path, and `::=` lines", files: "outliner/src/script-runs.ts, src/extension-calls.ts, src/script-runtime.ts",
     aside: "A cold ep0ch show of this note draws the handler output too; --source keeps the authored lines · The Published script lines link demonstrates a visible-only seed count on its public page, embedded and through ::use · beds-table:: week=42 draws the Beds table script's view under its line, and the ::= line draws a one-line script · both read this note's owner: edit [owner::Sam] (e, save) and they redraw · nothing is written for a drawing: no run note, the note's text stays yours · the script is [mode::render] and can't declare [effects::write] · Run seed-report from the other section runs with this note in front as `this` · scripts.stop run=<id> ends one run",
     stage(n, show) {

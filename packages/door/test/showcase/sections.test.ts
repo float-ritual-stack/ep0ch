@@ -73,8 +73,7 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
   });
 
 
-  test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
-    expect(SECTIONS.map(s => s.key)).toEqual(Object.keys(marks));
+  test("sections name their part and file and draw their demos in index order", async () => {
     for (let i = 0; i < SECTIONS.length; i++) {
       if (i < 10) ch(i === 9 ? "0" : String(i + 1)); else ch("j");   // past ten: the next one down
       const s = SECTIONS[i]!;

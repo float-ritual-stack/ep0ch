@@ -156,7 +156,23 @@ export const notConfigured = (semantic: { status: string; message?: string }) =>
 /** The candidates for one token: the same lookups and insertions the outliner's editors use. */
 export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, prefix: string | null, own?: OwnNote, opts: LookupOptions = {}): Promise<CompletionLookup> {
   let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "", ranked = false, off = false, heading: string | undefined;
-  if (target.kind === "fence-setting") {
+  if (target.kind === "button-step") {
+    const script = target.query.trimStart().startsWith("((");
+    if (script) {
+      const q = target.query.trimStart().slice(2);
+      const listed = await board.listExtensions(false, own ? { blockId: own.blockId, draft: { text: own.text } } : {});
+      items = listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name?.startsWith(q))
+        .map(e => ({ label: e.name!, insertion: `((${e.name}))`, context: e.description, kind: "value" }));
+    } else {
+      const host = opts.host ?? (ambient?.board === board ? ambient.host?.() : undefined);
+      if (host) {
+        const rows = await barSource("actions")!.rows(target.query, host, "actions");
+        items = rows.map(r => ({ label: r.label, insertion: r.fill ?? r.label, context: r.detail, kind: "value" }));
+        const args = await commandCandidates(target.query, host);
+        items.unshift(...args.map(value => ({ label: value, insertion: value, kind: "value" as const })));
+      }
+    }
+  } else if (target.kind === "fence-setting") {
     items = SCRIPT_FENCE.settings.filter(s => s.key.startsWith(target.query)).map(s => ({ label: `${s.key}=`, insertion: `${s.key}=`, context: s.meaning, kind: "value" }));
   } else if (target.kind === "filter-key" || target.kind === "filter-value") {
     items = await filterCandidates(board, target);
@@ -995,7 +1011,7 @@ export const completerOf = (d: CompletionField): Completer | null => byDraft.get
 export const completionOf = (d: CompletionField): CompletionState | null => byDraft.get(d)?.shown ?? null;
 
 const AUTO_OPENING_KINDS: ReadonlySet<CompletionKind> = new Set([
-  "fence-setting", "component", "attribute", "attribute-value", "key", "value", "yaml-key", "yaml-value", "filter-key", "filter-value",
+  "button-step", "fence-setting", "component", "attribute", "attribute-value", "key", "value", "yaml-key", "yaml-value", "filter-key", "filter-value",
 ]);
 
 const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" || k.ch === " " || k.ch === "@");

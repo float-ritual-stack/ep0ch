@@ -46,7 +46,7 @@ export type PanelItem =
 export interface PanelHit { row: number; from: number; to: number; action: string; args: Record<string, unknown> }
 export interface PanelDraw { cols: number; lines: string[]; hits: PanelHit[]; items: PanelItem[]; /** The row the focus is on, to keep in view. */ focus: number }
 
-const KIND_WORDS: Record<SourceEntry["kind"], string> = { handler: "handler line", expr: "one-line script", use: "template", figure: "figure", fields: "fields", if: "condition", output: "written output" };
+const KIND_WORDS: Record<SourceEntry["kind"], string> = { button: "button", handler: "handler line", expr: "one-line script", use: "template", figure: "figure", fields: "fields", if: "condition", output: "written output" };
 
 /** The items of source `s` for the folds as they are open, in reading order. */
 export function itemsOf(s: SourceEntry, folds: Record<SourcesFold, boolean>): PanelItem[] {
