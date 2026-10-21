@@ -122,6 +122,9 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
       press({ kind: "mouse", action: "up", button: 0, x, y });
       expect((await selected())?.label).toContain(kind === "rank" ? "group-11" : "Walk 11");
       expect(desk.layoutGet().tiles.find((t: any) => t.name === tile).showing.id).toBe(note.id);
+      // One click selects (its preview follows); it opens nothing (Evan, Oct 21: "select acting like open again").
+      await Bun.sleep(300); screen();
+      expect(desk.layoutGet().tiles.some((t: any) => t.showing?.id === notes[11]!.id)).toBe(false);
       const picked = await selected();
       await app.dispatch.act({ action: "tile.focus", tile }, { kind: "user" });
       press({ kind: "esc" });
@@ -580,14 +583,18 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect((await els()).find(e => e.current)?.label).toBe("sow under glass");
     press({ kind: "enter" });
     await until(() => screen().includes("Apr: sow under glass") && !screen().includes("SQUASH BEDS"), "the child bullet's note open in the reader", 5000);
-    // Back (backspace), where the reader was, then by mouse: a click on another child row opens its note.
+    // Back (backspace), where the reader was, then by mouse: a click on another child row selects it (its preview
+    // follows, the note stays), and a second click on it opens its note, as in every list (Evan, Oct 21).
     press({ kind: "backspace" });
     // Back where it was, the figure block's row on screen (the reader keeps its place).
     const rowAt = () => sc.render(app).lines.map(plain).findIndex(l => /┊ ●  Apr  sow under glass/.test(l));
     await until(() => rowAt() >= 0, "back on the figures note, the child row on screen", 5000);
     const y = rowAt(), x = sc.render(app).lines.map(plain)[y]!.indexOf("sow under glass") + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
-    await until(() => !screen().includes("BEAN ROWS (CHILD BULLETS)"), "the child bullet's note opened by a click", 5000);
+    await untilAsync(async () => (await els()).find(e => e.current)?.label === "sow under glass", "a click selects the child row");
+    expect(screen()).toContain("BEAN ROWS (CHILD BULLETS)");
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => !screen().includes("BEAN ROWS (CHILD BULLETS)"), "a second click opens the child bullet's note", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
   test("PIE-1113: selecting a clipped table row reveals its whole title and drops the id first", async () => {
