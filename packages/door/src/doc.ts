@@ -267,7 +267,7 @@ export interface DocBlock { kind: "code" | "quote" | "callout" | "span"; row: nu
  * one, else its kind, level and text (without a step's box) with how many identical headings or items
  * come before it, folding or not.
  */
-export interface FoldPoint { key: string; kind: "heading" | "list" | "callout"; level: number; text: string; line: number; end: number; hidden: number; start?: "folded" }
+export interface FoldPoint { list?: { key: string; line: number; preview: boolean }; key: string; kind: "heading" | "list" | "callout"; level: number; text: string; line: number; end: number; hidden: number; start?: "folded" }
 
 // Inline Markdown (bold, italic, strikethrough) arrives as style marks from presentLinks, placed before the
 // text was wrapped; colourBody turns them into SGR.
@@ -371,6 +371,18 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
       }
       add("list", indent, li[3]!, i, last + 1);
     }
+  }
+  for (const p of out) if (p.kind === "list") {
+    let first = p.line;
+    for (let i = p.line - 1; i >= 0; i--) {
+      if (quoted[i]!.depth !== quoted[p.line]!.depth) break;
+      const l = content[i]!;
+      if (!l.trim() || indentOf(l) > p.level) continue;
+      if (l.match(ITEM)?.[1]!.length === p.level) first = i;
+      else break;
+    }
+    const callout = calloutList.findLast(c => c.line < first && first < c.end);
+    p.list = { key: `list:${out.find(q => q.kind === "list" && q.level === p.level && q.line >= first && q.line <= p.line && quoted[q.line]!.depth === quoted[p.line]!.depth)!.key}`, line: first, preview: !!callout?.metadata.includes("preview") || content[first - 1]?.trim() === "[children::preview]" };
   }
   return out;
 }

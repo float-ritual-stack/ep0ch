@@ -925,8 +925,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "list-folds", need: "fold individual list items inside a callout", part: "foldPoints and NoteSurface's existing fold actions", files: "src/doc.ts, src/surface/note.ts",
-    aside: "Five garden calls inside a callout. Click an item's gutter chevron or use ( ) then f to fold its children; its siblings stay open. Metadata leaves the callout's success type intact.",
+    key: "list-folds", need: "preview a list item without moving its siblings", part: "foldPoints, embedRegion and the attached surface", files: "src/doc.ts, src/embeds.ts, src/surface/attached.ts, src/surface/note.ts",
+    aside: "Five fictional garden calls. A click or j/k selects and previews children; Enter or a second click unfolds in place. The p fold chip or alt+F switches this list's preview. Click the preview's placement chip to move it, its text to edit.",
     stage(n, show) {
       const r = new ReaderPane();
       return deskOf({ title: "showcase · callout list folds", panes: [r] }, show, [[r, n.listFolds]]);

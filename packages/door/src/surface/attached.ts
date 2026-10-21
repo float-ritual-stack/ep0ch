@@ -71,6 +71,7 @@ export interface AttachedLayout {
   to?: number;
   col?: number;
   split?: AttachedSplit;
+  rows?: number;
 }
 
 /** Every attachment's geometry, including the room offered to its content before an overlay is positioned. */
@@ -80,7 +81,8 @@ export function attachedRect(place: AttachedPlace, w: number, h: number, options
   if (place === "inline") return { row: from, col: col ?? 0, cols: w, rows: Math.max(min.rows, h) };
   if (place === "split") {
     const { beside, size } = splitSize(w, h, options.split ?? {});
-    return beside ? { row: 0, col: w - size, cols: size, rows: h } : { row: h - size, col: 0, cols: w, rows: size };
+    const rows = options.rows === undefined ? size : Math.max(1, Math.min(h - 1, options.rows));
+    return beside ? { row: 0, col: w - size, cols: size, rows: h } : { row: h - rows, col: 0, cols: w, rows };
   }
   const room = place === "floating" && moved ? clampFloat(moved, w, h) : clampFloat({
     cols: Math.max(min.cols, Math.min(w - 2, 80)), rows: Math.max(min.rows, place === "popup" && content ? h - 2 : Math.floor(h * .6)), row: 0, col: 0,

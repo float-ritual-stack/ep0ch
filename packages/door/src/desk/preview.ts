@@ -1,3 +1,4 @@
+import type { SurfaceHost } from "../surface/note";
 // Preview tiles (PIE-473): a reader that follows a source instead of the desk's current note. The source is
 // a tile (its selection: the tree's row, a reader's note, the board's card) or a file on disk (a draft
 // being written in nvim beside it). Either way it is the shared note surface (a ReaderPane): the same
@@ -35,6 +36,13 @@ const WRITES = new Set(["e", "C", "m", "i", "I"]);
 
 export class PreviewPane extends ReaderPane {
   override readonly kind: TileKindName = "preview";
+  private childrenOf: ReaderPane | null = null;
+  override get surface() { return this.childrenOf?.surface ?? this.ownSurface; }
+  override host(desk: DeskApi): SurfaceHost {
+    const local = super.host(desk);
+    return this.childrenOf ? { ...this.childrenOf.host(desk), attachment: "list-preview", focused: local.focused, enterMode: local.enterMode } : local;
+  }
+  override show(m: Msg | null, desk: DeskApi) { this.childrenOf = null; return super.show(m, desk); }
   private watching: string | null = null;
   private poll: ReturnType<typeof setInterval> | null = null;
   /** How many times the file was read again after it changed (tests and `peek`). */
@@ -99,9 +107,20 @@ export class PreviewPane extends ReaderPane {
     this.poll.unref?.();
   }
   private unwatch() { if (this.poll) clearInterval(this.poll); this.poll = null; this.watching = null; }
-  override dispose() { this.unwatch(); super.dispose(); }
+  override dispose() { this.childrenOf = null; this.unwatch(); super.dispose(); }
+
+  private listReader(desk: DeskApi): ReaderPane | null {
+    const source = desk.selectionSource?.(this);
+    return source instanceof ReaderPane && source.surface.previewPoint() ? source : null;
+  }
 
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
+    const source = desk && this.listReader(desk);
+    this.childrenOf = source ?? null;
+    if (source) {
+      const v = source.surface.listPreviewView(w, h, this.host(desk!), 0, 0);
+      if (v) return v;
+    }
     if (!this.msg) {
       if (!("tile" in this.source)) return { lines: [fg(C.dark) + "reading…" + RESET] };
       // Where its notes come from: the tile it follows (gone from this screen: it says so) and any whose opens land here.
@@ -114,6 +133,8 @@ export class PreviewPane extends ReaderPane {
   }
 
   override key(k: Key, desk: DeskApi): boolean {
+    const source = this.listReader(desk);
+    if (source) return this.surface.key(k, this.host(desk));
     const f = this.fileNow();
     if (f && ((k.kind === "char" && !k.ctrl && WRITES.has(k.ch)) || (k.kind === "char" && k.ctrl && k.ch === "e"))) {
       desk.ctx.flash(`a file preview only reads · edit ${basename(f)} in its editor`);

@@ -1,3 +1,4 @@
+import { quoteDepth, stripQuotes } from "@ep0ch/outline-core/callouts";
 import type { InlineListDraw } from "./surface/inline-list";
 // Transclusions in read mode, as Detail projects them: `!((id))` shows the target note rendered, in a
 // shaded region; `!((id^fragment))` shows just the fragment's slice (a step with its nested content, a
@@ -203,8 +204,18 @@ export type EmbedBody = (target: Msg, part: { text: string; startLine: number } 
  * body the way the reader does. With a sink, the title, a view's results, the links in the embedded text
  * and its step boxes are tagged, so `[ ]` stops on them and a click acts on them (PIE-415, PIE-441, PIE-472).
  */
-export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: EmbedBody, sink?: LinkTarget[], host = "", list?: InlineListDraw): string[] {
+export function embedRegion(id: string, fragment: string | undefined, n: number, w: number, src: Source | null | undefined, body: EmbedBody, sink?: LinkTarget[], host = "", list?: InlineListDraw, span?: { note: Msg; startLine: number; endLine: number; task: (line: number, box: string) => string | null }): string[] {
   const S = (line: string) => shade(line, w);
+  if (span) {
+    const source = span.note.text.split("\n"), depth = quoteDepth(source[span.startLine - 1] ?? "").depth;
+    const lines = source.slice(span.startLine, span.endLine).map(l => stripQuotes(l, depth));
+    const indent = Math.min(...lines.filter(l => l.trim()).map(l => l.length - l.trimStart().length));
+    const part = { text: lines.map(l => l.slice(indent)).join("\n"), startLine: span.startLine };
+    return body(span.note, part, Math.max(4, w - 2), {
+      embed: (id, fragment, n, width) => embedRegion(id, fragment, n, width, src, body, sink, host, list),
+      task: span.task,
+    }).map(l => S(" " + l));
+  }
   if (n >= MAX_EMBEDS) return [S(fg(C.lred) + `${shortRef(id, fragment)} · EMBED LIMIT · maximum ${MAX_EMBEDS}` + RESET)];
   const st = embedState(id, fragment, src, host);
   if (st.kind === "node") return nodeRegion(st.node, st.views, w, body, sink, list);

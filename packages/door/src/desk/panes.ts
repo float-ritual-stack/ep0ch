@@ -60,6 +60,10 @@ export interface DeskApi {
   dismiss?(p: Pane): void;
   /** Reader `r`'s comment into a tile of its own beside it (`on`), or that tile closed (PIE-846). */
   answerTile?(r: ReaderPane, ask: string, actor: Actor, fold?: string): Promise<unknown>;
+  selectionSource?(p: ReaderPane): Pane | null;
+  hasWiredPreview?(p: ReaderPane): boolean;
+  hasListPreviewTile?(r: ReaderPane): boolean;
+  listPreviewTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   hasSourcesTile?(r: ReaderPane): boolean;
   sourcesTile?(r: ReaderPane, on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   composerTile?(r: ReaderPane, on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
@@ -297,11 +301,12 @@ export const FOLLOW_MODES: readonly FollowMode[] = ["follows", "held", "pinned"]
 export class ReaderPane implements Pane {
   readonly kind: TileKindName = "reader";
   readonly measured = true;
-  readonly surface = new NoteSurface();
+  protected readonly ownSurface = new NoteSurface();
+  get surface() { return this.ownSurface; }
   gutterCols = 0;
   heroBounds?: { col: number; row: number; cols: number };
   /** The margin's side column, when the note has cards (ADR 0004 contract 6): the measure keeps room for it. */
-  beside() { return this.surface.marginBeside(); }
+  beside() { return this.surface.marginBeside() + (this.surface.previewPoint() ? 72 : 0); }
   private held = false;
   /**
    * `follows`: this reader has a mode (PIE-705): it follows the view's current note, is held on the note it shows, or is
@@ -486,6 +491,8 @@ export class ReaderPane implements Pane {
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
       ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor, fold?: string) => desk.answerTile!(this, ask, actor, fold) } : {}),
+      hasWiredPreview: () => !!desk.hasWiredPreview?.(this),
+      ...(desk.listPreviewTile ? { hasListPreviewTile: () => !!desk.hasListPreviewTile?.(this), listPreviewTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.listPreviewTile!(this, on, side) } : {}),
       ...(desk.sourcesTile ? { hasSourcesTile: () => !!desk.hasSourcesTile?.(this), sourcesTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.sourcesTile!(this, on, side) } : {}),
       ...(desk.composerTile ? { composerTile: (on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down") => desk.composerTile!(this, on, keys, side), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.

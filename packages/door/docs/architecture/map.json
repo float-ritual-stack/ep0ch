@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "f44d675f", "outliner": "f44d675f", "on": "2026-10-21" },
+  "verified": { "door": "3afb7166", "outliner": "3afb7166", "on": "2026-10-21" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -309,14 +309,14 @@
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
       "built": "NoteSurface behind the SurfaceHost seam; inline views, links, backlinks, tables and tabs lend their tagged rows to InlineList over RowView (PIE-1035), with wheel handoff and element selection; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
-        { "r": "door", "p": "src/surface/note.ts", "l": 659, "m": "export class NoteSurface" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 664, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/inline-list.ts", "l": 12, "m": "export class InlineList" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 106, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 23, "m": "export const PRECEDENCE" },
         { "r": "door", "p": "src/surface/note.ts", "l": 155, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 8570, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1089, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1106, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 8778, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1105, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1122, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -346,10 +346,10 @@
 
     {
       "id": "door.composer", "name": "Reader attachments", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.draft", "door.draftsession", "door.actions"],
-      "does": "Where a comment or Sources inspector is placed: in the reader the person is reading, inline under its passage (the default), floating beside it, split beside the note or as a popup. comment.place and sources.place cycle with ctrl+o; the header chips open one placement menu. Sources keeps its placement for next time (PIE-1138).",
-      "built": "attached.ts owns every placement rectangle, the tile lifecycle and topmost-frame pointer routing; AttachedTilePane and Desk.attachedTile host both contents in the same paired layout. composerBox draws the comment session's draft through renderEditor in a box sized to its text; the reader splices it under the passage as body rows (inline) or lays it over its rows (drawAttachedFloat, attachedRect); placeBox maps its frame to the reader's cells so the mouse and the completion popup reach the draft.",
+      "does": "Where a comment, Sources inspector or selected list item's children are placed: in the reader the person is reading, inline under its passage (the default), floating beside it, split beside the note or as a popup. comment.place and sources.place cycle with ctrl+o; the header chips open one placement menu. Sources keeps its placement for next time (PIE-1138).",
+      "built": "attached.ts owns every placement rectangle, the tile lifecycle and topmost-frame pointer routing; AttachedTilePane and Desk.attachedTile host all three contents in the same paired layout. List children use fold spans and embedRegion, with the inspector editor patching those source lines. composerBox draws the comment session's draft through renderEditor in a box sized to its text; the reader splices it under the passage as body rows (inline) or lays it over its rows (drawAttachedFloat, attachedRect); placeBox maps its frame to the reader's cells so the mouse and the completion popup reach the draft.",
       "refs": [
-        { "r": "door", "p": "src/surface/attached.ts", "l": 77, "m": "export function attachedRect" },
+        { "r": "door", "p": "src/surface/attached.ts", "l": 78, "m": "export function attachedRect" },
         { "r": "door", "p": "src/desk/attached-tile.ts", "l": 14, "m": "export class AttachedTilePane" },
         { "r": "door", "p": "src/surface/composer.ts", "l": 71, "m": "export function composerBox" },
         { "r": "door", "p": "src/surface/composer.ts", "l": 84, "m": "export function placeBox" }
@@ -381,7 +381,7 @@
         { "r": "door", "p": "src/whereabouts.ts", "l": 83, "m": "export function whereabouts" },
         { "r": "door", "p": "src/app.ts", "l": 1130, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 607, "m": "export function draftRule" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2487, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2500, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
       "questions": [
         { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" }
@@ -407,7 +407,7 @@
         { "r": "door", "p": "src/app.ts", "l": 770, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 461, "m": "private asPerson(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6889, "m": "export function refusalHint" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6902, "m": "export function refusalHint" }
       ]
     },
     {
@@ -498,11 +498,11 @@
       "built": "Desk in desk.ts with TILE_ACTIONS; what differs by kind it asks the tile-kind registry. It holds a LayoutState and changes it only by apply (PIE-513): it says what each tile is (facts) and where the person types (layoutCtx), commits the module's answer, and keeps the tile instances, gestures and painting. Its refusal functions are gone into the module. tile.* actions are the one name for each operation; pane.* are their older aliases (PIE-510).",
       "refs": [
         { "r": "door", "p": "src/desk/desk.ts", "l": 155, "m": "export class Desk" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 662, "m": "private apply(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 623, "m": "private layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2721, "m": "  run(name: string, args" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1265, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 5912, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 665, "m": "private apply(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 626, "m": "private layoutCtx" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2734, "m": "  run(name: string, args" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1278, "m": "async fillColumns" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 5925, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 116, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 398, "m": "\"tile.widen\": def({" }
       ],
@@ -556,7 +556,7 @@
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
         { "r": "door", "p": "src/app.ts", "l": 647, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1399, "m": "private static kept" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1412, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -618,7 +618,7 @@
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 192, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6178, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6191, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = false): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 927, "m": "private take(id: I, heir?" }
       ]
     },
@@ -993,9 +993,9 @@
       "does": "A tile's link (a reader beside its tree) may end on a tile of another desk of the family: inside a group, outside it, in the holder or the drawer (PIE-696). The link is drawn and followed the same; moving a tile in or out of a group keeps it.",
       "built": "The layout tree holds links only between its own tiles, so a link whose far end is elsewhere is kept on the desk as ext, by the tile it starts from, naming the far tile by pane or path (`<group>/<tile>`, `../<tile>`); extTarget finds it, relink turns it back into the layout's own when both ends meet on one desk.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1013, "m": "private readonly ext = new Map" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1073, "m": "extTarget(id: number," },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1039, "m": "pathTo(pane: Pane)" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1026, "m": "private readonly ext = new Map" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1086, "m": "extTarget(id: number," },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1052, "m": "pathTo(pane: Pane)" }
       ]
     },
     {
