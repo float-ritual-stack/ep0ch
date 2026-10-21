@@ -56,9 +56,10 @@ describe("callout types: one list", () => {
 
 describe("callout grammar", () => {
   test("headers: type, + or -, title; quote depth", () => {
-    expect(parseCalloutHeader("[!note] note ")).toEqual({ type: "note", fold: null, title: "note" });
-    expect(parseCalloutHeader("[!FAQ]- Are callouts foldable?")).toEqual({ type: "faq", fold: "-", title: "Are callouts foldable?" });
-    expect(parseCalloutHeader("[!note]+")).toEqual({ type: "note", fold: "+", title: "" });
+    expect(parseCalloutHeader("[!SUCCESS|preview|Wide]+ Calls")).toEqual({ type: "success", metadata: ["preview", "Wide"], fold: "+", title: "Calls" });
+    expect(parseCalloutHeader("[!note] note ")).toEqual({ type: "note", metadata: [], fold: null, title: "note" });
+    expect(parseCalloutHeader("[!FAQ]- Are callouts foldable?")).toEqual({ type: "faq", metadata: [], fold: "-", title: "Are callouts foldable?" });
+    expect(parseCalloutHeader("[!note]+")).toEqual({ type: "note", metadata: [], fold: "+", title: "" });
     expect(parseCalloutHeader("[!note]title")).toBeNull();
     expect(quoteDepth("> > > [!example]  x")).toEqual({ depth: 3, content: "[!example]  x" });
   });
@@ -85,6 +86,7 @@ describe("callout grammar", () => {
     expect(rewriteCalloutHeader("> [!faq]- Are callouts foldable?", { fold: "+" })).toBe("> [!faq]+ Are callouts foldable?");
     expect(rewriteCalloutHeader("> [!tip] Title-only callout", { fold: "-" })).toBe("> [!tip]- Title-only callout");
     expect(rewriteCalloutHeader("> [!tip]- x", { fold: null })).toBe("> [!tip] x");
+    expect(rewriteCalloutHeader("> [!success|preview|wide]+ Calls", { type: "tip" })).toBe("> [!tip|preview|wide]+ Calls");
     expect(rewriteCalloutHeader("> plain quote", { type: "tip" })).toBeNull();
   });
 

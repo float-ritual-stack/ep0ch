@@ -23,7 +23,7 @@ import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
 import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
 import { linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
-import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
+import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
 import { BASE_HEADING_STYLE, BUILTIN_HEADING_STYLE_REGISTRY, headingStyleDeclaration, headingStyleWith, liveTokensInLine, styledLine, withoutTokens, type HeadingStyle, type HeadingStyleRegistry } from "@ep0ch/outline-core/heading-styles";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
@@ -305,7 +305,17 @@ export function mediaLines(src: readonly string[]): Map<number, MediaSpec> {
  */
 export function foldPoints(body: string, anchors: readonly (string | undefined)[] = []): FoldPoint[] {
   const src = body.split("\n");
+  const quoted = src.map(quoteDepth);
+  const calloutList = calloutBlocks(src);
+  const inCallout = src.map((_, i) => calloutList.some(c => i > c.line && i < c.end));
+  const content = src.map((l, i) => inCallout[i] ? quoted[i]!.content : l);
   const block = noteStructure(src), images = mediaLines(src);
+  // Scan each quoted body in its own scope: an unfinished fence ends with its callout.
+  for (const c of calloutList) {
+    const off = c.line + 1;
+    const inside = noteStructure(src.slice(off, c.end).map(l => stripQuotes(l, c.depth)));
+    inside.forEach((start, n) => { if (start >= 0 && block[off + n] === -1) block[off + n] = off + start; });
+  }
   // A line declaring a heading style draws as what it declares, never a heading (`# Plot style [heading-style::plot]`).
   const foldable = (i: number) => block[i] === -1 && !images.has(i) && !linkOccurrences(src[i]!, "inline").some(l => l.kind === "block" && l.embed) && !headingStyleDeclaration(src[i]!);
   const trim = (from: number, to: number) => { while (to > from && !src[to - 1]!.trim()) to--; return to; };
@@ -323,7 +333,7 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
     out.push({ key: anchors[line] ? `^${anchors[line]}` : `${base}#${n}`, kind, level, text: plain, line, end, hidden, ...(start ? { start } : {}) });
   };
   // A callout is named by its depth and its title as written, never its type: choosing another type keeps its fold.
-  const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
+  const callouts = new Map(calloutList.map(c => [c.line, c]));
   for (let i = 0; i < src.length; i++) {
     if (!foldable(i)) continue;
     const line = src[i]!;
@@ -345,14 +355,15 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
       add("heading", level, (styledLine(line)?.text ?? line).match(HEADING)?.[2] ?? h[2]!, i, trim(i + 1, j));
       continue;
     }
-    const li = line.match(ITEM);
+    const li = content[i]!.match(ITEM);
     if (li) {
       // Nested items and continuation lines are indented past the item's own marker; a fence or figure
       // opened among them belongs to the item as a whole, however its lines are indented.
       const indent = li[1]!.length;
       let last = i;
       for (let j = i + 1; j < src.length; j++) {
-        const l = src[j]!;
+        if (inCallout[i] && quoted[j]!.depth < quoted[i]!.depth) break;
+        const l = inCallout[i] ? stripQuotes(src[j]!, quoted[i]!.depth) : src[j]!;
         if (block[j]! > i && block[j]! <= last) { last = j; continue; }
         if (!l.trim()) continue;
         if (indentOf(l) > indent) { last = j; continue; }

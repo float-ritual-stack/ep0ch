@@ -115,6 +115,7 @@ export const marks: Record<string, string[]> = {
   // Obsidian's examples, nested three deep; the right reader declares a type of the outline's own.
   callouts: ["Callouts, as Obsidian writes them", "Can callouts be nested?", "Yes!, they can.", "Recipe callouts"],
   // This test's terminal has no Kitty graphics: each image's line says what it is, with its controls.
+  "list-folds": ["Five garden decisions", "Keep the beans", "Save seeds from the strongest plants."],
   images: ["Pictures of the plot", "▀ header allotment-dusk.jpg", "▣ seed-packet.webp · no Kitty graphics in this terminal", "[−][+] [◂][▸] [▀]", "▣ allotment-notice.png"],
   // A note whose first block is a picture: scrolled, the header takes it as its background (PIE-598).
   hero: ["An evening on the plot", "▀ header evening-beds.jpg", "hero-focus"],

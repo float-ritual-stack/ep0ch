@@ -36,6 +36,7 @@ export const SEED = {
   brief: "Daily brief — 2026-03-11",
   briefBefore: "Daily brief — 2026-03-10",
   callouts: "Callouts, as Obsidian writes them",
+  listFolds: "Five garden decisions",
   calloutType: "Recipe callouts",
   images: "Pictures of the plot",
   hero: "An evening on the plot",

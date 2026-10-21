@@ -269,6 +269,28 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
   });
 
 
+  test("callout list folds work by keys and mouse in the showcase", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "list-folds" }, as: "fold-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "list-folds")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => !!reader && screen().includes("Save seeds from the strongest plants."), "garden calls");
+    await desk.dispatch.press("fold.toggle", { text: "Keep the beans" }, "reader");
+    expect(screen()).not.toContain("Save seeds from the strongest plants.");
+    expect(screen()).toContain("Give the vines the sunny bed.");
+    await desk.dispatch.press("fold.toggle", { text: "Keep the beans" }, "reader");
+    expect(screen()).toContain("Save seeds from the strongest plants.");
+    const rows = sc.render(app).lines.map(plain);
+    const y = rows.findIndex(l => l.includes("Keep the beans"));
+    const x = rows[y]!.indexOf("▾", S().stageRect.col);
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    expect(screen()).not.toContain("Save seeds from the strongest plants.");
+    press({ kind: "char", ch: "f" });
+    expect(screen()).toContain("Save seeds from the strongest plants.");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
   test("reading a tall paragraph upward starts at its last page and keeps the same block while paging", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "reading-line" }, as: "place-check" });

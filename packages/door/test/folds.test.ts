@@ -431,6 +431,56 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     delete process.env.EP0CH_STATE;
   });
 
+  test("quoted fences stay in their callout and quoted children stay in their plain list fold", async () => {
+    const text = "Garden notes\n- Parent\n  > quoted child\n  continued child\n\n> [!note] Example\n> ```\n> - code item\n>   code detail\n## After\nAfter detail";
+    const made = await board.createBlock(null, text);
+    const h = { ctx: app, redraw() {}, navigate() {} } as SurfaceHost;
+    const s = new NoteSurface();
+    s.show(made, h);
+    body(s, h);
+    await s.act("fold", { text: "Parent" }, h, AGENT);
+    expect(body(s, h)).not.toContain("quoted child");
+    expect(body(s, h)).not.toContain("continued child");
+    await s.act("fold", { text: "After" }, h, AGENT);
+    expect(body(s, h)).not.toContain("After detail");
+    const result = await s.act("folds", {}, h, AGENT) as { folds: { text: string }[] };
+    expect(result.folds.some(f => f.text === "code item")).toBe(false);
+  });
+
+  test("deep targets embed the selected list subtree inside a nested callout", async () => {
+    const text = "Garden calls\n> > [!success] Calls\n> > - First ^first\n> >   - First detail\n> > - Second ^second\n> >   - Second detail";
+    const made = await board.createBlock(null, text);
+    const { results } = await board.readTransclusions([
+      { blockId: made.id, fragmentId: "first" }, { blockId: made.id, fragmentId: "second" },
+    ]);
+    expect(results[0]).toMatchObject({ status: "ready", fragment: {
+      kind: "list-item", startLine: 2, endLine: 3, text: "> > - First\n> >   - First detail",
+    } });
+    expect(results[1]).toMatchObject({ status: "ready", fragment: {
+      kind: "list-item", startLine: 4, endLine: 5, text: "> > - Second\n> >   - Second detail",
+    } });
+    expect((await board.get(made.id))!.revision).toBe(made.revision);
+  });
+
+  test("callout list items fold through the reader with original lines and stable keys", async () => {
+    for (const prefix of ["> ", "> > "]) {
+      const text = `Garden calls\n${prefix}[!success] Five calls\n${prefix}- [ ] Call one ^call-one\n${prefix}  - First detail\n${prefix}- [ ] Call two ^call-two\n${prefix}  - Second detail`;
+      const made = await board.createBlock(null, text);
+      const h = { ctx: app, redraw() {}, navigate() {} } as SurfaceHost;
+      const s = new NoteSurface();
+      s.show(made, h);
+      body(s, h);
+      expect(await s.act("fold", { text: "Call one" }, h, AGENT)).toMatchObject({ line: 3, folded: true });
+      expect(body(s, h)).not.toContain("First detail");
+      expect(body(s, h)).toContain("Second detail");
+      const renamed = await board.update(made.id, text.replace("Call one", "Renamed call"), made.revision!);
+      s.show(renamed, h);
+      expect(body(s, h)).not.toContain("First detail");
+      await s.act("unfold", { text: "Renamed call" }, h, AGENT);
+      expect(body(s, h)).toContain("First detail");
+    }
+  });
+
   test("keys and a click fold in a detail; the frame's thumb follows; an edit elsewhere keeps the fold; another note resets it", async () => {
     await mine("open", { id: card.id }, "detail");
     const d = B().details[0];
