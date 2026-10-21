@@ -295,6 +295,24 @@ describe("the palettes themselves (every background, not only the ones these scr
     // The zebra stripe's built-in (raised at 2) is what the door drew before PIE-675 made it a choice, within a step.
     expect(surfaceRgb("raised", 2, THEMES.calm)).toEqual([22, 26, 35]);
   });
+  test("PIE-1129: the dark cap keeps a mixed surface's hue and saturation", () => {
+    const hsl = (c: Rgb) => {
+      const [r, g, b] = c.map(v => v / 255), hi = Math.max(...c) / 255, lo = Math.min(...c) / 255;
+      const d = hi - lo, l = (hi + lo) / 2;
+      const h = hi === r ? ((g! - b!) / d + 6) % 6 : hi === g ? (b! - r!) / d + 2 : (r! - g!) / d + 4;
+      return [h * 60, d / (1 - Math.abs(2 * l - 1))];
+    };
+    for (const t of Object.values(THEMES)) {
+      const over: Rgb = [200, 80, 40];
+      const full = t.palette[12]!.map((v, i) => Math.round((t.ground ?? t.palette[0]!)[i]! + (v - (t.ground ?? t.palette[0]!)[i]!) * t.surface.tone));
+      const before = over.map((v, i) => Math.round(v + (full[i]! - v) * 0.1)) as unknown as Rgb;
+      const after = surfaceMix("coral", 0.1, over, t)!;
+      expect(luminance(after)).toBeLessThanOrEqual(SURFACE_MAX_LUMINANCE);
+      const [h, s] = hsl(before), [cappedH, cappedS] = hsl(after);
+      expect(Math.abs(cappedH! - h!)).toBeLessThan(3);
+      expect(Math.abs(cappedS! - s!)).toBeLessThan(0.04);
+    }
+  });
   test("all three are dark: no theme's ground, bars or tints is light", () => {
     for (const t of Object.values(THEMES)) for (const c of [t.ground ?? [0, 0, 0], t.palette[0]!, t.palette[1]!, ...Object.values(t.tint)] as Rgb[]) expect(contrast(c, [0, 0, 0])).toBeLessThan(3);
   });

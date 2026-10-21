@@ -53,6 +53,7 @@ export interface StyleTokenSpec {
   type: StyleTokenKind;
   /** The axis it spaces, for the nudge ratio: a row is about two columns. */
   axis?: "x" | "y";
+  group?: StyleGroup;
 }
 
 /** A list's divider: a dim line, dots, dashes, a double line, a line that fades in from both ends (PIE-599's `fade` rule), or `list.divider.glyph` repeated. */
@@ -82,49 +83,54 @@ export { CALLOUT_TONES as STYLE_TONES };
 
 const BASE_HEADING = BUILTIN_HEADING_STYLES[0]!;
 
-/** Every token, in the order a tool lists them. */
+export const STYLE_GROUPS = ["Text", "Space", "Surface", "Header", "Lists", "Headings", "Figures", "Images", "Other"] as const;
+export type StyleGroup = (typeof STYLE_GROUPS)[number];
+
+/** Every token, in the order a tool lists them within its group. */
 export const STYLE_TOKENS = {
-  "float.bg": { base: "theme", what: "raised float panel surface", type: { kind: "enum", values: ["theme", "raised", "sunken", ...CALLOUT_TONES] } },
-  "float.border": { base: "theme", what: "float border accent", type: { kind: "enum", values: ["theme", ...CALLOUT_TONES] } },
-  "float.shadow": { base: "theme", what: "float shadow surface", type: { kind: "enum", values: ["theme", "sunken"] } },
-  "backdrop.dim": { base: 38, what: "light remaining behind a float taking keys, percent", type: { kind: "int", min: 0, max: 100, step: 5 } },
-  "hints": { base: "full", what: "hint cards: full instructions, brief, or off", type: { kind: "enum", values: ["full", "brief", "off"] as const } },
-  "measure": { base: 0, what: "the widest a note's text runs (0: the whole tile), centred when the tile is wider", type: { kind: "int", min: 0, max: 400, step: 4 } },
-  "pad.x": { base: 0, what: "blank columns inside a tile's frame", type: { kind: "int", min: 0, max: 16, step: 2 }, axis: "x" },
-  "pad.y": { base: 0, what: "blank rows inside a tile's frame", type: { kind: "int", min: 0, max: 8, step: 1 }, axis: "y" },
-  "margin.x": { base: 1, what: "columns either side of a note's text", type: { kind: "int", min: 0, max: 24, step: 2 }, axis: "x" },
-  "margin.y": { base: 0, what: "blank rows above a note's text (a box's: above and below it)", type: { kind: "int", min: 0, max: 8, step: 1 }, axis: "y" },
-  "rows.lines": { base: 2, what: "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", type: { kind: "int", min: 0, max: Number.MAX_SAFE_INTEGER, step: 1 } },
-  "list.gap": { base: 0, what: "blank rows between a list's items", type: { kind: "int", min: 0, max: 3, step: 1 } },
-  "list.zebra": { base: false, what: "every other item on a quiet tint", type: { kind: "bool" } },
-  "list.divider": { base: "none", what: "a line between a list's items (the links tile: between its groups): line, dots, dashed, double, fade, or the glyph", type: { kind: "enum", values: LIST_DIVIDERS } },
-  "list.divider.glyph": { base: "·", what: "what a glyph divider repeats", type: { kind: "text", max: 4, presets: DIVIDER_GLYPHS } },
-  "list.divider.align": { base: "centre", what: "where the divider sits in the gap: top, centre or bottom", type: { kind: "enum", values: DIVIDER_ALIGNS } },
-  "list.zebra.bg": { base: "raised", what: "the stripe's surface: raised, sunken or a tone", type: { kind: "enum", values: SURFACES.filter(x => x !== "none") } },
-  "list.zebra.strength": { base: 2, what: "how far the stripe is off the ground (1 to 6, capped dark)", type: { kind: "int", min: 1, max: SURFACE_STEPS, step: 1 } },
-  "bg": { base: "none", what: "a tile's or a box's surface: raised, sunken or a tone (yields under a header's picture)", type: { kind: "enum", values: SURFACES } },
-  "bg.strength": { base: 2, what: "how far the surface is off the ground (1 to 6, capped dark)", type: { kind: "int", min: 1, max: SURFACE_STEPS, step: 1 } },
-  "tone": { base: "neutral", what: "the colour family of an edge and a frame: blue, green, violet, amber, coral or neutral", type: { kind: "enum", values: CALLOUT_TONES } },
-  "border": { base: "auto", what: "a frame's lines: line, round, heavy, double, none, or joined: no frame, a tinted pane run up against the tile it follows (auto: a tile's screen's, a box none, and a preview of a tree joined)", type: { kind: "enum", values: BORDERS } },
-  "edge": { base: "none", what: "an accent in the tone: a bar down the left side, or the whole frame (box)", type: { kind: "enum", values: EDGES } },
-  "header.bg": { base: "none", what: "a reader's sticky header's surface (title, byline, crumbs): raised, sunken or a tone", type: { kind: "enum", values: SURFACES } },
-  "header.bg.opacity": { base: 60, what: "how much of the header's surface shows over the ground or its picture (0 to 100, capped dark)", type: { kind: "int", min: 0, max: 100, step: 10 } },
-  "header.image": { base: "", what: "the header's picture, over the hero the note gives it: a path or one of the note's pictures (empty: the hero)", type: { kind: "text", max: 400 } },
-  "header.image.x": { base: 0, what: "the header picture's crop moved across, in % of the picture (-50 to 50)", type: { kind: "int", min: -50, max: 50, step: 5 } },
-  "header.image.y": { base: 0, what: "the header picture's crop moved down, in % of the picture (-50 to 50)", type: { kind: "int", min: -50, max: 50, step: 5 } },
-  "header.image.blur": { base: 0, what: "soften the header picture, from sharp (0) to strong (24)", type: { kind: "int", min: 0, max: 24, step: 1 } },
-  "header.image.bleed": { base: "full", what: "full spans the tile inside its frame; measure follows the text column", type: { kind: "enum", values: ["full", "measure"] } },
-  "header.image.height": { base: "auto", what: "auto: at most a third of the tile; rows or a share, capped at half its height", type: { kind: "text", max: 8, presets: ["auto", "6", "10", "16", "25%", "33%", "50%"] } },
-  "header.image.fit": { base: "cover", what: "cover crops around x/y; contain keeps the whole picture", type: { kind: "enum", values: ["cover", "contain"] } },
-  "header.image.dim": { base: "auto", what: "darken from 0 to 1; auto caps bright pictures before drawing", type: { kind: "text", max: 8, presets: ["auto", "0", "0.2", "0.4", "0.6", "0.8", "1"] } },
-  "header.image.tint": { base: "0", what: "duotone toward the tile tone, from 0 (original) to 1", type: { kind: "text", max: 8, presets: ["0", "0.25", "0.5", "0.75", "1"] } },
-  "header.image.fade": { base: "0", what: "bottom share fading into the reader background, from 0 to 1", type: { kind: "text", max: 8, presets: ["0", "0.25", "0.5", "0.75", "1"] } },
-  "header.image.scroll": { base: "scroll", what: "scroll away with the body, or stay pinned above it", type: { kind: "enum", values: ["scroll", "pinned"] } },
-  "header.title": { base: "below", what: "title below the picture, or over its bottom-left fade", type: { kind: "enum", values: ["below", "over"] } },
-  "heading.margin": { base: BASE_HEADING.margin, what: "rows above, columns beside and rows below a heading", type: { kind: "margin" } },
-  "heading.padding": { base: BASE_HEADING.padding, what: "rows and columns around a heading in its band", type: { kind: "padding" } },
-  "bp.narrow": { base: 60, what: "narrow below this many columns", type: { kind: "int", min: 20, max: 400, step: 4 } },
-  "bp.wide": { base: 140, what: "wide from this many columns", type: { kind: "int", min: 20, max: 400, step: 4 } },
+  "float.bg": { group: "Other", base: "theme", what: "raised float panel surface", type: { kind: "enum", values: ["theme", "raised", "sunken", ...CALLOUT_TONES] } },
+  "float.border": { group: "Other", base: "theme", what: "float border accent", type: { kind: "enum", values: ["theme", ...CALLOUT_TONES] } },
+  "float.shadow": { group: "Other", base: "theme", what: "float shadow surface", type: { kind: "enum", values: ["theme", "sunken"] } },
+  "backdrop.dim": { group: "Other", base: 38, what: "light remaining behind a float taking keys, percent", type: { kind: "int", min: 0, max: 100, step: 5 } },
+  "hints": { group: "Other", base: "full", what: "hint cards: full instructions, brief, or off", type: { kind: "enum", values: ["full", "brief", "off"] as const } },
+  "measure": { group: "Text", base: 0, what: "the widest a note's text runs (0: the whole tile), centred when the tile is wider", type: { kind: "int", min: 0, max: 400, step: 4 } },
+  "pad.x": { group: "Space", base: 0, what: "blank columns inside a tile's frame", type: { kind: "int", min: 0, max: 16, step: 2 }, axis: "x" },
+  "pad.y": { group: "Space", base: 0, what: "blank rows inside a tile's frame", type: { kind: "int", min: 0, max: 8, step: 1 }, axis: "y" },
+  "margin.x": { group: "Space", base: 1, what: "columns either side of a note's text", type: { kind: "int", min: 0, max: 24, step: 2 }, axis: "x" },
+  "margin.y": { group: "Space", base: 0, what: "blank rows above a note's text (a box's: above and below it)", type: { kind: "int", min: 0, max: 8, step: 1 }, axis: "y" },
+  "rows.lines": { group: "Text", base: 2, what: "maximum lines per row; 0 truncates, positive values wrap then shorten with an ellipsis", type: { kind: "int", min: 0, max: Number.MAX_SAFE_INTEGER, step: 1 } },
+  "list.gap": { group: "Lists", base: 0, what: "blank rows between a list's items", type: { kind: "int", min: 0, max: 3, step: 1 } },
+  "list.zebra": { group: "Lists", base: false, what: "every other item on a quiet tint", type: { kind: "bool" } },
+  "list.divider": { group: "Lists", base: "none", what: "a line between a list's items (the links tile: between its groups): line, dots, dashed, double, fade, or the glyph", type: { kind: "enum", values: LIST_DIVIDERS } },
+  "list.divider.glyph": { group: "Lists", base: "·", what: "what a glyph divider repeats", type: { kind: "text", max: 4, presets: DIVIDER_GLYPHS } },
+  "list.divider.align": { group: "Lists", base: "centre", what: "where the divider sits in the gap: top, centre or bottom", type: { kind: "enum", values: DIVIDER_ALIGNS } },
+  "list.zebra.bg": { group: "Lists", base: "raised", what: "the stripe's surface: raised, sunken or a tone", type: { kind: "enum", values: SURFACES.filter(x => x !== "none") } },
+  "list.zebra.strength": { group: "Lists", base: 2, what: "how far the stripe is off the ground (1 to 6, capped dark)", type: { kind: "int", min: 1, max: SURFACE_STEPS, step: 1 } },
+  "bg": { group: "Surface", base: "none", what: "a tile's or a box's surface: raised, sunken or a tone (yields under a header's picture)", type: { kind: "enum", values: SURFACES } },
+  "bg.strength": { group: "Surface", base: 2, what: "how far the surface is off the ground (1 to 6, capped dark)", type: { kind: "int", min: 1, max: SURFACE_STEPS, step: 1 } },
+  "tone": { group: "Surface", base: "neutral", what: "the colour family of an edge and a frame: blue, green, violet, amber, coral or neutral", type: { kind: "enum", values: CALLOUT_TONES } },
+  "border": { group: "Surface", base: "auto", what: "a frame's lines: line, round, heavy, double, none, or joined: no frame, a tinted pane run up against the tile it follows (auto: a tile's screen's, a box none, and a preview of a tree joined)", type: { kind: "enum", values: BORDERS } },
+  "edge": { group: "Surface", base: "none", what: "an accent in the tone: a bar down the left side, or the whole frame (box)", type: { kind: "enum", values: EDGES } },
+  "header.bg": { group: "Header", base: "none", what: "a reader's sticky header's surface (title, byline, crumbs): raised, sunken or a tone", type: { kind: "enum", values: SURFACES } },
+  "header.bg.opacity": { group: "Header", base: 60, what: "how much of the header's surface shows over the ground or its picture (0 to 100, capped dark)", type: { kind: "int", min: 0, max: 100, step: 10 } },
+  "header.rule": { group: "Header", base: "none", what: "a rule under the last header row: none, line, dots or heavy", type: { kind: "enum", values: ["none", "line", "dots", "heavy"] } },
+  "header.rule.tone": { group: "Header", base: "neutral", what: "the colour family of the header's bottom rule", type: { kind: "enum", values: CALLOUT_TONES } },
+  "header.image": { group: "Header", base: "", what: "the header's picture, over the hero the note gives it: a path or one of the note's pictures (empty: the hero)", type: { kind: "text", max: 400 } },
+  "header.image.x": { group: "Header", base: 0, what: "the header picture's crop moved across, in % of the picture (-50 to 50)", type: { kind: "int", min: -50, max: 50, step: 5 } },
+  "header.image.y": { group: "Header", base: 0, what: "the header picture's crop moved down, in % of the picture (-50 to 50)", type: { kind: "int", min: -50, max: 50, step: 5 } },
+  "header.image.blur": { group: "Header", base: 0, what: "soften the header picture, from sharp (0) to strong (24)", type: { kind: "int", min: 0, max: 24, step: 1 } },
+  "header.image.bleed": { group: "Header", base: "full", what: "full spans the tile inside its frame; measure follows the text column", type: { kind: "enum", values: ["full", "measure"] } },
+  "header.image.height": { group: "Header", base: "auto", what: "auto: at most a third of the tile; rows or a share, capped at half its height", type: { kind: "text", max: 8, presets: ["auto", "6", "10", "16", "25%", "33%", "50%"] } },
+  "header.image.fit": { group: "Header", base: "cover", what: "cover crops around x/y; contain keeps the whole picture", type: { kind: "enum", values: ["cover", "contain"] } },
+  "header.image.dim": { group: "Header", base: "auto", what: "darken from 0 to 1; auto caps bright pictures before drawing", type: { kind: "text", max: 8, presets: ["auto", "0", "0.2", "0.4", "0.6", "0.8", "1"] } },
+  "header.image.tint": { group: "Header", base: "0", what: "duotone toward the tile tone, from 0 (original) to 1", type: { kind: "text", max: 8, presets: ["0", "0.25", "0.5", "0.75", "1"] } },
+  "header.image.fade": { group: "Header", base: "0", what: "bottom share fading into the reader background, from 0 to 1", type: { kind: "text", max: 8, presets: ["0", "0.25", "0.5", "0.75", "1"] } },
+  "header.image.scroll": { group: "Header", base: "scroll", what: "scroll away with the body, or stay pinned above it", type: { kind: "enum", values: ["scroll", "pinned"] } },
+  "header.title": { group: "Header", base: "below", what: "title below the picture, or over its bottom-left fade", type: { kind: "enum", values: ["below", "over"] } },
+  "heading.margin": { group: "Headings", base: BASE_HEADING.margin, what: "rows above, columns beside and rows below a heading", type: { kind: "margin" } },
+  "heading.padding": { group: "Headings", base: BASE_HEADING.padding, what: "rows and columns around a heading in its band", type: { kind: "padding" } },
+  "bp.narrow": { group: "Other", base: 60, what: "narrow below this many columns", type: { kind: "int", min: 20, max: 400, step: 4 } },
+  "bp.wide": { group: "Other", base: 140, what: "wide from this many columns", type: { kind: "int", min: 20, max: 400, step: 4 } },
 } as const satisfies Record<string, StyleTokenSpec>;
 
 export type StyleToken = keyof typeof STYLE_TOKENS;
@@ -142,6 +148,7 @@ export interface StyleValues {
   "list.gap": number; "list.zebra": boolean; "list.divider": ListDivider; "list.divider.glyph": string; "list.divider.align": DividerAlign;
   "list.zebra.bg": Exclude<Surface, "none">; "list.zebra.strength": number;
   "bg": Surface; "bg.strength": number; "tone": CalloutTone; "border": Border; "edge": Edge;
+  "header.rule": "none" | "line" | "dots" | "heavy"; "header.rule.tone": CalloutTone;
   "header.bg": Surface; "header.bg.opacity": number; "header.image": string; "header.image.x": number; "header.image.y": number;
   "header.image.blur": number; "header.image.bleed": "full" | "measure"; "header.image.height": string;
   "header.image.fit": "cover" | "contain"; "header.image.dim": string; "header.image.tint": string; "header.image.fade": string;

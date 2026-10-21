@@ -271,16 +271,24 @@ export const surfaceOk = (c: Rgb, t: Theme = active) => luminance(c) <= SURFACE_
 
 /**
  * Surface `role` at `share` (0 the ground, 1 full) of the way from `over` (default the ground): the colour a tile's,
- * a box's, a header's or a stripe's background is drawn in. Never light: a share that would pass the cap is backed off
- * until it's under it. `none`: null (nothing drawn: the ground, or a picture, shows).
+ * a box's, a header's or a stripe's background is drawn in. Never light: a mix above the cap is darkened in HSL, preserving hue and saturation
+ * until it is under it. `none`: null (nothing drawn: the ground, or a picture, shows).
  */
 export function surfaceMix(role: Surface, share: number, over?: Rgb, t: Theme = active): Rgb | null {
   if (role === "none") return null;
   const from = over ?? t.ground ?? t.palette[0]!, full = fullSurface(role, t);
-  let f = Math.max(0, Math.min(1, share));
-  let c = mix(from, full, f);
-  while (f > 0 && !surfaceOk(c, t)) { f = Math.max(0, f - 0.05); c = mix(from, full, f); }
-  return surfaceOk(c, t) ? c : (t.ground ?? t.palette[0]!);
+  const c = mix(from, full, Math.max(0, Math.min(1, share)));
+  if (surfaceOk(c, t)) return c;
+  const hi = Math.max(...c) / 255, lo = Math.min(...c) / 255, lightness = (hi + lo) / 2;
+  // Move only HSL lightness: backing off the mix changes the chosen hue toward the ground.
+  let light = lightness;
+  let dark = c;
+  while (!surfaceOk(dark, t)) {
+    light *= 0.95;
+    const scale = lightness === 0 || lightness === 1 ? 0 : (1 - Math.abs(2 * light - 1)) / (1 - Math.abs(2 * lightness - 1));
+    dark = c.map(v => Math.round(255 * (light + (v / 255 - lightness) * scale))) as unknown as Rgb;
+  }
+  return dark;
 }
 
 /** Surface `role` at `strength` (1 to SURFACE_STEPS, as the look's `bg.strength` and `list.zebra.strength` say). */

@@ -3,6 +3,7 @@
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
+import { TUNE_ROWS } from "../../src/desk/tune";
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { osc52, SELECT_BG } from "../../src/surface/selection";
 import { surfaceBg } from "../../src/style";
@@ -131,6 +132,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "style" }, as: "test-agent" })).toMatchObject({ key: "style" });
     await until(() => marks.style!.every(m => screen().includes(m)) && /· · · ·/.test(screen()), "the lab, its dividers and the inspector", 8000);
+    await app.act({ action: "tune.pick", args: { n: TUNE_ROWS.findIndex(r => r.name === "list.gap") + 1 }, tile: "tune", as: "test-agent" });
     expect(screen()).toMatch(/list\.gap +1 +← style lab/);
     const gap = () => { const l = screen().split("\n"); return l.findIndex(x => x.includes("Chillies in")) - l.findIndex(x => x.includes("Tomatoes on")); };
     const before = gap();
@@ -143,6 +145,26 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect((await board.get(seeded.notes.looksLab.id))!.text).toMatch(/\[style\.(narrow\.)?list\.gap::2\]/);
     expect(await app.act({ action: "tune.set", args: { row: "list.gap", value: "1" }, tile: "tune", as: "test-agent" })).toMatchObject({ value: "1" });
     expect(await app.act({ action: "tune.save", tile: "tune", as: "test-agent" })).toMatchObject({ saved: true });
+    for (const [row, value] of [["header.bg", "raised"], ["header.bg.opacity", "100"], ["header.rule", "line"]]) {
+      expect(await app.act({ action: "tune.set", args: { row, value }, tile: "tune", as: "test-agent" })).toMatchObject({ value });
+    }
+    expect(screen()).toMatch(/─{20}/);
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "style")).top;
+    const tune = stage.pane("tune");
+    for (let n = 0; n < 7; n++) {
+      tune.key({ kind: "char", ch: "v" }, stage);
+      const narrow = tune.render(67, 45, true, stage).lines.map(plain).join("\n");
+      expect(narrow).toContain("this page");
+      expect(narrow).toContain("this tile");
+      expect(narrow).toContain("this list");
+    }
+    await app.act({ action: "tune.group.pick", args: { group: "Header" }, tile: "tune", as: "test-agent" });
+    expect(tune.render(67, 45, true, stage).lines.map(plain).join("\n")).toContain("Header (");
+    await app.act({ action: "tune.group", args: { group: "Header" }, tile: "tune", as: "test-agent" });
+    expect(tune.render(67, 45, true, stage).lines.map(plain).some((l: string) => / header.bg +/.test(l))).toBe(false);
+    await app.act({ action: "tune.group", args: { group: "Header" }, tile: "tune", as: "test-agent" });
+    await app.act({ action: "tune.pick", args: { n: TUNE_ROWS.findIndex(r => r.name === "measure") + 1 }, tile: "tune", as: "test-agent" });
+    for (let n = 0; n < 3; n++) await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" });
     // The person's keys: into the stage, 2 to the inspector, + nudges the measure a step (4 columns), u takes it back.
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
@@ -183,6 +205,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(raw()[lab]).toContain(raised);
     expect(rows[lab]).toMatch(/^.*▌/);
     // The inspector lists the new values and where each comes from, a swatch beside a surface's.
+    await app.act({ action: "tune.pick", args: { n: TUNE_ROWS.findIndex(r => r.name === "bg") + 1 }, tile: "tune", as: "test-agent" });
     await until(() => /bg +raised .*← style lab/.test(screen()), "the bg row", 5000);
     const tunePane = () => S().stage(SECTIONS.findIndex(s => s.key === "style")).top.pane("tune") as any;
     expect(tunePane().describe(S().stage(SECTIONS.findIndex(s => s.key === "style")).top).values).toMatchObject({ "header.image": { value: "evening-beds.jpg", from: "style lab" }, "header.image.y": { value: "-15" } });
