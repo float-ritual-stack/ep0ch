@@ -6,6 +6,7 @@ import type { Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
 import { outliner, until } from "../scratch";
+import { C, fg } from "../../src/style";
 import { fieldsDrawn } from "../../src/site-blocks";
 import { useShowcaseScreen } from "./harness";
 
@@ -125,6 +126,52 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     await until(() => preview().includes("Draft condition holds."), "the condition reading the unsaved draft", 5000);
     expect((await board.get(saved.id))!.text).toBe(saved.text);
     await desk.dispatch.press("edit.close", { discard: true }, "reader");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) h.press({ kind: "esc" });
+  }, 20_000);
+
+  test.each(["watches", "pending value"])("draft preview %s (PIE-1141 round 2)", async kind => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "fields-if" }, ...agent });
+    const desk = stage("fields-if"), reader = desk.pane("reader");
+    await desk.dispatch.press("edit", {}, "reader");
+    await until(() => !!reader.draft, "the editor");
+    const surface = reader.surface, id = reader.draft.blockId;
+    const text = (mode: string) => `Draft rail\nmode:: ${mode}\n\n::fields{key=mode}\nValue: {{this.mode}}${kind === "pending value" ? '\n::if{where="mode=test"}\nTest condition holds.\n::' : ""}`;
+    const connections = new Set<SocketBoard>([board]);
+    const draw = () => {
+      const doc = surface.snippetDoc(reader.draft.text, 100, undefined, [], false, id);
+      if (surface.previewDraft?.board) connections.add(surface.previewDraft.board);
+      return doc;
+    };
+    const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
+    const draftWatches = (b: SocketBoard) => [...(b.watched as any).entries.values()].filter((e: any) => e.params.draft).length;
+    const watches = () => [...connections].reduce((n, b) => n + ((b as any).sock ? draftWatches(b) : 0), 0);
+    try {
+      const edits = kind === "watches" ? 8 : 1;
+      for (let i = 0; i < edits; i++) {
+        const mode = i === edits - 1 ? "test" : `pass${i}`;
+        await desk.dispatch.press("edit.text", { text: text(mode) }, "reader");
+        await until(() => { const d = draw(); return !d.pending && plain(d.lines.join("\n")).includes(`Value: ${mode}`); }, "the settled draft");
+      }
+      if (kind === "watches") expect(watches()).toBe(1);
+      await desk.dispatch.press("edit.text", { text: text("bam") }, "reader");
+      draw();
+      // Let the debounce expire without drawing: this draw starts the real request before its answer can land.
+      await Bun.sleep(170);
+      const waiting = draw();
+      expect(waiting.pending).toBe(true);
+      const old = waiting.lines.find((l: string) => plain(l).includes("Value: test"));
+      expect(old).toBeDefined();
+      expect(old).toContain(fg(C.dark) + "test");
+      expect(plain(waiting.lines.join("\n"))).toContain("asking the outline");
+      expect(plain(waiting.lines.join("\n"))).not.toContain("∙ test");
+      expect(plain(waiting.lines.join("\n"))).not.toContain("Test condition holds.");
+      await until(() => { const d = draw(); return !d.pending && plain(d.lines.join("\n")).includes("Value: bam"); }, "the new answer");
+      if (kind === "watches") expect(watches()).toBe(1);
+    } finally {
+      await desk.dispatch.press("edit.close", { discard: true }, "reader");
+    }
+    if (kind === "watches") expect(watches()).toBe(0);
     for (let i = 0; i < 4 && S().focus === "stage"; i++) h.press({ kind: "esc" });
   }, 20_000);
 

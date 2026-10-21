@@ -50,12 +50,13 @@ export function listenLive(fn: () => void): () => void { listeners.add(fn); retu
 function changed() { onChange(); for (const fn of listeners) fn(); }
 
 /** What a figure's Site is: the invocations that draw it (a `::use`, an embed) and its call-site args, as `site.answer` takes them. */
-export interface LiveSite { draft?: { text: string }; pending?: boolean; changed?: (loading: boolean) => void; chain?: SiteLink[]; args?: Record<string, string>; /** The props of the call that draws it (a `::use`'s), under `args`. */ props?: Record<string, string[]> }
+export interface LiveSite { board?: SocketBoard; draft?: { text: string }; pending?: boolean; changed?: (loading: boolean) => void; chain?: SiteLink[]; args?: Record<string, string>; /** The props of the call that draws it (a `::use`'s), under `args`. */ props?: Record<string, string[]> }
 
 /** A producer's question asked of its note's Site, watched: the service answers it (`site.answer`), and says when the answer changed. */
 export function siteProduced(note: string | undefined, producer: SiteProducer, site?: LiveSite): Watching<SiteProduced> | null {
   if (site?.pending) return { state: "loading" };
-  const read = board ? produced(board, note, producer, site) : null;
+  const source = site?.board ?? board;
+  const read = source ? produced(source, note, producer, site) : null;
   site?.changed?.(read?.state === "loading");
   return read;
 }
