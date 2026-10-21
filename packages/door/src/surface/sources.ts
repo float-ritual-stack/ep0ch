@@ -67,7 +67,7 @@ const dim = (s: string) => fg(C.dark) + s + RESET;
 const age = (iso: string | undefined, now: number) => (iso ? relativeAge(iso, now) : "");
 
 /** The fully wrapped panel, its click targets, its items and the focused row; Inspector owns the viewport. */
-export function drawSources(p: SourcesPanel, w: number, now: number): PanelDraw {
+export function drawSources(p: SourcesPanel, w: number, now: number, wide = true): PanelDraw {
   const lines: string[] = [], hits: PanelHit[] = [];
   const put = (text: string, hit?: { from: number; to: number; action: string; args?: Record<string, unknown> }[]) => {
     for (const line of wrap(text, w)) {
@@ -168,6 +168,22 @@ export function drawSources(p: SourcesPanel, w: number, now: number): PanelDraw 
   }
   put("");
   put(` ${dim(p.note || "j k move · ⏎ fold or edit · e edit · y copy · g jump · esc back")}`);
+  if (wide && w >= 108) {
+    const cols = Math.floor((w - 4) / 3), narrow = drawSources(p, cols, now, false);
+    const starts = FOLDS.map(f => narrow.hits.find(h => h.action === "sources.fold" && h.args.fold === f)!.row);
+    const head = hits.find(h => h.action === "sources.fold")!.row;
+    p.inspector.remapEditor(0, head - starts[0]!);
+    const out = lines.slice(0, head), mapped = hits.filter(h => h.row < head);
+    const height = Math.max(...starts.map((start, n) => (starts[n + 1] ?? narrow.lines.length) - start));
+    for (let row = 0; row < height; row++) out.push(starts.map((start, n) => pad(row < (starts[n + 1] ?? narrow.lines.length) - start ? narrow.lines[start + row]! : "", cols) + RESET).join("  "));
+    let focused = focus;
+    starts.forEach((start, n) => {
+      const end = starts[n + 1] ?? narrow.lines.length, col = n * (cols + 2);
+      for (const hit of narrow.hits.filter(h => h.row >= start && h.row < end)) mapped.push({ ...hit, row: head + hit.row - start, from: hit.from + col, to: hit.to + col });
+      if (narrow.focus >= start && narrow.focus < end) focused = head + narrow.focus - start;
+    });
+    return { lines: out, hits: mapped, items, focus: focused };
+  }
   return { lines, hits, items, focus };
 }
 

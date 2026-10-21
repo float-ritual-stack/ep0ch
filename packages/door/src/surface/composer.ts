@@ -1,3 +1,4 @@
+import { attachedPlaceOf, type AttachedPlace } from "./attached";
 // Where a comment is written (PIE-770): the composer for a comment, a question, an explain or a reply sits where the
 // person is reading, never a screen of its own. Five placements, one editor:
 //   inline    a box under the passage, as rows of the note's body: the text around it still reads and scrolls;
@@ -17,30 +18,13 @@ import { C, fg, headOf, pad, RESET, tailFrom, width } from "../style";
 import { COMPLETION_ROWS, completerOf, completionOf } from "./completer";
 import { renderEditor, type EditFrame } from "./editor";
 
-export const COMPOSER_PLACES = ["inline", "floating", "split", "popup", "tile"] as const;
-export type ComposerPlace = (typeof COMPOSER_PLACES)[number];
-
-let setting: ComposerPlace = "inline";
-/** A placement's name, or null when `v` isn't one. */
-export const composerPlaceOf = (v: unknown): ComposerPlace | null => (typeof v === "string" && (COMPOSER_PLACES as readonly string[]).includes(v) ? (v as ComposerPlace) : null);
+let setting: AttachedPlace = "inline";
 /** Use the placement kept from last time (the door's start) or just chosen (composer.place); anything else: inline. */
-export function useComposerPlace(v: unknown) { setting = composerPlaceOf(v) ?? "inline"; }
+export function useComposerPlace(v: unknown) { setting = attachedPlaceOf(v) ?? "inline"; }
 /** Where a new composer opens. */
-export const composerPlace = (): ComposerPlace => setting;
-/** The placement after `p`, round again (ctrl+o). */
-export const nextPlace = (p: ComposerPlace, tiles = true): ComposerPlace => {
-  const next = COMPOSER_PLACES[(COMPOSER_PLACES.indexOf(p) + 1) % COMPOSER_PLACES.length]!;
-  // A reader with no tiles round it has no tile to put it in: round to the next.
-  return next === "tile" && !tiles ? nextPlace(next, tiles) : next;
-};
-
+export const composerPlace = (): AttachedPlace => setting;
 /** The most rows of text a box grows to before its text scrolls (the cursor's row kept in view). */
 export const COMPOSER_TEXT_ROWS = 10;
-/** A reader at least this wide splits side by side; a narrower one puts the composer under the note. */
-export const SPLIT_SIDE_MIN = 110;
-/** A reader smaller than this has no room to share: its split composer is drawn as a popup until it grows. */
-export const SPLIT_MIN_W = 30, SPLIT_MIN_H = 12;
-
 /** A composer drawn in a box: its rows, and where its text, controls and completion popup are in the box's cells. */
 export interface ComposerBox {
   lines: string[];
@@ -113,41 +97,4 @@ export function overlayBox(lines: string[], box: readonly string[], row: number,
     const base = pad(lines[r]!, w);
     lines[r] = headOf(base, col) + RESET + b + RESET + tailFrom(base, col + width(b));
   });
-}
-
-/**
- * Where a floating box `h` rows tall goes in a view of rows [`from`, `to`): under the passage's rows [`a`, `b`)
- * when it fits there, else over them, else as low as it fits (a passage scrolled away: the view's bottom).
- */
-export function floatRow(passage: [number, number] | null, h: number, from: number, to: number): number {
-  const low = Math.max(from, to - h);
-  if (!passage) return low;
-  const [a, b] = passage;
-  if (b >= from && b + h <= to) return b;
-  if (a - h >= from && a <= to) return a - h;
-  return Math.max(from, Math.min(low, b));
-}
-
-/** Where a floating composer sits, in the reader's cells: its top row, left column, width and height (PIE-785). */
-export interface FloatRect { row: number; col: number; cols: number; rows: number }
-/** The smallest a floating composer is sized to: its frame, title, status and two rows of text. */
-export const FLOAT_MIN_COLS = 24, FLOAT_MIN_ROWS = 6;
-
-/**
- * What a press at `x`, `y` on a floating composer's frame starts (PIE-785): `move` on its top edge (the grip), `size` on
- * its ◢ corner, its right edge or its bottom edge (`cols`, `rows`: which of them it sizes), or null inside it and off it.
- */
-export function frameZone(r: FloatRect, x: number, y: number): { kind: "move" } | { kind: "size"; cols: boolean; rows: boolean } | null {
-  const right = r.col + r.cols - 1, bottom = r.row + r.rows - 1;
-  if (x < r.col || x > right || y < r.row || y > bottom) return null;
-  if (y === r.row) return { kind: "move" };
-  const cols = x === right, rows = y === bottom;
-  return cols || rows ? { kind: "size", cols, rows } : null;
-}
-
-/** `r` kept in a reader `w` × `h` cells: never smaller than FLOAT_MIN_*, never larger than the reader, never off it. */
-export function clampFloat(r: FloatRect, w: number, h: number): FloatRect {
-  const cols = Math.max(Math.min(FLOAT_MIN_COLS, w), Math.min(Math.round(r.cols), w));
-  const rows = Math.max(Math.min(FLOAT_MIN_ROWS, h), Math.min(Math.round(r.rows), h));
-  return { cols, rows, col: Math.max(0, Math.min(Math.round(r.col), w - cols)), row: Math.max(0, Math.min(Math.round(r.row), h - rows)) };
 }

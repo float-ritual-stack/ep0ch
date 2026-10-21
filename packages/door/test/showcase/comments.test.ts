@@ -199,7 +199,11 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     expect(d()!.text).toBe("Frost is due on Friday night");
     const chip = find("[split ▸]");
     click(chip.x + 2, chip.y);
-    await until(() => cs()?.place === "popup" && rows().join("\n").includes("[popup ▸]"), "moved to a popup by its chip");
+    await until(() => screen().includes("Placement"), "the chip opens the placement menu");
+    expect(cs()?.place).toBe("split");
+    const popupChoice = find(" popup");
+    click(popupChoice.x + 2, popupChoice.y);
+    await until(() => cs()?.place === "popup" && rows().join("\n").includes("[popup ▸]"), "the menu chooses popup");
     // In the popup the mouse still selects: " night" dragged across and taken out.
     at = find("Frost is due on Friday night");
     expect(at.y).toBeGreaterThan(0);

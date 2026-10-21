@@ -8,7 +8,8 @@ import type { Msg } from "./board";
 import type { Draft } from "./edit";
 import { commentEditTarget, commentTarget, DraftSession, Outgoing, type CommentWhere, type EditedMark } from "./draft-session";
 import { editHint, writtenBy, type EditFrame } from "./surface/editor";
-import { composerPlace, nextPlace, type ComposerPlace } from "./surface/composer";
+import { composerPlace } from "./surface/composer";
+import { nextPlace, type AttachedPlace } from "./surface/attached";
 import type { Completer } from "./surface/completer";
 import { authorName, USER, type Actor, type AnnotationProps, type Comment, type CommentPassage, type SocketBoard } from "./socket";
 import { C, chip, ellipsize, fg, pad, RESET, selectedRow } from "./style";
@@ -218,7 +219,7 @@ export class CommentSession {
    */
   fromReader = false;
   /** Where the composer sits while it's written (PIE-770): the person's setting when it opened, ctrl+o switches it. */
-  place: ComposerPlace = composerPlace();
+  place: AttachedPlace = composerPlace();
   /**
    * Where the person dragged or sized the floating composer (PIE-785), in the reader's cells: this session's only, never
    * kept, so a comment opened again (or read later) sits in its default place. Null: the default place, beside the passage.
