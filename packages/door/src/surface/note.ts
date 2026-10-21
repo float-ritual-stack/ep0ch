@@ -77,7 +77,7 @@ import { theme, type Rgb } from "../theme";
 import { ALIGNS, fileName, imagePrimitiveSpec, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type Focus, type ImagePrimitive, type MediaAttr, type MediaSpec } from "../media";
 import { artifactFacts } from "../artifacts";
 import { backdrop, heroHeaderMode, heroHeaderOn, heroStep, HERO_RAMP_ROWS, HERO_STEPS, overColours, type CellGrid, type HeroMode } from "./hero-header";
-import { surfaceMix } from "../theme";
+import { TONE_INDEX, surfaceMix } from "../theme";
 import type { Scroll } from "../canvas";
 import type { PropertyRecord } from "@ep0ch/outline-core/property-parse";
 import { authorName, whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type CommentPassage, type OutlineEvent, type PropertyPatch, type QuotePlace, type QuoteReceipt } from "../socket";
@@ -1473,12 +1473,22 @@ export class NoteSurface {
   stickyHeader(m: Msg, w: number, host: SurfaceHost, under: number): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; placements: Placement[] } {
     const src = this.use(host);
     this.lookAt(m, w, host);
-    const { rows, summaryRow, summaryLinks, title } = this.headerBlock(m, w, host, src);
-    const lines = [...rows], d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
+    const { rows, summaryRow, summaryLinks } = this.headerBlock(m, w, host, src);
+    const lines = [...rows];
+    const headerRule = this.headerRule(w);
+    if (headerRule) lines.push(headerRule);
+    const d = this.digested?.m.id === m.id && this.digested.m.revision === m.revision ? this.digested : null;
     this.backdropShown = null;
     const shade = d ? this.heroBackdrop(m, d.doc, d.lines, w, lines.length, host, Math.max(0, under)) : { placements: [], grid: null };
-    this.headerSurface(lines, lines.length, w, shade, title ? Array.from({ length: title.rows }, (_, i) => title.row + i) : []);
+    this.headerSurface(lines, lines.length, w, shade);
     return { lines, links: summaryLinks.map(l => ({ row: summaryRow, from: l.from, to: Math.min(w, l.to), link: l.link })), placements: shade.placements };
+  }
+
+  private headerRule(w: number): string {
+    const values = this.lastLook?.values, kind = values?.["header.rule"] ?? "none";
+    if (kind === "none") return "";
+    const glyph = kind === "dots" ? "·" : kind === "heavy" ? "━" : "─";
+    return fg(TONE_INDEX[values!["header.rule.tone"]]) + glyph.repeat(w) + RESET;
   }
 
   /**
@@ -1486,14 +1496,12 @@ export class NoteSurface {
    * over the ground, or over the backdrop's colours (cells); a backdrop Kitty draws shows only through cells on the
    * default background, so there the surface yields to it. Capped dark either way (theme.ts surfaceMix).
    */
-  private headerSurface(lines: string[], rows: number, w: number, shade: { placements: Placement[]; grid: CellGrid | null }, plain: readonly number[] = []) {
+  private headerSurface(lines: string[], rows: number, w: number, shade: { placements: Placement[]; grid: CellGrid | null }) {
     const v = this.lastLook?.values, role = v?.["header.bg"] ?? "none", share = (v?.["header.bg.opacity"] ?? 0) / 100;
     const own = role !== "none" && share > 0 && !shade.placements.length;
     if (!own && !shade.grid) return;
     const ground = own ? surfaceMix(role, share) : null;
     for (let r = 0; r < rows; r++) {
-      // The title's own rows stand on the ground, not the band's tint (PIE-809): the crumbs and meta lines stay on it.
-      if (plain.includes(r) && !shade.grid?.[r]) continue;
       const under = shade.grid?.[r];
       const row = under ? (own ? under.map(c => surfaceMix(role, share, c) ?? c) : under) : ground ? [ground] : null;
       if (row?.length) lines[r] = overColours(lines[r]!, w, row);
@@ -1651,6 +1659,8 @@ export class NoteSurface {
     // and the body (PIE-657); a rule only under the property panel, which it closes.
     for (let r = 0; r < this.my; r++) head.push("");
     if (this.panel || !host?.header || head.length + 1 < h) head.push(this.panel ? rule(w) : "");
+    const headerRule = this.headerRule(w);
+    if (headerRule) head.push(headerRule);
     const top = head.length;
     const laid = this.layOut(m, w, h, head, summaryRow, summary ? summaryLinks : [], host, src);
     const { doc, drawn, picks, controls, body, marks, lines: noteLines } = laid;
@@ -1839,7 +1849,7 @@ export class NoteSurface {
     if (reading && readingRuler() && !this.printed && !this.selection && room > 0 && (reading[1] <= this.scroll || reading[0] >= this.scroll + room)) {
       const above = reading[1] <= this.scroll;
       // Selection controls own the separator while selecting; the marker must never hide an active control.
-      const row = top - 1;
+      const row = top - 1 - (headerRule ? 1 : 0);
       lines[row] = dim(pad(`reading line ${above ? "↑" : "↓"} ${this.readingSourceLine() + 1}`, w));
     }
     if (mcols) this.drawMargin(lines, laid, top, room, bodyW, mcols, itemRows);
@@ -1872,9 +1882,9 @@ export class NoteSurface {
     });
     // The header's backdrop (PIE-598): the hero image, muted, under the title, summary, byline and crumbs once it
     // goes under them.
-    const headerRows = Math.min(lines.length, headerBlock.length);
+    const headerRows = Math.min(lines.length, top);
     const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host, this.scroll);
-    this.headerSurface(lines, headerRows, w, shade, title ? Array.from({ length: title.rows }, (_, i) => title.row + i) : []);
+    this.headerSurface(lines, headerRows, w, shade);
     placements.unshift(...shade.placements);
     const gutter: { row: number; text: string }[] = [];
     const gutterRows = new Map<number, string>();
@@ -7424,7 +7434,7 @@ export class NoteSurface {
       elements: this.drawn || this.digesting ? { count: this.elems.length, current: this.describeElements().find(e => e.current) ?? null } : null,
       focus: this.focusMark ? { by: whoOf(this.focusMark.by), marked: this.focusMark.label, ...this.focusMark.spec } : null,
       // The look it was drawn with (PIE-673): reported here, never put into the text it reads back.
-      look: this.lastLook ? { breakpoint: this.lastLook.breakpoint, width: this.lastLook.width, ...Object.fromEntries((["measure", "pad.x", "pad.y", "margin.x", "margin.y", "list.gap", "list.zebra", "list.zebra.bg", "list.zebra.strength", "list.divider", "list.divider.glyph", "list.divider.align", "bg", "bg.strength", "border", "edge", "tone", "header.bg", "header.bg.opacity", "header.image", "header.image.x", "header.image.y"] as const).map(t => [t, this.lastLook!.values[t]])) } : null,
+      look: this.lastLook ? { breakpoint: this.lastLook.breakpoint, width: this.lastLook.width, ...Object.fromEntries((["measure", "pad.x", "pad.y", "margin.x", "margin.y", "list.gap", "list.zebra", "list.zebra.bg", "list.zebra.strength", "list.divider", "list.divider.glyph", "list.divider.align", "bg", "bg.strength", "border", "edge", "tone", "header.bg", "header.bg.opacity", "header.rule", "header.rule.tone", "header.image", "header.image.x", "header.image.y"] as const).map(t => [t, this.lastLook!.values[t]])) } : null,
       properties: (this.modes.get("panel") as PanelMode | null)?.describe() ?? null,
       sources: this.sourcesMode?.describe() ?? null,
       selection: this.describeSelection(this.selection),

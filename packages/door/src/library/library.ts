@@ -1,3 +1,4 @@
+import { chipRows } from "../surface/chip-rows";
 // The component library (PIE-618): a design-system page per component, generated from its schema (outline-core's
 // component-schema.ts, the service's `components.schemas`), never written per component. A page has four parts: an
 // overview (what it is, where it goes, the minimal example, the properties table), one property at a time (each value
@@ -9,7 +10,7 @@ import { axisValues, grid, spaceSize, spaceVariations, sweep, valuesWords, varia
 import { componentsOf } from "../component-schemas";
 import type { ListSource } from "../outline-lists";
 import { RowView, scrolled, wheelRows } from "../scroll";
-import { BOLD, C, chip, ellipsize, fg, pad, RESET, selectedRow, UNBOLD, width } from "../style";
+import { BOLD, C, ellipsize, fg, pad, RESET, selectedRow, UNBOLD, width } from "../style";
 import { Gesture, Selection, isCopyKey, rowsOf, wordAt, lineAt, paintRange, SELECT_BG, selectText, type Pos } from "../surface/selection";
 import { draftPreview } from "../surface/note";
 import { ActionRefused, actionSet, def } from "../surface/actions";
@@ -43,23 +44,6 @@ interface Row { text: string; hits?: Hit[]; v?: number; vs?: number[]; margin?: 
 
 /** A component's short name, for its tab: its title without the `(::graph-meter)`. */
 const shortTitle = (s: ComponentSchema) => s.title.replace(/\s*\(.*\)\s*$/, "");
-
-/** A row of chips, wrapped to `w`: each its label, lit when `on`, the cursor's marked, a click running its action. */
-function chipRows(items: { label: string; on: boolean; cursor?: boolean; hit: Omit<Hit, "from" | "to"> }[], w: number, lead = ""): Row[] {
-  const rows: Row[] = [];
-  let text = lead, hits: Hit[] = [], at = width(lead);
-  for (const it of items) {
-    const label = ` ${it.label} `, n = width(label);
-    if (at + n + 1 > w && at > width(lead)) { rows.push({ text, hits }); text = " ".repeat(width(lead)); hits = []; at = width(lead); }
-    const look = it.on ? chip(C.blue) : it.cursor ? fg(C.white) : fg(C.grey);
-    const marked = it.cursor ? `\x1b[4m${label}\x1b[24m` : label;
-    text += look + marked + RESET + " ";
-    hits.push({ from: at, to: at + n, ...it.hit });
-    at += n + 1;
-  }
-  rows.push({ text, hits });
-  return rows;
-}
 
 /** The library: a component's page, in parts, its variations drawn with their source. */
 export class LibraryPane implements Pane {

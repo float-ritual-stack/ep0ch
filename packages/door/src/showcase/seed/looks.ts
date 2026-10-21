@@ -45,7 +45,7 @@ export const SPACING_LAB = [
   "::",
   "",
   "## The header's picture",
-  "Scroll this picture up under the title: the header takes it as its backdrop, cropped a little higher than its middle by the lab style's header.image.y, its own violet surface yielding to it.",
+  "Scroll this picture up under the title: the header takes it as its backdrop, cropped a little higher than its middle by the lab style's header.image.y, its own violet surface yielding to it. The whole header shares one band with a violet rule beneath its last row.",
   `[img::${SHOWCASE_ASSETS}/evening-beds.jpg] [alt::the beds at dusk, the shed lit]`,
   "",
   "## The published look",
@@ -56,10 +56,10 @@ export const SPACING_LAB = [
 
 /** The style section's declaration: the named style the Spacing lab page uses, edited in place to restyle it live. */
 export const LOOKS_LAB = [
-  `${SEED.looksLab} [style-for::lab] [style.measure::64] [style.pad::1] [style.list.gap::1] [style.list.divider::dots] [style.narrow.list.gap::0] [style.bg::raised] [style.edge::bar] [style.tone::violet] [style.header.bg::violet] [style.header.bg.opacity::40] [style.header.image::evening-beds.jpg] [style.header.image.y::-15]`,
+  `${SEED.looksLab} [style-for::lab] [style.measure::64] [style.pad::1] [style.list.gap::1] [style.list.divider::dots] [style.narrow.list.gap::0] [style.bg::raised] [style.edge::bar] [style.tone::violet] [style.header.bg::violet] [style.header.bg.opacity::40] [style.header.rule::line] [style.header.rule.tone::violet] [style.header.image::evening-beds.jpg] [style.header.image.y::-15]`,
   "This note declares the lab style, which [[Spacing lab]] uses. Its fields are the look: e here, change a value, ctrl+s, and every reader of that page restyles at once, in every door on the outline. Under 60 columns (narrow) the lab drops its list gap.",
   "",
-  "Surfaces are theme roles, never colours: raised, sunken or a tone (blue, green, violet, amber, coral, neutral), each drawn dark in every theme. The lab tile sits on a raised surface with a violet bar down its side; its header on violet at 40%, taking the beds picture once it scrolls under, the crop moved up 15%.",
+  "Surfaces are theme roles, never colours: raised, sunken or a tone (blue, green, violet, amber, coral, neutral), each drawn dark in every theme. The lab tile sits on a raised surface with a violet bar down its side; its whole header on violet at 40% with a violet bottom rule, taking the beds picture once it scrolls under, the crop moved up 15%.",
   "",
   "A tile kind has its own: `[style-for::tile:backlinks] [style.list.zebra::on]` on any line would stripe every links tile.",
 ].join("\n");

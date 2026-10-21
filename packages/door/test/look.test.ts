@@ -4,6 +4,7 @@
 // Fictional notes, against a scratch outline only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { TUNE_ROWS } from "../src/desk/tune";
 import { App } from "../src/app";
 import type { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
@@ -282,6 +283,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
     const d = await door(140);
     try {
       expect(await d.app.act({ action: "tile.tune", tile: "detail", as: "look-agent" })).toMatchObject({ tunes: "detail" });
+      await d.app.act({ action: "tune.pick", args: { n: TUNE_ROWS.findIndex(r => r.name === "list.gap") + 1 }, tile: "tune", as: "look-agent" });
       await until(() => d.lines().some(l => l.includes("list.gap")), "the inspector", 5000);
       // The inspector's own read (what peek gives an agent): each value and where it comes from.
       const tune = [...(d.desk as any).panes.values()].find((p: any) => p.kind === "tune");
@@ -363,6 +365,55 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
     } finally { d.close(); }
   }, 30_000);
 
+  test("PIE-1128: narrow tune keeps every level, its meaning and the revert confirmation visible through keys and clicks", async () => {
+    const b = new SocketBoard(scratch.sock); await b.info();
+    const d = await door(69, b, undefined, 90);
+    try {
+      await d.app.act({ action: "tile.tune", tile: "detail", as: "look-agent" });
+      d.lines();
+      (d.desk as any).focusTile("tune", { kind: "user" });
+      for (const meaning of ["everywhere", "every detail tile", "every tile on this screen", "follows the note into any tile", "whatever note it shows", "under the cursor", "value already comes from"]) {
+        d.key({ kind: "char", ch: "v" });
+        expect(d.lines().join(" ").replace(/[║│]/g, " ").replace(/\s+/g, " ")).toContain(meaning);
+        expect(d.lines().join("\n")).toContain("this tile");
+        expect(d.lines().join("\n")).toContain("this page");
+      }
+      d.key({ kind: "char", ch: "+" });
+      d.key({ kind: "char", ch: "R" });
+      const shown = d.lines().join(" ").replace(/[║│]/g, " ").replace(/\s+/g, " ");
+      expect(shown).toContain("1 unsaved nudge let go");
+      expect(shown).toContain("0 saved style notes put back");
+      expect(shown).toContain("[confirm]");
+      const cancel = d.where("[cancel]");
+      d.mouse("down", cancel.x + 1, cancel.y); d.mouse("up", cancel.x + 1, cancel.y);
+      expect(d.lines().join("\n")).not.toContain("[confirm]");
+      d.key({ kind: "char", ch: "u" });
+      await until(() => tuningOf(b).unsavedCount() === 0, "the nudge undone");
+    } finally { d.close(); b.close(); }
+  }, 30_000);
+
+  test("PIE-1129: a header's band and bottom rule include its wrapped title and separator; tune reports no hero", async () => {
+    const b = new SocketBoard(scratch.sock); await b.info();
+    const page = await b.createBlock(null, "The climbing beans along the north fence need their trellis before the next rain\n" + Array.from({ length: 45 }, (_, n) => `Line ${n + 1} of the garden log.`).join("\n"));
+    const d = await door(69, b, { id: page.id, drawn: "garden log" }, 90);
+    try {
+      await d.app.act({ action: "tile.tune", tile: "detail", as: "look-agent" });
+      for (const [row, value] of [["header.bg", "raised"], ["header.bg.opacity", "100"], ["header.rule", "line"], ["header.rule.tone", "green"]])
+        await d.app.act({ action: "tune.set", args: { row, value, level: "page" }, tile: "tune", as: "look-agent" });
+      d.key({ kind: "end" });
+      const rows = d.lines(), raw = d.desk.render((d.desk as any).ctx).lines;
+      const title = rows.findIndex(l => l.includes("The climbing beans") && !/[┌╔╭─═]{2}/.test(l));
+      expect(title, rows.join("\n")).toBeGreaterThan(0);
+      const rule = rows.findIndex((l, i) => i > title && /─{20}/.test(l));
+      expect(rule).toBeGreaterThan(title + 3);
+      for (let y = title - 1; y <= rule; y++) expect(raw[y]).toContain(bgRgb(surfaceMix("raised", 1)!));
+      expect(raw[title]).toContain("\x1b[1m");
+      expect(raw[rule]).toContain(fg(10));
+      await d.app.act({ action: "tune.pick", args: { n: TUNE_ROWS.findIndex(r => r.name === "header.image") + 1 }, tile: "tune", as: "look-agent" });
+      expect(d.lines().join("\n")).toContain("none (this note has no hero)");
+    } finally { d.close(); b.close(); }
+  }, 30_000);
+
   test("PIE-675: x and a row's × take one value back to the level under it (by key, by click, through act), and a save removes it from its note; a tile's border, surface and header surface draw from the look", async () => {
     const d = await door(140);
     try {
@@ -402,11 +453,11 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       (d.desk as any).focusTile("detail", { kind: "user" });
       await until(() => d.lines().some(l => /╭─.*tune/.test(l)), "the inspector's frame round, at rest", 5000);
       const raw = () => d.desk.render((d.desk as any).ctx).lines;
-      // The header's surface is under its crumbs and meta lines; the title stands on the ground, off the band (PIE-809).
+      // PIE-1129 keeps the title on the same band as the crumbs and metadata.
       const titleRow = d.lines().findIndex(l => l.includes("Bean row") && !/[┌╔╭─═]{2}/.test(l));
       expect(raw()[titleRow - 1]).toContain(bgRgb(surfaceMix("blue", 0.6)!));
       expect(raw()[titleRow + 1]).toContain(bgRgb(surfaceMix("blue", 0.6)!));
-      expect(raw()[titleRow]).not.toContain(bgRgb(surfaceMix("blue", 0.6)!));
+      expect(raw()[titleRow]).toContain(bgRgb(surfaceMix("blue", 0.6)!));
       const bodyRow = d.where("Net the brassicas").y;
       expect(raw()[bodyRow]).toContain(surfaceBg("raised", 2));
       // The inspector's frame in the tone (edge=box, amber) at rest.
@@ -467,6 +518,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(tune().describe(d.desk).breakpoint).toBe("narrow");
       expect(d.lines().some(l => l.includes("narrow (under 60)"))).toBe(true);
       const act = (action: string, args: Record<string, unknown> = {}) => d.app.act({ action, args, tile: "tune", as: "look-agent" }) as Promise<any>;
+      await act("tune.pick", { n: TUNE_ROWS.findIndex(r => r.name === "pad.x") + 1 });
       // The page picked: each row says what the page sets itself (nothing yet), beside the value in force.
       await act("tune.level", { level: "page" });
       expect(v("pad.x")).toMatchObject({ value: "2", from: "screen detail", at: { level: "this page", value: null } });

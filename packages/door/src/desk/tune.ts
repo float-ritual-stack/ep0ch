@@ -1,5 +1,6 @@
 import { declaredHints, HINT_SETTINGS } from "../surface/hints";
-import { rowLines } from "../text";
+import { chipRows } from "../surface/chip-rows";
+import { wrap, rowLines } from "../text";
 // The tune inspector (PIE-673, PIE-675): a tile under the one it tunes, like devtools' computed styles. It lists the
 // look's values for that tile (or, in a reader, the `::box` its `[ ]` is in), each with where it comes from, and nudges
 // them: a nudge goes into the connection's tuning (src/look.ts), in memory, and the tiles draw with it in the next frame,
@@ -18,7 +19,7 @@ import { rowLines } from "../text";
 // Every key and click is an action (TUNE_ACTIONS), so an agent tunes the same way, said on the screen and never with
 // the person's keys.
 import {
-  fieldKey, isListField, levelOfSave, nudgeStyleValue, parseFieldKey, parseStyleAttrs, parseStyleValue, resolveStyle, SAVE_LEVELS, STYLE_LEVELS, styleProperty, STYLE_TOKENS, styleValueText,
+  fieldKey, isListField, levelOfSave, nudgeStyleValue, parseFieldKey, parseStyleAttrs, parseStyleValue, resolveStyle, SAVE_LEVELS, STYLE_LEVELS, STYLE_TOKEN_NAMES, styleProperty, STYLE_TOKENS, styleValueText,
   SURFACE_STEPS, type Breakpoint, type StyleLayer, type StyleSource, type StyleToken, type StyleValue, type Surface,
 } from "@ep0ch/outline-core/style-cascade";
 import { liveTokensInLine } from "@ep0ch/outline-core/heading-styles";
@@ -29,7 +30,7 @@ import {
 import { surfaceMix } from "../theme";
 import type { Actor } from "../socket";
 import { ActionRefused, actionSet, agentLabel, def } from "../surface/actions";
-import { bgRgb, C, chip, drawEllipsized, fg, pad, RESET, selected, selectedRow, width } from "../style";
+import { bgRgb, C, drawEllipsized, fg, pad, RESET, selected, selectedRow, width } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { type RowPress } from "../scroll";
 import { Inspector } from "../surface/inspector";
@@ -38,53 +39,26 @@ import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 /** The levels the inspector offers: where each value comes from, or one level for every nudge. */
 export const TUNE_LEVELS = ["auto", ...SAVE_LEVELS] as const;
 export type TuneLevel = (typeof TUNE_LEVELS)[number];
+export const TUNE_LEVEL_MEANINGS: Record<TuneLevel, string> = {
+  auto: "whichever level the value already comes from",
+  global: "everywhere",
+  tile: "every detail tile",
+  screen: "every tile on this screen",
+  page: "saved with this note as its named style, so it follows the note into any tile",
+  instance: "saved in this tile's place in the layout, whatever note it shows",
+  list: "the list or component under the cursor",
+};
+
 
 /** One row of the inspector: a token, or a pair set together (`pad`: a row and two columns, cells being twice as tall as wide). */
 interface TuneRow { name: string; tokens: readonly StyleToken[] }
+const firstToken = STYLE_TOKEN_NAMES.indexOf("measure");
 export const TUNE_ROWS: readonly TuneRow[] = [
-  { name: "measure", tokens: ["measure"] },
-  { name: "pad", tokens: ["pad.y", "pad.x"] },
-  { name: "pad.x", tokens: ["pad.x"] },
-  { name: "pad.y", tokens: ["pad.y"] },
-  { name: "margin", tokens: ["margin.y", "margin.x"] },
-  { name: "margin.x", tokens: ["margin.x"] },
-  { name: "margin.y", tokens: ["margin.y"] },
-  { name: "rows.lines", tokens: ["rows.lines"] },
-  { name: "list.gap", tokens: ["list.gap"] },
-  { name: "list.zebra", tokens: ["list.zebra"] },
-  { name: "list.zebra.bg", tokens: ["list.zebra.bg"] },
-  { name: "list.zebra.strength", tokens: ["list.zebra.strength"] },
-  { name: "list.divider", tokens: ["list.divider"] },
-  { name: "list.divider.glyph", tokens: ["list.divider.glyph"] },
-  { name: "list.divider.align", tokens: ["list.divider.align"] },
-  { name: "bg", tokens: ["bg"] },
-  { name: "bg.strength", tokens: ["bg.strength"] },
-  { name: "border", tokens: ["border"] },
-  { name: "edge", tokens: ["edge"] },
-  { name: "tone", tokens: ["tone"] },
-  { name: "header.bg", tokens: ["header.bg"] },
-  { name: "header.bg.opacity", tokens: ["header.bg.opacity"] },
-  { name: "header.image", tokens: ["header.image"] },
-  { name: "header.image.x", tokens: ["header.image.x"] },
-  { name: "header.image.y", tokens: ["header.image.y"] },
-  { name: "header.image.blur", tokens: ["header.image.blur"] },
-  { name: "header.image.bleed", tokens: ["header.image.bleed"] },
-  { name: "header.image.height", tokens: ["header.image.height"] },
-  { name: "header.image.fit", tokens: ["header.image.fit"] },
-  { name: "header.image.dim", tokens: ["header.image.dim"] },
-  { name: "header.image.tint", tokens: ["header.image.tint"] },
-  { name: "header.image.fade", tokens: ["header.image.fade"] },
-  { name: "header.image.scroll", tokens: ["header.image.scroll"] },
-  { name: "header.title", tokens: ["header.title"] },
-  { name: "heading.margin", tokens: ["heading.margin"] },
-  { name: "heading.padding", tokens: ["heading.padding"] },
-  { name: "bp.narrow", tokens: ["bp.narrow"] },
-  { name: "bp.wide", tokens: ["bp.wide"] },
-  { name: "hints", tokens: ["hints"] },
-  { name: "float.bg", tokens: ["float.bg"] },
-  { name: "float.border", tokens: ["float.border"] },
-  { name: "float.shadow", tokens: ["float.shadow"] },
-  { name: "backdrop.dim", tokens: ["backdrop.dim"] },
+  ...[...STYLE_TOKEN_NAMES.slice(firstToken), ...STYLE_TOKEN_NAMES.slice(0, firstToken)].flatMap(name => [
+    ...(name === "pad.x" ? [{ name: "pad", tokens: ["pad.y", "pad.x"] as StyleToken[] }] : []),
+    ...(name === "margin.x" ? [{ name: "margin", tokens: ["margin.y", "margin.x"] as StyleToken[] }] : []),
+    { name, tokens: [name as StyleToken] },
+  ]),
 ];
 const rowNamed = (name: string) => TUNE_ROWS.find(r => r.name === name.trim().toLowerCase());
 
@@ -93,6 +67,7 @@ export interface TuneTargetInfo {
   look: Look; kind: string; title: string; cols: number; box: { attrs: string; line: number } | null;
   /** The note's pictures (a reader's), by path: what a nudge of `header.image` steps through, after the hero (empty). */
   pictures?: string[];
+  hero?: boolean;
   /** The list the reader's [ ] is in (`this list`): where its save goes, and its own layers. */
   list?: { target: string | null; layers: StyleLayer[]; first: number; revision?: number; component?: boolean } | null;
 }
@@ -272,48 +247,42 @@ export class TunePane implements Pane {
     if (!t) return { lines: [fg(C.dark) + pad(`tile ${this.source} isn't on this screen · tune.aim target=<name>, or alt+y in the tile to tune`, w) + RESET] };
     const tuning = tuningOf(desk.ctx.board), unsaved = tuning.unsavedCount();
     const lines: string[] = [];
-    const put = (parts: { text: string; sgr: string; action?: string; args?: Record<string, unknown> }[]) => {
-      let line = "", x = 0;
-      for (const p of parts) {
-        if (x >= w) break;
-        const text = drawEllipsized(p.text, w - x);
-        if (p.action) this.controls.push({ y: lines.length, x, cols: width(text), action: p.action, args: p.args ?? {} });
-        line += p.sgr + text + RESET; x += width(text);
+    const chips = (items: { label: string; on?: boolean; action: string; args?: Record<string, unknown>; hint?: string }[], lead = "") => {
+      for (const row of chipRows(items.map(it => ({ label: it.label, on: it.on ?? false, hint: it.hint, hit: { action: it.action, args: it.args } })), w, lead)) {
+        for (const hit of row.hits ?? []) this.controls.push({ y: lines.length, x: hit.from, cols: hit.to - hit.from, action: hit.action, args: hit.args ?? {} });
+        lines.push(row.text);
       }
-      lines.push(line);
     };
-    const sp = { text: " ", sgr: "" };
-    put([{ text: "[values] ", sgr: fg(C.grey) }, { text: "[Hints] H", sgr: fg(C.cyan), action: "tune.section", args: { section: "hints" } }]);
-    if (this.besideShort) put([{ text: "too short to split; inspector beside it", sgr: fg(C.yellow) }]);
-    else put([{ text: `${t.kind}${t.title !== t.kind ? ` ${t.title}` : ""} · ${t.cols} cols · `, sgr: fg(C.grey) }, { text: widthWords(t.look), sgr: fg(C.lcyan) }, ...(t.box ? [{ text: " · in a box", sgr: fg(C.yellow) }] : [])]);
-    // The levels a save goes to; the one picked lit. A level this tile hasn't (no page shown) is dim.
-    put([{ text: "nudge ", sgr: fg(C.dark) }, ...TUNE_LEVELS.flatMap(l => {
-      const target = l === "auto" ? null : tuneTarget(l, t.look.place, t.list?.target ?? null), on = l === this.level;
-      return [{ text: ` ${l === "auto" ? "where it's set" : target ? (l === "list" && t.list?.component ? "this component" : targetWords(target)) : l === "instance" ? "this tile" : l === "list" ? "this list" : l} `, sgr: on ? chip(C.blue) : fg(l === "auto" || target ? C.cyan : C.dark), action: "tune.level", args: { level: l } }, sp];
-    })]);
-    put([
-      { text: this.scope === "all" ? " all widths " : ` ${t.look.breakpoint ?? "normal"} only `, sgr: chip(this.scope === "all" ? C.dark : C.magenta), action: "tune.width", args: { scope: this.scope === "all" ? "this" : "all" } }, sp,
-      { text: "[save]", sgr: fg(unsaved ? C.lgreen : C.dark), action: "tune.save" }, sp,
-      { text: "[undo]", sgr: fg(C.cyan), action: "tune.undo" }, sp,
-      { text: "[redo]", sgr: fg(C.cyan), action: "tune.redo" },
-      ...(unsaved ? [{ text: ` · ${unsaved} unsaved, s to save`, sgr: fg(C.yellow) }] : []),
+    const words = (text: string, colour: number = C.dark) => lines.push(...wrap(text, w).map(l => fg(colour) + l + RESET));
+    chips([{ label: "[values]", on: true, action: "tune.section", args: { section: "values" } }, { label: "[Hints] H", action: "tune.section", args: { section: "hints" } }]);
+    if (this.besideShort) words("too short to split; inspector beside it", C.yellow);
+    else words(`${t.kind}${t.title !== t.kind ? ` ${t.title}` : ""} · ${t.cols} cols · ${widthWords(t.look)}${t.box ? " · in a box" : ""}`, C.grey);
+    chips(TUNE_LEVELS.map(l => {
+      const target = l === "auto" ? null : tuneTarget(l, t.look.place, t.list?.target ?? null);
+      return { label: l === "auto" ? "where it's set" : l === "page" ? "this page" : l === "instance" ? "this tile" : l === "list" ? (t.list?.component ? "this component" : "this list") : target ? targetWords(target) : l,
+        hint: TUNE_LEVEL_MEANINGS[l].replace("every detail tile", `every ${t.look.place.tile ?? t.kind} tile`), on: l === this.level, action: "tune.level", args: { level: l } };
+    }), fg(C.dark) + "nudge " + RESET);
+    words(TUNE_LEVEL_MEANINGS[this.level].replace("every detail tile", `every ${t.look.place.tile ?? t.kind} tile`), C.lcyan);
+    chips([
+      { label: this.scope === "all" ? "all widths" : `${t.look.breakpoint ?? "normal"} only`, on: true, action: "tune.width", args: { scope: this.scope === "all" ? "this" : "all" } },
+      { label: "[save]", action: "tune.save" }, { label: "[undo]", action: "tune.undo" }, { label: "[redo]", action: "tune.redo" },
     ]);
-    put([
-      { text: "[reset value]", sgr: fg(C.cyan), action: "tune.unset" }, sp,
-      { text: "[reset level]", sgr: fg(this.level === "auto" ? C.dark : C.cyan), action: "tune.resetlevel" }, sp,
-      { text: "[revert all]", sgr: fg(tuning.baseline.size || unsaved ? C.cyan : C.dark), action: "tune.revert" },
-    ]);
-    // A step waiting for its confirmation, or a nudge held on a row where something nearer wins: said in place, with its choices.
-    // [confirm] first, so a narrow inspector still shows it; what it will do follows (and is on the status line).
-    if (this.armed) put([{ text: "⚠ ", sgr: fg(C.yellow) }, { text: "[confirm]", sgr: fg(C.lred), action: this.armed.action, args: { confirm: true } }, { text: ` ${this.armed.words} · ${this.armed.action === "tune.revert" ? "R" : "X"} again · any other key keeps them`, sgr: fg(C.yellow) }]);
-    else if (this.offer) {
+    if (unsaved) words(`${unsaved} unsaved, s to save`, C.yellow);
+    chips([{ label: "[reset value]", action: "tune.unset" }, { label: "[reset level]", action: "tune.resetlevel" }, { label: "[revert all]", action: "tune.revert" }]);
+    if (this.armed) {
+      words(`!! ${this.armed.words}`, C.yellow);
+      chips([{ label: "[confirm]", action: this.armed.action, args: { confirm: true } }, { label: "[cancel]", action: "tune.cancel" }]);
+    } else if (this.offer) {
       const o = this.offer, s = o.shadow;
-      // The why is on the row (⊘) and the status line; the choices come first here, so a narrow inspector still shows them.
-      put([{ text: "⊘ ", sgr: fg(C.yellow) },
-        { text: `[a nudge ${this.level === "auto" ? "it" : this.level} anyway]`, sgr: fg(C.cyan), action: "tune.nudge", args: { row: o.row, by: o.by, shadow: "anyway" } }, sp,
-        ...(s.can.includes("instead") ? [{ text: `[o ${s.instead}]`, sgr: fg(C.cyan), action: "tune.nudge", args: { row: o.row, by: o.by, shadow: "instead" } }, sp] : []),
-        ...(s.can.includes("clear") ? [{ text: `[c ${s.clear}]`, sgr: fg(C.cyan), action: "tune.nudge", args: { row: o.row, by: o.by, shadow: "clear" } }] : [])]);
+      words(s.why, C.yellow);
+      chips([
+        { label: `[a nudge ${this.level === "auto" ? "it" : this.level} anyway]`, action: "tune.nudge", args: { row: o.row, by: o.by, shadow: "anyway" } },
+        ...(s.can.includes("instead") ? [{ label: `[o ${s.instead}]`, action: "tune.nudge", args: { row: o.row, by: o.by, shadow: "instead" } }] : []),
+        ...(s.can.includes("clear") ? [{ label: `[c ${s.clear}]`, action: "tune.nudge", args: { row: o.row, by: o.by, shadow: "clear" } }] : []),
+      ]);
     } else lines.push("");
+    if (t.look.problems.length) words(`!! ${t.look.problems.join(" · ")}`, C.yellow);
+    const help = wrap(TUNE_HELP, w);
     this.head = lines.length;
     const { values, sources } = this.values(t);
     // A level (or one width) picked: a column of what it says itself, beside the value in force.
@@ -322,7 +291,7 @@ export class TunePane implements Pane {
     const ctl = 10, room0 = Math.max(0, w - ctl - 1), lvlW = picked ? 8 : 0;
     let valW = 12, nameW = Math.min(20, room0 - valW - lvlW - 8);
     if (nameW < 14) { valW = 8; nameW = Math.max(6, Math.min(20, room0 - valW - lvlW - 6)); }
-    const room = Math.max(2, h - this.head - 2);
+    const room = Math.max(2, h - this.head - help.length - 1);
     // With a level (or a width) picked, a header names the columns: the value in force, what that level says itself, where the value in force comes from.
     if (picked) {
       const lv = this.level === "auto" ? "where set" : this.level;
@@ -332,7 +301,7 @@ export class TunePane implements Pane {
     for (let i = this.view.top; i < Math.min(TUNE_ROWS.length, this.view.top + (picked ? room - 1 : room)); i++) {
       const row = TUNE_ROWS[i]!, on = i === this.sel, last = row.tokens[row.tokens.length - 1]!;
       const text = row.tokens.map(tk => styleValueText(values[tk] as StyleValue)).join(" ");
-      const shown = text === "" ? "(the hero)" : text;
+      const shown = text === "" ? (t.hero ? "(the hero)" : "none (this note has no hero)") : text;
       // A surface's row shows it: a swatch of the colour it draws, at the strength (or opacity) it's drawn at.
       const sw = SWATCH[row.tokens[0]!], swatch = sw ? swatchOf(values[row.tokens[0]!] as Surface, values[sw] as number, row.tokens[0] === "header.bg") : "";
       const src = sources[last];
@@ -356,10 +325,8 @@ export class TunePane implements Pane {
       this.controls.push({ y, x: unset, cols: 1, action: "tune.unset", args: { row: row.name } }, { y, x: minus, cols: 3, action: "tune.nudge", args: { row: row.name, by: -1 } }, { y, x: minus + 4, cols: 3, action: "tune.nudge", args: { row: row.name, by: 1 } });
       lines.push((on ? selectedRow(body, nameW + valW + lvlW + srcW, focused) : body) + " " + fg(C.dark) + "×" + RESET + " " + fg(C.cyan) + "[−] [+]" + RESET);
     }
-    // What the tile's look couldn't use (a value out of range, a style no note declares), then the help.
-    const problems = t.look.problems;
-    if (problems.length) lines.push(fg(C.yellow) + drawEllipsized(`⚠ ${problems.join(" · ")}`, w) + RESET);
-    lines.push(fg(C.dark) + drawEllipsized(TUNE_HELP, w) + RESET);
+    if (TUNE_ROWS[this.sel]?.name === "header.image" && !values["header.image"]) words(t.hero ? "(the hero)" : "none (this note has no hero)", C.lcyan);
+    lines.push(...help.map(l => fg(C.dark) + l + RESET));
     return { lines };
   }
 
@@ -381,7 +348,7 @@ export class TunePane implements Pane {
     if (this.armed) {
       const again = (c === "X" && this.armed.action === "tune.resetlevel") || (c === "R" && this.armed.action === "tune.revert");
       if (again) return this.run(desk, this.armed.action, { confirm: true }), true;
-      this.armed = null; desk.redraw();
+      this.run(desk, "tune.cancel", {});
       if (k.kind === "esc") return true;
     }
     // A nudge held on a shadowed row: a, o or c chooses; anything else lets it go.
@@ -869,6 +836,11 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       return { reset: targetWords(target), values: n, notes: writes.map(w => w.note) };
     },
   }),
+  "tune.cancel": def({
+    summary: "keep the changes and dismiss the tune confirmation",
+    keys: "Esc, any other key, a click on [cancel]", touches: "tile", replay: "safe", args: {},
+    run(_, { pane, desk }) { pane.armed = null; pane.offer = null; desk.redraw(); return { cancelled: true }; },
+  }),
   "tune.revert": def({
     summary: "revert all: every style note this session wrote put back as it was before the first write (saved changes too), one attributed write each, and every nudge let go; refused, naming the note, when one changed since (another door or an agent). It asks in place first: confirm=true (or R again, or [confirm]) does it. One step: u takes it back",
     keys: "R then R, a click on [revert all] then [confirm]",
@@ -880,7 +852,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     async run({ confirm }, { pane, desk }, actor) {
       const tuning = tuningOf(desk.ctx.board), notes = tuning.baseline.size, nudges = tuning.unsavedCount();
       if (!notes && !nudges) throw new ActionRefused("nothing changed this session: no style note written, no nudge");
-      const words = `revert all: ${notes} style note${notes === 1 ? "" : "s"} back as they were when this session started${nudges ? `, ${nudges} nudge${nudges === 1 ? "" : "s"} let go` : ""}`;
+      const words = `revert all: ${nudges} unsaved nudge${nudges === 1 ? "" : "s"} let go, ${notes} saved style note${notes === 1 ? "" : "s"} put back`;
       if (!confirm) {
         if (actor.kind === "agent") return { armed: true, words, confirm: "send confirm=true to do it", notes: [] as string[] };
         pane.armed = { action: "tune.revert", words }; pane.offer = null;

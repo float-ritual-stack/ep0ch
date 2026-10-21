@@ -320,8 +320,8 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
     (s as any).scroll = 200;
     await until(() => !!backdropOf(s.render(100, 40, h)), "the backdrop, made", 10_000);
     const v = s.render(100, 40, h), b = backdropOf(v);
-    // The title, the byline and the crumbs: three rows, the full width, under the text.
-    expect(b).toMatchObject({ col: 0, row: 0, cols: 100, rows: 3, z: -2 });
+    // PIE-1129 includes the separator below the title, byline and crumbs in the same backdrop.
+    expect(b).toMatchObject({ col: 0, row: 0, cols: 100, rows: 4, z: -2 });
     expect(plain(v.lines[1]!)).toContain("Plot");
     expect(s.headerBackdrop().backdrop).toMatchObject({ step: 3, drawn: "kitty" });
     // Dark and muted: its mean held to HERO_MEAN, most of its colour gone; the original is never changed.
@@ -423,11 +423,11 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
     (s as any).scroll = 30;
     await until(() => !!backdropOf(s.render(100, 42, h)), "the backdrop, made", 10_000);
     const v = s.render(100, 42, h), b = backdropOf(v);
-    expect(b).toMatchObject({ row: 0, rows: 3, cols: 100 });
+    expect(b).toMatchObject({ row: 0, rows: 4, cols: 100 });
     expect(plain(v.lines[1]!)).toContain("Plot");
-    // Its crop is the header's box (100 × 3 cells of 10 × 20 px) around the focus, at the left of the picture.
+    // Its crop includes the separator too (100 × 4 cells of 10 × 20 px) around the focus, at the left of the picture.
     expect(b.crop.x).toBe(0);
-    expect(b.crop.w / b.crop.h).toBeCloseTo((100 * 10) / (3 * 20), 0);
+    expect(b.crop.w / b.crop.h).toBeCloseTo((100 * 10) / (4 * 20), 0);
   });
 
   test("cells: each header cell coloured from the crop, dark, its text on top; a background the line sets wins", async () => {

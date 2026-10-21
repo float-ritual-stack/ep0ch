@@ -109,6 +109,8 @@ export const STYLE_TOKENS = {
   "edge": { base: "none", what: "an accent in the tone: a bar down the left side, or the whole frame (box)", type: { kind: "enum", values: EDGES } },
   "header.bg": { base: "none", what: "a reader's sticky header's surface (title, byline, crumbs): raised, sunken or a tone", type: { kind: "enum", values: SURFACES } },
   "header.bg.opacity": { base: 60, what: "how much of the header's surface shows over the ground or its picture (0 to 100, capped dark)", type: { kind: "int", min: 0, max: 100, step: 10 } },
+  "header.rule": { base: "none", what: "a rule under the last header row: none, line, dots or heavy", type: { kind: "enum", values: ["none", "line", "dots", "heavy"] } },
+  "header.rule.tone": { base: "neutral", what: "the colour family of the header's bottom rule", type: { kind: "enum", values: CALLOUT_TONES } },
   "header.image": { base: "", what: "the header's picture, over the hero the note gives it: a path or one of the note's pictures (empty: the hero)", type: { kind: "text", max: 400 } },
   "header.image.x": { base: 0, what: "the header picture's crop moved across, in % of the picture (-50 to 50)", type: { kind: "int", min: -50, max: 50, step: 5 } },
   "header.image.y": { base: 0, what: "the header picture's crop moved down, in % of the picture (-50 to 50)", type: { kind: "int", min: -50, max: 50, step: 5 } },
@@ -142,6 +144,7 @@ export interface StyleValues {
   "list.gap": number; "list.zebra": boolean; "list.divider": ListDivider; "list.divider.glyph": string; "list.divider.align": DividerAlign;
   "list.zebra.bg": Exclude<Surface, "none">; "list.zebra.strength": number;
   "bg": Surface; "bg.strength": number; "tone": CalloutTone; "border": Border; "edge": Edge;
+  "header.rule": "none" | "line" | "dots" | "heavy"; "header.rule.tone": CalloutTone;
   "header.bg": Surface; "header.bg.opacity": number; "header.image": string; "header.image.x": number; "header.image.y": number;
   "header.image.blur": number; "header.image.bleed": "full" | "measure"; "header.image.height": string;
   "header.image.fit": "cover" | "contain"; "header.image.dim": string; "header.image.tint": string; "header.image.fade": string;
