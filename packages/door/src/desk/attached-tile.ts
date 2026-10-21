@@ -102,7 +102,7 @@ export const COMMENT_TILE: TileKind = {
 export const SOURCES_TILE: TileKind = {
   kind: "sources", noun: "a sources tile",
   about: "a reader's Sources inspector in its own resizable tile beside the note",
-  make: s => new AttachedTilePane(s.source?.slice(5) ?? "reader", "sources"),
+  make: s => new AttachedTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "reader", "sources"),
   check: COMMENT_TILE.check,
   takesKeys: () => true, windowKeys: true,
   describe: COMMENT_TILE.describe,

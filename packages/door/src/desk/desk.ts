@@ -321,8 +321,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   dismiss(p: Pane) {
     const id = [...this.panes].find(([, q]) => q === p)?.[0];
     if (id === undefined) return;
-    // A comment's tile closing: the next opens the size this one was.
-    if (p instanceof AttachedTilePane) this.commentShare = this.shareOf(id) ?? this.commentShare;
+    // An attached tile closing: the next of its kind opens the size this one was.
+    if (p instanceof AttachedTilePane) this.attachedShare[p.attachment] = this.shareOf(id) ?? this.attachedShare[p.attachment] ?? 0.45;
     try { this.closeTile(this.nameOf(id), USER); } catch { /* the screen keeps it (a locked one): it says it has no comment */ }
   }
   /**
@@ -343,14 +343,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (at === undefined) return null;
     const reader = this.nameOf(at);
     const mine = [...this.panes].filter(([, p]) => p instanceof AttachedTilePane && p.attachment === attachment && p.source === reader).map(([id]) => id);
-    if (!on) { for (const id of mine) { this.commentShare = this.shareOf(id) ?? this.commentShare; try { this.closeTile(this.nameOf(id), USER); } catch { /* kept by the screen */ } } return { closed: mine.length }; }
+    if (!on) { for (const id of mine) { this.attachedShare[attachment] = this.shareOf(id) ?? this.attachedShare[attachment] ?? 0.45; try { this.closeTile(this.nameOf(id), USER); } catch { /* kept by the screen */ } } return { closed: mine.length }; }
     if (side) this.commentSide = side;
     let id = mine[0];
     if (id === undefined) {
       id = this.openPair(at, makeTile({ t: "leaf", kind: attachment, source: `tile:${reader}` }), attachment, keys, USER);
     } else if (side) {
       // To another side of the reader, its share kept (sized by its border, it stays that size).
-      const share = this.shareOf(id) ?? this.commentShare;
+      const share = this.shareOf(id) ?? this.attachedShare[attachment] ?? 0.45;
       const ok = this.ask({ op: "move", tile: id, to: { kind: "split", target: at, dir: side, pair: true, weight: share } }, USER);
       if (!ok.ok) throw new ActionRefused(ok.refused);
       this.commit(ok);
@@ -362,7 +362,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private openPair(at: number, pane: Pane, name: string, keys: boolean, actor: Actor): number {
     const id = this.nextId;
     const ok = this.ask({ op: "open", tile: id, kind: pane.kind, name: this.autoName(name),
-      at: { kind: "split", target: at, dir: this.commentSide, pair: true, weight: this.commentShare },
+      at: { kind: "split", target: at, dir: this.commentSide, pair: true, weight: this.attachedShare[name] ?? 0.45 },
       ...(keys ? {} : { keys: false as const }) }, actor);
     if (!ok.ok) throw new ActionRefused(ok.refused);
     this.put(pane); this.commit(ok); this.startTile(id); this.openedFrom.set(id, at);
@@ -406,7 +406,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The side of its reader a comment's own tile opens on (PIE-846): the one last chosen. */
   private commentSide: Dir = "right";
   /** Its share of the pair it opens in: the last one's, as it was sized when it closed. */
-  private commentShare = 0.45;
+  /** Each attached tile kind's last share of its reader's place, so the next opens the size the last one was. */
+  private attachedShare: Record<string, number> = {};
   /** The share comment tile `id` has of the pair it's in, when it's in one. */
   private shareOf(id: number): number | null {
     const p = parentOf(this.root, id);

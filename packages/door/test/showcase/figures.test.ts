@@ -250,33 +250,39 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     const before = (await board.get(seeded.notes.plotJobs.id))!;
     const title = "Plot jobs";
     await board.update(before.id, before.text.replace(/^query:.*$/m, 'query: "("'), before.revision!);
-    await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, USER);
-    await app.dispatch.act({ action: "sources.place", tile, args: { place: "tile" } }, USER);
-    await until(() => { screen(); return desk.layoutGet().tiles.some(t => t.name === "sources"); }, "Sources tile");
-    await app.dispatch.act({ action: "comment.note", tile }, USER);
-    await app.dispatch.act({ action: "comment.place", tile, args: { place: "floating" } }, USER);
-    screen();
-    await app.dispatch.act({ action: "comment.move", tile, args: { col: 0, row: 0, cols: 60, rows: 20 } }, USER);
-    screen();
-    await app.dispatch.act({ action: "tile.zoom", tile: "sources" }, USER);
-    await app.dispatch.act({ action: "sources.set", tile, args: { param: "title" } }, USER);
-    const rows = screen().split("\n");
-    const fieldHead = rows.findIndex(l => l.includes("title:"));
-    const y = fieldHead + 1;
-    const x = rows[y]!.indexOf(title);
-    expect(x).toBeGreaterThan(0);
-    h.press({ kind: "mouse", action: "down", button: 0, x, y });
-    h.press({ kind: "mouse", action: "drag", button: 0, x: x + 4, y });
-    h.press({ kind: "mouse", action: "up", button: 0, x: x + 4, y });
-    h.press({ kind: "backspace" });
-    h.press({ kind: "paste", text: "Winter" });
-    await app.dispatch.act({ action: "sources.field", tile, args: { op: "save" } }, USER);
-    expect((await board.get(before.id))!.text).toContain(JSON.stringify(title.replace("Plot", "Winter")));
-    await app.dispatch.act({ action: "tile.zoom", tile: "sources" }, USER);
-    await app.dispatch.act({ action: "sources.place", tile, args: { place: "split" } }, USER);
-    await app.dispatch.act({ action: "sources.close", tile }, USER);
-    await app.dispatch.act({ action: "comment.close", tile, args: { discard: true } }, USER);
-    await board.update(before.id, before.text, (await board.get(before.id))!.revision!);
+    try {
+      await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, USER);
+      await app.dispatch.act({ action: "sources.place", tile, args: { place: "tile" } }, USER);
+      await until(() => { screen(); return desk.layoutGet().tiles.some(t => t.name === "sources"); }, "Sources tile");
+      await app.dispatch.act({ action: "comment.note", tile }, USER);
+      await app.dispatch.act({ action: "comment.place", tile, args: { place: "floating" } }, USER);
+      screen();
+      await app.dispatch.act({ action: "comment.move", tile, args: { col: 0, row: 0, cols: 60, rows: 20 } }, USER);
+      screen();
+      await app.dispatch.act({ action: "tile.zoom", tile: "sources" }, USER);
+      await app.dispatch.act({ action: "sources.set", tile, args: { param: "title" } }, USER);
+      const rows = screen().split("\n");
+      const fieldHead = rows.findIndex(l => l.includes("title:"));
+      const y = fieldHead + 1;
+      const x = rows[y]!.indexOf(title);
+      expect(x).toBeGreaterThan(0);
+      h.press({ kind: "mouse", action: "down", button: 0, x, y });
+      h.press({ kind: "mouse", action: "drag", button: 0, x: x + 4, y });
+      h.press({ kind: "mouse", action: "up", button: 0, x: x + 4, y });
+      h.press({ kind: "backspace" });
+      h.press({ kind: "paste", text: "Winter" });
+      await app.dispatch.act({ action: "sources.field", tile, args: { op: "save" } }, USER);
+      expect((await board.get(before.id))!.text).toContain(JSON.stringify(title.replace("Plot", "Winter")));
+      await app.dispatch.act({ action: "tile.zoom", tile: "sources" }, USER);
+    } finally {
+      // The seeded note and the two surfaces are shared with the tests after this one.
+      for (const step of [
+        () => app.dispatch.act({ action: "sources.place", tile, args: { place: "split" } }, USER),
+        () => app.dispatch.act({ action: "sources.close", tile }, USER),
+        () => app.dispatch.act({ action: "comment.close", tile, args: { discard: true } }, USER),
+      ]) await step().catch(() => undefined);
+      await board.update(before.id, before.text, (await board.get(before.id))!.revision!);
+    }
   });
 
   test("PIE-1100: inspector fields preserve decoded YAML and unsaved typing", async () => {
