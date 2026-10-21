@@ -345,9 +345,15 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     click({ x: mark.x - 1, y: mark.y });
     frame();
     await until(() => p.surface.expanded.size === 0, "the thread folded");
+    // A figure's row is a list row: a click selects it (the [ ] position) and opens nothing; ⏎ opens its note in a
+    // detail (Evan, Oct 21: "I click into the table to select a thing -> open and select wires fire").
+    const d0Before = B().details.length;
     click(where(frame(), "Turn the compost", rect("preview")));
-    await until(() => B().details[0]?.msg?.id === n.compost.id, "the row's note in a detail");
+    await until(() => current(p)?.label === "Turn the compost", "the row selected by a click");
     expect(current(p)).toMatchObject({ kind: "row", label: "Turn the compost" });
+    expect(B().details.length).toBe(d0Before);
+    key({ kind: "enter" });
+    await until(() => B().details[0]?.msg?.id === n.compost.id, "the row's note in a detail, by ⏎");
     // A drag across the same row still selects text, and opens nothing.
     const d0 = B().details.length, at = where(frame(), "Water the seedlings", rect("preview"));
     key({ kind: "mouse", action: "down", button: 0, x: at.x, y: at.y });
