@@ -4,7 +4,7 @@
 // each reuse-map section with its real part, by keys, mouse and act. The `scripts/try-it.sh --showcase` script
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../../src/app";
 import { SHOWCASE_ASSETS, SEED, type Seeded } from "../../src/showcase/seed";
@@ -31,6 +31,52 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
+
+  test("insert uses the note's scoped folder, returns absolute file lines, and stays beside a drawer draft", async () => {
+    await app.act({ action: "section", args: { name: "insert" }, as: "test-agent" });
+    press({ kind: "enter" });
+    const desk = S().stages.get(S().sel).top;
+    const folder = join(scratch.root, "picker files");
+    mkdirSync(folder);
+    writeFileSync(join(folder, "first.md"), "First file");
+    writeFileSync(join(folder, "second file.md"), "Second file");
+    const parent = await board.createBlock(null, `Picker project [cwd::${folder}]`);
+    await board.move(seeded.notes.insert.id, parent.id);
+    const note = (await board.get(seeded.notes.insert.id))!;
+    const reader = [...desk.panes.values()][0] as ReaderPane;
+    reader.show(note, desk);
+    await desk.dispatch.act({ action: "edit" }, { kind: "user" });
+    await until(() => !!reader.draft, "picker draft");
+    press({ kind: "pgdn" }); press({ kind: "end" });
+    const picker = join(scratch.root, "picker.ts");
+    writeFileSync(picker, `import { readdirSync } from "node:fs"; process.stdin.once("data", () => { console.log(readdirSync(".").sort().join("\\n")); process.exit(0); });`);
+    const was = process.env.EP0CH_PICKER;
+    process.env.EP0CH_PICKER = `${process.execPath} ${picker}`;
+    try {
+      for (const drawer of [false, true]) {
+        if (drawer) {
+          await desk.dispatch.act({ action: "tile.drawer" }, { kind: "user" });
+          (app as any).paint();
+          await app.dispatch.act({ action: "host.enter" }, { kind: "user" });
+        }
+        const layer = drawer ? app.drawer.desk! : desk;
+        press({ kind: "char", ch: "t", ctrl: true });
+        await until(() => !!layer.pane("pick"), "picker beside draft");
+        (app as any).paint();
+        expect(layer.pane("pick")!.title()).toBe(folder);
+        press({ kind: "enter" });
+        await until(() => reader.draft!.text.includes(`[file::${folder}/second file.md]`), `absolute file choices (drawer=${drawer})`);
+        expect(reader.draft!.text).toContain(`- [file::${folder}/first.md]\n- [file::${folder}/second file.md]`);
+        await until(() => !layer.pane("pick"), "picker closes");
+        await layer.dispatch.act({ action: "draft.undo" }, { kind: "user" });
+      }
+    } finally {
+      if (was === undefined) delete process.env.EP0CH_PICKER; else process.env.EP0CH_PICKER = was;
+      press({ kind: "esc" });
+      if (app.drawer.entered) await app.dispatch.act({ action: "host.leave" }, { kind: "user" });
+      for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+    }
+  }, 20_000);
 
   test("the editing demo previews a reference through the same action as shift+arrows (PIE-1104)", async () => {
     ch("5"); press({ kind: "enter" });

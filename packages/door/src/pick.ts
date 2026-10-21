@@ -1,5 +1,5 @@
 // Insert from a picker: the draft opens a picker program (television by default: `tv <channel>`) the way ctrl+e opens
-// $EDITOR, and what the picker prints, one choice per line, goes in at the draft's cursor, space-separated. On a screen
+// $EDITOR, and what the picker prints, one choice per line, goes in at the draft's cursor; file choices become absolute list items. On a screen
 // with tiles (the desk, the river) the picker runs in a terminal tile beside the note (`Ctx.inTile`, the one ctrl+e's
 // editor runs in) with the person's keys, and the tile closes when it exits; on a screen without tiles or one whose shape
 // is locked (the board), the person's terminal is handed to it (Ctx.suspend), as ctrl+e's editor is there. The door knows nothing of any picker's channels: the program and the channel are names the
@@ -13,15 +13,16 @@
 // (television draws on stderr when its stdout isn't a terminal) and the door reads its answer after. Its environment is
 // the drop shell's, or a terminal tile's (EP0CH_CONTROL names this door either way), plus the door's outline
 // (EP0CH_SOCKET, EP0CH_WS), so a channel that asks `ep0ch find` reads the outline this draft is in.
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { keepCopy, type Draft } from "./edit";
 import { controlPath } from "./control";
-import { shellCwd, shellEnv } from "./drop";
-import { USER, type Actor } from "./socket";
+import { shellEnv } from "./drop";
+import { USER, type Actor, type SocketBoard } from "./socket";
 import { stateSub } from "./state";
 import { ownTerminal, type Handover } from "./term";
+import type { SiteAnswer, SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { Suspender } from "./surface/editor";
 
 type Env = Record<string, string | undefined>;
@@ -31,26 +32,48 @@ export const pickerOf = (env: Env = process.env) => env.EP0CH_PICKER?.trim() || 
 /** The argument given when the action names none: EP0CH_PICK_CHANNEL (empty: none), else `ep0ch`. */
 export const channelOf = (env: Env = process.env) => (env.EP0CH_PICK_CHANNEL !== undefined ? env.EP0CH_PICK_CHANNEL.trim() : "ep0ch");
 
+/** The Site owns which cwd is nearest; paths are on the machine running the picker. */
+export async function pickerCwd(board: SocketBoard, site?: Pick<SiteAnswerRequest, "blockId" | "draft" | "line">): Promise<string> {
+  const home = homedir();
+  const info = await board.info();
+  const folder = info.workspace && existsSync(info.workspace) ? info.workspace : home;
+  const answer = site?.blockId ? await board.request<SiteAnswer>("site.answer", { ...site, paths: ["cwd"] }) : null;
+  const cwd = answer?.paths?.[0]?.values?.[0];
+  return cwd ? resolve(folder, cwd.replace(/^~(?=$|\/)/, home)) : folder;
+}
+
 /**
  * Where the picker runs: its command (sh, its stdout to `out`), folder and environment (`env`, whole, for the person's
  * terminal); `own` is what the door sets over a terminal tile's environment for it (the draft's outline, the output file;
  * null unsets).
  */
-export function pickerRun(channel: string, out: string, outline: { socket: string; name?: string }, env: Env = process.env, control = controlPath): { argv: string[]; cwd: string; env: Record<string, string>; own: Record<string, string | null> } {
+export function pickerRun(channel: string, out: string, outline: { socket: string; name?: string }, env: Env = process.env, control = controlPath, cwd = homedir()): { argv: string[]; cwd: string; env: Record<string, string>; own: Record<string, string | null> } {
   // The draft's outline, named outright: a channel's `ep0ch` reads it whatever folder or machine the door started from.
   const own: Record<string, string | null> = { EP0CH_SOCKET: outline.socket, EP0CH_WS: outline.name ?? null, EP0CH_MACHINE: null, EP0CH_PICK_OUT: out };
   const e = shellEnv(env, control);
   for (const [k, v] of Object.entries(own)) { if (v === null) delete e[k]; else e[k] = v; }
   // sh runs the picker line (it may hold flags and shell words) with the channel as its argument, when there is one.
-  return { argv: ["sh", "-c", `${pickerOf(env)} \${1:+"$1"} > "$EP0CH_PICK_OUT"`, "sh", channel], cwd: shellCwd(), env: e, own };
+  return { argv: ["sh", "-c", `${pickerOf(env)} \${1:+"$1"} > "$EP0CH_PICK_OUT"`, "sh", channel], cwd, env: e, own };
 }
 
-/** What a picker printed, as the text that goes in: one choice per line, joined by spaces; blank lines dropped. */
-export const pickedText = (printed: string) => printed.split(/\r?\n/).map(l => l.trim()).filter(Boolean).join(" ");
+/** What a picker printed, as the text that goes in: references joined by spaces, files as absolute list items; blank lines dropped. */
+export function pickedText(printed: string, cwd = homedir(), channel = ""): string {
+  const lines = printed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const choices = lines.map(line => {
+    const token = /^\[file::(.*)\]$/.exec(line);
+    const path = resolve(cwd, (token?.[1] ?? line).replace(/^~(?=$|\/)/, homedir()));
+    return token || /(?:^|-)files$/.test(channel) || existsSync(path) ? `- [file::${path}]` : line;
+  });
+  return choices.join(choices.some(l => l.startsWith("- [file::")) ? "\n" : " ");
+}
 
 /** The text as it goes in at the cursor: a space before it when it would run into a word. */
 export function atCursor(d: Draft, text: string): string {
   const before = d.lines[d.row]?.slice(0, d.col) ?? "";
+  if (text.startsWith("- [file::")) {
+    const after = d.lines[d.row]?.slice(d.col) ?? "";
+    return `${before ? "\n" : ""}${text}${after ? "\n" : ""}`;
+  }
   return before && !/\s$/.test(before) ? ` ${text}` : text;
 }
 
@@ -92,18 +115,19 @@ export function sweepPicks(alive: (pid: number) => boolean): void {
  * choice made for a draft that closed meanwhile isn't lost: it's copied to disk (`drafts/`, as ctrl+e's text is) and said
  * (`kept`, `at`). Resolves once the picker is done.
  */
-export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: string; name?: string }, o: { channel?: string; held?: () => boolean; by?: Actor } = {}): Promise<Picked> {
+export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: string; name?: string }, o: { channel?: string; cwd?: string; held?: () => boolean; by?: Actor } = {}): Promise<Picked> {
   if (picking.has(d)) return { nothing: "the picker is already open beside this draft: ctrl+] there leaves it, esc closes it" };
   const dir = mkdtempSync(join(stateSub("pick") ?? tmpdir(), `${process.pid}-`));
   const out = join(dir, "picked.txt");
   const channel = o.channel ?? channelOf();
+  const cwd = o.cwd ?? homedir();
   const picker = `${pickerOf()}${channel ? ` ${channel}` : ""}`;
   const back = (code: number | null): Picked => {
     // No code: its tile closed before it exited (or its terminal went), so whatever it wrote on the way out isn't a choice.
     if (code === null) return { nothing: `${picker} closed before a choice; nothing inserted` };
     let printed = "";
     try { printed = readFileSync(out, "utf8"); } catch { /* nothing chosen */ }
-    const text = pickedText(printed);
+    const text = pickedText(printed, cwd, channel);
     // tv and fzf exit 0 or 130 when nothing was chosen (esc, ctrl+c); tv exits 1 on a channel it doesn't have too (its
     // error went with its screen); 127 is sh's "not found".
     if (!text) return { nothing: code === 127 ? `${picker} exited 127: not found (EP0CH_PICKER names the picker); nothing inserted`
@@ -126,8 +150,8 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
   // Beside the note, in a terminal tile with the person's keys: the draft stays in view while they choose.
   const beside = await new Promise<Picked | null>((resolve, reject) => {
     try {
-      const run = pickerRun(channel, out, outline);
-      const opened = ctx.inTile?.({ cmd: run.argv, cwd: run.cwd, own: run.own, name: "pick", shows: picker, wide: true }, code => {
+      const run = pickerRun(channel, out, outline, process.env, controlPath, cwd);
+      const opened = ctx.inTile?.({ cmd: run.argv, cwd: run.cwd, own: run.own, name: "pick", shows: cwd, wide: true }, code => {
         let r: Picked;
         try { r = back(code); } catch (e) { r = { nothing: `not inserted: ${(e as Error).message}` }; } finally { tidy(); }
         resolve(r);
@@ -140,7 +164,7 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
   // No tiles here: the person's terminal goes to the picker, the door stepping aside meanwhile.
   let code: number | null = null;
   try {
-    const run = pickerRun(channel, out, outline);
+    const run = pickerRun(channel, out, outline, process.env, controlPath, cwd);
     await ctx.suspend(async terminal => { code = await pickRunner.run(terminal ?? ownTerminal, run); }, "picker");
     return back(code);
   } finally { tidy(); }

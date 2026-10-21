@@ -20,6 +20,7 @@ export const SEED = {
   waitingDecision: "Choose the potting shelter roof",
   waitingCalls: "Potting shelter decisions",
   whiteboard: "Kitchen whiteboard",
+  insert: "Insert files beside a draft",
   richEdit: "Seed inventory",
   shed: "Bike shed",
   heap: "Compost heap",

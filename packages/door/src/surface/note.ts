@@ -95,7 +95,7 @@ import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, wheelTarget, writtenBy, type EditFrame } from "./editor";
 import { composerBody, composerBox, placeBox, type ComposerBox } from "./composer";
 import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
-import { pickInto, type Picked } from "../pick";
+import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, threadAgents } from "../extensions";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
@@ -3253,6 +3253,7 @@ export class NoteSurface {
     if (d.busy) throw new ActionRefused("the save is still landing");
     const r = await pickInto(host.ctx, d, { socket: host.ctx.board.path, name: host.ctx.board.outline }, {
       ...(channel !== undefined ? { channel } : {}),
+      cwd: await pickerCwd(host.ctx.board, { blockId: this.msg?.id, ...(this.draft === d ? { draft: { text: d.text }, line: d.row } : {}) }),
       held: () => this.draft === d || this.session?.composer === d,
     });
     if ("kept" in r) host.ctx.flash(`${r.why}: ${r.kept} · copied to ${r.at}`, 12000);

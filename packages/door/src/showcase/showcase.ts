@@ -1220,6 +1220,14 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · front matter", panes: [a, b], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[a, n.frontMatter], [b, n.frontMatterAgent]]);
     },
   },
+  {
+    key: "insert", need: "choose files or notes without leaving a draft", part: "draft.pick, pickInto, Site cwd scope and the desk's temporary terminal tile", files: "src/pick.ts, src/surface/note.ts, src/desk/desk.ts",
+    aside: "e then Enter edits; [insert] or Ctrl+T opens the picker. Its title shows the folder. Mark two files and Enter inserts two absolute - [file::...] lines. Television owns its marks. Try the same draft in the drawer (tile.drawer).",
+    stage(n, show) {
+      const reader = new ReaderPane(), guide = new ReaderPane();
+      return deskOf({ title: "showcase · insert", panes: [reader, guide], names: ["reader", "guide"], layout: ([a, b]) => row(0.65, a!, b!) }, show, [[reader, n.insert], [guide, n.insert]]);
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */
