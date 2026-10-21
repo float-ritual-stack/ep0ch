@@ -86,7 +86,7 @@ import { markReveal, revealOn } from "../reveal";
 import { liveMarkValue, liveRowStatus } from "@ep0ch/outline-core/figure-live";
 import { fieldsBlocksOf } from "@ep0ch/outline-core/site-blocks";
 import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
-import { visible, headOf, tailFrom, BOLD, fgRgb, ellipsize, drawEllipsized, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
+import { visible, headOf, tailFrom, BOLD, bgRgb, fgRgb, ellipsize, drawEllipsized, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rowLines, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
@@ -397,7 +397,7 @@ interface Laid {
 }
 
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
-export interface SurfaceView { completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll }
+export interface SurfaceView { headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll }
 export type Link = LinkTarget;
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
 /** The density after `d`, round again: compact, cozy, comfortable. */
@@ -1257,7 +1257,7 @@ export class NoteSurface {
     if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
     const above = hero.placement?.row ?? 0;
     const p = hero.placement && inWindow(hero.placement, cut + above, Math.min(h, hero.box.rows - cut) - above, above);
-    return { ...v, lines: [...lines, ...v.lines], gutter: v.gutter?.map(g => ({ ...g, row: g.row + shown })), placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
+    return { ...v, headerBand: v.headerBand && { ...v.headerBand, row: shown }, lines: [...lines, ...v.lines], gutter: v.gutter?.map(g => ({ ...g, row: g.row + shown })), placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
   }
 
   /**
@@ -1506,6 +1506,7 @@ export class NoteSurface {
       const row = under ? (own ? under.map(c => surfaceMix(role, share, c) ?? c) : under) : ground ? [ground] : null;
       if (row?.length) lines[r] = overColours(lines[r]!, w, row);
     }
+    return ground ? { row: 0, rows, bg: bgRgb(ground) } : undefined;
   }
 
   /**
@@ -1884,7 +1885,7 @@ export class NoteSurface {
     // goes under them.
     const headerRows = Math.min(lines.length, top);
     const shade = this.heroBackdrop(m, doc, noteLines, w, headerRows, host, this.scroll);
-    this.headerSurface(lines, headerRows, w, shade);
+    const headerBand = this.headerSurface(lines, headerRows, w, shade);
     placements.unshift(...shade.placements);
     const gutter: { row: number; text: string }[] = [];
     const gutterRows = new Map<number, string>();
@@ -1935,7 +1936,7 @@ export class NoteSurface {
       lines.push(foot.line);
       for (const x of foot.hits) this.hits.push({ row: h, from: x.from, to: x.to, history: x.dir });
     }
-    return room > 0 ? { lines, placements, gutter, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements };
+    return room > 0 ? { lines, placements, gutter, headerBand, scroll: { top: this.scroll, room, total: body.length } } : { lines, placements, headerBand };
   }
 
   private readonly fieldsDrawing: FieldsDrawing = new Map();

@@ -28,7 +28,7 @@ import { newNoteOffer, type KeySpot } from "../new-note";
 import { prop } from "../props";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
-export interface PaneView { completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
+export interface PaneView { headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
 
 export interface DeskApi {
   ctx: Ctx;

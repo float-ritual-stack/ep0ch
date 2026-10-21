@@ -132,6 +132,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "style" }, as: "test-agent" })).toMatchObject({ key: "style" });
     await until(() => marks.style!.every(m => screen().includes(m)) && /· · · ·/.test(screen()), "the lab, its dividers and the inspector", 8000);
+    await app.act({ action: "tune.pick", args: { n: TUNE_ROWS.findIndex(r => r.name === "list.gap") + 1 }, tile: "tune", as: "test-agent" });
     expect(screen()).toMatch(/list\.gap +1 +← style lab/);
     const gap = () => { const l = screen().split("\n"); return l.findIndex(x => x.includes("Chillies in")) - l.findIndex(x => x.includes("Tomatoes on")); };
     const before = gap();
@@ -157,6 +158,12 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       expect(narrow).toContain("this tile");
       expect(narrow).toContain("this list");
     }
+    await app.act({ action: "tune.group.pick", args: { group: "Header" }, tile: "tune", as: "test-agent" });
+    expect(tune.render(67, 45, true, stage).lines.map(plain).join("\n")).toContain("Header (");
+    await app.act({ action: "tune.group", args: { group: "Header" }, tile: "tune", as: "test-agent" });
+    expect(tune.render(67, 45, true, stage).lines.map(plain).some((l: string) => / header.bg +/.test(l))).toBe(false);
+    await app.act({ action: "tune.group", args: { group: "Header" }, tile: "tune", as: "test-agent" });
+    await app.act({ action: "tune.pick", args: { n: TUNE_ROWS.findIndex(r => r.name === "measure") + 1 }, tile: "tune", as: "test-agent" });
     for (let n = 0; n < 3; n++) await app.act({ action: "tune.undo", tile: "tune", as: "test-agent" });
     // The person's keys: into the stage, 2 to the inspector, + nudges the measure a step (4 columns), u takes it back.
     press({ kind: "enter" });

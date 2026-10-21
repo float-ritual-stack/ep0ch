@@ -3526,6 +3526,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const out: Placement[] = [];
     if (!view) return out;
+    if (view.headerBand) {
+      const band = view.headerBand, row = band.row ? inner.row + band.row : framed.row;
+      canvas.clear({ ...framed, row, rows: Math.min(framed.row + framed.rows, inner.row + band.row + band.rows) - row }, band.bg);
+    }
     for (const g of view.gutter ?? []) {
       if (g.row < inner.rows) canvas.text(framed.col, inner.row + g.row, g.text, gutter);
     }

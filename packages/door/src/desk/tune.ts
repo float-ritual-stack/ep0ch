@@ -19,14 +19,15 @@ import { wrap, rowLines } from "../text";
 // Every key and click is an action (TUNE_ACTIONS), so an agent tunes the same way, said on the screen and never with
 // the person's keys.
 import {
-  fieldKey, isListField, levelOfSave, nudgeStyleValue, parseFieldKey, parseStyleAttrs, parseStyleValue, resolveStyle, SAVE_LEVELS, STYLE_LEVELS, STYLE_TOKEN_NAMES, styleProperty, STYLE_TOKENS, styleValueText,
-  SURFACE_STEPS, type Breakpoint, type StyleLayer, type StyleSource, type StyleToken, type StyleValue, type Surface,
+  fieldKey, isListField, levelOfSave, nudgeStyleValue, parseFieldKey, parseStyleAttrs, parseStyleValue, resolveStyle, SAVE_LEVELS, STYLE_LEVELS, STYLE_GROUPS, STYLE_TOKEN_NAMES, styleProperty, STYLE_TOKENS, styleValueText,
+  SURFACE_STEPS, type Breakpoint, type StyleGroup, type StyleLayer, type StyleSource, type StyleToken, type StyleValue, type Surface,
 } from "@ep0ch/outline-core/style-cascade";
 import { liveTokensInLine } from "@ep0ch/outline-core/heading-styles";
 import {
   clearNotes, levelNotes, listTarget, lookFor, parseListTarget, writeLine, writeTile, revertAll, rewrite, saveTuning, sourceTarget, stepWords, targetWords, tuneTarget, tuningOf, UNSET,
   type Look, type NoteWrite, type StyleWriteBoard, type TuneTarget,
 } from "../look";
+import { readState, writeState } from "../state";
 import { surfaceMix } from "../theme";
 import type { Actor } from "../socket";
 import { ActionRefused, actionSet, agentLabel, def } from "../surface/actions";
@@ -52,14 +53,14 @@ export const TUNE_LEVEL_MEANINGS: Record<TuneLevel, string> = {
 
 /** One row of the inspector: a token, or a pair set together (`pad`: a row and two columns, cells being twice as tall as wide). */
 interface TuneRow { name: string; tokens: readonly StyleToken[] }
-const firstToken = STYLE_TOKEN_NAMES.indexOf("measure");
+const groupOf = (row: TuneRow): StyleGroup => (STYLE_TOKENS[row.tokens[0]!] as { group?: StyleGroup }).group ?? "Other";
 export const TUNE_ROWS: readonly TuneRow[] = [
-  ...[...STYLE_TOKEN_NAMES.slice(firstToken), ...STYLE_TOKEN_NAMES.slice(0, firstToken)].flatMap(name => [
+  ...STYLE_TOKEN_NAMES.flatMap(name => [
     ...(name === "pad.x" ? [{ name: "pad", tokens: ["pad.y", "pad.x"] as StyleToken[] }] : []),
     ...(name === "margin.x" ? [{ name: "margin", tokens: ["margin.y", "margin.x"] as StyleToken[] }] : []),
     { name, tokens: [name as StyleToken] },
   ]),
-];
+].sort((a, b) => STYLE_GROUPS.indexOf(groupOf(a)) - STYLE_GROUPS.indexOf(groupOf(b)));
 const rowNamed = (name: string) => TUNE_ROWS.find(r => r.name === name.trim().toLowerCase());
 
 /** What the inspector sees of the tile it tunes (DeskApi.tileLook). */
@@ -102,6 +103,9 @@ export class TunePane implements Pane {
   readonly kind = "tune";
   besideShort = false;
   sel = 0;
+  group: StyleGroup | null = null;
+  foldedGroups = new Set(readState<StyleGroup[]>("tune-folds.json") ?? []);
+  onlySet = false;
   /**
    * The level a nudge goes to and a save writes: `auto` (where the value comes from, as devtools edits the rule that
    * applies: a named style, the page, the tile's kind…; the tile's kind for a built-in), or one picked.
@@ -128,7 +132,7 @@ export class TunePane implements Pane {
   unsaved() { return this.view.unsaved(); }
   keepDrafts() { return this.view.keep(); }
   dispose() { void this.view.field?.session.leave(); }
-  hint() { if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; if (this.view.field) return "editing · Enter save · Esc cancel"; return "e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all"; }
+  hint() { if (this.section === "hints") return "H values · j k pick · c card · s status · o off · R reset all"; if (this.view.field) return "editing · Enter save · Esc cancel"; return "Enter fold · f set here · e edit · j k pick · + − nudge · v level · w width · s save · u undo · U redo · x reset value · X reset level · R revert all"; }
   spec() { return { source: `tile:${this.source}` }; }
 
   info(desk: DeskApi): TuneTargetInfo | null { return desk.tileLook?.(this.source) ?? null; }
@@ -191,9 +195,23 @@ export class TunePane implements Pane {
     };
   }
 
+  entries(t: TuneTargetInfo): ({ group: StyleGroup } | { index: number })[] {
+    return STYLE_GROUPS.flatMap(group => [
+      { group } as { group: StyleGroup } | { index: number },
+      ...TUNE_ROWS.flatMap((row, index) => groupOf(row) === group && !this.foldedGroups.has(group) && (!this.onlySet || row.tokens.some(tk => this.ownValue(t, tk) !== null)) ? [{ index }] : []),
+    ]);
+  }
+
+  move(by: number, desk: DeskApi) {
+    const t = this.info(desk); if (!t) return;
+    const rows = this.entries(t), at = rows.findIndex(r => "group" in r ? r.group === this.group : this.group === null && r.index === this.sel);
+    const next = rows[Math.max(0, Math.min(rows.length - 1, at + by))]!;
+    this.run(desk, "group" in next ? "tune.group.pick" : "tune.pick", "group" in next ? { group: next.group } : { n: next.index + 1 });
+  }
+
   async editField(desk: DeskApi) {
     const row = TUNE_ROWS[this.sel]!, t = this.info(desk);
-    if (!t || row.tokens.length !== 1) throw new ActionRefused("choose a single value row to edit");
+    if (!t || this.group || row.tokens.length !== 1) throw new ActionRefused("choose a single value row to edit");
     const token = row.tokens[0]!, kind = STYLE_TOKENS[token].type;
     const choices = kind.kind === "enum" ? [...kind.values] : kind.kind === "bool" ? ["on", "off"] : [];
     const target = this.aimAt(t, token);
@@ -282,6 +300,7 @@ export class TunePane implements Pane {
       ]);
     } else lines.push("");
     if (t.look.problems.length) words(`!! ${t.look.problems.join(" · ")}`, C.yellow);
+    chips([{ label: this.onlySet ? "[set here]" : "[all values]", on: this.onlySet, action: "tune.filter", args: { set: !this.onlySet } }]);
     const help = wrap(TUNE_HELP, w);
     this.head = lines.length;
     const { values, sources } = this.values(t);
@@ -297,9 +316,19 @@ export class TunePane implements Pane {
       const lv = this.level === "auto" ? "where set" : this.level;
       lines.push(fg(C.dark) + pad("", nameW) + pad("in force", valW) + fg(C.lcyan) + " " + pad(drawEllipsized(`${lv}${this.scope === "this" && t.look.breakpoint ? ` ${t.look.breakpoint}` : ""}`, lvlW - 2), lvlW - 1) + fg(C.dark) + "from" + RESET);
     }
-    this.view.place(this.sel, TUNE_ROWS.length, picked ? room - 1 : room);
-    for (let i = this.view.top; i < Math.min(TUNE_ROWS.length, this.view.top + (picked ? room - 1 : room)); i++) {
-      const row = TUNE_ROWS[i]!, on = i === this.sel, last = row.tokens[row.tokens.length - 1]!;
+    const entries = this.entries(t);
+    const cursor = entries.findIndex(r => "group" in r ? r.group === this.group : this.group === null && r.index === this.sel);
+    this.view.place(Math.max(0, cursor), entries.length, picked ? room - 1 : room);
+    for (const entry of entries.slice(this.view.top, this.view.top + (picked ? room - 1 : room))) {
+      if ("group" in entry) {
+        const group = entry.group, on = this.group === group;
+        const count = STYLE_TOKEN_NAMES.filter(tk => groupOf({ name: tk, tokens: [tk] }) === group && this.ownValue(t, tk) !== null).length;
+        const body = `${this.foldedGroups.has(group) ? "▸" : "▾"} ${group} (${count} set here)`;
+        this.controls.push({ y: lines.length, x: 0, cols: w, action: "tune.group", args: { group } });
+        lines.push(on ? selectedRow(body, w, focused) : fg(C.lcyan) + body + RESET);
+        continue;
+      }
+      const i = entry.index, row = TUNE_ROWS[i]!, on = this.group === null && i === this.sel, last = row.tokens[row.tokens.length - 1]!;
       const text = row.tokens.map(tk => styleValueText(values[tk] as StyleValue)).join(" ");
       const shown = text === "" ? (t.hero ? "(the hero)" : "none (this note has no hero)") : text;
       // A surface's row shows it: a swatch of the colour it draws, at the strength (or opacity) it's drawn at.
@@ -325,7 +354,7 @@ export class TunePane implements Pane {
       this.controls.push({ y, x: unset, cols: 1, action: "tune.unset", args: { row: row.name } }, { y, x: minus, cols: 3, action: "tune.nudge", args: { row: row.name, by: -1 } }, { y, x: minus + 4, cols: 3, action: "tune.nudge", args: { row: row.name, by: 1 } });
       lines.push((on ? selectedRow(body, nameW + valW + lvlW + srcW, focused) : body) + " " + fg(C.dark) + "×" + RESET + " " + fg(C.cyan) + "[−] [+]" + RESET);
     }
-    if (TUNE_ROWS[this.sel]?.name === "header.image" && !values["header.image"]) words(t.hero ? "(the hero)" : "none (this note has no hero)", C.lcyan);
+    if (!this.group && TUNE_ROWS[this.sel]?.name === "header.image" && !values["header.image"]) words(t.hero ? "(the hero)" : "none (this note has no hero)", C.lcyan);
     lines.push(...help.map(l => fg(C.dark) + l + RESET));
     return { lines };
   }
@@ -343,6 +372,8 @@ export class TunePane implements Pane {
       if (c === "R") { this.run(desk, "hints.reset", {}); return true; }
       return false;
     }
+    if (k.kind === "enter" && this.group) return this.run(desk, "tune.group", { group: this.group }), true;
+    if (c === "f") return this.run(desk, "tune.filter", { set: !this.onlySet }), true;
     if (c === "e" || k.kind === "enter") { this.run(desk, "tune.edit", {}); return true; }
     // A step waiting in place: its own key again confirms; any other lets it go (and esc is only that).
     if (this.armed) {
@@ -358,8 +389,8 @@ export class TunePane implements Pane {
       this.offer = null; desk.redraw();
       if (k.kind === "esc") return true;
     }
-    if (isUp(k)) return this.run(desk, "tune.pick", { n: Math.max(1, this.sel) }), true;
-    if (isDown(k)) return this.run(desk, "tune.pick", { n: Math.min(TUNE_ROWS.length, this.sel + 2) }), true;
+    if (isUp(k)) return this.move(-1, desk), true;
+    if (isDown(k)) return this.move(1, desk), true;
     if (c === "+" || c === "=" || c === "l" || k.kind === "right") return this.run(desk, "tune.nudge", { by: 1 }), true;
     if (c === "-" || c === "_" || c === "h" || k.kind === "left") return this.run(desk, "tune.nudge", { by: -1 }), true;
     // v, not tab: the desk takes tab to go to the next tile before a tile's own keys.
@@ -399,7 +430,7 @@ export class TunePane implements Pane {
     if (k.action === "wheel-up" || k.action === "wheel-down") {
       const up = k.action === "wheel-up";
       if (at && x >= at.valueFrom && x < at.valueTo) this.run(desk, "tune.nudge", { row: TUNE_ROWS[at.row]!.name, by: up ? 1 : -1 });
-      else this.run(desk, "tune.pick", { n: Math.max(1, Math.min(TUNE_ROWS.length, this.sel + 1 + (up ? -1 : 1))) });
+      else this.move(up ? -1 : 1, desk);
       return true;
     }
     if (k.action !== "down") return true;
@@ -425,7 +456,8 @@ export class TunePane implements Pane {
     const picked = this.level !== "auto" || this.scope === "this";
     return {
       tile: this.source, kind: t.kind, cols: t.cols, breakpoint: t.look.breakpoint, level: this.level, scope: this.scope, ...(t.box ? { box: t.box } : {}),
-      selected: TUNE_ROWS[this.sel]!.name,
+      selected: this.group ?? TUNE_ROWS[this.sel]!.name,
+      groups: STYLE_GROUPS.map(group => ({ group, folded: this.foldedGroups.has(group) })), onlySet: this.onlySet,
       values: Object.fromEntries((Object.keys(STYLE_TOKENS) as StyleToken[]).map(tk => {
         const a = picked ? this.aimAt(t, tk) : null, own = a ? this.ownValue(t, tk) : null, sh = picked ? this.shadowOf(t, tk) : null;
         return [tk, {
@@ -515,6 +547,35 @@ function listOnly(target: TuneTarget, field: string, t: TuneTargetInfo, tuning: 
 const stepSaid = (actor: Actor, desk: DeskApi, words: string) => { desk.ctx.flash(says(actor, words)); return words; };
 
 export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
+  "tune.group.pick": def({
+    summary: "pick a token group heading", keys: "j k, arrows, wheel", touches: "tile", replay: "safe",
+    examples: [{ act: "tune.group.pick group=Header tile=tune", does: "picks the Header heading" }],
+    args: { group: { type: "string", about: "the group heading" } },
+    run({ group }, { pane, desk }) {
+      const found = STYLE_GROUPS.find(g => g === group);
+      if (!found) throw new ActionRefused(`choose a group: ${STYLE_GROUPS.join(", ")}`);
+      pane.group = found; desk.redraw(); return { group: found };
+    },
+  }),
+  "tune.group": def({
+    summary: "fold or open a token group, kept for this person", keys: "Enter on a group, click its heading", touches: "tile", replay: "safe",
+    examples: [{ act: "tune.group group=Header tile=tune", does: "folds or opens the header tokens" }],
+    args: { group: { type: "string", about: "the group heading" } },
+    run({ group }, { pane, desk }) {
+      const found = STYLE_GROUPS.find(g => g === group);
+      if (!found) throw new ActionRefused(`choose a group: ${STYLE_GROUPS.join(", ")}`);
+      pane.group = found;
+      if (pane.foldedGroups.has(found)) pane.foldedGroups.delete(found); else pane.foldedGroups.add(found);
+      writeState("tune-folds.json", [...pane.foldedGroups]);
+      desk.redraw(); return { group: found, folded: pane.foldedGroups.has(found) };
+    },
+  }),
+  "tune.filter": def({
+    summary: "show all tokens or only values set at the chosen level, keeping declaration order", keys: "f, click the filter", touches: "tile", replay: "safe",
+    examples: [{ act: "tune.filter set=true tile=tune", does: "shows only values set at the chosen level" }],
+    args: { set: { type: "boolean", about: "only values set here" } },
+    run({ set }, { pane, desk }) { pane.onlySet = set; desk.redraw(); return { set }; },
+  }),
   "tune.section": def({ summary: "show values or the personal Hints list in the tune inspector", keys: "H, click", touches: "tile", replay: "safe", args: { section: { type: "string", about: "values or hints" } }, examples: [{ act: "tune.section section=hints", does: "shows every hint and its setting" }], run: (a, { pane, desk }) => {
     if (a.section !== "hints" && a.section !== "values") throw new ActionRefused("section is values or hints");
     pane.section = a.section; pane.view.top = 0; desk.redraw(); return { section: pane.section };
@@ -546,7 +607,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     ],
     run({ n }, { pane, desk }) {
       if (!Number.isInteger(n) || n < 1 || n > TUNE_ROWS.length) throw new ActionRefused(`n is 1-${TUNE_ROWS.length}`);
-      pane.sel = n - 1;
+      pane.sel = n - 1; pane.group = null; pane.foldedGroups.delete(groupOf(TUNE_ROWS[pane.sel]!));
       desk.redraw();
       return { row: TUNE_ROWS[pane.sel]!.name };
     },
@@ -567,7 +628,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       { act: "tune.nudge by=-1 row=list.gap level=screen width=this tile=tune", does: "tightens the list gap for this screen's current width only" },
     ],
     async run({ by, row, level, width, shadow }, { pane, desk }, actor) {
-      const r = row === undefined ? TUNE_ROWS[pane.sel]! : rowNamed(row);
+      const r = row === undefined ? (pane.group ? undefined : TUNE_ROWS[pane.sel]) : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
       if (level !== undefined && !TUNE_LEVELS.includes(level as TuneLevel)) throw new ActionRefused(`level is ${TUNE_LEVELS.join(", ")}`);
       if (shadow !== undefined && !["anyway", "instead", "clear"].includes(shadow)) throw new ActionRefused("shadow is anyway, instead or clear");
@@ -658,7 +719,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       { act: "tune.unset row=measure tile=tune", does: "takes away what sets the measure here, so it falls back to what it inherits" },
     ],
     async run({ row }, { pane, desk }, actor) {
-      const r = row === undefined ? TUNE_ROWS[pane.sel]! : rowNamed(row);
+      const r = row === undefined ? (pane.group ? undefined : TUNE_ROWS[pane.sel]) : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
       const t = fresh(pane, desk);
       // Decided for every token before any is changed: a pair (pad) is reset whole or not at all.

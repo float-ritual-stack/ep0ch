@@ -51,6 +51,7 @@ export const SPACING_LAB = [
   "## The published look",
   "[[Garden dispatch]] uses `[publish-skin::dispatch]` on the web: dark phosphor, a masthead and newsprint rules over the same publisher HTML. [[skins/dispatch]] holds its CSS. A child inherits the skin; its own publish-skin selects another. The terminal keeps its own look.",
   "",
+  "Tune groups follow the cascade declarations. Enter or a click folds a heading, kept for you; f filters to values set at the chosen level.",
   "The end of the lab.",
 ].join("\n");
 
