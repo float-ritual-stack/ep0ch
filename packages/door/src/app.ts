@@ -696,7 +696,7 @@ export class App implements Ctx {
     this.flash(dirty.length ? "an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)" : warn!);
     return false;
   }
-  inTile(p: TileProgram, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.inTile?.(p, done) ?? false; }
+  inTile(p: TileProgram, done: (code: number | null) => void): boolean { return (this.drawer.entered ? this.drawer.desk : this.stack.at(-1))?.inTile?.(p, done) ?? false; }
   confirmQuit(): boolean { return this.leaving([...this.stack, ...this.background], true); }
   get detaches(): boolean { return !!this.term.detachActive; }
   typingOn(): unknown { return this.term.typingOn?.() ?? null; }

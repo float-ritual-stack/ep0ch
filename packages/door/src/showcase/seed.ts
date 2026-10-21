@@ -9,6 +9,7 @@
 //
 // The notes' text and fixtures are by area in seed/ (names, work, figures, notes, media, margin, extensions, looks,
 // echonet); this file keeps the order they are written in. A new section's content is a new file there.
+import { INSERT } from "./seed/insert";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { outputRegionText } from "@ep0ch/outline-core/output-region";
@@ -283,6 +284,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.exampleOrder = pasted.get("ex2-order")!;
   notes.exampleGame = pasted.get("ex3-game")!;
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
+  notes.insert = await make(notes.root.id, INSERT);
   notes.richEdit = await make(notes.root.id, [
     SEED.richEdit, "", "Edit the cells here. Ctrl+O switches the same draft to raw source and back.", "",
     "| Crop | Packets |", "| --- | ---: |", "| Beans | 4 |", "| Peas | 2 |", "",

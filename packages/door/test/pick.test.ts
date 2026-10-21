@@ -1,8 +1,10 @@
 // Insert from a picker (src/pick.ts): ctrl+t in a draft hands the terminal to a picker program and puts what it
 // printed at the cursor. Here the picker is a shell line that prints (no tv): the real handover path, the output
-// file, the environment it's given, and what goes in. No service: the reader's host is a stand-in.
+// file, the environment it's given, and what goes in. The reader action resolves its folder through a scratch service.
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { Draft } from "../src/edit";
 import { atCursor, channelOf, pickedText, pickerOf, pickerRun, pickInto, pickRunner } from "../src/pick";
 import { USER } from "../src/socket";
@@ -12,6 +14,8 @@ import { Dispatcher } from "../src/surface/dispatch";
 import { BOARD_ACTIONS } from "../src/desk/lanes";
 import { runProgram, type Handover } from "../src/term";
 import type { Msg } from "../src/board";
+import { SocketBoard } from "../src/socket";
+import { Scratch } from "./scratch";
 
 const OUTLINE = { socket: "/tmp/fictional/outlines/.host/host.sock", name: "garden" };
 /** The door stepping aside: the program runs with this process's stdio, as `ctx.suspend` hands the terminal over. */
@@ -66,8 +70,26 @@ describe("pickInto: the terminal handed over, the choice put in", () => {
 
   test("the channel is the picker's argument, and the picker sees the draft's outline", async () => {
     const d = draft("", 0);
-    await withEnv({ EP0CH_PICKER: `sh -c 'echo "$EP0CH_WS:$1"' sh` }, () => pickInto(stepAside(), d, OUTLINE, { channel: "ep0ch-files" }));
+    await withEnv({ EP0CH_PICKER: `sh -c 'echo "$EP0CH_WS:$1"' sh` }, () => pickInto(stepAside(), d, OUTLINE, { channel: "ep0ch-files", cwd: "/tmp" }));
     expect(d.text).toBe("garden:ep0ch-files");
+  });
+
+  test("real paths become file tokens; one stays inline mid-line and an empty line or several picks makes a list", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "picker-files-"));
+    const file = join(folder, "garden beds.md");
+    writeFileSync(file, "Beds");
+    try {
+      for (const printed of ["garden beds.md", file, `[file::${file}]`]) {
+        for (const empty of [false, true]) {
+          const d = draft(empty ? "" : "See here", empty ? 0 : 3);
+          await withEnv({ EP0CH_PICKER: "printf '%s\\n'" }, () => pickInto(stepAside(), d, OUTLINE, { channel: printed, cwd: folder }));
+          expect(d.text).toBe(empty ? `- [file::${file}]` : `See [file::${file}] here`);
+        }
+      }
+      const d = draft("See here", 3);
+      await withEnv({ EP0CH_PICKER: "printf '%s\\n'" }, () => pickInto(stepAside(), d, OUTLINE, { channel: `${file}\n[file::${file}]`, cwd: folder }));
+      expect(d.text).toBe(`See\n- [file::${file}]\n- [file::${file}]\n here`);
+    } finally { rmSync(folder, { recursive: true, force: true }); }
   });
 
   test("nothing chosen, or a picker that isn't there: nothing goes in, and the draft says so", async () => {
@@ -113,7 +135,7 @@ describe("pickInto on a screen with tiles: the picker beside the note", () => {
     expect(r).toEqual({ inserted: " ((garden-c1))" });
     expect(d.text).toBe("Ask about ((garden-c1)) the shed");
     expect(log).toEqual([]);                                          // the terminal was never handed over
-    expect(seen).toEqual([{ name: "pick", shows: expect.stringContaining("c1"), env: expect.objectContaining({ EP0CH_WS: "garden", EP0CH_MACHINE: null }) }]);
+    expect(seen).toEqual([{ name: "pick", shows: homedir(), env: expect.objectContaining({ EP0CH_WS: "garden", EP0CH_MACHINE: null }) }]);
     // Done: the next ctrl+t opens a picker again.
     await withEnv({ EP0CH_PICKER: "true" }, () => pickInto(tiles(seen), d, OUTLINE));
     expect(seen.length).toBe(2);
@@ -143,12 +165,19 @@ describe("ctrl+t and [insert] in a reader's edit (draft.pick)", () => {
 
   test("ctrl+t is the draft's pick; the action puts the choice at the edit's cursor", async () => {
     expect(new Draft("n1", 1, "x").key({ kind: "char", ch: "t", ctrl: true })).toBe("pick");
-    const s = new NoteSurface(), h = host([]);
-    s.show(note, h);
-    const d = s.startDraft({ ...note }, h).draft;
-    d.place(1, Infinity);
-    await withEnv({ EP0CH_PICKER: "echo" }, () => NOTE_ACTIONS.run("draft.pick", { channel: "((b2))" }, { surface: s, host: h }, USER));
-    expect(d.text).toBe("Shed list\nOil the chain. ((b2))");
+    const scratch = new Scratch();
+    await scratch.start();
+    const board = new SocketBoard(scratch.sock);
+    try {
+      const saved = await board.createBlock(null, note.text);
+      const s = new NoteSurface(), h = host([]);
+      h.ctx.board = board;
+      s.show(saved, h);
+      const d = s.startDraft(saved, h).draft;
+      d.place(1, Infinity);
+      await withEnv({ EP0CH_PICKER: "echo" }, () => NOTE_ACTIONS.run("draft.pick", { channel: "((b2))" }, { surface: s, host: h }, USER));
+      expect(d.text).toBe("Shed list\nOil the chain. ((b2))");
+    } finally { board.close(); await scratch.dispose(); }
   });
 
   test("an agent's is refused by the dispatcher: it would take the person's terminal; nothing runs", async () => {
