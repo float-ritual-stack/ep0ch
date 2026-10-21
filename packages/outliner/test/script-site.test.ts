@@ -344,7 +344,8 @@ test("moving a named fence preserves its explicit effects and ordinary note effe
   const { store, create, client } = await setup();
   const note = create("Workbench [effects::write]");
   const target = create("Garden");
-  for (const effects of ["read", "write", undefined]) {
+  const settings: ("read" | "write" | undefined)[] = ["read", "write", undefined];
+  for (const effects of settings) {
     const fence = "```js script=traveller" + (effects ? ` effects=${effects}` : "") + "\nawait tools.outline_set_property({ ref: this.id, key: 'visited', value: 'yes', revision: this.revision });\nreturn 'visited';\n```";
     for (const matching of [false, true, false]) {
       const current = store.require(note.id);
