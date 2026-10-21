@@ -2012,7 +2012,10 @@ export class OutlinerServer {
         const access = levels[Math.min(levels.indexOf(request.access), levels.indexOf(this.mcpAccess().level))];
         if (access !== "propose" && access !== "full") throw new Error(`MCP access is ${access}: no script runs`);
         await this.extensionRegistry.reload();
-        const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === request.blockId);
+        const scripts = this.extensionRegistry.serving().filter(e => e.script?.blockId === request.blockId);
+        const name = this.store.require(request.blockId).properties.find(p => p.key === "script")?.value;
+        if (!name && scripts.length > 1) throw new Error(`This block has several scripts: ${scripts.map(e => e.name).join(", ")}. Set [script::name] to choose the note's own script, or run one by name from the door`);
+        const extension = name ? scripts.find(e => e.name === name) : scripts[0];
         if (!extension) throw new Error("This block has no runnable script; add [script::name] and a closed js or ts fence");
         const result = this.scriptRuns.start(extension, { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(typeof request.door === "string" ? { clientId: request.door } : {}) });
         return { id: request.id, ok: true, result, sequence: this.store.sequence };

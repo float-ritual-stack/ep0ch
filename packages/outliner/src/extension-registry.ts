@@ -505,7 +505,7 @@ export class ExtensionRegistry {
   list(draft?: { blockId: string; sources: readonly ManifestSource[] }): ExtensionsListResult {
     const slots = draft ? [
       ...draft.sources.map(source => this.sourceSlot(source, new Date().toISOString())),
-      ...this.slots.filter(slot => slot.serving?.script?.blockId !== draft.blockId),
+      ...this.slots.filter(slot => slot.scriptBlockId !== draft.blockId),
     ] : this.slots;
     const extensions = slots.map((slot): ExtensionEntry => {
       const extension = slot.serving;

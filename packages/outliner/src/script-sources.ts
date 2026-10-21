@@ -34,11 +34,17 @@ export const scriptSourceId = (identity: string) => `script-${hash(identity).sli
 const FENCES = SCRIPT_FENCE.languages;
 
 /** A named script, or the note script's first unnamed eligible fence (empty when unclosed or absent). */
-export function scriptFence(text: string, named?: ScriptSource["fence"]): { code: string; format?: "actions" } {
+export function scriptFence(text: string, named?: ScriptSource["fence"]): { code: string; effects: "read" | "write"; format?: "actions" } {
   const lines = text.split("\n");
   const fence = codeBlocks(lines).fences.filter(f => FENCES.includes(codeFenceInfo(f.fence.info).language) && (named ? codeFenceInfo(f.fence.info).attrs.script === named.name : !codeFenceInfo(f.fence.info).attrs.script))[named?.occurrence ?? 0];
   const code = fence?.closed ? lines.slice(fence.start + 1, fence.end).map(line => line.slice(Math.min(fence.fence.indent, line.length))).join("\n") : "";
-  return { code, ...(fence && codeFenceInfo(fence.fence.info).language === "actions" ? { format: "actions" as const } : {}) };
+  const properties = parsePropertyRecords(text).filter(p => p.scope === "block");
+  const noteName = properties.find(p => p.key === "script")?.value;
+  const attrs = named && fence ? codeFenceInfo(fence.fence.info).attrs : {};
+  const effects = attrs.effects === undefined
+    ? (!named || noteName === named.name) && properties.some(p => p.key === "effects" && p.value === "write")
+    : attrs.effects === "write";
+  return { code, effects: effects ? "write" : "read", ...(fence && codeFenceInfo(fence.fence.info).language === "actions" ? { format: "actions" as const } : {}) };
 }
 
 /** The names a js script reads from `props` (`props.week`, `props["week"]`): the slots it takes (`week=42`). */
@@ -84,11 +90,10 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
       const name = attrs.script!;
       const setting = (key: string) => attrs[key] ?? (noteName === name ? block.properties.find(p => p.key === key)?.value : undefined);
       const noteValues = (key: string) => noteName === name ? block.properties.filter(p => p.key === key).map(p => p.value) : [];
-      const effects = (attrs.effects === undefined ? noteValues("effects").includes("write") : attrs.effects === "write") ? "write" as const : "read" as const;
       const render = attrs.mode === undefined ? noteValues("mode").includes("render") : attrs.mode === "render";
       const deadline = durationMs(setting("deadline"));
       const definition = isNamed ? { name, occurrence: named.filter(f => f.start < fence!.start && codeFenceInfo(f.fence.info).attrs.script === name).length } : undefined;
-      const { code } = scriptFence(block.text, definition);
+      const { code, effects } = scriptFence(block.text, definition);
       const problem = render && effects === "write" ? `Script ${name} is mode=render, which draws a view and never writes: remove effects=write, or remove mode=render to run it as an action` : undefined;
       add(isNamed ? `${block.id}:${name}:${definition!.occurrence}` : block.id, name,
         { code, keys: (attrs.keys === undefined ? noteValues("keys") : [attrs.keys]).flatMap(value => value.split(",").map(k => k.trim()).filter(Boolean)), ...(language === "actions" ? { format: "actions" as const } : {}), blockId: block.id, ...(isNamed ? { line: fence!.start, fence: definition } : {}), revision: block.revision,

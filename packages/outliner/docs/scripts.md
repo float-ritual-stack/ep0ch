@@ -63,12 +63,12 @@ A note's `[script::y]` script is its first eligible fence with no `script=` name
 
 | Part | Written | Means | Source |
 |---|---|---|---|
-| `script` | `[script::name]` | The script's name: its power-bar name, its `name::` handler line, its `@name` responder (an `@name` responder only when it starts with a lower-case letter and is lower case, digits and hyphens, up to 32). | `packages/outliner/src/script-sources.ts:47` |
-| the fence | a closed `js` or `ts` fence | The matching named fence, or the first unnamed `js`, `javascript`, `ts`, `typescript` or `actions` fence, is the code. TypeScript is stripped, not type-checked. For the note form, only that fence counts; if it is unclosed the script is empty (nothing runs, nothing is refused). | `packages/outliner/src/script-sources.ts:44` |
-| `mode` | `[mode::render]` | A handler: a line `name::` draws what the script returns. See [Modes](#modes). | `packages/outliner/src/script-sources.ts:61` |
-| `effects` | `[effects::write]` | May call write tools and `act`. Absent: read-only. | `packages/outliner/src/script-sources.ts:87` |
-| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:89` |
-| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:93` |
+| `script` | `[script::name]` | The script's name: its power-bar name, its `name::` handler line, its `@name` responder (an `@name` responder only when it starts with a lower-case letter and is lower case, digits and hyphens, up to 32). | `packages/outliner/src/script-sources.ts:50` |
+| the fence | a closed `js` or `ts` fence | The matching named fence, or the first unnamed `js`, `javascript`, `ts`, `typescript` or `actions` fence, is the code. TypeScript is stripped, not type-checked. For the note form, only that fence counts; if it is unclosed the script is empty (nothing runs, nothing is refused). | `packages/outliner/src/script-sources.ts:50` |
+| `mode` | `[mode::render]` | A handler: a line `name::` draws what the script returns. See [Modes](#modes). | `packages/outliner/src/script-sources.ts:67` |
+| `effects` | `[effects::write]` | May call write tools and `act`. Absent: read-only. | `packages/outliner/src/script-sources.ts:44` |
+| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:94` |
+| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:99` |
 
 Other ways a script exists: a file `<outline folder>/.ep0ch/scripts/name.js` or `.ts` whose first line is
 `// ep0ch-script` (or `// ep0ch-script effects=write`); an `actions` fence, which is one door action per line rather
@@ -81,7 +81,7 @@ A script's arguments are `slot=value` words (`week=42`). The power bar offers th
 | Entry | Source |
 |---|---|
 | `scriptFence` | `packages/outliner/src/script-sources.ts:37` |
-| `propsUsed` | `packages/outliner/src/script-sources.ts:45` |
+| `propsUsed` | `packages/outliner/src/script-sources.ts:51` |
 | `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:416` |
 
 **Script IDs:** a note's `[script::name]` is its power-bar and handler name; the action uses `ext.<id>.run`.
@@ -101,7 +101,7 @@ The code is the body of an async function: `await` and `return` work at the top.
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. A render line keeps repeats (`tag=a tag=b` is two values); every action run path gives one value per key. | `packages/outliner/src/script-runtime.ts:27` |
 | `view` | The builders of [view.*](#view). | `packages/outliner/src/script-runtime.ts:49` |
 | `tools` | The agent tools, `await tools.outline_read({ ref })`. See [tools.*](#tools). | `packages/outliner/src/script-runtime.ts:38` |
-| `text(value)`, `console.log(...)` | Keep a line as run-note output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:311` |
+| `text(value)`, `console.log(...)` | Keep a line as run-note output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:330` |
 | `exit()` | Ends the script successfully, keeping its output (the sandbox's own). | |
 
 `text`, `console`, `exit`, `store`/`load` and `ALL_TOOLS` come from the QuickJS sandbox
@@ -302,12 +302,13 @@ examples lean on:
 ## Effects, access and attribution
 
 - **Effects.** A named fence is read-only unless it says `effects=write`; a matching `[script::name]` note supplies `[effects::]` only when the fence omits `effects=`. An unnamed note script uses `[effects::write]` (a file: `// ep0ch-script effects=write`).
-  Read-only means the write tools and `act` refuse; reads, `q`, `read`, `resolve` and `wait` work.
+  Read-only means the write tools, `place` and `act` refuse; reads, `q`, `read`, `resolve` and `wait` work. Each call checks the saved script's current effects; narrowing a fence or note script to read-only revokes further writes from an existing run.
 - **Who wrote it.** Every write is `author: agent` with the actor id `script:<name>`, the run's undo id as the session, and
   the task id `trigger:script:<extension id>`. Whoever asked is recorded as `requestedBy` (the person at their keyboard,
   or the agent that ran `script_run`). The run note's second line says both.
 - **Outside agents** run a script with the MCP tool `script_run` (`ref` or `uri` of the script's note). It runs as
   `script:<name>` with the caller as `requestedBy`, and has no `this`, no `props` and no `act` (no note, no slots, no door).
+  Running by block id selects the note's `[script::name]`; without that property, a single script is used, and several scripts are refused with their names.
   The run is capped by the outline's MCP access level: `propose` turns each write into a proposal, `full` applies it,
   `none` and `read` can't start a run. `script_run` appears only when the gateway registers write tools.
 - **Yolo** (the person's switch, `agents.yolo`): while it is on the MCP access level reads as `full`, so the outline answers `full`
@@ -323,9 +324,9 @@ examples lean on:
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:721` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1605` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4322` |
-| `viaYolo` | `packages/outliner/src/server.ts:4352` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:346` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4325` |
+| `viaYolo` | `packages/outliner/src/server.ts:4355` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:352` |
 
 ## Lifecycle
 
@@ -343,7 +344,7 @@ examples lean on:
 4. **Stop.** `scripts.stop` with the run's undo id (`script.stop run=<undo id>` in the door) ends one run; its next call
    is refused and the completion says "Stopped by <who>". `{ stopped: false }` when it isn't running.
 5. **Edits.** Changing the script's **code** while it runs ends it ("The script source changed; run its saved revision
-   again"). The check is made at the run's next host call, not at the edit. A script that writes into its own note goes on: only the fence counts. At the end, a changed script setting (its stamp) discards the output ("The script source changed during this run").
+   again"). The check is made at the run's next host call, not at the edit. A script that writes into its own note goes on: only the fence counts. At the end, a changed script setting (its stamp) discards successful output ("The script source changed during this run"); a failed call keeps its refusal reason.
 6. **End.** The run's undo is prepared; "Undo unavailable: why" is added to a kept record when it can't be.
    `scripts.ended` carries the answer (`message`), retained note ids (`written`), requester and end reason. The initiating
    door shows that answer, with `ctrl+z undoes` on success; actual failures use the refusal voice with a next action.

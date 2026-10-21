@@ -380,3 +380,51 @@ test("removing a failed named fence removes its registry entry without a manual 
     }, 1000);
   }
 });
+
+
+test("running by block id chooses the note script and refuses an unnamed choice between scripts", async () => {
+  const { store, create, client } = await setup();
+  store.configureMcpAccess("full");
+  const note = create("Outer [script::outer] [results::keep]\n```js script=inner effects=write\nreturn 'inner';\n```\n```js script=outer effects=read\nreturn 'outer';\n```");
+  const started = await client.request<{ written: string[] }>({ action: "scripts.run", blockId: note.id, access: "full", mutation: { author: "agent", actorId: "script-reader" } });
+  const answer = await until("the block's own script answer", () => store.get(started.written[0]!)?.text.includes("· done") && store.get(started.written[0]!)!.text);
+  expect(answer.split("\n").pop()).toBe("outer");
+  store.update(note.id, store.require(note.id).text.replace(" [script::outer]", ""), store.require(note.id).revision, { author: "user" });
+  await expect(client.request({ action: "scripts.run", blockId: note.id, access: "full", mutation: { author: "agent", actorId: "script-reader" } })).rejects.toThrow(/(inner.*outer|outer.*inner)/);
+});
+
+test.each([true, false])("narrowing effects while a script waits revokes its next write (named fence: %s)", async (named) => {
+  const { store, create, client, extensionOf } = await setup();
+  const target = create("Garden");
+  const gate = create("Closed gate");
+  const code = `await tools.outline_set_property({ ref: this.id, key: 'waiting', value: 'yes', revision: this.revision });
+while ((await read('${gate.id}')).title !== 'Open gate') await wait(10);
+const current = await read(this.id);
+await tools.outline_set_property({ ref: this.id, key: 'after', value: 'yes', revision: current.revision });
+return 'wrote after revocation';`;
+  const note = create(`Writer [results::keep]${named ? "" : " [script::revocable] [effects::write]"}\n\`\`\`js${named ? " script=revocable effects=write" : ""}\n${code}\n\`\`\``);
+  const extension = await extensionOf("revocable");
+  const started = await client.request<{ written: string[] }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", blockId: target.id });
+  await until("the script's first write", () => store.require(target.id).text.includes("[waiting::yes]"));
+  await until("the script waiting at the closed gate", () => store.require(started.written[0]!).text.includes("Closed gate"));
+  const current = store.require(note.id);
+  store.update(note.id, current.text.replace(named ? "effects=write" : "[effects::write]", named ? "effects=read" : "[effects::read]"), current.revision, { author: "user" });
+  store.update(gate.id, "Open gate", gate.revision, { author: "user" });
+  const answer = await until("the revoked run's answer", () => {
+    const text = store.require(started.written[0]!).text;
+    return !text.split("\n")[0]!.includes("· working") && text;
+  });
+  expect(answer.split("\n").pop()).toContain("read-only");
+  expect(store.require(target.id).text).not.toContain("[after::yes]");
+});
+
+test("removing a failed fence in a draft hides its saved registry error", async () => {
+  const { create, client } = await setup();
+  const note = create("Workbench\n```js script=draft-broken effects=write mode=render\nreturn 'x';\n```");
+  const saved = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+  const failed = saved.extensions.find(e => e.state === "failed" && e.error?.includes("mode=render"))!;
+  expect(failed?.error).toBeTruthy();
+  const draft = await client.request<ExtensionsListResult>({ action: "extensions.list", blockId: note.id, draft: { text: "Workbench" } });
+  expect(draft.extensions.find(e => e.id === failed.id)).toBeUndefined();
+  expect((await client.request<ExtensionsListResult>({ action: "extensions.list" })).extensions.find(e => e.id === failed.id)?.error).toBeTruthy();
+});
