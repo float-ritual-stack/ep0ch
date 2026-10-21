@@ -68,7 +68,7 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
         ...(script.render ? { handlers: [{ key: name, kind: "output", effects: "read", description: `Draws what ${name} returns, in place`, argument: { name: "slots", description: "name=value words the script reads as props" } }] } : {}),
         actions: [{ id: "run", label: `Run ${name}`, description: `Runs saved revision ${script.revision} as script:${name}; returns an answer, keeping content or a requested [results::keep] record`, on: "outline", effects: script.effects,
           args: (script.format === "actions" ? actionSlots(script.code).map(slot => ({ name: slot.name, type: "text", ...(slot.required ? { required: true } : {}) })) : propsUsed(script.code).map(name => ({ name, type: "text" }))) }] }),
-      configRaw: "{}", script, stamp: scriptStamp(script),
+      configRaw: "{}", scriptName: name, script, stamp: scriptStamp(script),
     });
   };
   for (const id of draft ? [draft.blockId] : store.blocksContaining("", -1)) {

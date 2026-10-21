@@ -15,6 +15,7 @@ import {
   readExtensionFolder,
   loadExtensionManifest,
   type ManifestSource,
+  type ScriptSource,
   type ExtensionAction,
   type ExtensionAgent,
   type ExtensionHandler,
@@ -208,7 +209,8 @@ export interface BoundHandler {
 }
 
 interface Slot {
-  readonly scriptBlockId?: string;
+  readonly script?: ScriptSource;
+  readonly name?: string;
   readonly id: string;
   readonly origin: ExtensionOrigin;
   readonly directory: string;
@@ -291,13 +293,14 @@ export class ExtensionRegistry {
   }
 
   private sourceSlot(source: ManifestSource, now: string): Slot {
+    const identity = { script: source.script, name: source.scriptName };
     try {
       if (source.error) throw new ExtensionLoadError(source.error);
       if (!source.script?.code.trim()) throw new ExtensionLoadError("The script is empty; add a closed js or ts code fence to this script block, then run it again");
       const extension = loadExtensionManifest(source);
-      return { id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, scriptBlockId: source.script?.blockId, loadedAt: now };
+      return { id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, ...identity, loadedAt: now };
     } catch (error) {
-      return { id: source.expectedId, origin: source.origin, directory: source.directory, state: "failed", scriptBlockId: source.script?.blockId, error: error instanceof Error ? error.message : String(error) };
+      return { id: source.expectedId, origin: source.origin, directory: source.directory, state: "failed", ...identity, error: error instanceof Error ? error.message : String(error) };
     }
   }
 
@@ -437,7 +440,7 @@ export class ExtensionRegistry {
 
   /** Includes failed sources, whose removal must invalidate the registry too. */
   hasScriptSource(blockId: string): boolean {
-    return this.slots.some(slot => slot.scriptBlockId === blockId);
+    return this.slots.some(slot => slot.script?.blockId === blockId);
   }
 
   /** Every extension that serves now (active, or failed on its last good copy), in the registry's order. */
@@ -505,21 +508,22 @@ export class ExtensionRegistry {
   list(draft?: { blockId: string; sources: readonly ManifestSource[] }): ExtensionsListResult {
     const slots = draft ? [
       ...draft.sources.map(source => this.sourceSlot(source, new Date().toISOString())),
-      ...this.slots.filter(slot => slot.scriptBlockId !== draft.blockId),
+      ...this.slots.filter(slot => slot.script?.blockId !== draft.blockId),
     ] : this.slots;
     const extensions = slots.map((slot): ExtensionEntry => {
       const extension = slot.serving;
       const serving = extension && (slot.state === "active" || slot.state === "failed");
+      const script = slot.script ?? extension?.script;
       return {
         id: slot.id,
-        ...(extension ? { name: extension.name, version: extension.version } : {}),
+        ...(extension ? { name: extension.name, version: extension.version } : slot.name ? { name: slot.name } : {}),
         ...(extension?.description ? { description: extension.description } : {}),
         origin: slot.origin,
         directory: slot.directory,
         state: slot.state,
         ...(slot.error ? { error: slot.error } : {}),
         ...(slot.loadedAt ? { loadedAt: slot.loadedAt } : {}),
-        ...(serving && extension.script ? { script: { keys: extension.script.keys ?? [], blockId: extension.script.blockId, line: extension.script.line, file: extension.script.file, code: extension.script.code } } : {}),
+        ...(script ? { script: { keys: script.keys ?? [], blockId: script.blockId, line: script.line, file: script.file, code: script.code } } : {}),
         runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length,
         handlers: serving ? (extension.manifest.handlers ?? [])
           .filter((handler) => this.bound.get(handler.key)?.extension === extension)

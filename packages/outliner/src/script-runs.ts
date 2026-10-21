@@ -62,11 +62,12 @@ export class ScriptRuns {
   async finished(run: string): Promise<string | undefined> {
     try { return await this.tasks.get(run); } finally { this.tasks.delete(run); }
   }
-  private readonly captures = new Map<string, { actor: MutationProvenance; run: <T>(work: () => T) => T }>();
+  private readonly captures = new Map<string, { actor: MutationProvenance; effects: ScriptSource["effects"]; run: <T>(work: () => T) => T }>();
 
-  capture<T>(id: string, work: (actor: MutationProvenance) => T): T {
+  capture<T>(id: string, writes: boolean, work: (actor: MutationProvenance) => T): T {
     const capture = this.captures.get(id);
     if (!capture) throw new Error("This script run has ended");
+    if (writes && capture.effects === "read") throw new Error("This script is read-only; declare effects=write to write");
     return capture.run(() => work(capture.actor));
   }
 
@@ -194,6 +195,7 @@ export class ScriptRuns {
 
   start(extension: LoadedExtension, request: ExtensionActRequest): ExtensionActResult {
     const source = extension.script!;
+    const effects = source.effects;
     const undo = this.writes.beginRun(`script:${extension.name}`);
     const actor: MutationProvenance = { author: "agent", actorId: `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
     const requestedBy = request.requestedBy ?? { author: "user" as const };
@@ -227,7 +229,7 @@ export class ScriptRuns {
         return value;
       } catch (error) { finish(); throw error; }
     };
-    this.captures.set(undo, { actor, run: captured });
+    this.captures.set(undo, { actor, effects, run: captured });
     let log: Block | undefined;
     const written: string[] = [];
     const keep = () => {
@@ -255,10 +257,6 @@ export class ScriptRuns {
         try { update(); } catch (error) { controller.abort(error); }
       }, 50);
     };
-    const requireWrite = () => {
-      if (source.effects === "read" || (source.blockId && scriptFence(this.store.require(source.blockId).text, source.fence).effects === "read"))
-        throw new Error("This script is read-only; declare effects=write to write");
-    };
     const client: AgentToolsClient = {
       requireCompatibleService: () => this.client.requireCompatibleService(),
       request: async input => {
@@ -271,8 +269,6 @@ export class ScriptRuns {
           controller.abort();
           throw new Error("The script source changed; run its saved revision again");
         }
-        // Attributed mutations reach here after tool resolution and place's draft read.
-        if ("mutation" in input || "author" in input) requireWrite();
         return captured(() => this.client.request(input));
       },
     };
@@ -303,12 +299,11 @@ export class ScriptRuns {
       onStep: step,
       ...(site.thisId ? { thisId: site.thisId } : {}),
       ...(site.resolve ? { resolve: site.resolve } : {}),
-      effects: source.effects,
+      effects,
       place: (content, opts) => place(content, opts),
       mcpAccess: request.mcpAccess,
       // The door it asks is the one that started the run (or `door=`); with none, the service picks the only door or says which there are.
       act: (name: string, args: Record<string, unknown>) => {
-        requireWrite();
         return this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) });
       },
     });
@@ -326,7 +321,7 @@ export class ScriptRuns {
         }
         const result = await runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined, site.globals);
         const current = this.registry.extension(extension.id);
-        if (result.ok && (!current || current.stamp !== extension.stamp)) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
+        if (result.ok && (!current || current.script?.code !== source.code)) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
         lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}] [machine::script]`;
         for (const output of result.output) if (output.type === "text") lines.push(output.text);
         if (result.ok) {

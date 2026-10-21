@@ -393,29 +393,31 @@ test("running by block id chooses the note script and refuses an unnamed choice 
   await expect(client.request({ action: "scripts.run", blockId: note.id, access: "full", mutation: { author: "agent", actorId: "script-reader" } })).rejects.toThrow(/(inner.*outer|outer.*inner)/);
 });
 
-test.each([true, false])("narrowing effects while a script waits revokes its next write (named fence: %s)", async (named) => {
+test.each([true, false])("a run keeps its starting effects when settings change (starts writable: %s)", async (writable) => {
   const { store, create, client, extensionOf } = await setup();
   const target = create("Garden");
   const gate = create("Closed gate");
-  const code = `await tools.outline_set_property({ ref: this.id, key: 'waiting', value: 'yes', revision: this.revision });
+  const note = create(`Writer [results::keep]\n\`\`\`js script=fixed-effects effects=${writable ? "write" : "read"}
 while ((await read('${gate.id}')).title !== 'Open gate') await wait(10);
-const current = await read(this.id);
-await tools.outline_set_property({ ref: this.id, key: 'after', value: 'yes', revision: current.revision });
-return 'wrote after revocation';`;
-  const note = create(`Writer [results::keep]${named ? "" : " [script::revocable] [effects::write]"}\n\`\`\`js${named ? " script=revocable effects=write" : ""}\n${code}\n\`\`\``);
-  const extension = await extensionOf("revocable");
-  const started = await client.request<{ written: string[] }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", blockId: target.id });
-  await until("the script's first write", () => store.require(target.id).text.includes("[waiting::yes]"));
+await tools.outline_set_property({ ref: this.id, key: 'after', value: 'yes', revision: this.revision });
+return 'wrote with starting effects';
+\`\`\``);
+  const extension = await extensionOf("fixed-effects");
+  const started = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", blockId: target.id });
   await until("the script waiting at the closed gate", () => store.require(started.written[0]!).text.includes("Closed gate"));
   const current = store.require(note.id);
-  store.update(note.id, current.text.replace(named ? "effects=write" : "[effects::write]", named ? "effects=read" : "[effects::read]"), current.revision, { author: "user" });
+  store.update(note.id, current.text.replace(`effects=${writable ? "write" : "read"}`, `effects=${writable ? "read" : "write"}`), current.revision, { author: "user" });
+  await client.request({ action: "extensions.list", reload: true });
+  if (!writable) {
+    await expect(client.request({ action: "update", blockId: target.id, text: "Unauthorized", expectedRevision: target.revision, mutation: { author: "user" }, scriptRun: started.undo })).rejects.toThrow("read-only");
+  }
   store.update(gate.id, "Open gate", gate.revision, { author: "user" });
-  const answer = await until("the revoked run's answer", () => {
+  const answer = await until("the run's answer", () => {
     const text = store.require(started.written[0]!).text;
     return !text.split("\n")[0]!.includes("· working") && text;
   });
-  expect(answer.split("\n").pop()).toContain("read-only");
-  expect(store.require(target.id).text).not.toContain("[after::yes]");
+  expect(answer.split("\n").pop()).toContain(writable ? "wrote with starting effects" : "read-only");
+  expect(store.require(target.id).text.includes("[after::yes]")).toBe(writable);
 });
 
 test("removing a failed fence in a draft hides its saved registry error", async () => {
@@ -429,38 +431,6 @@ test("removing a failed fence in a draft hides its saved registry error", async 
   expect((await client.request<ExtensionsListResult>({ action: "extensions.list" })).extensions.find(e => e.id === failed.id)?.error).toBeTruthy();
 });
 
-
-test.each(["tool", "place"])("narrowing effects during an awaited %s write refuses the pending mutation", async (kind) => {
-  const { store, server, create, client, extensionOf } = await setup();
-  const target = create("Garden\n\nOutput goes here ^result");
-  const code = kind === "tool"
-    ? "await tools.outline_set_property({ ref: this.id, key: 'after', value: 'yes', revision: this.revision });"
-    : "await place('Written after revocation', { at: '^result' });";
-  const note = create(`Writer [results::keep]\n\`\`\`js script=pending-write effects=write\n${code}\n\`\`\``);
-  const extension = await extensionOf("pending-write");
-  let parked = false;
-  const gate = Promise.withResolvers<void>();
-  server.setLinkReader(async request => {
-    if ((kind === "tool" && request.action === "get" && request.blockId === target.id)
-      || (kind === "place" && request.action === "drafts.read")) {
-      parked = true;
-      await gate.promise;
-    }
-    return undefined;
-  });
-  try {
-    const started = await client.request<{ written: string[] }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", blockId: target.id });
-    await until("the pending write's awaited read", () => parked);
-    store.update(note.id, note.text.replace("effects=write", "effects=read"), note.revision, { author: "user" });
-    gate.resolve();
-    const answer = await until("the pending write to finish", () => {
-      const text = store.require(started.written[0]!).text;
-      return !text.split("\n")[0]!.includes("· working") && text;
-    });
-    expect(store.require(target.id).text).toBe(target.text);
-    expect(answer.split("\n").pop()).toContain("read-only");
-  } finally { gate.resolve(); }
-});
 
 test.each([
   { own: true, broken: "" },
@@ -486,4 +456,18 @@ test("duplicate fence names fail at load with both authored line numbers", async
     expect(entry.error).toMatch(/lines 2.*5/);
   }
   expect(listed.extensions.some(e => e.name === "twice" && e.state === "active")).toBe(false);
+});
+
+
+test.each([
+  { fence: "```js script=chosen effects=write mode=render\nreturn 'bad';\n```", reason: "mode=render" },
+  { fence: "```js script=chosen\n```", reason: "empty" },
+  { fence: "```js script=chosen\nreturn 'one';\n```\n```js script=chosen\nreturn 'two';\n```", reason: "more than once" },
+])("an unavailable local script refuses instead of running an outer name ($reason)", async ({ fence, reason }) => {
+  const { store, create, client } = await setup();
+  const outer = create("Outer [script::chosen] [results::keep]\n```js\nreturn 'wrong outer script';\n```");
+  const local = create("Workbench\n" + fence);
+  await client.request({ action: "extensions.list", reload: true });
+  await expect(client.request({ action: "extensions.act", extension: "script:chosen", extensionAction: "run", blockId: local.id })).rejects.toThrow(reason);
+  expect(store.children(outer.id)).toEqual([]);
 });

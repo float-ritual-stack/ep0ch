@@ -1952,7 +1952,7 @@ export class OutlinerServer {
       } catch (error) { return { id: request.id, ok: false, error: (error as Error).message, sequence: this.store.sequence }; }
     }
     request = this.viaYolo(request);
-    if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
+    if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, EXTENSION_WRITES.has(request.action), (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (this.linkReader) {
       try {
         const answer = await this.linkReader(request);
@@ -2210,12 +2210,16 @@ export class OutlinerServer {
             Object.values(request.args).some((value) => typeof value !== "string"))) throw new Error("args must map names to text");
           if (request.passage !== undefined && (!request.passage || typeof request.passage !== "object" || Array.isArray(request.passage))) throw new Error("passage is { subject, revision, quote, start, end, prefix, suffix }");
           const requestedBy = declaredRequester(request, "extensions.act");
+          const script = request.extension.startsWith("script:")
+            ? scriptsAt(this.store, this.extensionRegistry.list().extensions, { blockId: request.blockId, line: request.line }).find(e => e.script && e.name === request.extension.slice(7))
+            : undefined;
+          if (script?.state === "failed") throw new Error(script.error);
           result = await this.extensionCalls.act({
             ...(request.clientId ? { clientId: request.clientId } : {}),
             ...(typeof request.invitation === "string" ? { invitation: request.invitation } : {}),
             ...(request.button && typeof request.button.block === "string" ? { button: { block: request.button.block, ...(Number.isSafeInteger(request.button.line) ? { line: request.button.line } : {}) } } : {}),
             ...(request.passage !== undefined ? { passage: request.passage } : {}),
-            extension: request.extension.startsWith("script:") ? scriptsAt(this.store, this.extensionRegistry.list().extensions, { blockId: request.blockId, line: request.line }).find(e => e.script && e.name === request.extension.slice(7))?.id ?? request.extension : request.extension, action: request.extensionAction,
+            extension: script?.id ?? request.extension, action: request.extensionAction,
             ...(requestedBy ? { requestedBy } : {}),
             ...(request.blockId !== undefined ? { blockId: request.blockId } : {}),
             ...(request.line !== undefined ? { line: request.line } : {}),

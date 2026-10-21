@@ -265,13 +265,13 @@ examples lean on:
 | `BlockRecord` | `packages/outline-core/src/block-record.ts:14` |
 | `textRecord` | `packages/outliner/src/block-records.ts:35` |
 | `ScriptSiteGlobals` | `packages/outliner/src/script-runtime.ts:11` |
-| `bind` | `packages/outliner/src/script-runs.ts:86` |
+| `bind` | `packages/outliner/src/script-runs.ts:89` |
 
 ## Modes
 
 | Mode | Written | Runs | Draws or writes | Source |
 |---|---|---|---|---|
-| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:195` |
+| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:199` |
 | render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:120` |
 | `pipelineCalls` (the `::=` line) | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:150` |
 
@@ -302,7 +302,7 @@ examples lean on:
 ## Effects, access and attribution
 
 - **Effects.** A named fence is read-only unless it says `effects=write`; a matching `[script::name]` note supplies `[effects::]` only when the fence omits `effects=`. An unnamed note script uses `[effects::write]` (a file: `// ep0ch-script effects=write`).
-  Read-only means the write tools, `place` and `act` refuse; reads, `q`, `read`, `resolve` and `wait` work. At the mutation request boundary, the saved script's current effects are checked after awaited reference or draft reads; narrowing a fence or note script to read-only refuses even an already pending write. Door actions check the same rule immediately before dispatch.
+  Read-only means the write tools, `place` and `act` refuse; reads, `q`, `read`, `resolve` and `wait` work. A run captures its effects when it starts; changing `effects=` applies to the next run, and writes already in flight may complete.
 - **Who wrote it.** Every write is `author: agent` with the actor id `script:<name>`, the run's undo id as the session, and
   the task id `trigger:script:<extension id>`. Whoever asked is recorded as `requestedBy` (the person at their keyboard,
   or the agent that ran `script_run`). The run note's second line says both.
@@ -320,13 +320,13 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:196` |
+| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:200` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:721` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1605` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4328` |
-| `viaYolo` | `packages/outliner/src/server.ts:4358` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:356` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4332` |
+| `viaYolo` | `packages/outliner/src/server.ts:4362` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:351` |
 
 ## Lifecycle
 
@@ -352,9 +352,9 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:193` |
-| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:205` |
-| `stopRun` | `packages/outliner/src/script-runs.ts:186` |
+| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:196` |
+| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:209` |
+| `stopRun` | `packages/outliner/src/script-runs.ts:189` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:267` |
 | `scripts.stop` | `packages/outliner/src/server.ts:1998` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2494` |
