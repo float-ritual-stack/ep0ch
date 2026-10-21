@@ -123,7 +123,9 @@ function succeeding(run: Run): ProcessRunResult {
   if (run.argv[0] === 'herdr') {
     return ok(run.argv[2] === 'pane' ? '{"result":{"plugin_pane":{"pane":{"pane_id":"w:p10"}}}}' : HERDR_LISTING)
   }
-  if (run.argv.includes('resolve')) return ok(`{"id":"${BLOCK}","title":"Daily notes"}`)
+  if (run.argv.includes('resolve')) return run.argv.includes('--session')
+    ? result(1, '', 'error: resolve requires one pi-outliner URL')
+    : ok(`{"id":"${BLOCK}","title":"Daily notes"}`)
   if (run.argv.includes('work-id-status')) return ok('{"prefix":"PIE","observedPrefixes":["PIE","OLD"]}')
   if (herdrOpens([run]).length) return ok(`${run.argv.includes('find-detail') ? JSON.stringify({ detailClientId: 'admin-detail', detailPane: 'w:p2' }) : ENSURED}\n`)
   if (run.argv.includes('link')) return ok('{"kind":"page","title":"Daily notes"}')
@@ -457,6 +459,34 @@ describe('register', () => {
     await drawn.press({ key: `https://pi-outliner.invalid/block/${BLOCK}` })
     await session.clock.settle()
     expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3, 5)).toEqual(['link', `pi-outliner://block/${BLOCK}`])
+  })
+
+  test('a web note link recovers its title after failed lookups, with backoff and a late redraw (PIE-1130)', async ($, on) => {
+    let attempts = 0
+    let land: ((value: ProcessRunResult) => void) | undefined
+    const session = sessionIn(on, WORKSPACE, run => {
+      if (!run.argv.includes('resolve')) return succeeding(run)
+      attempts++
+      if (attempts <= 3) return result(1, '', 'error: connect ENOENT host.sock')
+      return new Promise<ProcessRunResult>(resolve => { land = resolve })
+    })
+    await session.begin(() => $.session.start(START))
+    const drawn = await mountReply($, `See https://my.ep0ch.sh/pub/p/${BLOCK} here.`)
+    expect((await drawn.find({ type: 'Box' }))?.text).toContain(`See ${BLOCK.slice(0, 8)}… here.`)
+    await session.clock.settle()
+    for (const delay of [2000, 10_000, 60_000]) {
+      const before = attempts
+      await session.clock.advance(delay - 1)
+      expect(attempts).toBe(before)
+      await session.clock.advance(1)
+      expect(attempts).toBe(before + 1)
+    }
+    expect((await drawn.find({ type: 'Box' }))?.text).toContain(`${BLOCK.slice(0, 8)}…`)
+    land!(result(0, JSON.stringify({ id: BLOCK, title: 'Daily notes', outline: 'garden' }), ''))
+    await session.clock.settle()
+    expect((await drawn.find({ type: 'Box' }))?.text).toContain('See Daily notes here.')
+    await session.clock.advance(60_000)
+    expect(attempts).toBe(4)
   })
 
   test('an external link in a reply is a dim Link with a CP437 marker, apart from the underlined references that open in the door (PIE-1043)', async ($, on) => {
