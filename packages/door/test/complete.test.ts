@@ -565,11 +565,18 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
       e.press(K("tab"));
       const p = await e.settled();
       const key = ofLine ? "habitat" : "trellis";
-      expect(p.items.some(i => i.label === key)).toBe(true);
+      expect(p.items.some(i => i.insertion === key)).toBe(true);
       e.press(K("tab"));
       await until(() => !e.pop(), "YAML key inserted");
       expect(e.d.lines[e.d.row]).toBe(`key: ${key}`);
     }
+  });
+
+  test("YAML value completion keeps its rendered variation (PIE-1164 round 2)", async () => {
+    const e = await editing(await create("Meter practice\n::graph-meter\n---\nlimit: "));
+    e.press(K("tab"));
+    const p = await e.settled();
+    expect(renderCompletion(p, 140, 24).map(visible).join("\n")).toContain("DISK");
   });
 
   test("component cards teach syntax with draft keys and copy the source (PIE-1164)", async () => {

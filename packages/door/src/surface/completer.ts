@@ -447,9 +447,11 @@ async function attributeCandidates(board: CompletionBoard, schema: ComponentSche
   } else {
     values = axisValues(prop).filter(v => v.toLowerCase().startsWith(q.toLowerCase())).map(value => ({ label: value, value, detail: prop.values?.find(v => v.value === value)?.meaning }));
   }
-  return values.map(v => ({ label: v.label, context: v.detail ?? prop.meaning, kind: "value",
-    insertion: target.kind === "yaml-value" ? yamlScalar(v.value) : target.quote ? v.value.replaceAll("\\", "\\\\").replaceAll(target.quote, `\\${target.quote}`) + target.quote : JSON.stringify(v.value),
-  }));
+  return values.map(v => target.kind === "yaml-value"
+    ? propertyItem([schema], { component: schema.id, key: prop.key, value: v.value, label: v.label, insertion: yamlScalar(v.value), detail: v.detail ?? prop.meaning }, target, { board, redraw: () => {} })
+    : { label: v.label, context: v.detail ?? prop.meaning, kind: "value",
+      insertion: target.quote ? v.value.replaceAll("\\", "\\\\").replaceAll(target.quote, `\\${target.quote}`) + target.quote : JSON.stringify(v.value),
+    });
 }
 
 async function filterCandidates(board: CompletionBoard, target: CompletionTarget): Promise<CompletionItem[]> {
@@ -482,12 +484,14 @@ export function propertyCandidates(schemas: readonly ComponentSchema[], target: 
     : target.kind === "value" ? valueCandidates(schemas, target.key ?? "", target.query)
     : target.kind === "yaml-key" ? yamlKeyCandidates(schemas, target.component ?? "", target.query)
     : valueCandidates(schemas, target.key ?? "", target.query, false, target.component);
-  return found.slice(0, COMPLETION_LIMIT).map(c => {
-    const preview = c.value === undefined ? "" : valuePreview(schemas, c, src);
-    const schema = schemas.find(s => s.id === c.component);
-    return { label: preview ? `${c.label}  ${preview}` : c.label, insertion: target.headingShort ? `[heading::${c.insertion}` : c.insertion,
-      ...(schema && c.value !== undefined ? { preview: (w: number, h: number) => drawVariation(variation(schema, { [c.key]: c.value! }, c.key), w, src).slice(0, h) } : {}), kind: target.kind.endsWith("key") ? "property" : "value", context: c.detail };
-  });
+  return found.slice(0, COMPLETION_LIMIT).map(c => propertyItem(schemas, c, target, src));
+}
+
+function propertyItem(schemas: readonly ComponentSchema[], c: PropertyCandidate, target: CompletionTarget, src: ListSource | null): CompletionItem {
+  const preview = c.value === undefined ? "" : valuePreview(schemas, c, src);
+  const schema = schemas.find(s => s.id === c.component);
+  return { label: preview ? `${c.label}  ${preview}` : c.label, insertion: target.headingShort ? `[heading::${c.insertion}` : c.insertion,
+    ...(schema && c.value !== undefined ? { preview: (w: number, h: number) => drawVariation(variation(schema, { [c.key]: c.value! }, c.key), w, src).slice(0, h) } : {}), kind: target.kind.endsWith("key") ? "property" : "value", context: c.detail };
 }
 
 /** One row of what a value draws, at most 24 columns: the row with the most shades and blocks, else its first with anything on it. */
