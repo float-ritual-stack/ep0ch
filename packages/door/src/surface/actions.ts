@@ -89,6 +89,8 @@ export interface ActionDef<A, H> {
   /** What the action does, in the words `actions` and the README use. */
   summary: string;
   hint?: Hint | ((args: A, host: H) => Hint | null);
+  /** A mode-owned hint keeps its mode identity when an action opens it. Otherwise the action name is its id. */
+  hintId?: string;
   /** The key that does the same thing, when there is one. */
   keys?: string;
   /** What it touches of the person's: the one actor rule, checked by the dispatcher (Touches). The most it can touch. */

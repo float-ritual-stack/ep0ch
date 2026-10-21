@@ -543,7 +543,7 @@ export class Dispatcher {
     // show it. Said as soon as it's done: at once for an action that answers at once (a key's flash is there to read).
     const done = (out: unknown) => {
       const hint = typeof def.hint === "function" ? def.hint(seen, on) : def.hint;
-      if (hint) this.host.hint?.(hint, at.name, actor);
+      if (hint) this.host.hint?.({ ...hint, id: def.hintId ?? req.action }, at.name, actor);
       if (def.says && (actor.kind === "agent" || (def.confirms && confirmation >= this.saidConfirmation))) {
         const s = def.says(out, seen as never), said = typeof s === "string" ? s : s?.text, ms = typeof s === "object" && s ? s.ms : undefined;
         if (said) {

@@ -1,9 +1,10 @@
+import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
 import { errorDetails } from "../status-log";
 import { HomeSurface } from "../surface/home";
 import { type Completer } from "../surface/completer";
 import { floatTheme } from "../theme";
 import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
-import { HintCard, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
+import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
 import { revealOn, type Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
 import { readNote, outlineBoards } from "./outline-boards";
@@ -2316,7 +2317,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   showHint(hint: Hint, sel?: string, actor: Actor = USER) {
     const t = this.tile(sel);
-    this.hintCard = new HintCard(hint, t.name, t.id, actor.kind === "agent" ? actor.id : undefined);
+    const setting = hintSetting(hint.id ?? "hint.show", this.lookOf(this.panes.get(t.id)!)?.values.hints ?? "full");
+    this.hintCard = setting === "card" ? new HintCard(hint, t.name, t.id, actor.kind === "agent" ? actor.id : undefined) : null;
+    // The armed edit already owns this status line and clears it when its window ends.
+    if (setting === "status" && hint.id !== "confirm") this.ctx.flash(hintStatus(hint));
     this.redraw();
     return this.hintGet();
   }
@@ -2325,25 +2329,40 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return this.showHint(text === undefined ? this.controlsHint(t.id) : { title: "Hint", lines: [text] }, t.name, actor);
   }
   hintGet(all = false) {
-    return { xray: this.xray, cards: all ? this.hits.map(([id]) => new HintCard(this.controlsHint(id), this.nameOf(id), id).describe()) : this.hintCards().map(c => c.describe()) };
+    return { settings: this.hintsList(), xray: this.xray, cards: all ? this.hits.map(([id]) => new HintCard(this.controlsHint(id), this.nameOf(id), id).describe()) : this.hintCards().map(c => c.describe()) };
+  }
+  hintsList() { return { hints: declaredHints(this.lookOf(this.panes.get(this.focus)!)?.values.hints ?? "full") }; }
+  hintsSet(id: string, to: HintSetting) { setHint(id, to, "full"); this.hintDismiss(); return this.hintsList(); }
+  hintsReset() { resetHints(); this.hintDismiss(); return this.hintsList(); }
+  hintNever(sel?: string) {
+    const card = sel ? this.hintCards().find(c => c.anchor === this.tile(sel).id) : this.hintCards().at(-1);
+    if (!card) throw new ActionRefused("no hint card here; hints.list shows every hint");
+    const hint = card.hint;
+    this.hintsSet(card.id, "status");
+    this.ctx.flash(hintStatus(hint));
+    return this.hintGet();
   }
   hintPin(sel?: string) { const card = this.xray || sel ? this.hintCards().find(c => c.anchor === this.tile(sel).id) : this.hintCard; if (card) { card.pinned = true; this.hintCard = card; this.linkCards = []; this.xray = false; this.xrayCards = []; } this.redraw(); return this.hintGet(); }
   hintScroll(by: number, sel?: string) { const card = this.xray || sel ? this.hintCards().find(c => c.anchor === this.tile(sel).id) : this.hintCard; card?.view.scroll(by); this.redraw(); return this.hintGet(); }
   hintDismiss() { this.hintCard = null; this.linkCards = []; this.xray = false; this.xrayCards = []; this.redraw(); return this.hintGet(); }
   xraySet(on?: boolean) {
     this.xray = on ?? !this.xray;
-    this.xrayCards = this.xray ? this.hits.map(([id]) => new HintCard(this.controlsHint(id), this.nameOf(id), id)) : [];
+    this.xrayCards = this.xray ? this.hits.flatMap(([id]) => hintSetting("frame", this.lookOf(this.panes.get(id)!)?.values.hints ?? "full") === "card" ? [new HintCard(this.controlsHint(id), this.nameOf(id), id)] : []) : [];
+    if (this.xray && hintSetting("frame", this.lookOf(this.panes.get(this.focus)!)?.values.hints ?? "full") === "status") {
+      const hint = this.controlsHint(this.focus);
+      this.ctx.flash(hintStatus(hint));
+    }
     this.redraw(); return this.hintGet();
   }
   private controlsHint(id: number): Hint {
-    return { title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND] };
+    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND] };
   }
   linkingHint(): Hint | null {
     if (!this.linking) return null;
     const { desk, from, verb } = this.linking, tile = desk.nameOf(from);
     // Two lines: where this wire lands now, and what a click does. The rows below carry the rest; no line repeats a row.
     const what = verb === "select" ? "A select in" : verb === "alt" ? "An alt-open from" : "An open from";
-    return { title: `${tile}: ${verb} wire`, lines: [
+    return { id: "link", title: `${tile}: ${verb} wire`, lines: [
       `${what} ${tile} lands in ${desk.wireWords(from, verb)}.`,
       `Click a tile to send it there; alt+click an edge or gap for beside.`,
     ], keys: [{ keys: "h j k l / 1-9", does: "choose a tile" }],
@@ -2351,7 +2370,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         { label: `unlink ${verb} wire`, act: { action: "tile.link", tile, args: { verb } } }, { label: "cancel", key: "esc", act: { action: "tile.link", tile, args: { ask: false } } } ] };
   }
 
-  private syncModeHint() {
+  private syncModeHint(shown?: string) {
     const overlay = this.overlays.top();
     const mode = this.ctx?.armed?.() ? "confirm" : overlay?.hintCard ? `overlay:${overlay.name}` : this.linking ? `link:${this.linkOwner().pathTo(this.linkingFrom()!)}:${this.linking.verb}` : this.drag ? "resize" : this.dragging || this.floatDrag ? "drag" : this.prefix === "move" || this.prefix === "tab" ? this.prefix : this.prefix === "resize" ? "resize" : this.pickedBy(USER).length ? "gather" : "";
     if (mode === this.modeHintKey) return;
@@ -2361,13 +2380,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!mode) { if (previous && !this.hintCard?.pinned) this.hintCard = null; return; }
     if (this.hintCard?.pinned) return;
     const hint = mode === "confirm" ? CONFIRM_HINT : overlay?.hintCard ?? (mode.startsWith("link:") ? this.linkingHint() : mode === "gather" ? GATHER_HINT : mode === "resize" ? RESIZE_HINT : MOVE_HINT);
+    const id = mode === "confirm" ? "confirm" : overlay?.hintCard ? overlay.name : mode.startsWith("link:") ? "link" : mode === "gather" ? "gather" : mode === "resize" ? "resize" : "move";
+    if (id === shown) return;
     if (hint && mode.startsWith("link:")) {
       // One card, on the tile the wire starts from, and only on the desk that holds it. Every other tile says
       // "click to link here" on its frame; a card on each was a wall of copies (Evan, Oct 19 10:55 AM).
       const from = this.linkingFrom(), id = from ? this.idOf(from) : undefined;
       this.linkCards = [];
-      this.hintCard = id !== undefined ? new HintCard(hint, this.nameOf(id), id) : null;
-    } else if (hint) this.hintCard = new HintCard(hint, this.nameOf(this.focus), this.focus);
+      if (id !== undefined) this.showHint({ ...hint, id: "link" }, this.nameOf(id));
+    } else if (hint) this.showHint({ ...hint, id }, this.nameOf(this.focus));
   }
 
   readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost(), this.registrations());
@@ -2391,8 +2412,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const d = this;
     return {
       pointerScope: d,
-      beforeAction: (name: string) => { if (!name.startsWith("hint.") && name !== "xray" && !d.hintCard?.pinned) d.hintCard = null; },
-      hint: (hint: Hint, tile: string | undefined, actor: Actor) => { if (!d.hintCard?.pinned) d.showHint(hint, tile, actor); },
+      beforeAction: (name: string) => { if (!name.startsWith("hint.") && !name.startsWith("hints.") && name !== "xray" && !d.hintCard?.pinned) d.hintCard = null; },
+      hint: (hint: Hint, tile: string | undefined, actor: Actor) => { if (!d.hintCard?.pinned) { d.syncModeHint(hint.id); d.showHint(hint, tile, actor); } },
       get title() { return d.title; },
       ctx: () => d.ctx,
       get where() { return d.whereNow ? () => d.whereNow!() : undefined; },
@@ -2998,6 +3019,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return {
       // Before the desk's own fields, so a kind never overwrites them.
       ...peeks,
+      hints: this.hintsList(),
       kind: this.spec.name, current: this.current ? { id: this.current.id, title: subject(this.currentNow()!) } : null, zoom: this.zoom,
       // Where the keys are, as a place: a columns container by its key (the board's lanes), else the tile.
       focus: this.focusPlace(),
@@ -3185,7 +3207,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const id = card.anchor, anchor = this.hits.find(([i]) => i === id)?.[1];
       if (!anchor || id === undefined) continue;
       const look = this.lookAt(this.panes.get(id)!, anchor.cols).values;
-      if (look.hints === "off") { card.clearHits(); continue; }
+      if (hintSetting(card.id, look.hints) !== "card") { card.clearHits(); continue; }
       const rect = card.draw(canvas, anchor, area, look.hints === "brief", this.hintPointer, TONE[look.tone], look);
       placements = uncover(placements, rect);
     }
@@ -3981,6 +4003,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         return;
       }
     }
+    if (k.kind === "alt" && k.ch === "N" && this.hintCards().length && !this.personIn() && !this.rawKeys() && !this.panes.get(this.focus)?.typing?.()) { this.run("hint.never"); return; }
     if (k.kind === "mouse") {
       this.hintPointer = { x: k.x, y: k.y };
       if (k.action === "wheel-up" || k.action === "wheel-down") {
@@ -6907,6 +6930,10 @@ export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
     examples: [{ act: 'hint.show text="Select a destination" for=reader', does: "shows an attributed hint beside the reader" }],
     run: (a, h, actor) => h.d.hintShow(a.for ?? h.reader, a.text, actor) }),
   "hint.get": def({ summary: "read the hint cards, or every tile's controls with xray=true", touches: "nothing", replay: "safe", args: { xray: { type: "boolean", optional: true, about: "read all the frame cards without showing them" } }, examples: [{ act: "hint.get xray=true", does: "reads every tile's controls" }], run: (a, h) => h.d.hintGet(a.xray) }),
+  "hint.never": def({ summary: "show this hint on the status line from now on", keys: "alt+N, click", touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: {}, run: (_, h) => h.d.hintNever(h.reader) }),
+  "hints.list": def({ summary: "read every declared hint, its trigger and personal setting; tune.section section=hints shows the list in the inspector", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintsList() }),
+  "hints.set": def({ summary: "keep a hint as a card, a status line or off across restarts", keys: "c, s, o in the Hints section, click", touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: { id: { type: "string", about: "hint id from hints.list" }, to: { type: "string", about: "card, status or off" } }, examples: [{ act: "hints.set id=tile.collapse to=status", does: "keeps folding hints on the status line" }], run: (a, h) => h.d.hintsSet(a.id, a.to as HintSetting) }),
+  "hints.reset": def({ summary: "reset all personal hint settings to their defaults", keys: "R in the Hints section, click", touches: "nothing", replay: "safe", person: "hint settings are the person's; hints.list reads them", args: {}, run: (_, h) => h.d.hintsReset() }),
   "hint.pin": def({ summary: "keep the current hint through the next action", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintPin(h.reader) }),
   "hint.scroll": def({ summary: "scroll a card whose controls do not fit", keys: "wheel", touches: "nothing", replay: "safe", args: { by: { type: "number", about: "rows to scroll" } }, examples: [{ act: "hint.scroll by=1", does: "shows the next row of controls" }], run: (a, h) => h.d.hintScroll(a.by, h.reader) }),
   "hint.dismiss": def({ summary: "put away hint cards", keys: "esc, click", touches: "nothing", replay: "safe", args: {}, run: (_, h) => h.d.hintDismiss() }),

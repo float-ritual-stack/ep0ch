@@ -257,6 +257,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { label: "open wire", group: TILE, key: "alt+l o", args: { ask: true, verb: "open" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.open} where an open lands: ${d.wireDescription(reader, "open")}` }) },
       { label: "alt wire", group: TILE, key: "alt+l a", args: { ask: true, verb: "alt" }, now: ({ d, reader }) => ({ label: `${FRAME_GLYPHS.alt} where an alt-open lands: ${d.wireDescription(reader, "alt")}` }) },
     ],
+    hintId: "link",
     hint: (a, { d }) => a.ask ? d.linkingHint() : null,
     summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there. Select may have several targets. No to= removes that verb's wires; remove=true removes just the named target. ask=true picks on screen; ask=false dismisses the controls without changing wires.",
     keys: "alt+l then s select; alt+l then o open; alt+l then a alt; click the tile, h j k l or 1-9 (the tile itself unlinks); ^W P then enter or space picks, x clears a wire; esc or q cancels",
@@ -692,6 +693,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.select": def({
+    hintId: "gather",
     hint: GATHER_HINT,
     summary: "pick tile=<tile> to gather with others into a group (on=true picks, on=false lets go; default toggles), or let go of all of this actor's picks (clear=true). A pick is the person's own or this agent's own: an agent's never touches the person's, and picking moves no focus. tile.group selected=true (^W G with tiles picked) gathers them",
     keys: "shift+click a tile's title; ^W space; esc lets go of the person's picks; the tile menu",
