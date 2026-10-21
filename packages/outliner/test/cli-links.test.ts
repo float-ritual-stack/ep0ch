@@ -22,6 +22,7 @@ async function setup() {
   const client = new OutlinerClient(paths.socket);
   const watchers: OutlinerWatcher[] = [];
   const commands: OutlinerUiCommand[] = [];
+  let commandReceived = Promise.withResolvers<void>();
   await server.start();
   cleanups.push(async () => {
     for (const watcher of watchers) await watcher.stop();
@@ -33,11 +34,17 @@ async function setup() {
     const connected = Promise.withResolvers<void>();
     watchers.push(client.watch({
       client: registration, onConnect: connected.resolve, onError: connected.reject,
-      onEvent: event => { if (event.domain === "ui" && event.command) commands.push(event.command); },
+      onEvent: event => {
+        if (event.domain === "ui" && event.command) {
+          commands.push(event.command);
+          commandReceived.resolve();
+        }
+      },
     }));
     await connected.promise;
   }
   async function run(args: string[]) {
+    commandReceived = Promise.withResolvers<void>();
     const child = Bun.spawn(["bun", "src/cli.ts", "link", ...args], {
       cwd: join(import.meta.dir, ".."), env: { ...process.env, ...env },
       stdin: "ignore", stdout: "pipe", stderr: "pipe",
@@ -45,6 +52,8 @@ async function setup() {
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
     ]);
+    // The CLI's reply and the destination's event travel over separate sockets.
+    if (exitCode === 0) await commandReceived.promise;
     return { stdout, stderr, exitCode };
   }
   function reference(filename: string) {

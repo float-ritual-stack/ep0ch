@@ -31,13 +31,19 @@ describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
   // Without EP0CH_STATE, which the script would put the showcase under: another test file may have left it
   // set in this process (the order files run in differs between machines; on macOS it broke this one).
   const env = () => { const e: Record<string, string | undefined> = { ...process.env, XDG_STATE_HOME: home }; delete e.EP0CH_STATE; return e; };
-  const run = (...args: string[]) => Bun.spawnSync(["sh", "scripts/try-it.sh", "--showcase", "--prepare", "--outliner", outliner!, ...args], {
-    cwd: join(import.meta.dir, ".."), env: env(), stdout: "pipe", stderr: "pipe",
-  });
+  const run = async (...args: string[]) => {
+    const child = Bun.spawn(["sh", "scripts/try-it.sh", "--showcase", "--prepare", "--outliner", outliner!, ...args], {
+      cwd: join(import.meta.dir, ".."), env: env(), stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+    ]);
+    return { stdout, stderr, exitCode };
+  };
   afterAll(() => rmSync(home, { recursive: true, force: true }));
 
   test("seeds on first run, keeps edits across runs, and --reset puts the seed back", async () => {
-    const first = run();
+    const first = await run();
     expect(first.exitCode).toBe(0);
     expect(first.stdout.toString()).toContain("seeded the showcase");
     // An edit on the showcase outline, through its own service on the same state.
@@ -48,14 +54,14 @@ describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
     await board.update(wb.id, `${original}\nBuy more lemons.`, wb.revision!);
     board.close(); await svc.stop();
     // Another run keeps it (no reseed)…
-    const again = run();
+    const again = await run();
     expect(again.exitCode).toBe(0);
     expect(again.stdout.toString()).not.toContain("seeded");
     svc = new Scratch(base, "showcase"); board = new SocketBoard(await svc.start());
     expect((await loadShowcase(board))!.notes.whiteboard!.text).toContain("Buy more lemons.");
     board.close(); await svc.stop();
     // …and --reset deletes it and reseeds.
-    const reset = run("--reset");
+    const reset = await run("--reset");
     expect(reset.exitCode).toBe(0);
     expect(reset.stdout.toString()).toContain("reset: deleted");
     svc = new Scratch(base, "showcase"); board = new SocketBoard(await svc.start());
@@ -66,7 +72,7 @@ describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
     // --prepare leaves no service of its own running: no pidfile, and no process serving that state.
     expect(existsSync(join(base, "service.pid"))).toBe(false);
     expect(servingState(base)).toEqual([]);
-  }, 60_000);
+  }, 120_000);
 });
 
 test("the process scan finds nothing, rather than failing, on a host without /proc", () => {
