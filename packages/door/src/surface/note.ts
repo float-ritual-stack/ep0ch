@@ -195,7 +195,7 @@ export interface SurfaceHost {
    * Start a session as the person's key does, where the host keeps track of which session the person is in: the
    * thread list (⏎ or a click on a comment mark), an armed edit confirmed (edit.arm). Without it the surface opens it itself.
    */
-  startSession?(kind: SessionKind): void | Promise<unknown>;
+  startSession?(kind: SessionKind, opener?: Key): void | Promise<unknown>;
   /**
    * The comment being written goes into a tile of its own beside this reader (`on`), or out of it (PIE-846): the host's
    * `comment` tile, which moves, sizes and docks as tiles do. Hosts with no tiles (the BBS reader, a river column) have
@@ -9087,11 +9087,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const m = surface.requireNote();
       const kind: SessionKind = external ? "external" : "edit";
       // Opened as the key did before arming: through the host where it keeps track of the person's session.
-      const open = () => {
+      const open = (opener?: Key) => {
         // The reader moved on while it was armed (a lane's preview followed another card, the note was opened over):
         // the question named this note, so nothing opens on another.
         if (surface.msg?.id !== m.id) { host.ctx.flash("not opened: the reader shows another note now · e edits it"); host.redraw(); return; }
-        if (host.startSession) return void host.startSession(kind);
+        if (host.startSession) return void host.startSession(kind, opener);
         void surface.startAsPerson(kind, host).catch(e => { host.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); host.redraw(); });
       };
       const ms = editArmMs();

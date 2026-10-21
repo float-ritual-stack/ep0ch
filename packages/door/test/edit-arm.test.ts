@@ -4,6 +4,7 @@
 // EP0CH_EDIT_ARM=off turns arming off. The focused tile's frame is double-lined. Scratch services, fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { MainMenu, MessageReader } from "../src/screens";
@@ -262,6 +263,8 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
         key(char("z")); key(char("z")); key(char("z"));
         expect(rows().join("\n")).toContain("zzz");
         key({ kind: "esc" });
+        expect(rows().join("\n")).not.toContain("zzz");
+        key({ kind: "esc" });
         expect(desk.overlays.top()).toBeNull();
         release();
         await Bun.sleep(100);
@@ -276,10 +279,13 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
         // Recovery runs through the real action path, and only the later successful read supplies the draft base.
         board.get = get;
         const recovered = await app.press("edit.recover", { op: "copy" }, desk.nameOf(desk.focus)) as any;
-        expect(recovered.text).toBe("a\t\nkept");
-        await app.press("edit.recover", { op: "open" }, desk.nameOf(desk.focus));
+        expect(recovered.text).toBe("  a\n  kept");
+        expect(readFileSync(recovered.copy, "utf8")).toBe(recovered.text);
+        await app.press("edit.recover", {}, desk.nameOf(desk.focus));
+        expect(rows().join("\n")).toContain("open edit with typed text");
+        key({ kind: "down" }); key(ENTER);
         await until(() => !!rd.surface.draft && desk.entered.in(rd), "typed text recovered into a fresh draft");
-        expect(rd.surface.draft.text).toBe("a\t\nkeptSeed tray\nWater daily");
+        expect(rd.surface.draft.text).toBe("  a\n  keptSeed tray\nWater daily");
       }
     } finally {
       release(); board.get = get;
