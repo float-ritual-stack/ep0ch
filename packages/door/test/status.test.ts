@@ -2,6 +2,7 @@
 import { describe, expect, test, spyOn } from "bun:test";
 import { App, statusLine } from "../src/app";
 import { visible, width } from "../src/style";
+import { theme } from "../src/theme";
 
 const plain = visible;
 const right = "kitty+crt │ on 0m │ 09:13 ";
@@ -176,13 +177,14 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       app.flash("");
       const line = bar();
       expect(width(line)).toBe(80);
-      expect(line).toMatch(/\d\d:\d\d $/);
+      // Pins append after `- clock`, so they sit after it, on its side (a button sits where its line is).
+      expect(line).toMatch(/\d\d:\d\d │ Pin 1/);
       const result = await app.dispatch.act({ action: "status.bar.items" }, USER) as any;
       const shown = result.items.filter((i: any) => i.from !== undefined);
       const pins = shown.filter((i: any) => i.id.startsWith("button:"));
       expect(pins.length).toBeGreaterThan(0);
       expect(pins.length).toBeLessThan(8);
-      expect(line.indexOf("Pin 1")).toBeLessThan(line.indexOf(visible(result.items.find((i: any) => i.id === "drawer").text)));
+      expect(line.indexOf("Pin 1")).toBeGreaterThan(line.indexOf(visible(result.items.find((i: any) => i.id === "drawer").text)));
       const overflow = shown.find((i: any) => /^\+\d+$/.test(visible(i.text)));
       expect(overflow).toBeDefined();
       expect(Number(visible(overflow.text).slice(1))).toBe(8 - pins.length);
@@ -229,11 +231,33 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally { await board.trash(note.id, USER); }
   });
 
+  test("a button sits where its line is in the note, set off by the bar's separator on either side", async () => {
+    // Evan, Oct 21: his Collapse line came after `- clock` and drew as `float-2 · pieCollapse`, glued to the location on the left.
+    const note = await board.createBlock(null, 'Order status [status-bar::true]\n- machine\n::button{label="Fold" act="status.log"}\n- clock\n::button{label="Collapse" act="status.log"}');
+    try {
+      await until(() => bar().includes("Collapse"), "the configured bar");
+      app.flash("");
+      const line = bar();
+      expect(line).toMatch(/ │ Fold │ /);
+      expect(line).not.toMatch(/\S(Fold|Collapse)/);
+      expect(line.trimEnd().endsWith("Collapse")).toBe(true);
+      expect(line).toMatch(/\d │ Collapse/);
+      const ran: string[] = [];
+      const stop = traceActions(a => ran.push(a.name));
+      try {
+        click("Collapse");
+        await until(() => ran.includes("status.log"), "the right-hand button presses");
+      } finally { stop(); }
+    } finally { await board.trash(note.id, USER); }
+  });
+
   test("a live note reorders and hides built-ins, presses a button through button.press, and keeps malformed text", async () => {
     const note = await board.createBlock(null, 'My status [status-bar::true]\n- theme\n::button{label="Video" act="video.cycle" alt="theme.cycle"}\n::button{label="Video theme" act="theme.cycle"}\n- brand');
     await until(() => bar().includes("Video"), "the configured bar");
     app.flash("");
-    expect(bar().indexOf("Video")).toBeLessThan(bar().indexOf("ep0ch"));
+    // The buttons follow `- theme`, so they sit after it on the right; brand stays on the left.
+    expect(bar().indexOf("Video")).toBeGreaterThan(bar().indexOf(theme().name));
+    expect(bar().indexOf("ep0ch")).toBeLessThan(bar().indexOf("Video"));
     expect(bar()).not.toContain("^K");
     const video = app.video;
     click("Video");
