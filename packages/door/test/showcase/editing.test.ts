@@ -215,7 +215,7 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     press({ kind: "char", ch: "z", ctrl: true });
     // The preview's link: a click on it opens in the same detail, not one more.
     press({ kind: "char", ch: "p", ctrl: true });
-    const rows = sc.render(app).lines.map(plain), rule = rows.findIndex(l => l.includes("preview · ctrl+p hides"));
+    const rows = sc.render(app).lines.map(plain), rule = rows.findIndex(l => l.includes("( preview )"));
     const y = rows.findIndex((l, i) => i > rule && l.includes(`open: ${SEED.shed}.`)), x = rows[y]!.indexOf(`open: ${SEED.shed}.`) + 8;
     expect(y).toBeGreaterThan(rule);
     // The detail beside moved on to another note meanwhile: the click brings the shed back into it.
@@ -243,7 +243,7 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     press({ kind: "char", ch: "p", ctrl: true });
     // The edit's own preview: its rows under the rule, cut to its tile (the notebook beside has the same embed).
     const preview = () => {
-      const rows = sc.render(app).lines.map(plain), rule = rows.findIndex(l => l.includes("preview · ctrl+p hides"));
+      const rows = sc.render(app).lines.map(plain), rule = rows.findIndex(l => l.includes("( preview )"));
       if (rule < 0) return "";
       const from = rows[rule]!.indexOf("──( preview"), to = rows[rule]!.indexOf("║", from);
       return rows.slice(rule).map(l => l.slice(from, to)).join("\n");

@@ -1,3 +1,5 @@
+import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
+import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
 import { commandButton } from "../bar/command";
@@ -618,8 +620,6 @@ function placePictures(doc: Doc, drawn: readonly Link[]): void {
   }
 }
 /** ctrl+s on a comment or reply being written (not while its completion popup is open, which takes keys first). */
-const sessionKey = (s: CommentSession, k: Key, c: string) => s.mode === "compose" && !!s.composer && !s.busy && !s.composer.busy && k.kind === "char" && !!k.ctrl && k.ch === c && !completerOf(s.composer)?.shown;
-const sessionSend = (s: CommentSession, k: Key) => sessionKey(s, k, "s");
 
 export { leaveSaid, propertyChange, type LeaveResult };
 
@@ -634,7 +634,7 @@ export { leaveSaid, propertyChange, type LeaveResult };
 interface Choice { id: string; label: string; key: string }
 interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
-type ReplyLinksMode = ReaderMode<SurfaceHost> & { dragFrom?: { block: Msg; y: number }; truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[]; drawnItems: number[] };
+type ReplyLinksMode = ReaderMode<SurfaceHost> & { controls: { from: number; to: number; action: (typeof REPLIES_CONTROLS)[number] }[]; dragFrom?: { block: Msg; y: number }; truncated: boolean; data: LinkData; selected: number; group: LinkGroupName | "thread"; thread: ThreadData; unfolded: Set<string>; presses: RowPresses; picked: boolean; top: number; rect: { x: number; y: number; w: number; h: number }; rowsAt: LinkRow[]; drawnItems: number[] };
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; reply?: Msg; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
 /** Moving and sizing the floating composer by keys (ctrl+g, PIE-785): arrows or h j k l move it, shift with them sizes it. */
@@ -1076,6 +1076,8 @@ export class NoteSurface {
   hint(extra = ""): string {
     const mode = this.modes.top();
     if (mode) return mode.hint();
+    const attached = this.modes.all().find(m => m.name === "sources");
+    if (attached) return "reader has keys · " + modeHint(attached.keys!.filter(row => row.key === "esc"), action => NOTE_ACTIONS.def(action));
     const rows = this.selection && this.selRows();
     if (rows) return selectionHint(this.selection!, [...this.selection!.text(rows)].length);
     const points = this.msg && !this.msg.partial ? this.visibleFolds(this.msg) : [];
@@ -1245,7 +1247,13 @@ export class NoteSurface {
       else if (last > mode.top + rows - 1) mode.top = Math.min(first, last - rows + 1);
       const shown = flat.slice(mode.top, mode.top + rows - 1);
       mode.drawnItems = shown.map(r => r.i);
-      return { lines: [pad(`THREAD · T full list · b links · Esc close${mode.truncated ? " · cut short" : ""}`, cols), ...shown.map(r => r.text)] };
+      let title = "THREAD";
+      mode.controls = REPLIES_CONTROLS.map(action => {
+        const from = width(title) + 1;
+        title += ` [${REPLIES_KEYS.find(row => row.action === action)!.label}]`;
+        return { from, to: width(title), action };
+      });
+      return { lines: [pad(title + (mode.truncated ? " · cut short" : ""), cols), ...shown.map(r => r.text)] };
     });
     const sm = this.sourcesMode;
     if (sm?.place === "inline") return this.renderComment(w, h, host);
@@ -2948,10 +2956,9 @@ export class NoteSurface {
 
   editPreviewKey(k: Key, host: SurfaceHost): boolean {
     if (this.placementMenu) return this.modes.key(k, host) ?? true;
-    if (k.kind === "esc") return false;
-    if (k.kind === "char" && k.ctrl && k.ch === "p") void this.runKey("draft.preview", {}, host);
-    else if (isUp(k) || isDown(k) || k.kind === "pgup" || k.kind === "pgdn") {
-      void this.runKey("draft.scroll", { preview: true, by: (isUp(k) || k.kind === "pgup" ? -1 : 1) * (k.kind === "pgup" || k.kind === "pgdn" ? 10 : 1) }, host);
+    const binding = modeBinding(EDIT_PREVIEW_KEYS, k);
+    if (binding) {
+      void this.runKey(binding.action as keyof NoteActionArgs, binding.args as never, host);
     }
     return true;
   }
@@ -3057,33 +3064,29 @@ export class NoteSurface {
     const go = (n?: number, fresh = false) => run(row(n)?.kind === "fold" ? "note.thread.unfold" : "note.thread.open", { ...(n === undefined ? {} : { n }), ...(fresh && row(n)?.kind !== "fold" ? { fresh: true } : {}) });
     const run = (action: "note.thread.close" | "note.thread.pick" | "note.thread.open" | "note.thread.unfold" | "note.thread.groups" | "note.thread.full", args: Record<string, unknown> = {}) => { void this.runKey(action, args, host); };
     const mode: ReplyLinksMode = {
+      keys: REPLIES_KEYS, controls: [],
       name: "replies", of: m, word: "replies", holdsKeys: true, editing: () => false, covers: () => false,
       data, thread, unfolded: new Set(), presses: new RowPresses(), picked: false, top: 0, truncated: replies.truncated || thread.truncated,
       selected: Math.max(0, threadRows(thread).findIndex(r => r.kind === "child" && r.thread?.here)), group: "thread", rect: { x: 0, y: 0, w: 0, h: 0 }, rowsAt: [], drawnItems: [],
       key: k => {
-        const c = ch(k);
-        const step = k.kind === "alt-up" || c === "K" ? "up" : k.kind === "alt-down" || c === "J" ? "down" : c === "I" ? "in" : c === "O" ? "out" : undefined;
+        const binding = modeBinding(REPLIES_KEYS, k);
+        if (!binding) return true;
         const picked = row();
-        if (k.kind === "char" && k.ctrl && k.ch === "z" && picked?.kind === "child") {
-          void this.runKey("note.move.undo", { id: picked.child.block.id }, host); return true;
-        }
-        if ((step || c === "Z") && picked?.kind === "child") {
-          void this.runKey("note.move", { id: picked.child.block.id, revision: picked.child.block.revision, ...(step ? { step } : {}) }, host);
-          return true;
-        }
-        if (k.kind === "esc" || c === "t" || c === "q") run("note.thread.close");
-        else if (isDown(k)) run("note.thread.pick", { by: 1 });
-        else if (isUp(k)) run("note.thread.pick", { by: -1 });
-        else if (k.kind === "enter" || k.kind === "alt-enter") go(undefined, k.kind === "alt-enter");
-        else if (c === "b") run("note.thread.groups");
-        else if (c === "T") run("note.thread.full");
+        if (binding.action === "note.move" || binding.action === "note.move.undo") {
+          if (picked?.kind === "child") void this.runKey(binding.action, { id: picked.child.block.id, ...(binding.action === "note.move" ? { revision: picked.child.block.revision } : {}), ...binding.args }, host);
+        } else if (binding.action === "note.thread.open") go(undefined, !!binding.args?.fresh);
+        else run(binding.action as Parameters<typeof run>[0], binding.args);
         return true;
       },
       click: (x, y, host) => {
         y += this.drawn?.heroRows ?? 0;
         const r = mode.rect;
         if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) return undefined;
-        if (y === r.y) { run(x < r.x + 22 ? "note.thread.full" : x < r.x + 32 ? "note.thread.groups" : "note.thread.close"); return true; }
+        if (y === r.y) {
+          const control = mode.controls.find(hit => x - r.x >= hit.from && x - r.x < hit.to);
+          if (control) run(control.action);
+          return true;
+        }
         const i = mode.drawnItems[y - r.y - 1] ?? -1;
         if (i < 0 || i >= mode.rowsAt.length) return true;
         // One rule for every list's rows (RowPresses): a click selects (the one that gave the reader the keys only does that),
@@ -3094,7 +3097,7 @@ export class NoteSurface {
       },
       wheel: (dir, _host, at) => { if (!at || at.x < mode.rect.x || at.y < mode.rect.y) return false; run("note.thread.pick", { by: dir }); return true; },
       rows: () => null, leave: async () => { this.modes.drop("replies"); return { left: "nothing" }; },
-      hint: () => "j k select · K/J reorder · I/O in/out · Z move · ⏎ open · alt+⏎ alt-open · b links · T full · Esc close", state: () => "replies",
+      hint: () => modeHint(REPLIES_KEYS, action => NOTE_ACTIONS.def(action)), state: () => "replies",
       describe: () => ({ replies: mode.data.children?.kind === "ready" ? mode.data.children.value.map(c => c.block.id) : [], truncated: mode.truncated, group: mode.group, rows: mode.rowsAt.map((r, i) => describeLinkRow(r, i + 1, i === mode.selected)) }),
     };
     this.modes.push(mode); host.redraw(); return out;
@@ -3134,6 +3137,7 @@ export class NoteSurface {
 
   private draftKey(k: Key, host: SurfaceHost): boolean {
     const s = this.drafting!;
+    if (s.draft.preview && modeBinding(EDIT_PREVIEW_READER_KEYS, k) && !completionOf(s.draft)) return this.editPreviewKey(k, host);
     if (this.replyParent && ch(k) === '"' && this.selection) { void this.runKey("note.quote", {}, host); return true; }
     if (this.replyParent && (k.kind === "pgup" || k.kind === "pgdn")) { this.scrollKey(k, host); return true; }
     if (elementEdit(s.draft).key(k, (action, args = {}) => { void this.runKey(action, args, host); })) { host.redraw(); return true; }
@@ -3473,6 +3477,7 @@ export class NoteSurface {
   private draftMode(s: DraftSession): DraftMode {
     const d = s.draft;
     return {
+      get keys() { return d.preview ? EDIT_PREVIEW_READER_KEYS : undefined; },
       name: "draft", of: d, session: s, holdsKeys: true, noun: "the edit",
       word: "edit",
       changed: revision => { if (!this.replyParent && !d.saving && revision !== d.base) d.changedElsewhere = true; },
@@ -3494,7 +3499,7 @@ export class NoteSurface {
       },
       unsaved: () => s.dirty,
       keep: () => [s.keep()],
-      hint: () => this.replyParent ? `ctrl+s saves · Esc ${d.dirty ? "twice discards" : "discards"} · PgUp/PgDn scroll message · select then \" quotes` : (elementEdit(d).on ? "ctrl+o raw · Tab/↑↓ cells · alt+r/d row · alt+v/x column · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
+      hint: () => d.preview ? modeHint(EDIT_PREVIEW_READER_KEYS, action => NOTE_ACTIONS.def(action)) : this.replyParent ? `ctrl+s saves · Esc ${d.dirty ? "twice discards" : "discards"} · PgUp/PgDn scroll message · select then \" quotes` : (elementEdit(d).on ? "ctrl+o raw · Tab/↑↓ cells · alt+r/d row · alt+v/x column · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
       state: () => `editing${d.dirty ? " · unsaved" : ""}`,
       describe: () => ({ ...s.describe(), previewPlace: this.editPreview.place, previewSplit: this.splits["edit-preview"], rich: elementEdit(d).on, writtenBy: writtenBy(d, "save") }),
     };
@@ -3532,7 +3537,8 @@ export class NoteSurface {
   private commentMode(cs: CommentSession): CommentMode {
     // The comment's own tile (PIE-846) has its mouse (composerPointer): here, a press, a click and the wheel are the note's.
     const writing = () => (cs.mode === "compose" && cs.place !== "tile" ? cs.composer : null);
-    return {
+    const mode: CommentMode = {
+      get keys() { return cs.mode === "compose" ? COMMENT_KEYS.map(row => row.key === "esc" && cs.dirty ? { ...row, label: "twice puts comment aside" } : row) : undefined; },
       name: "comment", of: cs, session: cs, holdsKeys: true, noun: "the comment", word: "comment",
       // The passage picker and the thread list are drawn in place of the note; the composer is drawn in it (PIE-770).
       // In its own tile (PIE-846) the list and the picker are drawn there, and the note here stays as it was.
@@ -3584,12 +3590,13 @@ export class NoteSurface {
       },
       unsaved: () => cs.dirty,
       keep: () => (cs.writing ? [cs.writing.keep()] : []),
-      hint: () => cs.hint(),
+      hint: () => cs.busy ?? (cs.mode === "compose" ? modeHint(mode.keys!, action => NOTE_ACTIONS.def(action)) : cs.hint()),
       state: () => (cs.mode === "compose" ? `writing${cs.dirty ? " · unsent" : ""}` : cs.mode === "select" ? "quoting" : "comments"),
       describe: () => cs.describe(),
       // A reply from an expanded thread landed: back to reading, the thread still open under its passage.
       ended: () => cs.finished,
     };
+    return mode;
   }
 
   /** The property panel (`i`, `I`): its rows take the keys; a value being typed holds the note too. */
@@ -3994,23 +4001,22 @@ export class NoteSurface {
   }
 
   /** The comment session's keys: its commands are actions (PIE-506); picking, moving and typing are its own. */
-  private commentKey(s: CommentSession, k: Key, host: SurfaceHost): boolean {
+  commentEscape(host: SurfaceHost) { return this.session ? this.commentKey(this.session, { kind: "esc" }, host, true) : false; }
+
+  private commentKey(s: CommentSession, k: Key, host: SurfaceHost, escape = false): boolean {
+    if (!escape && s.mode === "compose" && s.composer && !s.busy && !s.composer.busy && !completerOf(s.composer)?.shown) {
+      const binding = modeBinding(COMMENT_KEYS, k);
+      if (binding) { void this.runKey(binding.action as keyof NoteActionArgs, binding.args as never, host, true); return true; }
+    }
     const writing = s.writing;
     // Back to writing: a "leave it unsent?" asked in the power bar (PIE-785) is over, and its answer does nothing.
     this.leaving = null;
-    // ctrl+s sends, and the esc that ends it closes it; in the thread list s, p and t say how present a thread stays.
-    if (sessionSend(s, k)) { void this.runKey("comment.send", {}, host, true); return true; }
     // cmd+c in the comment being written copies its selection (the draft's copy, as in an edit).
     if (s.mode === "compose" && s.composer && isCopyKey(k)) { void this.runKey("draft.copy", {}, host); return true; }
-    // The comment's ctrl+r is the edit's: find the quote again. Its ctrl+x ctrl+e ($EDITOR) is the draft's chord (edit.external).
-    if (sessionKey(s, k, "r")) { void this.runKey("comment.reload", {}, host, true); return true; }
     // ctrl+o: the composer somewhere else (inline, floating, split, popup: PIE-770); the thread list into its own tile
     // beside the note and back over it (PIE-846).
-    if (sessionKey(s, k, "o")) { void this.runKey("comment.place", {}, host, true); return true; }
     if (s.mode !== "compose" && !s.busy && k.kind === "char" && k.ctrl && k.ch === "o" && host.composerTile) { void this.runKey("comment.place", { place: s.place === "tile" ? "inline" : "tile" }, host, true); return true; }
     if (s.mode !== "compose" && s.place === "tile" && !s.busy && k.kind === "char" && k.ctrl && k.ch === "g") { void this.runKey("comment.grip", {}, host, true); return true; }
-    // ctrl+g: move and size it by keys (it floats, PIE-785).
-    if (sessionKey(s, k, "g")) { void this.runKey("comment.grip", {}, host, true); return true; }
     // Typing brings an inline composer (rows of the note) back into view after the wheel took the note elsewhere. A
     // floating, split or popup one is in view already: the note stays where it was scrolled (PIE-846).
     if (s.mode === "compose" && s.place === "inline") this.revealComposer = true;
@@ -4023,7 +4029,7 @@ export class NoteSurface {
     if (s.mode === "threads" && !s.busy && s.threads[s.sel] && ch(k) === " ") { void this.runKey("thread.pick", {}, host, true); return true; }
     if (s.key(k, this.commentEnv(host)) === "close" || s.finished) void this.runKey("comment.close", {}, host);
     // A comment closed by esc, esc is put aside, like an edit: said where, and how it comes back.
-    if (k.kind === "esc" && writing && s.writing !== writing && writing.closedWith) host.ctx.flash(writing.closedWith, 8000);
+    if (k.kind === "esc" && writing && s.writing !== writing) host.ctx.flash(writing.closedWith || "closed the comment", 8000);
     host.redraw();
     return true;
   }
@@ -4172,6 +4178,10 @@ export class NoteSurface {
   key(k: Key, host: SurfaceHost): boolean {
     this.use(host);
     // A step's status choice, the property panel, the edit or the comment: the first open one takes the key.
+    if (k.kind === "esc" && !this.modes.top()) {
+      const attachment = this.modes.all().find(m => m.name === "sources" || m.name === "comment" || m.name === "replies");
+      if (attachment) return attachment.key(k, host);
+    }
     const taken = this.modes.key(k, host);
     if (taken !== null) return taken;
     // Back and forward (PIE-453): where the reader was before a follow, scrolled and with its [ ] position.
@@ -6404,7 +6414,7 @@ export class NoteSurface {
     const sm = this.sourcesMode!;
     sm.rect = { x: col, y: row, w: cols, h: rows };
     const chip = `[${sm.place} ▸]`;
-    const footer = rowLines(this.modes.active(sm) ? sm.view.field ? "sources has keys · Enter save · Esc keeps" : "sources has keys · Esc reader · q close" : "reader has keys · click panel or S enter", cols);
+    const footer = rowLines(this.modes.active(sm) ? "sources has keys" : "reader has keys · click panel to enter", cols);
     const room = Math.max(1, rows - footer.length - 1);
     sm.footer = room + 1;
     const full = drawSources(sm.panel, cols, Date.now());
@@ -6419,6 +6429,11 @@ export class NoteSurface {
     while (lines.length < room + 1) lines.push("");
     lines.push(...footer);
     return { lines };
+  }
+
+  attachmentHint(target: "comment" | "sources" | "list-preview" | "edit-preview"): string {
+    if (target === "edit-preview") return modeHint(EDIT_PREVIEW_KEYS, action => NOTE_ACTIONS.def(action));
+    return (target === "comment" ? this.modes.get("comment") : this.modes.get(target))?.hint() ?? "";
   }
 
   attachedKeys(target: "comment" | "sources" | "list-preview" | "edit-preview") {
@@ -6906,32 +6921,18 @@ export class NoteSurface {
   private sourcesModeOf(P: SourcesPanel, host: SurfaceHost): SourcesMode {
     const run = (name: string, args: Record<string, unknown> = {}) => { void this.runKey(name as keyof NoteActionArgs & string, args as never, host); };
     const mode: SourcesMode = {
+      get keys() { return mode.view.field ? SOURCE_FIELD_KEYS : P.open === null ? SOURCES_KEYS : SOURCE_KEYS; },
       name: "sources", of: P, reveal: true, word: "sources", noun: "the sources", panel: P, holdsKeys: true, editing: () => !!P.inspector.field, covers: () => false,
       place: attachedPlaceOf(readState<{ place: string }>("sources-place.json")?.place) ?? "split", float: null, frame: null, room: { w: 0, h: 0 },
       rect: { x: 0, y: 0, w: 0, h: 0 }, draw: null, view: P.inspector, footer: 0,
       changed: () => { if (!P.loading) void this.readSources(P, host); },
       key: k => {
-        const intent = mode.view.intent(k);
-        if (intent) { run("sources.field", intent); return true; }
-        const c = k.kind === "char" && !k.ctrl ? k.ch : "";
-        if (k.kind === "char" && k.ctrl && k.ch === "o") run("sources.place");
-        else if (k.kind === "char" && k.ctrl && k.ch === "g") run("sources.grip");
-        else if (k.kind === "esc") run("sources.focus", { on: false });
-        else if (k.kind === "char" && k.ctrl && k.ch === "z") run("sources.undo");
-        else if (k.kind === "pgdn" || c === " ") run("sources.scroll", { by: 8 });
-        else if (k.kind === "pgup") run("sources.scroll", { by: -8 });
-        else if (c === "q" || c === "S") run("sources.close");
-        else if (k.kind === "down" || c === "j" || k.kind === "tab") run("sources.pick", { by: 1 });
-        else if (k.kind === "up" || c === "k") run("sources.pick", { by: -1 });
-        else if (k.kind === "enter" || k.kind === "alt-enter") run("sources.enter", { fresh: k.kind === "alt-enter" });
-        else if (c === "e") run("sources.set");
-        else if (c === "y") run("sources.copy");
-        else if (c === "c" || c === "J") run("sources.download", { format: c === "c" ? "csv" : "json" });
-        else if (c === "g") run("sources.jump");
-        else if (c === "r") run("sources.refresh", { all: P.open === null });
-        else if (c === "1") run("sources.fold", { fold: "query" });
-        else if (c === "2") run("sources.fold", { fold: "transform" });
-        else if (c === "3") run("sources.fold", { fold: "result" });
+        const binding = modeBinding(mode.keys!, k);
+        if (binding) run(binding.action, { ...binding.args, ...(binding.action === "sources.refresh" ? { all: P.open === null } : {}) });
+        else {
+          const intent = mode.view.intent(k);
+          if (intent) run("sources.field", intent);
+        }
         return true;
       },
       click: (x, y, host) => {
@@ -6955,7 +6956,7 @@ export class NoteSurface {
       rows: () => null, leave: async () => { this.modes.drop("sources"); return { left: "nothing" }; },
       leaveRefusal: () => mode.view.field ? "finish the property field · Enter saves · Esc keeps" : null,
       unsaved: () => mode.view.unsaved(), keep: () => mode.view.keep(),
-      hint: () => mode.view.field ? `editing ${mode.view.field.key} · Enter save · Esc keeps · ctrl+z undo typing` : "sources has keys · j k move · ⏎ open/edit · e edit · g jump · Esc reader · q close", state: () => this.modes.active(mode) ? "sources" : null,
+      hint: () => "sources has keys · " + modeHint(mode.keys!, action => NOTE_ACTIONS.def(action)), state: () => this.modes.active(mode) ? "sources" : null,
       describe: () => ({ keys: this.modes.active(mode) ? "sources" : "reader", selectedResult: (() => { const s = P.answer?.sources[P.open ?? -1]; const it = s && itemsOf(s, P.folds)[P.item]; return it?.kind === "result" ? it.block ?? null : null; })(), place: mode.place, block: P.block, view: P.open === null ? "list" : "source", ...(P.answer ? { readAt: P.answer.readAt, sources: P.answer.sources.map((s, i) => ({ n: i + 1, name: s.name, kind: s.kind, ...(i === P.open ? { open: true, folds: { ...P.folds }, item: P.item + 1 } : {}), ...(i === P.sel ? { selected: true } : {}) })) } : {}), ...(P.error ? { error: P.error } : {}), loading: P.loading }),
     };
     return mode;
@@ -9020,8 +9021,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "draft.indent": forwardDraft("draft.indent"),
   "draft.outdent": forwardDraft("draft.outdent"),
   "draft.place": forwardDraft("draft.place"),
-  "draft.scroll": forwardDraft("draft.scroll"),
-  "draft.preview": forwardDraft("draft.preview"),
+  "draft.scroll": { ...forwardDraft("draft.scroll"), keys: modeActionKeys(ATTACHED_KEYS, "draft.scroll") },
+  "draft.preview": { ...forwardDraft("draft.preview"), keys: modeActionKeys(ATTACHED_KEYS, "draft.preview"), confirms: true, says: out => out.preview ? "opened the edit preview" : "closed the edit preview" },
   "draft.paste": forwardDraft("draft.paste"),
   "draft.undo": forwardDraft("draft.undo"),
   "draft.redo": forwardDraft("draft.redo"),
@@ -9307,11 +9308,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (_, { surface, host }, actor) => surface.openReplyLinks(host, actor),
   }),
   "note.thread.close": def({
-    summary: "close the replies drawer", keys: "Esc, q, t in the replies, a click on close", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
+    summary: "close the replies drawer", keys: modeActionKeys(ATTACHED_KEYS, "note.thread.close"), confirms: true, says: () => "closed the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
     run(_, { surface, host }) { surface.closeReplyLinks(); host.redraw(); return { closed: true }; },
   }),
   "note.thread.pick": def({
-    summary: "move through the thread, or select one row (n)", keys: "j k up down, wheel, a click in the thread", touches: "tile", replay: "safe", person: "the person's selection", args: { by: { type: "number", optional: true, about: "rows to move" }, n: { type: "number", optional: true, about: "row number to select (starts at one): a click" } },
+    summary: "move through the thread, or select one row (n)", keys: modeActionKeys(ATTACHED_KEYS, "note.thread.pick"), touches: "tile", replay: "safe", person: "the person's selection", args: { by: { type: "number", optional: true, about: "rows to move" }, n: { type: "number", optional: true, about: "row number to select (starts at one): a click" } },
     examples: [
       { act: "note.thread.pick by=1", does: "moves the thread's selection down one row" },
       { act: "note.thread.pick n=3", does: "selects the third row of the thread" },
@@ -9329,11 +9330,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "note.thread.groups": def({
-    summary: "cycle the thread, the replies, outlinks and backlinks", keys: "b in the replies", touches: "tile", replay: "safe", person: "the person's drawer", args: {},
+    summary: "cycle the thread, the replies, outlinks and backlinks", keys: modeActionKeys(ATTACHED_KEYS, "note.thread.groups"), touches: "tile", replay: "safe", person: "the person's drawer", args: {},
     run(_, { surface, host }) { const m = surface.replyLinks; if (m) { m.top = 0; m.group = m.group === "thread" ? "children" : m.group === "children" ? "outlinks" : m.group === "outlinks" ? "backlinks" : "thread"; m.selected = m.group === "thread" ? Math.max(0, threadRows(m.thread, m.unfolded).findIndex(r => r.kind === "child" && r.thread?.here)) : 1; m.picked = false; } host.redraw(); return { group: m?.group }; },
   }),
   "note.thread.open": def({
-    summary: "read the selected post through the tile's open wire, or its alt wire with fresh=true (a fold row opens its posts)", keys: "enter, alt+enter, a double click or alt-click in the thread", touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" }, fresh: { type: "boolean", optional: true, about: "use the alt wire, as alt+Enter does" } },
+    summary: "read the selected post through the tile's open wire, or its alt wire with fresh=true (a fold row opens its posts)", keys: modeActionKeys(ATTACHED_KEYS, "note.thread.open"), touches: "tile", replay: "safe", person: "the person's drawer", args: { n: { type: "number", optional: true, about: "row number (starts at one)" }, fresh: { type: "boolean", optional: true, about: "use the alt wire, as alt+Enter does" } },
     examples: [
       { act: "note.thread.open", does: "opens the selected post of the thread in the reader" },
       { act: "note.thread.open n=2", does: "opens the second row's post of the thread in the reader" },
@@ -9355,7 +9356,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "note.thread.full": def({
-    summary: "open the full THREAD message list", keys: "T or a click on the replies header", touches: "screen", replay: "safe", person: "the person's screen", args: {},
+    summary: "open the full THREAD message list", keys: modeActionKeys(ATTACHED_KEYS, "note.thread.full"), touches: "screen", replay: "safe", person: "the person's screen", args: {},
     async run(_, { surface, host }) {
       const m = surface.requireNote(), { MessageList } = await import("../screens");
       surface.closeReplyLinks();
@@ -9898,7 +9899,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "comment.reload": def({
-    summary: "after a send refused because the note moved on: find the quote again in the note's current text (nearest where it was), or pick the passage again when its words are gone; the comment's text stays", keys: "ctrl+r",
+    summary: "after a send refused because the note moved on: find the quote again in the note's current text (nearest where it was), or pick the passage again when its words are gone; the comment's text stays", keys: modeActionKeys(ATTACHED_KEYS, "comment.reload"),
     touches: "draft", draft: "type", replay: "ask",
     args: {},
     async run(_, { surface, host }, actor) {
@@ -9911,7 +9912,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "comment.send": def({
-    summary: "send the comment or reply; a retry of the same text can't land twice", keys: "ctrl+s",
+    summary: "send the comment or reply; a retry of the same text can't land twice", keys: modeActionKeys(ATTACHED_KEYS, "comment.send"),
     touches: "draft", draft: "leave", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => sendComment(surface, host, actor),
@@ -10066,8 +10067,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return { margin: next };
     },
   }),
+  "comment.escape": def({
+    summary: "close the comment, putting unsent text aside on the second press", keys: modeActionKeys(ATTACHED_KEYS, "comment.escape"),
+    touches: "draft", draft: "leave", replay: "ask", person: "the person's comment keys", args: {},
+    run: (_, { surface, host }) => surface.commentEscape(host),
+  }),
   "comment.close": def({
-    summary: "close the comment session; unsent text needs discard=true (and is put aside as unsent, with a copy on disk)", keys: "esc",
+    summary: "close the comment session; unsent text needs discard=true (and is put aside as unsent, with a copy on disk)", keys: modeActionKeys(ATTACHED_KEYS, "comment.escape"),
     touches: "draft", draft: "leave", replay: "ask",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsent text" } },
     examples: [
@@ -10123,7 +10129,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "sources.grip": def({
-    summary: "move or size sources with the comment box's grip keys", keys: "ctrl+g while sources has keys",
+    summary: "move or size sources with the comment box's grip keys", keys: modeActionKeys(ATTACHED_KEYS, "sources.grip"),
     touches: "tile", person: "the panel belongs to the person", replay: "ask", args: {},
     run: (_, { surface, host }) => surface.gripSources(host),
   }),
@@ -10157,7 +10163,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.place": def({
     summary: "place sources inline, floating, split, popup or in its own tile; kept for next time",
-    keys: "ctrl+o cycles while sources has keys; its chip opens the placement menu",
+    keys: modeActionKeys(ATTACHED_KEYS, "sources.place"),
     touches: "tile", person: "the placement belongs to the person", replay: "ask",
     args: { place: { type: "string", optional: true, about: "inline, floating, split, popup, tile; left out, cycle" }, side: { type: "string", optional: true, about: "left, right, up or down for a tile" } },
     examples: [{ act: "sources.place place=tile side=right", does: "puts Sources in a tile beside the note" }],
@@ -10165,7 +10171,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.place": def({
     summary: "where the comment, question or reply being written sits (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer, or over it when narrow), popup (a box in the middle, the passage quoted) or tile (PIE-846: a tile of its own in the note's place, beside it on side= left, right, up or down, the tiles round them never moving; sized by its border; closing it gives the note its room back; the thread list (m) goes there too). Left out, the next one. This composer only: composer.place sets where new ones open",
-    keys: "ctrl+o while writing a comment; a click on the box's place chip",
+    keys: modeActionKeys(ATTACHED_KEYS, "comment.place"),
     touches: "draft", draft: "type", replay: "ask",
     args: {
       place: { type: "string", optional: true, about: `${ATTACHED_PLACES.join(", ")}; left out, the next one (with side=, tile)` },
@@ -10194,7 +10200,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "comment.grip": def({
     summary: "move and size the comment being written by keys (PIE-785): it floats (if it was elsewhere), then ← → ↑ ↓ or h j k l move it, shift+arrows or H J K L size it, 0 puts it back in its usual place, ⏎ or esc is done. Each step is comment.move. For this sitting only: opened again, it's in its usual place",
-    keys: "ctrl+g while writing a comment",
+    keys: modeActionKeys(ATTACHED_KEYS, "comment.grip"),
     touches: "draft", draft: "type", replay: "ask",
     args: {},
     run(_, { surface, host }) {
@@ -11580,7 +11586,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "sources.field": def({
-    summary: "type in the inspector's property field, select a schema choice, save or cancel it", keys: "typing, paste, arrows, j k, space, enter, esc in a field; a click on a choice or save",
+    summary: "type in the inspector's property field, select a schema choice, save or cancel it", keys: modeActionKeys(ATTACHED_KEYS, "sources.field"),
     touches: "draft", draft: "write", replay: "ask", person: "the field is the person's; an agent passes value= to sources.set",
     args: { op: { type: "string", about: "text, key, pick, toggle, save or cancel" }, value: { type: "string", optional: true, about: "typed text or key name" }, n: { type: "number", optional: true, about: "choice from zero" } },
     examples: [{ act: "sources.field op=save", does: "writes the field through draft.patch" }],
@@ -11601,22 +11607,22 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "sources.focus": def({
-    summary: "give the keys to the Sources inspector or back to the reader, keeping the panel open", keys: "esc, S, a click in the panel or its footer",
+    summary: "give the keys to the Sources inspector or back to the reader, keeping the panel open", keys: "S in the reader, a click in the panel or its footer",
     touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads sources.open",
     args: { on: { type: "boolean", about: "true gives keys to sources; false returns them to the reader" } },
     examples: [{ act: "sources.focus on=false", does: "returns keys to the reader" }],
     run: ({ on }, { surface, host }) => surface.focusSources(host, on),
   }),
   "sources.close": def({
-    summary: "close the Sources inspector", keys: "q, S, esc in the list", touches: "shape", replay: "safe", says: () => "closed the sources", person: "the inspector is the person's view; an agent reads sources.open",
+    summary: "close the Sources inspector", keys: modeActionKeys(ATTACHED_KEYS, "sources.close"), touches: "shape", replay: "safe", says: () => "closed the sources", confirms: true, person: "the inspector is the person's view; an agent reads sources.open",
     args: {}, run: (_, { surface, host }) => surface.closeSources(host),
   }),
   "sources.back": def({
-    summary: "from one source back to the list; from the list, close the inspector", keys: "esc, a click on ←", touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads sources.open",
+    summary: "from one source back to the list; from the list, close the inspector", keys: modeActionKeys(ATTACHED_KEYS, "sources.back"), touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads sources.open",
     args: {}, run: (_, { surface, host }) => surface.backSource(host),
   }),
   "sources.pick": def({
-    summary: "move in the inspector: the next or previous source in the list (by=), or the nth (n=); inside one source, its next row (a fold, a parameter, a copy)", keys: "j k, ↑ ↓, tab, a click on a row",
+    summary: "move in the inspector: the next or previous source in the list (by=), or the nth (n=); inside one source, its next row (a fold, a parameter, a copy)", keys: modeActionKeys(ATTACHED_KEYS, "sources.pick"),
     touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads sources.open",
     args: { by: { type: "number", optional: true, about: "rows to move; negative is up" }, n: { type: "number", optional: true, about: "the row, from 1" } },
     examples: [
@@ -11626,7 +11632,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: ({ by, n }, { surface, host }) => surface.pickSource(host, by, n),
   }),
   "sources.enter": def({
-    summary: "⏎ in the inspector: open the selected source; on a row of one, fold or unfold it, edit the parameter (the person is asked), jump to the transform's note, or copy", keys: "⏎, alt+⏎, a click on a row",
+    summary: "⏎ in the inspector: open the selected source; on a row of one, fold or unfold it, edit the parameter (the person is asked), jump to the transform's note, or copy", keys: modeActionKeys(ATTACHED_KEYS, "sources.enter"),
     touches: "draft", replay: "ask", draft: "write", person: "the inspector is the person's view; an agent reads sources.open and writes with sources.set source= param= value=",
     args: { n: { type: "number", optional: true, about: "the row, from 1 (default: the selected one)" }, fresh: { type: "boolean", optional: true, about: "open a result beside the reader" } },
     examples: [
@@ -11643,7 +11649,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: ({ n }, { surface, host }, actor) => surface.enterSource(host, actor, n),
   }),
   "sources.fold": def({
-    summary: "fold or unfold one of the open source's three parts: query (its parameters), transform (the code or template that shaped it) or result (its rows)", keys: "1 2 3, a click on a fold",
+    summary: "fold or unfold one of the open source's three parts: query (its parameters), transform (the code or template that shaped it) or result (its rows)", keys: modeActionKeys(ATTACHED_KEYS, "sources.fold"),
     touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads sources.open",
     args: { fold: { type: "string", about: `${FOLDS.join(", ")}` } },
     examples: [
@@ -11654,7 +11660,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.refresh": def({
     summary: "read the sources again (\"Updated … ⟳\"): in the list with all=true (r), every line that runs on the note is run again first, as the person asks for it; on one source, only that line. Never run by a bare key outside the inspector",
-    keys: "r, a click on ⟳", touches: "nothing", replay: "ask", person: "the inspector is the person's view; an agent runs lines again with projection.refresh line=",
+    keys: modeActionKeys(ATTACHED_KEYS, "sources.refresh"), touches: "nothing", replay: "ask", person: "the inspector is the person's view; an agent runs lines again with projection.refresh line=",
     args: { all: { type: "boolean", optional: true, about: "run every line that runs on the note again, then read (default: from the list)" } },
     examples: [
       { act: "sources.refresh all=true", does: "runs every line that runs on the note again, then reads the sources" },
@@ -11664,7 +11670,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.set": def({
     summary: "edit one source parameter: figure properties use the shared inspector field and draft.patch against their YAML; handler slots and ::use props use the existing line save. Schema choices and result property names supply the figure's choices; title and query take text, with query warnings after capture. An agent passes value=. Recorded as whoever asks; ctrl+z (sources.undo) takes it back",
-    keys: "e, ⏎ on a parameter", touches: "draft", draft: "write", replay: "ask",
+    keys: modeActionKeys(ATTACHED_KEYS, "sources.set"), touches: "draft", draft: "write", replay: "ask",
     args: { source: { type: "string", optional: true, about: "which source: its number in sources.open's list, or its key (default: the one open in the inspector)" }, param: { type: "string", optional: true, about: "the parameter (default: the focused row's)" }, value: { type: "string", optional: true, about: "the new value (the person is asked when it is left out)" } },
     examples: [
       { act: "sources.set source=2 param=limit value=20", does: "writes 20 into the limit parameter of source 2's line in the note" },
@@ -11672,7 +11678,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: ({ source, param, value }, { surface, host }, actor) => surface.setSourceParam(source, param, value, host, actor),
   }),
   "sources.copy": def({
-    summary: "copy a part of the open source: query (its line), transform (its code) or result (every row, tab separated); the person's goes to the clipboard, an agent's is returned", keys: "y, a click on [y copy]",
+    summary: "copy a part of the open source: query (its line), transform (its code) or result (every row, tab separated); the person's goes to the clipboard, an agent's is returned", keys: modeActionKeys(ATTACHED_KEYS, "sources.copy"),
     touches: "nothing", replay: "safe",
     args: { part: { type: "string", optional: true, about: "query, transform or result (default: the focused copy row's, else result)" }, source: { type: "string", optional: true, about: "which source: its number in sources.open's list, or its key (default: the one open in the inspector)" } },
     examples: [
@@ -11688,7 +11694,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "sources.download": def({
-    summary: "save the source's raw rows as CSV or JSON; returns the file path", keys: "c for CSV, J for JSON in Sources, or a click on download",
+    summary: "save the source's raw rows as CSV or JSON; returns the file path", keys: modeActionKeys(ATTACHED_KEYS, "sources.download"),
     touches: "nothing", replay: "ask",
     args: { format: { type: "string", about: "csv or json" }, source: { type: "string", optional: true, about: "source number or key; default the open source" }, path: { type: "string", optional: true, about: "new file path; default the door's downloads folder" } },
     examples: [
@@ -11701,12 +11707,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "sources.jump": def({
-    summary: "jump to the open source's transform note (the script, the template): the person's reader opens it; an agent is told its id and reads it with outline_read", keys: "g, ⏎ on [g jump to its note]",
+    summary: "jump to the open source's transform note (the script, the template): the person's reader opens it; an agent is told its id and reads it with outline_read", keys: modeActionKeys(ATTACHED_KEYS, "sources.jump"),
     touches: "tile", replay: "ask", way: "the jump leaves the page they are reading · an agent reads the note with outline_read",
     args: {}, run: (_, { surface, host }, actor) => surface.jumpSource(host, actor),
   }),
   "sources.scroll": def({
-    summary: "scroll the Sources inspector's rows (a tall result or transform), by rows; moving the focus scrolls it into view too", keys: "PgUp PgDn space, the wheel over it",
+    summary: "scroll the Sources inspector's rows (a tall result or transform), by rows; moving the focus scrolls it into view too", keys: modeActionKeys(ATTACHED_KEYS, "sources.scroll"),
     touches: "shape", replay: "safe", person: "the inspector is the person's view; an agent reads the rows in sources.open's answer",
     args: { by: { type: "number", about: "rows; negative is up" } },
     examples: [
@@ -11717,7 +11723,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "sources.undo": def({
     summary: "undo the last sources.set made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the line changed again since",
-    keys: "ctrl+z (when a source parameter was the last change made here)", touches: "draft", draft: "write", replay: "ask",
+    keys: modeActionKeys(ATTACHED_KEYS, "sources.undo"), touches: "draft", draft: "write", replay: "ask",
     args: {}, run: (_, { surface, host }, actor) => surface.undoSource(host, actor),
   }),
   "use.undo": def({

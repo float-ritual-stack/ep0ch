@@ -13,13 +13,13 @@ export const marks: Record<string, string[]> = {
   // The finding note: what / (the power bar's notes scope) finds, typos and all.
   search: ["Finding things in the house notes", "Press / (on the river, g) and type"],
   // The meeting on the left, a comment being written on the guide on the right (PIE-762).
-  "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "» comment · ctrl+s"],
+  "deep-links": ["Greenhouse meeting, October", "We agreed to water the seedlings", "» comment"],
   // Four readers on one note, each writing a comment in another place (PIE-770).
   composer: ["Writing in the margin", "[inline ▸]", "[floating ▸]", "[split ▸]", "[popup ▸]"],
   // A comment on the whole note in its own tile beside the reader (PIE-846); the note's whole-note thread in the margin.
   "comment-tile": ["Seed library opening hours", "comment on the whole note", "The winter shelf needs a lock", "comment · reader"],
   // The draft session: an edit open on the left, a comment being written on the right.
-  drafts: ["editing · Kitchen whiteboard", "» comment · ctrl+s", "[add them]"],
+  drafts: ["editing · Kitchen whiteboard", "» comment", "[add them]"],
   // Three kept edits against notes that moved on: one with a new line, one the note already has (settled), one old (a chip).
   kept: ["Greenhouse watering rota", "from your edit yesterday", "[add them]", "was already in the note", "1 old edit"],
   // The guide two agents raced on: @fern's words in it, @moss's proposal drawn after its last line with its controls.

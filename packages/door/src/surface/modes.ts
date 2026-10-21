@@ -1,3 +1,4 @@
+import { keyName, keyCaption } from "./actions";
 import type { SurfaceView } from "./note";
 import type { Hint } from "./hint-card";
 // The reader's modes (PIE-516, part 2): what takes a reader's keys while the person or an agent is doing
@@ -11,6 +12,33 @@ import type { Hint } from "./hint-card";
 import type { LeaveResult } from "../draft-session";
 import type { Actor } from "../socket";
 import type { Key } from "../term";
+
+/** A binding and its optional short wording, as in W_KEYS. Text input still belongs to the shared editor. */
+export interface ModeKey {
+  readonly key: string;
+  readonly action: string;
+  readonly args?: Record<string, unknown>;
+  readonly label?: string;
+}
+
+export function modeBinding(keys: readonly ModeKey[], key: Key): ModeKey | undefined {
+  return keys.find(row => row.key === keyName(key));
+}
+
+export function modeHint(keys: readonly ModeKey[], describe: (action: string) => { summary: string } | undefined): string {
+  const groups = new Map<string, string[]>();
+  for (const row of keys) {
+    const label = row.label ?? describe(row.action)!.summary;
+    const group = groups.get(label) ?? [];
+    group.push(keyCaption(row.key)); groups.set(label, group);
+  }
+  return [...groups].map(([label, keys]) => `${keys.join("/")} ${label}`).join(" · ");
+}
+
+export function modeActionKeys(tables: readonly (readonly ModeKey[])[], action: string): string | undefined {
+  const keys = [...new Set(tables.flatMap(table => table.filter(row => row.action === action).map(row => row.key)))];
+  return keys.length ? keys.map(keyCaption).join(", ") : undefined;
+}
 
 export type ModeName = "list-preview" | "placement" | "picker" | "panel" | "draft" | "comment" | "links" | "grip" | "replies" | "sources";
 
@@ -26,6 +54,7 @@ export const PRECEDENCE: Record<ModeName, number> = { "list-preview": 2, placeme
 /** One mode, as the reader asks it. `H` is the reader's host. */
 export interface ReaderMode<H> extends Mode<H> {
   readonly name: ModeName;
+  readonly keys?: readonly ModeKey[];
   /** What the mode is about (the edit's draft, the comment session, the panel, the choice): hosts compare it by identity. */
   readonly of: object;
   /** Takes every key, the host's shortcuts too, while it's open. */

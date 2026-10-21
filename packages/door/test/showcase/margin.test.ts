@@ -107,7 +107,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     drag("nights stay above ten degrees");
     await until(() => screen().includes("[Ask a]"), "the toolbar with Ask", 5000);
     press({ kind: "char", ch: "a" }); press({ kind: "char", ch: "a" });
-    await until(() => screen().includes("ctrl+s send") && screen().includes("» question · ctrl+s saves"), "the question started with @margin, the person in it, at its passage", 5000);
+    await until(() => screen().includes("^S send") && screen().includes("» question"), "the question started with @margin, the person in it, at its passage", 5000);
     for (const c of "why ten?") press({ kind: "char", ch: c });
     press({ kind: "char", ch: "s", ctrl: true });
     await waitFor(async () => (await board.comments(plan.id)).some(t => t.body.startsWith("@margin why ten?") && t.replies.some(r => r.author === "ext:marginalia")), "the margin's answer", 10_000);
@@ -276,7 +276,7 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     for (let i = 0; i < 5 && !cs()!.threads[cs()!.sel]?.body.startsWith("Could we swap"); i++) press({ kind: "char", ch: "j" });
     ch("e");
     await until(() => cs()?.mode === "compose" && d()?.text === "Could we swap Thursdays in August?", "the comment's words in the editor");
-    expect(plain(sc.render(app).lines.join("\n"))).toMatch(/edit \S+'s comment · ctrl\+s saves/);
+    expect(plain(sc.render(app).lines.join("\n"))).toMatch(/edit \S+'s comment/);
     // ctrl+s on words unchanged closes it, nothing written.
     press({ kind: "char", ch: "s", ctrl: true });
     await until(() => cs()?.mode === "threads" && !cs()?.busy, "an unchanged edit closed");

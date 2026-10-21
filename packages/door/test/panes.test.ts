@@ -174,7 +174,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     key({ kind: "paste", text: Array.from({ length: 80 }, (_, i) => `Bean row ${i}`).join("\n") });
     key({ kind: "char", ch: "p", ctrl: true });
     const rows = () => b.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
-    const preview = () => { const lines = rows(); return lines.slice(lines.findIndex(l => l.includes("preview · ctrl+p hides")) + 1).join("\n"); };
+    const preview = () => { const lines = rows(); return lines.slice(lines.findIndex(l => l.includes("( preview )")) + 1).join("\n"); };
     expect(preview()).toContain("Bean row 79");
     const d = B().model.composer!.session.draft;
     const position = d.row;

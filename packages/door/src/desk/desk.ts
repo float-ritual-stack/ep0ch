@@ -4076,6 +4076,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.rawKeys()) return line(paint(`|14in ${this.nameOf(this.focus)}|08 · every key goes to ${this.ptyIn!.title()} · |15${ESCAPE_CHORD}|08 back to the door (twice: send it)`));
     if (!this.prefix && rd instanceof ReaderPane && rd.holdsKeys && !this.collapsed.has(this.focus)) {
       const where = `${this.readerLabel(this.focus)} · ${rd.surface.state()}`;
+      // Attached surfaces say their bindings in the tile's hint row.
+      if (rd.surface.sourcesMode || rd.surface.replyLinks || rd.surface.session?.mode === "compose" || rd.surface.draft?.preview) return line(paint(`|14 ${where}`));
       return line(this.entered.in(rd)
         ? paint(`|14 ${where}|08 · `) + fg(C.grey) + rd.hint() + RESET
         : paint(`|14 ${where}|08 · |15e ⏎|08 enter ${sessionName(rd)}${rd.surface.scrolls() ? " · |15j k|08 scroll" : ""} · |15Tab/1-9|08 focus · |15^W|08 window`));

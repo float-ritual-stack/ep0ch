@@ -178,8 +178,7 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
       expect(open).toMatch(/who\s+Kit/);
       expect(open).toContain("Meeting template");           // the transform: the template it is drawn from
       s.key({ kind: "esc" }, host);
-      expect(text()).toContain("reader has keys");
-      await NOTE_ACTIONS.run("sources.close", {}, { surface: s, host }, USER);
+      await until(() => !s.sourcesMode, "Esc closed the inspector");
       await until(() => !text().includes("Sources ·") && !text().includes("Transform"), "closed", 5000);
       expect(lines().length).toBeGreaterThan(0);
     }, 60_000);

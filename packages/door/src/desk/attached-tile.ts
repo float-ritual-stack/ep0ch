@@ -23,7 +23,8 @@ export class AttachedTilePane implements Pane {
   title() { if (this.attachment === "edit-preview") return `edit preview · ${this.source}`; if (this.attachment === "list-preview") return `list children · ${this.source}`; if (this.attachment === "sources") return `sources · ${this.source}`; return `${this.listing ? "comments" : "comment"} · ${this.source}`; }
   /** It shows the reader's thread list (m), not a comment being written. */
   private listing = false;
-  hint() { if (this.attachment === "edit-preview") return "edit preview · arrows scroll · Esc reader · ctrl+p hides · placement chip moves it"; if (this.attachment === "list-preview") return "list children · click placement chip to move · click text to edit"; if (this.attachment === "sources") return "sources · ctrl+o placement · Esc reader · q close · drag border to size"; return "ctrl+s send · esc twice puts it aside · ctrl+o back in the reader · ctrl+g then ← → ↑ ↓: another side of the note · drag its border to size it"; }
+  private owner: ReaderPane | null = null;
+  hint() { return this.attachment === "list-preview" ? "list children · click placement chip to move · click text to edit" : this.owner?.surface.attachmentHint(this.attachment) ?? ""; }
   /** The last row's side chips as drawn: a click puts the tile on that side of its note. */
   private sides: { from: number; to: number; side: Side }[] = [];
   spec() { return { source: `tile:${this.source}` }; }
@@ -31,6 +32,7 @@ export class AttachedTilePane implements Pane {
   /** The comment (or thread list) above its last row, the side chips on it. */
   private drawn(w: number, h: number, desk: DeskApi): PaneView | null {
     const r = this.reader(desk);
+    this.owner = r;
     const v = !r ? null : this.attachment === "edit-preview" ? r.surface.editPreviewTile(w, Math.max(1, h - 1), r.host(desk)) : this.attachment === "list-preview" ? r.surface.listPreviewTile(w, Math.max(1, h - 1), r.host(desk)) : this.attachment === "sources" ? r.surface.sourcesTile(w, Math.max(1, h - 1)) : r.surface.composerTile(w, Math.max(1, h - 1), r.host(desk));
     if (!v) return null;
     this.sides = [];
@@ -83,7 +85,6 @@ export class AttachedTilePane implements Pane {
     if (this.attachment === "list-preview") return !!r && r.surface.key(k, this.listHost(r, desk));
     if (r?.surface.sourcesMode) r.surface.attachedKeys(this.attachment);
     const handled = !!r && (this.attachment === "sources" ? !!r.surface.sourcesMode : !!r.surface.session) && r.surface.key(k, r.host(desk));
-    if (r && this.attachment === "sources" && k.kind === "esc" && r.surface.sourcesMode?.state() === null) void desk.perform?.("tile.focus", {}, USER, this.source);
     return handled;
   }
 

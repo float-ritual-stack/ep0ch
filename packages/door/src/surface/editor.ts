@@ -167,7 +167,7 @@ export function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>,
     const target = shown.links[r.n];
     return target && r.line + lead >= at && r.line + lead < at + room ? [{ row: row + 1 + r.line + lead - at, from: col + 1 + r.from, to: col + 1 + r.to, target }] : [];
   });
-  return [rule(w, "preview · ctrl+p hides"), ...body.slice(at, at + room).map(l => " " + l)];
+  return [rule(w, "preview"), ...body.slice(at, at + room).map(l => " " + l)];
 }
 
 /**

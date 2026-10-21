@@ -148,7 +148,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     }, 30_000);
   }
 
-  test("PIE-1100: the sources panel takes keys on click and Esc returns them to the reader", async () => {
+  test("PIE-1100: the sources footer transfers keys on click and Esc closes the panel", async () => {
     await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });
     press({ kind: "enter" });
     ch("S");
@@ -161,7 +161,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     press({ kind: "mouse", action: "drag", button: 0, x: sx + 4, y: sy });
     press({ kind: "mouse", action: "up", button: 0, x: sx + 4, y: sy });
     await until(() => written.slice(sent).includes(osc52("Query")), "panel text copied");
-    press({ kind: "esc" });
+    await app.dispatch.act({ action: "sources.focus", tile: "1", args: { on: false } }, { kind: "user" });
     expect(screen()).toContain("reader has keys");
     expect(screen()).toContain("Query");
     const footerRows = screen().split("\n"), fy = footerRows.findIndex(l => l.includes("reader has keys")), fx = footerRows[fy]!.indexOf("reader has keys") + 4;
@@ -178,7 +178,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     ch("j");
     expect(screen()).toContain("▸");
     press({ kind: "esc" });
-    await app.dispatch.act({ action: "sources.close", tile: "1" }, { kind: "user" });
+    await until(() => !screen().includes("sources has keys"), "Esc closed the panel");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     (app as any).lastInput = 0;
   }, 20_000);
@@ -303,7 +303,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(yaml.title).toBe(title);
     expect(yaml.group).toBe("soil-hue");
     await app.dispatch.act({ action: "sources.set", tile, args: { param: "title" } }, { kind: "user" });
-    const fieldRows = screen().split("\n"), ey = fieldRows.findIndex(l => l.includes(title) && !l.includes("[e edit]")), ex = fieldRows[ey]!.indexOf("shed");
+    const fieldRows = screen().split("\n"), ey = fieldRows.findIndex(l => l.includes(title) && !l.includes("[edit]")), ex = fieldRows[ey]!.indexOf("shed");
     press({ kind: "mouse", action: "down", button: 0, x: ex, y: ey });
     press({ kind: "mouse", action: "drag", button: 0, x: ex + 4, y: ey });
     press({ kind: "mouse", action: "up", button: 0, x: ex + 4, y: ey });
