@@ -370,7 +370,7 @@ const liveSiteOf = (src: FigureSource, args?: Record<string, string>): LiveSite 
  * for this one, `n`th in the note), see FiguresEnv. `rows`: what the reader lends the figure's rows (PIE-864: their
  * words drawn as the note's are, a check row's box a step's control), see RowInline.
  */
-export function renderGraph(kind: string, source: string | FigureSource, W: number, link?: RowLink, figures?: FiguresEnv, rows?: RowInline): string[] {
+export function renderGraph(kind: string, source: string | FigureSource, W: number, link?: RowLink, figures?: FiguresEnv, rows?: RowInline, site?: LiveSite): string[] {
   const src = typeof source === "string" ? { yaml: source } : source;
   const read = figureProps(kind, src, note => childRows(note, liveSiteOf(src)));
   if ("error" in read) return frame(kind, [fg(C.lred) + read.error + RESET], W);
@@ -391,7 +391,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   if (!validLines) warn.push(fg(C.yellow) + "lines needs a whole number: 0 truncates, 1 or more wraps" + RESET);
   const ui: FigureUI = { lines: chosen?.density ? TITLE_LINES[chosen.density] : writtenLines !== undefined && validLines ? writtenLines : isDensity(props.density) ? TITLE_LINES[props.density] : figures?.lines ?? 2, key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "cozy"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}), ...(rows ? { rows } : {}) };
   // A block with query:/view: is answered from the outline now, not from copied values.
-  const live = resolveLive(kind, props, src.note, liveSiteOf(src, read.args));
+  const live = resolveLive(kind, props, src.note, { ...liveSiteOf(src, read.args), ...site });
   if (live) {
     if (live.error && !live.status) return frame(title, [fg(C.lred) + live.error + RESET], W, "live");
     if (live.waiting) return frame(title, [fg(DIM) + "asking the outline…" + RESET], W, "live");

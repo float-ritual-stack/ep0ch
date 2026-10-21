@@ -110,6 +110,7 @@ import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
 import { useCallsOf, withUseProps } from "@ep0ch/outline-core/template-use";
 import type { LiveSite } from "../live";
+import { SocketBoard } from "../socket";
 import { intentOf, moveNote, moveQuestion, MOVE_UNDO, routeNote, undoMove, type MoveArgs } from "../note-move";
 import { hasCard, kindOf, MARGIN_MODES, marginColumn, placeCards, spanBg, toneBg, toolbarRow, type MarginMode, type PassageChoice } from "./margin";
 import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTarget } from "@ep0ch/outline-core/passage";
@@ -2265,6 +2266,16 @@ export class NoteSurface {
    * drawn as the reader draws the note (PIE-770): references by their titles, `[[pages]]`, Markdown, and `!((embeds))` transcluded, through renderDoc and
    * presentLinks. Its links aren't elements: what's followable is the note's own.
    */
+  private previewDraft?: { block: string; text: string; ready: boolean; timer: ReturnType<typeof setTimeout>; board?: SocketBoard; unlisten?: () => void };
+
+  private endPreviewDraft() {
+    clearTimeout(this.previewDraft?.timer);
+    this.previewDraft?.unlisten?.();
+    // Watches belong to their connection: retiring the draft ends its service work too.
+    this.previewDraft?.board?.close();
+    this.previewDraft = undefined;
+  }
+
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
   /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
   snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false, draftOf?: string): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[]; source: number[] } {
@@ -2280,10 +2291,21 @@ export class NoteSurface {
       pending ||= embedState(id, fragment, src, m.id).kind === "loading";
       return out;
     } : undefined;
+    let site: LiveSite | undefined;
+    if (draftOf) {
+      if (this.previewDraft?.block !== draftOf || this.previewDraft.text !== text) {
+        this.endPreviewDraft();
+        const board = src ? new SocketBoard(src.board.path, undefined, src.board.outline) : undefined;
+        const draft = { block: draftOf, text, ready: false, board, unlisten: board?.watched.listen(() => src?.redraw()), timer: setTimeout(() => { draft.ready = true; src?.redraw(); }, 150) };
+        this.previewDraft = draft;
+      }
+      pending ||= !this.previewDraft.ready;
+      site = { board: this.previewDraft.board, draft: { text }, pending: !this.previewDraft.ready, changed: loading => { pending ||= loading; } };
+    }
     // `draftOf`: the text is that note's unsaved one (an edit's preview): its `{{ }}` are read from the text as typed (PIE-533 S2).
-    const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn, undefined, draftOf ? { block: draftOf, draft: true } : undefined), { ...env, ...(embed ? { embed } : {}) });
+    const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn, undefined, draftOf && !site?.pending ? { block: draftOf, draft: true } : undefined), { ...env, ...(draftOf ? { note: draftOf, site } : {}), ...(embed ? { embed } : {}) });
     // Its `{{ }}` still being read: drawn again on the redraw the answer brings.
-    if (draftOf && siteAnswerWaiting(draftOf, text, src, true)) pending = true;
+    if (draftOf && !site?.pending && siteAnswerWaiting(draftOf, text, src, true)) pending = true;
     // `images` for a host that lays them out in its own rows (a thread's panel), `placements` for one that places them as drawn (a preview).
     return { lines: doc.lines, source: doc.source, links: doc.links, pending, placements: graphics ? imagePlacements(doc.images, 0, ...cellOf(host)) : [], images: graphics ? doc.images : [] };
   }
@@ -2961,6 +2983,7 @@ export class NoteSurface {
    * Unsaved text was already copied to disk (keepDrafts) by the screen that asked before closing.
    */
   dispose() {
+    this.endPreviewDraft();
     this.drafting?.dispose();
   }
 
@@ -2971,6 +2994,7 @@ export class NoteSurface {
   private draftClosed(s: DraftSession, how: Ended, host?: SurfaceHost) {
     if (this.drafting !== s) return;
     if (!this.replyParent) this.position.reading = s.draft.offsetOf(s.draft.row, 0);
+    this.endPreviewDraft();
     this.modes.drop("draft");
     if (this.msg) this.links = linksOf(this.msg);
     if (this.agentDraft === s.draft) {

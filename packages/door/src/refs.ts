@@ -1,4 +1,4 @@
-import { drawEllipsized, ellipsize } from "./style";
+import { C, fg, drawEllipsized, ellipsize } from "./style";
 // Links in read mode, as Detail shows them: `((id))` and `[[address]]` become the target's title or the
 // authored label, without delimiters; a missing target reads `label ◌` (MISSING_MARK), quiet in running text. The service
 // resolves (`references.resolve`, `pages.resolve`); the door keeps the answers until the outline changes.
@@ -402,6 +402,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
       ...(v.source ? { block: v.source.block, at: v.source.start, ...(v.source.mark ? { atLabel: v.source.mark } : {}) } : v.from && v.from !== block ? { block: v.from } : {}),
     };
     const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
+    if (!current) return fg(C.dark) + on + plainWords(words) + off + LINK_OFF;
     if (!resolved) return MISSING_ON + on + plainWords(words) + off + LINK_OFF;
     const url = (v.values ?? []).length === 1 && isExternalUrl(v.values![0]!);
     // Computed, so lightly marked: italic; a URL is a link's colour instead.
@@ -417,7 +418,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     return (v.missing ? MISSING_ON : external ? EXTERNAL_ON : LINK_ON) + on + text + off + (external ? ADORN + "↗" : "") + LINK_OFF;
   };
   // The `{{ }}` of the text, where the scan finds them, paired with the service's answers (none until it has answered).
-  const answer = site ? siteAnswerOf(site.block, noteText, src, site.draft, site.call) : null;
+  const { answer, current } = site ? siteRead(site.block, noteText, src, !!site.draft, site.call) : { answer: null, current: true };
   const pairs = answer ? pairValues(text, answer.values.slice(0, MAX_NOTE_VALUES)).filter(p => p.value) : [];
   let lineStart = 0;
   return lines.map((line, i) => {
