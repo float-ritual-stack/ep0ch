@@ -78,6 +78,64 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     }
   }, 20_000);
 
+  test("the library completion card teaches and copies syntax, then shows a script definition (PIE-1164)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "library" }, as: "test-agent" });
+    press({ kind: "enter" });
+    const desk = S().stages.get(SECTIONS.findIndex(s => s.key === "library")).top;
+    const reader = [...desk.panes.values()].find((p: any) => p.surface) as ReaderPane;
+    await until(() => !!reader.msg, "library reader note");
+    const tile = desk.nameOf(desk.idOf(reader)!);
+    await desk.dispatch.press("tile.focus", {}, tile);
+    ch("e"); press({ kind: "enter" });
+    await until(() => !!reader.draft, "library reader draft");
+    const d = reader.draft!, original = d.text;
+    d.row = 0; d.col = 0;
+    press({ kind: "paste", text: "[status::ready] [owner::Ada] " });
+    d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
+    press({ kind: "enter" });
+    for (const c of "::fie") ch(c);
+    const pop = () => completionOf(d);
+    await until(() => !!pop() && !pop()!.loading, "Fields card");
+    expect(screen()).toContain("::fields{key=status}");
+    expect(pop()!.previewLines!.map(plain).join("\n")).toContain("the property to list");
+    expect(screen()).toContain("Seed list");
+    const source = "::fields{key=status}";
+    const clipboard = () => written.filter(s => s.includes("\x1b]52;")).at(-1) ?? "";
+    press({ kind: "down" }); press({ kind: "up" });
+    ch("y");
+    expect(clipboard()).toContain(Buffer.from(source).toString("base64"));
+    written.length = 0;
+    const rows = screen().split("\n"), y = rows.findIndex(l => l.includes("[copy]")), x = rows[y]!.indexOf("[copy]") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    expect(clipboard()).toContain(Buffer.from(source).toString("base64"));
+    press({ kind: "right" });
+    expect(pop()!.items.some(i => i.label === "::fields{key=owner}")).toBe(true);
+    expect(await desk.dispatch.act({ action: "complete.copy", args: {}, tile }, { kind: "agent", id: "test-agent" })).toMatchObject({ result: source });
+    press({ kind: "esc" });
+    press({ kind: "enter" });
+    for (const c of "@seed-count") ch(c);
+    await until(() => !!pop() && !pop()!.loading && pop()!.items[0]?.label === "@seed-count", "script completion");
+    screen();
+    expect(screen()).toContain("» @seed-count");
+    const definition = pop()!.previewLines!.map(plain).join("\n");
+    expect(definition).toContain("[g] Seed count");
+    expect(definition).toContain("```js");
+    expect(definition).toContain("return (await q('script')).blocks.length;");
+    const jump: any = await desk.dispatch.act({ action: "complete.definition", args: {}, tile }, { kind: "agent", id: "test-agent" });
+    expect((await board.get(jump.blockId))!.text).toStartWith("Seed count [script::seed-count]");
+    press({ kind: "down" }); press({ kind: "up" });
+    ch("g");
+    await until(() => [...desk.panes.values()].some((p: any) => p !== reader && p.msg?.id === jump.blockId), "script opened beside the draft");
+    expect(reader.draft).toBe(d);
+    await desk.dispatch.press("tile.focus", {}, tile);
+    press({ kind: "esc" });
+    for (let i = 0; d.text !== original && i < 50; i++) press({ kind: "char", ch: "z", ctrl: true });
+    expect(d.text).toBe(original);
+    for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
   test("the editing demo previews a reference through the same action as shift+arrows (PIE-1104)", async () => {
     ch("5"); press({ kind: "enter" });
     await until(() => !!S().stages.get(4), "editing stage");

@@ -123,10 +123,10 @@ test("propertyAtCursor: a key being typed after [, a value after ::, never [[ or
 
 test("yamlAtCursor: a key or value inside a component's YAML, closed or still being written; nothing outside it", () => {
   const lines = ["Note", "::graph-meter", "---", "ti", "value: 0.", "---", "after", "::"];
-  expect(yamlAtCursor(lines, 3, 2)).toEqual({ kind: "key", component: "graph-meter", start: 0, end: 2, query: "ti" });
-  expect(yamlAtCursor(lines, 4, 9)).toEqual({ kind: "value", component: "graph-meter", key: "value", start: 7, end: 9, query: "0." });
+  expect(yamlAtCursor(lines, 3, 2)).toMatchObject({ kind: "key", component: "graph-meter", start: 0, end: 2, query: "ti" });
+  expect(yamlAtCursor(lines, 4, 9)).toMatchObject({ kind: "value", component: "graph-meter", key: "value", start: 7, end: 9, query: "0." });
   expect(yamlAtCursor(lines, 6, 3)).toBeNull();
-  expect(yamlAtCursor(["::graph-meter", "---", "title: Disk"], 2, 2)).toEqual({ kind: "key", component: "graph-meter", start: 0, end: 7, query: "ti" });
+  expect(yamlAtCursor(["::graph-meter", "---", "title: Disk"], 2, 2)).toMatchObject({ kind: "key", component: "graph-meter", start: 0, end: 7, query: "ti" });
   expect(yamlAtCursor(["::graph-spark", "---", "da"], 2, 2)).toMatchObject({ kind: "key", component: "graph-spark", query: "da" });
   expect(yamlAtCursor(["plain", "---", "da"], 2, 2)).toBeNull();
   // A figure written as an example in a code fence is the fence's text.

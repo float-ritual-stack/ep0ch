@@ -132,7 +132,7 @@ export interface ExtensionAgentEntry {
 }
 
 export interface ExtensionEntry {
-  readonly script?: { readonly keys: readonly string[] };
+  readonly script?: { readonly keys: readonly string[]; readonly blockId?: string; readonly file?: string; readonly code: string };
   readonly id: string;
   readonly name?: string;
   readonly version?: number;
@@ -507,7 +507,7 @@ export class ExtensionRegistry {
         state: slot.state,
         ...(slot.error ? { error: slot.error } : {}),
         ...(slot.loadedAt ? { loadedAt: slot.loadedAt } : {}),
-        ...(serving && extension.script ? { script: { keys: extension.script.keys ?? [] } } : {}),
+        ...(serving && extension.script ? { script: { keys: extension.script.keys ?? [], blockId: extension.script.blockId, file: extension.script.file, code: extension.script.code } } : {}),
         runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length,
         handlers: serving ? (extension.manifest.handlers ?? [])
           .filter((handler) => this.bound.get(handler.key)?.extension === extension)

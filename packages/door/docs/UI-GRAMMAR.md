@@ -836,7 +836,7 @@ From a look at shiki, strata and mirador (all MIT). Where each fits:
 
 ## 7. Tiles: drag, tab, link, preview, layouts (PIE-413, PIE-417, PIE-473, PIE-474)
 
-The editor's `::` popup shows each component once under its schema's group, with the library demo. Enter inserts; Right or `>` opens variations and arguments; Left returns. Inside `{}`, schema types select property, query-value, reference, action and enum pickers. Drag the preview to select and copy.
+The editor's `::` popup shows each component once under its schema's group, with the library demo. Enter inserts; Right or `>` opens variations and arguments; Left returns. Inside `{}` and component YAML, schema types select property, query-value, reference, action and enum pickers. The preview reads the schema: its purpose, copyable source, drawing, then props. Property examples and variations use the draft's keys, or the `of=` target's; schema samples apply when there are none. After choosing a row, `y` copies the source; `[copy]` does too; dragging selects and copies the drawing. The `@` preview reads the script note and fence (choose a row then `g`, or click `[g]`, to open its definition beside the draft), a file script's registered path and code, or the extension folder and handler.
 
 ### Hint controls (PIE-1096)
 

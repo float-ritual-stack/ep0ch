@@ -5,7 +5,7 @@
 // kept), placed by `planDecorations`. Nothing here knows a component: a schema's source is drawn by what draws it in
 // any note.
 import { calloutRegistry, calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
-import type { Variation } from "@ep0ch/outline-core/component-schema";
+import { valuesWords, type ComponentSchema, type PropPlace, type Variation } from "@ep0ch/outline-core/component-schema";
 import { headingStyleRegistry, headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
 import { propertyTokensInLine } from "@ep0ch/outline-core/property-grammar";
 import { calloutsOf } from "../callouts";
@@ -15,8 +15,11 @@ import { headingStylesOf } from "../heading-styles";
 import type { ListSource } from "../outline-lists";
 import type { Decoration } from "../projection";
 import { figureDemo, linksDemo, fieldsDemo } from "./demo";
+import { drawProps } from "../figures/props";
 import { buttonLabel } from "../surface/home";
 import { presentLinks } from "../refs";
+
+export const PROP_PLACE_WORDS: Record<PropPlace, string> = { line: "on the line", note: "on the declaring note", yaml: "in the YAML" };
 
 type PreviewBoard = { rulePreview?: (note: string, text: string) => Promise<{ decorations: Decoration[] }> };
 interface Kept { decorations: Decoration[] | null; answer: Promise<void> }
@@ -69,4 +72,9 @@ export function drawVariation(v: Variation, width: number, src: ListSource | nul
     env.decorate = (line, dw) => { const p = plan.place.get(line), r = p?.draw(dw); return p && r ? { end: p.end, ...r } : null; };
   }
   return renderDoc(presentLinks(v.use, false, src as never, v.use), env).lines;
+}
+
+/** The schema's property rows, shared by its library page and completion card. */
+export function drawComponentProps(schema: ComponentSchema, width: number): string[] {
+  return drawProps({ props: schema.props.map(p => ({ name: p.token ?? p.key, where: PROP_PLACE_WORDS[p.where], values: valuesWords(p), ...(p.default !== undefined ? { default: p.default } : {}), meaning: p.meaning })) }, width);
 }

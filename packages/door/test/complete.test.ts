@@ -540,6 +540,72 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect((await e.settled()).items.map(i => i.label)).toEqual(first.map(i => i.label));
   });
 
+  test("file script completion shows the registered path and code (PIE-1164 round 2)", async () => {
+    const folder = join(scratch.workspace, ".ep0ch", "scripts");
+    mkdirSync(folder, { recursive: true });
+    const file = join(folder, "count-pots.ts");
+    writeFileSync(file, '// ep0ch-script\nreturn "Seven pots";\n');
+    await board.listExtensions(true);
+    const e = await editing(await create("Script practice\n"));
+    e.type("@count-pots");
+    const p = await e.settled();
+    renderCompletion(p, 180, 30);
+    const preview = p.previewLines!.map(visible).join("\n");
+    expect(preview).toContain(file);
+    expect(preview).toContain('return "Seven pots";');
+  });
+
+  test("YAML field keys use the draft or the named target (PIE-1164 round 2)", async () => {
+    const target = await create("Target plant [habitat::shade]\n");
+    for (const ofLine of ["", `of: '((${target}))'\n`, `after`]) {
+      const after = ofLine === "after";
+      const e = await editing(await create(`YAML practice\n::fields\n---\n${after ? "" : ofLine}key: \n${after ? `of: '((${target}))'\n` : ""}---\n::`));
+      e.d.row = 0; e.d.col = e.d.lines[0]!.length; e.type(" [trellis::north]"); e.press(K("esc"));
+      e.d.row = e.d.lines.findIndex(l => l === "key: "); e.d.col = 5;
+      e.press(K("tab"));
+      const p = await e.settled();
+      const key = ofLine ? "habitat" : "trellis";
+      expect(p.items.some(i => i.insertion === key)).toBe(true);
+      e.press(K("tab"));
+      await until(() => !e.pop(), "YAML key inserted");
+      expect(e.d.lines[e.d.row]).toBe(`key: ${key}`);
+    }
+  });
+
+  test("YAML value completion keeps its rendered variation (PIE-1164 round 2)", async () => {
+    const e = await editing(await create("Meter practice\n::graph-meter\n---\nlimit: "));
+    e.press(K("tab"));
+    const p = await e.settled();
+    expect(renderCompletion(p, 140, 24).map(visible).join("\n")).toContain("DISK");
+  });
+
+  test("component cards teach syntax with draft keys and copy the source (PIE-1164)", async () => {
+    const e = await editing(await create("Card practice\n"));
+    e.type("[status::ready] [owner::Ada]");
+    e.press(K("esc")); e.press(K("enter")); e.type("::fie");
+    const p = await e.settled();
+    const card = () => { renderCompletion(e.pop()!, 140, 24); return e.pop()!.previewLines!.map(visible).join("\n"); };
+    expect(card()).toContain("Fields: Every place a note writes a key");
+    expect(card()).toContain("::fields{key=status}");
+    expect(card()).toContain("[copy]");
+    expect(card()).toContain("Seed list");
+    expect(card()).toContain("the property to list");
+    e.press(K("right"));
+    expect(e.pop()!.items.some(i => i.label === "::fields{key=owner}")).toBe(true);
+    expect(e.pop()!.items.some(i => i.insertion.includes("storyTime"))).toBe(false);
+    const copied = await e.s.act("complete.copy", {}, e.h, AGENT);
+    expect(copied).toBe("::fields{key=status}");
+    expect(e.d.text).toEndWith("::fie");
+    const target = await create("Target keys [habitat::shade]\n");
+    const result: any = await e.s.act("complete", { text: `::fields{of="((${target}))" key="` }, e.h, AGENT);
+    expect(result.items.some((i: any) => i.label === "habitat")).toBe(true);
+    expect(result.items.some((i: any) => i.label === "status")).toBe(false);
+    const typing = await editing(await create("Typing a component name\n"));
+    typing.type("::graph-activit"); await typing.settled();
+    typing.type("y");
+    expect(typing.d.text).toEndWith("::graph-activity");
+  });
+
   test("component rows stay on the left in one line and preview their selected demo (PIE-1127 round 2)", async () => {
     const e = await editing(await create("Component layout\n"));
     e.type("::");
@@ -570,6 +636,8 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const p = await e.settled();
     expect(p.items[0]!.insertion).toContain("\n---\ntitle: Disk\nvalue: 0.6\n---\n::");
     expect(p.items.filter(i => i.insertion.startsWith("::graph-meter")).length).toBe(1);
+    e.screen();
+    await e.s.act("complete.preview", { by: 7 }, e.h, USER);
     expect(e.screen()).toContain("DISK");
     e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
