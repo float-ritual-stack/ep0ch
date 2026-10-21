@@ -221,7 +221,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
   private entered = new Entered();
   /** A session the person started by key that is still opening (the note being read): Esc cancels it. */
-  private pending: { pane: ReaderPane } | null = null;
+  private pending: { pane: ReaderPane; kind: SessionKind; keys: Key[] } | null = null;
 
   // ── tiles (PIE-413) ──
   /**
@@ -4090,13 +4090,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Esc, or leaving the desk, while the note is read cancels it: the token is cleared and nothing opens.
     // The person's session is where their keys are: a reader the key wasn't pressed in (the board's preview, from a lane) takes focus.
     if (this.focusedReader() !== rd) this.focusPane(rd, USER);
-    const token = { pane: rd };
+    const token: NonNullable<Desk["pending"]> = { pane: rd, kind, keys: [] };
     this.pending = token;
     const still = () => this.pending === token && this.focusedReader() === rd && !this.overlays.top();
     const opened = (open: boolean) => {
       const want = still();
       if (this.pending === token) this.pending = null;
-      if (open && want) { this.entered.enter(rd); this.ctx.flash(`${this.readerLabel(this.focus)} · ${rd.surface.state()}`); }
+      if (open && want) {
+        this.entered.enter(rd);
+        this.ctx.flash(`${this.readerLabel(this.focus)} · ${rd.surface.state()}`);
+        for (const key of token.keys) this.key(key, this.ctx);
+      }
       this.redraw();
       return open && want;
     };
@@ -4104,10 +4108,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const said = (e: unknown) => { this.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); return false; };
     // The property panel, or a thread list whose comments are already read, opens at once: the next key is already its.
     if (rd.sessionOf()) { const now = opened(true); return r.then(() => now, said); }
-    return r.then(opened, said);
+    return r.then(opened, e => { opened(false); return said(e); });
   }
 
   key(k: Key, ctx: Ctx): void {
+    const pending = this.pending;
+    if (pending?.pane === this.focusedReader() && (pending.kind === "edit" || pending.kind === "external") && k.kind !== "mouse") {
+      if (k.kind === "esc") { this.pending = null; ctx.flash("not opened"); this.redraw(); }
+      else if (k.kind === "paste" || k.kind === "char" && k.pasted || sessionStart(k) !== pending.kind) pending.keys.push(k);
+      return;
+    }
     if (this.arriving(this.focus) && (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "up" || k.kind === "down" || k.kind === "char" && !k.ctrl && "jk".includes(k.ch))) this.run("tile.arrival.clear", {}, this.nameOf(this.focus));
     if (!this.all().length && !this.overlayOpen() && this.homeSurface.press(k.kind === "mouse" ? { ...k, x: k.x - this.area.col - 2, y: k.y - this.area.row - 1 } : k, action => { void ctx.press?.(action); })) return;
     if (k.kind === "mouse" && this.completionFloat && !this.overlays.all().length) {
@@ -4247,9 +4257,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (k.kind === "esc" && this.pending?.pane === this.focusedReader()) { this.pending = null; ctx.flash("not opened"); return this.redraw(); }
     // An edit or comment of the person's kept open on the focused reader (brought back by a restore, or left by a ^W
     // chord) has their keys before anything else does (PIE-812): none of them goes to the desk underneath.
-    this.reenter();
     const focused = this.focusedReader();
     const c = ch(k);
+    // A restored edit invites e or Enter to carry on; that key belongs to entering, not to its text.
+    const resuming = focused?.surface.draft && !this.entered.in(focused) && focused.surface.keepsOnFocusAway();
+    this.reenter();
+    if (resuming && this.entered.in(focused) && (c === "e" || k.kind === "enter") && !("pasted" in k && k.pasted)) return this.redraw();
     // A step's status choice the person opened (PIE-472) takes their keys until they choose or cancel.
     const choosing = this.choosingReader();
     if (choosing && k.kind !== "mouse") { choosing.key(k, this); return this.redraw(); }

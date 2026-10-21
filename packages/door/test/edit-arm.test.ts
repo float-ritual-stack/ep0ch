@@ -52,14 +52,14 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
   const window = (v: string) => { process.env.EP0CH_EDIT_ARM = v; };
 
   /** A desk on the note, the reader focused; its reader and a render of its rows. */
-  async function deskOnHedge() {
+  async function deskOnHedge(id = notes.hedge.id) {
     while (A().stack.length > 1) { (A().stack.at(-1) as any).dispose?.(); A().stack.pop(); }
     const desk = new Desk() as any;
     app.push(desk);
     desk.render(desk.ctx);
     await until(() => desk.panes.size > 0, "the desk's tiles", 10_000);
-    await app.act({ action: "open", args: { id: notes.hedge.id }, as: AS });
-    const rd = [...desk.panes.values()].find((p: any) => p.kind === "reader" && p.msg?.id === notes.hedge.id) as any;
+    await app.act({ action: "open", args: { id }, as: AS });
+    const rd = [...desk.panes.values()].find((p: any) => p.kind === "reader" && p.msg?.id === id) as any;
     await until(() => !!rd?.surface.msg, "a reader on the note");
     desk.focus = [...desk.panes].find(([, p]: any) => p === rd)![0];
     const rows = () => desk.render(desk.ctx).lines.map(visible) as string[];
@@ -179,15 +179,16 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
 
   for (const typed of ["abc", "e", "cancel"]) test(`slow read: e then ${typed} during opening`, async () => {
     window("off");
-    const { desk, rd } = await deskOnHedge();
-    const original = (await board.get(notes.hedge.id))!.text;
+    const note = await board.request<{ id: string }>("create", { parentId: null, text: notes.hedge.text, author: "agent" });
+    const { desk, rd } = await deskOnHedge(note.id);
+    const original = (await board.get(note.id))!.text;
     const get = board.get.bind(board);
     let release!: () => void, reading!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
     const started = new Promise<void>(resolve => { reading = resolve; });
     board.get = async (...args) => {
       const note = await get(...args);
-      if (args[0] === notes.hedge.id) { reading(); await held; }
+      if (args[0] === note.id) { reading(); await held; }
       return note;
     };
     try {
@@ -199,7 +200,7 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
       if (typed === "cancel") {
         await Bun.sleep(100);
         expect(rd.surface.draft).toBeNull();
-        expect((await get(notes.hedge.id))!.text).toBe(original);
+        expect((await get(note.id))!.text).toBe(original);
         // A later open must not receive the cancelled typing.
         key(char("e"));
       }
@@ -208,7 +209,7 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
       expect(rd.surface.draft.text).toBe(expected);
       key({ kind: "char", ch: "s", ctrl: true });
       await until(() => !rd.surface.draft?.dirty, "the draft saved");
-      expect((await get(notes.hedge.id))!.text).toBe(expected);
+      expect((await get(note.id))!.text).toBe(expected);
     } finally {
       release();
       board.get = get;

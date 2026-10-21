@@ -1145,8 +1145,8 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
       await textIs("Seed swap list and \nBeans, chard");
       b.type("\x19");
       await textIs("Seed swap list and kale\nBeans, chard");
-      b.type("\x1b[C"); b.type("\x1b[C"); b.type("X");
-      await textIs("SeXed swap list and kale\nBeans, chard");
+      b.type("\x1b[D"); b.type("\x1b[D"); b.type("X");
+      await textIs("Seed swap list and kaXle\nBeans, chard");
     } finally { board.close(); }
     b.close();
   }, 60_000);
