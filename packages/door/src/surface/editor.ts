@@ -38,6 +38,8 @@ export interface EditFrame {
    * the preview's links are only drawn.
    */
   follow?: boolean;
+  /** The host draws this preview through the shared attached surface. */
+  attachedPreview?: boolean;
   /** The host can insert from a picker (ctrl+t, src/pick.ts): the frame offers it as a control too. */
   pick?: boolean;
   /** Where a comment's composer sits (PIE-770, src/surface/composer.ts): a chip that switches it (ctrl+o), its name the label. */
@@ -82,9 +84,11 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   ];
   const all = Math.max(1, h - top.length);
   // The preview takes the lower half, once there's room for both.
-  const ph = f.preview && d.preview && all >= 6 ? Math.floor(all / 2) : 0;
+  const ph = f.preview && !f.attachedPreview && d.preview && all >= 6 ? Math.floor(all / 2) : 0;
   const room = all - ph;
-  d.frame = { row: top.length, col: 1, rows: room, cols: Math.max(1, w - 2), controls };
+  // A preview tile can paint before its source reader (for example, on the left).
+  const attached = f.attachedPreview && d.preview ? { preview: d.frame?.preview, links: d.frame?.links } : {};
+  d.frame = { row: top.length, col: 1, rows: room, cols: Math.max(1, w - 2), controls, ...attached };
   const below = ph ? previewRows(d, f.preview!, w, ph, top.length + room) : [];
   const pop = completionOf(d), c = completerOf(d);
   if (c) c.drawn = null;
@@ -118,8 +122,9 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
  */
 export function wheelTarget(d: Draft, x: number, y: number): "text" | "preview" | null {
   const f = d.frame;
-  if (!f || x < f.col - 1 || x > f.col + f.cols) return null;
-  if (f.preview && d.preview && y >= f.preview.row && y < f.preview.row + f.preview.rows) return "preview";
+  if (!f) return null;
+  if (f.preview && x >= f.preview.col && x < f.preview.col + f.preview.cols && y >= f.preview.row && y < f.preview.row + f.preview.rows) return "preview";
+  if (x < f.col - 1 || x > f.col + f.cols) return null;
   return y >= f.row && y < f.row + f.rows ? "text" : null;
 }
 
@@ -132,7 +137,7 @@ const previewCache = new WeakMap<Draft, { text: string; w: number; at: number; b
  * The preview's rows: a labelled rule, then the rendered draft, the part around the cursor's line. Its links are kept on
  * the frame where they're drawn (from row `row`), so a click on one follows it (PIE-592).
  */
-function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: number, h: number, row: number): string[] {
+export function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: number, h: number, row: number, col = 0, aligned = false): string[] {
   // Drawn again only when the text or width changed (a cursor move, a wheel or a blink repaints it for free),
   // after a moment, for link titles that arrived since, and while an embed in it is being read (PIE-852).
   const text = d.text, pw = Math.max(1, w - 2), hit = previewCache.get(d), now = Date.now();
@@ -142,19 +147,24 @@ function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: num
     shown = { source: doc.source, text, w: pw, at: now, body: doc.lines, ranges: doc.links, links, pending: !!doc.pending, placements: doc.placements ?? [] };
     previewCache.set(d, shown);
   }
-  const room = Math.max(0, h - 1), body = shown.body, last = Math.max(0, body.length - room);
+  const room = Math.max(0, h - 1);
+  const cursorRow = aligned ? Math.max(0, (d.frame?.row ?? 1) + d.cursorRow - row - 1) : 0;
+  const sourceRow = shown.source.findIndex(line => line >= d.row);
+  const lead = aligned && sourceRow >= 0 ? Math.min(Math.max(0, room - 1), Math.max(0, cursorRow - sourceRow)) : 0;
+  const body = [...pad0(lead), ...shown.body], source = [...Array<number>(lead).fill(-1), ...shown.source];
+  const last = Math.max(0, body.length - room);
   // Where the wheel put it (PIE-846), while the text is as it was then; else the part around the cursor's line.
   const scrolled = d.previewScroll?.text === text ? d.previewScroll : null;
   if (scrolled === null) d.previewScroll = null;
-  const projected = new PositionRows({ ...d.position, view: { line: d.row + (scrolled?.lineDelta ?? 0), row: scrolled?.row ?? 0 } });
-  projected.source = shown.source;
+  const projected = new PositionRows({ ...d.position, view: { line: d.row + (scrolled?.lineDelta ?? 0), row: scrolled?.row ?? cursorRow } });
+  projected.source = source;
   const at = Math.min(last, projected.top);
   // Its pictures (PIE-846) on the rows of the part shown, one column in as its text is.
-  const placements = shown.placements.flatMap(p => { const q = inWindow(p, at, room, row + 1); return q ? [{ ...q, col: q.col + 1 }] : []; });
-  if (d.frame) d.frame.preview = { row, rows: h, top: at, total: body.length, source: shown.source, placements };
+  const placements = shown.placements.flatMap(p => { const q = inWindow({ ...p, row: p.row + lead }, at, room, row + 1); return q ? [{ ...q, col: q.col + col + 1 }] : []; });
+  if (d.frame) d.frame.preview = { row, col, cols: w, rows: h, top: at, total: body.length, source, placements };
   if (d.frame) d.frame.links = shown.ranges.flatMap(r => {
     const target = shown.links[r.n];
-    return target && r.line >= at && r.line < at + room ? [{ row: row + 1 + r.line - at, from: 1 + r.from, to: 1 + r.to, target }] : [];
+    return target && r.line + lead >= at && r.line + lead < at + room ? [{ row: row + 1 + r.line + lead - at, from: col + 1 + r.from, to: col + 1 + r.to, target }] : [];
   });
   return [rule(w, "preview · ctrl+p hides"), ...body.slice(at, at + room).map(l => " " + l)];
 }
@@ -165,14 +175,14 @@ function previewRows(d: Draft, render: NonNullable<EditFrame["preview"]>, w: num
  * action); on the copy control it runs the host's `copy` (`draft.copy`, to the person's clipboard); on the text it
  * puts the cursor there (`extend`: a drag, selecting from where it was). All are actions. False when the click wasn't on any.
  */
-export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; lands?: () => void; follow?: (to?: LinkTarget) => void }, mods = 0): boolean {
+export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void; place?: () => void; lands?: () => void; follow?: (to?: LinkTarget) => void }, mods = 0, preview = true): boolean {
   const f = d.frame;
   if (!f) return false;
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
   // Without `on` it's a press: a control is hit, and its click (the release) runs it.
   if (ctl && !on) return true;
   // A link in the preview (PIE-592): its click follows it, beside the edit.
-  const link = !extend && !ctl ? f.links?.find(l => l.row === y && x >= l.from && x < l.to) : undefined;
+  const link = preview && !extend && !ctl ? f.links?.find(l => l.row === y && x >= l.from && x < l.to) : undefined;
   if (link) { if (on) on.follow?.(link.target); return true; }
   // An alt- or ctrl-click on a link in the text follows it too (ctrl+l's mouse way); the cursor goes there first.
   if (!extend && mods & (8 | 16) && on?.follow && y >= f.row && y < f.row + f.rows) {

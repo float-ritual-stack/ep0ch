@@ -969,7 +969,7 @@ export class Draft {
      * The preview's rows under the text (its rule first), and its top row and length as drawn: what its wheel scrolls.
      * `placements`: its pictures (PIE-846), on the rows they're drawn, for the host to put out with its own.
      */
-    preview?: { row: number; rows: number; top: number; total: number; source: number[]; placements?: Placement[] };
+    preview?: { row: number; col: number; cols: number; rows: number; top: number; total: number; source: number[]; placements?: Placement[] };
     /** The preview's links, where they're drawn (PIE-592): a click on one follows it. */
     links?: { row: number; from: number; to: number; target: LinkTarget }[];
   } | null = null;

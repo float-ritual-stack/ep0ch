@@ -92,7 +92,7 @@ import { ago, bbsDate, rowLines, rule, wrap } from "../text";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
-import { draftState, editHint, editorClick, openInEditor, renderEditor, wheelTarget, writtenBy, type EditFrame } from "./editor";
+import { draftState, editHint, editorClick, openInEditor, renderEditor, previewRows, wheelTarget, writtenBy, type EditFrame } from "./editor";
 import { composerBody, composerBox, placeBox, type ComposerBox } from "./composer";
 import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { pickerCwd, pickInto, type Picked } from "../pick";
@@ -203,10 +203,12 @@ export interface SurfaceHost {
    */
   answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>;
   /** Pointer coordinates belong to this attached tile rather than the note beneath its floats. */
-  attachment?: "comment" | "sources" | "list-preview";
+  attachment?: "comment" | "sources" | "list-preview" | "edit-preview";
   hasWiredPreview?(): boolean;
   hasListPreviewTile?(): boolean;
   listPreviewTile?(on: boolean, side?: AttachedSide): Promise<unknown>;
+  hasEditPreviewTile?(): boolean;
+  editPreviewTile?(on: boolean, side?: AttachedSide): Promise<unknown>;
   hasSourcesTile?(): boolean;
   sourcesTile?(on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   composerTile?(on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
@@ -638,7 +640,7 @@ type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: Commen
 type GripMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { describe(): { moving: true; float: FloatRect | null } };
 /** comment.move's arguments: steps, a place, a size (the reader's cells), or back to the usual place. */
 type ComposerMove = FloatMove;
-type SplitFrame = { target: "comment" | "sources" | "list-preview"; beside: boolean; w: number; h: number; edge: number };
+type SplitFrame = { target: "comment" | "sources" | "list-preview" | "edit-preview"; beside: boolean; w: number; h: number; edge: number };
 /** The person asked to go somewhere while a comment is unsent (PIE-785): what they asked for waits on their choice. */
 interface LeaveAsk { what: string; name: keyof NoteActionArgs & string; args: Record<string, unknown>; elem?: string }
 /** The answers to leaving an unsent comment, with their keys: the draft kept and on, back to writing, or let go. */
@@ -873,10 +875,11 @@ export class NoteSurface {
   private composerRows: [number, number] | null = null;
   /** Where the last paint put a floating or popup composer (PIE-785), in the note's cells under its header image, and the room it had. */
   private boxRect: FloatRect | null = null;
-  private readonly attachmentTiles = { comment: new AttachedTile(), sources: new AttachedTile(), "list-preview": new AttachedTile() };
+  readonly editPreview = { place: attachedPlaceOf(readState<{ place: string }>("edit-preview-place.json")?.place) ?? "inline", float: null as FloatRect | null, rect: null as FloatRect | null, frame: null as FloatRect | null, room: { w: 0, h: 0 } };
+  private readonly attachmentTiles = { comment: new AttachedTile(), sources: new AttachedTile(), "list-preview": new AttachedTile(), "edit-preview": new AttachedTile() };
   private boxRoom: { w: number; h: number } | null = null;
   /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
-  private frameDrag: { target: "comment" | "sources"; zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
+  private frameDrag: { target: "comment" | "sources" | "edit-preview"; zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
   /** Where the person asked to go while their comment is unsent (PIE-785): it waits on their answer in the power bar. */
   private leaving: LeaveAsk | null = null;
   /** The cursor and selection of a draft the keys came back to by a press (PIE-812), put back after that press and its release. */
@@ -890,7 +893,7 @@ export class NoteSurface {
    * What takes the reader's keys besides reading (src/surface/modes.ts): a step's status choice, the property
    * panel, the edit, the comment session, in their precedence. The fields below are views of it.
    */
-  private splits: Record<"comment" | "sources" | "list-preview", AttachedSplit> = { comment: {}, sources: {}, "list-preview": {} };
+  private splits: Record<"comment" | "sources" | "list-preview" | "edit-preview", AttachedSplit> = { comment: {}, sources: {}, "list-preview": {}, "edit-preview": readState<{ split?: AttachedSplit }>("edit-preview-place.json")?.split ?? { direction: "down", share: .5 } };
   private splitDrawn: SplitFrame[] = [];
   private splitDrag: SplitFrame | null = null;
   private besideRect: { x: number; y: number; w: number; h: number } | null = null;
@@ -1218,6 +1221,7 @@ export class NoteSurface {
     this.listPreview.rect = null;
     this.besideRect = null;
     this.splitDrawn = [];
+    this.attachmentTiles["edit-preview"].sync(this.draft?.preview ? this.editPreview : null, this.attachmentTileHost("edit-preview", host));
     this.attachmentTiles.comment.sync(this.session, this.attachmentTileHost("comment", host));
     this.attachmentTiles["list-preview"].sync(this.previewPoint() && !host?.hasWiredPreview?.() ? this.listPreview : null, this.attachmentTileHost("list-preview", host));
     this.attachmentTiles.sources.sync(this.sourcesMode, this.attachmentTileHost("sources", host));
@@ -1419,7 +1423,7 @@ export class NoteSurface {
     }, this.session?.composer === c.d ? "comment" : undefined);
   }
 
-  private renderBeside(w: number, h: number, host: SurfaceHost | undefined, draw: (cols: number, rows: number, row: number, col: number) => SurfaceView, target?: "comment" | "sources" | "list-preview", read?: (cols: number, rows: number) => SurfaceView): SurfaceView {
+  private renderBeside(w: number, h: number, host: SurfaceHost | undefined, draw: (cols: number, rows: number, row: number, col: number) => SurfaceView, target?: "comment" | "sources" | "list-preview" | "edit-preview", read?: (cols: number, rows: number) => SurfaceView): SurfaceView {
     const rect = attachedRect("split", w, h, { split: target ? this.splits[target] : {}, ...(target === "list-preview" ? { rows: 12 } : {}) });
     const beside = rect.col > 0;
     if (beside) {
@@ -1723,7 +1727,7 @@ export class NoteSurface {
     this.use(host);
     this.lookAt(m, w, host);
     const covered = this.modes.rows(w, h, host);
-    if (covered) return { lines: covered, completion: this.draft ? completerOf(this.draft) ?? undefined : undefined, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
+    if (covered) return { lines: covered, ...(this.draft ? { placements: this.draft.frame?.preview?.placements } : {}), completion: this.draft ? completerOf(this.draft) ?? undefined : undefined, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
@@ -2879,12 +2883,13 @@ export class NoteSurface {
     };
   }
 
-  private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false): string[] {
+  private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false, host?: SurfaceHost, attached = true): string[] {
+    if (attached && d.preview && host && !elementEdit(d).on) return this.renderEditPreview(d, m, w, h, away, host);
     d.kept = this.keptDrawings(d, m);
     const by = writtenBy(d, "save");
     if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined);
     return renderEditor(d, {
-      look: this.lastLook?.values,
+      look: this.lastLook?.values, attachedPreview: !!host,
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links, false, isOutlineNote(m) ? m.id : undefined), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).
       ...(this.newNotes.has(m.id) ? { lands: `→ ${this.crumbs}` } : {}),
@@ -2897,6 +2902,58 @@ export class NoteSurface {
           : fg(C.cyan) + pad("whole text: subject, body and [key::value] properties", w) + RESET,
       ],
     }, w, h);
+  }
+
+  private editPreviewRows(w: number, h: number, row: number, col: number, host: SurfaceHost, aligned = false): SurfaceView {
+    const d = this.draft!, m = this.msg!, p = this.editPreview;
+    p.rect = { row, col, cols: w, rows: h };
+    const lines = previewRows(d, (t, pw, links) => this.snippetDoc(t, pw, host, links, false, isOutlineNote(m) ? m.id : undefined), w, h, row, col, aligned);
+    const chip = `[${p.place} ▸]`;
+    lines[0] = pad(lines[0]!, Math.max(0, w - chip.length)) + fg(C.lcyan) + chip + RESET;
+    return { lines, placements: d.frame?.preview?.placements };
+  }
+
+  private renderEditPreview(d: Draft, m: Msg, w: number, h: number, away: boolean, host: SurfaceHost): string[] {
+    const p = this.editPreview;
+    p.frame = null; p.room = { w, h };
+    const read = (cols: number, rows: number): SurfaceView => ({ lines: this.renderDraft(d, m, cols, rows, away, host, false) });
+    if (p.place === "tile") return read(w, h).lines;
+    p.rect = null;
+    if (p.place === "split" || p.place === "inline") {
+      const v = this.renderBeside(w, h, host, (cols, rows, row, col) => this.editPreviewRows(cols, rows, row, col, host, col > 0), "edit-preview", read);
+      return v.lines;
+    }
+    const v = read(w, h), rect = attachedRect(p.place, w, h, { min: { cols: 30, rows: 6 }, moved: p.float });
+    p.frame = rect;
+    const side = this.editPreviewRows(rect.cols - 2, rect.rows - 2, rect.row + 1, rect.col + 1, host);
+    return drawAttachedFloat(v.lines, w, h, rect, "edit preview", false, this.lastLook?.values,
+      canvas => side.lines.forEach((l, i) => canvas.text(rect.col + 1, rect.row + 1 + i, l, rect.cols - 2)), p.place === "floating");
+  }
+
+  editPreviewTile(w: number, h: number, host: SurfaceHost): SurfaceView | null {
+    if (!this.draft?.preview || this.editPreview.place !== "tile") return null;
+    return this.withPlacementMenu(this.editPreviewRows(w, h, 0, 0, host), w, h, "edit-preview");
+  }
+
+  editPreviewKey(k: Key, host: SurfaceHost): boolean {
+    if (this.placementMenu) return this.modes.key(k, host) ?? true;
+    if (k.kind === "esc") return false;
+    if (k.kind === "char" && k.ctrl && k.ch === "p") void this.runKey("draft.preview", {}, host);
+    else if (isUp(k) || isDown(k) || k.kind === "pgup" || k.kind === "pgdn") {
+      void this.runKey("draft.scroll", { preview: true, by: (isUp(k) || k.kind === "pgup" ? -1 : 1) * (k.kind === "pgup" || k.kind === "pgdn" ? 10 : 1) }, host);
+    }
+    return true;
+  }
+
+  async placeEditPreview(place: string | undefined, host: SurfaceHost, side?: AttachedSide) {
+    if (!this.draft?.preview) throw new ActionRefused("ctrl+p shows the edit preview first");
+    const want = attachedPlaceOf(place ?? (side ? "tile" : nextPlace(this.editPreview.place, !!host.editPreviewTile)));
+    if (!want) throw new ActionRefused(`place is ${ATTACHED_PLACES.join(", ")}`);
+    if (want === "tile" && !host.editPreviewTile) throw new ActionRefused("this reader has no tiles; use split");
+    if (want === "inline") this.splits["edit-preview"] = { direction: "down", share: .5 };
+    await this.placeAttachment("edit-preview", want, host, side);
+    writeState("edit-preview-place.json", { place: want, split: this.splits["edit-preview"] });
+    host.redraw(); return { place: want };
   }
 
   // ── editing ────────────────────────────────────────────────────────────────
@@ -3411,13 +3468,13 @@ export class NoteSurface {
       editing: () => true, covers: () => !this.replyParent,
       key: (k, host) => this.draftKey(k, host),
       click: (x, y, host) => elementEdit(d).on ? elementEdit(d).click(x, y, (action, args = {}) => { void this.runKey(action, args, host); }) : this.writeClick(d, x, y, host),
-      press: (x, y, host, drag) => elementEdit(d).on ? elementEdit(d).click(x, y, (action, args = {}) => { void this.runKey(action, args, host); }, drag, true) : this.writePress(d, x, y, drag),
+      press: (x, y, host, drag) => elementEdit(d).on ? elementEdit(d).click(x, y, (action, args = {}) => { void this.runKey(action, args, host); }, drag, true) : this.writePress(d, x, y, drag, host),
       wheel: (dir, host, at) => {
         if (this.replyParent && (!at || !wheelTarget(d, at.x, at.y))) return false;
         if (elementEdit(d).on) { void this.runKey("rich.scroll", { by: wheelRows(dir) }, host); return true; }
-        return this.writeWheel(d, dir, at);
+        return this.writeWheel(d, dir, at, this.editPreview.place !== "tile" || host.attachment === "edit-preview");
       },
-      rows: (w, h, host) => { this.use(host); return this.msg ? this.renderDraft(d, this.msg, w, h, (host?.entered ?? host?.focused) === false && this.keepsOnFocusAway()) : null; },
+      rows: (w, h, host) => { this.use(host); return this.msg ? this.renderDraft(d, this.msg, w, h, (host?.entered ?? host?.focused) === false && this.keepsOnFocusAway(), host) : null; },
       leave: async (host, actor) => {
         const r = await s.leave(actor);
         host.redraw();
@@ -3428,7 +3485,7 @@ export class NoteSurface {
       keep: () => [s.keep()],
       hint: () => this.replyParent ? `ctrl+s saves · Esc ${d.dirty ? "twice discards" : "discards"} · PgUp/PgDn scroll message · select then \" quotes` : (elementEdit(d).on ? "ctrl+o raw · Tab/↑↓ cells · alt+r/d row · alt+v/x column · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
       state: () => `editing${d.dirty ? " · unsaved" : ""}`,
-      describe: () => ({ ...s.describe(), rich: elementEdit(d).on, writtenBy: writtenBy(d, "save") }),
+      describe: () => ({ ...s.describe(), previewPlace: this.editPreview.place, previewSplit: this.splits["edit-preview"], rich: elementEdit(d).on, writtenBy: writtenBy(d, "save") }),
     };
   }
 
@@ -3898,9 +3955,9 @@ export class NoteSurface {
     const g = this.frameDrag!, f = g.from, dx = x - g.x, dy = y - g.y;
     const to = g.zone.kind === "move" ? { row: f.row + dy, col: f.col + dx, cols: f.cols, rows: f.rows }
       : { row: f.row, col: f.col, cols: f.cols + (g.zone.cols ? dx : 0), rows: f.rows + (g.zone.rows ? dy : 0) };
-    const now = g.target === "sources" ? this.sourcesMode?.float ?? this.sourcesMode?.frame : this.session?.float ?? this.boxRect;
+    const now = g.target === "edit-preview" ? this.editPreview.float ?? this.editPreview.frame : g.target === "sources" ? this.sourcesMode?.float ?? this.sourcesMode?.frame : this.session?.float ?? this.boxRect;
     if (now && now.row === to.row && now.col === to.col && now.cols === to.cols && now.rows === to.rows) return;
-    void this.runKey(g.target === "sources" ? "sources.move" : "comment.move", to, host, true);
+    void this.runKey(g.target === "edit-preview" ? "edit.preview.move" : g.target === "sources" ? "sources.move" : "comment.move", to, host, true);
   }
 
   /**
@@ -3961,13 +4018,19 @@ export class NoteSurface {
   /** A click in text being written (an edit's or a comment's): a completion candidate, the preview control, or the cursor placed. */
   private writeClick(d: Draft, x: number, y: number, host: SurfaceHost): boolean {
     if (d.busy) return false;
+    const p = this.editPreview.rect;
+    if (d === this.draft && d.preview && (this.editPreview.place !== "tile" || host.attachment === "edit-preview") && p && x >= p.col && x < p.col + p.cols && y >= p.row && y < p.row + p.rows) {
+      if (y === p.row) void this.runKey("placement.menu", { target: "edit-preview" }, host, true);
+      else { const link = d.frame?.links?.find(l => l.row === y && x >= l.from && x < l.to); if (link) { const ref = refOfLink(link.target); if (ref) void this.runKey("edit.follow", { ref }, host); } }
+      return true;
+    }
     if (completerOf(d)?.click(y, x, text => host.ctx.copy?.(text, "component preview"))) return true;
     // Beside a composer's box (floating, popup, split: PIE-770) a click is nobody's: not a candidate, not the cursor.
     const f = d.frame;
     if (f && (x < f.col - 1 || x > f.col + f.cols)) return false;
     if (completionOf(d)) return false;
     const follow = (to?: Link) => { const ref = to && refOfLink(to); if (!to || ref) void this.runKey("edit.follow", ref ? { ref } : {}, host); };
-    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("placement.menu", { target: "comment" }, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow }, host.freshClick ? 8 : 0);
+    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host), copy: () => void this.runKey("draft.copy", {}, host), place: () => void this.runKey("placement.menu", { target: "comment" }, host, true), lands: () => void this.runKey("note.move", {}, host, true), follow }, host.freshClick ? 8 : 0, d !== this.draft || this.editPreview.place !== "tile");
     if (this.editPress) host.redraw();
     return this.editPress;
   }
@@ -4046,17 +4109,17 @@ export class NoteSurface {
     }
     return false;
   }
-  private attachmentTileHost(target: "comment" | "sources" | "list-preview", host?: SurfaceHost): AttachedTileHost | undefined {
-    if (!host || !(target === "list-preview" ? host.listPreviewTile : target === "comment" ? host.composerTile : host.sourcesTile)) return undefined;
+  private attachmentTileHost(target: "comment" | "sources" | "list-preview" | "edit-preview", host?: SurfaceHost): AttachedTileHost | undefined {
+    if (!host || !(target === "edit-preview" ? host.editPreviewTile : target === "list-preview" ? host.listPreviewTile : target === "comment" ? host.composerTile : host.sourcesTile)) return undefined;
     return {
-      open: (on, side) => target === "list-preview" ? host.listPreviewTile!(on, side) : target === "comment" ? host.composerTile!(on, this.session?.startedBy.kind === "user", side) : host.sourcesTile!(on, side),
-      exists: target === "list-preview" ? host.hasListPreviewTile : target === "comment" ? host.hasComposerTile : host.hasSourcesTile,
+      open: (on, side) => target === "edit-preview" ? host.editPreviewTile!(on, side) : target === "list-preview" ? host.listPreviewTile!(on, side) : target === "comment" ? host.composerTile!(on, this.session?.startedBy.kind === "user", side) : host.sourcesTile!(on, side),
+      exists: target === "edit-preview" ? host.hasEditPreviewTile : target === "list-preview" ? host.hasListPreviewTile : target === "comment" ? host.hasComposerTile : host.hasSourcesTile,
       changed: why => { if (why) host.ctx.flash(why); host.redraw(); },
     };
   }
 
-  async placeAttachment(target: "comment" | "sources" | "list-preview", place: AttachedPlace, host: SurfaceHost, side?: AttachedSide) {
-    const owner = target === "list-preview" ? this.listPreview : target === "comment" ? this.session! : this.sourcesMode!;
+  async placeAttachment(target: "comment" | "sources" | "list-preview" | "edit-preview", place: AttachedPlace, host: SurfaceHost, side?: AttachedSide) {
+    const owner = target === "edit-preview" ? this.editPreview : target === "list-preview" ? this.listPreview : target === "comment" ? this.session! : this.sourcesMode!;
     await this.attachmentTiles[target].place(owner, place, this.attachmentTileHost(target, host), side);
   }
 
@@ -4064,15 +4127,17 @@ export class NoteSurface {
   private tileDrag = false;
 
   /** A press puts the cursor there; a drag from it selects (Draft's own selection). */
-  private writePress(d: Draft, x: number, y: number, drag: boolean): boolean {
+  private writePress(d: Draft, x: number, y: number, drag: boolean, host?: SurfaceHost): boolean {
     if (completerOf(d)?.previewPress(x, y, drag)) return true;
-    return !d.busy && (drag || !completionOf(d)) && editorClick(d, x, y, drag);
+    const p = d === this.draft && d.preview && (this.editPreview.place !== "tile" || host?.attachment === "edit-preview") ? this.editPreview.rect : null;
+    if (p && x >= p.col && x < p.col + p.cols && y >= p.row && y < p.row + p.rows) return false;
+    return !d.busy && (drag || !completionOf(d)) && editorClick(d, x, y, drag, USER, undefined, 0, d !== this.draft || this.editPreview.place !== "tile");
   }
   /** The wheel over text being written: through an open completion popup's candidates, else its preview under the pointer (PIE-846), else the draft's view (its cursor stays). */
-  private writeWheel(d: Draft, dir: 1 | -1, at?: { x: number; y: number }): boolean {
+  private writeWheel(d: Draft, dir: 1 | -1, at?: { x: number; y: number }, previewHere = true): boolean {
     const c = completerOf(d);
     if (c?.shown) { if (at && c.overPreview(at.x, at.y)) c.scrollPreview(wheelRows(dir)); else c.move(dir); return true; }
-    const preview = !!at && wheelTarget(d, at.x, at.y) === "preview";
+    const preview = previewHere && !!at && wheelTarget(d, at.x, at.y) === "preview";
     if (!d.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(dir), ...(preview ? { preview: true } : {}) }, d, USER);
     return true;
   }
@@ -6277,11 +6342,12 @@ export class NoteSurface {
     return askInBar(host.ctx as never, `${answer.template?.title ?? "::use"} needs`, need.map(x => propQuestion(x.name, answer.spec[x.name]!)), given, actor, write);
   }
 
-  splitAttachment(target: "comment" | "sources" | "list-preview", direction: string | undefined, share: number | undefined, host: SurfaceHost) {
+  splitAttachment(target: "comment" | "sources" | "list-preview" | "edit-preview", direction: string | undefined, share: number | undefined, host: SurfaceHost) {
     if (direction !== undefined && direction !== "right" && direction !== "down") throw new ActionRefused("split direction is right or down");
     const split = this.splits[target];
     if (direction) split.direction = direction;
     if (share !== undefined) split.share = Math.max(.15, Math.min(.85, share));
+    if (target === "edit-preview") writeState("edit-preview-place.json", { place: this.editPreview.place, split });
     host.redraw(); return { ...split };
   }
 
@@ -6300,12 +6366,13 @@ export class NoteSurface {
     host.redraw(); return sm.float;
   }
 
-  private floatAt(x: number, y: number, host: SurfaceHost): "comment" | "sources" | null {
+  private floatAt(x: number, y: number, host: SurfaceHost): "comment" | "sources" | "draft" | null {
     if (host.attachment) return null;
     const sm = this.sourcesMode, cs = this.session;
     const comment = { target: "comment" as const, rect: cs && (cs.place === "floating" || cs.place === "popup") && this.boxRect ? { ...this.boxRect, row: this.boxRect.row + (this.drawn?.heroRows ?? 0) } : null };
     const sources = { target: "sources" as const, rect: sm && (sm.place === "floating" || sm.place === "popup") ? sm.frame : null };
-    return attachedAt(sm && this.modes.active(sm) ? [comment, sources] : [sources, comment], x, y);
+    const preview = { target: "draft" as const, rect: this.draft?.preview ? this.editPreview.frame : null };
+    return attachedAt(sm && this.modes.active(sm) ? [preview, comment, sources] : [preview, sources, comment], x, y);
   }
 
   private renderSources(cols: number, rows: number, row: number, col: number): SurfaceView {
@@ -6329,7 +6396,7 @@ export class NoteSurface {
     return { lines };
   }
 
-  attachedKeys(target: "comment" | "sources" | "list-preview") {
+  attachedKeys(target: "comment" | "sources" | "list-preview" | "edit-preview") {
     const sm = this.sourcesMode;
     if (sm) this.modes.focus(sm, target === "sources");
   }
@@ -6365,21 +6432,22 @@ export class NoteSurface {
   }
 
   private menuArea = { row: 0, col: 0, rows: 0, cols: 0 };
-  private get placementMenu() { return this.modes.get("placement") as (ReaderMode<SurfaceHost> & { list: ListPicker<AttachedPlace, SurfaceHost>; target: "comment" | "sources" | "list-preview" }) | null; }
+  private get placementMenu() { return this.modes.get("placement") as (ReaderMode<SurfaceHost> & { list: ListPicker<AttachedPlace, SurfaceHost>; target: "comment" | "sources" | "list-preview" | "edit-preview" }) | null; }
 
-  openPlacementMenu(target: "comment" | "sources" | "list-preview", host: SurfaceHost) {
+  openPlacementMenu(target: "comment" | "sources" | "list-preview" | "edit-preview", host: SurfaceHost) {
     if (target === "list-preview" && host.hasWiredPreview?.()) throw new ActionRefused("the select wire places these children in its preview tile · tile.move moves that tile");
-    const place = target === "list-preview" ? this.listPreview.place : target === "comment" ? this.session?.place : this.sourcesMode?.place;
+    const place = target === "edit-preview" ? (this.draft?.preview ? this.editPreview.place : null) : target === "list-preview" ? this.listPreview.place : target === "comment" ? this.session?.place : this.sourcesMode?.place;
     if (!place) throw new ActionRefused(`open ${target} first`);
     const control = this.session?.composer?.frame?.controls.find(c => c.action === "place");
     if (target === "comment" && !control) throw new ActionRefused("write a comment in a reader at least 28 columns wide to show its placement chip");
     const sm = this.sourcesMode;
     const chip = target === "comment"
       ? { col: control!.from, row: control!.row + (place === "tile" ? 0 : this.drawn?.heroRows ?? 0) }
+      : target === "edit-preview" ? { col: this.editPreview.rect!.col + this.editPreview.rect!.cols - `[${place} ▸]`.length, row: this.editPreview.rect!.row }
       : target === "list-preview" ? { col: this.listPreview.rect!.col + this.listPreview.rect!.cols - `[${place} ▸]`.length, row: this.listPreview.rect!.row }
       : { col: sm!.rect.x + sm!.rect.w - `[${place} ▸]`.length, row: sm!.rect.y };
     const list = new ListPicker<AttachedPlace, SurfaceHost>({
-      name: "placement", items: () => ATTACHED_PLACES.filter(p => p !== "tile" || !!(target === "list-preview" ? host.listPreviewTile : target === "comment" ? host.composerTile : host.sourcesTile)),
+      name: "placement", items: () => ATTACHED_PLACES.filter(p => p !== "tile" || !!(target === "edit-preview" ? host.editPreviewTile : target === "list-preview" ? host.listPreviewTile : target === "comment" ? host.composerTile : host.sourcesTile)),
       row: (p, _i, on, w) => [menuRow({ label: p }, p === place ? "current" : on, w)], clickChooses: true, wraps: true,
       choose: p => { void this.runKey("placement.choose", { place: p }, host); },
       closed: () => { void this.runKey("placement.close", {}, host); },
@@ -6429,13 +6497,13 @@ export class NoteSurface {
     const chosen = place ?? m.list.items[m.list.sel]!;
     if (direction) this.splitAttachment(m.target, direction, undefined, host);
     this.closePlacement(host);
-    return m.target === "list-preview" ? this.placeListPreview(chosen, host) : m.target === "sources" ? this.placeSources(chosen, undefined, host) : this.runKey("comment.place", { place: chosen }, host);
+    return m.target === "edit-preview" ? this.placeEditPreview(chosen, host) : m.target === "list-preview" ? this.placeListPreview(chosen, host) : m.target === "sources" ? this.placeSources(chosen, undefined, host) : this.runKey("comment.place", { place: chosen }, host);
   }
 
-  private withPlacementMenu(view: SurfaceView, w: number, h: number, where: "reader" | "comment" | "sources" | "list-preview"): SurfaceView {
+  private withPlacementMenu(view: SurfaceView, w: number, h: number, where: "reader" | "comment" | "sources" | "list-preview" | "edit-preview"): SurfaceView {
     const m = this.placementMenu;
     if (!m) return view;
-    const place = m.target === "list-preview" ? this.listPreview.place : m.target === "comment" ? this.session?.place : this.sourcesMode?.place;
+    const place = m.target === "edit-preview" ? this.editPreview.place : m.target === "list-preview" ? this.listPreview.place : m.target === "comment" ? this.session?.place : this.sourcesMode?.place;
     if ((place === "tile" ? m.target : "reader") !== where) return view;
     const canvas = new Canvas(w, h);
     view.lines.forEach((l, y) => canvas.text(0, y, l, w));
@@ -7330,10 +7398,15 @@ export class NoteSurface {
     this.dragging = false;
     if (this.placementMenu) { this.gesture.press(x, y); return; }
     const float = this.floatAt(x, y, host);
+    const ep = this.editPreview;
+    if (float === "draft" && this.draft?.preview && ep.place === "floating" && ep.frame) {
+      const zone = frameZone(ep.frame, x, y);
+      if (zone) { this.frameDrag = { target: "edit-preview", zone, x, y, from: ep.frame }; return; }
+    }
     const split = !float && this.splitDrawn.find(s => (s.beside ? x : y) === s.edge);
     if (split) { this.splitDrag = split; return; }
     const sm = this.sourcesMode, r = sm?.rect;
-    const zone = sm?.place === "floating" && sm.frame && this.floatAt(x, y, host) !== "comment" ? frameZone(sm.frame, x, y) : null;
+    const zone = float === "sources" && sm?.place === "floating" && sm.frame ? frameZone(sm.frame, x, y) : null;
     if (zone && sm?.frame) { this.frameDrag = { target: "sources", zone, x, y, from: sm.frame }; return; }
     if (sm && (sm.place !== "tile" || host.attachment === "sources") && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) && this.floatAt(x, y, host) !== "comment" && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
       if (y >= r.y + sm.footer) { this.gesture.press(x, y); return; }
@@ -7380,7 +7453,7 @@ export class NoteSurface {
       void this.runKey("attachment.split", { target: s.target, share: 1 - (s.beside ? x / s.w : y / s.h) }, host);
       return;
     }
-    if (this.frameDrag?.target === "sources") { this.dragFrame(x, y, host); return; }
+    if (this.frameDrag?.target === "sources" || this.frameDrag?.target === "edit-preview") { this.dragFrame(x, y, host); return; }
     const sm = this.sourcesMode;
     if (sm?.view.pressed) { void this.runKey("sources.select", { phase: "drag", row: Math.max(0, y - sm.rect.y - 1) + sm.view.top, col: Math.max(0, x - sm.rect.x) }, host); return; }
     if (this.replyLinks?.dragFrom) { this.gesture.drag(x, y); return; }
@@ -7419,7 +7492,7 @@ export class NoteSurface {
   private releaseNow(x: number, y: number, host: SurfaceHost): boolean {
     if (this.placementMenu) return this.modes.click(x, y, host) ?? false;
     if (this.splitDrag) { this.splitDrag = null; host.redraw(); return true; }
-    if (this.frameDrag?.target === "sources") { this.frameDrag = null; host.redraw(); return true; }
+    if (this.frameDrag?.target === "sources" || this.frameDrag?.target === "edit-preview") { this.frameDrag = null; host.redraw(); return true; }
     if (this.listEditor.field && this.listEditor.pressed) {
       const selected = this.listEditor.editorPressed && !!this.listEditor.field.session.draft.selectedText();
       const gesture = this.gesture.release(x, y);
@@ -9961,12 +10034,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "placement.menu": def({
-    summary: "choose where the comment or sources sits; the current placement is marked",
+    summary: "choose where the attachment sits; the current placement is marked",
     keys: "click the placement chip", touches: "tile", person: "the placement belongs to the person", replay: "ask",
-    args: { target: { type: "string", about: "comment, sources or list-preview" } },
+    args: { target: { type: "string", about: "comment, sources, list-preview or edit-preview" } },
     examples: [{ act: "placement.menu target=sources", does: "opens the Sources placement menu" }],
     run({ target }, { surface, host }) {
-      if (target !== "comment" && target !== "sources" && target !== "list-preview") throw new ActionRefused("target is comment, sources or list-preview");
+      if (target !== "comment" && target !== "sources" && target !== "list-preview" && target !== "edit-preview") throw new ActionRefused("target is comment, sources, list-preview or edit-preview");
       return surface.openPlacementMenu(target, host);
     },
   }),
@@ -9990,12 +10063,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run: (_, { surface, host }) => surface.closePlacement(host),
   }),
   "attachment.split": def({
-    summary: "size a comment or sources split, or choose beside versus below", keys: "drag the split divider; placement menu beside/below",
+    summary: "size an attached surface split, or choose beside versus below", keys: "drag the split divider; placement menu beside/below",
     touches: "tile", person: "the split belongs to the person", replay: "ask",
-    args: { target: { type: "string", about: "comment, sources or list-preview" }, direction: { type: "string", optional: true, about: "right or down" }, share: { type: "number", optional: true, about: "attachment share of the reader, .15 to .85" } },
+    args: { target: { type: "string", about: "comment, sources, list-preview or edit-preview" }, direction: { type: "string", optional: true, about: "right or down" }, share: { type: "number", optional: true, about: "attachment share of the reader, .15 to .85" } },
     examples: [{ act: "attachment.split target=sources direction=down share=0.4", does: "puts the sources split below the note with forty percent of its height" }],
     run({ target, direction, share }, { surface, host }) {
-      if (target !== "comment" && target !== "sources" && target !== "list-preview") throw new ActionRefused("target is comment, sources or list-preview");
+      if (target !== "comment" && target !== "sources" && target !== "list-preview" && target !== "edit-preview") throw new ActionRefused("target is comment, sources, list-preview or edit-preview");
       return surface.splitAttachment(target, direction, share, host);
     },
   }),
@@ -10009,6 +10082,28 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "tile", person: "the panel belongs to the person", replay: "ask", args: FLOAT_MOVE_ARGS,
     examples: [{ act: "sources.move dx=2 dy=-1", does: "moves floating sources right and up" }],
     run: (args, { surface, host }) => surface.moveSources(args, host),
+  }),
+  "edit.preview.place": def({
+    summary: "place the edit preview below, beside, floating, popup or in a tile; kept for next time",
+    keys: "preview header placement chip; arrows and Enter in its menu",
+    touches: "tile", person: "the placement belongs to the person", replay: "ask",
+    args: { place: { type: "string", optional: true, about: "inline (below), split, floating, popup or tile" }, side: { type: "string", optional: true, about: "left, right, up or down for a tile" } },
+    examples: [{ act: "edit.preview.place place=split", does: "places the live preview beside or below the draft" }],
+    run({ place, side }, { surface, host }) {
+      if (side !== undefined && !["left", "right", "up", "down"].includes(side)) throw new ActionRefused("side is left, right, up or down");
+      return surface.placeEditPreview(place, host, side as AttachedSide | undefined);
+    },
+  }),
+  "edit.preview.move": def({
+    summary: "move or size the floating edit preview inside its reader", keys: "drag its header or corner",
+    touches: "tile", person: "the preview belongs to the person", replay: "ask", args: FLOAT_MOVE_ARGS,
+    examples: [{ act: "edit.preview.move dx=2 dy=-1", does: "moves the floating edit preview right and up" }],
+    run(args, { surface, host }) {
+      const p = surface.editPreview;
+      if (!p.frame || p.place !== "floating") throw new ActionRefused("edit.preview.place place=floating floats it first");
+      p.float = args.reset ? null : moveFloat(p.float ?? p.frame, args, p.room);
+      host.redraw(); return p.float;
+    },
   }),
   "sources.place": def({
     summary: "place sources inline, floating, split, popup or in its own tile; kept for next time",
