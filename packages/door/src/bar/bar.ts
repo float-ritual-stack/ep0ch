@@ -241,6 +241,8 @@ export class PowerBar {
   /** A key or a click while it's open: everything is the bar's. Mouse reports are made relative to where it was drawn. */
   key(k: Key, ctx: Ctx) {
     const was = this.picker.sel;
+    // Right after a typed line ran, its answer is kept under "this session" (↑ brings the line back): one Esc closes.
+    if (k.kind === "esc" && this.query && this.justRan === this.query && !this.compact() && !this.docsMode) { void this.host.dispatch.press("bar.close"); return; }
     if (k.kind === "esc" && this.query && !this.compact() && !this.docsMode) { void this.host.dispatch.press("bar.edit", { op: "clear" }); return; }
     if (k.kind === "mouse") {
       const r = this.rect;
@@ -538,7 +540,11 @@ export class PowerBar {
     return { rect: { ...r, cols: r.cols + 1, rows: r.rows + 1 }, lines: canvas.lines() };
   }
 
+  /** The typed line that just ran, while it's still what the line says: Esc then closes the bar at once. */
+  private justRan: string | null = null;
+
   private recordRun(line: string, result: unknown, refused: boolean) {
+    this.justRan = refused ? null : line;
     this.host.runs.push({ line, answer: runAnswer(line, result), refused });
     if (this.host.runs.length > 8) this.host.runs.shift();
     this.refresh(); this.host.ctx.redraw();
