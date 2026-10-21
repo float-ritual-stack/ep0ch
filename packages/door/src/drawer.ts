@@ -219,16 +219,11 @@ export class AgentDrawer {
   /** The top edge is being dragged; the program has the mouse until the button comes up. */
   private dragging = false;
   private capture: Rect | null = null;
-  private herdrState: { pane: PtyPane; state: AgentState; at: number } | null = null;
-  private polling = false;
-  private lastPoll = 0;
-  private polledPane: PtyPane | null = null;
-  /** What the running agent knows (null: not read yet, or not running); the pid it was read from. */
-  knows: AgentKnows | null = null;
-  knowsPid: number | null = null;
-  private knowing = false;
-  private lastKnow = 0;
-  private knownPane: PtyPane | null = null;
+  private herdrPolls = new WeakMap<PtyPane, { state: AgentState | null; at: number; lastPoll: number; polling: boolean }>();
+  private knowledge = new WeakMap<PtyPane, { knows: AgentKnows | null; pid: number | null; at: number; polling: boolean }>();
+  /** The built-in agent's knowledge, also returned by agent.knows and restart. */
+  get knows(): AgentKnows | null { return this.p ? this.knowledge.get(this.p)?.knows ?? null : null; }
+  get knowsPid(): number | null { return this.p ? this.knowledge.get(this.p)?.pid ?? null : null; }
   /** A restart under way: the chip says so, and a second one waits for it. */
   restarting: Promise<RestartDone> | null = null;
 
@@ -264,7 +259,7 @@ export class AgentDrawer {
     const all = this.agents(), hit = all.find(a => a.name === name && !!a.herdr === herdr);
     if (!hit) throw new ActionRefused(`no agent ${name}${herdr ? " in Herdr" : ""} here; installed: ${all.map(a => `${a.name}${a.herdr ? " (herdr=true)" : ""}`).join(", ")}`);
     if (!this.persist) throw new ActionRefused("this drawer saves nothing (a test's)");
-    if (this.state() === "working" && !confirm) {
+    if (this.builtInState() === "working" && !confirm) {
       if (actor.kind === "agent") throw new ActionRefused("the drawer agent is busy; host.agent name=" + name + " confirm=true replaces it after confirming with the person");
       this.desk?.overlay(new ListPicker<boolean, Desk>({
         name: "replace busy agent", items: () => [false, true],
@@ -495,7 +490,7 @@ export class AgentDrawer {
     const rows = panes.flatMap(p => {
       const s = asSession(p, { own: p === own, now });
       if (!s) return [];
-      const st = p === own && p.herdr ? ((x: AgentState) => ({ state: x === "blocked" ? "waiting" as const : x === "failed" ? "failed" as const : x === "working" ? "working" as const : x === "done" ? "done" as const : "idle" as const, word: x === "blocked" ? "needs you" : x }))(this.state(now, p)) : stateOf(p, now);
+      const st = p === own && p.herdr ? ((x: AgentState) => ({ state: x === "blocked" ? "waiting" as const : x === "failed" ? "failed" as const : x === "working" ? "working" as const : x === "done" ? "done" as const : "idle" as const, word: x === "blocked" ? "needs you" : x }))(this.builtInState(now)) : stateOf(p, now);
       return [{ ...s, ...st, shown: this.shownOf(p) }];
     });
     // Your drawer's first, then the screen shown, then the rest; each in the order its tiles were made.
@@ -811,7 +806,11 @@ export class AgentDrawer {
 
   // ── what it's doing ──
 
-  state(now = Date.now(), p = this.shownPane()): AgentState {
+  state(now = Date.now()): AgentState { return this.paneState(this.shownPane(), now); }
+
+  private builtInState(now = Date.now()): AgentState { return this.paneState(this.p, now); }
+
+  private paneState(p: Pane | null, now: number): AgentState {
     if (this.d && !p) return "empty";
     if (!(p instanceof PtyPane) || (!p.running && p.exited === null)) return "off";
     if (p.exited !== null || p.agentExit !== null) return "exited";
@@ -821,26 +820,29 @@ export class AgentDrawer {
     if (said) return said.state === "error" ? "failed" : said.state;
     if (p.herdr) {
       this.pollHerdr(now, p);
-      const h = this.herdrState;
-      if (h?.pane === p && now - h.at < HERDR_POLL_MS * 3) return h.state;
+      const h = this.herdrPolls.get(p);
+      if (h?.state && now - h.at < HERDR_POLL_MS * 3) return h.state;
     }
     return now - p.lastOutput < WORKING_MS ? "working" : "idle";
   }
 
   /** Herdr knows the agent's state (idle, working, blocked): asked every few seconds, only while it's attached through Herdr. */
   private pollHerdr(now: number, p: PtyPane) {
-    if (!this.herdr || this.polling || (this.polledPane === p && now - this.lastPoll < HERDR_POLL_MS)) return;
-    this.polling = true; this.lastPoll = now; this.polledPane = p;
+    if (!this.herdr) return;
+    const poll = this.herdrPolls.get(p) ?? { state: null, at: 0, lastPoll: -Infinity, polling: false };
+    this.herdrPolls.set(p, poll);
+    if (poll.polling || now - poll.lastPoll < HERDR_POLL_MS) return;
+    poll.polling = true; poll.lastPoll = now;
     // The name the launcher said it gave the agent (a test door's is door-<hash>); else the person's own.
     const name = p.herdr?.name ?? agentConfig().name;
     this.herdr(["agent", "get", name]).then(r => {
       let s: string | undefined;
       try { s = JSON.parse(r.out)?.result?.agent?.agent_status; } catch { s = undefined; }
       const state: AgentState | null = s === "working" ? "working" : s === "idle" || s === "done" ? "idle" : s === "blocked" ? "blocked" : null;
-      const was = this.herdrState?.state;
-      this.herdrState = state ? { pane: p, state, at: Date.now() } : null;
+      const was = poll.state;
+      poll.state = state; poll.at = Date.now();
       if (state !== was) this.host.statusChanged();
-    }, () => { this.herdrState = null; }).finally(() => { this.polling = false; });
+    }, () => { poll.state = null; }).finally(() => { poll.polling = false; });
   }
 
   /**
@@ -859,7 +861,8 @@ export class AgentDrawer {
     // What it reported says it in its own words (needs you, asks you, working 40%); else the state's.
     const said = p?.status.urgent();
     const what = this.restarting && p === this.p ? "restarting" : s === "off" ? "" : said && s !== "exited" && s !== "watching" ? statusMark(said).word : s === "blocked" ? "needs you" : s === "exited" ? (p?.exited === null && p?.agentExit !== null ? `exited ${p.agentExit} · shell` : `exited ${p?.exited ?? ""}`.trim()) : s;
-    const knows = this.restarting || s === "off" || s === "exited" || s === "empty" || this.knownPane !== p ? "" : knowsLabel(this.knows);
+    let knows = this.restarting || s === "off" || s === "exited" || s === "empty" || !p ? "" : knowsLabel(this.knowledge.get(p)?.knows ?? null);
+    if (!this.offersRestart) knows = knows.replace(RESTART_GLYPH, "").trimEnd();
     const own = !shown || shown === DRAWER_TILE_ID;
     const more = this.d ? Math.max(0, this.tabs().length - 1) : 0;
     const out = { head: `${this.open ? "▼" : "▲"} ${own ? this.name : shown}${own && this.prog.from === "env" ? " (from EP0CH_DAILY_AGENT)" : ""}${more > 0 ? ` +${more}` : ""}${what ? ` · ${what}` : ""}`, knows: knows ? ` · ${knows}` : "" };
@@ -870,7 +873,7 @@ export class AgentDrawer {
   }
 
   /** The chip ends in ⟳: a click on it restarts the agent. */
-  get offersRestart(): boolean { return this.shownPane() === this.p && this.knownPane === this.p && !this.restarting && (this.knows?.state === "stale" || this.knows?.state === "no-door"); }
+  get offersRestart(): boolean { return this.shownPane() === this.p && !this.restarting && (this.knows?.state === "stale" || this.knows?.state === "no-door"); }
 
   /**
    * The agent's process: in Herdr, the process in the agent's pane (`pane process-info`); else the tile's own
@@ -896,19 +899,28 @@ export class AgentDrawer {
 
   /** Read again what the agent knows, every KNOWS_POLL_MS while it runs (and at once after a start). */
   private pollKnows(now: number, p: PtyPane) {
-    if (this.knowing || (this.knownPane === p && now - this.lastKnow < KNOWS_POLL_MS)) return;
-    this.knowing = true; this.lastKnow = now;
-    void this.readKnows(p).finally(() => { this.knowing = false; });
+    const poll = this.knowledgeOf(p);
+    if (poll.polling || now - poll.at < KNOWS_POLL_MS) return;
+    poll.polling = true; poll.at = now;
+    void this.readKnows(p).finally(() => { poll.polling = false; });
+  }
+
+  private knowledgeOf(p: PtyPane) {
+    let poll = this.knowledge.get(p);
+    if (!poll) { poll = { knows: null, pid: null, at: -Infinity, polling: false }; this.knowledge.set(p, poll); }
+    return poll;
   }
 
   /** What the agent knows now: its own environment and start against the installed mod. Says a change on the chip. */
   async readKnows(p: PtyPane | null = this.p): Promise<AgentKnows | null> {
+    if (!p) return null;
+    const poll = this.knowledgeOf(p);
     const pid = await this.agentPid(p).catch(() => null);
     let knows = pid ? judgeAgent(await readAgent(pid), modStamp(modDirs())) : null;
     // Without a control socket of its own, this door has none to give a restarted agent: ⟳ wouldn't help.
     if (knows?.state === "no-door" && !controlPath) knows = { state: "unknown", why: "this door has no control socket to give it" };
-    const was = this.knows ? `${this.knows.state}|${this.knows.why}` : "";
-    this.knows = knows; this.knowsPid = pid; this.knownPane = p;
+    const was = poll.knows ? `${poll.knows.state}|${poll.knows.why}` : "";
+    poll.knows = knows; poll.pid = pid;
     if ((knows ? `${knows.state}|${knows.why}` : "") !== was) this.host.statusChanged();
     return knows;
   }
@@ -942,7 +954,7 @@ export class AgentDrawer {
       }
       await p.stop();
       p.restart(true);
-      this.knows = null; this.lastKnow = 0;
+      this.knowledge.delete(p);
       return { restarted: true, ...(herdr ? { herdr } : {}), was };
     };
     this.restarting = run().finally(() => { this.restarting = null; this.changed(); });
@@ -1222,13 +1234,14 @@ export class AgentDrawer {
   describe() {
     const pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
     const shown = this.tabs().find(t => t.name === this.shownTab());
+    const known = p ? this.knowledge.get(p) : null;
     return {
       open: this.open, shown: this.shown, entered: this.entered, share: Math.round(this.share * 100) / 100, host: this.mode,
       rect: this.shown ? this.rect : null, state: this.state(), tile: shown ? { id: shown.name === DRAWER_TILE_ID ? DRAWER_TILE_ID : shown.id, name: shown.name === DRAWER_TILE_ID ? this.name : shown.name } : null,
       runs: { cmd: this.prog.cmd, cwd: this.prog.cwd, why: { program: this.prog.programWhy, folder: this.prog.folderWhy } },
       tiles: this.tabs(),
       sessions: this.sessions().map(s => sessionFacts(s)),
-      knows: this.knows ? { ...this.knows, pid: this.knowsPid } : null, ...(this.restarting ? { restarting: true } : {}),
+      knows: known?.knows ? { ...known.knows, pid: known.pid } : null, ...(this.restarting ? { restarting: true } : {}),
       ...(this.openedBy?.kind === "agent" ? { openedBy: this.openedBy.id } : {}),
       ...(p?.herdr ? { herdr: p.herdr } : {}),
       terminal: p ? p.describe() : null,
