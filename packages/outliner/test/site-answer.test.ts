@@ -503,6 +503,21 @@ describe("the wire: site.answer is watched by the notes it was computed from", (
     await expect(client.request({ action: "site.answer", blockId: "no-such-note" })).rejects.toThrow(/No block no-such-note/);
   });
 
+  test("a draft condition matches the text being typed without changing the saved note (PIE-1141)", async () => {
+    const { store, client } = await service();
+    const note = store.create("Rail [mode::saved]");
+    const draft = { text: 'Typed rail\nmode:: test\nmode:: bam\n```\n[mode::literal]\n```' };
+    const holds = async (where: string, typed = true) => (await client.request<SiteAnswer>({
+      action: "site.answer", blockId: note.id, produce: { kind: "if", where }, ...(typed ? { draft } : {}),
+    })).produced;
+    expect(await holds("mode=bam")).toMatchObject({ kind: "if", holds: true });
+    expect(await holds("mode=saved")).toMatchObject({ kind: "if", holds: false });
+    expect(await holds("mode=literal")).toMatchObject({ kind: "if", holds: false });
+    expect(await holds('title~"Typed rail"')).toMatchObject({ kind: "if", holds: true });
+    expect(await holds("mode=saved", false)).toMatchObject({ kind: "if", holds: true });
+    expect(store.get(note.id)!.text).toBe(note.text);
+  });
+
   test("a watched answer is told when a note it reads changes, and not when another does", async () => {
     const { store, socket } = await service();
     const { connect } = await import("node:net");

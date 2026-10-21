@@ -96,6 +96,38 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     for (let i = 0; i < 4 && S().focus === "stage"; i++) h.press({ kind: "esc" });
   }, 40_000);
 
+  test("fields-if edit preview reads fields, conditions and values from the unsaved draft (PIE-1141)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "fields-if" }, ...agent });
+    const desk = stage("fields-if");
+    await desk.dispatch.press("edit", {}, "reader");
+    const reader = desk.pane("reader");
+    await until(() => !!reader.draft, "the rail's editor");
+    const saved = (await board.get(seeded.notes.fieldsRail.id))!;
+    const d = reader.draft!;
+    await desk.dispatch.press("draft.place", { line: 4, col: 1 }, "reader");
+    await desk.dispatch.press("draft.paste", { text: "mode:: test\n" }, "reader");
+    await desk.dispatch.press("draft.place", { line: d.lines.length, col: d.lines.at(-1)!.length + 1 }, "reader");
+    await desk.dispatch.press("draft.paste", { text: '\n::fields{key=mode}\n::if{where="mode=bam"}\nDraft condition holds.\n::\nDraft value: {{this.mode}}' }, "reader");
+    await desk.dispatch.press("draft.preview", { on: true }, "reader");
+    const preview = () => {
+      const rows = reader.render(150, 160, false, desk).lines.map((l: string) => l.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, ""));
+      return rows.slice(rows.findIndex((l: string) => l.includes("preview · ctrl+p hides")) + 1).join("\n");
+    };
+    await until(() => preview().includes("∙ test") && preview().includes("live · 1 occurrence"), "the unsaved mode field", 5000);
+    expect(preview()).not.toContain("Draft condition holds.");
+    await until(() => preview().includes("Draft value: test"), "the draft's value");
+    await desk.dispatch.press("draft.place", { line: d.lines.findIndex((l: string) => l === "mode:: test") + 1, col: 1 }, "reader");
+    await desk.dispatch.press("draft.place", { line: d.row + 1 }, "reader"); await desk.dispatch.press("draft.paste", { text: "\nmode:: bam" }, "reader");
+    expect(d.text).toContain("mode:: bam");
+    await until(() => preview().includes("∙ bam") && preview().includes("live · 2 occurrences"), "the fields following more typing", 5000);
+    await until(() => preview().includes("Draft value: test, bam"), "the value following more typing", 5000);
+    await until(() => preview().includes("Draft condition holds."), "the condition reading the unsaved draft", 5000);
+    expect((await board.get(saved.id))!.text).toBe(saved.text);
+    await desk.dispatch.press("edit.close", { discard: true }, "reader");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) h.press({ kind: "esc" });
+  }, 20_000);
+
   test("page-figure: the same figure on two project pages lists each page's own tickets", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "page-figure" }, ...agent })).toMatchObject({ key: "page-figure" });

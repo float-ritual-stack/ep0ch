@@ -1,5 +1,5 @@
 import { anchorRunbookSteps, isRunbook, runnableFences } from "@ep0ch/outline-core/runbook";
-import { subtitleOf } from "@ep0ch/outline-core/block-record";
+import { subtitleOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
 import { isSqliteBusy } from "./sqlite-busy";
 import { replaceReferenceIndex } from "./reference-index";
@@ -4243,7 +4243,7 @@ export class OutlinerStore {
    * `text` (every word, any order) and `subtreeRootId` (that block and those under it) narrow it as in `blocks.query`;
    * with either, the expression may be left out.
    */
-  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown } = {}, binder?: ValueBinder): { blockIds: string[] } {
+  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown; this?: unknown } = {}, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] } {
     const { text, subtreeRootId, this: thisId } = narrow;
     if (thisId !== undefined && (typeof thisId !== "string" || !thisId)) throw new Error("Query match this must be a block ID");
     if (text !== undefined && typeof text !== "string") throw new Error("Query match text must be a string");
@@ -4270,7 +4270,8 @@ export class OutlinerStore {
       };
       return {
         blockIds: (ids as string[]).filter(id => {
-          const block = this.getFromCurrentRead(id);
+          const saved = this.getFromCurrentRead(id);
+          const block = saved && draft?.id === id ? { ...saved, text: draft.text, properties: draft.properties.flatMap(p => p.values.map(value => ({ key: p.key, value }))) } : saved;
           return !!block && !block.effectiveDeletedRootId && matchesFilters(block.properties, filters) &&
             terms.every(term => block.text.toLowerCase().includes(term)) && under(block) &&
             (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties));

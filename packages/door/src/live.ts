@@ -50,17 +50,20 @@ export function listenLive(fn: () => void): () => void { listeners.add(fn); retu
 function changed() { onChange(); for (const fn of listeners) fn(); }
 
 /** What a figure's Site is: the invocations that draw it (a `::use`, an embed) and its call-site args, as `site.answer` takes them. */
-export interface LiveSite { chain?: SiteLink[]; args?: Record<string, string>; /** The props of the call that draws it (a `::use`'s), under `args`. */ props?: Record<string, string[]> }
+export interface LiveSite { draft?: { text: string }; pending?: boolean; changed?: (loading: boolean) => void; chain?: SiteLink[]; args?: Record<string, string>; /** The props of the call that draws it (a `::use`'s), under `args`. */ props?: Record<string, string[]> }
 
 /** A producer's question asked of its note's Site, watched: the service answers it (`site.answer`), and says when the answer changed. */
 export function siteProduced(note: string | undefined, producer: SiteProducer, site?: LiveSite): Watching<SiteProduced> | null {
-  return board ? produced(board, note, producer, site) : null;
+  if (site?.pending) return { state: "loading" };
+  const read = board ? produced(board, note, producer, site) : null;
+  site?.changed?.(read?.state === "loading");
+  return read;
 }
 
 function produced(b: SocketBoard, note: string | undefined, producer: SiteProducer, site?: LiveSite): Watching<SiteProduced> {
   const own = site?.args && Object.keys(site.args).length ? Object.fromEntries(Object.entries(site.args).map(([k, v]) => [k, [v]])) : undefined;
   const props = site?.props && Object.keys(site.props).length ? { ...site.props, ...own } : own;
-  return watchedOn(b).read("site.answer", { ...(note ? { blockId: note } : {}), produce: producer, ...(site?.chain?.length ? { chain: site.chain } : {}), ...(props ? { props } : {}) }, (r: { produced: SiteProduced }) => {
+  return watchedOn(b).read("site.answer", { ...(note ? { blockId: note } : {}), produce: producer, ...(site?.draft ? { draft: site.draft } : {}), ...(site?.chain?.length ? { chain: site.chain } : {}), ...(props ? { props } : {}) }, (r: { produced: SiteProduced }) => {
     const answer = r.produced;
     return answer.kind === "figure" || answer.kind === "children" ? { ...answer, blocks: b.toMsgs(answer.blocks as any[]) } as SiteProduced : answer;
   });
@@ -76,7 +79,7 @@ function ask(kind: string, p: Props, note: string | undefined, site?: LiveSite):
   if (!board) return null;
   const asking = liveAsk(kind, p);
   if (!figureQuestion(asking.ask, asking.group) && !asksPerItem(kind, p)) return null;
-  const read = produced(board, note, { kind: "figure", figure: kind, props: askProps(p) }, site);
+  const read = siteProduced(note, { kind: "figure", figure: kind, props: askProps(p) }, site)!;
   if (read.state === "loading") return { state: "loading", items: [], truncated: false };
   if (read.state === "error" && !read.value) return { state: "error", items: [], truncated: false, error: read.error };
   const a = read.value as Extract<SiteProduced, { kind: "figure" }>;
@@ -110,7 +113,7 @@ export async function liveSettled(ms = 10_000): Promise<void> {
  */
 export function childRows(note: string, site?: LiveSite): { rows: Row[]; waiting: boolean } | null {
   if (!board) return null;
-  const read = produced(board, note, { kind: "children" }, site);
+  const read = siteProduced(note, { kind: "children" }, site)!;
   const items = ((read.value as Extract<SiteProduced, { kind: "children" }> | undefined)?.blocks ?? []) as unknown as Msg[];
   // Each child's header line without its chips and their ` - ` (outline-core's reading, as its title is made); a
   // child with no text isn't a row.

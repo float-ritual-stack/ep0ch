@@ -7,6 +7,7 @@
 // `{{ }}` operand is bound from it, never pasted into the query text: one figure copied onto two pages, or drawn through
 // a template, lists each host's own. Reads only. Which notes a page may show is the publisher's, applied after.
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
+import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { asksPerItem, CHILDREN_QUERY, figureQuestion, liveAsk, sortProblem } from "@ep0ch/outline-core/figure-live";
 import type { FieldRow, SiteProduced, SiteProducer, SiteValue } from "@ep0ch/outline-core/site";
 import type { BlockSearchQuery, SavedViewReadResult, TreeIndexBlock, VisibleBlock, VisibleBlockCollection } from "./types";
@@ -22,7 +23,7 @@ export interface ProducerStore {
   children(parentId: string | null): { id: string }[];
   queryBlocks(input: BlockSearchQuery, binder?: ValueBinder, select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): VisibleBlockCollection & { groups?: import("@ep0ch/outline-core/protocol").QuestionGroup[]; hint?: string };
   readSavedView(viewId: string, options: Record<string, never>, format: "tree", select?: (blocks: VisibleBlock[], where?: string) => VisibleBlock[]): SavedViewReadResult<TreeIndexBlock>;
-  matchQuery(expression: unknown, ids: unknown, narrow?: { this?: unknown }, binder?: ValueBinder): { blockIds: string[] };
+  matchQuery(expression: unknown, ids: unknown, narrow?: { this?: unknown }, binder?: ValueBinder, draft?: BlockRecord): { blockIds: string[] };
   /** For each id, the notes linking to it (`sources`) and the ones it links to (`targets`), read once for all of them. */
   linkNeighbours(ids: readonly string[], which: { sources: boolean; targets: boolean }): Map<string, Set<string>>;
 }
@@ -104,8 +105,8 @@ function cutStore(store: ProducerStore, world: Bound["world"]): ProducerStore {
     linkNeighbours: (ids, which) => store.linkNeighbours(ids, which),
     queryBlocks: (input, binder) => store.queryBlocks(input, binder, blocks => visibleMatches(store, world, blocks, input.where)),
     readSavedView: (viewId, options, format) => store.readSavedView(viewId, options, format, (blocks, where) => visibleMatches(store, world, blocks, where)),
-    matchQuery: (expression, ids, narrow, binder) => {
-      const matched = store.matchQuery(expression, ids, narrow, binder);
+    matchQuery: (expression, ids, narrow, binder, draft) => {
+      const matched = store.matchQuery(expression, ids, narrow, binder, draft);
       const gone = unknowable(store, world, Array.isArray(ids) ? ids as string[] : [], typeof expression === "string" ? expression : undefined);
       return gone.size ? { blockIds: matched.blockIds.filter(id => !gone.has(id)) } : matched;
     },
@@ -218,7 +219,8 @@ function fields(store: ProducerStore, tools: SiteTools, key: string, of: string 
 function holds(store: ProducerStore, bound: Bound, tools: SiteTools, thisId: string, where: string): SiteProduced {
   try {
     const hits = bound.world.hiddenHits;
-    const held = store.matchQuery(where, [thisId], { this: thisId }, tools.binder).blockIds.includes(thisId);
+    const draft = bound.draft?.id === thisId ? bound.site.this : undefined;
+    const held = store.matchQuery(where, [thisId], { this: thisId }, tools.binder, draft).blockIds.includes(thisId);
     // A clause about other notes answers from them: for a reader who may not see one, it says nothing.
     if (bound.world.hiddenHits > hits) return { kind: "if", holds: false, problem: { message: "this reads notes that aren't shown here", didYouMean: [] } };
     return { kind: "if", holds: held };
