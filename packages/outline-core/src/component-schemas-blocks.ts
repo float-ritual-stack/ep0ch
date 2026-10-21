@@ -27,13 +27,13 @@ function linksComponent(name: (typeof LINK_GROUPS)[number]): ComponentSchema {
     { key: "of", where: "yaml", type: "ref", meaning: "whose links: a ((block)) or a block id (the note it is written in when left out)" },
     ...(name === "links" ? [
       { key: "groups", where: "yaml" as const, type: "list" as const, meaning: "the groups it lists, comma-separated: outlinks, resources, backlinks, children (the notes under it), matches (the query's), or links for every group of the block", samples: ["links", "backlinks,children", "matches"] },
-      { key: "query", where: "yaml" as const, type: "query" as const, meaning: "list the blocks this query matches (the saved-view grammar, the service answers it) as a group of its own, `matches`; without `groups:` it is all the list shows", samples: ["type=outbox-item status=waiting", "type=errand stage=open"] },
+      { key: "query", where: "yaml" as const, type: "query" as const, complete: "query" as const, meaning: "list the blocks this query matches (the saved-view grammar, the service answers it) as a group of its own, `matches`; without `groups:` it is all the list shows", samples: ["type=outbox-item status=waiting", "type=errand stage=open"] },
       { key: "preview", where: "yaml" as const, type: "enum" as const, meaning: "the selected row drawn beside the list (or under it) when the frame has the width; the person's keys stay in the note until ⏎ on the frame goes in", values: enumOf({ right: "beside the list, when it's 70 columns or wider", below: "under the list", none: "no preview" }), default: "right with a query, else none" },
     ] : []),
   ];
   return {
-    id: name, title: `${w.title} (::${name})`,
-    intro: `${w.intro}\n\nOne line, \`::${name} jira\`, filters by the words after the name; \`::${name} ((id))\` names whose; a block to its \`::\` takes \`of:\`, \`filter:\`, \`title:\`${name === "links" ? ", `groups:`, `query:` and `preview:` lines, or the same keys in braces on its first line (`::links{query=\"type=outbox-item status=waiting\" preview=right}`)" : ""} lines. The service answers the links and the reader lays them out, so the library has no outline to ask for the rows and draws the frame.`,
+    id: name, group: "links", title: `${w.title} (::${name})`,
+    intro: `${w.intro}\n\nOne line, \`::${name} jira\`, filters by the words after the name; \`::${name} ((id))\` names whose; a block to its \`::\` takes \`of:\`, \`filter:\`, \`title:\`${name === "links" ? ", `groups:`, `query:` and `preview:` lines, or the same keys in braces on its first line (`::links{query=\"type=outbox-item status=waiting\" preview=right}`)" : ""} lines. The service answers the links and the reader lays them out, and the library draws the same list with its own demo data.`,
     where: `a \`::${name}\` line or block in a note; \`of:\`, \`filter:\` and \`title:\` lines inside a block`,
     props, source: { use: `::${name}\n---\n{{props.yaml}}\n---\n::` }, example: { title: w.title },
     sweep: ["filter", "title", ...(name === "links" ? ["groups", "preview"] : [])], grids: [], space: ["filter", "title"],
@@ -45,7 +45,7 @@ function linksComponent(name: (typeof LINK_GROUPS)[number]): ComponentSchema {
 const boxInt = (key: string, meaning: string, base: number, max: number): PropSchema => ({ key, where: "line", type: "int", token: `${key}={value}`, meaning, default: String(base), min: 0, max });
 
 const BOX: ComponentSchema = {
-  id: "box",
+  id: "box", group: "layout",
   title: "Box (::box)",
   intro: "A block of a note drawn with spacing and list looks of its own: the lines inside are laid out by the same reader with the box as the block level of the look, inset by its margin and padding. The attributes are the style tokens (`margin.x`, `pad.y`, `list.gap`…) written in braces on the opening line; the box closes with `::`. The look is drawn, never text: copying across it copies the lines.",
   where: "a `::box{…}` line, its attributes in braces, and the lines to the closing `::`",
@@ -71,7 +71,7 @@ const PIC = "[img::shots/moth.png]";
 const line = (key: string, type: PropSchema["type"], meaning: string, extra: Partial<PropSchema> = {}): PropSchema => ({ key, where: "line", type, meaning, ...extra, use: `${PIC} [${key}::{{props.${key}}}]` });
 
 const IMAGE: ComponentSchema = {
-  id: "image",
+  id: "image", group: "media",
   title: "Images (the media line)",
   intro: "A picture or video in a note: a line that is only `[img::path]` (or `[image::…]`, `[video::…]`, or `img:: path`) and its layout properties. It is content, never the note's metadata, so a picture right under a note's subject is drawn. The reader sizes and places it (`image.size`, `image.align`… rewrite the line); a terminal without graphics draws a placeholder. The path here is illustrative, so the library draws the placeholder a missing file gets.",
   where: "a line of a note: `[img::path]` and the `[size::…]`, `[align::…]`… beside it on the same line",
@@ -86,7 +86,7 @@ const IMAGE: ComponentSchema = {
 };
 
 const HERO: ComponentSchema = {
-  id: "hero-image",
+  id: "hero-image", group: "media",
   title: "Header image (layout hero)",
   intro: "A note's header: its picture with `[layout::hero]`, drawn above the title, behind the sticky header as the note scrolls (the first image of a note that has none marked, or one that is the note's first block). `[fit::cover]` crops it to fill, `contain` shows it whole, and `[hero-focus::x,y]` keeps a point of it in view.",
   where: "an image line with `[layout::hero]` in the note's first lines",
@@ -108,7 +108,7 @@ const HERO: ComponentSchema = {
 
 const ART = "[artifact::artifacts/pulse-pad.jsx]";
 const ARTIFACT: ComponentSchema = {
-  id: "artifact",
+  id: "artifact", group: "media",
   title: "Artifacts (claude.ai's, in a note)",
   intro: "A file claude.ai would run, in a note (PIE-793): a line that is only `[artifact::path]` (or `artifact:: path`) naming a React component (`.jsx`, `.tsx`), an HTML page, an SVG or a mermaid diagram. A relative path is the outline's own folder (`artifacts/` there, say). The web pages run it inline in a sandboxed frame; the door draws a card that opens that page (`artifact.open`). The path here is illustrative, so the library draws the card a missing file gets.",
   where: "a line of a note: `[artifact::path]` and the `[height::…]`, `[size::…]`… beside it on the same line",
@@ -126,7 +126,7 @@ const ARTIFACT: ComponentSchema = {
 const ID = "3f2a1c9e-0000-4000-8000-00000000a001";
 
 const EMBED: ComponentSchema = {
-  id: "embed",
+  id: "embed", group: "links",
   title: "Embeds and references",
   intro: "A note points at another by its id: `((id))` is a reference, `((id|label))` a labelled one, `!((id))` an embed that draws the block in place, `((id^anchor))` a line within it, and `[[Page name]]` a page by its name. The link grammar is outline-core's (link-syntax.ts); the service resolves, indexes and keeps the backlinks. The ids here are made up, so the library draws them as references that don't resolve.",
   where: "anywhere in a note's text; `!` before a reference embeds it",
@@ -145,7 +145,7 @@ const EMBED: ComponentSchema = {
 
 const LANGS = ["ts", "sh", "json", "yaml", "sql", "diff", "md", "text"];
 const FENCE: ComponentSchema = {
-  id: "code-fence",
+  id: "code-fence", group: "layout",
   title: "Code fences",
   intro: "Fenced code: three backticks (or more, when the code holds three) and a language, to a matching fence. It is literal: properties, references and components inside are the code's text, never read as the note's. The language names the colouring; one the reader doesn't know is drawn plain.",
   where: "a fenced block in a note; the language after the opening backticks",
@@ -154,7 +154,7 @@ const FENCE: ComponentSchema = {
 };
 
 const TABLE: ComponentSchema = {
-  id: "table",
+  id: "table", group: "layout",
   title: "Tables",
   intro: "A table in Blockdown is Markdown's: a header row, a delimiter row, then rows, cells between `|`s. The colons in the delimiter row align a column. (A figure's `::graph-table` is the table that can be live and sorted.)",
   where: "lines of a note: a header row, a delimiter row of dashes, then the rows",
@@ -165,12 +165,12 @@ const TABLE: ComponentSchema = {
 // ── the components that read their note (S3) ──────────────────────────────────
 
 const FIELDS: ComponentSchema = {
-  id: "fields",
+  id: "fields", group: "site",
   title: "Fields (::fields)",
   intro: "Every place a note writes a key, listed: one row per occurrence of `connectTo` (a `[connectTo::…]` chip in a line, a `connectTo:: …` line), each row opening its own line with the line lit, found again by the text it was written as, so it still works after edits above it. A row appears as soon as a line is saved. A row's `¶` anchors its line (`fields.anchor`), so `((note^anchor))` links to it for good; drawing the component never writes. The service answers it (`site.answer`) and every reader draws the answer.",
   where: "a `::fields{key=connectTo}` line in a note, alone or closed by `::`",
   props: [
-    { key: "key", where: "yaml", type: "text", meaning: "the property to list, case-insensitive (`connectTo`, `storyTime`)", samples: ["connectTo", "storyTime", "decision"] },
+    { key: "key", where: "yaml", type: "property", meaning: "the property to list, case-insensitive (`connectTo`, `storyTime`)", samples: ["connectTo", "storyTime", "decision"] },
     { key: "of", where: "yaml", type: "ref", meaning: "whose fields: a ((block)) or a block id (the note it is written in when left out)" },
     { key: "title", where: "yaml", type: "text", meaning: "a title over the list (the key when left out)", samples: ["Connections", "Said so far"] },
   ],
@@ -179,11 +179,11 @@ const FIELDS: ComponentSchema = {
 };
 
 const IF: ComponentSchema = {
-  id: "if",
+  id: "if", group: "site",
   title: "Only when (::if)",
   intro: "Its lines are drawn only while the note it sits in matches a query (the saved views' grammar: `status=active`, `owner={{this.owner}}`, `NOT type=template`). Otherwise they are not drawn at all. `{{ }}` operands in the query are bound from the note, never pasted into it. A query the service can't read hides the body and says why. Like every component, it closes with `::`, so its body holds Blockdown but no other component.",
   where: "a `::if{where=\"status=active\"}` line, the lines to show, and a closing `::`",
-  props: [{ key: "where", where: "yaml", type: "query", meaning: "the query the note must match to draw the body", samples: ["status=active", "owner={{this.owner}}", "NOT type=template"] }],
+  props: [{ key: "where", where: "yaml", type: "query", complete: "query", meaning: "the query the note must match to draw the body", samples: ["status=active", "owner={{this.owner}}", "NOT type=template"] }],
   source: { use: "::if{where=\"{{props.where}}\"}\nShown only while the note matches.\n::" }, example: { where: "status=active" },
   sweep: ["where"], grids: [], space: ["where"],
 };

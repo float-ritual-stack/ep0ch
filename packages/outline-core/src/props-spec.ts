@@ -10,7 +10,7 @@ import { closest } from "./tool-args";
 const RESERVED: ReadonlySet<string> = new Set(RESERVED_PROPS);
 
 /** The kind of prop a field declares (a `property` field is a property's name: free text with its fixed options). */
-const KIND: Record<FormField["type"], PropsSpec[string]["kind"]> = { text: "text", number: "number", choice: "choice", property: "text", note: "note", tag: "tag" };
+const KIND: Record<FormField["type"], PropsSpec[string]["kind"]> = { text: "text", number: "number", choice: "choice", property: "property", note: "note", tag: "tag" };
 
 /**
  * The props a template's values declare (its `form-field` property values, in order), and what is wrong with the

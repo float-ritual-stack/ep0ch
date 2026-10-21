@@ -83,7 +83,7 @@ const BUILT_IN_WRITERS = ["user", "agent"];
  * A query being built: the words typed, the last clause offered as the outline's own properties and values
  * (`type=request`, `child:triage=done`), the rest kept. Never a list in code: whatever keys the notes have.
  */
-export async function querySuggestions(typed: string, src: SettingSources): Promise<BarSuggestion[]> {
+export async function querySuggestions(typed: string, src: Pick<SettingSources, "catalog">): Promise<BarSuggestion[]> {
   const m = /^(.*?)(\S*)$/s.exec(typed)!;
   const before = m[1]!, token = m[2]!;
   // NOT, AND and OR are words of their own (kept in `before`); a clause may open a group and be a child's.

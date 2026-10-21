@@ -636,6 +636,8 @@ const childLinks = (b: LinksBoard, id: string) => questionRows(b, { where: "pare
  * and what each drew. Without it (an embed, a draft's preview, `ep0ch show`) a component draws its list as text.
  */
 export interface LinkBlocksEnv {
+  /** A library example supplies its own rows without an outline connection. */
+  data?: LinkData;
   /** Counted as the components are drawn (one env for a layout): a component's key is its title and how many before it had it. */
   drawn?: { n: number; titles: Map<string, number> };
   ui?(key: string): { sel?: string; entered?: boolean; typing?: string } | undefined;
@@ -673,13 +675,13 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   if (spec.problem) return frame(title, [fg(C.lred) + spec.problem + RESET], W);
   const own = groups.some(g => g !== "matches");
   const of = spec.of ?? note;
-  if (own && (!of || of.startsWith(RESOURCE_NOTE) || of.startsWith("file:"))) return frame(title, [fg(C.dark) + "a resource or a file has no links here · of: ((block)) names whose" + RESET], W);
+  if (own && !blocks?.data && (!of || of.startsWith(RESOURCE_NOTE) || of.startsWith("file:"))) return frame(title, [fg(C.dark) + "a resource or a file has no links here · of: ((block)) names whose" + RESET], W);
   const has = (g: LinkGroupName) => groups.includes(g);
-  if (!source) return frame(title, [fg(C.dark) + "no outline connection" + RESET], W);
-  const links = has("outlinks") || has("resources") || has("backlinks") ? linksOf(of!)! : { links: { kind: "loading" }, backlinks: { kind: "loading" } } as LinkData;
-  const children = has("children") ? childLinks(source, of!) : undefined;
+  if (!source && !blocks?.data) return frame(title, [fg(C.dark) + "no outline connection" + RESET], W);
+  const links = blocks?.data ?? (has("outlinks") || has("resources") || has("backlinks") ? linksOf(of!)! : { links: { kind: "loading" }, backlinks: { kind: "loading" } } as LinkData);
+  const children = blocks?.data ? blocks.data.children : has("children") ? childLinks(source!, of!) : undefined;
   // `this` in the query is the note the component sits in (`links:this NOT linkedfrom:this`).
-  const matches = spec.query ? questionRows(source, { where: spec.query, ...(note ? { this: note } : {}) }, 200) : undefined;
+  const matches = blocks?.data ? blocks.data.matches : spec.query ? questionRows(source!, { where: spec.query, ...(note ? { this: note } : {}) }, 200) : undefined;
   const data: LinkData = { ...links, ...(children ? { children } : {}), ...(matches ? { matches } : {}) };
   // A query the service refused (PIE-729): its whole answer, wrapped, under the query as written: what it read, the
   // did-you-mean, an example. Not cut to a row, and the frame stays so the block holds its place in the note.

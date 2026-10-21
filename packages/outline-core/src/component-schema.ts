@@ -38,6 +38,8 @@ export interface PropSchema {
   key: string;
   where: PropPlace;
   type: PropType;
+  /** A query offers property names and their facet values inside its expression. */
+  complete?: "query";
   /** One line: what it does. */
   meaning: string;
   /** The values it takes (an enum), each with its meaning. */
@@ -77,11 +79,15 @@ export interface ComponentSchema {
   /** A slug: `heading-style`, `callout`, `graph-meter`, an extension's `ext-<id>-<name>`. */
   id: string;
   title: string;
+  /** The library and completion heading, owned by the component. */
+  group: string;
   /** What it is, in Markdown: a paragraph or two. */
   intro: string;
   /** One line: where it is written. */
   where: string;
   props: PropSchema[];
+  /** The reference prop naming a producer whose PropsSpec extends these props. */
+  propsFrom?: string;
   /**
    * The source a variation writes. `use`: the text that uses it, `{{props.key}}` standing for a property's value (its default,
    * else nothing, when the variation leaves it out) and `{{props.yaml}}` for the YAML properties given, a `key: value` line each.
@@ -122,7 +128,7 @@ const TONE_MEANING: Record<(typeof CALLOUT_TONES)[number], string> = {
 };
 
 const HEADING_STYLE: ComponentSchema = {
-  id: "heading-style",
+  id: "heading-style", group: "layout",
   title: "Heading styles",
   intro: "A heading drawn in a band of glyph tracks, or a `---` drawn as one. The source stays Markdown: `## Your calls [heading::band]` is a level-2 heading whatever draws it, so folds, sections and anchors read it as they always did, and a client that doesn't draw styles shows it as written.\n\nA style is the outline's, as callout types are: the built-ins, or a declaration, `[heading-style::name]` with the `heading-*` properties below on any line of any note (or as a note's own properties). The same `heading-*` properties on a heading line restyle that heading alone: `## Odd jobs [heading::dots] [heading-tone::amber]`. Under 48 columns the heading is drawn as written.",
   where: "`[heading::name]` on a heading line, `[rule::name]` after a `---`; the `heading-*` properties on the line that declares a style, or on a heading line to restyle it alone",
@@ -148,7 +154,7 @@ const HEADING_STYLE: ComponentSchema = {
 };
 
 const CALLOUT: ComponentSchema = {
-  id: "callout",
+  id: "callout", group: "layout",
   title: "Callouts",
   intro: "Obsidian's callouts: `> [!type]` opens one, a `+` or `-` after it says whether it starts open or folded, and the rest of the line is its title (none: the type's own). Its body is the lines quoted under it, nested callouts quoted deeper.\n\nThe types are the outline's: Obsidian's, or a note that declares `[callout-type::name]` with an icon, a tone, a title and aliases.",
   where: "`> [!type]` at the start of a quote; the `callout-*` properties on the note that declares a type",
@@ -174,13 +180,13 @@ const KIND_MEANING: Record<string, string> = {
 };
 
 const RULE: ComponentSchema = {
-  id: "rule",
+  id: "rule", group: "layout",
   title: "Rules",
   intro: "When a block matches, draw something with it, with no code: a rule note says what it matches (a query, a saved view, a place in the outline, a text pattern, a construct) and what it draws there (a band, a card, a badge, words, a box, a divider), above or below what matched, in its place or around it. The service decides what matches; every client draws what it says, and the note's text never changes.\n\nAn extension's `extension.json` writes the same as `rules[]`. The drawings here are of a sample note that matches.",
   where: "a note with `[rule-name::name]` and the `rule-*` properties below",
   props: [
     { key: "rule-name", where: "note", type: "name", meaning: "declares a rule by this name (lowercase letters, digits, - and _)", samples: ["meeting"] },
-    { key: "rule-match", where: "note", type: "query", meaning: "a query in the saved views' grammar: the blocks it holds for match", samples: ["type=meeting"] },
+    { key: "rule-match", where: "note", type: "query", complete: "query", meaning: "a query in the saved views' grammar: the blocks it holds for match", samples: ["type=meeting"] },
     { key: "rule-view", where: "note", type: "ref", meaning: "a saved view ((id)): the blocks its query holds for match" },
     { key: "rule-under", where: "note", type: "ref", meaning: "only blocks under this one ((id)) match" },
     { key: "rule-text", where: "note", type: "pattern", meaning: "a pattern tested line by line outside code; (?i) ignores case, ] is written \\x5d", samples: ["!!(.+)!!"] },
@@ -200,7 +206,7 @@ const RULE: ComponentSchema = {
     { key: "rule-quiet", where: "note", type: "duration", meaning: "how long a block must be still before its action runs", default: "2s", samples: ["2s", "1m"] },
     { key: "rule-batch", where: "note", type: "duration", meaning: "gather a burst into one call with all its blocks, this long after the first", samples: ["1m"] },
     { key: "rule-cap", where: "note", type: "text", meaning: "the most calls a day; past it, nothing runs until the next day, and the rule says so", samples: ["20/day"] },
-    { key: "rule-skip", where: "note", type: "query", meaning: "blocks this query holds for never set it off", samples: ["triage=done OR child:type=prior-art"] },
+    { key: "rule-skip", where: "note", type: "query", complete: "query", meaning: "blocks this query holds for never set it off", samples: ["triage=done OR child:type=prior-art"] },
   ],
   source: {
     use: "Planning call [type::meeting] [when::Tuesday] [who::Ada, Ben]\n\n## Decisions\nShip the shelf !!today!!\n\n- buy screws\n- paint it",
@@ -213,12 +219,12 @@ const RULE: ComponentSchema = {
 };
 
 const VIEW: ComponentSchema = {
-  id: "view",
+  id: "view", group: "site",
   title: "Views",
   intro: "A saved view: a note whose `[query::]` gathers the blocks it holds for, sorted and limited, listed as its children wherever the note is (a virtual branch). The service answers it; every client lists what it answers. A lane, a hub and a rule's `rule-view` all read one.",
   where: "a note with `[type::virtual-branch]` and `[query::…]`",
   props: [
-    { key: "query", where: "note", type: "query", meaning: "the views' grammar: the blocks it holds for are its rows", samples: ["type=meeting"] },
+    { key: "query", where: "note", type: "query", complete: "query", meaning: "the views' grammar: the blocks it holds for are its rows", samples: ["type=meeting"] },
     { key: "sort", where: "note", type: "property", meaning: "what the rows are sorted by: created, updated, or any property's name", samples: ["updated", "priority"] },
     { key: "direction", where: "note", type: "enum", meaning: "the sort's direction", default: "desc", values: enumOf({ asc: "lowest or oldest first", desc: "highest or newest first" }) },
     { key: "limit", where: "note", type: "int", meaning: "the most rows it lists", min: 1, max: 1000, default: "200" },
@@ -236,7 +242,7 @@ const VIEW: ComponentSchema = {
 const FIGURE_TITLE: PropSchema = { key: "title", where: "yaml", type: "text", meaning: "the title in the figure's frame", samples: ["Disk"] };
 
 const METER: ComponentSchema = {
-  id: "graph-meter",
+  id: "graph-meter", group: "figures",
   title: "Meter (::graph-meter)",
   intro: "A share drawn as a bar (`value: 0.4`, or 40 for 40%), or, with `limit:`, a budget: each value drawn up to the limit, the limit a mark at the bar's end, the headroom said beneath, an overrun in red. Rows `- label: 48` under the YAML draw one bar each against the same limit.",
   where: "a `::graph-meter` block, its properties in the YAML between `---` lines",
@@ -256,7 +262,7 @@ const METER: ComponentSchema = {
 };
 
 const SPARK: ComponentSchema = {
-  id: "graph-spark",
+  id: "graph-spark", group: "figures",
   title: "Sparkline (::graph-spark)",
   intro: "A run of numbers drawn as a line of bars one column each, the last in the accent: a trend at a glance. `::graph-plot` is the same with `labels:` naming the first and last.",
   where: "a `::graph-spark` block, its properties in the YAML between `---` lines",
@@ -275,13 +281,13 @@ const SPARK: ComponentSchema = {
 /** The components every outline has. */
 /** A routing rule (PIE-1010): notes file themselves by rules written as notes. */
 const ROUTE: ComponentSchema = {
-  id: "route",
+  id: "route", group: "site",
   title: "Routing rules",
   intro: "Notes route themselves by rules written as notes: a rule says which notes (a query in the saved views' grammar) and where they go (a note). The first rule whose query holds for a note moves it there, by the service's one move, as `ext:route`, in one revision, with a history under the rule; the Routing view lists every rule, and its order is the rules' order. New notes are placed by routing first (a captured recipe lands in Recipes); a bare note and a new note's first words route once quiet; `ep0ch route <note> --dry-run` and the door's `note.route` (alt+z) say what would move where and why.",
   where: "a note with `[type::route]`, `[query::…]` and `[route-to::((id))]`",
   props: [
     { key: "type", where: "note", type: "enum", meaning: "declares a routing rule", values: enumOf({ route: "a routing rule" }) },
-    { key: "query", where: "note", type: "query", meaning: "which notes it routes: the saved views' grammar; the first rule whose query holds for a note wins", samples: ["type=recipe", "type=recipe AND #sweet"] },
+    { key: "query", where: "note", type: "query", complete: "query", meaning: "which notes it routes: the saved views' grammar; the first rule whose query holds for a note wins", samples: ["type=recipe", "type=recipe AND #sweet"] },
     { key: "route-to", where: "note", type: "ref", meaning: "where they go: a note's ((id)), a [[page]], a Work ID, inbox or root" },
     { key: "route-when", where: "note", type: "enum", meaning: "when it fires on its own", default: "create", values: enumOf({ create: "new notes: a note made with its words, a new note's first words", edit: "every save, too", command: "only when asked: ep0ch route, the door's note.route" }) },
     { key: "route-order", where: "note", type: "int", meaning: "its place among the rules: lower first; without one, the Routing view's order, then the order written", samples: ["1", "10"] },
@@ -352,7 +358,7 @@ export function componentSchemaProblem(raw: unknown): string | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "a component is an object";
   const c = raw as Record<string, unknown>;
   if (!isStr(c.id) || !SLUG.test(c.id)) return "id is a slug (lowercase letters, digits and -)";
-  for (const f of ["title", "intro", "where"] as const) if (!isStr(c[f]) || !(c[f] as string).trim()) return `${f} is words`;
+  for (const f of ["title", "intro", "where", "group"] as const) if (!isStr(c[f]) || !(c[f] as string).trim()) return `${f} is words`;
   if (!Array.isArray(c.props) || !c.props.length || c.props.length > 32) return "props is a list of 1 to 32 properties";
   const keys = new Set<string>();
   for (const [i, p] of (c.props as unknown[]).entries()) {
@@ -370,8 +376,10 @@ export function componentSchemaProblem(raw: unknown): string | null {
     for (const n of ["min", "max"] as const) if (q[n] !== undefined && !Number.isInteger(q[n])) return `${at}/${n} is a whole number`;
     if (q.samples !== undefined && (!Array.isArray(q.samples) || q.samples.length > 16 || !q.samples.every(s => isStr(s, 300)))) return `${at}/samples is a list of values`;
     for (const f of ["default", "token", "use"] as const) if (q[f] !== undefined && !isStr(q[f])) return `${at}/${f} is text`;
+    if (q.complete !== undefined && q.complete !== "query") return `${at}/complete is query`;
     if (q.valuesFrom !== undefined && q.valuesFrom !== "heading-styles" && q.valuesFrom !== "callout-types") return `${at}/valuesFrom is heading-styles or callout-types`;
   }
+  if (c.propsFrom !== undefined && (!isStr(c.propsFrom) || !keys.has(c.propsFrom))) return "propsFrom names one of its props";
   const src = c.source as Record<string, unknown> | undefined;
   if (!src || typeof src !== "object" || !isStr(src.use) || !src.use.trim()) return "source/use is the text that uses it";
   if (src.note !== undefined) {

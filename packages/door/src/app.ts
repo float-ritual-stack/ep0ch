@@ -585,7 +585,7 @@ export class App implements Ctx {
     (term as { rawSink?: unknown }).rawSink = () => (this.probing ? null : this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
     connectFigures(board, () => this.redraw());
     // Every line typed in completes outline text from this connection by default (PIE-626: LineInput, src/surface/line.ts).
-    useCompletion(board, () => this.redraw());
+    useCompletion(board, () => this.redraw(), () => this.barHost());
     // A terminal tile's program said what it's doing (OSC 7501): its header, the chip and the status bar's count.
     // It goes to the terminal the door runs in too, when that terminal speaks the protocol (the door as a program).
     this.offStatus = onStatusChange(() => { this.redraw(); this.reportStatus(); }, this.drawer);

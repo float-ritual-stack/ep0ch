@@ -36,7 +36,7 @@ describe('the detail pane, pure', () => {
     expect(displayMarkdown('Bike shed\nWhere the bikes live.')).toBe('# Bike shed\nWhere the bikes live.')
     expect(displayMarkdown('## Already one')).toBe('## Already one')
     expect(displayMarkdown('Plan\n::graph-table\n---\nquery: "type=x"\n---\n::\nafter')).toBe('# Plan\n```graph-table\n---\nquery: "type=x"\n---\n```\nafter')
-    // Where a figure ends is outline-core's rule (hooks/component-block.ts, a checked copy): a bare `::` in its code
+    // Where a figure ends is outline-core's rule (hooks/link-grammar.js, bundled from the shared source): a bare `::` in its code
     // example stays inside a fence longer than the example's.
     expect(displayMarkdown(COMARK_NOTE.join('\n')).split('\n')).toEqual([
       '# Comark notes', '````graph-annotate', ...COMARK_NOTE.slice(2, 10), '````', '', '## Second', '',

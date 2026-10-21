@@ -163,7 +163,7 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "extension.json"), JSON.stringify({
       contract: 2, id: "moods", version: 1, name: "Moods", components: [{
-        id: "mood", title: "Mood", intro: "How a standup went.", where: "`[mood::…]` on a standup's note",
+        id: "mood", group: "controls", title: "Mood", intro: "How a standup went.", where: "`[mood::…]` on a standup's note",
         props: [{ key: "mood", where: "line", type: "enum", meaning: "how it went", values: [{ value: "calm", meaning: "nothing on fire" }, { value: "stormy", meaning: "something is" }] }],
         source: { use: "Standup [mood::{{props.mood}}]" }, example: { mood: "calm" }, sweep: ["mood"], grids: [], space: ["mood"],
       }],

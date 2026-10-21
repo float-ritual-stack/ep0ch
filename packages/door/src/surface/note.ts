@@ -117,7 +117,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTar
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
-import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -3960,7 +3960,7 @@ export class NoteSurface {
   /** A click in text being written (an edit's or a comment's): a completion candidate, the preview control, or the cursor placed. */
   private writeClick(d: Draft, x: number, y: number, host: SurfaceHost): boolean {
     if (d.busy) return false;
-    if (completerOf(d)?.click(y, x)) return true;
+    if (completerOf(d)?.click(y, x, text => host.ctx.copy?.(text, "component preview"))) return true;
     // Beside a composer's box (floating, popup, split: PIE-770) a click is nobody's: not a candidate, not the cursor.
     const f = d.frame;
     if (f && (x < f.col - 1 || x > f.col + f.cols)) return false;
@@ -4064,6 +4064,7 @@ export class NoteSurface {
 
   /** A press puts the cursor there; a drag from it selects (Draft's own selection). */
   private writePress(d: Draft, x: number, y: number, drag: boolean): boolean {
+    if (completerOf(d)?.previewPress(x, y, drag)) return true;
     return !d.busy && (drag || !completionOf(d)) && editorClick(d, x, y, drag);
   }
   /** The wheel over text being written: through an open completion popup's candidates, else its preview under the pointer (PIE-846), else the draft's view (its cursor stays). */
@@ -7456,6 +7457,11 @@ export class NoteSurface {
       host.redraw();
       return true;
     }
+    const completion = this.writingDraft && completerOf(this.writingDraft);
+    if (completion?.overPreview(x, y)) {
+      completion.click(y, x, text => host.ctx.copy?.(text, "component preview"));
+      host.redraw(); return true;
+    }
     if (r.click) {
       // A click that did something (a link, a fold, a panel row) isn't the first half of a double click.
       const acted = this.click(x, y, host);
@@ -8921,8 +8927,17 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run(args, { surface }: On, actor) {
       const draft = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
       const c = draft && completerOf(draft);
-      if (!c?.shown) throw new ActionRefused("no reference preview is open; type (( in an edit or comment first");
+      if (!c?.shown) throw new ActionRefused("no preview is open; type (( or :: in an edit or comment first");
       return COMPLETION_ACTIONS.run("complete.preview", args, c, actor);
+    },
+  }),
+  "complete.step": def({
+    ...COMPLETION_STEP,
+    run(args, { surface, host }, actor) {
+      const d = surface.writingDraft;
+      const c = d && completerOf(d);
+      if (!c?.shown) throw new ActionRefused("type :: in an edit first");
+      return COMPLETION_ACTIONS.run("complete.step", args, c, actor);
     },
   }),
   "complete": def({
@@ -8936,6 +8951,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       text: { type: "string", optional: true, about: "text ending in the token to complete; leave out to complete at the draft's cursor" },
       key: { type: "string", optional: true, about: "with text=: complete text as the value of this property (the property panel's field: the outline's values for it, then the schemas'); a [[ or (( in it still offers pages and blocks" },
       insert: { type: "number", optional: true, about: "put the nth candidate (from 1) into the draft at its cursor, as enter does" },
+      step: { type: "number", optional: true, about: "list variations and arguments of this component row (from 1)" },
       refine: { type: "string", optional: true, about: "^ or #: open the finished ((reference)) at the draft's cursor again, to search inside its note (^ every passage, its anchors first; # its headings); then insert=n" },
       expect: { type: "string", optional: true, about: "with insert=: the nth candidate's insertion as listed; refused when the list has changed since (a pause can have Jev re-order it)" },
       invitation: { type: "string", optional: true, about: "insert= in the person's draft: the invitation their @name line gave this agent (one step, used up only when it lands); not for a draft of the agent's own" },
@@ -8944,7 +8960,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: 'complete text="[[seed-sw"', does: "lists the pages whose names match seed-sw, as typing [[seed-sw would" },
       { act: "complete insert=2", does: "puts the second candidate into the draft at the cursor" },
     ],
-    async run({ text, key, insert, invitation, expect, refine }, { surface, host }, actor) {
+    async run({ text, key, insert, invitation, expect, refine, step }, { surface, host }, actor) {
       const board = host.ctx.board as unknown as CompletionBoard;
       if (typeof board?.completePages !== "function") throw new ActionRefused("this connection can't look references up");
       const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
@@ -8978,6 +8994,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const shown = d ? completionOf(d) : null;
       const r = text === undefined && shown && !shown.loading && shown.target.kind === target.kind && shown.target.start === target.start && shown.target.query === target.query
         ? shown : await lookupCompletion(board, target, prefix, own, { near: nearOf(d, own) ?? surface.msg?.id });
+      if (step !== undefined) {
+        const item = r.items[step - 1];
+        if (!item?.componentSchema) throw new ActionRefused("step names a component row; complete text=:: lists them");
+        return { variations: item.children?.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion })), props: item.componentSchema.props };
+      }
       const out = {
         kind: target.kind, query: target.query, message: r.message || undefined, truncated: r.truncated ?? undefined,
         items: r.items.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion, kind: it.kind, blockId: it.blockId, address: it.address, fragmentId: it.fragmentId, context: it.context || undefined })),

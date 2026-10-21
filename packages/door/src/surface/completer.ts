@@ -22,7 +22,7 @@ import { ListPicker, pickRows, pickRow } from "./picker";
 import { actionSet, def } from "./actions";
 import { listPreview } from "../bar/list-preview";
 import { litCells } from "../bar/filter";
-import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
+import { rankTextSearchMatches, matchesSearchText } from "@ep0ch/outline-core/search-match";
 import { subject, type Msg } from "../board";
 import {
   completionTargetAtCursor, filterTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
@@ -40,12 +40,17 @@ import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { calloutsReady, TONE } from "../callouts";
-import { keyCandidates, valueCandidates, variation, sweep, yamlKeyCandidates, type ComponentSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
+import { keyCandidates, valueCandidates, variation, sweep, axisValues, yamlKeyCandidates, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
 import { headingStylesReady } from "../heading-styles";
 import { componentsReady } from "../component-schemas";
-import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
+import { COMPONENT_OPEN, componentBlocks } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
 import { drawVariation } from "../library/draw";
+import { propertyTokensInLine } from "@ep0ch/outline-core/property-grammar";
+import { barSource, type BarHost } from "../bar/source";
+import { commandCandidates } from "../bar/command";
+import { querySuggestions } from "./settings-card";
+import { Gesture, Selection, rowsOf, paintRange, selectText, SELECT_BG } from "./selection";
 import { visible, width as cells } from "../style";
 
 /** At most this many candidates per lookup, as in the outliner. */
@@ -61,7 +66,7 @@ export const COMPLETION_HINT = "up/down or wheel choose · enter inserts (styles
 export const REFERENCE_HINT = "up/down choose · enter/double click inserts · shift+up/down/PgUp/PgDn/wheel preview · ^/# narrow · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage">;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "query" | "templateProps">;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineInput` (a property's value, a filter). The completer
@@ -82,6 +87,8 @@ export interface CompletionField {
 
 export interface CompletionItem {
   label: string;
+  children?: CompletionItem[];
+  componentSchema?: ComponentSchema;
   subtitle?: string;
   group?: string;
   preview?: (w: number, h: number) => string[];
@@ -126,7 +133,7 @@ export interface CompletionLookup {
 export const nearOf = (d: CompletionField | null | undefined, own?: OwnNote): string | undefined => own?.blockId ?? d?.near;
 
 /** How the lookup is asked: `semantic` has Jev re-order it; `near` is the note the draft writes in. */
-export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number }
+export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost }
 
 /** The note a note draft is writing, for `((#heading` in itself; comments and replies have none. */
 export interface OwnNote { blockId: string; text: string }
@@ -158,24 +165,36 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   } else if (target.kind === "component") {
     const src = { board, redraw: () => {} };
     const schemas = await componentsReady(src);
-    items = schemas.flatMap(schema => {
+    const recent = new Map<string, number>();
+    for (const note of await board.query("", 1000)) {
+      for (const block of componentBlocks(note.text.split("\n"))) if (!recent.has(block.name)) recent.set(block.name, note.updatedAt);
+    }
+    const components = schemas.flatMap(schema => {
       const name = COMPONENT_OPEN.exec(schema.source.use.split("\n")[0]!)?.[1];
-      if (!name?.startsWith(target.query)) return [];
-      const examples = [{ v: variation(schema, {}), label: "example" }, ...schema.sweep.flatMap(axis => sweep(schema, axis).map(v => ({ v, label: `${axis}: ${v.values[axis]}` })))];
-      const seen = new Set<string>();
-      return examples.flatMap(({ v, label }) => {
+      if (!name) return [];
+      return [{ id: name, title: `${name} ${schema.title}`, text: schema.intro, schema }];
+    });
+    const found = target.query.trim() ? rankTextSearchMatches(components.filter(c => matchesSearchText(target.query, [c.id, c.title, c.text])), target.query).map(m => m.document) : components;
+    const ordered = found.sort((a, b) => (recent.get(b.id) ?? 0) - (recent.get(a.id) ?? 0));
+    const groupOf = (c: typeof components[number]) => `${c.schema.group}${recent.has(c.id) ? " · used" : ""}`;
+    const groups = [...new Set(ordered.map(groupOf))];
+    items = groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ schema }) => {
+      const item = componentItem(schema, variation(schema, {}), src);
+      const seen = new Set([item.insertion]);
+      item.group = group;
+      item.componentSchema = schema;
+      item.children = schema.sweep.flatMap(axis => sweep(schema, axis).flatMap(v => {
         if (seen.has(v.use)) return [];
         seen.add(v.use);
-        const yaml = v.use.indexOf("\n---\n");
-        const first = yaml >= 0 ? /^([^:\n]+:[ \t]*)([^\n]+)$/m.exec(v.use.slice(yaml + 5)) : null;
-        const at = first ? yaml + 5 + first.index + first[1]!.length : -1;
-        return [{ label: `${schema.title.replace(/ \(::.*\)$/, "")} · ${label}`, insertion: v.use, kind: "component", group: name.split("-")[0],
-          context: schema.intro.split(/\n|(?<=\.) /)[0]!.replace(/[`*_]/g, ""),
-          preview: (w: number, h: number) => drawVariation(v, w, src).slice(0, h),
-          ...(at >= 0 ? { selection: { start: at, end: at + first![2]!.length } } : {}),
-        }];
-      });
-    }).sort((a, b) => (a.group ?? "").localeCompare(b.group ?? ""));
+        return [componentItem(schema, v, src, `${axis}: ${v.values[axis]}`)];
+      }));
+      return item;
+    }));
+  } else if (target.kind === "attribute" || target.kind === "attribute-value") {
+    const src = { board, redraw: () => {} };
+    const schemas = await componentsReady(src);
+    const schema = schemas.find(s => COMPONENT_OPEN.exec(s.source.use.split("\n")[0]!)?.[1] === target.component);
+    if (schema) items = await attributeCandidates(board, schema, target, own, { ...opts, host: opts.host ?? (ambient?.board === board ? ambient.host?.() : undefined) });
   } else if (target.kind === "callout") {
     // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
     items = calloutCandidates(await calloutsReady({ board, redraw: () => {} }), target.query, { board, redraw: () => {} });
@@ -345,6 +364,54 @@ export function reopenReference(d: CompletionField, ch: string, by: Actor = USER
  * most used first) and then the component schemas (what a key can hold, used or not): the same two sources the
  * outliner's filter completion and the editors' `[key::` completion read, never a list of its own.
  */
+function componentItem(schema: ComponentSchema, v: ReturnType<typeof variation>, src: ListSource, label?: string): CompletionItem {
+  const yaml = v.use.indexOf("\n---\n");
+  const first = yaml >= 0 ? /^([^:\n]+:[ \t]*)([^\n]+)$/m.exec(v.use.slice(yaml + 5)) : null;
+  const at = first ? yaml + 5 + first.index + first[1]!.length : -1;
+  return { label: label ?? schema.title.replace(/ \(::.*\)$/, ""), insertion: v.use, kind: "component", group: schema.group,
+    context: schema.intro.split(/\n|(?<=\.) /)[0]!.replace(/[`*_]/g, ""),
+    preview: (w, h) => drawVariation(v, w, src).slice(0, h),
+    ...(at >= 0 ? { selection: { start: at, end: at + first![2]!.length } } : {}),
+  };
+}
+
+async function attributeCandidates(board: CompletionBoard, schema: ComponentSchema, target: CompletionTarget, own: OwnNote | undefined, opts: LookupOptions): Promise<CompletionItem[]> {
+  const producer = target.attrs?.find(a => a.key === schema.propsFrom)?.value;
+  const spec = producer ? (await board.templateProps(producer)).spec : {};
+  const props: PropSchema[] = [...schema.props, ...Object.entries(spec).map(([key, p]) => ({ key, where: "line" as const,
+    type: p.kind === "property" ? "property" as const : p.kind === "note" ? "ref" as const : p.kind === "choice" ? "enum" as const : "text" as const,
+    meaning: `a prop of ${producer}`, values: p.choices?.map(value => ({ value, meaning: value })),
+  }))];
+  const used = new Set(target.attrs?.map(a => a.key));
+  if (target.kind === "attribute") return props.filter(p => !used.has(p.key) && p.key.startsWith(target.query)).map(p => ({
+    label: p.key, subtitle: p.type, context: p.meaning, insertion: `${p.key}=""`, selection: { start: p.key.length + 2, end: p.key.length + 2 }, kind: "property",
+  }));
+  const prop = props.find(p => p.key === target.key);
+  if (!prop) return [];
+  const q = target.query;
+  let values: { label: string; value: string; detail?: string }[] = [];
+  if (prop.complete === "query") {
+    values = (await querySuggestions(q, { catalog: (key, prefix) => board.propertyCatalog(key, prefix, 100) })).map(r => ({ label: r.value, value: r.value, detail: r.detail }));
+  } else if (prop.type === "property") {
+    const ownKeys = [...new Set(propertyTokensInLine(own?.text ?? "").map(p => p.key))].filter(key => key.startsWith(q));
+    const catalog = await board.propertyCatalog(undefined, q, 100);
+    values = [...new Set([...ownKeys, ...catalog.map(f => f.key)])].map(key => ({ label: key, value: key }));
+  } else if (prop.type === "ref") {
+    const refs = await lookupCompletion(board, { kind: "block", start: 0, end: q.length, query: q }, null, own, opts);
+    values = refs.items.map(i => ({ label: i.label, value: i.insertion, detail: i.context }));
+  } else if (prop.type === "action" && opts.host) {
+    const completed = await commandCandidates(q, opts.host);
+    values.push(...completed.map(value => ({ label: value, value })));
+    const rows = await barSource("actions")!.rows(q, opts.host, "actions");
+    values.push(...rows.map(r => ({ label: r.label, value: r.fill ?? r.label, detail: r.detail })));
+  } else {
+    values = axisValues(prop).filter(v => v.toLowerCase().startsWith(q.toLowerCase())).map(value => ({ label: value, value, detail: prop.values?.find(v => v.value === value)?.meaning }));
+  }
+  return values.map(v => ({ label: v.label, context: v.detail ?? prop.meaning, kind: "value",
+    insertion: target.quote ? v.value.replaceAll("\\", "\\\\").replaceAll(target.quote, `\\${target.quote}`) + target.quote : JSON.stringify(v.value),
+  }));
+}
+
 async function filterCandidates(board: CompletionBoard, target: CompletionTarget): Promise<CompletionItem[]> {
   const value = target.kind === "filter-value", q = target.query.trim().toLowerCase();
   const [catalog, schemas] = await Promise.all([
@@ -467,6 +534,9 @@ export interface CompletionState extends CompletionLookup {
   listWidth?: number;
   listCol?: number;
   target: CompletionTarget;
+  previewLines?: string[];
+  previewTop?: number;
+  previewSelection?: Selection;
   index: number;
   loading: boolean;
   /** Where the cursor was when it was asked: a reply for anywhere else is dropped. */
@@ -482,6 +552,7 @@ export class Completer {
   screenLayer = false;
   private preview: { item: CompletionItem; surface: NoteSurface; host: SurfaceHost } | null = null;
   private generation = 0;
+  private previewGesture = new Gesture();
   private accepting = false;
   private loadingMore = false;
   private limit = COMPLETION_LIMIT;
@@ -512,8 +583,10 @@ export class Completer {
   dismiss(): void {
     this.generation++;
     this.stopJev();
+    this.previewGesture.cancel();
     if (!this.state) return;
     this.state = null;
+    this.parent = null;
     this.preview?.surface.dispose();
     this.preview = null;
     this.redraw();
@@ -541,7 +614,7 @@ export class Completer {
       s.jev = "asking";
       this.redraw();
       try {
-        const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { semantic: true, near: this.near(), limit: this.limit });
+        const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { semantic: true, near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined });
         if (r.jevOff) jevOff.add(this.board);
         const now = this.state;
         if (now !== s) return;
@@ -560,6 +633,7 @@ export class Completer {
 
   /** Look up the token at the cursor (or close the popup when the cursor isn't in one). */
   async refresh(explicit = false): Promise<void> {
+    this.parent = null;
     const target = this.target();
     if (!target || this.d.busy) { this.dismiss(); return; }
     this.stopJev();
@@ -573,7 +647,7 @@ export class Completer {
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
       if (this.prefix === undefined) this.prefix = await this.board.workIdPrefix().catch(() => undefined);
-      const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { near: this.near(), limit: this.limit });
+      const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(generation)) return;
       // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
@@ -623,7 +697,7 @@ export class Completer {
 
   scrollPreview(by: number): boolean {
     const p = this.preview;
-    if (!p || p.item !== this.shown?.items[this.shown.index]) return false;
+    if (!this.shown?.items[this.shown.index]?.preview) return false;
     void COMPLETION_ACTIONS.run("complete.preview", { by }, this, USER);
     return true;
   }
@@ -635,9 +709,23 @@ export class Completer {
     return x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows;
   }
 
+  selectPreview(text: string, actor: Actor): string {
+    const s = this.shown;
+    if (!s?.previewLines) throw new Error("open a component preview first");
+    const rows = rowsOf(s.previewLines), selected = selectText(rows, text);
+    if (actor.kind === "user") { s.previewSelection = selected; this.redraw(); }
+    return selected.text(rows);
+  }
+
   previewBy(by: number, actor: Actor): boolean {
     const p = this.preview;
-    if (!p || p.item !== this.shown?.items[this.shown.index]) return false;
+    if (!p || p.item !== this.shown?.items[this.shown.index]) {
+      const s = this.shown;
+      if (!s?.previewLines) return false;
+      s.previewTop = Math.max(0, Math.min(Math.max(0, s.previewLines.length - (s.previewRect?.rows ?? 1)), (s.previewTop ?? 0) + by));
+      s.previewSelection = undefined;
+      this.redraw(); return true;
+    }
     void p.surface.act("scroll", { by }, p.host, actor);
     return true;
   }
@@ -648,15 +736,29 @@ export class Completer {
   /**
    * A click selects and previews; a double click inserts. The preview and frame consume clicks without choosing.
    */
-  click(y: number, x = 0): boolean {
+  click(y: number, x = 0, copy?: (text: string) => void): boolean {
     const s = this.shown, at = this.drawn;
     if (!s || !at || y < at.row || y >= at.row + at.items.length) return false;
     if (at.cols !== undefined && (x < (at.col ?? 0) || x >= (at.col ?? 0) + at.cols)) return false;
+    if (this.overPreview(x, y)) {
+      const released = this.previewGesture.release(x, y);
+      const text = s.previewSelection?.text(rowsOf(s.previewLines ?? []));
+      if (text && released.copy) copy?.(text);
+      if (!released.moved && released.n === 1) s.previewSelection = undefined;
+      return true;
+    }
     if (x < (at.col ?? 0) + (s.listCol ?? 0) || x >= (at.col ?? 0) + (s.listWidth ?? Infinity)) return true;
     const i = at.items[y - at.row];
     if (i !== null && i !== undefined && s.items[i] && !s.loading) {
+      if (s.index !== i) { s.previewTop = 0; s.previewSelection = undefined; this.previewGesture.cancel(); }
+      s.index = i; s.picked = true;
+      const arrow = (at.col ?? 0) + (s.listCol ?? 0) + 4 + cells(s.items[i]!.label);
+      if (s.items[i]!.componentSchema && at.items[y - at.row - 1] !== i && x === arrow) {
+        void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, this, USER);
+        return true;
+      }
       const press = completionPicker(s).view.press(i, { mods: 0, button: 0 });
-      s.index = i; s.picked = true; this.redraw(); void this.enrich();
+      this.redraw(); void this.enrich();
       if (press === "open") void this.accept(i);
     }
     return true;
@@ -671,10 +773,44 @@ export class Completer {
     return renderCompletion(s, w, height, at.items, (at.anchor ?? 0) - col, values);
   }
 
+  previewPress(x: number, y: number, drag: boolean): boolean {
+    const s = this.shown, at = this.drawn;
+    if (!s || !at || !this.overPreview(x, y) || !s.previewLines) return false;
+    const pos = { col: x - (at.col ?? 0) - s.previewRect!.col, row: y - at.row - s.previewRect!.row + (s.previewTop ?? 0) };
+    if (drag) {
+      if (this.previewGesture.drag(x, y) && s.previewSelection) s.previewSelection.head = pos;
+    } else {
+      this.previewGesture.press(x, y);
+      s.previewSelection = new Selection(pos, pos);
+    }
+    this.redraw(); return true;
+  }
+
+  get hasParent() { return this.parent !== null; }
+  private parent: CompletionState | null = null;
+  expand(): boolean {
+    const s = this.shown, item = s?.items[s.index], schema = item?.componentSchema;
+    if (!s || !item || !schema) return false;
+    this.parent = s;
+    const name = COMPONENT_OPEN.exec(item.insertion.split("\n")[0]!)![1]!;
+    const attrs = schema.props.map(p => {
+      const insertion = `::${name}{${p.key}=""}`;
+      return { label: `${p.key} · ${p.type}`, context: p.meaning, kind: "property", insertion, selection: { start: insertion.length - 2, end: insertion.length - 2 } };
+    });
+    this.state = { ...s, items: [...(item.children ?? []), ...attrs], previewLines: undefined, previewTop: 0, previewSelection: undefined, index: 0, picked: true, heading: `${item.label}: variations and arguments` };
+    this.redraw();
+    return true;
+  }
+  back(): boolean {
+    if (!this.parent) return false;
+    this.state = this.parent; this.parent = null; this.redraw(); return true;
+  }
+
   move(delta: number): void {
     const s = this.state;
     if (!s?.items.length) return;
     s.picked = true;
+    s.previewTop = 0; s.previewSelection = undefined;
     const picker = completionPicker(s);
     picker.sel = s.index;
     for (let i = 0; i < Math.abs(delta); i++) picker.key({ kind: delta < 0 ? "up" : "down" }, undefined);
@@ -717,7 +853,7 @@ export class Completer {
       this.dismiss();
       // A folder leaves `[file::notes/` open: its entries are offered next; a filter's key `stage:` its values. A chosen value ends it
       // (the cursor is still in its word, which would offer the same value again).
-      if (s.target.kind !== "filter-value" && s.target.kind !== "component" && this.target()) void this.refresh();
+      if (s.target.kind !== "filter-value" && (s.target.kind !== "component" || item.kind === "property") && this.target()) void this.refresh();
       return true;
     } catch (e) {
       if (this.current(generation)) { s.message = e instanceof Error ? e.message : String(e); this.redraw(); }
@@ -727,17 +863,32 @@ export class Completer {
 }
 
 export const COMPLETION_PREVIEW = {
-    summary: "scroll the selected reference's note preview, keeping the selection in the list",
+    summary: "scroll the selected preview, or select text from a component demo; an agent reads that text without changing the person's selection",
     keys: "shift+up/down, PgUp/PgDn, wheel over the reference preview",
     touches: "tile", replay: "safe",
-    args: { by: { type: "number", about: "rows to scroll; negative goes up" } },
+    touchesWith: ({ text }: { text?: string }): "nothing" | "tile" => text === undefined ? "tile" : "nothing",
+    args: { by: { type: "number", optional: true, about: "rows to scroll; negative goes up" }, text: { type: "string", optional: true, about: "component preview text to select; an agent reads it without changing the selection" } },
     examples: [{ act: "complete.preview by=3", does: "reads three rows further in the selected reference" }],
 } as const;
 
+export const COMPLETION_STEP = {
+  summary: "show a component's variations and arguments, or return to components",
+  keys: "right or click >; left returns", touches: "nothing", replay: "safe",
+  args: { direction: { type: "string", choices: ["right", "left"], about: "right opens variations; left returns" } },
+  examples: [{ act: "complete.step direction=right", does: "shows the selected component's variations and arguments" }],
+} as const;
+
 export const COMPLETION_ACTIONS = actionSet<Completer>()("completion", {
+  "complete.step": def({
+    ...COMPLETION_STEP,
+    run({ direction }, c, actor) {
+      if (actor.kind === "agent") return c.shown?.items[c.shown.index]?.children ?? [];
+      return direction === "left" ? c.back() : c.expand();
+    },
+  }),
   "complete.preview": def({
     ...COMPLETION_PREVIEW,
-    run({ by }, c, actor) { return c.previewBy(by, actor); },
+    run({ by, text }, c, actor) { return text === undefined ? c.previewBy(by ?? 0, actor) : c.selectPreview(text, actor); },
   }),
 });
 
@@ -761,7 +912,7 @@ export const completerOf = (d: CompletionField): Completer | null => byDraft.get
 export const completionOf = (d: CompletionField): CompletionState | null => byDraft.get(d)?.shown ?? null;
 
 const AUTO_OPENING_KINDS: ReadonlySet<CompletionKind> = new Set([
-  "component", "key", "value", "yaml-key", "yaml-value", "filter-key", "filter-value",
+  "component", "attribute", "attribute-value", "key", "value", "yaml-key", "yaml-value", "filter-key", "filter-value",
 ]);
 
 const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" || k.ch === " " || k.ch === "@");
@@ -777,6 +928,9 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
   const s = c.state;
   if (s) {
     // A line (a filter, a panel value) has esc of its own: a popup with nothing to choose never keeps it.
+    if (k.kind === "char" && k.ctrl && k.ch === "c" && s.previewSelection) {
+      ambient?.host?.().ctx.copy?.(s.previewSelection.text(rowsOf(s.previewLines ?? [])), "component preview"); return true;
+    }
     if (k.kind === "esc") { c.dismiss(); return !line || !!s.items.length; }
     if (s.items.length && !s.loading) {
       const item = s.items[s.index];
@@ -785,10 +939,12 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
         void c.refresh();
         return true;
       }
+      if (k.kind === "right" && item?.componentSchema) { void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, c, USER); return true; }
+      if (k.kind === "left" && c.hasParent) { void COMPLETION_ACTIONS.run("complete.step", { direction: "left" }, c, USER); return true; }
       if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return true; }
       // A new page alone on the list (PIE-592) is chosen only on purpose (↓ or a click): Enter and Tab stay the draft's.
       const lone = s.items.length === 1 && !!s.items[0]!.newPage && !s.picked;
-      if ((k.kind === "tab" || (k.kind === "enter" && (s.picked || !AUTO_OPENING_KINDS.has(s.target.kind)))) && !lone) { void c.accept(); return true; }
+      if ((k.kind === "tab" || (k.kind === "enter" && (s.target.kind === "component" || s.picked || !AUTO_OPENING_KINDS.has(s.target.kind)))) && !lone) { void c.accept(); return true; }
     }
   }
   if (k.kind === "tab" || isCtrlSpace(k)) {
@@ -830,8 +986,8 @@ export function completionKey(d: Draft, k: Key, c: Completer | null): DraftActio
 // ── a line completes like a draft (PIE-626) ─────────────────────────────────────────────────────────────────────
 
 /** The connection a line made now belongs to: the door's (App sets it when it starts, `useCompletion`). */
-let ambient: { board: SocketBoard; redraw: () => void } | null = null;
-export function useCompletion(board: SocketBoard | null, redraw: () => void = () => {}): void { ambient = board && { board, redraw }; }
+let ambient: { board: SocketBoard; redraw: () => void; host?: () => BarHost } | null = null;
+export function useCompletion(board: SocketBoard | null, redraw: () => void = () => {}, host?: () => BarHost): void { ambient = board && { board, redraw, host }; }
 /** The door ended: lines made after it complete nothing (a line made earlier keeps its own connection). */
 export function stopCompletion(board: SocketBoard): void { if (ambient?.board === board) ambient = null; }
 
@@ -901,27 +1057,34 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   }
   const header = h >= 3, footer = h >= 2 && (!reference || h >= 6);
   const out: string[] = [];
-  const heading = { component: "components", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
+  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
   const ranking = !footer && s.jev ? ` · jev ${s.jev}` : "";
   if (header) rows.push(null), out.push(fg(C.lcyan) + pad(` ${printable(s.heading ?? heading, " ")} ${s.index + 1}/${s.items.length}${echo}${ranking}${scopes ? ` ${scopes}` : ""}${s.loading ? " · finding..." : ""}`, w) + RESET);
   const picker = completionPicker(s);
   picker.sel = s.index;
   const selected = s.items[s.index]!;
   const preview = (pw: number, ph: number) => {
-    if (selected.kind === "component" && selected.preview) return selected.preview(pw, ph);
+    if (selected.kind === "component" && selected.preview) {
+      const lines = selected.preview(pw, 10000);
+      s.previewLines = lines;
+      return lines.slice(s.previewTop ?? 0, (s.previewTop ?? 0) + ph).map((line, i) => {
+        const span = s.previewSelection?.span((s.previewTop ?? 0) + i);
+        return span ? paintRange(line, span[0], span[1], SELECT_BG) : line;
+      });
+    }
     if (selected.blockId && selected.preview) return selected.preview(pw, ph);
     const description = wholeWords(selected.context ?? selected.insertion, pw);
     return [fg(C.lcyan) + pad(description, pw) + RESET, ...(selected.preview?.(pw, Math.max(0, ph - 1)) ?? [])].slice(0, ph);
   };
-  const labelWidth = Math.max(...s.items.map(it => cells(printable(it.label, " ")) + 3));
-  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, reference && selected.preview ? Math.max(90, w) : w, { col: anchor, width: labelWidth });
+  const labelWidth = Math.max(...s.items.map(it => cells(printable(it.label + (it.subtitle ? ` · ${it.subtitle}` : "") + (it.componentSchema ? " >" : ""), " ")) + 3));
+  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, reference && selected.preview ? Math.max(90, w) : w, { col: s.target.kind === "component" || s.target.kind === "attribute" || s.target.kind === "attribute-value" ? 0 : anchor, width: labelWidth });
   if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(header) };
   s.listCol = drawn.listCol;
   s.listWidth = drawn.listWidth;
   rows.push(...drawn.rows); out.push(...drawn.lines);
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
   const jev = s.jev === "ranked" ? "jev ranked · " : s.jev === "asking" ? "jev… · " : "";
-  const hint = s.target?.kind === "block" ? REFERENCE_HINT : COMPLETION_HINT;
+  const hint = s.target?.kind === "component" ? "enter inserts · right/> variations and arguments · left returns · drag preview to copy · esc dismisses" : s.target?.kind === "block" ? REFERENCE_HINT : COMPLETION_HINT;
   const keys = "↑↓ ⏎ tab esc";
   const fitted = cells(` ${jev}${hint}`) <= w ? hint : keys;
   if (footer) rows.push(null), out.push(line(` ${jev}${s.message || fitted}`, fg(s.message ? C.yellow : C.grey)));
@@ -939,12 +1102,12 @@ function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> 
   if (!picker) {
     picker = new ListPicker({ name: "completion", items: () => s.items,
       row: (it, _i, on, w) => {
-        const label = printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " ") + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : "");
+        const label = printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " ") + (it.componentSchema ? " >" : "") + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : "");
         const lit = litCells(label, s.target.query);
         const words = [...label].map((c, i) => lit.has(i) ? fg(C.yellow) + c + fg(C.grey) : c).join("");
         return [...pickRows(` ${on ? "»" : " "} ${words}` + (it.addition ? fg(C.dark) + it.addition + RESET : ""), on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])];
       },
-      heading: (it, i, w) => it.group && it.group !== s.items[i - 1]?.group ? fg(C.dark) + pad(` ${it.group}`, w) + RESET : null,
+      heading: (it, i, w) => it.group && it.group !== s.items[i - 1]?.group ? fg(C.dark) + pad(` ${it.group} (${s.items.filter(row => row.group === it.group).length})`, w) + RESET : null,
       choose: () => {},
     });
     pickers.set(s, picker);

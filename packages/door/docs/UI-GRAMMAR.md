@@ -836,6 +836,8 @@ From a look at shiki, strata and mirador (all MIT). Where each fits:
 
 ## 7. Tiles: drag, tab, link, preview, layouts (PIE-413, PIE-417, PIE-473, PIE-474)
 
+The editor's `::` popup shows each component once under its schema's group, with the library demo. Enter inserts; Right or `>` opens variations and arguments; Left returns. Inside `{}`, schema types select property, query-value, reference, action and enum pickers. Drag the preview to select and copy.
+
 ### Hint controls (PIE-1096)
 
 Alt+Shift+N (`alt+N`) sets the visible card's stable hint id to status (`hint.never`),

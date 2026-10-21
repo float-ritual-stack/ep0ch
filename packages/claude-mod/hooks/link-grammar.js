@@ -586,6 +586,13 @@ function stripQuotes(line, n) {
   return rest;
 }
 
+// packages/outline-core/src/property-grammar.ts
+var PROPERTY_KEY_SOURCE = "[A-Za-z][A-Za-z0-9_.-]*";
+var PROPERTY_HEAD_SOURCE = String.raw`\[(${PROPERTY_KEY_SOURCE})::`;
+var PROPERTY_KEY_PATTERN = new RegExp(`^${PROPERTY_KEY_SOURCE}$`);
+var ADDRESS_KEYS = new Set(["page", "work-id"]);
+var QUERY_KEYS = new Set(["query"]);
+
 // packages/outline-core/src/component-block.ts
 var COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?)|(\{(?:[^{}\n]|\{\{[^\n]*?\}\})*\}))?[ \t]*$/;
 var COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
@@ -988,6 +995,8 @@ function linkOccurrences(text, code) {
   return outsideCode(text, out, codeRanges).sort((a, b) => a.start - b.start);
 }
 export {
+  COMPONENT_OPEN,
+  componentBlocks,
   formatEp0chBlockUri,
   linkOccurrences,
   qualifiedReference

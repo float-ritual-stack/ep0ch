@@ -3,6 +3,7 @@
 // how a page or Work-ID is written (`[[WORK-ID|title]]`, else `[[address]]`), Work-ID recognition
 // (src/work-ids.ts), and how a typed `((note#heading` / `((note^anchor` splits. Fragments themselves are
 // the service's (see below).
+import { componentAttributeAtCursor } from "@ep0ch/outline-core/component-block";
 import { calloutTypeAtCursor } from "@ep0ch/outline-core/callouts";
 import { propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core/component-schema";
 import { codeSpanRanges, cursorInCode } from "@ep0ch/outline-core/code-ranges";
@@ -11,7 +12,7 @@ import { codeSpanRanges, cursorInCode } from "@ep0ch/outline-core/code-ranges";
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
  * `yaml-value` the same inside a component block's YAML.
  */
-export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value";
+export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value";
 
 export interface CompletionTarget {
   kind: CompletionKind;
@@ -26,6 +27,8 @@ export interface CompletionTarget {
   /** A filter's word: a value with a space can't be written in it. */
   words?: boolean;
   headingShort?: boolean;
+  quote?: string;
+  attrs?: { key: string; value: string }[];
 }
 
 const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; closing: string }> = [
@@ -42,6 +45,8 @@ const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; clos
 export function completionTargetAtCursor(line: string, column: number, lines?: readonly string[], row?: number): CompletionTarget | null {
   // Code is opaque (PIE-764): no popup in a fence, a code span, or one being typed (outline-core's cursorInCode).
   if (cursorInCode(lines ?? [line], row ?? 0, column)) return null;
+  const attribute = componentAttributeAtCursor(line, column);
+  if (attribute) return attribute;
   const callout = calloutTypeAtCursor(line, column);
   if (callout) return { kind: "callout", ...callout };
   const agent = agentAtCursor(line, column);
@@ -50,7 +55,7 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
   if (yaml) return yaml.kind === "key" ? { kind: "yaml-key", start: yaml.start, end: yaml.end, query: yaml.query, component: yaml.component } : { kind: "yaml-value", start: yaml.start, end: yaml.end, query: yaml.query, key: yaml.key, component: yaml.component };
   const end = Math.max(0, Math.min(column, line.length));
   const beforeCursor = line.slice(0, end);
-  const component = /^( {0,3})::([a-z][a-z0-9-]*|)$/.exec(beforeCursor);
+  const component = /^( {0,3})::([^{}\n]*)$/.exec(beforeCursor);
   if (component) return { kind: "component", start: component[1]!.length, end: end + /^[a-z0-9-]*/.exec(line.slice(end))![0].length, query: component[2]! };
   let target: CompletionTarget | null = null;
   // A `[[` or `((` in a code span earlier on the line is text: it opens nothing the cursor is in (PIE-764).

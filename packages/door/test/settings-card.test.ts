@@ -54,7 +54,7 @@ describe("the settings card", () => {
   });
 
   test("a node field offers the nodelist's nodes and masks over them, and checks what's typed", async () => {
-    const schema = { id: "ext-echonet-subscription", title: "Subscriptions", intro: "x", where: "x", example: {}, sweep: [], grids: [], space: [],
+    const schema = { id: "ext-echonet-subscription", group: "site", title: "Subscriptions", intro: "x", where: "x", example: {}, sweep: [], grids: [], space: [],
       props: [{ key: "subscribe", where: "note" as const, type: "node" as const, meaning: "the nodes it reads" }], source: { use: "x", note: { title: "S", name: "subscribe", value: "pie@float-2" } } };
     const [f] = settingFields(schema, []);
     expect((await settingQuestion(f!, src).suggest!(""))!.map(s => s.value)).toEqual(["pie@float-2", "hub@laptop", "*@float-2", "*@laptop", "*@*"]);

@@ -85,7 +85,7 @@ test("the outline's own values join the lists; an extension's schemas come after
 });
 
 test("an extension's schema is checked, each problem naming its field", () => {
-  const good = { id: "mood", title: "Mood", intro: "How it went.", where: "on a note", props: [{ key: "mood", where: "line", type: "enum", meaning: "how it went", values: [{ value: "calm", meaning: "fine" }] }], source: { use: "Standup [mood::{mood}]" }, example: { mood: "calm" }, sweep: ["mood"], grids: [], space: ["mood"] };
+  const good = { id: "mood", group: "controls", title: "Mood", intro: "How it went.", where: "on a note", props: [{ key: "mood", where: "line", type: "enum", meaning: "how it went", values: [{ value: "calm", meaning: "fine" }] }], source: { use: "Standup [mood::{mood}]" }, example: { mood: "calm" }, sweep: ["mood"], grids: [], space: ["mood"] };
   expect(componentSchemaProblem(good)).toBeNull();
   expect(componentSchemaProblem({ ...good, id: "Mood" })).toContain("id is a slug");
   expect(componentSchemaProblem({ ...good, props: [{ ...good.props[0], type: "enum", values: undefined }] })).toBe("props/0 is an enum: give its values");

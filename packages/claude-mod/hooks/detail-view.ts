@@ -2,7 +2,7 @@ import type { RenderElement, RenderSurface } from 'claude-code'
 
 import type { DetailEntry, DetailHistory, DetailLink, DetailSource } from '../types'
 import { linkifyReferences } from './references'
-import { COMPONENT_OPEN, componentBlocks } from './component-block'
+import { COMPONENT_OPEN, componentBlocks } from './link-grammar.js'
 
 /**
  * The detail view: where a note opens when neither a door nor Herdr is around

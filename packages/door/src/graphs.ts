@@ -6,6 +6,7 @@ import { clipText } from "./overflow";
 import { BOLD, C, drawEllipsized, fg, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
 import { rowLines, withRowLimit, wrap } from "./text";
 import { childRows, resolveLive, setLiveSource, liveSource, type LiveSite } from "./live";
+import { liveProps } from "@ep0ch/outline-core/figure-live";
 import { figureProps, type FigureSource } from "@ep0ch/outline-core/figure-props";
 import { FIGURES } from "./figures/index";
 import { ACCENT, DIM, HI, INK, inlineRows, rowLink, rowLinks, tier, type Props, type RowInline, type RowLink } from "./figures/palette";
@@ -104,6 +105,8 @@ export interface FiguresEnv {
   seen?(info: FigureInfo): void;
   all?: boolean;
   lines?: number;
+  /** A library drawing supplies a sample answer through the same live props compiler. */
+  answer?: import("@ep0ch/outline-core/figure-live").FigureAnswer;
 }
 /** One figure's share of that, as the drawing code gets it; `rows`: what the reader lends its rows (PIE-864). */
 interface FigureUI { lines: number; key: string; density: Density; tab?: string; tag?: (c: FigureControl, text: string) => string; all?: boolean; rows?: RowInline }
@@ -391,7 +394,7 @@ export function renderGraph(kind: string, source: string | FigureSource, W: numb
   if (!validLines) warn.push(fg(C.yellow) + "lines needs a whole number: 0 truncates, 1 or more wraps" + RESET);
   const ui: FigureUI = { lines: chosen?.density ? TITLE_LINES[chosen.density] : writtenLines !== undefined && validLines ? writtenLines : isDensity(props.density) ? TITLE_LINES[props.density] : figures?.lines ?? 2, key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "cozy"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}), ...(rows ? { rows } : {}) };
   // A block with query:/view: is answered from the outline now, not from copied values.
-  const live = resolveLive(kind, props, src.note, { ...liveSiteOf(src, read.args), ...site });
+  const live = figures?.answer && (props.query || props.view || kind === "tabs") ? { ...liveProps(kind, props, figures.answer), status: "library demo", waiting: false } : resolveLive(kind, props, src.note, { ...liveSiteOf(src, read.args), ...site });
   if (live) {
     if (live.error && !live.status) return frame(title, [fg(C.lred) + live.error + RESET], W, "live");
     if (live.waiting) return frame(title, [fg(DIM) + "asking the outline…" + RESET], W, "live");

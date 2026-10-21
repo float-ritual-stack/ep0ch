@@ -237,7 +237,7 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     expect(value).toMatchObject({ kind: "filter-value", query: "pl" });
     expect(value.items.map((i: any) => i.insertion)).toContain("plot");
     const ready = await app.act({ action: "complete", args: { text: "::graph-meter" }, as: "test-agent" }) as any;
-    expect(ready.items[0].insertion).toContain("\n---\ntitle: Disk\nvalue: 0.6\n---\n::");
+    expect(ready.items.find((i: { insertion: string }) => i.insertion.startsWith("::graph-meter")).insertion).toContain("\n---\ntitle: Disk\nvalue: 0.6\n---\n::");
     const short = await app.act({ action: "complete", args: { text: "## Calls ::pl" }, as: "test-agent" }) as any;
     expect(short.items[0].insertion).toBe("[heading::plot]");
     // A key in a draft: the same list [head offers while typing.

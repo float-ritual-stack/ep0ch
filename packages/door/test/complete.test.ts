@@ -402,7 +402,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     const extension = join(scratch.workspace, "extensions", "garden");
     mkdirSync(extension, { recursive: true });
     writeFileSync(join(extension, "extension.json"), JSON.stringify({ contract: 2, id: "garden", version: 1, name: "Garden", components: [{
-      id: "garden-card", title: "Garden card", intro: "A planting card.", where: "a component block",
+      id: "garden-card", group: "site", title: "Garden card", intro: "A planting card.", where: "a component block",
       props: [{ key: "title", where: "yaml", type: "text", meaning: "the card title", samples: ["Beans"] }],
       source: { use: "::garden-card\n---\n{{props.yaml}}\n---\n::" }, example: { title: "Beans" }, sweep: [], grids: [], space: [],
     }] }));
@@ -445,16 +445,46 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.d.text).toBe("Completion practice\n[[seeds]]\n## Title ::\n");
   });
 
+  test("component attributes follow their schema and offer the note's own property first (PIE-1127)", async () => {
+    const e = await editing(await create("Field practice [trellis::north]\n"));
+    e.type("::fields{");
+    const attrs = await e.settled();
+    expect(attrs.items.some(i => i.insertion.startsWith("key="))).toBe(true);
+    e.type('key="');
+    const keys = await e.settled();
+    expect(keys.items[0]!.label).toBe("trellis");
+    e.press(K("tab"));
+    await until(() => e.d.text.endsWith('key="trellis"'), "the quoted property inserted");
+    e.type(" ");
+    const remaining = await e.settled();
+    expect(remaining.items.some(i => i.insertion.startsWith("key="))).toBe(false);
+    e.press(K("esc"));
+    expect(e.d.text).toContain('key="trellis" ');
+    const query: any = await e.s.act("complete", { text: '::if{where="trellis=' }, e.h, AGENT);
+    expect(query.items.some((i: any) => i.insertion === 'trellis=north"')).toBe(true);
+    const density: any = await e.s.act("complete", { text: '::graph-table{density="' }, e.h, AGENT);
+    expect(density.items.some((i: any) => i.insertion === 'compact"')).toBe(true);
+    const ref: any = await e.s.act("complete", { text: '::fields{of="Seed list' }, e.h, AGENT);
+    expect(ref.items.some((i: any) => i.insertion === `((${ids.seeds}))"`)).toBe(true);
+    const template = await create("Picker template [page::picker-template] [form-field::which property]");
+    const custom: any = await e.s.act("complete", { text: '::use{of=[[picker-template]] which="' }, e.h, AGENT);
+    expect(custom.items[0].label).toBe("trellis");
+    await board.request("delete", { blockId: template, author: "agent" });
+  });
+
   test("component completion inserts an editable example with one undo (PIE-1013)", async () => {
+    await create("A meter in use\n::graph-meter\n---\nvalue: 0.5\n---\n::");
+    await create("Fields in use\n::fields{key=trellis}\n::");
     const e = await editing(await create("Component practice\n"));
     e.type("::");
     const all = await e.settled();
+    expect(all.items.slice(0, 2).map(i => i.label)).toEqual(expect.arrayContaining(["Fields", "Meter"]));
     expect(all.items.some(i => i.insertion.startsWith("::box"))).toBe(true);
     expect(all.items.some(i => i.insertion.startsWith("::garden-card"))).toBe(true);
     e.type("graph-meter");
     const p = await e.settled();
     expect(p.items[0]!.insertion).toContain("\n---\ntitle: Disk\nvalue: 0.6\n---\n::");
-    expect(p.items.length).toBeGreaterThan(1);
+    expect(p.items.filter(i => i.insertion.startsWith("::graph-meter")).length).toBe(1);
     expect(e.screen()).toContain("DISK");
     e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
@@ -465,8 +495,12 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.d.text).toBe("Component practice\n::graph-meter");
     e.press(K("tab")); await e.settled();
     const shown = e.screen().split("\n");
-    const row = shown.findIndex(l => l.includes("Meter · example"));
-    const col = shown[row]!.indexOf("Meter · example");
+    const row = shown.findIndex(l => l.includes("Meter"));
+    const col = shown[row]!.indexOf("Meter");
+    e.s.click(col + "Meter ".length, row, e.h);
+    expect(e.pop()?.heading).toContain("variations and arguments");
+    e.press(K("left"));
+    e.screen();
     e.s.click(col, row, e.h);
     expect(e.d.text).toBe("Component practice\n::graph-meter");
     e.s.click(col, row, e.h);
