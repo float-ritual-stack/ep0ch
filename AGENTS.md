@@ -53,6 +53,11 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   and design it first (PIE-1139 is the example). A gap found in a shared part is approved as an **Extended** row
   (what changes in that part, and the PROTOCOL bump if any). The ticket also says **how a person finds it** where they
   are (a completion, a chip, a hint row, a menu entry, a worked example): most of what's missing is that, not code.
+- **Parts describe themselves; inspectors read the description.** What Sources, x-ray, hint cards, the power bar, the
+  component library and `act`'s docs show about a part comes from the part itself (an `ActionDef`, a component schema, a
+  producer's own description, the records it returns), never a label or column list written again in the inspector. The
+  implementation is what's displayed, so nothing has to be kept in sync by memory (Evan, Oct 21: "building dev tools for
+  my notes, accidentally"). A switch over kinds that writes literal descriptions is a finding (PIE-1152).
 - **A user-visible feature gets a kitchen-sink demo** (`ep0ch --showcase`) in the same PR, which is also its
   end-to-end test, or the PR says why not (details in the door's rules).
 - For AI feature design, semantic judgments, or TypeSafe/Jev integration, use the `typesafe-ai` skill (from the skill
