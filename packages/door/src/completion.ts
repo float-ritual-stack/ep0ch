@@ -28,6 +28,7 @@ export interface CompletionTarget {
   words?: boolean;
   headingShort?: boolean;
   quote?: string;
+  existingValue?: boolean;
   attrs?: { key: string; value: string }[];
 }
 
@@ -45,8 +46,6 @@ const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; clos
 export function completionTargetAtCursor(line: string, column: number, lines?: readonly string[], row?: number): CompletionTarget | null {
   // Code is opaque (PIE-764): no popup in a fence, a code span, or one being typed (outline-core's cursorInCode).
   if (cursorInCode(lines ?? [line], row ?? 0, column)) return null;
-  const attribute = componentAttributeAtCursor(line, column);
-  if (attribute) return attribute;
   const callout = calloutTypeAtCursor(line, column);
   if (callout) return { kind: "callout", ...callout };
   const agent = agentAtCursor(line, column);
@@ -82,6 +81,8 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
     }
   }
   if (target) return target;
+  const attribute = componentAttributeAtCursor(line, column);
+  if (attribute) return attribute;
   const heading = /^ {0,3}#{1,6}\s+.+\s+(::)([a-zA-Z0-9_-]*)$/.exec(beforeCursor);
   if (heading && end === line.length) return { kind: "value", key: "heading", headingShort: true, start: end - heading[1]!.length - heading[2]!.length, end, query: heading[2]! };
 

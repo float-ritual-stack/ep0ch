@@ -1,3 +1,5 @@
+import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
+import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { anchorRunbookSteps, isRunbook, runnableFences } from "@ep0ch/outline-core/runbook";
 import { subtitleOf, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import type { BlockSizeCensus, BlockSizeSummary } from "@ep0ch/outline-core/protocol";
@@ -2896,6 +2898,21 @@ export class OutlinerStore {
         `SELECT property.key, property.value, COUNT(*) AS count FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE block.effective_deleted_root_id IS NULL AND SUBSTR(property.key, 1, LENGTH(?)) = ? ${scopeClause} GROUP BY property.key, property.value ORDER BY count DESC, property.key, LOWER(property.value), property.value LIMIT ?`,
       )
       .all(normalizedPrefix, normalizedPrefix, ...scopeParameters, limit) as PropertyCatalogItem[];
+  }
+
+  componentUsage(): Record<string, number> {
+    const recent: Record<string, number> = Object.create(null);
+    const notes = this.database.query("SELECT text, updated_at FROM blocks WHERE effective_deleted_root_id IS NULL AND instr(text, '::') > 0").all() as { text: string; updated_at: string }[];
+    for (const note of notes) {
+      const lines = note.text.split("\n"), fences = codeBlocks(lines).fences;
+      for (let row = 0; row < lines.length; row++) {
+        const fence = fences.find(f => f.start === row);
+        if (fence) { row = fence.end; continue; }
+        const name = COMPONENT_OPEN.exec(lines[row]!)?.[1];
+        if (name) recent[name] = Math.max(recent[name] ?? 0, Date.parse(note.updated_at));
+      }
+    }
+    return recent;
   }
 
   propertyInventory(input: { key: string; propertyScope?: PropertyQueryScope; offset?: number; limit?: number }): import("./types").PropertyInventory {

@@ -43,7 +43,7 @@ import { calloutsReady, TONE } from "../callouts";
 import { keyCandidates, valueCandidates, variation, sweep, axisValues, yamlKeyCandidates, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
 import { headingStylesReady } from "../heading-styles";
 import { componentsReady } from "../component-schemas";
-import { COMPONENT_OPEN, componentBlocks } from "@ep0ch/outline-core/component-block";
+import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
 import { drawVariation } from "../library/draw";
 import { propertyTokensInLine } from "@ep0ch/outline-core/property-grammar";
@@ -51,7 +51,7 @@ import { barSource, type BarHost } from "../bar/source";
 import { commandCandidates } from "../bar/command";
 import { querySuggestions } from "./settings-card";
 import { Gesture, Selection, rowsOf, paintRange, selectText, SELECT_BG } from "./selection";
-import { visible, width as cells } from "../style";
+import { visible, width as cells, ellipsize } from "../style";
 
 /** At most this many candidates per lookup, as in the outliner. */
 export const COMPLETION_LIMIT = 20;
@@ -66,7 +66,7 @@ export const COMPLETION_HINT = "up/down or wheel choose · enter inserts (styles
 export const REFERENCE_HINT = "up/down choose · enter/double click inserts · shift+up/down/PgUp/PgDn/wheel preview · ^/# narrow · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "query" | "templateProps">;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "componentUsage" | "listExtensions" | "templateProps">;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineInput` (a property's value, a filter). The completer
@@ -133,7 +133,7 @@ export interface CompletionLookup {
 export const nearOf = (d: CompletionField | null | undefined, own?: OwnNote): string | undefined => own?.blockId ?? d?.near;
 
 /** How the lookup is asked: `semantic` has Jev re-order it; `near` is the note the draft writes in. */
-export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost }
+export interface LookupOptions { semantic?: boolean; near?: string; limit?: number; offset?: number; host?: BarHost; componentUsage?: Promise<Record<string, number>> }
 
 /** The note a note draft is writing, for `((#heading` in itself; comments and replies have none. */
 export interface OwnNote { blockId: string; text: string }
@@ -165,18 +165,15 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   } else if (target.kind === "component") {
     const src = { board, redraw: () => {} };
     const schemas = await componentsReady(src);
-    const recent = new Map<string, number>();
-    for (const note of await board.query("", 1000)) {
-      for (const block of componentBlocks(note.text.split("\n"))) if (!recent.has(block.name)) recent.set(block.name, note.updatedAt);
-    }
+    const recent = await (opts.componentUsage ?? board.componentUsage());
     const components = schemas.flatMap(schema => {
       const name = COMPONENT_OPEN.exec(schema.source.use.split("\n")[0]!)?.[1];
       if (!name) return [];
       return [{ id: name, title: `${name} ${schema.title}`, text: schema.intro, schema }];
     });
     const found = target.query.trim() ? rankTextSearchMatches(components.filter(c => matchesSearchText(target.query, [c.id, c.title, c.text])), target.query).map(m => m.document) : components;
-    const ordered = found.sort((a, b) => (recent.get(b.id) ?? 0) - (recent.get(a.id) ?? 0));
-    const groupOf = (c: typeof components[number]) => `${c.schema.group}${recent.has(c.id) ? " · used" : ""}`;
+    const ordered = found.sort((a, b) => (recent[b.id] ?? 0) - (recent[a.id] ?? 0));
+    const groupOf = (c: typeof components[number]) => `${c.schema.group}${recent[c.id] !== undefined ? " · used" : ""}`;
     const groups = [...new Set(ordered.map(groupOf))];
     items = groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ schema }) => {
       const item = componentItem(schema, variation(schema, {}), src);
@@ -370,7 +367,7 @@ function componentItem(schema: ComponentSchema, v: ReturnType<typeof variation>,
   const at = first ? yaml + 5 + first.index + first[1]!.length : -1;
   return { label: label ?? schema.title.replace(/ \(::.*\)$/, ""), insertion: v.use, kind: "component", group: schema.group,
     context: schema.intro.split(/\n|(?<=\.) /)[0]!.replace(/[`*_]/g, ""),
-    preview: (w, h) => drawVariation(v, w, src).slice(0, h),
+    preview: (w, h) => [fg(C.lcyan) + pad(schema.title.replace(/ \(::.*\)$/, ""), w) + RESET, ...drawVariation(v, w, src)].slice(0, h),
     ...(at >= 0 ? { selection: { start: at, end: at + first![2]!.length } } : {}),
   };
 }
@@ -379,12 +376,12 @@ async function attributeCandidates(board: CompletionBoard, schema: ComponentSche
   const producer = target.attrs?.find(a => a.key === schema.propsFrom)?.value;
   const spec = producer ? (await board.templateProps(producer)).spec : {};
   const props: PropSchema[] = [...schema.props, ...Object.entries(spec).map(([key, p]) => ({ key, where: "line" as const,
-    type: p.kind === "property" ? "property" as const : p.kind === "note" ? "ref" as const : p.kind === "choice" ? "enum" as const : "text" as const,
+    type: p.kind === "property" || p.kind.startsWith("property:") ? p.kind as PropSchema["type"] : p.kind === "note" ? "ref" as const : p.kind === "choice" ? "enum" as const : "text" as const,
     meaning: `a prop of ${producer}`, values: p.choices?.map(value => ({ value, meaning: value })),
   }))];
   const used = new Set(target.attrs?.map(a => a.key));
   if (target.kind === "attribute") return props.filter(p => !used.has(p.key) && p.key.startsWith(target.query)).map(p => ({
-    label: p.key, subtitle: p.type, context: p.meaning, insertion: `${p.key}=""`, selection: { start: p.key.length + 2, end: p.key.length + 2 }, kind: "property",
+    label: p.key, subtitle: p.type, context: p.meaning, insertion: target.existingValue ? p.key : `${p.key}=""`, ...(target.existingValue ? {} : { selection: { start: p.key.length + 2, end: p.key.length + 2 } }), kind: "property",
   }));
   const prop = props.find(p => p.key === target.key);
   if (!prop) return [];
@@ -396,6 +393,12 @@ async function attributeCandidates(board: CompletionBoard, schema: ComponentSche
     const ownKeys = [...new Set(propertyTokensInLine(own?.text ?? "").map(p => p.key))].filter(key => key.startsWith(q));
     const catalog = await board.propertyCatalog(undefined, q, 100);
     values = [...new Set([...ownKeys, ...catalog.map(f => f.key)])].map(key => ({ label: key, value: key }));
+  } else if (prop.type.startsWith("property:")) {
+    values = (await board.propertyCatalog(prop.type.slice("property:".length), q, 100)).map(f => ({ label: f.value, value: f.value }));
+  } else if (prop.type === "script") {
+    const listed = await board.listExtensions();
+    values = listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name?.startsWith(q))
+      .map(e => ({ label: e.name!, value: e.name!, detail: e.description }));
   } else if (prop.type === "ref") {
     const refs = await lookupCompletion(board, { kind: "block", start: 0, end: q.length, query: q }, null, own, opts);
     values = refs.items.map(i => ({ label: i.label, value: i.insertion, detail: i.context }));
@@ -557,6 +560,7 @@ export class Completer {
   private loadingMore = false;
   private limit = COMPLETION_LIMIT;
   private prefix: string | null | undefined;
+  private componentUsage?: Promise<Record<string, number>>;
   constructor(private readonly d: CompletionField, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: () => OwnNote | undefined = () => undefined) {}
 
   /** The token the cursor is in, if any: in a filter's words its key or value; in a property's field its value (a `[[` there first). */
@@ -647,7 +651,8 @@ export class Completer {
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
       if (this.prefix === undefined) this.prefix = await this.board.workIdPrefix().catch(() => undefined);
-      const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined });
+      if (target.kind === "component") this.componentUsage ??= this.board.componentUsage();
+      const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { componentUsage: this.componentUsage, near: this.near(), limit: this.limit, host: ambient?.board === this.board ? ambient.host?.() : undefined });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(generation)) return;
       // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
@@ -752,8 +757,7 @@ export class Completer {
     if (i !== null && i !== undefined && s.items[i] && !s.loading) {
       if (s.index !== i) { s.previewTop = 0; s.previewSelection = undefined; this.previewGesture.cancel(); }
       s.index = i; s.picked = true;
-      const arrow = (at.col ?? 0) + (s.listCol ?? 0) + 4 + cells(s.items[i]!.label);
-      if (s.items[i]!.componentSchema && at.items[y - at.row - 1] !== i && x === arrow) {
+      if (s.items[i]!.componentSchema && at.items[y - at.row - 1] !== i && x === (at.col ?? 0) + (s.listWidth ?? 0) - 2) {
         void COMPLETION_ACTIONS.run("complete.step", { direction: "right" }, this, USER);
         return true;
       }
@@ -1076,7 +1080,7 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
     const description = wholeWords(selected.context ?? selected.insertion, pw);
     return [fg(C.lcyan) + pad(description, pw) + RESET, ...(selected.preview?.(pw, Math.max(0, ph - 1)) ?? [])].slice(0, ph);
   };
-  const labelWidth = Math.max(...s.items.map(it => cells(printable(it.label + (it.subtitle ? ` · ${it.subtitle}` : "") + (it.componentSchema ? " >" : ""), " ")) + 3));
+  const labelWidth = Math.max(...s.items.map(it => cells(printable(it.label + (it.subtitle ? ` · ${it.subtitle}` : ""), " ")) + 3));
   const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, reference && selected.preview ? Math.max(90, w) : w, { col: s.target.kind === "component" || s.target.kind === "attribute" || s.target.kind === "attribute-value" ? 0 : anchor, width: labelWidth });
   if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(header) };
   s.listCol = drawn.listCol;
@@ -1102,10 +1106,17 @@ function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> 
   if (!picker) {
     picker = new ListPicker({ name: "completion", items: () => s.items,
       row: (it, _i, on, w) => {
-        const label = printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " ") + (it.componentSchema ? " >" : "") + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : "");
+        if (it.kind === "component") {
+          const label = ellipsize(printable(it.label, " "), Math.max(1, w - 7));
+          const name = ` ${on ? "»" : " "} ${label}`;
+          const room = Math.max(0, w - cells(name) - 3);
+          const purpose = room ? " " + ellipsize(printable(it.context ?? "", " "), room) : "";
+          return [pickRow(pad(name + fg(C.dark) + purpose, w - 2) + fg(C.grey) + " ›", on, w)];
+        }
+        const label = printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " ") + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : "");
         const lit = litCells(label, s.target.query);
         const words = [...label].map((c, i) => lit.has(i) ? fg(C.yellow) + c + fg(C.grey) : c).join("");
-        return [...pickRows(` ${on ? "»" : " "} ${words}` + (it.addition ? fg(C.dark) + it.addition + RESET : ""), on, w), ...(it.kind === "component" ? [fg(C.grey) + pad(` ${wholeWords(it.context ?? "", w - 1)}`, w) + RESET] : [])];
+        return [...pickRows(` ${on ? "»" : " "} ${words}` + (it.addition ? fg(C.dark) + it.addition + RESET : ""), on, w)];
       },
       heading: (it, i, w) => it.group && it.group !== s.items[i - 1]?.group ? fg(C.dark) + pad(` ${it.group} (${s.items.filter(row => row.group === it.group).length})`, w) + RESET : null,
       choose: () => {},

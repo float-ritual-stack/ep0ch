@@ -19,8 +19,8 @@ import { USE } from "./component-schemas-use";
 import { BUTTON } from "./component-schemas-button";
 
 /** What a property's value is. */
-export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration", "property", "node"] as const;
-export type PropType = (typeof PROP_TYPES)[number];
+export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query", "action", "writers", "duration", "property", "script", "node"] as const;
+export type PropType = (typeof PROP_TYPES)[number] | `property:${string}`;
 
 /**
  * Where a property is written: on the line that uses the component (`## Your calls [heading::band]`), on the note
@@ -369,7 +369,7 @@ export function componentSchemaProblem(raw: unknown): string | null {
     if (keys.has(q.key)) return `${at}/key ${q.key} is declared twice`;
     keys.add(q.key);
     if (!(PROP_PLACES as readonly unknown[]).includes(q.where)) return `${at}/where is one of ${PROP_PLACES.join(", ")}`;
-    if (!(PROP_TYPES as readonly unknown[]).includes(q.type)) return `${at}/type is one of ${PROP_TYPES.join(", ")}`;
+    if (!(PROP_TYPES as readonly unknown[]).includes(q.type) && !(isStr(q.type) && /^property:[A-Za-z][A-Za-z0-9_.-]*$/.test(q.type))) return `${at}/type is one of ${PROP_TYPES.join(", ")}`;
     if (!isStr(q.meaning, 300) || !q.meaning.trim()) return `${at}/meaning is a line of words`;
     if (q.values !== undefined && (!Array.isArray(q.values) || q.values.length > 64 || !q.values.every(v => !!v && typeof v === "object" && isStr((v as PropValue).value, 100) && isStr((v as PropValue).meaning, 300)))) return `${at}/values is a list of { value, meaning }`;
     if (q.type === "enum" && !Array.isArray(q.values)) return `${at} is an enum: give its values`;

@@ -132,7 +132,7 @@ export function componentAttrs(attrs: string): { classes: string[]; pairs: { key
 /** The attribute name or value being written; closed quotes and braces leave completion. */
 export function componentAttributeAtCursor(line: string, column: number): {
   component: string; kind: "attribute" | "attribute-value"; start: number; end: number; query: string;
-  key?: string; quote?: string; attrs: { key: string; value: string }[];
+  key?: string; quote?: string; existingValue?: boolean; attrs: { key: string; value: string }[];
 } | null {
   const opening = /^ {0,3}::([a-z][a-z0-9-]*)\{/.exec(line);
   if (!opening || column < opening[0].length) return null;
@@ -143,17 +143,23 @@ export function componentAttributeAtCursor(line: string, column: number): {
   const start = active ? column - active.raw.length : column;
   const raw = active?.raw ?? "";
   const eq = raw.indexOf("=");
-  const attrs = componentAttrs(before.slice(0, start - from)).pairs;
+  const keyEnd = column + /^[\w.-]*/.exec(line.slice(column))![0].length;
+  const rest = line.slice(start);
+  const word = /^\s/.test(rest) ? undefined : splitWords(rest, false, false).flat()[0];
+  const wordEnd = word ? start + word.raw.length : start;
+  // Exclude the active word, but keep the producer and used keys on either side of it.
+  const after = line.slice(wordEnd).replace(/}\s*$/, "");
+  const attrs = componentAttrs(before.slice(0, start - from) + " " + after).pairs;
   if (words.some(w => w.raw.endsWith("}") && !w.raw.endsWith("}}") && !w.quote)) return null;
   if (eq < 0) {
-    return { component: opening[1]!, kind: "attribute", start, end: column + /^[\w.-]*/.exec(line.slice(column))![0].length, query: active?.value ?? "", attrs };
+    return { component: opening[1]!, kind: "attribute", start, end: keyEnd, query: active?.value ?? "", existingValue: line[keyEnd] === "=", attrs };
   }
   const key = raw.slice(0, eq), value = raw.slice(eq + 1), quote = QUOTES[value[0]!];
   if (quote && !active?.quote) return null;
   const valueStart = start + eq + 1 + Number(!!quote);
   const tail = line.slice(column);
   let remaining = quote ? tail.indexOf(quote) : tail.search(/[\s}]/);
-  while (quote && remaining >= 0 && isEscapedAt(tail, remaining)) remaining = tail.indexOf(quote, remaining + 1);
+  while (quote && remaining >= 0 && isEscapedAt(line, column + remaining)) remaining = tail.indexOf(quote, remaining + 1);
   const end = remaining < 0 ? line.length : column + remaining + Number(!!quote);
   return { component: opening[1]!, kind: "attribute-value", start: valueStart, end, query: active!.value.slice(key.length + 1), key, quote, attrs };
 }

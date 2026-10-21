@@ -11,7 +11,7 @@ export const BUTTON: ComponentSchema = {
   props: [
     { key: "label", where: "line", type: "text", meaning: "what the button says; the script's or action's name when left out", samples: ["Review", "Play 5"] },
     { key: "act", where: "line", type: "action", meaning: "the action line a press runs, as the power bar takes it", samples: ["layout.load name=review", "ttt-move at=5"] },
-    { key: "of", where: "line", type: "ref", meaning: "a script to run, in place of act=; every other word on the line is its slot (`at=5` is props.at)", samples: ["fantasia", "ttt-move"] },
+    { key: "of", where: "line", type: "script", meaning: "a script to run, in place of act=; every other word on the line is its slot (`at=5` is props.at)", samples: ["fantasia", "ttt-move"] },
   ],
   source: { use: "::button{label=\"Review\" act=\"layout.load name=review\"}" }, example: {}, sweep: [], grids: [], space: [],
 };

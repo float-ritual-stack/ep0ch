@@ -760,6 +760,10 @@ export class SocketBoard implements Board {
     return this.request<{ decorations: Decoration[]; problems: string[] }>("rules.preview", { note, text });
   }
   /** Every component's schema (PIE-618): the built-ins with the outline's own styles and types as values, then the extensions'. */
+  componentUsage(): Promise<Record<string, number>> {
+    return this.request("components.usage", {});
+  }
+
   async componentSchemas(): Promise<{ schemas: ComponentSchema[]; problems: string[]; complete: boolean }> {
     return this.request<{ schemas: ComponentSchema[]; problems: string[]; complete: boolean }>("components.schemas", {});
   }
