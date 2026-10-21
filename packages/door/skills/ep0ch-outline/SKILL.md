@@ -173,13 +173,16 @@ revision, so concurrent edits rarely collide.
   (Evan, Oct 21: "this burns my soul every time I see that wall of text"). Fictional example:
 
   ```text
-  > [!warning] Two calls (nothing builds until they're ticked)
-  > - [ ] **Hover opens a preview** (Recommended)
+  > [!success] Two calls, decided Oct 21 (comment to change one)
+  > - [x] **Hover opens a preview** · decided, reversible
   >   - **Modes:** off, on, sticky, from a status-bar glyph.
   >   - **Timing:** opens after 300 ms; closes 600 ms after the pointer leaves.
-  > - [ ] **Its stack is per session** (Recommended)
+  > - [x] **Its stack is per session** · decided, reversible
   >   - Up to 30 entries; ←/→ flips through them.
   ```
+
+  A call you have a recommendation for is decided by default and built; the person reverses it with a comment. Only a
+  call with no recommendation, or a one-way door, stays `- [ ]` under a `[!warning]` that says what waits on it.
 
 **Programmable notes end to end:** [PROGRAMMABLE-NOTES.md](../../../outliner/docs/PROGRAMMABLE-NOTES.md) covers the Site and the five scratch tasks.
 
