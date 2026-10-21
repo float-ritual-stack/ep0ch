@@ -196,6 +196,8 @@ export class ScriptRuns {
   start(extension: LoadedExtension, request: ExtensionActRequest): ExtensionActResult {
     const source = extension.script!;
     const effects = source.effects;
+    // A file's opt-in header configures the next run; only its body is executing code.
+    const body = (code: string) => source.file ? code.split("\n").slice(1).join("\n") : code;
     const undo = this.writes.beginRun(`script:${extension.name}`);
     const actor: MutationProvenance = { author: "agent", actorId: `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
     const requestedBy = request.requestedBy ?? { author: "user" as const };
@@ -264,7 +266,7 @@ export class ScriptRuns {
         // The script is its code: a run that writes into its own note (its output, a log) goes on; an edit of the code ends it.
         const changed = source.blockId
           ? scriptFence(this.store.get(source.blockId)?.text ?? "", source.fence).code !== source.code
-          : await Bun.file(source.file!).text() !== source.code;
+          : body(await Bun.file(source.file!).text()) !== body(source.code);
         if (changed) {
           controller.abort();
           throw new Error("The script source changed; run its saved revision again");
@@ -321,7 +323,7 @@ export class ScriptRuns {
         }
         const result = await runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined, site.globals);
         const current = this.registry.extension(extension.id);
-        if (result.ok && (!current || current.script?.code !== source.code)) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
+        if (result.ok && (!current?.script || body(current.script.code) !== body(source.code))) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
         lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}] [machine::script]`;
         for (const output of result.output) if (output.type === "text") lines.push(output.text);
         if (result.ok) {

@@ -471,3 +471,24 @@ test.each([
   await expect(client.request({ action: "extensions.act", extension: "script:chosen", extensionAction: "run", blockId: local.id })).rejects.toThrow(reason);
   expect(store.children(outer.id)).toEqual([]);
 });
+
+test("a file run keeps its starting effects when only its header changes", async () => {
+  const { store, server, create, client, extensionOf } = await setup();
+  const target = create("Garden");
+  const gate = create("Closed gate");
+  const file = `${store.workspaceRoot}/.ep0ch/scripts/file-effects.js`;
+  const code = `// ep0ch-script effects=write
+await tools.outline_set_property({ ref: this.id, key: 'waiting', value: 'yes', revision: this.revision });
+while ((await read('${gate.id}')).title !== 'Open gate') await wait(10);
+const current = await read(this.id);
+await tools.outline_set_property({ ref: this.id, key: 'after', value: 'yes', revision: current.revision });`;
+  await Bun.write(file, code);
+  const extension = await extensionOf("file-effects");
+  const started = await client.request<{ undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", blockId: target.id });
+  await until("the file script's first write", () => store.require(target.id).text.includes("[waiting::yes]"));
+  await Bun.write(file, code.replace("effects=write", "effects=read"));
+  await client.request({ action: "extensions.list", reload: true });
+  store.update(gate.id, "Open gate", gate.revision, { author: "user" });
+  expect(await server.scriptRuns.finished(started.undo)).toBeUndefined();
+  expect(store.require(target.id).text).toContain("[after::yes]");
+});
