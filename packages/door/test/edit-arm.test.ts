@@ -187,9 +187,9 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     const held = new Promise<void>(resolve => { release = resolve; });
     const started = new Promise<void>(resolve => { reading = resolve; });
     board.get = async (...args) => {
-      const note = await get(...args);
+      const fresh = await get(...args);
       if (args[0] === note.id) { reading(); await held; }
-      return note;
+      return fresh;
     };
     try {
       key(char("e"));
