@@ -269,7 +269,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     expect(r).toMatchObject({ reader: "middle", id: notes.shed.id });
     await until(() => mid().msg?.id === notes.shed.id, "the note in middle");
     expect(person().focus).toBe("tree");
-    expect(said.at(-1)).toMatch(/watcher-7.*opened a note in middle/);
+    expect(said.at(-1)).toBe("an agent (watcher-7) opened in 5 · middle");
     // The person reading middle themselves: it lands where opens land from there (a reader that follows), keys unmoved.
     await mine("tile.focus", "middle");
     const r2 = await act("open", { id: notes.long.id }) as { reader: string | null };

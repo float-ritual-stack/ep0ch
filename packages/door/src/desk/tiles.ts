@@ -24,6 +24,8 @@ export interface TileSpec {
   kind: TileKindName;
   /** The tile's name: what links, previews, `act tile=` and `peek` call it. See `tileNameProblem`. */
   name?: string;
+  /** The spec slot this tile fills, kept when its public name changes. */
+  role?: string;
   writtenTitle?: string;
   systemTitle?: boolean;
   /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. */
