@@ -7163,6 +7163,10 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     person: "only the person recovers their held typing",
     menu: { label: "recover typed text", group: "Note", now: ({ d, reader }) => d.hasFailedEdit(reader) ? null : { hide: true } },
     args: { op: { type: "string", optional: true, choices: ["copy", "open"], about: "copy the typed text or open the edit with it; absent offers both" } },
+    examples: [
+      { act: "edit.recover op=copy", does: "copies the text kept when this reader failed to open its edit" },
+      { act: "edit.recover op=open", does: "opens a fresh edit in this reader and inserts the kept typing" },
+    ],
     run: ({ op }, { d, reader }) => d.recoverEdit(reader, op),
   }),
   "agent.visit": def({
