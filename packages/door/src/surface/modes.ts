@@ -22,12 +22,14 @@ export interface ModeKey {
 }
 
 export function modeBinding(keys: readonly ModeKey[], key: Key): ModeKey | undefined {
+  if (key.kind === "mouse") return undefined;
   return keys.find(row => row.key === keyName(key));
 }
 
 export function modeHint(keys: readonly ModeKey[], describe: (action: string) => { summary: string } | undefined): string {
   const groups = new Map<string, string[]>();
   for (const row of keys) {
+    if (row.key === "click" || row.key === "drag" || row.key === "wheel") continue;
     const label = row.label ?? describe(row.action)!.summary;
     const group = groups.get(label) ?? [];
     group.push(keyCaption(row.key)); groups.set(label, group);
