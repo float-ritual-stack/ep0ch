@@ -465,8 +465,8 @@ The state is one property, `[board::.........]` (nine cells, `.` empty), so it i
 query it, a person can edit it, undo takes a move back. A render script draws the board and says whose turn it is or
 who won; an action script plays a cell.
 
-Press a cell by running `ttt-play cell=5` from the power bar while the board is in front of you. (A view can also carry
-the press itself: `view.badge({ label: "5", act: "ttt-play cell=5" })` is a square a click plays, see Pressing a view.)
+Click an empty square to play it (each is a `view.badge` whose `act` is `ttt-play cell=<n>`, see Pressing a view), or
+run `ttt-play cell=5` from the power bar; "new game" (`ttt-play new=1`) clears the board.
 
 ````note ex3-draw
 Tic-tac-toe board [script::ttt-draw] [mode::render]
@@ -476,21 +476,27 @@ const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
 const won = lines.map(l => l.map(i => board[i]).join("")).find(s => s === "XXX" || s === "OOO");
 const turn = [...board].filter(c => c === "X").length <= [...board].filter(c => c === "O").length ? "X" : "O";
 const status = won ? `${won[0]} wins` : board.includes(".") ? `${turn} to play` : "a draw";
-const cell = i => board[i] === "." ? String(i + 1) : board[i];
-const rows = [0, 3, 6].map(r => [cell(r), cell(r + 1), cell(r + 2)]);
-return view.stack({ children: [view.table({ columns: ["A", "B", "C"], rows }), view.text({ text: status, strong: true })] });
+// An empty square is a press that plays it; a played one is just its mark.
+const square = i => board[i] === "." && !won ? view.badge({ label: String(i + 1), act: `ttt-play cell=${i + 1}` })
+  : view.badge({ label: board[i] === "." ? "·" : board[i] });
+const rows = [0, 3, 6].map(r => view.row({ children: [square(r), square(r + 1), square(r + 2)] }));
+return view.stack({ children: [...rows, view.text({ text: status, strong: true }), view.badge({ label: "new game", act: "ttt-play new=1" })] });
 ```
 ````
 
 ````note ex3-play
 Tic-tac-toe move [script::ttt-play] [effects::write]
 ```js
+const me = await read(this.id);
+if (props.new) {
+  await tools.outline_set_property({ ref: this.id, key: "board", value: ".........", revision: me.revision });
+  return "a new game";
+}
 const board = this.properties.find(p => p.key === "board")?.values[0] ?? ".........";
 const cell = Number(props.cell?.[0]);
 if (!(cell >= 1 && cell <= 9)) throw new Error("cell=1 to 9");
 if (board[cell - 1] !== ".") throw new Error(`cell ${cell} is taken`);
 const turn = [...board].filter(c => c === "X").length <= [...board].filter(c => c === "O").length ? "X" : "O";
-const me = await read(this.id);
 await tools.outline_set_property({ ref: this.id, key: "board", value: board.slice(0, cell - 1) + turn + board.slice(cell), revision: me.revision });
 return `${turn} played ${cell}`;
 ```
@@ -502,13 +508,15 @@ ttt-draw::
 ````
 
 ````shows ex3
-| A | B | C |
-| --- | --- | --- |
-| 1 | 2 | 3 |
-| 4 | 5 | 6 |
-| 7 | 8 | 9 |
+`1` `2` `3`
+
+`4` `5` `6`
+
+`7` `8` `9`
 
 **X to play**
+
+`new game`
 ````
 
 #### Example 4: A template stamped on every match
