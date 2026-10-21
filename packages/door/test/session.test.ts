@@ -1104,9 +1104,9 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     a.type("\x05");
     a.type(" and kale");
     await until(() => a.screen().includes("and kale"), "the typed text", 10_000);
-    a.type("\x1b[D"); a.type("\x1b[D");
+    a.type("\x01");
     const draft = async () => ((await control({ cmd: "peek" })).screen.state.readers as any[]).find(p => p?.editing)?.editing;
-    for (let i = 0; i < 50 && (await draft())?.cursor.col !== "Seed swap list and ka".length + 1; i++) await Bun.sleep(100);
+    for (let i = 0; i < 50 && (await draft())?.cursor.col !== 1; i++) await Bun.sleep(100);
     const cursor = (await draft()).cursor;
     const before = { daemon: daemonPid(), shell: await shellPid() };
     expect(before.shell).toBeGreaterThan(0);
@@ -1135,12 +1135,18 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
       expect((await board.readDraft(plot)).text).toBe(text);
     };
     try {
+      // The handover invites e to carry on; it must not become draft text.
+      b.type("e");
+      b.type("X");
+      await textIs("XSeed swap list and kale\nBeans, chard");
+      b.type("\x1a");
+      await textIs("Seed swap list and kale\nBeans, chard");
       b.type("\x1a");
       await textIs("Seed swap list and \nBeans, chard");
       b.type("\x19");
       await textIs("Seed swap list and kale\nBeans, chard");
-      b.type("\x1b[D"); b.type("\x1b[D"); b.type("X");
-      await textIs("Seed swap list and kaXle\nBeans, chard");
+      b.type("\x1b[C"); b.type("\x1b[C"); b.type("X");
+      await textIs("SeXed swap list and kale\nBeans, chard");
     } finally { board.close(); }
     b.close();
   }, 60_000);

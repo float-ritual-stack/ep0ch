@@ -177,6 +177,47 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     window("60000");
   }, 30_000);
 
+  for (const typed of ["abc", "e", "cancel"]) test(`slow read: e then ${typed} during opening`, async () => {
+    window("off");
+    const { desk, rd } = await deskOnHedge();
+    const original = (await board.get(notes.hedge.id))!.text;
+    const get = board.get.bind(board);
+    let release!: () => void, reading!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { reading = resolve; });
+    board.get = async (...args) => {
+      const note = await get(...args);
+      if (args[0] === notes.hedge.id) { reading(); await held; }
+      return note;
+    };
+    try {
+      key(char("e"));
+      await started;
+      for (const ch of typed === "cancel" ? "abc" : typed) key(char(ch));
+      if (typed === "cancel") key({ kind: "esc" });
+      release();
+      if (typed === "cancel") {
+        await Bun.sleep(100);
+        expect(rd.surface.draft).toBeNull();
+        expect((await get(notes.hedge.id))!.text).toBe(original);
+        // A later open must not receive the cancelled typing.
+        key(char("e"));
+      }
+      await until(() => !!rd.surface.draft && desk.entered.in(rd), "the edit opened with its held keys");
+      const expected = `${typed === "abc" ? typed : ""}${original}`;
+      expect(rd.surface.draft.text).toBe(expected);
+      key({ kind: "char", ch: "s", ctrl: true });
+      await until(() => !rd.surface.draft?.dirty, "the draft saved");
+      expect((await get(notes.hedge.id))!.text).toBe(expected);
+    } finally {
+      release();
+      board.get = get;
+      rd.surface.closeDraftAction(true);
+      desk.entered.clear();
+      window("60000");
+    }
+  }, 30_000);
+
   test("the person's setting (edit.arm.set): off opens on the first e, kept for the next start; EP0CH_EDIT_ARM wins over it", async () => {
     delete process.env.EP0CH_EDIT_ARM;
     try {
