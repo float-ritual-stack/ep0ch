@@ -1,4 +1,4 @@
-import { completeCommand, commandButton } from "./command";
+import { completeCommand, commandButton, runAnswer } from "./command";
 import { clipText } from "../overflow";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { lookFor } from "../look";
@@ -538,7 +538,7 @@ export class PowerBar {
   }
 
   private recordRun(line: string, result: unknown, refused: boolean) {
-    this.host.runs.push({ line, answer: typeof result === "string" ? result : JSON.stringify(result), refused });
+    this.host.runs.push({ line, answer: runAnswer(line, result), refused });
     if (this.host.runs.length > 8) this.host.runs.shift();
     this.refresh(); this.host.ctx.redraw();
   }

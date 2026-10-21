@@ -1,5 +1,5 @@
 import { splitWords } from "@ep0ch/outline-core/component-block";
-import { actRequestOf, lineWords, shownLine } from "../surface/actions";
+import { actRequestOf, allActionSets, lineWords, shownLine } from "../surface/actions";
 import { formFields } from "./form";
 import { argKind } from "./arg-kinds";
 import type { BarHost } from "./source";
@@ -43,4 +43,17 @@ export async function completeCommand(line: string, host: BarHost): Promise<stri
 export function commandButton(line: string): string {
   const req = actRequestOf(lineWords(line));
   return `::${BUTTON_NAME}{label=${JSON.stringify(req.action)} act=${JSON.stringify(line)}}`;
+}
+
+
+/** What a run did, in the action's own words (its `says`), else the answer as written. */
+export function runAnswer(line: string, result: unknown): string {
+  if (typeof result === "string") return result;
+  const req = actRequestOf(lineWords(line));
+  for (const set of allActionSets()) {
+    const def = set.def(req.action);
+    if (!def?.says) continue;
+    try { const said = def.says(result, req.args ?? {}); const text = typeof said === "string" ? said : said?.text; if (text) return text; } catch { /* its words don't fit this answer: the answer as written */ }
+  }
+  return JSON.stringify(result);
 }
