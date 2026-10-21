@@ -36,7 +36,7 @@ export interface ShowcaseScreen {
   S: () => any;
 }
 
-export function useShowcaseScreen(): ShowcaseScreen {
+export function useShowcaseScreen(cols = 200): ShowcaseScreen {
   const scratch = new Scratch();
   const written: string[] = [];
   let key: (k: Key) => void = () => {};
@@ -54,7 +54,7 @@ export function useShowcaseScreen(): ShowcaseScreen {
     h.seeded = await scratch.seedShowcase();
     h.board = new SocketBoard(scratch.sock);
     await h.board.info();
-    const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write(s: string) { written.push(s); }, paint(l: string[]) { h.painted = l; }, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols, rows: 60, cellW: 9, cellH: 16, kitty: false }, write(s: string) { written.push(s); }, paint(l: string[]) { h.painted = l; }, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     h.app = new App(term as any, h.board, Date.now(), () => {});
     h.board.subscribe(e => h.app.event(e));
     // As the door does at start: the extensions and rules the service lists (the seed installed the example rules).

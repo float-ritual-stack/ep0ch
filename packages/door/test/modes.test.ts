@@ -59,8 +59,8 @@ describe("the stack", () => {
     expect([s.holdsKeys, s.editing]).toEqual([true, false]);
     field = true;
     expect(s.editing).toBe(true);
-    s.push(fake("draft", { editing: () => true, covers: () => true, rows: () => ["the edit"], noun: "the edit" }));
-    expect([s.covers, s.rows(20, 5, undefined), s.holding()]).toEqual([true, ["the edit"], "the property value"]);   // the first that holds the note
+    s.push(fake("draft", { editing: () => true, covers: () => true, rows: () => ({ lines: ["the edit"] }), noun: "the edit" }));
+    expect([s.covers, s.rows(20, 5, undefined), s.holding()]).toEqual([true, { lines: ["the edit"] }, "the property value"]);   // the first that holds the note
   });
 
   test("a click goes to each mode in order until one takes it; none, and reading has it", () => {

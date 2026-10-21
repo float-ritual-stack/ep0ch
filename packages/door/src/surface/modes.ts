@@ -1,3 +1,4 @@
+import type { SurfaceView } from "./note";
 import type { Hint } from "./hint-card";
 // The reader's modes (PIE-516, part 2): what takes a reader's keys while the person or an agent is doing
 // something in it besides reading: a step's status choice, the property panel, an edit, a comment session.
@@ -41,7 +42,7 @@ export interface ReaderMode<H> extends Mode<H> {
   /** The button went down (`drag`: moved with it down) at `x`, `y`: true when the mode took it. */
   press?(x: number, y: number, host: H, drag: boolean): boolean;
   /** The rows it draws in place of the note (`covers`), or null. */
-  rows(w: number, h: number, host: H | undefined): string[] | null;
+  rows(w: number, h: number, host: H | undefined): SurfaceView | null;
   /** Leave it as a click elsewhere does (an edit saved or kept, a comment kept); a refusal throws with why. */
   leave(host: H, actor: Actor): Promise<LeaveResult>;
   /** Why a click can't leave it now, or null. */
@@ -126,7 +127,7 @@ export class ModeStack<H> extends Modes<H, ReaderMode<H>> {
   wheel(dir: 1 | -1, host: H, at?: { x: number; y: number }): boolean { return this.all().some(m => !!m.wheel?.(dir, host, at)); }
   press(x: number, y: number, host: H, drag: boolean): boolean { return this.all().some(m => m.editing() && !!m.press?.(x, y, host, drag)); }
   /** What's drawn in place of the note, by the first mode that covers it. */
-  rows(w: number, h: number, host: H | undefined): string[] | null {
+  rows(w: number, h: number, host: H | undefined): SurfaceView | null {
     for (const m of this.all()) { const r = m.covers() ? m.rows(w, h, host) : null; if (r) return r; }
     return null;
   }

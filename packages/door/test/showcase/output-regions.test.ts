@@ -10,10 +10,258 @@ import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
 
 describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
-  const h = useShowcaseScreen();
+  const h = useShowcaseScreen(300);
   const { screen } = h;
   let board!: typeof h.board, app!: typeof h.app, seeded!: typeof h.seeded;
   beforeAll(() => { ({ board, app, seeded } = h); });
+
+  test("PIE-1155 continued: floating edit preview moves and receives input outside the centred text", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act("tile.zoom");
+    await act("edit");
+    pane.key({ kind: "enter" }, stage);
+    await until(() => !!pane.draft, "the note edit");
+    const d = pane.draft!, original = d.text;
+    try {
+      d.replace("Margin preview\n" + Array.from({ length: 50 }, (_, i) => `preview line ${i}`).join("\n"));
+      d.place(0, 0);
+      await act("draft.preview", { on: true });
+      await act("edit.preview.place", { place: "floating" });
+      screen();
+      const frame = pane.innerFrame!;
+      const tile = stage.layoutGet().tiles.find(t => t.name === "notes")!.rect!;
+      const origin = { x: tile.col + 1 - frame.col, y: tile.row + 1 - frame.row };
+      await act("edit.preview.move", { col: frame.col + 2, row: 10, cols: 38, rows: 12 });
+      const rows = screen().split("\n");
+      expect(pane.surface.editPreview.frame!.col).toBe(frame.col + 2);
+      const label = rows.find(l => l.includes("Margin preview") && l.indexOf("Margin preview") < origin.x)!;
+      expect(label).toBeDefined();
+      const mouse = (action: "down" | "drag" | "up", x: number, y: number) =>
+        stage.key({ kind: "mouse", action, button: 0, x: origin.x + x, y: origin.y + y }, stage.ctx!);
+      const left = { ...pane.surface.editPreview.frame! }, dx = frame.cols - left.cols - 4;
+      mouse("down", left.col + 4, left.row);
+      mouse("drag", left.col + 4 + dx, left.row);
+      mouse("up", left.col + 4 + dx, left.row);
+      await until(() => { screen(); return pane.surface.editPreview.frame!.col === left.col + dx; }, "preview dragged into the right margin");
+      const r = pane.surface.editPreview.rect!, top = d.frame!.preview!.top;
+      stage.key({ kind: "mouse", action: "wheel-down", button: 0, x: origin.x + r.col + 2, y: origin.y + r.row + 3 }, stage.ctx!);
+      await until(() => { screen(); return d.frame!.preview!.top > top; }, "wheel scrolls the margin preview");
+      mouse("down", r.col + r.cols - 4, r.row);
+      mouse("up", r.col + r.cols - 4, r.row);
+      await until(() => screen().includes("Placement"), "preview placement chip opens in the margin");
+      pane.key({ kind: "esc" }, stage);
+      expect(d.text).toContain("preview line 49");
+    } finally {
+      await act("edit.preview.place", { place: "inline" });
+      d.replace(original);
+      d.place(0, 0);
+      await act("edit.close", { discard: true });
+      await act("scroll", { to: "top" });
+      await act("tile.zoom");
+    }
+  });
+
+  test.each(["sources", "comment"])("Round 3: uncovered gutter folds still draw and respond beside a %s float", async target => {
+    await app.dispatch.act({ action: "section", args: { name: "list-folds" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("reader") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "reader");
+    await act("tile.zoom");
+    try {
+      const rows = screen().split("\n");
+      const y = rows.findIndex(l => l.includes("▾"));
+      const x = rows[y]!.indexOf("▾");
+      expect(y).toBeGreaterThan(0);
+      await act(target === "sources" ? "sources.open" : "comment.note");
+      await act(`${target}.place`, { place: "floating" });
+      screen();
+      await act(`${target}.move`, { col: 30, row: 20, cols: 30, rows: 10 });
+      expect(screen().split("\n")[y]![x]).toBe("▾");
+      const folded = pane.surface.describe().folds?.folded ?? [];
+      h.press({ kind: "mouse", action: "down", button: 0, x, y });
+      h.press({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => (pane.surface.describe().folds?.folded.length ?? 0) > folded.length, "uncovered gutter folds by mouse");
+      expect(screen().split("\n")[y]![x]).toBe("▸");
+      await act("unfold", { all: true });
+    } finally {
+      await act(`${target}.close`, target === "comment" ? { discard: true } : {});
+      await act("tile.zoom");
+    }
+  });
+
+  test("Round 3: split Sources keeps the floating comment in frame coordinates", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act("tile.zoom");
+    try {
+      await act("comment.note");
+      pane.key({ kind: "paste", text: "A comment across the split" }, stage);
+      await act("comment.place", { place: "floating" });
+      screen();
+      await act("comment.move", { col: 20, row: 3, cols: 60, rows: 12 });
+      const before = screen().split("\n");
+      const row = before.findIndex(l => l.includes("A comment across the split"));
+      const col = before[row]!.indexOf("A comment across the split");
+      await act("sources.open");
+      await act("sources.place", { place: "split" });
+      const after = screen().split("\n");
+      expect(after[row]!.indexOf("A comment across the split")).toBe(col);
+      expect(after.some(l => l.includes("3 generated regions"))).toBe(true);
+      const sourcesCol = after.find(l => l.includes("[split ▸]"))!.indexOf("[split ▸]");
+      await act("comment.write", { body: "" });
+      await act("comment.close", { discard: true });
+      expect(screen().split("\n").find(l => l.includes("[split ▸]"))!.indexOf("[split ▸]")).toBe(sourcesCol);
+    } finally {
+      if (pane.surface.session) await act("comment.close", { discard: true });
+      await act("sources.close");
+      await act("tile.zoom");
+    }
+  });
+
+  test("Round 3: a preview picture stays in a comment moved above the hero", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "hero" } }, USER);
+    const video = app.video;
+    app.video = "kitty";
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane(stage.readerPanes()[0]!.name) as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, stage.readerPanes()[0]!.name);
+    try {
+      await until(() => h.sc.render(app).placements?.some(p => p.key.includes("hero:img:")) === true, "hero loaded");
+      await act("comment.note");
+      const image = pane.msg!.text.match(/\[img::([^\]]+)\]/)![1]!;
+      pane.key({ kind: "paste", text: `[img::${image}] [height::3]` }, stage);
+      pane.key({ kind: "char", ch: "p", ctrl: true }, stage);
+      await act("comment.place", { place: "floating" });
+      screen();
+      await act("comment.move", { col: 2, row: pane.innerFrame!.row - 16, cols: 60, rows: 12 });
+      await until(() => { screen(); return !!pane.surface.session!.composer!.frame?.preview?.placements?.length; }, "preview picture loaded");
+      const view = h.sc.render(app);
+      const picture = pane.surface.session!.composer!.frame!.preview!.placements![0]!;
+      expect(view.placements?.some(p => p.key.endsWith(picture.key))).toBe(true);
+    } finally {
+      await act("comment.write", { body: "" });
+      await act("comment.close", { discard: true });
+      app.video = video;
+    }
+  });
+
+  test("Round 3: source details take the width their content needs", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act("tile.zoom");
+    try {
+      await act("sources.open");
+      await act("sources.place", { place: "floating" });
+      await act("sources.enter", { n: 1 });
+      const rows = screen().split("\n");
+      expect(rows.some(l => l.includes("Query") && l.includes("Transform") && l.includes("Result"))).toBe(true);
+      expect(pane.surface.sourcesMode!.frame!.cols).toBeLessThan(pane.innerFrame!.cols * .85);
+    } finally {
+      await act("sources.close");
+      await act("tile.zoom");
+    }
+  });
+
+  test.each(["default width", "sizing past the measure", "shadow inside the rect"])("PIE-1155: %s", async symptom => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes");
+    if (!(pane instanceof ReaderPane)) throw new Error("notes must be a reader");
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act("tile.zoom");
+    try {
+      screen();
+      await act("sources.open");
+      await act("sources.place", { place: "floating" });
+      screen();
+      const sm = pane.surface.sourcesMode!;
+      if (symptom === "default width") {
+        expect(sm.frame!.cols).toBeGreaterThan(108);
+        expect(sm.frame!.cols).toBeLessThan(pane.innerFrame!.cols);
+        await act("sources.enter", { n: 1 });
+        const rows = screen().split("\n");
+        expect(rows.some(l => l.includes("Query") && l.includes("Transform") && l.includes("Result"))).toBe(true);
+        expect(rows.some(l => l.includes("Owner: Sam") && l.includes("Week: 42") && l.includes("Crop: Regions in prose"))).toBe(true);
+      }
+      if (symptom === "sizing past the measure") {
+        await act("sources.move", { col: pane.innerFrame!.col, row: 2, cols: 130, rows: 16 });
+        screen();
+        expect(sm.frame!.cols).toBe(130);
+      }
+      if (symptom === "shadow inside the rect") expect(screen()).not.toContain("▒");
+    } finally {
+      await act("sources.close");
+      await act("tile.zoom");
+    }
+  });
+
+  test.each(["sources", "comment"])("PIE-1155: %s takes mouse drags past both sides without changing the note", async target => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes");
+    if (!(pane instanceof ReaderPane)) throw new Error("notes must be a reader");
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act("tile.zoom");
+    screen();
+    const before = screen();
+    const original = (await board.get(pane.msg!.id))!;
+    try {
+      await act(target === "sources" ? "sources.open" : "comment.note");
+      if (target === "comment") pane.key({ kind: "paste", text: "Keep this floating draft" }, stage);
+      await act(`${target}.place`, { place: "floating" });
+      screen();
+      const frame = pane.innerFrame!;
+      const tile = stage.layoutGet().tiles.find(t => t.name === "notes")!.rect!;
+      const origin = { x: tile.col + 1 - frame.col, y: tile.row + 1 - frame.row };
+      const current = () => target === "sources" ? pane.surface.sourcesMode!.frame! : pane.surface.session!.float!;
+      await act(`${target}.move`, { col: frame.col + 2, row: 20, cols: 24, rows: 8 });
+      screen();
+      expect(current().col).toBeLessThan(0);
+      const mouse = (action: "down" | "drag" | "up", x: number, y: number) => stage.key({ kind: "mouse", action, button: 0, x: origin.x + x, y: origin.y + y }, stage.ctx!);
+      const left = { ...current() }, x = left.col + 4;
+      const dx = frame.cols - left.cols - 4;
+      mouse("down", x, left.row);
+      mouse("drag", x + dx, left.row);
+      mouse("up", x + dx, left.row);
+      await until(() => { screen(); return current().col === left.col + dx; }, "the grip drags across the text column");
+      expect(current().col + current().cols).toBeGreaterThan(pane.surface.renderedWidth());
+      mouse("down", current().col + 4, current().row);
+      mouse("drag", x, left.row);
+      mouse("up", x, left.row);
+      await until(() => { screen(); return current().col === left.col; }, "the grip returns to the left margin");
+      await act(`${target}.grip`);
+      pane.key({ kind: "char", ch: "L" }, stage);
+      await until(() => { screen(); return current().cols === 26; }, "the keyboard grip sizes in the margin");
+      pane.key({ kind: "enter" }, stage);
+      await act(`${target}.move`, { col: frame.col, row: 20, cols: frame.cols, rows: 8 });
+      screen();
+      expect(current().cols).toBe(frame.cols);
+      expect(current().col).toBe(frame.col);
+      if (target === "comment") expect(pane.surface.session!.composer!.text).toBe("Keep this floating draft");
+      const after = (await board.get(original.id))!;
+      expect([after.text, after.revision]).toEqual([original.text, original.revision]);
+    } finally {
+      await act(`${target}.close`, target === "comment" ? { discard: true } : {});
+      const after = screen();
+      expect(after.split("\n").find(l => l.includes("beds-table:: week=42"))!.indexOf("beds-table:: week=42"))
+        .toBe(before.split("\n").find(l => l.includes("beds-table:: week=42"))!.indexOf("beds-table:: week=42"));
+      await act("tile.zoom");
+    }
+  });
 
   test("a Sources tile leaves the reader's presses, clicks and wheel with the note", async () => {
     await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
@@ -306,7 +554,7 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     const body = screen().split("\n").slice(stage.row + r.row + 1, stage.row + r.row + r.rows - 1)
       .map(line => line.slice(stage.col + r.col + 1, stage.col + r.col + r.cols - 1)).join("\n");
     expect(body).not.toContain("\u2261");
-    expect(screen()).not.toMatch(/ran (just now|\d+ min ago)|\[keep\]|run again|\[!output\]|╭─ ▾ .*output/);
+    expect(body).not.toMatch(/ran (just now|\d+ min ago)|\[keep\]|run again|\[!output\]|╭─ ▾ .*output/);
     // The way in: the header's [sources], S, or a selection's "Where from" opens the Sources inspector beside the note.
     expect(screen()).toContain("[sources]");
     const opened = await app.act({ action: "sources.open", args: {}, tile: "notes", as: "test-agent" }) as { opened?: boolean; sources?: { name: string }[] };

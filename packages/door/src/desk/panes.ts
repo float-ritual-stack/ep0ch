@@ -11,7 +11,7 @@ import { whole } from "../art-view";
 import type { Ctx } from "../app";
 import { isOutlineNote } from "../authored";
 import { subject, type Caller, type Msg } from "../board";
-import type { Scroll } from "../canvas";
+import type { Rect, Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
 import { authorName, USER, type Activity, type Actor } from "../socket";
@@ -28,7 +28,7 @@ import { newNoteOffer, type KeySpot } from "../new-note";
 import { prop } from "../props";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
-export interface PaneView { headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
+export interface PaneView { frame?: Rect; headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
 
 export interface DeskApi {
   ctx: Ctx;
@@ -306,6 +306,7 @@ export class ReaderPane implements Pane {
   protected readonly ownSurface = new NoteSurface();
   get surface() { return this.ownSurface; }
   gutterCols = 0;
+  innerFrame?: Rect;
   heroBounds?: { col: number; row: number; cols: number };
   /** The margin's side column, when the note has cards (ADR 0004 contract 6): the measure keeps room for it. */
   beside() { return this.surface.marginBeside() + (this.surface.previewPoint() ? 72 : 0); }
@@ -462,6 +463,7 @@ export class ReaderPane implements Pane {
     const h: SurfaceHost = {
       externalGutter: this.gutterCols,
       heroBounds: this.heroBounds,
+      innerFrame: this.innerFrame,
       ctx: this.context(desk),
       contextFor: m => {
         this.noteAddress = m?.address;
