@@ -362,11 +362,14 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     await act("placement.menu", { target: "edit-preview" });
     expect(screen()).toContain("Placement");
     await act("placement.choose", { place: "split", direction: "right" });
-    const rows = sc.render(app).lines.map(plain);
+    let rows: string[] = [];
+    await until(() => {
+      rows = sc.render(app).lines.map(plain);
+      return rows.some(l => /Kitchen whiteboard.*│.*Kitchen whiteboard/.test(l) && !l.includes("editing ·"));
+    }, "the source and preview headings in the split").catch((e: Error) => { throw new Error(`${e.message}\n${rows.join("\n")}`); });
     const header = rows.find(l => l.includes("──( preview"))!;
     expect(header).toContain("editing ·");
     expect(header).toContain("[split ▸]");
-    expect(rows.some(l => /Kitchen whiteboard.*│.*Kitchen whiteboard/.test(l) && !l.includes("editing ·"))).toBe(true);
     const draft = reader.draft!, text = draft.text, cursor = [draft.row, draft.col];
     const y = rows.indexOf(header), chip = header.indexOf("[split ▸]") + 2;
     press({ kind: "mouse", action: "down", button: 0, x: chip, y });

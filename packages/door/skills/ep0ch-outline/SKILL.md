@@ -592,6 +592,14 @@ A component the readers draw can't lack an entry: a test fails when one does. Re
 `ep0ch library --json` prints the full schemas (each value's meaning too). The library screen
 (`ep0ch --screen library`) is for people: don't open it; it draws each value with its source.
 
+**Buttons on the status bar** (PIE-1121). A note with `[status-bar::true]` configures the door's bar live:
+`- <built-in id>` lines order the built-ins (omitted ids are hidden), and `::button{label="Collapse" act="tile.collapse tile=screen"}`
+lines place buttons there. `alt="theme.cycle"` names a button's alternate click. The shared `button.press note=<id> label=...`
+presses it without moving focus. `status.bar.items` describes the ids and their declared actions; `status.bar.edit` opens
+or creates the config note, also reached by right-click or alt+click on empty bar space and the power bar's `status bar: edit`.
+A note button's menu offers **pin to status bar** (`button.pin label="Collapse"`). Missing or broken config keeps the default
+bar and says malformed lines in the message log. Keep edits as ordinary Blockdown, through the service with revision checks.
+
 **Heading styles and rules** (PIE-599; outline-core's `src/heading-styles.ts`, drawn by the door's
 `src/figures/banner.ts`). To divide a page more strongly than a plain heading, give the heading a style. Don't use
 an empty `##` or an empty figure as a divider:

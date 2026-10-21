@@ -17,12 +17,14 @@ export interface ButtonCall {
   label: string;
   /** The action line a press runs; null when the line names none. */
   act: string | null;
+  /** The alternate press, when supplied. */
+  alt?: string;
   /** The line couldn't be read as a button: what to write. */
   problem?: string;
 }
 
 /** Attributes a button reads itself; every other word is a slot of the script it runs (`of=`). */
-const OWN = new Set(["label", "act", "of"]);
+const OWN = new Set(["label", "act", "of", "alt"]);
 
 /** The `::button` starting at line `i`, or null. Only a one-line call with attributes. */
 export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | null {
@@ -34,7 +36,7 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
   const slots = pairs.filter(p => !OWN.has(p.key.toLowerCase()));
   const line = act || (of ? actionLine({ action: of, args: Object.fromEntries(slots.map(p => [p.key, p.value])) }) : null);
   if (!line) return { line: i, label: label ?? "button", act: null, problem: "::button needs what it runs: ::button{label=\"Review\" act=\"layout.load name=review\"}, or of=<script> with its slots" };
-  return { line: i, label: label || (act ? act.split(/\s+/)[0]! : of!), act: line };
+  return { line: i, label: label || (act ? act.split(/\s+/)[0]! : of!), act: line, ...(get("alt") ? { alt: get("alt") } : {}) };
 }
 
 /** Every `::button` a note's text holds, in order (outside code fences). */

@@ -71,6 +71,7 @@ export const SEED = {
   scriptTarget: "Planting checklist",
   scriptsInPlace: "Scripts in place",
   press: "Noughts and crosses",
+  statusBar: "Your buttons on the status bar",
   motion: "Tiles that move",
   fantasia: "Fantasia",
   outputRegions: "Regions in prose",

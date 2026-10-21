@@ -174,6 +174,7 @@ export type AgentState = "empty" | "off" | "working" | "idle" | "blocked" | "don
 
 /** What the drawer needs from the App. */
 export interface DrawerHost {
+  statusChip?(): { from: number; to: number; row: number } | null;
   redraw(): void;
   /** Only the status bar changed (the chip): repaint it alone when the screen allows. */
   statusChanged(): void;
@@ -203,7 +204,7 @@ export class AgentDrawer {
   active = false;
   /** Where the drawer was last drawn (full width, above the status bar), and the chip on the status bar. */
   rect: Rect | null = null;
-  chipAt: { from: number; to: number; row: number } | null = null;
+  get chipAt(): { from: number; to: number; row: number } | null { return this.host.statusChip?.() ?? null; }
   private p: DrawerTile | null = null;
   /** The drawer's tiles, on a desk of their own (made the first time it's needed, with the App as its ctx). */
   private d: Desk | null = null;
@@ -1456,15 +1457,7 @@ export class AgentDrawer {
       if (k.action === "up") this.capture = null;
       return true;
     }
-    if (onChip) {
-      // A click toggles the drawer (the person's most frequent click: never anything else); ⟳, the chip's last cell when it
-      // offers one, restarts the agent; alt+click or a right click opens the agent picker.
-      if (k.action === "down") {
-        const picker = k.button === 2 || ((k.mods ?? 0) & 8) !== 0;
-        run(picker ? "host.agent" : this.offersRestart && k.x >= chip!.to - 1 ? "agent.restart" : "host.toggle", {});
-      }
-      return true;
-    }
+    if (onChip) return true;
     if (!r) return false;
     if (!inDrawer) {
       // A click on the screen above hands the keys back to it; the drawer stays up.

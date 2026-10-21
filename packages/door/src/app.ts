@@ -1,3 +1,5 @@
+import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
+import { StatusBarNote, STATUS_BAR_ACTIONS, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
 import { fullPlainText } from "./overflow";
 import { Overflow } from "./overflow";
 import { linkUpdateLabel } from "@ep0ch/outliner/link";
@@ -17,7 +19,7 @@ import { onResizeEnd, resizing } from "./resize";
 import { uncover, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
-import { ActionRefused, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
+import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
 import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
@@ -58,6 +60,8 @@ import { onBarSources, type BarHost } from "./bar/source";
 import type { Msg } from "./board";
 import { HeldAsks } from "./held-asks";
 import { doorReport, onStatusChange, statusHolders, waitingCounts, waitingOnYou } from "./desk/program-status";
+
+const STATUS_BUTTON_ACTIONS = actionSet<{ surface: NoteSurface; host: SurfaceHost }>()("note", { "button.press": NOTE_ACTIONS.def("button.press")! });
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -435,8 +439,6 @@ export class App implements Ctx {
   /** The requests held for the person's `r` (PIE-888), as the service lists them. */
   readonly heldAsks = new HeldAsks();
   readonly waitingAsks = new WaitingAsks();
-  /** Where the status bar's `+N new` sits, for a click (changes.open). */
-  private changedAt: { from: number; to: number; row: number } | null = null;
   reconnects = 0;
   /** Whether "what changed" (the +N count, newscan) includes what tools wrote for their own bookkeeping: `changes.machinery`. */
   machineryChanges = false;
@@ -495,12 +497,6 @@ export class App implements Ctx {
     if (!on) this.yoloHere = false;
     this.redraw();
   }
-  /** Where the status bar's YOLO sits, for a click (agents.yolo on=false). */
-  private yoloAt: { from: number; to: number; row: number } | null = null;
-  /** Where the status bar's `+N machine` sits, for a click. */
-  private extAt: { from: number; to: number; row: number } | null = null;
-  /** Where the status bar's backup mark sits, for a click (backups.alert). */
-  private backupAt: { from: number; to: number; row: number } | null = null;
   private backupRead: { at: number; mark: { text: string; say: string; status?: boolean } | null } = { at: -Infinity, mark: null };
   /** The backup job's alert (src/backup/alert.ts, in the state dir's backup/), read at most once a minute. */
   backupAlert(): { text: string; say: string; status?: boolean } | null {
@@ -523,8 +519,6 @@ export class App implements Ctx {
     if (this.reportTimer || this.closed) return;
     this.reportTimer = setTimeout(() => { this.reportTimer = null; if (this.closed) return; try { this.display.programStatus?.(doorReport(statusHolders(this.drawer))); } catch { /* a report the terminal can't take is left out, never the door */ } }, 200);
   }
-  /** Where the status bar's waiting-on-you count sits, for a click (host.waiting). */
-  private waitingAt: { from: number; to: number; row: number } | null = null;
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
   readonly drawer: AgentDrawer;
 
@@ -562,12 +556,14 @@ export class App implements Ctx {
     close: () => { this.bar?.close(); this.bar = null; this.redraw(); },
     host: () => this.barHost(),
   };
-  /** Where the status bar's ^K sits, for a click (bar.open). */
-  private barAt: { from: number; to: number; row: number } | null = null;
+  private statusBoxes: StatusHit[] = [];
+  private readonly statusButtons = new NoteSurface();
+  readonly statusNote: StatusBarNote;
   private drawerRun: DrawerRun;
 
   /** `now`: the clock the status bar reads (a test's fake one). */
   constructor(private readonly term: AppTerm, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
+    this.statusNote = new StatusBarNote(board, () => this.redraw(), text => this.flash(text, 12_000, { kind: "warning" }));
     this.started = now();
     this.display = isDisplay(term) ? term : new Painter(term as RawTerm);
     // The door's own terminal: an image it lost is uploaded and placed again (PIE-795).
@@ -575,7 +571,10 @@ export class App implements Ctx {
     if (decoder && painter instanceof Painter) decoder.kittyError = id => painter.imageLost(id);
     this.ground();
     // The host layer (PIE-513): above every screen, kept across switches; the agent is its drawer's first tab.
-    this.drawer = new AgentDrawer({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
+    this.drawer = new AgentDrawer({ statusChip: () => {
+      const hit = this.statusBoxes.find(h => h.item.id === "drawer");
+      return hit ? { from: hit.from, to: hit.to, row: this.term.info.rows - 1 } : null;
+    }, redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
     // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
     this.drawerRun = (name, args) => { void this.dispatch.pressIn(DRAWER_ACTIONS, name, args); };
     this.drawer.run = (name, args) => this.dispatch.pressIn(DRAWER_ACTIONS, name, args);
@@ -983,6 +982,7 @@ export class App implements Ctx {
       if (!c && (e.action === "reconnected" || e.action === "reset")) { this.reconnects++; resourceChanged(null); void this.loadExtensions(); }
       // A screen note made, changed or trashed (here, by another door or an agent), or anything after a reconnect: read them again.
       if (c ? screenNotesAffected(c) : e.action === "reconnected" || e.action === "reset") this.screensSoon();
+      void this.statusNote.refresh(this.statusItems());
       invalidatePropertyErrors();
     }
     // What an extension wrote (a Jira ticket refreshed, PIE-445) isn't news unless the person asks for it.
@@ -1041,6 +1041,7 @@ export class App implements Ctx {
    * `ext.*` actions, the tile kinds. What came or went is said; the readers read their lines again.
    */
   async loadExtensions(reload = false): Promise<void> {
+    await this.statusNote.refresh(this.statusItems());
     connectScriptActions(this);
     const r = await loadExtensions(this.board, reload);
     if (!r) return;
@@ -1114,6 +1115,12 @@ export class App implements Ctx {
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: how.actor.kind !== "agent" && this.drawer.entered ? this.drawer.desk ?? undefined : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1) }) },
     { set: MACRO_ACTIONS, takes: "none", on: () => ({ ctx: this, recording: this.recording }) },
+    { set: STATUS_BUTTON_ACTIONS, takes: "none", claims: req => req.action === "button.press" && req.args?.note !== undefined && req.tile === undefined,
+      on: () => ({ surface: this.statusButtons, host: { ctx: this, redraw: () => this.redraw(), navigate() {} } }) },
+    { set: STATUS_BAR_ACTIONS, takes: "none", on: () => ({
+      note: this.statusNote, builtins: () => this.statusItems(), items: () => this.describeStatusItems(),
+      open: (id: string, actor: Actor) => this.hostLayer.openOnScreen(id, true, actor),
+    }) },
     { set: BAR_ACTIONS, takes: "none", on: () => ({ on: this.barOn }) },
     // A tile the screen shown doesn't have but the drawer does (tile=, PIE-498): the drawer's desk answers it.
     { claims: req => this.drawer.routes(req, this.stack.at(-1)), delegate: () => this.drawer.desk?.dispatch, listed: false },
@@ -1255,31 +1262,12 @@ export class App implements Ctx {
       if (this.bar?.ended()) { this.bar.close(); this.bar = null; this.redraw(); }
       return;
     }
-    // A click on the status bar's stop-the-dance chip stops the script run rearranging the screen (layout.stop), as Esc does.
-    const dance = this.danceAt;
-    if (dance && k.kind === "mouse" && k.y === dance.row && k.x >= dance.from && k.x < dance.to) {
-      if (k.action === "down") void this.dispatch.press("layout.stop");
+    if (k.kind === "mouse" && k.y === this.term.info.rows - 1 && k.action === "down") {
+      const hit = this.statusBoxes.find(h => k.x >= h.from && k.x < h.to);
+      const alt = k.button === 2 || ((k.mods ?? 0) & 8) !== 0;
+      const req = hit ? (alt ? hit.item.alt ?? hit.item.click : k.x === hit.to - 1 && hit.item.lastCell ? hit.item.lastCell : hit.item.click) : { action: alt ? "status.bar.edit" : "status.log" };
+      if (req) void this.dispatch.press(req.action, req.args, req.tile);
       return;
-    }
-    // A click on the status bar's YOLO takes agents out of yolo (agents.yolo on=false).
-    const yolo = this.yoloAt;
-    if (yolo && k.kind === "mouse" && k.y === yolo.row && k.x >= yolo.from && k.x < yolo.to) {
-      if (k.action === "down") void this.dispatch.press("agents.yolo", { on: false });
-      return;
-    }
-    // A click on the status bar's `+N machine` shows (or hides) what tools wrote for their own bookkeeping, as `changes.machinery` does.
-    const ext = this.extAt;
-    if (ext && k.kind === "mouse" && k.y === ext.row && k.x >= ext.from && k.x < ext.to) {
-      if (k.action === "down") void this.dispatch.press("changes.machinery");
-      return;
-    }
-    // A click on the status bar's video mode or theme turns it to the next (video.cycle, theme.cycle); on its backup
-    // mark, says what's stale (backups.alert).
-    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"], [this.backupAt, "backups.alert"], [this.waitingAt, "host.waiting"], [this.changedAt, "changes.open"], [this.barAt, "bar.open"], [this.macroAt, this.recording.active ? "macro.stop" : "macro.record"]] as const) {
-      if (at && k.kind === "mouse" && k.y === at.row && k.x >= at.from && k.x < at.to) {
-        if (k.action === "down") void this.dispatch.press(action);
-        return;
-      }
     }
     // The hyper layer (PIE-699): ⌃⌥⇧⌘ and a key, before any tile's own keys (a draft's and a terminal tile's too). Each chord
     // presses an action that has other keys and a click (src/hyper.ts); the layer is off unless turned on.
@@ -1507,62 +1495,72 @@ export class App implements Ctx {
   /** Where the door is: `host · outline` on an outline host, else `host:workspace root`. */
   get location(): string { return this.outline ? `${this.host} · ${this.outline}` : `${this.host}:${this.workspace}`; }
 
-  /** Where the status bar's video mode and theme are, for a click (video.cycle, theme.cycle). */
-  private videoAt: { from: number; to: number; row: number } | null = null;
-  private macroAt: { from: number; to: number; row: number } | null = null;
-  private danceAt: { from: number; to: number; row: number } | null = null;
-  private themeAt: { from: number; to: number; row: number } | null = null;
+  /** The built-ins declare their text and the existing ActionDefs their gestures press. */
+  private statusItems(s = this.stack.at(-1)): StatusItem[] {
+    const [mins, clock] = this.timeShown().split("|");
+    const right = (id: string, text: string, action?: string, args?: Record<string, unknown>): StatusItem => ({ id, text, place: "right", after: ` ${fg(C.lcyan)}│ `, ...(action ? { click: { action, args } } : {}) });
+    const held = this.whatChanged.machineryCount();
+    const ext = held ? `+${held} machine` : this.machineryChanges && this.whatChanged.hasMachinery() ? "machine on" : "";
+    const backup = this.backupAlert();
+    const count = this.whatChanged.count();
+    const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() });
+    const items: StatusItem[] = [
+      { id: "brand", text: `${fg(C.white)}ep0ch`, place: "left", before: " ", after: " ", click: { action: "status.log" } },
+      { id: "power", text: `${fg(C.yellow)}^K`, place: "left", after: " ", ...(!s?.noDrawer ? { click: { action: "bar.open" } } : {}) },
+      { id: "macro", text: `${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}`, place: "left", after: `${fg(C.lcyan)} │ `, ...(!s?.noDrawer ? { click: { action: this.recording.active ? "macro.stop" : "macro.record" } } : {}) },
+      { id: "screen", text: s?.title ?? "", place: "left", after: " │ ", click: { action: "status.log" } },
+      { id: "machine", text: this.location, place: "left", click: { action: "status.log" } },
+      right("dance", s?.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD}` : "", "layout.stop"),
+      right("yolo", this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD}` : "", "agents.yolo", { on: false }),
+      { ...right("drawer", this.drawer.active ? this.drawer.chip() : "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}) },
+      right("waiting", waiting.styled, "host.waiting"),
+      right("offline", this.offline ? `${fg(C.lred)}offline` : "", "status.log"),
+      right("backup", backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text}` : "", "backups.alert"),
+      right("new", count ? `${fg(C.yellow)}+${count} new` : "", "changes.open"),
+      right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"),
+      right("video", this.video, "video.cycle"),
+      right("theme", theme().name, "theme.cycle"),
+      right("uptime", `on ${mins}m`, "status.log"),
+      { ...right("clock", clock ?? "", "status.log"), after: " " },
+    ];
+    return items;
+  }
+
+  private describeStatusItems() {
+    const actions = this.dispatch.list().actions;
+    return { note: this.statusNote.note?.id ?? null, builtins: this.statusItems().map(i => i.id), items: [...this.statusNote.items(this.statusItems()), ...this.statusBoxes.filter(h => h.item.id === "overflow").map(h => h.item)].map(item => {
+      const hit = this.statusBoxes.find(h => h.item.id === item.id);
+      const describe = (req: ActRequest | undefined) => req ? { ...req, definition: actions.find(a => a.name === req.action) } : undefined;
+      return { ...item, click: describe(item.click), alt: describe(item.alt), lastCell: describe(item.lastCell), ...(hit ? { from: hit.from, to: hit.to } : {}) };
+    }) };
+  }
+
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
-    const [mins, clock] = this.shownTime.split("|");
-    const left = ` ${fg(C.white)}ep0ch ${fg(C.yellow)}^K ${fg(this.recording.active ? C.lred : C.yellow)}${this.recording.active ? "REC stop" : "⇧⌥Q"}${fg(C.lcyan)} │ ${s.title} │ ${this.location}`;
-    // ^K: a click opens the power bar (bar.open), as ctrl+k does; not on the logon.
-    this.barAt = s.noDrawer ? null : { from: 7, to: 9, row: this.term.info.rows - 1 };
-    this.macroAt = s.noDrawer ? null : { from: 10, to: this.recording.active ? 18 : 13, row: this.term.info.rows - 1 };
-    // The drawer's chip starts the right part, so it's always whole and always in the same place from the right.
-    const chip = this.drawer.active ? this.drawer.chip() : "";
-    // Machinery hidden from the count reads `+N machine` (a click shows it); shown, `machine on`.
-    const heldCount = this.whatChanged.machineryCount();
-    const ext = heldCount ? `+${heldCount} machine` : this.machineryChanges && this.whatChanged.hasMachinery() ? "machine on" : "";
-    const extPart = ext ? `${fg(C.dark)}${ext} ${fg(C.lcyan)}│ ` : "";
-    const tail = `${this.video} │ ${theme().name} │ on ${mins}m │ ${clock} `;
-    // A stale backup (PIE-607): marked until it clears; a click says what and the fix (backups.alert).
-    const backup = this.backupAlert();
-    // A status (backed up through the hub while the repository is out of reach) is quiet; a problem is red.
-    const backupPart = backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text} ${fg(C.lcyan)}│ ` : "";
-    const newCount = this.whatChanged.count();
-    const newPart = newCount ? `${fg(C.yellow)}+${newCount} new ${fg(C.lcyan)}│ ` : "";
-    // What the terminals' programs say waits on the person (OSC 7501): a click opens the list in the drawer (host.waiting).
-    const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() });
-    const waitPart = waiting.plain ? `${waiting.styled} ${fg(C.lcyan)}│ ` : "";
-    // Yolo is loud: agents act with no person guard while it shows.
-    const yoloPart = this.agentsYolo ? `${fg(C.lred)}${BOLD}YOLO${UNBOLD} ${fg(C.lcyan)}│ ` : "";
-    // A script run is rearranging the screen: one visible control to stop it, as Esc does (layout.stop).
-    const dancePart = s.dancing?.() ? `${fg(C.yellow)}${BOLD}■ stop the dance${UNBOLD} ${fg(C.lcyan)}│ ` : "";
-    const right = `${dancePart}${yoloPart}${chip ? `${chip} │ ` : ""}${waitPart}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
-    const from = cols - width(right);
-    const backupFrom = cols - width(backupPart + newPart + extPart + tail);
-    this.backupAt = backup && backupFrom >= 0 ? { from: backupFrom, to: backupFrom + width(backup.text), row: this.term.info.rows - 1 } : null;
-    const extFrom = cols - width(extPart + tail);
-    this.extAt = ext && extFrom >= 0 ? { from: extFrom, to: extFrom + width(ext), row: this.term.info.rows - 1 } : null;
-    const tailFrom = cols - width(tail), row = this.term.info.rows - 1;
-    // statusLine keeps " │ " ahead of the right part, so it starts at 3 at the least.
-    const danceFrom = Math.max(3, from);
-    this.danceAt = dancePart ? { from: danceFrom, to: danceFrom + width("■ stop the dance"), row } : null;
-    const afterDance = from + width(dancePart);
-    this.yoloAt = yoloPart ? { from: Math.max(3, afterDance), to: Math.max(3, afterDance) + 4, row } : null;
-    this.videoAt = tailFrom >= 0 ? { from: tailFrom, to: tailFrom + width(this.video), row } : null;
-    this.themeAt = tailFrom >= 0 ? { from: tailFrom + width(`${this.video} │ `), to: tailFrom + width(`${this.video} │ ${theme().name}`), row } : null;
-    const chipFrom = from + width(dancePart + yoloPart);
-    this.drawer.chipAt = chip && from >= 0 ? { from: chipFrom, to: chipFrom + width(this.drawer.chipText()), row: this.term.info.rows - 1 } : null;
-    const waitFrom = cols - width(waitPart + (this.offline ? "offline │ " : "") + backupPart + newPart + extPart + tail);
-    const changedFrom = cols - width(newPart + extPart + tail);
-    this.changedAt = newCount && changedFrom >= 0 ? { from: changedFrom, to: changedFrom + width(`+${newCount} new`), row: this.term.info.rows - 1 } : null;
-    this.waitingAt = waiting.plain && waitFrom >= 0 ? { from: waitFrom, to: waitFrom + width(waiting.plain), row: this.term.info.rows - 1 } : null;
+    const items = this.statusNote.items(this.statusItems(s)).filter(i => width(i.text));
+    let hidden = 0;
+    const overflow = (): StatusItem => ({ id: "overflow", text: `+${hidden}`, place: "left", after: " │ ", click: { action: "status.bar.edit" } });
+    // Keep the clock and drawer whole; later note lines yield their space first.
+    while (width(statusText(items)) + (hidden ? width(statusText([overflow()])) : 0) + 3 > cols) {
+      let last = items.length - 1;
+      while (last >= 0 && (items[last]!.id === "clock" || items[last]!.id === "drawer")) last--;
+      if (last < 0) break;
+      items.splice(last, 1);
+      hidden++;
+    }
+    if (hidden) items.push(overflow());
+    const leftItems = items.filter(i => i.place === "left"), rightItems = items.filter(i => i.place === "right");
+    const left = statusText(leftItems), right = statusText(rightItems);
     // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
     const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
     const message = this.message || this.linkLabel;
     const middle = message ? ` ${fg(this.messageWarning ? C.yellow : C.lcyan)}${loud ? BOLD : ""}${message}${loud ? UNBOLD : ""}${fg(C.lcyan)}` : "";
+    const room = Math.max(0, cols - width(right) - 3);
+    const displaced = !!middle && width(left + middle) > room;
+    this.statusBoxes = [
+      ...(!displaced ? statusHits(leftItems, 0, room - (width(left) > room ? 1 : 0)) : []),
+      ...statusHits(rightItems, Math.max(3, cols - width(right)), cols),
+    ];
     return statusLine(left, middle, right, cols);
   }
 }

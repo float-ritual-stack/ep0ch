@@ -263,8 +263,8 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await app.dispatch.act({ action: "comment", tile: "notes", args: { quote: "Prepare the seed labels", body } }, USER);
     const status = plain((app as any).statusBar(sc, 160));
     expect(status).toContain("REC stop");
-    const at = (app as any).macroAt;
-    press({ kind: "mouse", action: "down", x: at.from, y: at.row, button: 0 });
+    const at = ((await app.dispatch.act({ action: "status.bar.items" }, { kind: "user" })) as { items: { id: string; from?: number }[] }).items.find(i => i.id === "macro")!;
+    press({ kind: "mouse", action: "down", x: at.from!, y: 59, button: 0 });
     await until(() => !app.recording.active, "the click stopped recording");
     let saved: any;
     await untilAsync(async () => {

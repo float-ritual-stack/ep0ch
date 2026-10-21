@@ -252,11 +252,12 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     k.kind === "mouse" ? t.has(k.action === "wheel-up" || k.action === "wheel-down" ? "wheel" : "click") : t.has(keyName(k)!) || (!!prefix && t.has(`${keyName(prefix)} ${keyName(k)}`));
 
   /** Clicks over the screen: every row, every 26th column from a start that shifts row by row; and the wheel. */
-  const clicks = (): Key[] => {
+  const clicks = async (): Promise<Key[]> => {
     const out: Key[] = [];
     // The status bar too (the last row): and its `+N ext` and agent chip, wherever they are drawn.
     for (let y = 0; y < 48; y++) for (let x = 1 + ((y * 7) % 26); x < 160; x += 26) out.push({ kind: "mouse", action: "down", button: 0, x, y });
-    for (const at of [A().extAt, A().drawer.chipAt]) if (at) out.push({ kind: "mouse", action: "down", button: 0, x: at.from + 1, y: at.row });
+    const status = await app.dispatch.act({ action: "status.bar.items" }, { kind: "user" }) as { items: { from?: number }[] };
+    for (const at of status.items) if (at.from !== undefined) out.push({ kind: "mouse", action: "down", button: 0, x: at.from, y: 47 });
     // The wheel, both ways, over a coarser grid.
     for (let y = 4; y < 47; y += 12) for (let x = 10; x < 160; x += 40) for (const action of ["wheel-down", "wheel-up"] as const) out.push({ kind: "mouse", action, button: 0, x, y });
     return out;
@@ -347,7 +348,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       sharedStates.add(id);
       return false;
     };
-    for (const k of [...PROBE_KEYS, ...clicks()]) {
+    for (const k of [...PROBE_KEYS, ...await clicks()]) {
       if (dirty) { mask = await fresh(label, make, setup); dirty = false; last = null; }
       const base = last ?? snap(mask);
       const runs: ActionRun[] = [];

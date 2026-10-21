@@ -21,3 +21,9 @@ test("a ::button is one line: no unclosed-component warning; one that runs nothi
   expect(syntaxWarnings('::button{label="Go" act="layout.load name=review"}')).toEqual([]);
   expect(syntaxWarnings('::button{label="Go"}').map(w => w.message).join()).toContain("runs nothing");
 });
+
+test("alt belongs to the button rather than the script's slots", () => {
+  const call = buttonCallAt(['::button{label="Video" of=show-video mode=crt alt="theme.cycle"}'], 0);
+  expect(call?.act).toBe('show-video mode="crt"');
+  expect(call).toHaveProperty("alt", "theme.cycle");
+});

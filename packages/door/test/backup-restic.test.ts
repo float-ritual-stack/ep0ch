@@ -477,8 +477,8 @@ describe.skipIf(!outliner)("the door's status bar", () => {
     const A = app as any;
     const bar = () => A.statusBar(A.stack.at(-1), 160).replace(/\x1b\[[0-9;]*m/g, "");
     expect(bar()).toContain("✗ backup │");
-    const at = A.backupAt;
-    key({ kind: "mouse", action: "down", button: 0, x: at.from, y: at.row });
+    const at = ((await app.dispatch.act({ action: "status.bar.items" }, { kind: "user" })) as { items: { id: string; from?: number }[] }).items.find(i => i.id === "backup")!;
+    key({ kind: "mouse", action: "down", button: 0, x: at.from!, y: 39 });
     await Bun.sleep(20);
     expect(A.message).toContain("garden changed since 09:00Z");
     expect(A.message).toContain("fix: ep0ch backup run");

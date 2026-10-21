@@ -280,7 +280,7 @@ export type LinkTarget = {
    * A press (PIE-957): a `::button`, or a view's button, badge, card, text or table row that carries an action line (role
    * "control"). ⏎ and a click run `act` through the door's one dispatcher as the person, on the note `block` (the script's `this`).
    */
-  press?: { act: string; block: string; line: number };
+  press?: { act: string; alt?: string; block: string; line: number };
   /** A ticket's age (PIE-445): following it refreshes the tickets this block shows (`projection.refresh`). */
   refresh?: string;
   /** With `refresh`: only the ticket under this line of that block (its index in the note's text). */
