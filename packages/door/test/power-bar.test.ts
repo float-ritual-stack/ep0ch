@@ -723,4 +723,24 @@ describe.skipIf(!outliner)("the power bar", () => {
     await app.dispatch.press("edit.close", {}, "reader");
   });
 
+  test("command helpers leave form navigation and private answers alone", async () => {
+    await app.dispatch.press("bar.open", { query: "tile.collapse tile=reader on=false" });
+    await app.dispatch.press("bar.pick");
+    closeBar();
+    await app.dispatch.press("bar.form", { op: "open", action: "layout.move" });
+    await (app as any).bar.settled();
+    key({ kind: "up" });
+    expect(peek().bar.query).toBe("");
+    await app.dispatch.press("bar.form", { op: "set", field: "tile", value: "reader" });
+    const button = await app.dispatch.press("bar.command", { op: "button" }) as { text: string };
+    expect(buttonCallsOf(button.text)[0]?.act).toBe("layout.move tile=reader");
+    closeBar();
+    await askInBar(app as any, "A private answer", [{ name: "token", type: "text", masked: true }], {}, USER, async () => {});
+    key({ kind: "paste", text: "tile.collapse dir=" });
+    const completed = await app.dispatch.press("bar.edit", { op: "complete" }) as { query: string };
+    expect(completed.query).toBe("tile.collapse dir=");
+    await expect(app.dispatch.act({ action: "bar.command", args: { op: "button" } }, USER)).rejects.toThrow("answer");
+    closeBar();
+  });
+
 });

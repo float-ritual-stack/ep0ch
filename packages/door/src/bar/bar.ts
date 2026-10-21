@@ -32,7 +32,7 @@ import type { Key } from "../term";
 import type { Actor } from "../socket";
 import { barSource, barSources, type BarHost, type BarPreview, type BarRow, type BarSource } from "./source";
 import "./sources";
-import { compactQuestion, formOpen, maskedQuestion, clearPrivateForm } from "./ask";
+import { compactQuestion, formOpen, formLine, maskedQuestion, clearPrivateForm } from "./ask";
 
 /** One row of the list, with the source it's from and the heading drawn above it (a source's title, a tile's screen). */
 export interface BarItem { source: BarSource; row: BarRow; heading?: string }
@@ -175,9 +175,9 @@ export class PowerBar {
       const s = barSources().find(x => x.prefix === k.ch);
       if (s) { this.setScope(s.id); return true; }
     }
-    if (k.kind === "up" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }
+    if (k.kind === "up" && this.scope !== "ask" && !this.query && this.host.runs.length) { void this.host.dispatch.press("bar.command", { op: "recall" }); return true; }
     if (k.kind === "alt" && ["o", "y", "i", "m"].includes(k.ch)) { void this.host.dispatch.press(k.ch === "i" ? "bar.insert" : "bar.command", k.ch === "i" ? {} : { op: k.ch === "o" ? "copy" : k.ch === "y" ? "button" : "menu" }); return true; }
-    if (k.kind === "right" && this.input.col === this.query.length && /\s/.test(this.query) && this.host.dispatch.has(this.query.split(/\s/)[0]!)) { void this.host.dispatch.press("bar.edit", { op: "complete" }); return true; }
+    if (k.kind === "right" && this.scope !== "ask" && this.input.col === this.query.length && /\s/.test(this.query) && this.host.dispatch.has(this.query.split(/\s/)[0]!)) { void this.host.dispatch.press("bar.edit", { op: "complete" }); return true; }
     if (k.kind === "alt-enter") { if (this.items.length) this.pick(this.picker.sel + 1, true); return true; }
     if (k.kind === "alt-backspace") { void this.host.dispatch.press("bar.edit", { op: "delete-word" }); return true; }
     if (k.kind === "char" && k.ctrl && ["u", "w", "x", "z"].includes(k.ch) && !k.shift) {
@@ -207,7 +207,7 @@ export class PowerBar {
 
   async complete() {
     const before = this.query;
-    if (this.host.dispatch.has(before.split(/\s/)[0]!) && /\s/.test(before)) {
+    if (this.scope !== "ask" && this.host.dispatch.has(before.split(/\s/)[0]!) && /\s/.test(before)) {
       const completed = await completeCommand(before, this.host);
       if (before !== this.query || this.done) return;
       if (completed !== null) { this.input.splice(0, this.query.length, completed); this.refresh(); this.host.ctx.redraw(); return; }
@@ -590,6 +590,11 @@ export class PowerBar {
   }
 
   commandLine(n = this.selected + 1): string {
+    if (this.scope === "ask") {
+      const line = formLine();
+      if (line === null) throw new ActionRefused("this is an answer, not a command; finish or close the question first");
+      return line;
+    }
     const it = this.items[n - 1];
     if (it?.source.id === "runs" || it?.row.key.startsWith("line:")) return it.row.fill!;
     if (it?.source.id === "actions") {
@@ -601,6 +606,7 @@ export class PowerBar {
 
   menuOpen = false;
   async command(op: string, n?: number) {
+    if (op === "recall" && this.scope === "ask") throw new ActionRefused("recall belongs to the command line; finish or close the question first");
     if (op === "menu") { this.menuOpen = !this.menuOpen; this.host.ctx.redraw(); return; }
     const line = op === "recall" ? this.host.runs.at(-1)?.line : this.commandLine(n);
     if (!line) throw new Error("type an act line first");
@@ -624,7 +630,7 @@ export class PowerBar {
     const it = this.items[n - 1];
     if (!it) throw new Error(this.items.length ? `pick 1 to ${this.items.length}` : "the bar lists nothing to pick");
     this.picker.sel = n - 1;
-    const keep = actor.kind === "user" && this.keepsRun(n), line = this.commandLine(n);
+    const keep = actor.kind === "user" && this.keepsRun(n), line = keep ? this.commandLine(n) : "";
     try {
       const result = await it.source.pick(it.row, this.host, { alt, actor }) ?? null;
       if (keep) this.recordRun(line, result, false);
