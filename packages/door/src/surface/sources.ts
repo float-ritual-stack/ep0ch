@@ -82,7 +82,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
   };
   const a = p.answer;
   const updated = a ? `Updated ${age(a.readAt, now) || "just now"}` : "";
-  const refresh = "⟳ r";
+  const refresh = "⟳";
   const head = (title: string) => {
     put(` ${fg(C.yellow)}${BOLD}${title}${UNBOLD}${RESET}`);
     const left = a ? `${updated} ` : "";
@@ -110,7 +110,6 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
       for (const text of rowLines(`${left}  ${right}`, w, Infinity, { hang: 3 })) put(text, [{ from: 0, to: w, action: "sources.enter", args: { n: i + 1 } }]);
     });
     put("");
-    put(` ${dim("j k select · ⏎ open · r read again · esc close")}`);
     return { cols: cols(), lines, hits, items: [], focus };
   }
 
@@ -133,7 +132,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
   };
   fold("query", "Query", `${s.query.params.length} parameter${s.query.params.length === 1 ? "" : "s"}`);
   if (p.folds.query) {
-    for (const x of s.query.params) { row(i, `  ${fg(C.grey)}${pad(x.key, 12)}${RESET} ${fg(C.white)}${x.value}${RESET}${s.query.editable ? "  " + fg(C.lcyan) + "[e edit]" + RESET : ""}`, "sources.item", { n: i + 1 });
+    for (const x of s.query.params) { row(i, `  ${fg(C.grey)}${pad(x.key, 12)}${RESET} ${fg(C.white)}${x.value}${RESET}${s.query.editable ? "  " + fg(C.lcyan) + "[edit]" + RESET : ""}`, "sources.item", { n: i + 1 });
       if (p.warnings[x.key]) put(`    ${fg(C.yellow)}${p.warnings[x.key]}${RESET}`);
       if (p.inspector.field?.key === x.key) {
         const start = lines.length, field = p.inspector.fieldDraw(w, start);
@@ -144,17 +143,17 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
       i++; }
     if (!s.query.params.length) put(`    ${dim("takes no parameters")}`);
     for (const l of wrap(s.query.text, w - 6)) put(`    ${fg(C.grey)}${l}${RESET}`);
-    row(i, `  ${fg(C.lcyan)}[y copy query]${RESET}`, "sources.copy", { part: "query" }); i++;
+    row(i, `  ${fg(C.lcyan)}[copy query]${RESET}`, "sources.copy", { part: "query" }); i++;
     if (!s.query.editable) put(`    ${dim("edit it in the note: this kind is written there, not through a field")}`);
   }
   fold("transform", "Transform", s.transform.label);
   if (p.folds.transform) {
-    if (s.transform.block) { row(i, `  ${fg(C.lcyan)}[g jump to its note]${RESET}`, "sources.jump", {}); i++; }
+    if (s.transform.block) { row(i, `  ${fg(C.lcyan)}[jump to its note]${RESET}`, "sources.jump", {}); i++; }
     if (s.transform.text !== undefined) {
       const body = s.transform.text.split("\n");
       for (const l of body) put(`    ${fg(C.grey)}${l}${RESET}`);
 
-      row(i, `  ${fg(C.lcyan)}[y copy]${RESET}`, "sources.copy", { part: "transform" }); i++;
+      row(i, `  ${fg(C.lcyan)}[copy]${RESET}`, "sources.copy", { part: "transform" }); i++;
     } else put(`    ${dim("nothing to show: it reads what the line says")}`);
   }
   fold("result", "Result", `${s.result.rows} row${s.result.rows === 1 ? "" : "s"}`);
@@ -164,16 +163,16 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
       const cols = s.result.columns;
       for (const r of table) { row(i, `  ${fg(C.grey)}${r.map((c, n) => `${cols[n]}: ${c}`).join(" · ")}${RESET}`, "sources.pick", { n: i + 1 }); i++; }
     } else for (const l of s.result.text.split("\n").filter(Boolean)) { row(i, `  ${fg(C.grey)}${l}${RESET}`, "sources.pick", { n: i + 1 }); i++; }
-    row(i, `  ${fg(C.lcyan)}[y copy result]${RESET}`, "sources.copy", { part: "result" }); i++;
-    row(i, `  ${fg(C.lcyan)}[c download CSV]${RESET}`, "sources.download", { format: "csv" }); i++;
-    row(i, `  ${fg(C.lcyan)}[J download JSON]${RESET}`, "sources.download", { format: "json" }); i++;
+    row(i, `  ${fg(C.lcyan)}[copy result]${RESET}`, "sources.copy", { part: "result" }); i++;
+    row(i, `  ${fg(C.lcyan)}[download CSV]${RESET}`, "sources.download", { format: "csv" }); i++;
+    row(i, `  ${fg(C.lcyan)}[download JSON]${RESET}`, "sources.download", { format: "json" }); i++;
     put("");
     put(` ${dim("Outline")}  ${fg(C.white)}${p.outline || "this outline"}${RESET}`);
     put(` ${dim("Read")}     ${fg(C.white)}${s.readAt ? `${s.live ? "live, " : ""}as of ${s.readAt}` : "as written"}${RESET}`);
     put(` ${dim("Query")}    ${fg(C.white)}${s.query.text.replace(/^\s*>\s*/, "")}${RESET}`);
   }
   put("");
-  put(` ${dim(p.note || "j k move · ⏎ fold or edit · e edit · y copy · g jump · esc back")}`);
+  if (p.note) put(` ${dim(p.note)}`);
   if (wide && w >= SOURCES_WIDE_COLS) {
     const cols = Math.floor((w - 4) / 3), narrow = drawSources(p, cols, now, false);
     const starts = FOLDS.map(f => narrow.hits.find(h => h.action === "sources.fold" && h.args.fold === f)!.row);

@@ -131,7 +131,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     // The box is under its line, in the note: the line is still drawn above it, the next line below it.
     at = find("two new sheets of felt");
     let r = rows();
-    const title = r.findIndex((l, i) => i > at.y && l.includes("» comment · ctrl+s saves") && l.includes("[inline ▸]"));
+    const title = r.findIndex((l, i) => i > at.y && l.includes("» comment") && l.includes("[inline ▸]"));
     expect(title - at.y, r.join("\n")).toBeLessThanOrEqual(3);
     expect(r.findIndex((l, i) => i > title && l.includes("The rain barrel overflows"))).toBeGreaterThan(title);
     // An agent never takes the person's composer.
@@ -166,7 +166,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     // The preview draws the reference by its title and the embed's text, as the reader does.
     press({ kind: "char", ch: "p", ctrl: true });
     await until(() => rows().some(l => l.includes("Buy a second water butt")), "the preview with the embed", 8000);
-    expect(rows().join("\n")).toContain("preview · ctrl+p hides");
+    expect(rows().join("\n")).toContain("( preview )");
     // The preview follows the cursor's line: up on the first, the reference reads as its note's title.
     press({ kind: "up" }); press({ kind: "up" });
     await until(() => rows().some(l => l.includes("see Greenhouse meeting")), "the reference drawn by its title in the preview");
@@ -255,7 +255,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // In by a click in its text, then typed.
-    const t = find("» comment · ctrl+s");
+    const t = find("» comment");
     expect(t.y).toBeGreaterThan(0);
     click(t.x + 2, t.y + 2);
     await until(() => stage().describe().focusName === "floating", "the floating comment has the keys");
@@ -523,7 +523,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // A click in the comment's text gives the middle reader the keys and puts the cursor there.
-    const textRow = () => { const rows = sc.render(app).lines.map(plain); const y = rows.findIndex(l => l.includes("» comment · ctrl+s")); const x = rows[y]!.indexOf("comment ·"); return { rows, y, x }; };
+    const textRow = () => { const rows = sc.render(app).lines.map(plain); const y = rows.findIndex(l => l.includes("» comment")); const x = rows[y]!.indexOf("comment"); return { rows, y, x }; };
     let at = textRow();
     expect(at.y).toBeGreaterThan(0);
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
@@ -607,7 +607,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // A click in the comment's text gives the guide's tile the keys.
-    let r = rows(), y = r.findIndex(l => l.includes("» comment · ctrl+s")), x = r[y]!.indexOf("comment ·");
+    let r = rows(), y = r.findIndex(l => l.includes("» comment")), x = r[y]!.indexOf("comment");
     click(x + 2, r.findIndex((l, i) => i > y && /─{5,}/.test(l.slice(x))) + 1);
     await until(() => stage().describe().focusName === "guide", "the comment has the keys");
     // Typed, then a doubled word dragged across with the mouse and taken out.

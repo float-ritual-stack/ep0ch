@@ -113,7 +113,7 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves", ()
     await desk.dispatch.press("draft.preview", { on: true }, "reader");
     const preview = () => {
       const rows = reader.render(150, 160, false, desk).lines.map((l: string) => l.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, ""));
-      return rows.slice(rows.findIndex((l: string) => l.includes("preview · ctrl+p hides")) + 1).join("\n");
+      return rows.slice(rows.findIndex((l: string) => l.includes("( preview )")) + 1).join("\n");
     };
     await until(() => preview().includes("∙ test") && preview().includes("live · 1 occurrence"), "the unsaved mode field", 5000);
     expect(preview()).not.toContain("Draft condition holds.");

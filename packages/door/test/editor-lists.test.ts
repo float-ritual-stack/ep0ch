@@ -259,7 +259,7 @@ describe("in a reader: the note surface hosts it (keys, mouse, act)", () => {
     expect(s.click(f.col + 4, row, h)).toBe(true);
     expect(s.draft!.row).toBe(19);
     s.key({ kind: "char", ch: "p", ctrl: true }, h);
-    expect(text(s.render(40, 30, h).lines).some(l => l.includes("preview · ctrl+p hides"))).toBe(true);
+    expect(text(s.render(40, 30, h).lines).some(l => l.includes("( preview )"))).toBe(true);
   });
 
   test("agents: draft.* runs in a draft the agent alone writes, and is refused in the person's", async () => {

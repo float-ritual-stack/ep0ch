@@ -569,7 +569,7 @@ export class CommentSession {
 
   /**
    * The composer's frame for renderEditor, as `place` draws it (PIE-770, src/surface/composer.ts): what's written and
-   * its keys on the title row ("comment · ctrl+s saves · esc cancels"; the reader's header names the note), the state,
+   * its title and state (the reader's header names the note),
    * and the quote where the passage isn't right beside it (popup, split). `preview`: the reader's renderer (ctrl+p).
    */
   composerFrame(preview?: EditFrame["preview"]): EditFrame | null {
@@ -584,8 +584,8 @@ export class CommentSession {
     const quote = t.kind === "quote" ? t.passage.quote : t.kind === "note" ? "" : t.thread.quote;
     const context = away && quote ? wrap(quote.replace(/\s+/g, " "), w).slice(0, 2).map(l => fg(C.green) + " " + MARK + " " + l + RESET) : [];
     return {
-      title: `${what} · ctrl+s saves · esc cancels`,
-      status: [state ?? status(d.note || this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words · ctrl+s saves · esc leaves it as it was") : d.dirty ? "unsent" : t.kind === "quote" || t.kind === "note" ? "type the comment · (( links a note" : "type the reply"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
+      title: what,
+      status: [state ?? status(d.note || this.note || (t.kind === "edit" ? (d.dirty ? "edited, not saved" : "change the words") : d.dirty ? "unsent" : t.kind === "quote" || t.kind === "note" ? "type the comment · (( links a note" : "type the reply"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
       context, by: writtenBy(d, t.kind === "edit" ? "save" : "send"), preview, pick: true, follow: true, place: this.place,
     };
   }

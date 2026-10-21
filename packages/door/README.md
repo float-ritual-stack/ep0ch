@@ -128,6 +128,10 @@ One walk through the door, in the order you meet things. Each step has its own s
    install has linked its channel, does both in television), and from a program in a tile `ep0ch where` says
    which door, tile and keys it's in ([where am I](docs/AGENT-INTERFACE.md#where-am-i-ep0ch_nest-and-ep0ch-where)).
 
+Sources (`S`) shows its keys once in the tile hint row. `Esc` closes it from Sources or the
+reader beside it; Left returns from one source to the list. An open edit preview also closes on
+`Esc`, preserving the edit underneath.
+
 ## Outlines on the outline host
 
 The outliner's outline host serves every outline on the machine by name: `<name>.sqlite` in `~/outlines`

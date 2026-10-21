@@ -1280,9 +1280,10 @@ Replies are notes; whole-note comments and patch notes keep their existing behav
 ### Sources inspector keys (PIE-1100)
 
 `S` or the header's Sources control opens and enters the inspector; a click anywhere in it also
-enters it. `Esc` returns keys to the reader while keeping it visible; `S` enters it again. The panel's
-footer names who has the keys and is clickable to transfer them; `sources.focus on=true|false` is the
-same action. The back arrow returns to the source list; `q` or `S` inside closes it.
+enters it. `Esc` closes Sources from either the inspector or the reader beside it. The tile hint row
+reads its bindings from the mode key table. The panel's footer only names who has the keys and is
+clickable to transfer them; `sources.focus on=true|false` is the same action. The back arrow or Left
+returns to the source list; `q` or `S` inside also closes the inspector.
 
 Inside it, `j k`, arrows and Tab select rows; PgUp/PgDn, space and the wheel scroll. Text wraps and
 a drag selects and copies through the reader's selection part. Result rows select by click, open

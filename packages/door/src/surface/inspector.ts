@@ -101,7 +101,7 @@ export class Inspector extends RowView {
       lines.push(...rowLines(`    ${n === f.selected ? ">" : " "} ${c}`, w));
       for (let row = start; row < lines.length; row++) hits.push({ row, from: 0, to: w, args: { op: f.multiple ? "toggle" : "pick", n } });
     });
-    lines.push(...rowLines(`    ${f.note || (f.multiple ? "space toggle · Enter save · Esc keeps" : "Enter save · Esc keeps")}`, w));
+    if (f.note) lines.push(...rowLines(`    ${f.note}`, w));
     hits.push({ row: lines.length, from: 4, to: 10, args: { op: "save" } }, { row: lines.length, from: 12, to: 20, args: { op: "cancel" } });
     lines.push("    [save]  [cancel]");
     return { lines, hits, focus };

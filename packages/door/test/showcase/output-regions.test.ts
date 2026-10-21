@@ -4,6 +4,9 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
+import { hintKeys, declaredKeys } from "../../src/surface/actions";
+import { COMMENT_KEYS, EDIT_PREVIEW_KEYS } from "../../src/surface/attached-keys";
+import { completionOf } from "../../src/surface/completer";
 import { ReaderPane } from "../../src/desk/panes";
 import { Desk } from "../../src/desk/desk";
 import { USER } from "../../src/socket";
@@ -14,6 +17,129 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
   const { screen } = h;
   let board!: typeof h.board, app!: typeof h.app, seeded!: typeof h.seeded;
   beforeAll(() => { ({ board, app, seeded } = h); });
+
+  test("PIE-1171: Sources says its keys once and Esc closes it from either side", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    for (const focused of [true, false]) {
+      await act("sources.open");
+      await act("sources.place", { place: "inline" });
+      await act("sources.focus", { on: focused });
+      const drawn = screen();
+      expect(drawn).toContain("Sources");
+      const mode = pane.surface.sourcesMode!;
+      for (const key of hintKeys(mode.hint())) expect(mode.keys!.some(row => row.key === key)).toBe(true);
+      expect(drawn.split("\n").filter(line => /close sources/.test(line))).toHaveLength(1);
+      expect(declaredKeys(stage.dispatch.defOf("sources.close")!.keys).has("esc")).toBe(true);
+      expect(declaredKeys(stage.dispatch.defOf("sources.back")!.keys).has("esc")).toBe(false);
+      if (focused) {
+        await act("sources.enter", { n: 1 });
+        for (const key of hintKeys(mode.hint())) expect(mode.keys!.some(row => row.key === key)).toBe(true);
+        pane.key({ kind: "left" }, stage);
+        await until(() => (mode.describe() as { view: string }).view === "list", "Left returns to the source list");
+      }
+      pane.key({ kind: "esc" }, stage);
+      await until(() => !pane.surface.sourcesMode, "Esc closes Sources from either side");
+      await until(() => app.messages.rows.at(-1)?.message === "closed the sources", "Esc says what it closed");
+    }
+  });
+
+  test.each([{ kind: "enter" as const }, { kind: "enter" as const, shift: true as const }, { kind: "enter" as const, ctrl: true as const }])("PIE-1171: every Enter that worked before still opens Sources (%j)", async key => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    await stage.dispatch.press("sources.open", {}, "notes");
+    await until(() => !(pane.surface.sourcesMode!.describe() as { loading: boolean }).loading, "Sources loaded");
+    try {
+      pane.key(key, stage);
+      await until(() => (pane.surface.sourcesMode!.describe() as { view: string }).view === "source", "modified Enter opens the source", 2000);
+    } finally { await stage.dispatch.press("sources.close", {}, "notes"); }
+  });
+
+  test.each(["comment", "preview"])("PIE-1171: completion owns the hint over the %s", async target => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act(target === "comment" ? "comment.note" : "edit");
+    if (target === "preview") {
+      pane.key({ kind: "enter" }, stage);
+      await until(() => !!pane.draft, "the edit opens");
+      await act("draft.preview", { on: true });
+    }
+    const draft = target === "comment" ? pane.surface.session!.composer! : pane.draft!;
+    const original = draft.text;
+    try {
+      for (const ch of " ((Gree") pane.key({ kind: "char", ch }, stage);
+      await until(() => !!completionOf(draft)?.items.length, "reference completion opens");
+      expect(pane.surface.hint()).toContain("esc dismiss");
+      expect(pane.surface.hint()).not.toMatch(/close comment|close preview/);
+      pane.key({ kind: "esc" }, stage);
+      await until(() => !completionOf(draft), "Esc dismisses completion");
+      expect(target === "comment" ? pane.surface.session!.composer : pane.draft).toBe(draft);
+      expect(pane.surface.hint()).toContain(target === "comment" ? "puts comment aside" : "close preview");
+    } finally {
+      if (target === "comment") await act("comment.write", { body: original });
+      else draft.replace(original);
+      await act(target === "comment" ? "comment.close" : "edit.close", { discard: true });
+    }
+  });
+
+  test("PIE-1171: comment and preview hints name bound keys and Esc keeps the draft", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act("comment.note");
+    for (const key of hintKeys(pane.surface.attachmentHint("comment"))) expect(COMMENT_KEYS.some(row => row.key === key)).toBe(true);
+    pane.key({ kind: "paste", text: "Keep this unsent comment." }, stage);
+    pane.key({ kind: "esc" }, stage);
+    await Bun.sleep(30);
+    expect(pane.surface.session?.composer?.text).toBe("Keep this unsent comment.");
+    pane.key({ kind: "esc" }, stage);
+    await until(() => !pane.surface.session, "second Esc puts the comment aside");
+    await act("edit");
+    pane.key({ kind: "enter" }, stage);
+    await until(() => !!pane.draft, "the note edit");
+    const draft = pane.draft!;
+    for (const side of ["reader", "preview"]) {
+      await act("draft.preview", { on: true });
+      for (const key of hintKeys(pane.surface.attachmentHint("edit-preview"))) expect(EDIT_PREVIEW_KEYS.some(row => row.key === key)).toBe(true);
+      if (side === "reader") pane.key({ kind: "esc" }, stage);
+      else pane.surface.editPreviewKey({ kind: "esc" }, pane.host(stage));
+      await until(() => !draft.preview, "Esc closes the preview from either side");
+      expect(pane.draft).toBe(draft);
+    }
+    await act("edit.close", { discard: true });
+    await act("note.thread");
+    const replies = pane.surface.replyLinks!;
+    for (const key of hintKeys(replies.hint())) expect(replies.keys!.some(row => row.key === key)).toBe(true);
+    expect(screen()).not.toContain("THREAD · T full list");
+    pane.key({ kind: "esc" }, stage);
+    await until(() => !pane.surface.replyLinks, "Esc closes replies");
+  });
+
+  test("PIE-1171: attached surfaces never carry a prose key list", () => {
+    const sources = readFileSync(new URL("../../src/surface/sources.ts", import.meta.url), "utf8");
+    expect(/j k (?:select|move) ·/.test(sources)).toBe(false);
+    const note = readFileSync(new URL("../../src/surface/note.ts", import.meta.url), "utf8");
+    expect(note).not.toMatch(/THREAD · T full list|sources has keys · Esc reader|reader has keys · click panel or S enter/);
+    const comment = readFileSync(new URL("../../src/comment.ts", import.meta.url), "utf8");
+    expect(comment).not.toMatch(/title:.*ctrl\+s saves/);
+    const editor = readFileSync(new URL("../../src/surface/editor.ts", import.meta.url), "utf8");
+    expect(editor).not.toContain("preview · ctrl+p hides");
+    const inspector = readFileSync(new URL("../../src/surface/inspector.ts", import.meta.url), "utf8");
+    expect(inspector).not.toMatch(/space toggle · Enter save · Esc keeps|Enter save · Esc keeps/);
+    expect(note).not.toMatch(/keys: "Z \(move to|keys: "ctrl\+z \(when a move/);
+    const tile = readFileSync(new URL("../../src/desk/attached-tile.ts", import.meta.url), "utf8");
+    expect(tile).not.toMatch(/Esc reader|ctrl\+s send · esc twice/);
+  });
 
   test("PIE-1155 continued: floating edit preview moves and receives input outside the centred text", async () => {
     await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);

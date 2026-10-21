@@ -6,6 +6,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../../src/app";
+import { traceActions, declaredKeys } from "../../src/surface/actions";
 import { seedDay, SOCIETY_LINKED_BACK, SOCIETY_NOTES, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
@@ -348,9 +349,25 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(rows().find(r => r.selected)!.text).toBe("Eli: not this year, sorry");
     expect(reader().showing.id).toBe(seeded.notes.threadHere.id);
     // ⏎ (or a second click) on the fold shows the posts it hid.
-    const fold = rows().findIndex(r => r.text === "2 more earlier") + 1;
-    await expect((stage() as any).dispatch.act({ action: "note.thread.open", tile: "reader", args: { n: fold } }, { kind: "user" })).rejects.toThrow(/note\.thread\.unfold/);
-    expect(await (stage() as any).dispatch.press("note.thread.unfold", { n: fold }, "reader")).toMatchObject({ unfolded: 2 });
+    for (const enter of [{ kind: "enter" as const, shift: true as const }, { kind: "enter" as const, ctrl: true as const }, { kind: "enter" as const }]) {
+      const fold = rows().findIndex(r => r.text === "2 more earlier") + 1;
+      await expect((stage() as any).dispatch.act({ action: "note.thread.open", tile: "reader", args: { n: fold } }, { kind: "user" })).rejects.toThrow(/note\.thread\.unfold/);
+      await (stage() as any).dispatch.press("note.thread.pick", { n: fold }, "reader");
+      const pane = (stage() as any).pane("reader");
+      const binding = pane.surface.replyLinks.keys.find((row: { key: string }) => row.key === "enter");
+      const ran: string[] = [];
+      const off = traceActions(action => { if (action.scope === "note") ran.push(action.name); });
+      try {
+        pane.key(enter, stage());
+        await until(() => rows().some(row => row.text === "Ana: I have a tray going spare"), "Enter unfolded the posts", 2000);
+        expect(ran).toContain(binding.action);
+        expect(declaredKeys((stage() as any).dispatch.defOf(binding.action).keys)).toContain("enter");
+      } finally { off(); }
+      if ("shift" in enter || "ctrl" in enter) {
+        await (stage() as any).dispatch.press("note.thread.close", {}, "reader");
+        await (stage() as any).dispatch.press("note.thread", {}, "reader");
+      }
+    }
     expect(rows().map(r => r.text)).toContain("Ana: I have a tray going spare");
     // b walks the thread, the replies (the old children list), the outlinks and the backlinks, and back.
     const groups = [] as string[];
