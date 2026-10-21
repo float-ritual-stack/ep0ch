@@ -658,6 +658,15 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect((app as any).bar.describe().query).toBe("");
     press({ kind: "esc" });
     expect((app as any).bar).toBeNull();
+    await app.dispatch.press("bar.open", { query: "tile.colapse tile=reader on=true direction=h" });
+    expect((app as any).bar.describe().rows[0]).toMatchObject({ label: "run tile.collapse tile=reader on=true dir=h" });
+    await app.dispatch.press("bar.pick");
+    expect((app as any).bar.describe().runs.at(-1)).toMatchObject({ line: "tile.collapse tile=reader on=true dir=h", refused: false });
+    expect(stage().tileOutline().find(t => t.name === "reader")?.collapsed).toBe(true);
+    const button = await app.dispatch.press("bar.command", { op: "button" }) as { text: string };
+    expect(button.text).toContain('act="tile.collapse tile=reader on=true dir=h"');
+    await app.dispatch.press("bar.close");
+    await stage().dispatch.press("tile.collapse", { on: false }, "reader");
     // layout.move through its form (PIE-1031): ⏎ on the action opens it, a field each; the tile fields list the stage's
     // tiles, where= its choices; the act line under them runs as the person.
     press({ kind: "char", ch: "k", ctrl: true });

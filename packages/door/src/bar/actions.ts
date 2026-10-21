@@ -91,7 +91,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       if (query !== undefined || scope !== undefined) throw new ActionRefused("the person's pick is from the bar as they see it: query= and scope= are an agent's");
       const at = n ?? b.selected + 1;
-      on.close();
+      if (!b.keepsRun(at)) on.close();
       try { return await b.pickRow(at, !!alt, actor); } catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); }
     },
   }),
@@ -115,8 +115,41 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       if (!["clear", "complete", "paste", "select", "cut", "delete-word", "undo"].includes(op)) throw new ActionRefused("choose clear, complete, paste, select, cut, delete-word or undo");
       const b = actor.kind === "agent" ? await on.unseen({ query, scope: scopeArg(scope) }) : on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
-      try { b.edit(op, { text, from, to }, actor.kind === "user"); return { query: b.query, selected: b.input.selectedText() }; }
+      try { await b.edit(op, { text, from, to }, actor.kind === "user"); return { query: b.query, selected: b.input.selectedText() }; }
       finally { if (actor.kind === "agent") b.close(); }
+    },
+  }),
+  "bar.docs": def({
+    summary: "scroll, select and copy the power bar's docs, or put an example on the command line",
+    keys: "alt+j/k scroll, alt+v docs keys (arrows, page up/down, y copy, enter example, esc line), wheel over docs, drag or double click to select, cmd+c to copy, click an example",
+    touches: "nothing", replay: "safe", person: "the docs reading position and selection belong to the person",
+    args: {
+      op: { type: "string", choices: ["scroll", "select", "extend", "copy", "example", "focus", "key"], about: "the reader operation" },
+      key: { type: "string", optional: true, about: "a key in docs selection mode" }, by: { type: "number", optional: true, about: "rows to scroll" }, row: { type: "number", optional: true, about: "content row from zero" },
+      col: { type: "number", optional: true, about: "column from zero" }, clicks: { type: "number", optional: true, about: "2 for a word, 3 for a line" },
+    },
+    run({ op, ...o }, { on }) { const b = on.bar(); if (!b) throw new ActionRefused("the power bar isn't open"); return b.docs(op, o); },
+  }),
+  "bar.command": def({
+    summary: "copy the command as an ep0ch act line or a note button, recall the last run, or open its copy menu",
+    keys: "alt+o copy command, alt+y copy button, alt+m menu, up on an empty line recalls the last run; right click a row",
+    touches: "nothing", replay: "safe", person: "the bar and clipboard are the person's",
+    args: { op: { type: "string", choices: ["copy", "button", "recall", "menu"], about: "copy, button, recall or menu" }, n: { type: "number", optional: true, about: "row from 1; default the lit row" } },
+    async run({ op, n }, { on }) {
+      const b = on.bar();
+      if (!b) throw new ActionRefused("the power bar isn't open");
+      return b.command(op, n);
+    },
+  }),
+  "bar.insert": def({
+    summary: "insert the command as a button into the note at the person's cursor, as one unsaved draft edit",
+    keys: "alt+i; insert button in the command menu",
+    touches: "nothing", replay: "ask", person: "inserting at the person's cursor is their action",
+    args: {},
+    async run(_, { on }) {
+      const b = on.bar();
+      if (!b) throw new ActionRefused("the power bar isn't open");
+      return on.host().dispatch.act({ action: "edit.button", args: { line: b.commandLine() } }, { kind: "user" });
     },
   }),
   "bar.form": def({

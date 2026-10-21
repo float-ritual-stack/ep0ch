@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The power bar corrects commands and lets you take them into notes (PIE-1126)
+
+A mistyped action, argument or fixed value shows its correction or allowed values on the run row. Tab and right
+at the line's end complete arguments from the same schemas and system values as the form. The docs scroll,
+select and copy; clicking an example puts it on the line. Runs keep their answers in a short session history,
+and up on an empty line recalls the last. Alt+o copies the command, Alt+y copies a note button, Alt+i inserts
+it at your note cursor as one unsaved draft step, and Alt+m or a row's right click opens the copy menu. Alt+j/k
+scroll the docs; Alt+v gives them selection keys (esc returns to the line).
+
 ### A page's figure or view can no longer freeze the outline host; the publisher says "busy" instead of failing (PIE-1047, PIE-1009)
 
 On Oct 18 one published page held float-2's outline host for 57 s twice: the page's `thread:me` replies view asked
