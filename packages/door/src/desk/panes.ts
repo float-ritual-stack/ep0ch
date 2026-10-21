@@ -161,6 +161,8 @@ export interface DeskApi {
 }
 
 export interface Pane {
+  /** Whether its host currently draws the tile (also reaches nested screens). */
+  shownAs?(on: boolean): void;
   unsaved?(): boolean;
   keepDrafts?(): string[];
   /**

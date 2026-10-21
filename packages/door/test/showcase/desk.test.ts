@@ -328,6 +328,26 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
   }, 20_000);
 
 
+  test("the drawer chat's open accents the numbered screen destination until focus (PIE-1131)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
+    const stage = S().stages.get(S().sel).top as Desk;
+    await app.act({ action: "tile.drawer", tile: "kettle", as: "test-agent" });
+    const drawer = app.drawer.desk!;
+    const user = { kind: "user" } as const;
+    await drawer.dispatch.act({ action: "tile.link", tile: "kettle", args: { to: drawer.pathTo(stage.pane("reader")!) } }, user);
+    const focus = stage.focusName();
+    await drawer.dispatch.act({ action: "open", args: { from: "kettle", id: seeded.notes.callouts.id } }, { kind: "agent", id: "chat-helper" });
+    expect(stage.layoutGet().tiles.find(t => t.name === "reader")).toMatchObject({ arrival: { by: "chat-helper" }, showing: { id: seeded.notes.callouts.id } });
+    expect(stage.focusName()).toBe(focus);
+    expect(screen()).toContain("*");
+    expect((app as any).message).toContain("opened in 1 · reader");
+    await stage.dispatch.act({ action: "tile.focus", tile: "reader" }, user);
+    expect(stage.layoutGet().tiles.find(t => t.name === "reader")!.arrival).toBeUndefined();
+    await drawer.dispatch.act({ action: "tile.drawer", tile: "kettle", args: { on: false } }, user);
+  });
+
   test("drawer list wires select and open into a drawer detail", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });

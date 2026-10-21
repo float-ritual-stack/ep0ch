@@ -67,6 +67,89 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   /** Another screen (last callers), on top: the screen switch. */
   const otherScreen = () => new Desk({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "notes" }] } as any } });
 
+  test("an open from the drawer identifies and accents its screen tile until clicked (PIE-1131)", async () => {
+    const d = await door();
+    try {
+      const note = await board.createBlock(null, "A letter from the potting shed");
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tile.link", tile: "kettle", args: { ask: true } }, USER);
+      await drawer.dispatch.act({ action: "tile.link", tile: "kettle", args: { to: "@desk/reader" } }, USER);
+      const focus = d.desk.layoutGet().focus;
+      await drawer.dispatch.act({ action: "open", args: { id: note.id, from: "kettle" } }, { kind: "agent", id: AS });
+      const tile = () => (d.desk.describe().panes as any[]).find(t => t.name === "reader");
+      expect(tile().showing.id).toBe(note.id);
+      expect(tile().arrival).toMatchObject({ by: AS });
+      expect(d.desk.layoutGet().focus).toBe(focus);
+      expect(d.paint().join("\n")).toContain("opened in 2 · reader");
+      const accentRect = tile().rect;
+      expect(d.paint()[accentRect.row]![accentRect.col + 2]).toBe("*");
+      await drawer.dispatch.act({ action: "tile.link", tile: "kettle", args: { ask: true } }, USER);
+      expect(drawer.linkingHint()!.choices!.some(c => c.label.includes("reader") && c.key === "2")).toBe(true);
+      await drawer.dispatch.act({ action: "tile.link", tile: "kettle", args: { ask: false } }, USER);
+      const r = tile().rect;
+      d.key(mouse("down", r.col + 4, r.row + 3));
+      d.key(mouse("up", r.col + 4, r.row + 3));
+      expect(tile().arrival).toBeUndefined();
+      let now = 100;
+      d.desk.clock = () => now;
+      const open = () => drawer.dispatch.act({ action: "open", args: { id: note.id, from: "kettle" } }, { kind: "agent", id: AS });
+      await open(); d.paint();
+      d.app.push(otherScreen()); now += 20_000;
+      d.app.pop(); d.paint();
+      expect(tile().arrival).toBeDefined();
+      now += 9999; d.desk.tick();
+      expect(tile().arrival).toBeDefined();
+      now++; d.desk.tick();
+      expect(tile().arrival).toBeUndefined();
+      await open();
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
+      expect(tile().arrival).toBeUndefined();
+      await drawer.dispatch.act({ action: "tile.link", tile: "kettle", args: { to: "@desk/reader", verb: "select" } }, USER);
+      const preview = await board.createBlock(null, "Seed order preview");
+      drawer.showFrom(drawer.pane("kettle")!, preview);
+      expect(tile().arrival).toMatchObject({ by: "person" });
+      expect(tile().showing.id).toBe(preview.id);
+      d.key({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 4, y: r.row + 3 });
+      expect(tile().arrival).toBeUndefined();
+    } finally { d.app.quit(); }
+  });
+
+  test("a loaded screen renames a drawer name clash once and keeps that name (PIE-1131)", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      const spec = { name: "lastcall", title: "letters", lands: "kettle", home: "kettle", keys: [{ key: "x", action: "tile.focus", tile: "kettle" }], layout: { focus: "kettle", policy: { opensInto: "letters" }, root: { t: "split" as const, dir: "row" as const, key: "letters", weights: [1, 1], kids: [{ t: "leaf" as const, kind: "reader", name: "kettle" }, { t: "leaf" as const, kind: "reader", name: "other" }] } } };
+      const next = new Desk(spec);
+      d.app.push(next); d.paint();
+      expect(next.layoutGet().tiles[0]!.name).toBe("kettle2");
+      expect(d.app.drawer.tabs().some(t => t.name === "kettle")).toBe(true);
+      expect(d.paint().join("\n")).toContain("renamed kettle to kettle2");
+      const renames = () => d.app.messages.rows.filter(r => r.message.includes("renamed kettle to kettle2"));
+      expect(renames()).toHaveLength(1);
+      const rev = next.layoutGet().rev;
+      next.enter(d.app); d.paint();
+      expect(next.layoutGet().rev).toBe(rev);
+      expect(renames()).toHaveLength(1);
+      expect(next.layoutGet().tiles[0]!.name).toBe("kettle2");
+      const saved = next.savedState();
+      d.app.pop();
+      const restored = new Desk(spec, { saved });
+      d.app.push(restored); d.paint();
+      const note = await board.createBlock(null, "A letter after reopening");
+      await restored.openLanding(note.id, USER);
+      expect(restored.layoutGet().tiles.find(t => t.name === "kettle2")!.showing?.id).toBe(note.id);
+      await restored.dispatch.act({ action: "tile.focus", tile: "other" }, USER);
+      restored.key(char("x"), d.app);
+      expect(restored.focusName()).toBe("kettle2");
+      const floated = await restored.openPlace(note.id, "float", USER);
+      expect(restored.layoutGet().tiles.find(t => t.name === floated.reader)!.arrival).toBeDefined();
+      const made = await restored.saveScreen("Letters to keep", USER);
+      await d.app.dispatch.act({ action: "screen.open", args: { name: String(made.screen) } }, USER);
+      expect((d.app.screens().at(-1) as Desk).pane("kettle2")).toBeDefined();
+    } finally { d.app.quit(); }
+  });
+
   test("a group travels through the drawer with tabs, wires and a draft, and note buttons toggle it (PIE-1120)", async () => {
     const d = await door();
     try {
@@ -649,15 +732,15 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(d.pane("tree")).toBe(tree);
       await pick(d.app.drawer.desk!, b.id);
       await until(() => pv.msg?.id === b.id, "the preview follows the tree in the drawer");
-      // A new tree on the desk by the same name never drives it.
+      // A new tree gets a distinct name and never drives the old tree's preview.
       await d.desk.dispatch.act({ action: "tile.open", args: { kind: "tree", name: "tree" }, tile: "kettle" }, USER);
-      const twin = d.desk.pane("tree") as any;
+      const twin = d.desk.pane("tree2") as any;
       expect(twin).not.toBe(tree);
       await until(() => twin.list().some((r: any) => JSON.stringify(r).includes(a.id)), "the new tree lists the notes");
-      await pick(d.desk, a.id);
+      await d.desk.dispatch.act({ action: "tree.pick", args: { id: a.id }, tile: "tree2" }, USER);
       await Bun.sleep(50);
       expect(pv.msg?.id).toBe(b.id);
-      await d.desk.dispatch.act({ action: "tile.close", tile: "tree" }, USER);
+      await d.desk.dispatch.act({ action: "tile.close", tile: "tree2" }, USER);
       // Back out of the drawer: it follows the same tree, here.
       await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false, to: "kettle" }, tile: "tree" }, USER);
       expect(d.desk.pane("tree")).toBe(tree);
@@ -666,15 +749,16 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { listen = null; d.app.quit(); }
   }, 20_000);
 
-  test("one name on the screen and in the drawer: refused by name, reached by id", async () => {
+  test("a new screen tile gets a unique name, and the drawer tile is reached by name and id", async () => {
     const d = await door();
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
       await d.app.act({ action: "tile.drawer", args: {}, tile: "kettle", as: AS });
       const kid = d.app.drawer.tabs().find(t => t.name === "kettle")!.id;
       await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle" }, tile: "reader" }, USER);
-      await expect(d.app.act({ action: "tile.type", args: { text: "hello" }, tile: "kettle", as: AS })).rejects.toThrow(new RegExp(`names a tile here .* and one in the drawer \\(${kid}\\)`));
-      expect(d.A.message).toContain(`an agent (${AS}) · tile.type refused: kettle names a tile here`);   // said on the status bar, as every refusal
+      expect(d.desk.pane("kettle2")).toBeDefined();
+      await d.app.act({ action: "tile.type", args: { text: "by name\r" }, tile: "kettle", as: AS });
+      await until(() => (d.pane("kettle") as PtyPane).text().some(l => l.includes("by name")), "typed by its unique name");
       await until(() => (d.pane("kettle") as PtyPane).running, "the kettle in the drawer runs");
       await d.app.act({ action: "tile.type", args: { text: "by id\r" }, tile: kid, as: AS });
       await until(() => (d.pane("kettle") as PtyPane).text().some(l => l.includes("by id")), "typed into the one in the drawer");
@@ -772,8 +856,8 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     const e = await door();
     try {
       e.paint();
-      expect(e.inDrawer("replies")).toBe(true);
-      expect(e.desk.pane("replies")).toBeDefined();               // the desk's own layout has a thread again (its spec): two tiles, one in the drawer
+      expect(e.inDrawer("replies2")).toBe(true);
+      expect(e.desk.pane("replies")).toBeDefined();               // The restored drawer tab gets a distinct name from the screen's own thread.
     } finally { e.app.quit(); }
   });
 });

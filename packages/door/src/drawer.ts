@@ -985,7 +985,7 @@ export class AgentDrawer {
     const d = this.desk, t = this.shownTabOf();
     if (!d || !t) return;
     const p = d.pane(t.name);
-    if (d.focusedName() !== t.name) d.run("tile.focus", {}, t.name);
+    d.run("tile.focus", {}, t.name);
     // A terminal not started yet starts as it's first drawn: the keys go into it then (render).
     if (p instanceof PtyPane && !p.running && p.exited === null) { this.wantIn = { send }; return; }
     this.wantIn = null;

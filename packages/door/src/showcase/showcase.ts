@@ -390,7 +390,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "drawer", need: "carry a tile across screens (a terminal, a reader, the tree)", part: "your drawer: the host layer's tabs, above every screen, on a desk of its own; tile.drawer moves a tile in or out whole", files: "src/drawer.ts, src/desk/drawer-program.ts",
-    aside: "Close every tile with ^W x, its menu, or its frame x. The last closes too: the screen or drawer shows home, with the power bar and New note / Shell / Agent buttons. Nothing starts itself; alt+s always opens a shell. In the drawer, ^W o d makes an empty detail; click New note to write in that same tile, then ctrl+s saves. Click the drawer agent chip every time you want its picker; choose a program to replace its one agent tab. Tab switches this outline / every outline, and the folder is editable. An EP0CH_DAILY_AGENT override is named on the chip and explained in the picker. Switch twice: no extra agent tab. alt+g with no agents shows New Agent and Shell buttons and Getting about. ^W a or a drag still carries a tile whole between the screen and drawer.",
+    aside: "Move kettle into the drawer with ^W a, then alt+l: the card lists screen tiles by number and name. Wire its open to reader, and open a note from kettle through act (as a chat link does). The landing wears a star in its title and a bright frame; click or focus it to clear, or leave it visible for 10 seconds. Names stay unique across the drawer and screen. Close every tile with ^W x, its menu, or its frame x. The last closes too: the screen or drawer shows home, with the power bar and New note / Shell / Agent buttons. Nothing starts itself; alt+s always opens a shell. In the drawer, ^W o d makes an empty detail; click New note to write in that same tile, then ctrl+s saves. Click the drawer agent chip every time you want its picker; choose a program to replace its one agent tab. Tab switches this outline / every outline, and the folder is editable. An EP0CH_DAILY_AGENT override is named on the chip and explained in the picker. Switch twice: no extra agent tab. alt+g with no agents shows New Agent and Shell buttons and Getting about. ^W a or a drag still carries a tile whole between the screen and drawer.",
     stage(n, show) {
       const kettle = new PtyPane({ cmd: ["sh", "-c", "echo 'the kettle: a terminal tile to put in your drawer (^W a). Its pid:' $$; " + STATUS_DEMO], label: "kettle" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · drawer", panes: [kettle, r], names: ["kettle", "reader"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
@@ -1402,7 +1402,9 @@ export class Showcase implements Screen {
     if (k.x < this.indexW && to >= 0 && to < SECTIONS.length) this.run("section", { name: String(to + 1) });
   }
 
-  tick(): boolean { return [...this.stages.values()].some(f => f.tick()); }
+  private onScreen = true;
+  shownAs(on: boolean) { this.onScreen = on; for (const [i, f] of this.stages) f.shownAs(on && i === this.sel); }
+  tick(): boolean { return [...this.stages].map(([i, f]) => f.tick(this.onScreen && i === this.sel)).some(Boolean); }
   /** The shown stage's (the status bar's stop control acts on the stage in front, so it only offers what it can stop). */
   dancing(): boolean { return this.stages.get(this.sel)?.dancing() ?? false; }
   settle(): boolean { return [...this.stages.values()].map(f => f.settle()).some(Boolean); }
@@ -1463,7 +1465,7 @@ export class Showcase implements Screen {
       // Listing (no request) skips a stage that isn't ready; running an action there says why.
       delegate: (req?: ActRequest) => {
         const f = this.stage(this.sel);
-        if (f?.top.dispatch) return f.top.dispatch;
+        if (f?.top.dispatch) { if (req) f.open(); return f.top.dispatch; }
         if (!req) return null;
         if (!f) throw new ActionRefused(this.problem || "the showcase outline is still being read");
         throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section has no actions`);

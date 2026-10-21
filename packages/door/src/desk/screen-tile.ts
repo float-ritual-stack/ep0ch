@@ -242,7 +242,9 @@ export class ScreenTile implements Pane {
   }
   wheel(dir: 1 | -1) { this.framed?.key({ kind: "mouse", action: dir < 0 ? "wheel-up" : "wheel-down", button: 0, x: 0, y: 0 }); }
 
-  tick() { return this.framed?.tick() ?? false; }
+  private shown = false;
+  shownAs(on: boolean) { this.shown = on; this.framed?.shownAs(on); }
+  tick() { return this.framed?.tick(this.shown) ?? false; }
   onEvent(_desk: DeskApi, e?: OutlineEvent) { if (e) this.framed?.onEvent(e); }
   unsaved() { return this.framed?.unsaved() ?? false; }
   keepDrafts() { return this.framed?.keepDrafts() ?? []; }

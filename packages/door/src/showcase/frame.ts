@@ -71,7 +71,8 @@ export class FramedScreen {
 
   /** A key, with mouse positions already relative to the rectangle. */
   key(k: Key) { this.open(); this.top.key(k, this.ctx); }
-  tick() { return this.stack.some(s => s.tick?.(this.ctx) ?? false); }
+  shownAs(on: boolean) { for (const s of this.stack) s.shownAs?.(on && s === this.top); }
+  tick(shown = true) { this.shownAs(shown); return this.stack.map(s => s.tick?.(this.ctx) ?? false).some(Boolean); }
   /** Snap any motion in the screens in this frame (a peek or snapshot reads the settled screen). */
   settle() { return this.stack.map(s => s.settle?.() ?? false).some(Boolean); }
   dancing() { return this.stack.some(s => s.dancing?.() ?? false); }
