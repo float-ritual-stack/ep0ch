@@ -39,6 +39,7 @@ export class StatusBarNote {
   private reading: Promise<void> | null = null;
   private stale = false;
   private said = "";
+  private duplicateWarnings = new Set<string>();
   constructor(private board: SocketBoard, private changed: () => void, private warn: (text: string) => void) {}
 
   refresh(builtins: StatusItem[]): Promise<void> {
@@ -70,6 +71,7 @@ export class StatusBarNote {
     const fenced = new Set<number>();
     for (const f of noteCodeFences(lines)) for (let i = f.start; i <= f.end; i++) fenced.add(i);
     const out: StatusItem[] = [];
+    const labels = new Map<string, number>();
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i]!;
       if (fenced.has(i) || !line.trim() || line.trimStart().startsWith("<!--")) continue;
@@ -81,8 +83,17 @@ export class StatusBarNote {
         out.push(builtin);
       } else if (button) {
         if (button.problem) throw new Error(`line ${i + 1}: ${button.problem}`);
+        const key = button.label.toLowerCase(), first = labels.get(key);
+        if (first !== undefined) {
+          const warning = `Status bar: line ${i + 1}: duplicate label="${button.label}"; line ${first} already has it; choose a different label=`;
+          const warningId = `${note.id}:${warning}`;
+          if (!this.duplicateWarnings.has(warningId)) this.warn(warning);
+          this.duplicateWarnings.add(warningId);
+          continue;
+        }
+        labels.set(key, i + 1);
         const alt = button.alt;
-        out.push({ id: `button:${i}`, text: button.label, place: "left", after: " │ ", click: { action: "button.press", args: { note: note.id, label: button.label } }, ...(alt ? { alt: { action: "button.press", args: { note: note.id, label: button.label, alt: true } } } : {}) });
+        out.push({ id: `button:${i}`, text: button.label, place: "left", after: " │ ", click: { action: "button.press", args: { note: note.id, label: button.label, line: i + 1 } }, ...(alt ? { alt: { action: "button.press", args: { note: note.id, label: button.label, line: i + 1, alt: true } } } : {}) });
       } else throw new Error(`line ${i + 1}: use - <built-in id> or ::button{label="Collapse" act="tile.collapse tile=screen"}`);
     }
     return out;
@@ -106,8 +117,11 @@ export class StatusBarNote {
   }
 
   async pin(line: string, builtins: StatusItem[], actor: Actor) {
-    if (!buttonCallsOf(line).some(b => b.act)) throw new ActionRefused("pin a ::button line with act= or of=");
+    const button = buttonCallsOf(line).find(b => b.act);
+    if (!button) throw new ActionRefused("pin a ::button line with act= or of=");
     const note = await this.ensure(builtins, actor);
+    const duplicate = buttonCallsOf(note.text).find(b => b.label.toLowerCase() === button.label.toLowerCase());
+    if (duplicate) throw new ActionRefused(`line ${duplicate.line + 1} already has label="${duplicate.label}"; choose a different label=`);
     const updated = await this.board.update(note.id, `${note.text}\n${line}`, note.revision!, actor);
     await this.refresh(builtins);
     return { note: updated.id };

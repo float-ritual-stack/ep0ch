@@ -265,6 +265,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     '<!-- Evan\'s layout: ::button{label="Collapse" act="tile.collapse tile=screen"} -->',
     '::button{label="Collapse" act="tile.collapse tile=extra"}',
     'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The first edit makes a note seeded with today\'s built-ins. Order them with - <id> lines; leave an id out to hide it. A ::button line puts the same button on the bar, and alt="theme.cycle" gives it an alternate click.',
+    'At 80 columns, pin eight differently named buttons: later items give way to +N, which opens this bar note. The clock and drawer chip stay whole. A duplicate label is refused when pinned; if written into the note, the first button stays and the later line is warned about once in the message log.',
     'status.bar.items describes the built-ins and their actions. Changes are live; malformed lines stay saved, say why in the message log, and keep the default bar until fixed.',
   ].join("\n"));
   notes.motion = await make(notes.root.id, [

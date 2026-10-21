@@ -9616,13 +9616,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       label: { type: "string", optional: true, about: "the button's label, or part of it (`Fantasia` finds `✦ Fantasia`); the one pressable element that has it" },
       alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
+      line: { type: "number", optional: true, about: "source line from 1, with note=, to press a specific button when labels repeat" },
       note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters); the button's script acts on that note" },
     },
     examples: [
       { act: "button.press label=Water", does: "presses the Water button of this note, as whoever asks" },
       { act: 'button.press note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 label="Water beds"', does: "presses that button of a note open nowhere, moving no focus" },
     ],
-    async run({ label, n, note, alt }, { surface, host }, actor) {
+    async run({ label, n, note, alt, line }, { surface, host }, actor) {
       if (note !== undefined) {
         if (label === undefined) throw new ActionRefused("note= needs label= (the button's words); open the note in a reader and use elements for n=");
         const m = await host.ctx.board.get(note);
@@ -9632,7 +9633,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         m.text.split("\n").forEach((l, line) => { if (!l.includes("](act:")) return; for (const o of linkOccurrences(l)) if (o.kind === "markdown") { const act = /^act:\s*(\S.*)$/.exec(o.url.trim())?.[1]?.trim(); if (act) found.push({ label: o.text, act, line }); } });
         const want = label.toLowerCase();
         const exact = found.filter(f => f.label.toLowerCase() === want);
-        const hits = exact.length ? exact : found.filter(f => f.label.toLowerCase().includes(want));
+        const hits = (exact.length ? exact : found.filter(f => f.label.toLowerCase().includes(want))).filter(f => line === undefined || f.line === line - 1);
         if (!hits.length) throw new ActionRefused(`no button says "${label}" in that note; it has ${found.length ? found.map(f => `"${f.label}"`).join(", ") : "none"}. Example: button.press note=${m.id.slice(0, 8)} label="${found[0]?.label ?? "Review"}"`);
         if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons of that note (${hits.map(f => `"${f.label}"`).join(", ")}); say more of the label`);
         const hit = hits[0]!, act = alt && hit.alt ? hit.alt : hit.act;

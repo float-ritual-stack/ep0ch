@@ -167,6 +167,68 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     }
   });
 
+  test("eight pins at 80 columns keep whole, clickable items in their own sections", async () => {
+    (app.t as any).cols = 80;
+    app.drawer.active = true;
+    const note = await board.createBlock(null, 'Narrow status [status-bar::true]\n- brand\n- drawer\n- clock');
+    try {
+      for (let n = 1; n <= 8; n++) await app.dispatch.act({ action: "status.bar.pin", args: { line: `::button{label="Pin ${n}" act="status.log"}` } }, USER);
+      app.flash("");
+      const line = bar();
+      expect(width(line)).toBe(80);
+      expect(line).toMatch(/\d\d:\d\d $/);
+      const result = await app.dispatch.act({ action: "status.bar.items" }, USER) as any;
+      const shown = result.items.filter((i: any) => i.from !== undefined);
+      const pins = shown.filter((i: any) => i.id.startsWith("button:"));
+      expect(pins.length).toBeGreaterThan(0);
+      expect(pins.length).toBeLessThan(8);
+      expect(line.indexOf("Pin 1")).toBeLessThan(line.indexOf(visible(result.items.find((i: any) => i.id === "drawer").text)));
+      const overflow = shown.find((i: any) => /^\+\d+$/.test(visible(i.text)));
+      expect(overflow).toBeDefined();
+      expect(Number(visible(overflow.text).slice(1))).toBe(8 - pins.length);
+      for (const item of shown) {
+        expect(line.slice(item.from, item.to)).toBe(visible(item.text));
+        const ran: string[] = [];
+        const stop = traceActions(a => ran.push(a.name));
+        try {
+          press({ kind: "mouse", action: "down", button: 0, x: item.from, y: 39 });
+          await until(() => ran.includes(item.click.action) && (!item.id.startsWith("button:") || ran.includes("status.log")), `click ${visible(item.text)}`);
+        } finally { stop(); }
+        press({ kind: "esc" });
+        while (app.screens().length > 1) app.pop();
+        if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
+        app.flash("");
+        bar();
+      }
+    } finally {
+      await board.trash(note.id, USER);
+      (app.t as any).cols = 220;
+      if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
+      while (app.screens().length > 1) app.pop();
+    }
+  });
+
+  test("duplicate pins are refused and hand-written duplicates keep the first with one logged warning", async () => {
+    const note = await board.createBlock(null, 'Duplicate status [status-bar::true]\n::button{label="Go" act="status.log"}');
+    try {
+      await until(() => bar().includes("Go"), "the first button");
+      await expect(app.dispatch.act({ action: "status.bar.pin", args: { line: '::button{label="go" act="theme.cycle"}' } }, USER)).rejects.toThrow(/line 2.*label=/);
+      expect((await board.get(note.id))!.text).toBe(note.text);
+      await board.update(note.id, note.text + '\n::button{label="GO" act="theme.cycle"}', note.revision!);
+      await until(() => app.messages.rows.some(m => /line 3.*duplicate/i.test(m.message)), "the duplicate warning");
+      await app.loadExtensions();
+      app.flash("");
+      expect(bar().match(/Go|GO/g)).toEqual(["Go"]);
+      expect(app.messages.rows.filter(m => /line 3.*duplicate/i.test(m.message))).toHaveLength(1);
+      const ran: string[] = [];
+      const stop = traceActions(a => ran.push(a.name));
+      try {
+        click("Go");
+        await until(() => ran.includes("status.log"), "the first duplicate still presses");
+      } finally { stop(); }
+    } finally { await board.trash(note.id, USER); }
+  });
+
   test("a live note reorders and hides built-ins, presses a button through button.press, and keeps malformed text", async () => {
     const note = await board.createBlock(null, 'My status [status-bar::true]\n- theme\n::button{label="Video" act="video.cycle" alt="theme.cycle"}\n::button{label="Video theme" act="theme.cycle"}\n- brand');
     await until(() => bar().includes("Video"), "the configured bar");

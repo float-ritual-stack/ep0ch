@@ -1528,7 +1528,7 @@ export class App implements Ctx {
 
   private describeStatusItems() {
     const actions = this.dispatch.list().actions;
-    return { note: this.statusNote.note?.id ?? null, builtins: this.statusItems().map(i => i.id), items: this.statusNote.items(this.statusItems()).map(item => {
+    return { note: this.statusNote.note?.id ?? null, builtins: this.statusItems().map(i => i.id), items: [...this.statusNote.items(this.statusItems()), ...this.statusBoxes.filter(h => h.item.id === "overflow").map(h => h.item)].map(item => {
       const hit = this.statusBoxes.find(h => h.item.id === item.id);
       const describe = (req: ActRequest | undefined) => req ? { ...req, definition: actions.find(a => a.name === req.action) } : undefined;
       return { ...item, click: describe(item.click), alt: describe(item.alt), lastCell: describe(item.lastCell), ...(hit ? { from: hit.from, to: hit.to } : {}) };
@@ -1538,8 +1538,18 @@ export class App implements Ctx {
   private statusBar(s: Screen, cols: number): string {
     this.shownTime = this.timeShown();
     const items = this.statusNote.items(this.statusItems(s)).filter(i => width(i.text));
-    const split = items.findIndex(i => i.place === "right");
-    const leftItems = split < 0 ? items : items.slice(0, split), rightItems = split < 0 ? [] : items.slice(split);
+    let hidden = 0;
+    const overflow = (): StatusItem => ({ id: "overflow", text: `+${hidden}`, place: "left", after: " │ ", click: { action: "status.bar.edit" } });
+    // Keep the clock and drawer whole; later note lines yield their space first.
+    while (width(statusText(items)) + (hidden ? width(statusText([overflow()])) : 0) + 3 > cols) {
+      let last = items.length - 1;
+      while (last >= 0 && (items[last]!.id === "clock" || items[last]!.id === "drawer")) last--;
+      if (last < 0) break;
+      items.splice(last, 1);
+      hidden++;
+    }
+    if (hidden) items.push(overflow());
+    const leftItems = items.filter(i => i.place === "left"), rightItems = items.filter(i => i.place === "right");
     const left = statusText(leftItems), right = statusText(rightItems);
     // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
     const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;
