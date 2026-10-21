@@ -540,6 +540,38 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect((await e.settled()).items.map(i => i.label)).toEqual(first.map(i => i.label));
   });
 
+  test("file script completion shows the registered path and code (PIE-1164 round 2)", async () => {
+    const folder = join(scratch.workspace, ".ep0ch", "scripts");
+    mkdirSync(folder, { recursive: true });
+    const file = join(folder, "count-pots.ts");
+    writeFileSync(file, '// ep0ch-script\nreturn "Seven pots";\n');
+    await board.listExtensions(true);
+    const e = await editing(await create("Script practice\n"));
+    e.type("@count-pots");
+    const p = await e.settled();
+    renderCompletion(p, 180, 30);
+    const preview = p.previewLines!.map(visible).join("\n");
+    expect(preview).toContain(file);
+    expect(preview).toContain('return "Seven pots";');
+  });
+
+  test("YAML field keys use the draft or the named target (PIE-1164 round 2)", async () => {
+    const target = await create("Target plant [habitat::shade]\n");
+    for (const ofLine of ["", `of: '((${target}))'\n`, `after`]) {
+      const after = ofLine === "after";
+      const e = await editing(await create(`YAML practice\n::fields\n---\n${after ? "" : ofLine}key: \n${after ? `of: '((${target}))'\n` : ""}---\n::`));
+      e.d.row = 0; e.d.col = e.d.lines[0]!.length; e.type(" [trellis::north]"); e.press(K("esc"));
+      e.d.row = e.d.lines.findIndex(l => l === "key: "); e.d.col = 5;
+      e.press(K("tab"));
+      const p = await e.settled();
+      const key = ofLine ? "habitat" : "trellis";
+      expect(p.items.some(i => i.label === key)).toBe(true);
+      e.press(K("tab"));
+      await until(() => !e.pop(), "YAML key inserted");
+      expect(e.d.lines[e.d.row]).toBe(`key: ${key}`);
+    }
+  });
+
   test("component cards teach syntax with draft keys and copy the source (PIE-1164)", async () => {
     const e = await editing(await create("Card practice\n"));
     e.type("[status::ready] [owner::Ada]");

@@ -73,7 +73,7 @@ export interface ExtensionArgChoice extends ExtensionActionArg {
 export interface ExtensionHandler { key: string; kind: string; effects: string; description?: string; fields?: string[] }
 export interface ExtensionAgent { name: string; description?: string; effects?: string; threads?: boolean }
 export interface ExtensionEntry {
-  script?: { keys: readonly string[] };
+  script?: { keys: readonly string[]; blockId?: string; file?: string; code: string };
   /** `name` and `version` are absent for a folder that never loaded (it serves nothing; `error` says why). */
   id: string; name?: string; version?: number; description?: string; origin?: string;
   /** `active`, `failed` (it may still serve its last good version), `disabled` or `shadowed`. */

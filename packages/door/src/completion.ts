@@ -1,3 +1,4 @@
+import { figureProps } from "@ep0ch/outline-core/figure-props";
 // Reference completion's pure half, ported from pi-herdr-outliner so the door inserts exactly what Tree,
 // Detail and Quick Capture insert: which `[[`, `((` or `[file::` the cursor is in (src/completion.ts),
 // how a page or Work-ID is written (`[[WORK-ID|title]]`, else `[[address]]`), Work-ID recognition
@@ -51,7 +52,11 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
   const agent = agentAtCursor(line, column);
   if (agent) return { kind: "agent", ...agent };
   const yaml = lines && row !== undefined ? yamlAtCursor(lines, row, column) : null;
-  if (yaml) return yaml.kind === "key" ? { kind: "yaml-key", start: yaml.start, end: yaml.end, query: yaml.query, component: yaml.component } : { kind: "yaml-value", start: yaml.start, end: yaml.end, query: yaml.query, key: yaml.key, component: yaml.component };
+  if (yaml) {
+    const parsed = figureProps(yaml.component, { yaml: yaml.yaml });
+    const attrs = "error" in parsed ? [] : Object.entries(parsed.props).map(([key, value]) => ({ key, value: String(value) }));
+    return { kind: yaml.kind === "key" ? "yaml-key" : "yaml-value", start: yaml.start, end: yaml.end, query: yaml.query, ...(yaml.kind === "value" ? { key: yaml.key } : {}), component: yaml.component, attrs };
+  }
   const end = Math.max(0, Math.min(column, line.length));
   const beforeCursor = line.slice(0, end);
   const component = /^( {0,3})::([^{}\n]*)$/.exec(beforeCursor);

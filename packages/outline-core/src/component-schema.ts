@@ -435,7 +435,7 @@ export function checkValue(p: PropSchema, value: string): string | null {
 export interface Variation { values: Record<string, string>; note?: string; use: string }
 
 /** A YAML scalar as written: quoted only when YAML would read it as something else. */
-function yamlScalar(v: string): string {
+export function yamlScalar(v: string): string {
   if (/^\[.*\]$/.test(v) || /^-?\d+(\.\d+)?$/.test(v)) return v;
   return /^[\s*&!%@`'"|>{}#,?-]|: | #|^$|\s$/.test(v) ? JSON.stringify(v) : v;
 }
@@ -567,9 +567,11 @@ export function propertyAtCursor(line: string, col: number): PropertyAtCursor | 
 }
 
 /** The YAML key or value being typed in a component block's YAML: `ti` at a line's start, or `value: 0.` after its key. */
-export type YamlAtCursor =
+type YamlToken =
   | { kind: "key"; component: string; start: number; end: number; query: string }
   | { kind: "value"; component: string; key: string; start: number; end: number; query: string };
+
+export type YamlAtCursor = YamlToken & { yaml: string };
 
 const COMPONENT_LINE = /^ {0,3}::([a-z][a-z0-9-]*)[ \t]*$/;
 
@@ -589,12 +591,15 @@ export function yamlAtCursor(lines: readonly string[], row: number, col: number)
       let j = i - 1;
       while (j >= 0 && !lines[j]!.trim()) j--;
       const m = j >= 0 ? COMPONENT_LINE.exec(lines[j]!) : null;
-      return m ? at(m[1]!) : null;
+      const target = m ? at(m[1]!) : null;
+      let end = i + 1;
+      while (end < lines.length && !/^\s*(?:---|::)\s*$/.test(lines[end]!)) end++;
+      return target ? { ...target, yaml: lines.slice(i + 1, end).filter((_, offset) => i + 1 + offset !== row).join("\n") } : null;
     }
     if (COMPONENT_LINE.test(l) || /^ {0,3}::[ \t]*$/.test(l)) return null;
   }
   return null;
-  function at(component: string): YamlAtCursor | null {
+  function at(component: string): YamlToken | null {
     const before = line.slice(0, Math.max(0, Math.min(col, line.length)));
     const v = /^([ \t]*)([A-Za-z][A-Za-z0-9_.-]*):[ \t]?(.*)$/.exec(before);
     if (v && !/^[ \t]/.test(line)) return { kind: "value", component, key: v[2]!, start: before.length - v[3]!.length, end: line.length, query: v[3]! };

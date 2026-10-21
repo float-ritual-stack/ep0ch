@@ -40,7 +40,7 @@ import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { cursorInCode } from "@ep0ch/outline-core/code-ranges";
 import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { calloutsReady, TONE } from "../callouts";
-import { keyCandidates, valueCandidates, variation, sweep, axisValues, yamlKeyCandidates, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
+import { keyCandidates, valueCandidates, variation, sweep, axisValues, yamlKeyCandidates, yamlScalar, type ComponentSchema, type PropSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
 import { headingStylesReady } from "../heading-styles";
 import { componentsReady } from "../component-schemas";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
@@ -66,7 +66,7 @@ export const COMPLETION_HINT = "up/down or wheel choose · enter inserts (styles
 export const REFERENCE_HINT = "up/down choose · enter/double click inserts · shift+up/down/PgUp/PgDn/wheel preview · ^/# narrow · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "componentUsage" | "listExtensions" | "templateProps" | "query">;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "componentUsage" | "listExtensions" | "templateProps">;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineInput` (a property's value, a filter). The completer
@@ -158,7 +158,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   if (target.kind === "filter-key" || target.kind === "filter-value") {
     items = await filterCandidates(board, target);
     empty = target.kind === "filter-key" ? "" : `no ${target.key} value starts ${JSON.stringify(target.query)}`;
-  } else if (target.kind === "key" || target.kind === "value" || target.kind === "yaml-key" || target.kind === "yaml-value") {
+  } else if (target.kind === "key" || target.kind === "value" || target.kind === "yaml-key") {
     // The component schemas (PIE-618): the same answer the library draws its pages from, no list of the completer's own.
     const src = { board, redraw: () => {} };
     const [schemas] = await Promise.all([componentsReady(src), headingStylesReady(src), calloutsReady(src)]);
@@ -191,7 +191,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
       }));
       return item;
     }));
-  } else if (target.kind === "attribute" || target.kind === "attribute-value") {
+  } else if (target.kind === "attribute" || target.kind === "attribute-value" || target.kind === "yaml-value") {
     const src = { board, redraw: () => {} };
     const schemas = await componentsReady(src);
     const schema = schemas.find(s => COMPONENT_OPEN.exec(s.source.use.split("\n")[0]!)?.[1] === target.component);
@@ -205,10 +205,11 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
     const all = listed.extensions.filter(e => e.state === "active" || e.state === "failed")
       .flatMap(extension => (extension.agents ?? []).map(agent => ({ ...agent, extension })));
     const q = target.query.toLowerCase();
-    const scripts = all.some(a => a.extension.script && a.name.toLowerCase().startsWith(q)) ? await board.query("script", 1000) : [];
-    items = all.filter(a => a.name.toLowerCase().startsWith(q)).map(a => {
-      const note = a.extension.script ? scripts.find(n => n.properties?.some(p => p.key === "script" && p.value === a.name)) : undefined;
-      const definition = note ? [`[g] ${subject(note)} ((${note.id}))`, ...note.text.split("\n").slice(1)]
+    items = await Promise.all(all.filter(a => a.name.toLowerCase().startsWith(q)).map(async a => {
+      const script = a.extension.script;
+      const note = script?.blockId ? (await board.blockContext(script.blockId)).selected : undefined;
+      const definition = script ? note ? [`[g] ${subject(note)} ((${note.id}))`, ...note.text.split("\n").slice(1)]
+        : [script.file ?? "", ...script.code.split("\n")]
         : [a.extension.directory ?? "", `handler @${a.name}`, ...a.extension.handlers.map(h => `${h.key}:: ${h.description ?? h.kind}`)];
       const context = a.threads ? "in a note, or a comment on a passage: its answer lands in that thread" : "runs on the text above this line once the line is quiet (1.5 s), as an attributed edit · r on the line asks again";
       return {
@@ -216,7 +217,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
         ...(note ? { definition: note.id } : {}),
         preview: (w: number, h: number) => [...definition.flatMap(line => rowLines(printable(line), w)), ...rowLines(a.description ?? context, w)].slice(0, h),
       };
-    });
+    }));
     empty = all.length ? `no agent is called @${target.query}: ${all.map(a => `@${a.name}`).join(", ")} answer here` : "";
   } else if (target.kind === "file") {
     const files = await board.completeFiles(target.query);
@@ -447,7 +448,7 @@ async function attributeCandidates(board: CompletionBoard, schema: ComponentSche
     values = axisValues(prop).filter(v => v.toLowerCase().startsWith(q.toLowerCase())).map(value => ({ label: value, value, detail: prop.values?.find(v => v.value === value)?.meaning }));
   }
   return values.map(v => ({ label: v.label, context: v.detail ?? prop.meaning, kind: "value",
-    insertion: target.quote ? v.value.replaceAll("\\", "\\\\").replaceAll(target.quote, `\\${target.quote}`) + target.quote : JSON.stringify(v.value),
+    insertion: target.kind === "yaml-value" ? yamlScalar(v.value) : target.quote ? v.value.replaceAll("\\", "\\\\").replaceAll(target.quote, `\\${target.quote}`) + target.quote : JSON.stringify(v.value),
   }));
 }
 
