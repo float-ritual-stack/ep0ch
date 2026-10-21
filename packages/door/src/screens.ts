@@ -501,7 +501,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   }),
   "text.hover": def({
     summary: "read the full value under the pointer without selecting or opening it",
-    keys: "hover a cut-short string", touches: "nothing", replay: "safe",
+    keys: "hover a cut-short string", touches: "nothing", replay: "safe", record: false,
     person: "the pointer is the person's",
     args: { x: { type: "number", about: "screen column, from 0" }, y: { type: "number", about: "screen row, from 0" } },
     examples: [{ act: "text.hover x=4 y=2", does: "reads the clipped value at column 4, row 2 without opening it" }],

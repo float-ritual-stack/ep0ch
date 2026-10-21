@@ -536,7 +536,7 @@ export class Dispatcher {
       const value = recordedArgs[key];
       if (spec.kind === "tile" && typeof value === "string" && !isTilePath(value)) recordedArgs[key] = this.tile(value)?.id ?? value;
     }
-    const ran = actor.kind === "user" && ctx?.recordAction
+    const ran = actor.kind === "user" && ctx?.recordAction && def.record !== false
       ? ctx.recordAction({ action: req.action, args: recordedArgs, ...(reg.takes === "tile" || req.tile !== undefined ? { tile: at.tile?.id ?? at.name ?? req.tile } : {}) }, def.replay, run)
       : run();
     // What it did, said on the status bar: an agent's always, with who it is; the person's when the screen doesn't
