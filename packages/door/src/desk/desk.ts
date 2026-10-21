@@ -4329,6 +4329,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const kind = focused && !focused.holdsKeys && !pane?.typing?.() && focused.msg ? sessionStart(k) : null;
     const start = kind && !(pane instanceof ReaderPane && pane.refuses(kind)) ? kind : null;
     if (focused && start) {
+      const host = focused.host(this);
+      if (start === "edit" && host.attachment === "list-preview") return void focused.surface.runKey("list.preview.edit", {}, host);
       // e and ctrl+e arm the edit (edit.arm); a click on the hint row's e is the mouse's, and opens it at once (armsEdit).
       if (armsEdit(start)) return void focused.surface.runKey("edit.arm", start === "external" ? { external: true } : {}, focused.host(this));
       return void this.startSession(focused, start);

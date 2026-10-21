@@ -8,7 +8,7 @@ import { startsTable, tableEnd, tableCells, tableAligns } from "@ep0ch/outline-c
 // media lines as image slots the caller fills with Kitty placements.
 import { ARTIFACT_KIND_LABELS, brightness, fileName, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { artifactFacts, type ArtifactFacts } from "./artifacts";
-import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, extractLinks, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { ADORN, balanceStyles, balanceTags, BOLD, C, chip, drawEllipsized, extractLinks, fg, fgRgb, surfaceBg, type LinkRange, pad, RESET, splitVisible, stripTags, visible, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv, type RowInline } from "./graphs";
@@ -80,7 +80,7 @@ export interface DocEnv {
    * The body's fold points (from `foldPoints` of the same body, line for line), which of them are folded,
    * and the one selected by the keys. Without it nothing folds (an embed, a draft's preview).
    */
-  folds?: { points: readonly FoldPoint[]; folded: ReadonlySet<string>; selected?: string | null };
+  folds?: { points: readonly FoldPoint[]; folded: ReadonlySet<string>; selected?: string | null; preview?: ReadonlySet<string> };
   /**
    * Tag `text` as a link to a row's note (a live figure's check item, event or table row), so the reader
    * can step to it and a click opens it (PIE-441). Without it (an embed, a draft's preview) rows are text.
@@ -596,7 +596,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const fp = at.get(i);
     if (fp && env.folds && fp.kind !== "callout") {
       const folded = env.folds.folded.has(fp.key), selected = env.folds.selected === fp.key;
-      const disclosure = { folded, selected, hidden: fp.hidden };
+      const disclosure = { folded, selected, hidden: fp.hidden, preview: env.folds.preview?.has(fp.key) };
       const styled = fp.kind === "heading" ? headingRows(line, W, env, lit(i), disclosure) : null;
       const joins: (string | undefined)[] = [];
       const rows = styled?.rows ?? prose(line, W, disclosure, lit(i), env.task && (box => env.task!(i, box)), joins);
@@ -1063,7 +1063,7 @@ function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: Doc
  * How a fold point is drawn: every one shows its disclosure, a click target as much as a sign (▾ open,
  * ▸ folded, with what it hides); the one the keys selected is yellow.
  */
-interface Disclosure { folded: boolean; selected: boolean; hidden: number }
+interface Disclosure { folded: boolean; selected: boolean; hidden: number; preview?: boolean }
 const foldedNote = (d: Disclosure) => fg(C.dark) + ` · ${d.hidden} line${d.hidden === 1 ? "" : "s"} folded` + RESET;
 
 /** A list item's step box at the start of its text. */
@@ -1202,6 +1202,7 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false, task
     const lead = " ".repeat(Math.max(0, Math.min(indent, W - mark.length - 1 - room))) + mark + " ";
     const box = task ? li[3]!.match(BOX)?.[0] : undefined;
     const drawn = box ? task!(box) : null;
+    if (fold?.preview) return [tint + lead + RESET + drawEllipsized(inline(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!) + (fold.folded ? foldedNote(fold) : ""), W - lead.length)];
     const rows = wrap(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!, W - lead.length, { ...BODY, joins });
     rows.forEach((l, k) => out.push((k ? " ".repeat(lead.length) : (fold ? tint : fg(C.lcyan)) + lead + RESET) + inline(l) + (fold?.folded && k === rows.length - 1 ? foldedNote(fold) : "")));
     return out;

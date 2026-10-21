@@ -294,26 +294,26 @@ const HISTORY = 50;
  * A reader's place and history as a layout file keeps them (PIE-643). `v` is this shape's version: a file of another
  * version (an older daemon's, a newer one's) is read as having no history, never half-read.
  */
-export const NAV_VERSION = 3;
-export interface SavedPlace { address?: NoteAddress; id: string; title: string; position: ReaderPosition; cur: string | null; link: number; folded: string[]; previewLists: [string, boolean][]; previewOpen: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
+export const NAV_VERSION = 2;
+export interface SavedPlace { address?: NoteAddress; id: string; title: string; position: ReaderPosition; cur: string | null; link: number; folded: string[]; previewLists?: [string, boolean][]; previewOpen?: string[]; expanded: string[]; foldedThreads: string[]; seen: string[]; figures: [string, FigureChoice][] }
 export interface SavedNav { v: typeof NAV_VERSION; here?: SavedPlace; backs: SavedPlace[]; aheads: SavedPlace[] }
 
 const savedPlace = (p: Place): SavedPlace => ({ ...(p.msg.address ? { address: p.msg.address } : {}), id: p.msg.id, title: subject(p.msg), position: structuredClone(p.position), cur: p.cur, link: p.link, folded: p.folded, previewLists: p.previewLists, previewOpen: p.previewOpen, expanded: p.expanded, foldedThreads: p.foldedThreads, seen: p.seen, figures: p.figures });
 /** A saved place as a stub the reader reads whole when it goes there (a list row's shape: `partial`). */
 const placeOf = (s: SavedPlace): Place => ({
   msg: { ...(s.address ? { address: s.address } : {}), id: s.id, text: s.title, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: null, properties: [], partial: true },
-  position: structuredClone(s.position), cur: s.cur, link: s.link, folded: s.folded, previewLists: s.previewLists, previewOpen: s.previewOpen, expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures,
+  position: structuredClone(s.position), cur: s.cur, link: s.link, folded: s.folded, previewLists: s.previewLists ?? [], previewOpen: s.previewOpen ?? [], expanded: s.expanded, foldedThreads: s.foldedThreads, seen: s.seen, figures: s.figures,
 });
 const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : []);
 function readPlace(x: any): SavedPlace | null {
   if (!x || typeof x.id !== "string" || !x.id || typeof x.title !== "string") return null;
   const int = (n: unknown, d: number) => (typeof n === "number" && Number.isFinite(n) ? Math.max(d < 0 ? -1 : 0, Math.floor(n)) : d);
   const figures = (Array.isArray(x.figures) ? x.figures : []).filter((f: unknown): f is [string, FigureChoice] => Array.isArray(f) && typeof f[0] === "string" && !!f[1] && typeof f[1] === "object");
-  if (!Array.isArray(x.previewLists) || !x.previewLists.every((p: unknown) => Array.isArray(p) && typeof p[0] === "string" && typeof p[1] === "boolean") || !Array.isArray(x.previewOpen)) return null;
+  if (x.previewLists !== undefined && (!Array.isArray(x.previewLists) || !x.previewLists.every((p: unknown) => Array.isArray(p) && typeof p[0] === "string" && typeof p[1] === "boolean")) || x.previewOpen !== undefined && !Array.isArray(x.previewOpen)) return null;
   const p = x.position;
   if (!p || !p.cursor || (p.view !== null && (!p.view || !Number.isFinite(p.view.line) || !Number.isFinite(p.view.row)))) return null;
   const position: ReaderPosition = { reading: int(p.reading, 0), cursor: { row: int(p.cursor.row, 0), col: int(p.cursor.col, 0) }, view: p.view === null ? null : { line: int(p.view.line, 0), row: Math.floor(p.view.row) } };
-  return { ...(x.address && typeof x.address.outline === "string" && (x.address.machine === undefined || typeof x.address.machine === "string") ? { address: x.address } : {}), id: x.id, title: x.title, position, cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), previewLists: x.previewLists, previewOpen: strings(x.previewOpen), expanded: strings(x.expanded), foldedThreads: strings(x.foldedThreads), seen: strings(x.seen), figures };
+  return { ...(x.address && typeof x.address.outline === "string" && (x.address.machine === undefined || typeof x.address.machine === "string") ? { address: x.address } : {}), id: x.id, title: x.title, position, cur: typeof x.cur === "string" ? x.cur : null, link: int(x.link, -1), folded: strings(x.folded), previewLists: x.previewLists ?? [], previewOpen: strings(x.previewOpen), expanded: strings(x.expanded), foldedThreads: strings(x.foldedThreads), seen: strings(x.seen), figures };
 }
 /** The note a saved history was taken on, if it is one this version reads. */
 export const navNote = (raw: unknown): string | null => readNav(raw)?.here?.id ?? null;
@@ -2317,7 +2317,7 @@ export class NoteSurface {
       image: this.imageHook(m, lines, drawn),
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
       ...(src && isOutlineNote(m) ? { artifact: spec => artifactFacts(spec, { scope: src.board, read: name => src.board.request<ArtifactInfo>("artifacts.show", { name }), changed: () => src.redraw() }) } : {}),
-      folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel },
+      folds: { points, folded: this.effectiveFolds(m), selected: this.foldSel, preview: new Set(points.filter(p => this.previews(p)).map(p => p.key)) },
       link: (block, x, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
       figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
         ui: key => this.figureUI.get(key),
@@ -4133,7 +4133,6 @@ export class NoteSurface {
     if (k.kind === "esc" && this.focusMark) { void this.runKey("block.untint", {}, host); return true; }
     if (isUp(k) || isDown(k)) { void this.runKey("reading.step", { by: isUp(k) ? -1 : 1 }, host); return true; }
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
-    if (k.kind === "alt" && k.ch === "F") { void this.runKey("list.preview", {}, host); return true; }
     // ctrl+z undoes the last step change made here.
     if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: stepClosed(e.task.step.status) ? "todo" : "done" }, host, true); return true; } }
     // ctrl+z undoes the last change made here, a step's status, a callout's header or an image's layout, whichever came last.
@@ -10740,8 +10739,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "list.preview": def({
     summary: "show this list's selected item's children in an attached preview; reading state only",
-    keys: "alt+F; reader menu", touches: "tile", while: "typing", replay: "safe",
-    menu: noteRow("preview list children", "alt+F"),
+    keys: "p fold chip; reader menu", touches: "tile", while: "typing", replay: "safe",
+    menu: noteRow("preview list children", ""),
     args: { ...FOLD_ARGS, on: { type: "boolean", optional: true, about: "preview children instead of unfolding in place" } },
     examples: [{ act: 'list.preview text="Keep the beans" on=true', does: "previews the children of this list" }],
     async run({ on, ...which }, { surface, host }, actor) {

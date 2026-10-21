@@ -367,7 +367,8 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     expect(screen().match(/Rewritten first detail/g)?.length).toBe(1);
     const preview = desk.layoutGet().tiles.find(t => t.kind === "preview")!;
     await desk.dispatch.press("tile.focus", {}, preview.name);
-    await desk.dispatch.press("list.preview.edit", {}, preview.name);
+    press({ kind: "char", ch: "e" });
+    await until(() => screen().includes("[save]"), "e opens the children editor in the wired preview");
     press({ kind: "paste", text: "  - Edited from the wire" });
     press({ kind: "char", ch: "s", ctrl: true });
     await until(() => screen().includes("Edited from the wire") && !reader.surface.editing, "typing in the wired preview");
@@ -377,6 +378,65 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     await desk.dispatch.press("reading.step", { by: 1 }, "reader");
     expect(screen()).toContain("Second detail");
     expect(screen()).not.toContain("Edited from the wire");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
+  test("a saved v2 reader restores its folds and back and forward history", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "list-folds" }, as: "restore-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "list-folds")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => !!reader.msg && !reader.msg.partial && !!screen(), "the initial reader");
+    const note = await board.createBlock(null, "Saved garden\n## Beds\nThe hidden seed ledger.\n## Tools\nThe rake.");
+    await desk.dispatch.press("open", { id: note.id }, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial, "the garden note");
+    screen();
+    await desk.dispatch.press("fold", { text: "Beds" }, "reader");
+    await desk.dispatch.press("open", { id: seeded.notes.listFolds.id }, "reader");
+    await desk.dispatch.press("back", {}, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial, "back at the folded garden");
+    const raw = JSON.parse(JSON.stringify(reader.surface.saveNav()));
+    raw.v = 2;
+    for (const place of [raw.here, ...raw.backs, ...raw.aheads]) {
+      delete place.previewLists;
+      delete place.previewOpen;
+    }
+    await desk.dispatch.press("unfold", { all: true }, "reader");
+    expect(screen()).toContain("The hidden seed ledger.");
+    expect(reader.surface.restoreNav(raw)).toBe(true);
+    expect(screen()).not.toContain("The hidden seed ledger.");
+    expect(reader.surface.describeHistory().back.length).toBeGreaterThan(0);
+    await desk.dispatch.press("forward", {}, "reader");
+    await until(() => reader.msg?.id === seeded.notes.listFolds.id, "the restored forward history");
+    await desk.dispatch.press("back", {}, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial, "the restored back history");
+    expect(screen()).not.toContain("The hidden seed ledger.");
+    await desk.dispatch.press("open", { id: seeded.notes.listFolds.id }, "reader");
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
+  test("list preview cuts a long item to one row and keeps its full text for reveal", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "list-folds" }, as: "row-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "list-folds")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => !!reader.msg && !reader.msg.partial && !!screen(), "the initial reader");
+    const label = "First call " + "runner beans ".repeat(30) + "lastpod";
+    const note = await board.createBlock(null, `Long calls\n[children::preview]\n- ${label}\n  - First detail\n- Second call\n  - Second detail`);
+    await desk.dispatch.press("open", { id: note.id }, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial, "long preview list");
+    const drawn = reader.render(70, 35, true, desk).lines;
+    const rows = drawn.map(plain);
+    const first = rows.findIndex(l => l.includes("First call"));
+    expect(rows.findIndex(l => l.includes("Second call")) - first).toBe(1);
+    expect(rows[first]).toContain("…");
+    const { fullPlainText, Overflow } = await import("../../src/overflow");
+    expect(fullPlainText(drawn[first]!)).toContain(label);
+    const overflow = new Overflow();
+    overflow.hover(20, first);
+    overflow.draw(drawn, 70, 0);
+    expect(overflow.draw(drawn, 70, 60_000).overlay).toMatchObject({ row: first, rows: 1 });
+    await desk.dispatch.press("open", { id: seeded.notes.listFolds.id }, "reader");
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   });
 
