@@ -1,12 +1,6 @@
-// The comment's own tile (PIE-846): the comment being written in a reader, drawn in a tile beside it so the whole note
-// stays in view, as Evan asked ("dock it in a tile to the side"). It's the reader's comment, not a second editor: the
-// reader's comment session holds the draft, its keys run the reader's comment keys, its mouse the reader's draft, and the
-// edit control (renderEditor) draws it, or the thread list (m) when it's reading the comments. Being a tile, it sizes
-// and folds as any tile; it sits in its note's place beside it (a pair, Split.pair), on the side its last row's arrows (or ctrl+g
-// and the arrows, or comment.place side=) put it, and closing it gives the note its room back. It opens when the comment's place is `tile` (comment.place, ctrl+o) and closes when the comment is sent,
-// put aside or placed back in the reader. Never saved in a layout: a handover opens it again through the comment's own
-// reopen steps (src/session/restore.ts).
+// The attachment stays owned by its reader, so moving it into a tile never creates a second session or inspector.
 import { fg, C, pad, RESET, width } from "../style";
+import { USER } from "../socket";
 import type { Key } from "../term";
 import type { TileKind } from "./tile-kinds";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "./panes";
@@ -17,18 +11,18 @@ type Side = "left" | "right" | "up" | "down";
 /** Its side chips: where the tile goes round its note. */
 const SIDES: [Side, string][] = [["left", "◄ left"], ["right", "right ►"], ["up", "▲ above"], ["down", "below ▼"]];
 
-export class CommentTilePane implements Pane {
-  readonly kind = COMMENT_TILE_KIND;
+export class AttachedTilePane implements Pane {
+  get kind() { return this.attachment; }
   /** Closing it was asked for once (its comment ended): the desk closes it after this frame. */
   private closing = false;
   private lastRow = -1;
   /** `source`: the reader whose comment it draws, by name. */
-  constructor(public source: string) {}
+  constructor(public source: string, readonly attachment: "comment" | "sources" = "comment") {}
 
-  title() { return `${this.listing ? "comments" : "comment"} · ${this.source}`; }
+  title() { if (this.attachment === "sources") return `sources · ${this.source}`; return `${this.listing ? "comments" : "comment"} · ${this.source}`; }
   /** It shows the reader's thread list (m), not a comment being written. */
   private listing = false;
-  hint() { return "ctrl+s send · esc twice puts it aside · ctrl+o back in the reader · ctrl+g then ← → ↑ ↓: another side of the note · drag its border to size it"; }
+  hint() { if (this.attachment === "sources") return "sources · ctrl+o placement · Esc reader · q close · drag border to size"; return "ctrl+s send · esc twice puts it aside · ctrl+o back in the reader · ctrl+g then ← → ↑ ↓: another side of the note · drag its border to size it"; }
   /** The last row's side chips as drawn: a click puts the tile on that side of its note. */
   private sides: { from: number; to: number; side: Side }[] = [];
   spec() { return { source: `tile:${this.source}` }; }
@@ -36,7 +30,7 @@ export class CommentTilePane implements Pane {
   /** The comment (or thread list) above its last row, the side chips on it. */
   private drawn(w: number, h: number, desk: DeskApi): PaneView | null {
     const r = this.reader(desk);
-    const v = r?.surface.composerTile(w, Math.max(1, h - 1), r.host(desk)) ?? null;
+    const v = !r ? null : this.attachment === "sources" ? r.surface.sourcesTile(w, Math.max(1, h - 1)) : r.surface.composerTile(w, Math.max(1, h - 1), r.host(desk));
     if (!v) return null;
     this.sides = [];
     if (h < 2) return v;
@@ -70,7 +64,10 @@ export class CommentTilePane implements Pane {
 
   key(k: Key, desk: DeskApi): boolean {
     const r = this.reader(desk);
-    return !!r?.surface.session && r.surface.key(k, r.host(desk));
+    if (r?.surface.sourcesMode) r.surface.attachedKeys(this.attachment);
+    const handled = !!r && (this.attachment === "sources" ? !!r.surface.sourcesMode : !!r.surface.session) && r.surface.key(k, r.host(desk));
+    if (r && this.attachment === "sources" && k.kind === "esc" && r.surface.sourcesMode?.state() === null) void desk.perform?.("tile.focus", {}, USER, this.source);
+    return handled;
   }
 
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
@@ -78,7 +75,15 @@ export class CommentTilePane implements Pane {
     if (!r) return false;
     // Its last row: a click on a side puts it there (comment.place side=, as ctrl+g and an arrow do).
     const chip = this.sides.find(c => x >= c.from && x < c.to);
-    if (chip && y === this.lastRow) { if (k.action === "up") void r.surface.runKey("comment.place", { side: chip.side }, r.host(desk), true); return true; }
+    if (chip && y === this.lastRow) { if (k.action === "up") void r.surface.runKey(this.attachment === "sources" ? "sources.place" : "comment.place", { side: chip.side }, r.host(desk), true); return true; }
+    if (this.attachment === "sources") {
+      const host = r.host(desk);
+      if (k.action === "wheel-up" || k.action === "wheel-down") { r.surface.wheel(k.action === "wheel-down" ? 1 : -1, host, { x, y }); return true; }
+      if (k.action === "down") r.surface.press(x, y, host);
+      if (k.action === "drag") r.surface.drag(x, y, host);
+      if (k.action === "up") r.surface.release(x, y, host);
+      return true;
+    }
     return r.surface.composerPointer(k, x, y, r.host(desk));
   }
 }
@@ -87,9 +92,18 @@ export class CommentTilePane implements Pane {
 export const COMMENT_TILE: TileKind = {
   kind: COMMENT_TILE_KIND, noun: "a comment tile",
   about: "the comment being written in a reader (source=tile:<name>), or its thread list, in a tile of its own in the reader's place beside it (PIE-846): left, right, above or below (comment.place side=), sized by its border; the tiles round them never move, and closing it gives the reader its room back. Opened by comment.place place=tile (ctrl+o), closed when the comment is sent or put back",
-  make: s => new CommentTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "reader"),
+  make: s => new AttachedTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "reader"),
   check: s => (s.source && !/^tile:./.test(s.source) ? "a comment tile's source is tile:<name>, the reader writing it" : null),
   // Typing in it is typing in the reader's comment: the desk's keys don't take it, but ^W and a window key do (the way out).
   takesKeys: () => true, windowKeys: true,
-  describe: p => ({ source: `tile:${(p as CommentTilePane).source}` }),
+  describe: p => ({ source: `tile:${(p as AttachedTilePane).source}` }),
+};
+
+export const SOURCES_TILE: TileKind = {
+  kind: "sources", noun: "a sources tile",
+  about: "a reader's Sources inspector in its own resizable tile beside the note",
+  make: s => new AttachedTilePane(s.source?.slice(5) ?? "reader", "sources"),
+  check: COMMENT_TILE.check,
+  takesKeys: () => true, windowKeys: true,
+  describe: COMMENT_TILE.describe,
 };

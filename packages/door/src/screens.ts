@@ -27,7 +27,9 @@ import { hyperOn, useHyper } from "./hyper";
 import { HERO_MODES, heroHeaderMode, heroHeaderOn, useHeroHeader, type HeroMode } from "./surface/hero-header";
 import { writeState } from "./state";
 import { RowView, RowPresses, overscroll, overscrollOf, useOverscroll } from "./scroll";
-import { COMPOSER_PLACES, composerPlace, composerPlaceOf, useComposerPlace } from "./surface/composer";
+import { composerPlace, useComposerPlace } from "./surface/composer";
+import { attachedPlaceOf } from "./surface/attached";
+import { ATTACHED_PLACES } from "./surface/attached";
 import { overflows, scrollPct } from "./canvas";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { ch, isUp, isDown, type Key } from "./term";
@@ -934,14 +936,14 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     summary: `where a comment, question, explain or reply is written (PIE-770): inline (a box under its passage, in the note, which still reads and scrolls around it; the default), floating (a box over the note beside the passage), split (the reader shared: the note beside the composer), popup (a box in the middle, the passage quoted) or tile (PIE-846: a tile of its own beside the reader, which docks as tiles do; split where there are no tiles). Every reader, kept for the next start; ctrl+o (comment.place) moves the one being written`,
     keys: "`ep0ch act composer.place place=floating`, the power bar's actions scope (>)",
     touches: "screen", replay: "ask", says: out => `· comments are written ${out.place === "inline" ? "at their passage" : out.place}`,
-    args: { place: { type: "string", about: COMPOSER_PLACES.join(", ") } },
+    args: { place: { type: "string", about: ATTACHED_PLACES.join(", ") } },
     examples: [
       { act: "composer.place place=floating", does: "writes comments in a box floating beside their passage" },
       { act: "composer.place place=tile", does: "writes comments in a tile of their own beside the reader" },
     ],
     run({ place }, { ctx }) {
-      const want = composerPlaceOf(place);
-      if (!want) throw new ActionRefused(`place is ${COMPOSER_PLACES.join(", ")}, not ${JSON.stringify(place)}`);
+      const want = attachedPlaceOf(place);
+      if (!want) throw new ActionRefused(`place is ${ATTACHED_PLACES.join(", ")}, not ${JSON.stringify(place)}`);
       useComposerPlace(want);
       writeState("composer-place.json", { place: want });
       ctx.flash(`comments open ${want === "inline" ? "inline, under their passage" : want === "floating" ? "floating beside their passage" : want === "split" ? "split beside the note" : want === "tile" ? "in a tile of their own beside the note" : "in a popup"} · ctrl+o moves the one being written`);

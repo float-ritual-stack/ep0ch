@@ -345,10 +345,12 @@
     },
 
     {
-      "id": "door.composer", "name": "Composer placements", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.draft", "door.draftsession", "door.actions"],
-      "does": "Where a comment, question or reply is written: in the reader the person is reading, inline under its passage (the default), floating beside it, split beside the note or as a popup. composer.place is the person's setting; comment.place (ctrl+o, the box's chip) moves the one being written (PIE-770).",
-      "built": "composerBox draws the comment session's draft through renderEditor in a box sized to its text; the reader splices it under the passage as body rows (inline) or lays it over its rows (overlayBox, floatRow); placeBox maps its frame to the reader's cells so the mouse and the completion popup reach the draft.",
+      "id": "door.composer", "name": "Reader attachments", "group": "door", "chapter": "surface", "ladder": "shared", "dependsOn": ["door.draft", "door.draftsession", "door.actions"],
+      "does": "Where a comment or Sources inspector is placed: in the reader the person is reading, inline under its passage (the default), floating beside it, split beside the note or as a popup. comment.place and sources.place cycle with ctrl+o; the header chips open one placement menu. Sources keeps its placement for next time (PIE-1138).",
+      "built": "attached.ts shares float geometry, split sizing and move/resize math; AttachedTilePane and Desk.attachedTile host both contents in the same paired layout. composerBox draws the comment session's draft through renderEditor in a box sized to its text; the reader splices it under the passage as body rows (inline) or lays it over its rows (overlayBox, floatRow); placeBox maps its frame to the reader's cells so the mouse and the completion popup reach the draft.",
       "refs": [
+        { "r": "door", "p": "src/surface/attached.ts", "l": 1, "m": "export function attachedRect" },
+        { "r": "door", "p": "src/desk/attached-tile.ts", "l": 1, "m": "export class AttachedTilePane" },
         { "r": "door", "p": "src/surface/composer.ts", "l": 87, "m": "export function composerBox" },
         { "r": "door", "p": "src/surface/composer.ts", "l": 100, "m": "export function placeBox" }
       ]

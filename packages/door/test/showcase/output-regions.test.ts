@@ -14,6 +14,68 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
   let board!: typeof h.board, app!: typeof h.app, seeded!: typeof h.seeded;
   beforeAll(() => { ({ board, app, seeded } = h); });
 
+  test("a floating comment stays drawn while sources are open", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    await app.dispatch.act({ action: "comment.note", tile: "notes" }, USER);
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    for (const ch of "Keep these words visible") stage.pane("notes")!.key({ kind: "char", ch }, stage);
+    await app.dispatch.act({ action: "sources.open", tile: "notes" }, USER);
+    await app.dispatch.act({ action: "comment.place", tile: "notes", args: { place: "floating" } }, USER);
+    expect(screen()).toContain("Keep these words visible");
+    expect(screen()).toContain("Sources");
+    await app.dispatch.act({ action: "sources.place", tile: "notes", args: { place: "floating" } }, USER);
+    screen();
+    await app.dispatch.act({ action: "sources.move", tile: "notes", args: { row: 0, col: 0, cols: 36, rows: 16 } }, USER);
+    await app.dispatch.act({ action: "comment.place", tile: "notes", args: { place: "floating" } }, USER);
+    const commentRow = screen().split("\n").findIndex(l => l.includes("Keep these words visible"));
+    expect(commentRow).toBeGreaterThan(0);
+    expect(screen()).toContain("3 generated regions");
+    await app.dispatch.act({ action: "sources.close", tile: "notes" }, USER);
+    expect(screen().split("\n").findIndex(l => l.includes("Keep these words visible"))).toBe(commentRow);
+    await app.dispatch.act({ action: "sources.open", tile: "notes" }, USER);
+    screen();
+    await app.dispatch.act({ action: "sources.move", tile: "notes", args: { row: 0, col: 0, cols: 36, rows: 16 } }, USER);
+    const sourceRow = screen().split("\n").findIndex(l => l.includes("3 generated regions"));
+    await app.dispatch.act({ action: "comment.close", tile: "notes", args: { discard: true } }, USER);
+    expect(screen().split("\n").findIndex(l => l.includes("3 generated regions"))).toBe(sourceRow);
+    await app.dispatch.act({ action: "sources.place", tile: "notes", args: { place: "split" } }, USER);
+    await app.dispatch.act({ action: "sources.close", tile: "notes" }, USER);
+  });
+
+  test("sources moves through the placement menu and its tile spreads Query, Transform and Result across the width", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    await app.dispatch.act({ action: "sources.open", tile: "notes" }, USER);
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes")!;
+    for (const place of ["inline", "floating", "split", "popup", "tile"]) {
+      await app.dispatch.act({ action: "placement.menu", tile: "notes", args: { target: "sources" } }, USER);
+      expect(screen()).toContain("Placement");
+      await app.dispatch.act({ action: "placement.choose", tile: "notes", args: { place } }, USER);
+      await until(() => screen().includes(`[${place} ▸]`), `sources drawn ${place}`);
+      if (place === "inline") {
+        const before = screen().split("\n").findIndex(l => l.includes("[inline ▸]"));
+        await app.dispatch.act({ action: "scroll", tile: "notes", args: { by: 1 } }, USER);
+        expect(screen().split("\n").findIndex(l => l.includes("[inline ▸]"))).toBe(before - 1);
+      }
+    }
+    await app.dispatch.act({ action: "sources.enter", tile: "notes", args: { n: 1 } }, USER);
+    await app.dispatch.act({ action: "tile.zoom", tile: "sources" }, USER);
+    const lines = screen().split("\n");
+    expect(lines.some(l => l.includes("Query") && l.includes("Transform") && l.includes("Result"))).toBe(true);
+    await app.dispatch.act({ action: "tile.zoom", tile: "sources" }, USER);
+    await app.dispatch.act({ action: "sources.place", tile: "notes", args: { place: "split" } }, USER);
+    await app.dispatch.act({ action: "sources.close", tile: "notes" }, USER);
+    await app.dispatch.act({ action: "sources.open", tile: "notes" }, USER);
+    expect(screen()).toContain("[split ▸]");
+    await app.dispatch.act({ action: "placement.menu", tile: "notes", args: { target: "sources" } }, USER);
+    screen();
+    pane.key({ kind: "down" }, stage);
+    pane.key({ kind: "enter" }, stage);
+    await until(() => screen().includes("[popup ▸]"), "arrow and Enter choose popup");
+    await app.dispatch.act({ action: "sources.place", tile: "notes", args: { place: "split" } }, USER);
+    await app.dispatch.act({ action: "sources.close", tile: "notes" }, USER);
+  });
+
   test.each([false, true])("PIE-1065: an attributed output lands with its note open (editing=%s)", async editing => {
     await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
     const book = await board.createBlock(null, "Check the garden");

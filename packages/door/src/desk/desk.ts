@@ -67,7 +67,7 @@ import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
 import { lookFor, pageOf, type Look } from "../look";
 import type { Step } from "../session/restore";
 import { AnswerTile } from "./answer-tile";
-import { COMMENT_TILE_KIND, CommentTilePane } from "./comment-tile";
+import { AttachedTilePane } from "./attached-tile";
 import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
@@ -322,7 +322,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = [...this.panes].find(([, q]) => q === p)?.[0];
     if (id === undefined) return;
     // A comment's tile closing: the next opens the size this one was.
-    if (p instanceof CommentTilePane) this.commentShare = this.shareOf(id) ?? this.commentShare;
+    if (p instanceof AttachedTilePane) this.commentShare = this.shareOf(id) ?? this.commentShare;
     try { this.closeTile(this.nameOf(id), USER); } catch { /* the screen keeps it (a locked one): it says it has no comment */ }
   }
   /**
@@ -332,16 +332,22 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * the reader, keeping its share. The person's keys go to it when `keys` (their comment); `on` false closes it, the keys
    * back to the reader.
    */
-  async composerTile(r: ReaderPane, on: boolean, keys = true, side?: Dir): Promise<unknown> {
+  composerTile(r: ReaderPane, on: boolean, keys = true, side?: Dir): Promise<unknown> {
+    return this.attachedTile(r, "comment", on, keys, side);
+  }
+  sourcesTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> {
+    return this.attachedTile(r, "sources", on, true, side);
+  }
+  private async attachedTile(r: ReaderPane, attachment: "comment" | "sources", on: boolean, keys: boolean, side?: Dir): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     if (at === undefined) return null;
     const reader = this.nameOf(at);
-    const mine = [...this.panes].filter(([, p]) => p instanceof CommentTilePane && p.source === reader).map(([id]) => id);
+    const mine = [...this.panes].filter(([, p]) => p instanceof AttachedTilePane && p.attachment === attachment && p.source === reader).map(([id]) => id);
     if (!on) { for (const id of mine) { this.commentShare = this.shareOf(id) ?? this.commentShare; try { this.closeTile(this.nameOf(id), USER); } catch { /* kept by the screen */ } } return { closed: mine.length }; }
     if (side) this.commentSide = side;
     let id = mine[0];
     if (id === undefined) {
-      id = this.openPair(at, makeTile({ t: "leaf", kind: COMMENT_TILE_KIND, source: `tile:${reader}` }), "comment", keys, USER);
+      id = this.openPair(at, makeTile({ t: "leaf", kind: attachment, source: `tile:${reader}` }), attachment, keys, USER);
     } else if (side) {
       // To another side of the reader, its share kept (sized by its border, it stays that size).
       const share = this.shareOf(id) ?? this.commentShare;
@@ -382,14 +388,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** Reader `r`'s comment tile is open. */
-  hasComposerTile(r: ReaderPane): boolean {
+  hasComposerTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "comment"); }
+  hasSourcesTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "sources"); }
+  private hasAttachedTile(r: ReaderPane, attachment: "comment" | "sources"): boolean {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
-    return at !== undefined && [...this.panes.values()].some(p => p instanceof CommentTilePane && p.source === this.nameOf(at));
+    return at !== undefined && [...this.panes.values()].some(p => p instanceof AttachedTilePane && p.attachment === attachment && p.source === this.nameOf(at));
   }
   /** The side of reader `at` its comment's own tile is on now, from the pair they make; null with no tile. */
   private commentSideOf(at: number): Dir | null {
     const reader = this.nameOf(at);
-    const id = [...this.panes].find(([, p]) => p instanceof CommentTilePane && p.source === reader)?.[0];
+    const id = [...this.panes].find(([, p]) => p instanceof AttachedTilePane && p.attachment === "comment" && p.source === reader)?.[0];
     const p = id === undefined ? null : parentOf(this.root, id);
     if (!p || p.parent.t !== "split" || !p.parent.pair) return null;
     const first = p.i === 0;
@@ -1201,7 +1209,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   /** Tiles opened into a container (the board's details) are opened, not kept, as a ctrl+e edit tile isn't. */
   // A comment's own tile (PIE-846) isn't kept either: a handover opens it again with its comment (Screen.reopen).
-  private saved() { return serializeLayout(this.layout, id => this.specOf(id), id => { const p = this.panes.get(id); return (p instanceof PtyPane && !!p.run.temp) || p instanceof CommentTilePane || this.openedInto(id) !== undefined; }); }
+  private saved() { return serializeLayout(this.layout, id => this.specOf(id), id => { const p = this.panes.get(id); return (p instanceof PtyPane && !!p.run.temp) || p instanceof AttachedTilePane || this.openedInto(id) !== undefined; }); }
   /** The layout as saved: tile specs in the tree of containers (each with its policy), the focus, the open rule, the screen's policy. */
   layoutSpec(): LayoutSpec { return { ...this.saved(), focus: this.nameOf(this.focus), rule: this.rule, ...(this.layoutName ? { name: this.layoutName } : {}) }; }
   private savedPolicy() { return Object.keys(this.layout.policy).length ? { policy: { ...this.layout.policy } } : {}; }
@@ -3087,7 +3095,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Opening one gives it the keys: they go back to the tile that had them (the tune inspector beside a comment). A
     // comment's own tile isn't kept: the comment opening in it again gives it the keys (PIE-846).
     const at = this.nameOf(this.focus);
-    return steps.length && steps.at(-1)!.tile !== at && !(this.panes.get(this.focus) instanceof CommentTilePane) ? [...steps, { action: "tile.focus", tile: at }] : steps;
+    return steps.length && steps.at(-1)!.tile !== at && !(this.panes.get(this.focus) instanceof AttachedTilePane) ? [...steps, { action: "tile.focus", tile: at }] : steps;
   }
   /** ctrl+e editors still open when the door ends: their files copied to drafts/ (keepEditFile). */
   keepEdits() { return [...this.panes.values()].flatMap(p => p instanceof PtyPane && p.run.temp && p.run.file ? [keepEditFile(p.run.file)].filter((x): x is string => !!x) : []); }
