@@ -72,7 +72,7 @@ const age = (iso: string | undefined, now: number) => (iso ? relativeAge(iso, no
 export function drawSources(p: SourcesPanel, w: number, now: number, wide = true): PanelDraw {
   const lines: string[] = [], hits: PanelHit[] = [];
   let wanted = 0;
-  const cols = () => Math.min(w, Math.max(SOURCES_WIDE_COLS, wanted));
+  const cols = () => Math.min(w, Math.max(wide ? SOURCES_WIDE_COLS : 0, wanted));
   const put = (text: string, hit?: { from: number; to: number; action: string; args?: Record<string, unknown> }[]) => {
     wanted = Math.max(wanted, width(text));
     for (const line of wrap(text, w)) {
@@ -188,7 +188,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
       for (const hit of narrow.hits.filter(h => h.row >= start && h.row < end)) mapped.push({ ...hit, row: head + hit.row - start, from: hit.from + col, to: hit.to + col });
       if (narrow.focus >= start && narrow.focus < end) focused = head + narrow.focus - start;
     });
-    return { cols: Math.min(w, Math.max(cols * 3 + 4, wanted)), lines: out, hits: mapped, items, focus: focused };
+    return { cols: Math.min(w, Math.max(narrow.cols * 3 + 4, wanted)), lines: out, hits: mapped, items, focus: focused };
   }
   return { cols: cols(), lines, hits, items, focus };
 }

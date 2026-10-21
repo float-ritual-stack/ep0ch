@@ -15,6 +15,115 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
   let board!: typeof h.board, app!: typeof h.app, seeded!: typeof h.seeded;
   beforeAll(() => { ({ board, app, seeded } = h); });
 
+  test.each(["sources", "comment"])("Round 3: uncovered gutter folds still draw and respond beside a %s float", async target => {
+    await app.dispatch.act({ action: "section", args: { name: "list-folds" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("reader") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "reader");
+    await act("tile.zoom");
+    try {
+      const rows = screen().split("\n");
+      const y = rows.findIndex(l => l.includes("▾"));
+      const x = rows[y]!.indexOf("▾");
+      expect(y).toBeGreaterThan(0);
+      await act(target === "sources" ? "sources.open" : "comment.note");
+      await act(`${target}.place`, { place: "floating" });
+      screen();
+      await act(`${target}.move`, { col: 30, row: 20, cols: 30, rows: 10 });
+      expect(screen().split("\n")[y]![x]).toBe("▾");
+      const folded = pane.surface.describe().folds?.folded ?? [];
+      h.press({ kind: "mouse", action: "down", button: 0, x, y });
+      h.press({ kind: "mouse", action: "up", button: 0, x, y });
+      await until(() => (pane.surface.describe().folds?.folded.length ?? 0) > folded.length, "uncovered gutter folds by mouse");
+      expect(screen().split("\n")[y]![x]).toBe("▸");
+      await act("unfold", { all: true });
+    } finally {
+      await act(`${target}.close`, target === "comment" ? { discard: true } : {});
+      await act("tile.zoom");
+    }
+  });
+
+  test("Round 3: split Sources keeps the floating comment in frame coordinates", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act("tile.zoom");
+    try {
+      await act("comment.note");
+      pane.key({ kind: "paste", text: "A comment across the split" }, stage);
+      await act("comment.place", { place: "floating" });
+      screen();
+      await act("comment.move", { col: 20, row: 3, cols: 60, rows: 12 });
+      const before = screen().split("\n");
+      const row = before.findIndex(l => l.includes("A comment across the split"));
+      const col = before[row]!.indexOf("A comment across the split");
+      await act("sources.open");
+      await act("sources.place", { place: "split" });
+      const after = screen().split("\n");
+      expect(after[row]!.indexOf("A comment across the split")).toBe(col);
+      expect(after.some(l => l.includes("3 generated regions"))).toBe(true);
+      const sourcesCol = after.find(l => l.includes("[split ▸]"))!.indexOf("[split ▸]");
+      await act("comment.write", { body: "" });
+      await act("comment.close", { discard: true });
+      expect(screen().split("\n").find(l => l.includes("[split ▸]"))!.indexOf("[split ▸]")).toBe(sourcesCol);
+    } finally {
+      if (pane.surface.session) await act("comment.close", { discard: true });
+      await act("sources.close");
+      await act("tile.zoom");
+    }
+  });
+
+  test("Round 3: a preview picture stays in a comment moved above the hero", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "hero" } }, USER);
+    const video = app.video;
+    app.video = "kitty";
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane(stage.readerPanes()[0]!.name) as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, stage.readerPanes()[0]!.name);
+    try {
+      await until(() => h.sc.render(app).placements?.some(p => p.key.includes("hero:img:")) === true, "hero loaded");
+      await act("comment.note");
+      const image = pane.msg!.text.match(/\[img::([^\]]+)\]/)![1]!;
+      pane.key({ kind: "paste", text: `[img::${image}] [height::3]` }, stage);
+      pane.key({ kind: "char", ch: "p", ctrl: true }, stage);
+      await act("comment.place", { place: "floating" });
+      screen();
+      await act("comment.move", { col: 2, row: pane.innerFrame!.row - 16, cols: 60, rows: 12 });
+      await until(() => { screen(); return !!pane.surface.session!.composer!.frame?.preview?.placements?.length; }, "preview picture loaded");
+      const view = h.sc.render(app);
+      const picture = pane.surface.session!.composer!.frame!.preview!.placements![0]!;
+      expect(view.placements?.some(p => p.key.endsWith(picture.key))).toBe(true);
+    } finally {
+      await act("comment.write", { body: "" });
+      await act("comment.close", { discard: true });
+      app.video = video;
+    }
+  });
+
+  test("Round 3: source details take the width their content needs", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act("tile.zoom");
+    try {
+      await act("sources.open");
+      await act("sources.place", { place: "floating" });
+      await act("sources.enter", { n: 1 });
+      const rows = screen().split("\n");
+      expect(rows.some(l => l.includes("Query") && l.includes("Transform") && l.includes("Result"))).toBe(true);
+      expect(pane.surface.sourcesMode!.frame!.cols).toBeLessThan(pane.innerFrame!.cols * .85);
+    } finally {
+      await act("sources.close");
+      await act("tile.zoom");
+    }
+  });
+
   test.each(["default width", "sizing past the measure", "shadow inside the rect"])("PIE-1155: %s", async symptom => {
     await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
     screen();

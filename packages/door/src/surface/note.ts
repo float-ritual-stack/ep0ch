@@ -1252,8 +1252,13 @@ export class NoteSurface {
     if (sm && sm.place !== "tile") {
       const writing = this.session?.place === "tile" ? null : this.composing(host);
       const floating = sm.place === "floating" || sm.place === "popup";
-      if (!floating) return this.renderBeside(w, h, host,
-        (cols, rows, row, col) => this.renderSources(cols, rows, row, col), "sources", (cols, rows) => this.renderComment(cols, rows, host));
+      if (!floating) {
+        const over = writing && (writing.cs.place === "floating" || writing.cs.place === "popup") ? writing : null;
+        const v = this.renderBeside(w, h, host,
+          (cols, rows, row, col) => this.renderSources(cols, rows, row, col), "sources",
+          (cols, rows) => over ? this.renderReading(cols, rows, host, null) : this.renderComment(cols, rows, host));
+        return over ? this.overComposer(v, w, h, over, over.cs.place === "floating" ? "floating" : "popup", host?.focused !== false) : v;
+      }
       const v = this.renderComment(w, h, host);
       const rect = attachedRect(sm.place, w, h, { frame: this.innerFrame, min: { cols: 24, rows: 10 }, moved: sm.float }, (cols, rows, fill) => {
         const drawn = drawSources(sm.panel, cols - 2, Date.now());
@@ -1414,7 +1419,7 @@ export class NoteSurface {
 
     placeBox(c.d, box, row, col);
     const under = (p: Placement) => p.row < heroRows + row + box.lines.length + 2 && p.row + p.rows > heroRows + row && p.col < col + box.width && p.col + p.cols > col;
-    return { ...v, frame: this.innerFrame, lines: this.innerFrame ? painted : [...v.lines.slice(0, heroRows), ...painted], placements: [...(v.placements ?? []).filter(p => p.row < heroRows || !focused && !under(p)), ...previewPictures(c.d, 0, room).map(p => ({ ...p, row: p.row + heroRows }))] };
+    return { ...v, frame: this.innerFrame, lines: this.innerFrame ? painted : [...v.lines.slice(0, heroRows), ...painted], placements: [...(v.placements ?? []).filter(p => p.row < heroRows || !focused && !under(p)), ...previewPictures(c.d, row + 1, row + 1 + box.lines.length).map(p => ({ ...p, row: p.row + heroRows }))] };
   }
 
   /**
@@ -3535,6 +3540,8 @@ export class NoteSurface {
       key: (k, host) => this.commentKey(cs, k, host),
       // Beside the box, a click on a link, a comment mark or back and forward goes there, asking first (PIE-785).
       click: (x, y, host) => {
+        const r = this.boxRect;
+        if ((cs.place === "floating" || cs.place === "popup") && r && (x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) return undefined;
         if (this.floatAt(x, y + (this.drawn?.heroRows ?? 0), host) === "comment" && this.sourcesMode) void this.runKey("sources.focus", { on: false }, host);
         const d = writing();
         return d ? this.writeClick(d, x, y, host) || this.followFromComposer(x, y, host) : cs.mode === "compose" && cs.place === "tile" ? this.followFromComposer(x, y, host) : false;
@@ -6373,8 +6380,8 @@ export class NoteSurface {
     host.redraw(); return sm.float;
   }
 
-  private floatAt(x: number, y: number, host: SurfaceHost): "comment" | "sources" | "draft" | null {
-    if (host.attachment) return null;
+  floatAt(x: number, y: number, host?: SurfaceHost): "comment" | "sources" | "draft" | null {
+    if (host?.attachment) return null;
     const sm = this.sourcesMode, cs = this.session;
     const comment = { target: "comment" as const, rect: cs && (cs.place === "floating" || cs.place === "popup") && this.boxRect ? { ...this.boxRect, row: this.boxRect.row + (this.drawn?.heroRows ?? 0) } : null };
     const sources = { target: "sources" as const, rect: sm && (sm.place === "floating" || sm.place === "popup") ? sm.frame : null };

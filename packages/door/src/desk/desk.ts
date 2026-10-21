@@ -53,7 +53,7 @@ import { outlineState, readState, writeState } from "../state";
 import { hyperOn } from "../hyper";
 import { containerKeys, leafNames, slotNames, madeScreen, mountProblem, newNoteRule, resolveScreen, savedNodes, screenNames, screenParts, screenSlug, screenSpec, screenTargetArg, screenTitle, screenTitleProblem, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
-import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
+import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme, themed } from "../theme";
 import { ch, type Key, type TileProgram } from "../term";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
@@ -3645,6 +3645,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return out;
     }
     view.lines.slice(0, view.frame?.rows ?? inner.rows).forEach((l, i) => canvas.text(inner.col + (view.frame?.col ?? 0), inner.row + (view.frame?.row ?? 0) + i, l, view.frame?.cols ?? inner.cols));
+    if (view.frame && reader) for (const g of view.gutter ?? []) {
+      if (g.row >= inner.rows) continue;
+      for (let x = 0; x < gutter; x++) if (!reader.surface.floatAt(framed.col + x - inner.col, g.row)) {
+        canvas.text(framed.col + x, inner.row + g.row, headOf(tailFrom(g.text, x), 1), 1);
+      }
+    }
     const lineEnds = new Map<number, number>();
     if (pane instanceof ReaderPane) for (const p of pointers) {
       if (p.line === undefined || (p.note && p.note !== pane.msg?.id)) continue;
@@ -6101,7 +6107,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private local(id: number, r: Rect, x: number, y: number): { x: number; y: number } {
     const c = this.origin(id, r), gutter = this.gutters.get(id);
     const popup = this.views.get(id)?.view.completion?.drawn;
-    if (this.views.get(id)?.view.frame) return { x: x - c.col, y: y - c.row };
+    const pane = this.panes.get(id);
+    if (pane instanceof ReaderPane && pane.surface.floatAt(x - c.col, y - c.row)) return { x: x - c.col, y: y - c.row };
     if (popup && y - c.row >= popup.row && y - c.row < popup.row + popup.items.length) return { x: x - c.col, y: y - c.row };
     if (gutter && x >= gutter.col && x < gutter.col + gutter.cols) return { x: x - gutter.col - gutter.cols, y: y - c.row };
     return { x: Math.max(0, Math.min(c.cols - 1, x - c.col)), y: Math.max(0, Math.min(c.rows - 1, y - c.row)) };
@@ -6591,7 +6598,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const o = this.origin(at![0], hit), near = this.local(at![0], hit, k.x, k.y);
     const popup = this.views.get(at![0])?.view.completion?.drawn;
     const overPopup = popup && near.y >= popup.row && near.y < popup.row + popup.items.length;
-    const { x, y } = k.action === "down" || overPopup ? near : this.pressedAt({ ...o, frame: this.views.get(at![0])?.view.frame }, k);
+    const { x, y } = k.action === "down" || overPopup ? near : this.pressedAt({ ...o, gutter: this.gutters.get(at![0]), frame: this.editFloat ? this.views.get(at![0])?.view.frame : undefined }, k);
     // The release of a press made in the edit is its, wherever it comes up: a click there (a control, a completion), or
     // the end of a drag, which copies what it selected (copy on select, as in a reader).
     // An alt- or ctrl-click on a link in it opens the link beside (PIE-592), as ctrl+l does: in the detail the last one
@@ -6608,6 +6615,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Only where the reader is on top: a float or a dock drawn over its popup keeps the click.
     if (!(this.topTileAt(k.x, k.y) === at![0] && k.x > hit.col && k.y > hit.row && k.x < hit.col + hit.cols - 1 && k.y < hit.row + hit.rows - 1)) return false;
     this.editPressed = pane;
+    this.editFloat = !!pane.surface.floatAt(k.x - o.col, k.y - o.row);
     this.editFresh = !!((k.mods ?? 0) & 24);
     pane.press(x, y, this, !!((k.mods ?? 0) & 4));
     return true;
@@ -6616,6 +6624,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private editPressed: ReaderPane | null = null;
   /** That press was an alt- or ctrl-click. */
   private editFresh = false;
+  private editFloat = false;
 
   /** How the hint row and a flash name a reader the person is in: by its number on screen (a view may name it its way). */
   /** A reader as the hint row says it: a detail by its label (detail 1), else its number, or its name where tiles aren't numbered. */
@@ -6918,9 +6927,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           // The press that gives the keys back to an edit of theirs left open there (PIE-812) keeps its cursor and
           // selection where they were, as the keys coming back by ^W leave them; a control in its frame still runs (its
           // release is the edit's, as any press in it: clickIn).
-          if (focusing && pane.editing && this.entered.in(pane)) { this.editPressed = pane; pane.press(x, y, this, false, true); return this.redraw(); }
           const o = this.origin(id, r);
-          this.pressed = { frame: this.views.get(id)?.view.frame, pane, gutter: this.gutters.get(id), col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24), focusing };
+          if (focusing && pane.editing && this.entered.in(pane)) { this.editPressed = pane; this.editFloat = !!pane.surface.floatAt(k.x - o.col, k.y - o.row); pane.press(x, y, this, false, true); return this.redraw(); }
+          this.pressed = { frame: pane.surface.floatAt(k.x - o.col, k.y - o.row) ? this.views.get(id)?.view.frame : undefined, pane, gutter: this.gutters.get(id), col: o.col, row: o.row, cols: o.cols, fresh: !!((k.mods ?? 0) & 24), focusing };
           pane.press(x, y, this, !!((k.mods ?? 0) & 4));
           // A click that places the cursor in the person's own edit here (one left open while its tile lost
           // the keys) is in it again, as e would be. An agent's draft still takes e or ⏎ (PIE-411).
