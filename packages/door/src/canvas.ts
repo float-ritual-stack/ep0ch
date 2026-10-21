@@ -188,7 +188,6 @@ export class Canvas {
   float(r: Rect, title: string, foot: string, draw: () => void, takesKeys = false, values?: StyleValues, glyphs = LINE_BOX): void {
     if (takesKeys) this.backdrop(values);
     const t = floatTheme(values);
-    this.shadow(r, values);
     this.clear(r);
     this.box(r, fgRgb(t.border), fgRgb(t.border) + title, foot, glyphs);
     draw();

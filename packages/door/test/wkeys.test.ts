@@ -114,7 +114,6 @@ describe.skipIf(!outliner)("^W keys, the keys box and the ^W list (PIE-704)", ()
   test("after ^W the keys box lists the grouped keys once, and the hint row says only the way out", () => {
     key(ctrlW);
     const lines = frame();
-    expect(lines.join("\n")).toContain("▒");
     const text = lines.join("\n");
     expect(text).toContain("focus & move");
     expect(text).toContain("hjkl focus");

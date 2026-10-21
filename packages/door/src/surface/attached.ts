@@ -56,14 +56,15 @@ export function clampFloat(r: FloatRect, w: number, h: number): FloatRect {
 }
 
 /** One floating frame for reader attachments; the caller supplies its content. */
-export function drawAttachedFloat(lines: string[], w: number, h: number, rect: FloatRect, title: string, focused: boolean, look: StyleValues | undefined, body: (canvas: Canvas) => void, sizable = true) {
-  const canvas = new Canvas(w, h);
-  lines.forEach((line, y) => canvas.text(0, y, line, w));
-  canvas.float(rect, title, "", () => body(canvas), focused, look, sizable ? { ...LINE_BOX, br: "◢" } : LINE_BOX);
+export function drawAttachedFloat(lines: string[], w: number, h: number, rect: FloatRect, title: string, focused: boolean, look: StyleValues | undefined, body: (canvas: Canvas, dx: number, dy: number) => void, sizable = true, frame: FloatRect = { col: 0, row: 0, cols: w, rows: h }, base?: FloatRect) {
+  const canvas = new Canvas(frame.cols, frame.rows);
+  lines.forEach((line, y) => canvas.text((base?.col ?? 0) - frame.col, y + (base?.row ?? 0) - frame.row, line, base?.cols ?? w));
+  canvas.float({ ...rect, col: rect.col - frame.col, row: rect.row - frame.row }, title, "", () => body(canvas, -frame.col, -frame.row), focused, look, sizable ? { ...LINE_BOX, br: "◢" } : LINE_BOX);
   return canvas.lines();
 }
 
 export interface AttachedLayout {
+  frame?: FloatRect;
   min?: { cols: number; rows: number };
   moved?: FloatRect | null;
   passage?: [number, number] | null;
@@ -76,6 +77,16 @@ export interface AttachedLayout {
 
 /** Every attachment's geometry, including the room offered to its content before an overlay is positioned. */
 export function attachedRect(place: AttachedPlace, w: number, h: number, options: AttachedLayout = {}, content?: (cols: number, rows: number, fill: boolean) => { cols: number; rows: number }): FloatRect {
+  if (options.frame && (place === "floating" || place === "popup")) {
+    const { frame, ...rest } = options;
+    const rect = attachedRect(place, frame.cols, frame.rows, { ...rest,
+      moved: rest.moved && { ...rest.moved, col: rest.moved.col - frame.col, row: rest.moved.row - frame.row },
+      col: rest.col === undefined ? undefined : rest.col - frame.col,
+      from: (rest.from ?? 0) - frame.row, to: (rest.to ?? h) - frame.row,
+      passage: rest.passage && [rest.passage[0] - frame.row, rest.passage[1] - frame.row],
+    }, content);
+    return { ...rect, col: rect.col + frame.col, row: rect.row + frame.row };
+  }
   const { from = 0, to = h, col, moved, min = { cols: 24, rows: 6 } } = options;
   if (place === "tile") return { row: 0, col: 0, cols: w, rows: h };
   if (place === "inline") return { row: from, col: col ?? 0, cols: w, rows: Math.max(min.rows, h) };
@@ -85,7 +96,7 @@ export function attachedRect(place: AttachedPlace, w: number, h: number, options
     return beside ? { row: 0, col: w - size, cols: size, rows: h } : { row: h - rows, col: 0, cols: w, rows };
   }
   const room = place === "floating" && moved ? clampFloat(moved, w, h) : clampFloat({
-    cols: Math.max(min.cols, Math.min(w - 2, 80)), rows: Math.max(min.rows, place === "popup" && content ? h - 2 : Math.floor(h * .6)), row: 0, col: 0,
+    cols: Math.max(min.cols, w - 2), rows: Math.max(min.rows, place === "popup" && content ? h - 2 : Math.floor(h * .6)), row: 0, col: 0,
   }, w, h);
   const size = content?.(room.cols, room.rows, place === "floating" && !!moved) ?? room;
   if (place === "floating" && moved) return room;
@@ -149,7 +160,14 @@ export class AttachedTile {
 }
 
 export type FloatMove = { dx?: number; dy?: number; col?: number; row?: number; dcols?: number; drows?: number; cols?: number; rows?: number; reset?: boolean };
-export function moveFloat(was: FloatRect, a: FloatMove, room: { w: number; h: number }): FloatRect {
+export function moveFloat(was: FloatRect, a: FloatMove, room: { w: number; h: number; col?: number; row?: number }): FloatRect {
+  if (room.col || room.row) {
+    const col = room.col ?? 0, row = room.row ?? 0;
+    const next = moveFloat({ ...was, col: was.col - col, row: was.row - row }, { ...a,
+      col: a.col === undefined ? undefined : a.col - col, row: a.row === undefined ? undefined : a.row - row,
+    }, { w: room.w, h: room.h });
+    return { ...next, col: next.col + col, row: next.row + row };
+  }
   const row = a.row ?? was.row + (a.dy ?? 0), col = a.col ?? was.col + (a.dx ?? 0);
   const cols = a.cols ?? was.cols + (a.dcols ?? 0), rows = a.rows ?? was.rows + (a.drows ?? 0);
   return clampFloat({ row, col,

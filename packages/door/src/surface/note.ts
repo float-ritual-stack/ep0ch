@@ -164,6 +164,7 @@ export interface SurfaceHost {
   readonly look?: Look;
   /** The tile host draws the gutter outside its padded, measured content rectangle. */
   readonly externalGutter?: number;
+  readonly innerFrame?: FloatRect;
   readonly heroBounds?: { col: number; row: number; cols: number };
   /** A followed link or `u` (up): the host decides where the note opens (in place, or as the current note). */
   navigate(m: Msg, how?: OpenHow): void;
@@ -413,7 +414,7 @@ interface Laid {
 }
 
 /** `scroll`: where a reading view is in its note (the frames draw a thumb and `· NN%` from it). */
-export interface SurfaceView { headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll }
+export interface SurfaceView { frame?: FloatRect; headerBand?: { row: number; rows: number; bg: string }; completion?: Completer; gutter?: { row: number; text: string }[]; lines: string[]; placements?: Placement[]; scroll?: Scroll }
 export type Link = LinkTarget;
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
 /** The density after `d`, round again: compact, cozy, comfortable. */
@@ -653,7 +654,7 @@ const LEAVE_SAYS: Record<LeaveChoice, string> = {
 };
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
 type LinksMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { block: string; describe(): { block: string; title: string | null; selected: string | null; typing: string | null } };
-type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; reveal: boolean; place: AttachedPlace; float: FloatRect | null; frame: FloatRect | null; room: { w: number; h: number }; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; footer: number; describe(): unknown };
+type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; reveal: boolean; place: AttachedPlace; float: FloatRect | null; frame: FloatRect | null; room: { w: number; h: number; col?: number; row?: number }; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; footer: number; describe(): unknown };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
 /** How long a missing page's offer stands (PIE-544): the next ⏎ or click on its link within it makes the page. */
@@ -877,7 +878,8 @@ export class NoteSurface {
   private boxRect: FloatRect | null = null;
   readonly editPreview = { place: attachedPlaceOf(readState<{ place: string }>("edit-preview-place.json")?.place) ?? "inline", float: null as FloatRect | null, rect: null as FloatRect | null, frame: null as FloatRect | null, room: { w: 0, h: 0 } };
   private readonly attachmentTiles = { comment: new AttachedTile(), sources: new AttachedTile(), "list-preview": new AttachedTile(), "edit-preview": new AttachedTile() };
-  private boxRoom: { w: number; h: number } | null = null;
+  private innerFrame?: FloatRect;
+  private boxRoom: { w: number; h: number; col?: number; row?: number } | null = null;
   /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
   private frameDrag: { target: "comment" | "sources" | "edit-preview"; zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
   /** Where the person asked to go while their comment is unsent (PIE-785): it waits on their answer in the power bar. */
@@ -1211,6 +1213,7 @@ export class NoteSurface {
    * every click on it, is that many rows down.
    */
   render(w: number, h: number, host?: SurfaceHost): SurfaceView {
+    this.innerFrame = host?.innerFrame;
     const view = host ? withFigureBoard(host.ctx.board, () => host.redraw(), () => this.renderOn(w, h, host)) : this.renderOn(w, h);
     if (!this.previewPoint() || this.listPreview.rect || this.editing) this.keepCurrent(host);
     return this.withPlacementMenu(view, w, h, "reader");
@@ -1252,16 +1255,18 @@ export class NoteSurface {
       if (!floating) return this.renderBeside(w, h, host,
         (cols, rows, row, col) => this.renderSources(cols, rows, row, col), "sources", (cols, rows) => this.renderComment(cols, rows, host));
       const v = this.renderComment(w, h, host);
-      const rect = attachedRect(sm.place, w, h, { min: { cols: 24, rows: 10 }, moved: sm.float });
+      const rect = attachedRect(sm.place, w, h, { frame: this.innerFrame, min: { cols: 24, rows: 10 }, moved: sm.float }, (cols, rows, fill) => {
+        const drawn = drawSources(sm.panel, cols - 2, Date.now());
+        return { cols: fill ? cols : drawn.cols + 2, rows };
+      });
       sm.frame = rect;
-      if (sm.place === "floating") sm.float ??= rect;
-      sm.room = { w, h };
+      sm.room = this.innerFrame ? { w: this.innerFrame.cols, h: this.innerFrame.rows, col: this.innerFrame.col, row: this.innerFrame.row } : { w, h };
       const side = this.renderSources(rect.cols - 2, rect.rows - 2, rect.row + 1, rect.col + 1);
       const lines = drawAttachedFloat(v.lines, w, h, rect, sm.place === "floating" ? "sources · ≡ move" : "sources", this.modes.active(sm), this.lastLook?.values,
-        canvas => side.lines.forEach((line, i) => canvas.text(rect.col + 1, rect.row + 1 + i, line, rect.cols - 2)), sm.place === "floating");
+        (canvas, dx, dy) => side.lines.forEach((line, i) => canvas.text(rect.col + 1 + dx, rect.row + 1 + i + dy, line, rect.cols - 2)), sm.place === "floating", this.innerFrame, v.frame);
       // Both attachments are painted; the one holding the keys is the last layer.
       return writing && !this.modes.active(sm) && (writing.cs.place === "floating" || writing.cs.place === "popup")
-        ? this.overComposer({ ...v, lines }, w, h, writing, writing.cs.place, host?.focused !== false) : { ...v, lines, placements: [] };
+        ? this.overComposer({ ...v, lines, frame: this.innerFrame }, w, h, writing, writing.cs.place, host?.focused !== false) : { ...v, lines, frame: this.innerFrame, placements: [] };
     }
     const p = this.previewPoint();
     if (p && !this.draft && !this.session) return this.renderListPreview(w, h, host);
@@ -1348,10 +1353,10 @@ export class NoteSurface {
     if (place === "split") return this.renderBeside(w, h, host,
       (cols, rows, row, col) => this.listPreviewView(cols, rows, host, row, col)!, "list-preview", (cols, rows) => this.renderComment(cols, rows, host));
     const v = this.renderComment(w, h, host);
-    const rect = attachedRect(place, w, h, { moved: this.listPreview.float });
+    const rect = attachedRect(place, w, h, { frame: this.innerFrame, moved: this.listPreview.float });
     const side = this.listPreviewView(rect.cols - 2, rect.rows - 2, host, rect.row + 1, rect.col + 1)!;
-    return { ...v, lines: drawAttachedFloat(v.lines, w, h, rect, "list children", false, this.lastLook?.values,
-      canvas => side.lines.forEach((l, i) => canvas.text(rect.col + 1, rect.row + i + 1, l, rect.cols - 2))), placements: [] };
+    return { ...v, frame: this.innerFrame, lines: drawAttachedFloat(v.lines, w, h, rect, "list children", false, this.lastLook?.values,
+      (canvas, dx, dy) => side.lines.forEach((l, i) => canvas.text(rect.col + 1 + dx, rect.row + i + 1 + dy, l, rect.cols - 2)), true, this.innerFrame, v.frame), placements: [] };
   }
 
   private renderComment(w: number, h: number, host?: SurfaceHost): SurfaceView {
@@ -1390,9 +1395,10 @@ export class NoteSurface {
    */
   private overComposer(v: SurfaceView, w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>, place: "floating" | "popup", focused: boolean): SurfaceView {
     const heroRows = this.drawn?.heroRows ?? 0;
-    const lines = v.lines.slice(heroRows), room = Math.max(lines.length, h - heroRows);
+    const lines = this.innerFrame ? v.lines : v.lines.slice(heroRows), room = Math.max(lines.length, h - heroRows);
     let box!: ComposerBox;
     this.boxRect = attachedRect(place, w, room, {
+      frame: this.innerFrame && { ...this.innerFrame, row: this.innerFrame.row - heroRows },
       moved: c.cs.float, passage: this.composerRows, from: this.drawn?.top ?? 0,
       to: Math.min(room, (this.drawn?.top ?? 0) + (this.drawn?.room ?? room)), col: (this.drawn?.bx ?? 1) + 2,
     }, (cols, rows, fill) => {
@@ -1401,14 +1407,14 @@ export class NoteSurface {
     });
     const { row, col } = this.boxRect;
     if (place === "floating" && this.sourcesMode) c.cs.float ??= this.boxRect;
-    this.boxRoom = { w, h: room };
-    const painted = drawAttachedFloat(lines, w, room, this.boxRect, place === "floating" ? "≡ move" : "", focused, this.lastLook?.values, canvas => {
-      box.lines.forEach((line, y) => canvas.text(col + 1, row + 1 + y, line, box.width - 2));
-    }, place === "floating");
+    this.boxRoom = this.innerFrame ? { w: this.innerFrame.cols, h: this.innerFrame.rows, col: this.innerFrame.col, row: this.innerFrame.row - heroRows } : { w, h: room };
+    const painted = drawAttachedFloat(lines, w, room, this.boxRect, place === "floating" ? "≡ move" : "", focused, this.lastLook?.values, (canvas, dx, dy) => {
+      box.lines.forEach((line, y) => canvas.text(col + 1 + dx, row + 1 + y + dy, line, box.width - 2));
+    }, place === "floating", this.innerFrame && { ...this.innerFrame, row: this.innerFrame.row - heroRows }, this.innerFrame ? { ...(v.frame ?? { col: 0, row: 0, cols: w, rows: h }), row: (v.frame?.row ?? 0) - heroRows } : undefined);
 
     placeBox(c.d, box, row, col);
     const under = (p: Placement) => p.row < heroRows + row + box.lines.length + 2 && p.row + p.rows > heroRows + row && p.col < col + box.width && p.col + p.cols > col;
-    return { ...v, lines: [...v.lines.slice(0, heroRows), ...painted], placements: [...(v.placements ?? []).filter(p => p.row < heroRows || !focused && !under(p)), ...previewPictures(c.d, 0, room).map(p => ({ ...p, row: p.row + heroRows }))] };
+    return { ...v, frame: this.innerFrame, lines: this.innerFrame ? painted : [...v.lines.slice(0, heroRows), ...painted], placements: [...(v.placements ?? []).filter(p => p.row < heroRows || !focused && !under(p)), ...previewPictures(c.d, 0, room).map(p => ({ ...p, row: p.row + heroRows }))] };
   }
 
   /**
@@ -6432,6 +6438,7 @@ export class NoteSurface {
     host.redraw(); return { place: want };
   }
 
+  private menuOffset = { col: 0, row: 0 };
   private menuArea = { row: 0, col: 0, rows: 0, cols: 0 };
   private get placementMenu() { return this.modes.get("placement") as (ReaderMode<SurfaceHost> & { list: ListPicker<AttachedPlace, SurfaceHost>; target: "comment" | "sources" | "list-preview" | "edit-preview" }) | null; }
 
@@ -6453,15 +6460,16 @@ export class NoteSurface {
       choose: p => { void this.runKey("placement.choose", { place: p }, host); },
       closed: () => { void this.runKey("placement.close", {}, host); },
       clicked: (x, y) => {
-        if (y !== this.menuArea.row + this.menuArea.rows - 2) return false;
-        const local = x - this.menuArea.col - 1;
+        if (y !== this.menuArea.row - this.menuOffset.row + this.menuArea.rows - 2) return false;
+        const local = x - (this.menuArea.col - this.menuOffset.col) - 1;
         if (local >= 0 && local < 15) { void this.runKey("placement.choose", { place: "split", direction: local < 8 ? "right" : "down" }, host); return true; }
         return false;
       },
       frame: area => {
         const cols = Math.min(22, area.cols), rows = Math.min(10, area.rows);
-        const col = Math.max(0, Math.min(chip.col, area.cols - cols));
-        const row = Math.max(0, Math.min(chip.row + 1 + rows <= area.rows ? chip.row + 1 : chip.row - rows, area.rows - rows));
+        const col = Math.max(0, Math.min(chip.col - this.menuOffset.col, area.cols - cols));
+        const y = chip.row - this.menuOffset.row;
+        const row = Math.max(0, Math.min(y + 1 + rows <= area.rows ? y + 1 : y - rows, area.rows - rows));
         return { tail: ["[beside] [below]"], rect: { col, row, cols, rows }, title: "Placement", foot: "Enter choose · Esc close" };
       },
     });
@@ -6475,7 +6483,7 @@ export class NoteSurface {
         else if (isUp(k) || isDown(k) || k.kind === "tab") void this.runKey("placement.step", { by: isUp(k) ? -1 : 1 }, host);
         return true;
       },
-      click: (x, y) => { list.key({ kind: "mouse", action: "down", button: 0, x, y }, host); host.redraw(); return true; },
+      click: (x, y) => { list.key({ kind: "mouse", action: "down", button: 0, x: x - this.menuOffset.col, y: y - this.menuOffset.row }, host); host.redraw(); return true; },
       rows: () => null, leave: async () => { this.modes.drop("placement"); return { left: "nothing" }; },
       hint: () => "placement · arrows select · Enter choose · Esc close", state: () => "placement", describe: () => ({ target, current: place }),
     });
@@ -6506,10 +6514,13 @@ export class NoteSurface {
     if (!m) return view;
     const place = m.target === "edit-preview" ? this.editPreview.place : m.target === "list-preview" ? this.listPreview.place : m.target === "comment" ? this.session?.place : this.sourcesMode?.place;
     if ((place === "tile" ? m.target : "reader") !== where) return view;
-    const canvas = new Canvas(w, h);
-    view.lines.forEach((l, y) => canvas.text(0, y, l, w));
-    const area = { col: 0, row: 0, cols: w, rows: h };
-    this.menuArea = m.list.spec.frame!(area, m.list.items.length).rect;
+    const frame = view.frame ?? { col: 0, row: 0, cols: w, rows: h };
+    this.menuOffset = frame;
+    const canvas = new Canvas(frame.cols, frame.rows);
+    view.lines.forEach((l, y) => canvas.text(0, y, l, frame.cols));
+    const area = { col: 0, row: 0, cols: frame.cols, rows: frame.rows };
+    const rect = m.list.spec.frame!(area, m.list.items.length).rect;
+    this.menuArea = { ...rect, col: rect.col + frame.col, row: rect.row + frame.row };
     m.list.draw(canvas, area);
     return { ...view, lines: canvas.lines(), placements: [] };
   }

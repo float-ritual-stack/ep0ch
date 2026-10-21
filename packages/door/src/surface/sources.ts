@@ -44,7 +44,7 @@ export type PanelItem =
   | { kind: "copy"; part: "query" | "transform" | "result" };
 
 export interface PanelHit { row: number; from: number; to: number; action: string; args: Record<string, unknown> }
-export interface PanelDraw { lines: string[]; hits: PanelHit[]; items: PanelItem[]; /** The row the focus is on, to keep in view. */ focus: number }
+export interface PanelDraw { cols: number; lines: string[]; hits: PanelHit[]; items: PanelItem[]; /** The row the focus is on, to keep in view. */ focus: number }
 
 const KIND_WORDS: Record<SourceEntry["kind"], string> = { handler: "handler line", expr: "one-line script", use: "template", figure: "figure", fields: "fields", if: "condition", output: "written output" };
 
@@ -63,13 +63,18 @@ export function itemsOf(s: SourceEntry, folds: Record<SourcesFold, boolean>): Pa
   return out;
 }
 
+const SOURCES_WIDE_COLS = 108;
+
 const dim = (s: string) => fg(C.dark) + s + RESET;
 const age = (iso: string | undefined, now: number) => (iso ? relativeAge(iso, now) : "");
 
 /** The fully wrapped panel, its click targets, its items and the focused row; Inspector owns the viewport. */
 export function drawSources(p: SourcesPanel, w: number, now: number, wide = true): PanelDraw {
   const lines: string[] = [], hits: PanelHit[] = [];
+  let wanted = 0;
+  const cols = () => Math.min(w, Math.max(SOURCES_WIDE_COLS, wanted));
   const put = (text: string, hit?: { from: number; to: number; action: string; args?: Record<string, unknown> }[]) => {
+    wanted = Math.max(wanted, width(text));
     for (const line of wrap(text, w)) {
       for (const x of hit ?? []) hits.push({ row: lines.length, from: x.from, to: x.to, action: x.action, args: x.args ?? {} });
       lines.push(pad(line, w) + RESET);
@@ -86,14 +91,14 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
       { from: 1 + width(left) + (a ? width(refresh) + 2 : 0), to: 2 + width(left) + (a ? width(refresh) + 2 : 0), action: "sources.close" },
     ]);
   };
-  if (p.error) { head("Sources"); put(""); put(` ${fg(C.lred)}${p.error}${RESET}`); return { lines, hits, items: [], focus: 0 }; }
-  if (!a) { head("Sources"); put(""); put(` ${dim("reading what this note generates…")}`); return { lines, hits, items: [], focus: 0 }; }
+  if (p.error) { head("Sources"); put(""); put(` ${fg(C.lred)}${p.error}${RESET}`); return { cols: cols(), lines, hits, items: [], focus: 0 }; }
+  if (!a) { head("Sources"); put(""); put(` ${dim("reading what this note generates…")}`); return { cols: cols(), lines, hits, items: [], focus: 0 }; }
   const s = p.open !== null ? a.sources[p.open] : undefined;
 
   // The page's list: every generated region, its name and when it last read.
   if (!s) {
     head(`Sources · ${a.sources.length} generated region${a.sources.length === 1 ? "" : "s"}`);
-    put(dim(" ".repeat(1) + "─".repeat(Math.max(0, w - 2))));
+    lines.push(dim(" " + "─".repeat(Math.max(0, w - 2))));
     if (!a.sources.length) put(` ${dim("nothing on this note is generated: no handler line, ::=, ::use, figure, ::fields, ::if or written output")}`);
     let focus = 2;
     a.sources.forEach((x, i) => {
@@ -101,11 +106,12 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
       const on = i === p.sel, when = age(x.readAt, now) || (x.kind === "output" ? "written" : ""), kind = KIND_WORDS[x.kind];
       const left = ` ${on ? fg(C.yellow) + "▸" : " "} ${on ? fg(C.white) + BOLD : fg(C.lcyan)}${x.name}${UNBOLD}${RESET}${x.problem ? fg(C.yellow) + " !" + RESET : ""}`;
       const right = `${dim(kind)}  ${dim(when)}`;
+      wanted = Math.max(wanted, width(`${left}  ${right}`));
       for (const text of rowLines(`${left}  ${right}`, w, Infinity, { hang: 3 })) put(text, [{ from: 0, to: w, action: "sources.enter", args: { n: i + 1 } }]);
     });
     put("");
     put(` ${dim("j k select · ⏎ open · r read again · esc close")}`);
-    return { lines, hits, items: [], focus };
+    return { cols: cols(), lines, hits, items: [], focus };
   }
 
   // One source, three folds.
@@ -113,7 +119,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
   const at = Math.min(p.item, items.length - 1);
   let focus = 0;
   const mark = (i: number) => (i === at ? fg(C.yellow) + "▸" + RESET : " ");
-  const row = (i: number, text: string, hit?: PanelHit["action"], args: Record<string, unknown> = {}) => { if (i === at) focus = lines.length; for (const line of rowLines(`${mark(i)} ${text}`, w, Infinity, { hang: 2 })) put(line, [{ from: 0, to: w, action: hit ?? "sources.item", args: hit ? args : { n: i + 1 } }]); };
+  const row = (i: number, text: string, hit?: PanelHit["action"], args: Record<string, unknown> = {}) => { wanted = Math.max(wanted, width(text) + 2); if (i === at) focus = lines.length; for (const line of rowLines(`${mark(i)} ${text}`, w, Infinity, { hang: 2 })) put(line, [{ from: 0, to: w, action: hit ?? "sources.item", args: hit ? args : { n: i + 1 } }]); };
   put(` ${fg(C.lcyan)}← ${RESET}${fg(C.yellow)}${BOLD}${s.name}${UNBOLD}${RESET} ${dim(`· ${KIND_WORDS[s.kind]} · line ${s.line + 1}${s.endLine > s.line ? `–${s.endLine + 1}` : ""}`)}${" ".repeat(0)}`, [{ from: 0, to: 3, action: "sources.back" }]);
   if (s.readAt) put(` ${dim(`read ${age(s.readAt, now)} · ${s.live ? "live: drawn again when what it read changes" : "as written"}`)}`);
   else if (s.live === false) put(` ${dim("as written: its text is the note's")}`);
@@ -168,7 +174,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
   }
   put("");
   put(` ${dim(p.note || "j k move · ⏎ fold or edit · e edit · y copy · g jump · esc back")}`);
-  if (wide && w >= 108) {
+  if (wide && w >= SOURCES_WIDE_COLS) {
     const cols = Math.floor((w - 4) / 3), narrow = drawSources(p, cols, now, false);
     const starts = FOLDS.map(f => narrow.hits.find(h => h.action === "sources.fold" && h.args.fold === f)!.row);
     const head = hits.find(h => h.action === "sources.fold")!.row;
@@ -182,9 +188,9 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
       for (const hit of narrow.hits.filter(h => h.row >= start && h.row < end)) mapped.push({ ...hit, row: head + hit.row - start, from: hit.from + col, to: hit.to + col });
       if (narrow.focus >= start && narrow.focus < end) focused = head + narrow.focus - start;
     });
-    return { lines: out, hits: mapped, items, focus: focused };
+    return { cols: Math.min(w, Math.max(cols * 3 + 4, wanted)), lines: out, hits: mapped, items, focus: focused };
   }
-  return { lines, hits, items, focus };
+  return { cols: cols(), lines, hits, items, focus };
 }
 
 /** The source whose lines hold note line `line` (from 0), the nearest enclosing: the innermost when regions nest. */

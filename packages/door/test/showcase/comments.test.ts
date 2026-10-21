@@ -192,7 +192,6 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     await until(() => cs()?.mode === "compose" && cs()?.place === "floating", "the comment open, floating");
     expect(cs()!.target).toMatchObject({ kind: "quote", passage: { quote: "before the frost" } });
     expect(rows().join("\n")).toContain("[floating ▸]");
-    expect(rows().join("\n")).toContain("▒");
     type("Frost is due on Friday night");
     press({ kind: "char", ch: "o", ctrl: true });
     await until(() => cs()?.place === "split" && rows().join("\n").includes("[split ▸]"), "moved to split");
@@ -644,9 +643,14 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     const drawn = rows().join("\n");
     expect(drawn).toContain(`in ${SEED.meeting} 1/`);
     const popupRows = () => { const all = rows(); const start = all.findIndex(l => l.includes(`in ${SEED.meeting} 1/`)); return all.slice(start + 1, start + 13); };
-    const preview = () => popupRows().map(l => l.includes(" │ ") ? l.slice(l.lastIndexOf(" │ ") + 3) : "");
+    const previewLine = (line: string) => {
+      const rect = pop()?.previewRect;
+      const col = S().stageRect.col + (rect?.col ?? 0);
+      return rect ? line.slice(col, col + rect.cols) : "";
+    };
+    const preview = () => popupRows().map(previewLine);
     await until(() => preview().some(l => l.includes("We agreed to water")), "the anchor's passage in the floating reader");
-    r = rows(); y = r.findIndex((l, i) => i > r.findIndex(l => l.includes(`in ${SEED.meeting} 1/`)) && l.includes(" │ ") && l.slice(l.lastIndexOf(" │ ") + 3).includes("We agreed to water"));
+    r = rows(); y = r.findIndex((l, i) => i > r.findIndex(l => l.includes(`in ${SEED.meeting} 1/`)) && previewLine(l).includes("We agreed to water"));
     x = r[y]!.lastIndexOf("We agreed to water");
     press({ kind: "mouse", action: "wheel-down", button: 0, x, y });
     expect(pop()!.index).toBe(0);
