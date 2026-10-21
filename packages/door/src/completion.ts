@@ -1,3 +1,4 @@
+import { codeBlocks, codeFenceOpen, codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
 import { figureProps } from "@ep0ch/outline-core/figure-props";
 // Reference completion's pure half, ported from pi-herdr-outliner so the door inserts exactly what Tree,
 // Detail and Quick Capture insert: which `[[`, `((` or `[file::` the cursor is in (src/completion.ts),
@@ -13,7 +14,7 @@ import { codeSpanRanges, cursorInCode } from "@ep0ch/outline-core/code-ranges";
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
  * `yaml-value` the same inside a component block's YAML.
  */
-export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value";
+export type CompletionKind = "page" | "block" | "file" | "callout" | "agent" | "component" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value" | "attribute" | "attribute-value" | "fence-setting";
 
 export interface CompletionTarget {
   kind: CompletionKind;
@@ -45,6 +46,13 @@ const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; clos
  * or with the draft's `lines` and `row`, a key or value in a component block's YAML; else null.
  */
 export function completionTargetAtCursor(line: string, column: number, lines?: readonly string[], row?: number): CompletionTarget | null {
+  const opening = codeFenceOpen(line);
+  if (opening && SCRIPT_FENCE.languages.includes(codeFenceInfo(opening.info).language) &&
+    (!lines || row === undefined || codeBlocks(lines).fences.some(f => f.start === row))) {
+    const before = line.slice(0, column);
+    const word = /\s([a-z-]*)$/.exec(before);
+    if (word) return { kind: "fence-setting", start: column - word[1]!.length, end: column, query: word[1]! };
+  }
   // Code is opaque (PIE-764): no popup in a fence, a code span, or one being typed (outline-core's cursorInCode).
   if (cursorInCode(lines ?? [line], row ?? 0, column)) return null;
   const callout = calloutTypeAtCursor(line, column);

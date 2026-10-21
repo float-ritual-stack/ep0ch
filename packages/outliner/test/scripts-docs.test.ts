@@ -110,7 +110,7 @@ async function paste(example: ScriptExample) {
 }
 
 test("the examples the page promises are all there", () => {
-  expect(examples.map(e => e.example)).toEqual([1, 2, 3, 4, 5]);
+  expect(examples.map(e => e.example)).toEqual([1, 2, 3, 4, 5, 6]);
   for (const example of examples) {
     expect(example.notes.length, `example ${example.example} has notes to paste`).toBeGreaterThan(0);
     expect(example.shows.trim(), `example ${example.example} says what it shows`).not.toBe("");
@@ -195,4 +195,15 @@ test("a render line redraws for an edit of its own script note and for the host'
   expect(await until("script edit redraw", () => output(host.id)[0] === "yo Host" && "yo Host")).toBe("yo Host");
   store.update(host.id, "Host2\nsnap::", store.get(host.id)!.revision, { author: "user" });
   expect(await until("host redraw", () => output(host.id)[0] === "yo Host2" && "yo Host2")).toBe("yo Host2");
+});
+
+
+test("example 6: the named fence beside its button writes both things", async () => {
+  const example = examples.find(e => e.example === 6)!;
+  const { client, store, made } = await paste(example);
+  const desk = made.get("ex6-desk")!;
+  await client.request({ action: "extensions.list", reload: true });
+  await client.request({ action: "extensions.act", extension: "script:pack-pair", extensionAction: "run", blockId: desk.id });
+  await until("both changes from the documented fence", () => store.children(desk.id).some(b => b.text === "Labels ready"));
+  expect(store.require(desk.id).text).toContain("[packing::ready]");
 });

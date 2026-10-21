@@ -18,9 +18,10 @@ import { ifProblemLines, ifState, renderFields, type FieldsDrawing } from "./sit
 import { regionTail, type RegionBook } from "./output-region";
 import { outputHeader, type OutputRegion } from "@ep0ch/outline-core/output-region";
 import { useCallAt, type UseCall } from "@ep0ch/outline-core/template-use";
-import { buttonCallAt, type ButtonCall } from "@ep0ch/outline-core/button-call";
+import { buttonCallAt, buttonCallsOf, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import type { LiveSite } from "./live";
 import { stripMarks, type LinkTarget } from "./refs";
+import { codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
 import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
 import { linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
@@ -684,7 +685,16 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const figure = reframeAscii(code, W);
       if (figure) { out.push(...figure); continue; }
       const first = out.length;
-      if (fence.fence.info) { out.push(fg(C.dark) + `╭ ${fence.fence.info}` + RESET); edge(first); }
+      if (fence.fence.info) {
+        const { language, attrs } = codeFenceInfo(fence.fence.info);
+        const name = SCRIPT_FENCE.languages.includes(language) && fence.closed ? attrs.script : undefined;
+        const run = name ? env.button?.({ line: fence.start, label: `Run ${name}`, act: name }, fence.start, W)?.join(" ") : undefined;
+        out.push(fg(C.dark) + `╭ ${fence.fence.info}` + RESET + (run ? ` ${run}` : ""));
+        edge(first);
+        if (name) for (const button of buttonCallsOf(src.join("\n")).filter(b => b.act?.split(/\s/)[0] === name)) {
+          out.push(fg(C.dark) + `│ used by ::button ${button.label}` + RESET);
+        }
+      }
       // A ```diff fence colours its lines by their mark: + added, - removed, @@ a hunk, the rest dim (the unsent diff).
       const diff = /^diff\b/.test(fence.fence.info);
       const ink = (c: string) => (!diff ? C.lcyan : c.startsWith("+") ? C.lgreen : c.startsWith("-") ? C.lred : c.startsWith("@@") ? C.cyan : C.grey);

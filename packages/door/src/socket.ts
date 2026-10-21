@@ -555,8 +555,8 @@ export class SocketBoard implements Board {
    * The extensions the service runs (`extensions.list`, PIE-507): each folder's handlers, actions and tile
    * kinds.
    */
-  listExtensions(reload = false): Promise<ExtensionList> {
-    return this.request<ExtensionList>("extensions.list", reload ? { reload: true } : {});
+  listExtensions(reload = false, site: Pick<import("@ep0ch/outline-core/site").SiteAnswerRequest, "blockId" | "line" | "draft" | "chain"> = {}): Promise<ExtensionList> {
+    return this.request<ExtensionList>("extensions.list", { ...site, ...(reload ? { reload: true } : {}) });
   }
 
   /**

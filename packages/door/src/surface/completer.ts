@@ -1,3 +1,4 @@
+import { SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import type { Ctx } from "../app";
 import type { NoteSurface, SurfaceHost } from "./note";
@@ -155,7 +156,9 @@ export const notConfigured = (semantic: { status: string; message?: string }) =>
 /** The candidates for one token: the same lookups and insertions the outliner's editors use. */
 export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, prefix: string | null, own?: OwnNote, opts: LookupOptions = {}): Promise<CompletionLookup> {
   let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "", ranked = false, off = false, heading: string | undefined;
-  if (target.kind === "filter-key" || target.kind === "filter-value") {
+  if (target.kind === "fence-setting") {
+    items = SCRIPT_FENCE.settings.filter(s => s.key.startsWith(target.query)).map(s => ({ label: `${s.key}=`, insertion: `${s.key}=`, context: s.meaning, kind: "value" }));
+  } else if (target.kind === "filter-key" || target.kind === "filter-value") {
     items = await filterCandidates(board, target);
     empty = target.kind === "filter-key" ? "" : `no ${target.key} value starts ${JSON.stringify(target.query)}`;
   } else if (target.kind === "key" || target.kind === "value" || target.kind === "yaml-key") {
@@ -433,7 +436,7 @@ async function attributeCandidates(board: CompletionBoard, schema: ComponentSche
   } else if (prop.type.startsWith("property:")) {
     values = (await board.propertyCatalog(prop.type.slice("property:".length), q, 100)).map(f => ({ label: f.value, value: f.value }));
   } else if (prop.type === "script") {
-    const listed = await board.listExtensions();
+    const listed = await board.listExtensions(false, own ? { blockId: own.blockId, draft: { text: own.text } } : {});
     values = listed.extensions.filter(e => e.script && (e.state === "active" || e.state === "failed") && e.name?.startsWith(q))
       .map(e => ({ label: e.name!, value: e.name!, detail: e.description }));
   } else if (prop.type === "ref") {
@@ -992,7 +995,7 @@ export const completerOf = (d: CompletionField): Completer | null => byDraft.get
 export const completionOf = (d: CompletionField): CompletionState | null => byDraft.get(d)?.shown ?? null;
 
 const AUTO_OPENING_KINDS: ReadonlySet<CompletionKind> = new Set([
-  "component", "attribute", "attribute-value", "key", "value", "yaml-key", "yaml-value", "filter-key", "filter-value",
+  "fence-setting", "component", "attribute", "attribute-value", "key", "value", "yaml-key", "yaml-value", "filter-key", "filter-value",
 ]);
 
 const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" || k.ch === " " || k.ch === "@");

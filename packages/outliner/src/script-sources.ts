@@ -1,23 +1,44 @@
 import { actionSlots } from "@ep0ch/outline-core/action-line";
-import { codeBlocks } from "@ep0ch/outline-core/code-fence";
+import { codeBlocks, codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/code-fence";
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { durationMs, MAX_DEADLINE_MS, type ManifestSource, type ScriptSource } from "./extension-manifest";
 import type { OutlinerStore } from "./store";
+import type { ExtensionEntry } from "./extension-registry";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { bind } from "./site-answer";
+import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
+
+/** The registry in the Site's order: this note, its nearest ancestors, then the outline. */
+export function scriptsAt(store: OutlinerStore, entries: readonly ExtensionEntry[], request: Pick<SiteAnswerRequest, "blockId" | "line" | "draft" | "chain"> = {}): ExtensionEntry[] {
+  const bound = request.blockId ? bind(store, request, Date.now) : undefined;
+  const scope = bound ? [bound.site.this!.id, ...(bound.scope.ancestors ?? []).map(a => a.id)] : [];
+  const rank = (entry: ExtensionEntry) => {
+    const at = entry.script?.blockId ? scope.indexOf(entry.script.blockId) : -1;
+    return at < 0 ? scope.length : at;
+  };
+  const ordered = [...entries].sort((a, b) => rank(a) - rank(b));
+  return ordered.map(entry => {
+    if (!entry.script) return entry;
+    const location = (e: ExtensionEntry) => e.script?.blockId ? `((${e.script.blockId}))${e.script.line === undefined ? "" : ` line ${e.script.line + 1}`}` : e.script?.file;
+    const others = ordered.filter(e => e.script && e.name === entry.name && e.id !== entry.id);
+    return { ...entry, description: `Script ${entry.name} from ${location(entry)}${others.length ? `; ${ordered.find(e => e.script && e.name === entry.name)!.id === entry.id ? "runs first here" : "another definition runs first here"}; also ${others.map(location).join(", ")}` : ""}` };
+  });
+}
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 
 export const scriptSourceId = (identity: string) => `script-${hash(identity).slice(0, 24)}`;
 
-const FENCES = ["js", "javascript", "ts", "typescript", "actions"];
+const FENCES = SCRIPT_FENCE.languages;
 
 /** The script a note holds: the code of its first closed js, ts or actions fence (empty when there is none). */
-export function scriptFence(text: string): { code: string; format?: "actions" } {
+export function scriptFence(text: string, named?: ScriptSource["fence"]): { code: string; format?: "actions" } {
   const lines = text.split("\n");
-  const fence = codeBlocks(lines).fences.find(f => FENCES.includes(f.fence.info));
+  const fence = codeBlocks(lines).fences.filter(f => FENCES.includes(codeFenceInfo(f.fence.info).language) && (!named || codeFenceInfo(f.fence.info).attrs.script === named.name))[named?.occurrence ?? 0];
   const code = fence?.closed ? lines.slice(fence.start + 1, fence.end).map(line => line.slice(Math.min(fence.fence.indent, line.length))).join("\n") : "";
-  return { code, ...(fence?.fence.info === "actions" ? { format: "actions" as const } : {}) };
+  return { code, ...(fence && codeFenceInfo(fence.fence.info).language === "actions" ? { format: "actions" as const } : {}) };
 }
 
 /** The names a js script reads from `props` (`props.week`, `props["week"]`): the slots it takes (`week=42`). */
@@ -30,7 +51,7 @@ export function propsUsed(code: string): string[] {
 const scriptStamp = (script: ScriptSource) => hash(JSON.stringify({ ...script, revision: undefined, author: undefined, reads: 2 }));
 
 /** Sources stay authored text; a malformed fence is reported by the loader, never by saving the block. */
-export async function scriptSources(store: OutlinerStore): Promise<ManifestSource[]> {
+export async function scriptSources(store: OutlinerStore, draft?: { blockId: string; text: string }): Promise<ManifestSource[]> {
   const sources: ManifestSource[] = [];
   const add = (identity: string, name: string, script: ScriptSource, error?: string) => {
     const id = scriptSourceId(identity);
@@ -44,23 +65,37 @@ export async function scriptSources(store: OutlinerStore): Promise<ManifestSourc
       configRaw: "{}", script, stamp: scriptStamp(script),
     });
   };
-  const found = store.queryBlocks({ where: "script", limit: 1000 });
-  for (const row of found.blocks) {
-    const block = store.get(row.id)!;
-    const name = block.properties.find(p => p.key === "script")?.value;
-    if (!name) continue;
-    const { code, format } = scriptFence(block.text);
+  for (const id of draft ? [draft.blockId] : store.blocksContaining("", -1)) {
+    const saved = store.get(id)!;
+    const block = draft ? { ...saved, text: draft.text, properties: parsePropertyRecords(draft.text).filter(p => p.scope === "block") } : saved;
+    const lines = block.text.split("\n");
+    const fences = codeBlocks(lines).fences.filter(f => FENCES.includes(codeFenceInfo(f.fence.info).language));
+    const named = fences.filter(f => codeFenceInfo(f.fence.info).attrs.script);
+    const noteName = block.properties.find(p => p.key === "script")?.value;
+    const definitions: { fence: (typeof fences)[number] | undefined; language: string; attrs: Record<string, string>; named: boolean }[] = named.map(f => ({ fence: f, ...codeFenceInfo(f.fence.info), named: true }));
+    // Giving a named fence's note the same name does not register its first fence twice.
+    if (noteName && !named.some(f => codeFenceInfo(f.fence.info).attrs.script === noteName)) {
+      definitions.unshift({ fence: fences[0], language: fences[0] ? codeFenceInfo(fences[0].fence.info).language : "js", attrs: { script: noteName }, named: false });
+    }
+    if (!definitions.length) continue;
     const revision = store.revisions(block.id).revisions[0]!;
-    const effects = block.properties.some(p => p.key === "effects" && p.value === "write") ? "write" as const : "read" as const;
-    const render = block.properties.some(p => p.key === "mode" && p.value === "render");
-    const deadline = durationMs(block.properties.find(p => p.key === "deadline")?.value);
-    // Render mode draws a view; a view never writes. Said at load, so the script is listed with why it isn't served.
-    const problem = render && effects === "write" ? `Script ${name} is [mode::render], which draws a view and never writes: remove [effects::write], or remove [mode::render] to run it as an action` : undefined;
-    add(block.id, name, { code, keys: block.properties.filter(p => p.key === "keys").flatMap(p => p.value.split(",").map(k => k.trim()).filter(Boolean)), ...(format ? { format } : {}), blockId: block.id, revision: block.revision,
-      ...(render ? { render: true as const } : {}), ...(deadline ? { deadlineMs: Math.min(deadline, MAX_DEADLINE_MS) } : {}),
-      effects, author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } }, problem);
+    for (const { fence, language, attrs, named: isNamed } of definitions) {
+      const name = attrs.script!;
+      const setting = (key: string) => attrs[key] ?? (noteName === name ? block.properties.find(p => p.key === key)?.value : undefined);
+      const noteValues = (key: string) => noteName === name ? block.properties.filter(p => p.key === key).map(p => p.value) : [];
+      const effects = (attrs.effects === undefined ? noteValues("effects").includes("write") : attrs.effects === "write") ? "write" as const : "read" as const;
+      const render = attrs.mode === undefined ? noteValues("mode").includes("render") : attrs.mode === "render";
+      const deadline = durationMs(setting("deadline"));
+      const definition = isNamed ? { name, occurrence: named.filter(f => f.start < fence!.start && codeFenceInfo(f.fence.info).attrs.script === name).length } : undefined;
+      const { code } = scriptFence(block.text, definition);
+      const problem = render && effects === "write" ? `Script ${name} is mode=render, which draws a view and never writes: remove effects=write, or remove mode=render to run it as an action` : undefined;
+      add(isNamed ? `${block.id}:${name}:${definition!.occurrence}` : block.id, name,
+        { code, keys: (attrs.keys === undefined ? noteValues("keys") : [attrs.keys]).flatMap(value => value.split(",").map(k => k.trim()).filter(Boolean)), ...(language === "actions" ? { format: "actions" as const } : {}), blockId: block.id, ...(isNamed ? { line: fence!.start, fence: definition } : {}), revision: block.revision,
+          ...(render ? { render: true as const } : {}), ...(deadline ? { deadlineMs: Math.min(deadline, MAX_DEADLINE_MS) } : {}),
+          effects, author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } }, problem);
+    }
   }
-  if (store.workspaceRoot) {
+  if (store.workspaceRoot && !draft) {
     for (const dotted of [false, true]) {
       const folder = dotted ? join(store.workspaceRoot, ".ep0ch", "scripts") : join(store.workspaceRoot, "scripts");
       let names: string[];

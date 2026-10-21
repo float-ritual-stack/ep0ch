@@ -4348,9 +4348,11 @@ export class NoteSurface {
       const args: Record<string, unknown> = { ...(req.args ?? {}) };
       let action = req.action;
       if (!d.takes(d.requestIn(req, messageContext.getStore()?.tile))) {
-        const scripts = scriptActions().filter(s => s.extension.name === action);
-        if (scripts.length !== 1) throw new ActionRefused(scripts.length > 1 ? `${scripts.length} scripts are named ${action}; ext ls lists them` : d.unknownAction(action));
-        action = scripts[0]!.action.name;
+        const listed = await host.ctx.board.listExtensions(false, { blockId: p.block || this.msg?.id, line: p.line });
+        const scripts = listed.extensions.filter(e => e.script && e.name === action && (e.state === "active" || e.state === "failed"));
+        if (!scripts.length) throw new ActionRefused(d.unknownAction(action));
+        if (scripts.length > 1) host.ctx.flash(scripts[0]!.description ?? "");
+        action = scripts[0]!.actions.find(a => a.id === "run")!.name;
       }
       // An extension's action acts on a note: the one this press is written in, unless the line names another.
       if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;

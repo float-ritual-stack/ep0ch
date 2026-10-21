@@ -2480,7 +2480,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "drafts.read"; blockId: string }
   | ({ id: string; action: "outputs.place" } & import("./place").PlaceInput)
   /** Capability `extensions.list`. `reload` reads the folders now instead of waiting for the watcher. */
-  | { id: string; action: "extensions.list"; reload?: boolean }
+  | ({ id: string; action: "extensions.list"; reload?: boolean } & Pick<import("@ep0ch/outline-core/site").SiteAnswerRequest, "blockId" | "line" | "draft" | "chain">)
   /**
    * An extension's command-palette source answers a query (PIE-656, the door's power bar): `{ extension, source,
    * rows: [{ id, label, detail?, preview?, block?, action?, args?, copy? }] }`. It writes nothing.

@@ -7,6 +7,27 @@
 /** A code fence's opening line: its character, its run's length, its indent in columns and its info string. */
 export interface CodeFence { char: "`" | "~"; length: number; indent: number; info: string }
 
+/** Script fence settings, shared by the loader, reader and completion. */
+export const SCRIPT_FENCE = {
+  languages: ["js", "javascript", "ts", "typescript", "actions"],
+  settings: [
+    { key: "script", meaning: "Names a script in this note; a button uses of=<name>" },
+    { key: "effects", meaning: "write permits writes and door actions; read is the default" },
+    { key: "mode", meaning: "render draws the script's answer under a name:: line" },
+  ],
+};
+
+/** The language and name=value settings of a fence's info string. */
+export function codeFenceInfo(info: string): { language: string; attrs: Record<string, string> } {
+  const [language = "", ...words] = info.split(/\s+/);
+  const attrs: Record<string, string> = {};
+  for (const word of words) {
+    const at = word.indexOf("=");
+    if (at > 0) attrs[word.slice(0, at)] = word.slice(at + 1);
+  }
+  return { language, attrs };
+}
+
 /** Leading blanks as columns (a tab runs to the next multiple of four), and where they end. */
 export function leadingColumns(line: string): { columns: number; at: number } {
   let columns = 0, at = 0;

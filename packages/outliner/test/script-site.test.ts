@@ -15,7 +15,7 @@ test("a script reads this, self, caller and props, with no id written in it", as
   create("Seed bed", garden.id);
   create("Water butt", garden.id);
   create("Elsewhere");
-  const reader = create(`Site reader [script::site-reader]
+  const reader = create(`Site reader [SCRIPT::site-reader]
 \`\`\`js
 const kids = (await q("parent:this")).blocks.map(b => b.title).sort();
 const owner = await resolve("this.owner");
@@ -296,4 +296,35 @@ test("a line written before its script exists is drawn once the script is loaded
   expect(output(note.id)).toEqual([]);
   create("Late [script::late-bloomer] [mode::render]\n```js\nreturn 'bloomed';\n```");
   expect(await until("the line drawn by the script's arrival", () => output(note.id)[0])).toBe("bloomed");
+});
+
+
+test("named fences register separately, resolve nearest first and keep their name when moved", async () => {
+  const { store, create, client, draw, output } = await setup();
+  const other = create("Elsewhere\n```js script=pair\nreturn 'far';\n```");
+  const local = create("Workbench\n```js script=pair effects=write\nawait tools.outline_set_property({ ref: this.id, key: 'result', value: 'near', revision: this.revision });\nreturn 'near';\n```\n```js script=mark effects=write\nawait tools.outline_set_property({ ref: this.id, key: 'second', value: 'yes', revision: this.revision });\nreturn (await read(this.id)).title;\n```\n```js script=caption mode=render\nreturn 'drawn here';\n```\ncaption::\n::button{of=pair}");
+  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true, blockId: local.id });
+  const pairs = listed.extensions.filter(e => e.name === "pair");
+  expect(pairs.map(e => e.script?.blockId)).toEqual([local.id, other.id]);
+  expect(pairs[0]!.description).toContain(other.id);
+  expect(listed.extensions.find(e => e.name === "mark")?.actions[0]?.effects).toBe("write");
+  await draw(local.id);
+  expect(await until("the named render fence", () => output(local.id)[0])).toBe("drawn here");
+  const second = listed.extensions.find(e => e.name === "mark")!;
+  await client.request({ action: "extensions.act", extension: second.id, extensionAction: "run", blockId: local.id });
+  await until("the second fence's write", () => store.require(local.id).text.includes("[second::yes]"));
+  const run = await client.request<{ undo: string }>({ action: "extensions.act", extension: "script:pair", extensionAction: "run", blockId: local.id });
+  await until("the nearest fence's write", () => store.get(local.id)!.text.includes("[result::near]"));
+  expect(run.undo).toBeTruthy();
+  const current = store.require(local.id);
+  const fence = current.text.slice(current.text.indexOf("```js script=pair"), current.text.indexOf("```js script=mark"));
+  store.update(local.id, current.text.replace(fence, ""), current.revision, { author: "user" });
+  const moved = create("Pair on its own [script::pair]\n" + fence);
+  // Remove the other definition so the unchanged button now finds the relocated fence by name.
+  store.update(other.id, "Elsewhere", store.require(other.id).revision, { author: "user" });
+  const after = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true, blockId: local.id });
+  expect(after.extensions.filter(e => e.name === "pair").map(e => e.script?.blockId)).toEqual([moved.id]);
+  store.update(local.id, store.require(local.id).text.replace("[result::near]", "[result::ready]"), store.require(local.id).revision, { author: "user" });
+  await client.request({ action: "extensions.act", extension: "script:pair", extensionAction: "run", blockId: local.id });
+  await until("the relocated fence's write", () => store.require(local.id).text.includes("[result::near]"));
 });

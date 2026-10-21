@@ -804,6 +804,8 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
 }
 
 export interface ScriptSource {
+  readonly line?: number;
+  readonly fence?: { name: string; occurrence: number };
   readonly effects: "read" | "write";
   readonly keys?: readonly string[];
   readonly format?: "actions";

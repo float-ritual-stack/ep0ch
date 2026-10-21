@@ -261,7 +261,7 @@ export class ScriptRuns {
         if (controller.signal.aborted) throw controller.signal.reason instanceof Error ? controller.signal.reason : new Error("The script run ended");
         // The script is its code: a run that writes into its own note (its output, a log) goes on; an edit of the code ends it.
         const changed = source.blockId
-          ? scriptFence(this.store.get(source.blockId)?.text ?? "").code !== source.code
+          ? scriptFence(this.store.get(source.blockId)?.text ?? "", source.fence).code !== source.code
           : await Bun.file(source.file!).text() !== source.code;
         if (changed) {
           controller.abort();

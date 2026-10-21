@@ -312,7 +312,7 @@ export function formatExtensionsList(list: ExtensionsListResult, long = false): 
     lines.push(...columns([
       ["EXTENSION", "STATE", "FROM", "VERSION", "SERVES / PROBLEM"],
       ...list.extensions.map((entry) => [entry.id, entry.state, entry.origin, entry.version !== undefined ? `v${entry.version}` : "",
-        [serves(entry).join(", "), problem(entry)].filter(Boolean).join("  |  ")]),
+        [serves(entry).join(", "), entry.script ? entry.description : undefined, problem(entry)].filter(Boolean).join("  |  ")]),
     ]));
   }
   if (long) for (const entry of list.extensions) {

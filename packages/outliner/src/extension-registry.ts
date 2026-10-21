@@ -132,7 +132,7 @@ export interface ExtensionAgentEntry {
 }
 
 export interface ExtensionEntry {
-  readonly script?: { readonly keys: readonly string[]; readonly blockId?: string; readonly file?: string; readonly code: string };
+  readonly script?: { readonly keys: readonly string[]; readonly line?: number; readonly blockId?: string; readonly file?: string; readonly code: string };
   readonly id: string;
   readonly name?: string;
   readonly version?: number;
@@ -289,20 +289,22 @@ export class ExtensionRegistry {
     return this.loading;
   }
 
+  private sourceSlot(source: ManifestSource, now: string): Slot {
+    try {
+      if (source.error) throw new ExtensionLoadError(source.error);
+      if (!source.script?.code.trim()) throw new ExtensionLoadError("Add a closed js or ts code fence to this script block, then run it again");
+      const extension = loadExtensionManifest(source);
+      return { id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, loadedAt: now };
+    } catch (error) {
+      return { id: source.expectedId, origin: source.origin, directory: source.directory, state: "failed", error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   private async loadOnce(): Promise<void> {
     const slots: Slot[] = [];
     const seen = new Set<string>();
     const now = new Date().toISOString();
-    for (const source of await this.options.sources?.() ?? []) {
-      try {
-        if (source.error) throw new ExtensionLoadError(source.error);
-        if (!source.script?.code.trim()) throw new ExtensionLoadError("Add a closed js or ts code fence to this script block, then run it again");
-        const extension = loadExtensionManifest(source);
-        slots.push({ id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, loadedAt: now });
-      } catch (error) {
-        slots.push({ id: source.expectedId, origin: source.origin, directory: source.directory, state: "failed", error: error instanceof Error ? error.message : String(error) });
-      }
-    }
+    for (const source of await this.options.sources?.() ?? []) slots.push(this.sourceSlot(source, now));
     for (const root of this.options.roots) {
       let names: string[] = [];
       try {
@@ -494,8 +496,12 @@ export class ExtensionRegistry {
   }
 
   /** `extensions.list`: every folder, its state and error, and what it serves. */
-  list(): ExtensionsListResult {
-    const extensions = this.slots.map((slot): ExtensionEntry => {
+  list(draft?: { blockId: string; sources: readonly ManifestSource[] }): ExtensionsListResult {
+    const slots = draft ? [
+      ...draft.sources.map(source => this.sourceSlot(source, new Date().toISOString())),
+      ...this.slots.filter(slot => slot.serving?.script?.blockId !== draft.blockId),
+    ] : this.slots;
+    const extensions = slots.map((slot): ExtensionEntry => {
       const extension = slot.serving;
       const serving = extension && (slot.state === "active" || slot.state === "failed");
       return {
@@ -507,7 +513,7 @@ export class ExtensionRegistry {
         state: slot.state,
         ...(slot.error ? { error: slot.error } : {}),
         ...(slot.loadedAt ? { loadedAt: slot.loadedAt } : {}),
-        ...(serving && extension.script ? { script: { keys: extension.script.keys ?? [], blockId: extension.script.blockId, file: extension.script.file, code: extension.script.code } } : {}),
+        ...(serving && extension.script ? { script: { keys: extension.script.keys ?? [], blockId: extension.script.blockId, line: extension.script.line, file: extension.script.file, code: extension.script.code } } : {}),
         runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length,
         handlers: serving ? (extension.manifest.handlers ?? [])
           .filter((handler) => this.bound.get(handler.key)?.extension === extension)

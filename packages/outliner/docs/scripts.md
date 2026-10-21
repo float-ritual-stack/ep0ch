@@ -1,6 +1,6 @@
 # Scripts in a note: the surface
 
-A script is a note with `[script::name]` and a code fence. It runs in the outline host, in a sandbox, and sees the
+A script is a named fence in any note (`js script=name`), or a note with `[script::name]` and a code fence. It runs in the outline host, in a sandbox, and sees the
 note it is about, a few functions, the agent tools and a set of view builders. This page is the whole surface, written
 from the code on main: every entry ends in a pointer (`path:line`) to the source, and `test/scripts-docs.test.ts` fails
 when the tool list or a view's fields drift, or when a pointer's symbol is gone (a line that only moved is not drift). Read the source when a detail here isn't enough; the pointer
@@ -21,19 +21,24 @@ to reach for one while working in an outline.
 
 ## A script in one minute
 
-Write a note, and a fence under it. The note's first line says what it is:
+Write the script next to the button that runs it:
 
 ````blockdown
-Week sentence [script::week-sentence] [mode::render]
-```js
+My workbench
+```js script=hello
 return `This note is ${this.title}.`;
 ```
+::button{label="Say hello" of=hello}
 ````
 
-That is a render-mode script: write `week-sentence::` on a line of any note and the line draws "This note is …" under
-it, and draws again when the note changes. Drop `[mode::render]` and it is an action script instead: it runs when
-you press its key, type its name in the power bar, a rule fires it or an agent asks, and it leaves a run note with what it
-did. A script can write only when it says so (`[effects::write]`).
+A press runs `hello` with this note as `this`. Two named fences in one note are two scripts. Move the fence into
+another note and the button still finds `hello` by name; adding `[script::hello]` to that note does not register it twice.
+A button resolves this note's fences first, then the Site's nearest ancestors, then the outline's note and file scripts.
+When names repeat, `ep0ch ext ls` lists both locations and which runs first. The fence header has a run chip and names
+its buttons. Completion after `js ` offers `script=`; `of=` offers this note's scripts first.
+
+Add `mode=render` to draw the return value under a `hello::` line and redraw when a note it read changes.
+Add `effects=write` to permit write tools and door actions. The note form below uses `[mode::render]` and `[effects::write]`.
 
 Use a script for a small thing that belongs to one note or one outline: a computed column, a sentence from properties,
 a stamp on every match. Use an extension (a folder) when you need disk, network, a secret, or another language.
@@ -48,14 +53,22 @@ and read records are `null`; checking them still records a dependency for the pa
 
 ## The script note
 
+A named fence accepts `script=<name>`, `effects=write` and `mode=render` in its info string, for example
+`js script=week-sentence mode=render`. The language may also be `javascript`, `ts`, `typescript` or `actions`.
+An `actions script=name` fence runs the same action-line format as an `actions` fence in a script note.
+When the note is `[script::same-name]`, fence settings override that script note's settings. Other notes' properties do not configure their fences. An unclosed fence saves as written and runs no code.
+
+For a script in its own note, the first eligible fence supplies the code:
+
+
 | Part | Written | Means | Source |
 |---|---|---|---|
 | `script` | `[script::name]` | The script's name: its power-bar name, its `name::` handler line, its `@name` responder (an `@name` responder only when it starts with a lower-case letter and is lower case, digits and hyphens, up to 32). | `packages/outliner/src/script-sources.ts:47` |
-| the fence | a closed `js` or `ts` fence | The first closed `js`, `javascript`, `ts`, `typescript` or `actions` fence is the code. TypeScript is stripped, not type-checked. Only the first such fence counts; if it is unclosed the script is empty (nothing runs, nothing is refused). | `packages/outliner/src/script-sources.ts:11` |
-| `mode` | `[mode::render]` | A handler: a line `name::` draws what the script returns. See [Modes](#modes). | `packages/outliner/src/script-sources.ts:55` |
-| `effects` | `[effects::write]` | May call write tools and `act`. Absent: read-only. | `packages/outliner/src/script-sources.ts:54` |
-| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:56` |
-| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:59` |
+| the fence | a closed `js` or `ts` fence | The first `js`, `javascript`, `ts`, `typescript` or `actions` fence is the code. TypeScript is stripped, not type-checked. For the note form, only the first such fence counts; if it is unclosed the script is empty (nothing runs, nothing is refused). | `packages/outliner/src/script-sources.ts:36` |
+| `mode` | `[mode::render]` | A handler: a line `name::` draws what the script returns. See [Modes](#modes). | `packages/outliner/src/script-sources.ts:61` |
+| `effects` | `[effects::write]` | May call write tools and `act`. Absent: read-only. | `packages/outliner/src/script-sources.ts:84` |
+| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:86` |
+| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:93` |
 
 Other ways a script exists: a file `<outline folder>/.ep0ch/scripts/name.js` or `.ts` whose first line is
 `// ep0ch-script` (or `// ep0ch-script effects=write`); an `actions` fence, which is one door action per line rather
@@ -67,8 +80,8 @@ A script's arguments are `slot=value` words (`week=42`). The power bar offers th
 
 | Entry | Source |
 |---|---|
-| `scriptFence` | `packages/outliner/src/script-sources.ts:14` |
-| `propsUsed` | `packages/outliner/src/script-sources.ts:22` |
+| `scriptFence` | `packages/outliner/src/script-sources.ts:37` |
+| `propsUsed` | `packages/outliner/src/script-sources.ts:45` |
 | `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:416` |
 
 **Script IDs:** a note's `[script::name]` is its power-bar and handler name; the action uses `ext.<id>.run`.
@@ -83,7 +96,7 @@ The code is the body of an async function: `await` and `return` work at the top.
 | Global | Is | Source |
 |---|---|---|
 | `this` | The note the run is about, as a record (see [Record shapes](#record-shapes)). A rule-fired script gets the matched note; a key or power-bar run, the note in front of the person; `act ext.<id>.run block=<id>` names one. With none, every read of `this.x` throws "this run has no note; pass at= or run it from a note". Frozen (an assignment is ignored without an error). | `packages/outliner/src/script-runtime.ts:12` |
-| `self` | The script's own note, as a record (`null` for a file script, which has no note). Frozen. | `packages/outliner/src/script-runtime.ts:25` |
+| `self` | The note containing the script fence, as a record (`null` for a file script, which has no note). Frozen. | `packages/outliner/src/script-runtime.ts:25` |
 | `caller` | `{ block, line? }`: where it was invoked (the matched note of a rule, the handler line of a render). Set only when a note is in play and the run came from a rule's trigger or a line (`act ext.<id>.run line=`, a handler line); `null` for a key, the power bar, `@name` and an MCP run, even when `this` exists. | `packages/outliner/src/script-runtime.ts:26` |
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. A render line keeps repeats (`tag=a tag=b` is two values); every action run path gives one value per key. | `packages/outliner/src/script-runtime.ts:27` |
 | `view` | The builders of [view.*](#view). | `packages/outliner/src/script-runtime.ts:49` |
@@ -310,8 +323,8 @@ examples lean on:
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:721` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1605` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4313` |
-| `viaYolo` | `packages/outliner/src/server.ts:4343` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4322` |
+| `viaYolo` | `packages/outliner/src/server.ts:4352` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:346` |
 
 ## Lifecycle
@@ -585,6 +598,41 @@ Beans [qty::5] [price::2]
 | Peas | 3 | 4 | 12 |
 | Total |  |  | 22 |
 ````
+
+#### One button, two tiles
+
+Keep this code and its button together in any note. The screen needs tiles named `backlinks` and `preview`.
+
+````blockdown
+My workbench
+```js script=toggle-pair effects=write
+const { tiles } = await act('layout.get');
+const on = !tiles.find(t => t.name === 'backlinks')?.collapsed;
+for (const tile of ['backlinks', 'preview']) await act('tile.collapse', { tile, on });
+return on ? 'folded both' : 'opened both';
+```
+::button{label="Make it work" of=toggle-pair}
+````
+
+#### Example 6: One button, two things
+
+A note can keep two named fences beside their buttons. Here a single press updates this note's property and adds a child:
+
+````note ex6-desk
+Packing desk
+```js script=pack-pair effects=write
+await tools.outline_set_property({ ref: this.id, key: 'packing', value: 'ready', revision: this.revision });
+await tools.outline_create({ parent: this.id, text: 'Labels ready' });
+return 'Packing ready';
+```
+::button{label="Prepare both" of=pack-pair}
+````
+
+````shows ex6
+Packing ready
+````
+
+Either fence can move to its own note without changing the button's `of=` name.
 
 #### Fantasia: a button, a transaction, motion, undo (needs a door)
 

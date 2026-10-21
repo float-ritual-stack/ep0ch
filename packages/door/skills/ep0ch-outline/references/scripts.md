@@ -43,7 +43,8 @@ Everything here runs from your worktree and under `scripts/agent-env <name> --`,
 1. A scratch host: `scripts/agent-env <name> -- bun packages/outliner/src/host-main.ts` in the background (the Bash tool's
    `run_in_background`; stop it by its pid), then `scripts/agent-env <name> -- bun packages/door/src/main.ts outline create <ws>`.
 2. Notes: a multi-line note goes in as one argument (`new "$(cat note.md)"`, or `$'line one\nline two'`) and lands in the Inbox;
-   a script is a note with `[script::name] [effects::write]` and a closed `js` fence.
+   start with a closed `js script=name effects=write` fence next to `::button{of=name}` in that note. Move the fence
+   to its own note when useful; the button keeps its name. `[script::name]` on that note is optional.
 3. A test door: in a tmux pane started through agent-env (it inherits `EP0CH_STATE` and `EP0CH_CONTROL`), `bun packages/door/src/main.ts
    --ws <ws> --no-daemon --screen detail <full id>`. The first screen is a reader the person holds; an agent's presses and moves
    go through `act` (`--as <id>`).
@@ -73,6 +74,9 @@ lines now after a change, `ep0ch act projection.refresh block=<full id>` (add `l
 (`weekly:: week=42`, read as `props.week[0]`); a line with none is `weekly::` and runs with empty `props`.
 
 
-**Script IDs:** `[script::name]` supplies the handler and power-bar name; its action is `ext.script-<hash>.run`, where the ID is `script-` plus the first 24 SHA-256 hex characters of the script's identity (the note ID, or file path).
+**Worked examples:** start with the one-note forms in `packages/outliner/docs/scripts.md`: "One button, two tiles"
+(`toggle-pair`) and "One button, two things" (`pack-pair`). Both put a named fence beside its button; relocation keeps `of=` working.
+
+**Script IDs:** `script=name` on a fence or `[script::name]` on a note supplies the handler and power-bar name; its action is `ext.script-<hash>.run`, where the ID is `script-` plus the first 24 SHA-256 hex characters of the script's identity (a named fence's note ID, name and occurrence, a script note ID, or file path).
 **Find the ID:** `ep0ch ext ls --ws <ws>` lists the name beside its ID and any load error; use that ID in `act ext.<id>.run block=<note>`.
 **Anchored append and held drafts:** follow [scripts.md](../../../../outliner/docs/scripts.md#anchored-append-and-held-drafts); `tools.outline_edit` takes `append` and `at` together.
