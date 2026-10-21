@@ -1,6 +1,6 @@
 import { printable } from "./text";
 import { DRAWN_PART, OSC8_ALL, OSC8_CLOSE } from "./hyperlink";
-import { C, fg, headOf, pad, RESET, tailFrom, visible, width } from "./style";
+import { headOf, pad, RESET, selected, tailFrom, visible, width } from "./style";
 
 // Marks carry only a reference; hidden values never travel through composed drawing strings.
 export const FULL_END = "\x1b[778m";
@@ -109,15 +109,13 @@ export class Overflow {
     if (!cut) return { lines: clean };
     this.step = Math.max(0, Math.floor((now - this.since - 900) / 100));
     const text = printable(visible(cut.text), " ").replace(/\s+/g, " ").trim();
-    const inline = cut.y === clean.length - 1, x = inline ? cut.x : 1;
-    const available = inline ? cut.end - cut.x : cols - 2;
-    const w = Math.max(1, available - 2), over = Math.max(0, width(text) - w);
+    // In place: the value scrolls inside the cells it was cut to, on its own row, in the selection's colours (PIE-1140).
+    const x = cut.x, y = cut.y, available = Math.max(1, cut.end - cut.x);
+    const over = Math.max(0, width(text) - available);
     this.scrolling = over > 0;
     // Pause at both ends; even a message wider than the whole terminal can be read.
     const phase = this.step % (over + 20), offset = Math.min(over, phase);
-    const shown = headOf(tailFrom(text, offset), w);
-    const y = cut.y === clean.length - 1 ? cut.y : cut.y + 1 < clean.length - 1 ? cut.y + 1 : Math.max(0, cut.y - 1);
-    const label = fg(C.white) + pad(` ${shown} `, available) + RESET;
+    const label = selected() + pad(headOf(tailFrom(text, offset), available), available) + RESET;
     clean[y] = headOf(clean[y] ?? "", x) + OSC8_CLOSE + RESET + label + tailFrom(clean[y] ?? "", x + available);
     return { lines: clean, overlay: { col: x, row: y, cols: available, rows: 1 } };
   }

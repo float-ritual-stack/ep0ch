@@ -4,7 +4,7 @@ import { Overflow } from "../src/overflow";
 // their rows inside the width. Fictional text only.
 import { expect, test } from "bun:test";
 import { renderDoc } from "../src/doc";
-import { pad, width } from "../src/style";
+import { pad, visible, width } from "../src/style";
 import { presentLinks } from "../src/refs";
 import { colourBody, wrap } from "../src/text";
 
@@ -79,4 +79,28 @@ test("a shortened reference still reveals its full id after drawing", () => {
   const overflow = new Overflow();
   overflow.draw(canvas.lines(), 80, 0);
   expect(overflow.reveal().text).toBe(id);
+});
+
+
+test("a revealed cut-off value scrolls in its own cells and leaves the rest of the screen as it was (PIE-1140)", () => {
+  const canvas = new Canvas(60, 4);
+  canvas.text(0, 0, "above the value, a whole row of other text here");
+  canvas.text(4, 1, pad("a long title that does not fit in twenty cells at all", 20));
+  canvas.text(30, 1, "beside");
+  canvas.text(0, 2, "below the value, another row that must stay put");
+  const before = canvas.lines().map(l => visible(l));
+  const overflow = new Overflow();
+  overflow.draw(canvas.lines(), 60, 0);
+  overflow.hover(8, 1);
+  const shown = overflow.draw(canvas.lines(), 60, 0);
+  const after = shown.lines.map(l => visible(l));
+  expect(after[0]).toBe(before[0]);
+  expect(after[2]).toBe(before[2]);
+  expect(after[1]!.slice(0, 4)).toBe(before[1]!.slice(0, 4));
+  expect(after[1]!.slice(24)).toBe(before[1]!.slice(24));
+  expect(after[1]!.slice(4, 24)).toBe("a long title that do");
+  expect(shown.overlay).toEqual({ col: 4, row: 1, cols: 20, rows: 1 });
+  const later = overflow.draw(canvas.lines(), 60, 4000).lines.map(l => visible(l));
+  expect(later[1]!.slice(4, 24)).not.toBe("a long title that do");
+  expect(later[0]).toBe(before[0]);
 });

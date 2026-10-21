@@ -608,8 +608,9 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     expect(screen()).not.toContain(job.id);
     expect(painted()).not.toContain(title);
     press({ kind: "enter" }); ch("]"); press({ kind: "down" });
-    await until(() => painted().includes(title), "the selected row's whole title");
+    // It scrolls in place in the row's own cells (PIE-1140) until its ending is in view.
+    await until(() => painted().includes("for the coming spring and summer"), "the selected row's title scrolled to its end", 15_000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
-  }, 20_000);
+  }, 30_000);
 
 });
