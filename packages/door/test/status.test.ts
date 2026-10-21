@@ -98,6 +98,7 @@ import { Scratch, outliner, until } from "./scratch";
 
 describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
   const scratch = new Scratch();
+  const savedAgent = process.env.EP0CH_DAILY_AGENT;
   let board: SocketBoard, app: App, painted: string[] = [], press: (k: Key) => void;
   const bar = () => { (app as any).paint(); return visible(painted.at(-1)!); };
   const click = (text: string, alt = false) => {
@@ -107,6 +108,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
   };
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
+    process.env.EP0CH_DAILY_AGENT = "cat";
     board = new SocketBoard(await scratch.start());
     await board.info();
     app = new App({ info: { cols: 220, rows: 40, cellW: 9, cellH: 16, kitty: true }, write() {}, paint(l: string[]) { painted = l; }, paintRow(r: number, l: string) { painted[r] = l; }, invalidate() {}, onKey(f: (k: Key) => void) { press = f; }, onResize() {}, stop() {}, resume() {} }, board, Date.now(), () => {});
@@ -114,7 +116,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     await app.loadExtensions();
     app.push(openScreen("desk")!);
   }, 30_000);
-  afterAll(async () => { app?.quit(); app?.drawer.tile?.kill(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+  afterAll(async () => { app?.quit(); app?.drawer.tile?.kill(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; if (savedAgent === undefined) delete process.env.EP0CH_DAILY_AGENT; else process.env.EP0CH_DAILY_AGENT = savedAgent; });
 
   test("without a config note the current bar and every item's declared gestures agree, including conditional chips", async () => {
     expect(bar()).toContain("ep0ch ^K");
@@ -129,18 +131,29 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     ];
     const wasDance = screen.dancing;
     screen.dancing = () => true;
-    const force = () => { app.offline = true; app.agentsYolo = true; app.drawer.active = true; app.drawer.knows = { state: "stale" } as any; app.flash(""); bar(); };
+    const force = async () => {
+      app.offline = true; app.agentsYolo = true; app.drawer.active = true;
+      if (!app.drawer.tile?.running) {
+        await app.dispatch.act({ action: "host.toggle" }, USER);
+        bar();
+      }
+      await until(() => !!app.drawer.tile?.running && !app.drawer.restarting, "the built-in agent runs");
+      // Force the conditional gesture on its owning pane, keeping the derived drawer getter intact.
+      (app.drawer as any).knowledge.set(app.drawer.tile!, { knows: { state: "stale" }, pid: app.drawer.tile!.pid, at: Date.now(), polling: false });
+      app.flash(""); bar();
+    };
     const items = async () => (await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items;
     try {
       // Every conditional chip is present, so hidden defaults cannot silently escape parity.
       (app.t as any).cols = 500;
-      force();
+      await force();
       const declared = await items();
+      expect(declared.find((i: any) => i.id === "drawer").lastCell.action).toBe("agent.restart");
       for (const item of declared) {
         expect(visible(item.text).length).toBeGreaterThan(0);
         for (const gesture of ["click", "alt", "lastCell"] as const) {
           if (!item[gesture]) continue;
-          force();
+          await force();
           const current = (await items()).find((i: any) => i.id === item.id);
           expect(current.from).toBeDefined();
           const ran: string[] = [];
@@ -151,7 +164,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
           } finally { stop(); }
           press({ kind: "esc" });
           if (app.recording.active) {
-            force();
+            await force();
             click("REC stop");
             await until(() => !app.recording.active, "the recording chip stops recording");
             await until(() => app.messages.rows.some(m => m.message.startsWith("Saved recording-")), "the recording is saved");
@@ -163,7 +176,9 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     } finally {
       probes.forEach(p => p.mockRestore());
       screen.dancing = wasDance;
-      app.offline = false; app.agentsYolo = false; app.drawer.knows = null;
+      app.offline = false; app.agentsYolo = false;
+      await app.drawer.restarting;
+      (app.drawer as any).knowledge.delete(app.drawer.tile!);
       (app.t as any).cols = 220;
     }
   });
