@@ -4117,7 +4117,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const copy = keepCopy(text.text, "edit-opening");
         this.failedEdits.set(rd, { of: rd.msg!.id, keys: token.keys, text: text.text, copy, why });
         this.ctx.flash(`${why} · tile menu: recover typed text · copy kept at ${copy}`, undefined, errorDetails(e));
-      } else if (still()) this.ctx.flash(why, undefined, errorDetails(e));
+      } else this.ctx.flash(why, undefined, errorDetails(e));
       opened(false);
       return false;
     };
@@ -4151,7 +4151,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.ctx.flash("copied typing from the failed edit open");
       return { text: kept.text, copy: kept.copy };
     }
-    if (op !== "open") throw new ActionRefused("op is copy or open");
     return { opened: await this.startSession(rd, "edit", undefined, kept.keys) };
   }
 
