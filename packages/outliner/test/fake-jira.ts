@@ -33,6 +33,8 @@ export interface FakeJira {
   readonly requests: string[];
   /** Answer every request after this many milliseconds (to prove a save doesn't wait). */
   delayMs: number;
+  /** Hold the HTTP response until a test releases it, independently of runner speed. */
+  replyAfter: Promise<void>;
   /** When set, every request answers with this HTTP status. */
   status: number | null;
   stop(): void;
@@ -47,6 +49,7 @@ export function startFakeJira(issues: FakeIssue[]): FakeJira {
     issues: new Map(issues.map((issue) => [issue.key, issue])),
     requests: [],
     delayMs: 0,
+    replyAfter: Promise.resolve(),
     status: null,
     stop: () => server.stop(true),
   };
@@ -58,6 +61,7 @@ export function startFakeJira(issues: FakeIssue[]): FakeJira {
     async fetch(request) {
       const url = new URL(request.url);
       fake.requests.push(`${request.method} ${url.pathname}${url.search}`);
+      await fake.replyAfter;
       if (fake.delayMs) await Bun.sleep(fake.delayMs);
       const expected = "Basic " + Buffer.from(`${FAKE_EMAIL}:${FAKE_TOKEN}`).toString("base64");
       if (request.headers.get("authorization") !== expected) return new Response("", { status: 401 });

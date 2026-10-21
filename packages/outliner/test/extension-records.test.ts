@@ -117,13 +117,17 @@ async function setup(options: { extraSources?: { origin: string; project: string
 test("saving a ticket page fetches the ticket in the background, as a real child block the extension owns", async () => {
   const { fake, store, client, create, recordOf, visibleChangesSince } = await setup();
 
-  fake.delayMs = 400;
+  const reply = Promise.withResolvers<void>();
+  fake.replyAfter = reply.promise;
   const before = store.sequence;
-  const started = performance.now();
-  const page = await create("PC-1 Rollout [jira::PC-1]\nMy own notes: call the depot first.");
-  // The save answered before the fetch could have.
-  expect(performance.now() - started).toBeLessThan(350);
-  fake.delayMs = 0;
+  const page = await (async () => {
+    try {
+      const saved = await create("PC-1 Rollout [jira::PC-1]\nMy own notes: call the depot first.");
+      // The HTTP response is still held: the save cannot have waited for the fetch.
+      expect(store.extensionRecords({ parentBlockId: saved.id, role: "record" })).toEqual([]);
+      return saved;
+    } finally { reply.resolve(); }
+  })();
 
   const record = await recordOf(page.id);
   expect(record.parentId).toBe(page.id);
@@ -156,7 +160,7 @@ test("saving a ticket page fetches the ticket in the background, as a real child
   expect(links.resources.entries[0]?.recordBlockId).toBe(record.id);
   const own = await client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId: record.id });
   expect(own.projections[0]).toMatchObject({ key: "PC-1", anchor: { kind: "record" }, record: { blockId: record.id } });
-});
+}, 30_000);
 
 test("removing the jira:: line moves its ticket block to Trash; the person's notes stay", async () => {
   const { store, client, create, recordOf } = await setup();

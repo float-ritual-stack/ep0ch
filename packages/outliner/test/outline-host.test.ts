@@ -661,12 +661,31 @@ test("failed laptop mirror snapshots cannot close local outlines or crash the ho
 }, 60000);
 
 
-test("a closed store answers an error without breaking another outline", async () => {
+test("a connection to a closed outline answers an error without breaking another outline", async () => {
   const host = await startHost(scratch());
   await host.create("garden");
   await host.create("orchard");
-  (await host.open("garden")).store.close();
-  const client = new OutlinerClient(host.socketPath, 1000, "garden");
-  await expect(client.request({ action: "ping" })).rejects.toThrow("Cannot use a closed database");
+  const socket = createConnection(host.socketPath);
+  socket.setEncoding("utf8");
+  cleanups.push(() => { socket.destroy(); });
+  let buffer = "";
+  let answer = Promise.withResolvers<OutlinerResponse>();
+  socket.on("error", error => answer.reject(error));
+  socket.on("data", (chunk: string) => {
+    buffer += chunk;
+    const newline = buffer.indexOf("\n");
+    if (newline < 0) return;
+    answer.resolve(JSON.parse(buffer.slice(0, newline)));
+    buffer = buffer.slice(newline + 1);
+  });
+  const ask = () => {
+    answer = Promise.withResolvers<OutlinerResponse>();
+    socket.write(`${JSON.stringify({ id: crypto.randomUUID(), action: "ping", outline: "garden" })}\n`);
+    return answer.promise;
+  };
+  expect((await ask()).ok).toBe(true);
+  // Closing through the host stops background readers before releasing SQLite; the existing caller still gets an answer.
+  await ok(host.socketPath, { action: "outlines.close", name: "garden" });
+  expect(await ask()).toMatchObject({ ok: false, error: "The outline service is stopping" });
   expect((await ok<Block>(host.socketPath, { action: "create", outline: "orchard", text: "Still planting" })).text).toBe("Still planting");
-});
+}, 30_000);

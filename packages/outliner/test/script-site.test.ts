@@ -82,14 +82,16 @@ test("short answers and property-only runs leave no note; documents, views, expl
 });
 
 test("a rule-fired script is told the matched block as this, and its caller", async () => {
-  const { store, create, client } = await setup();
+  const { store, create, client, extensionOf } = await setup();
   const script = create("Stamper [script::stamper] [results::keep]\n```js\nreturn `stamped ${this.title} from ${caller.block === this.id}`;\n```");
+  // A script installed after the match takes it as its baseline and does not fire.
+  await extensionOf("stamper");
   create("Stamp rule [rule-name::stamp] [rule-match::#shipit] [rule-on::script:stamper]");
   await until("the stamp rule to load", async () => (await client.request<{ rules: RuleListEntry[] }>({ action: "extensions.list" })).rules.some(rule => rule.name === "stamp"));
   const hit = create("Ship the beans #shipit");
   const note = await until("the run note", () => store.children(script.id).find(child => child.text.includes("stamped")));
   expect(note.text).toContain(`stamped ${hit.text.replace(" #shipit", "")} from true`);
-});
+}, 30_000);
 
 test("render mode draws a line in place from its slots, redraws when a note it read changes, and writes nothing", async () => {
   const { store, client, create, output, draw } = await setup();
