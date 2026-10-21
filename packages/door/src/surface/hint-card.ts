@@ -18,6 +18,7 @@ export class HintCard {
   pinned = false;
   private hits: { rect: Rect; act: ActRequest }[] = [];
   rect: Rect | null = null;
+  private placed: { key: string; col: number; row: number } | null = null;
   readonly view = new RowView();
   constructor(readonly hint: Hint, readonly tile: string, readonly anchor: number, readonly by?: string) {}
 
@@ -33,14 +34,20 @@ export class HintCard {
       content.push({ text: menuRow(choice, false, w), act: choice.act });
     });
     const rows = Math.min(area.rows, content.length + 2);
-    let col = Math.max(area.col, Math.min(anchor.col + 1, area.col + area.cols - cols));
-    let row = Math.max(area.row, Math.min(anchor.row + 1, area.row + area.rows - rows));
-    // Leave the control just pressed uncovered, without chasing a pointer entering a choice.
-    if (pointer && !this.at(pointer.x, pointer.y) && pointer.x >= col && pointer.x < col + cols && pointer.y >= row && pointer.y < row + rows) {
-      if (pointer.x + cols + 2 <= area.col + area.cols) col = pointer.x + 2;
-      else if (pointer.x - cols - 1 >= area.col) col = pointer.x - cols - 1;
-      else if (pointer.y + rows + 1 <= area.row + area.rows) row = pointer.y + 1;
+    // Placed once, clear of the control just pressed; it holds that place while the pointer moves (into it to
+    // reach a choice, or anywhere else) until its tile or the room changes (Evan, Oct 20: "cat and mouse").
+    const key = `${anchor.col},${anchor.row},${anchor.cols},${area.col},${area.row},${area.cols},${area.rows},${cols},${rows}`;
+    if (this.placed?.key !== key) {
+      let col = Math.max(area.col, Math.min(anchor.col + 1, area.col + area.cols - cols));
+      let row = Math.max(area.row, Math.min(anchor.row + 1, area.row + area.rows - rows));
+      if (pointer && pointer.x >= col && pointer.x < col + cols && pointer.y >= row && pointer.y < row + rows) {
+        if (pointer.x + cols + 2 <= area.col + area.cols) col = pointer.x + 2;
+        else if (pointer.x - cols - 1 >= area.col) col = pointer.x - cols - 1;
+        else if (pointer.y + rows + 1 <= area.row + area.rows) row = pointer.y + 1;
+      }
+      this.placed = { key, col, row };
     }
+    const { col, row } = this.placed;
     const rect = this.rect = { col, row, cols, rows };
     canvas.float(rect, this.hint.title + (this.by ? ` - ${this.by}` : ""), fg(C.dark) + (this.pinned ? "pinned  [dismiss]" : "[pin]  [dismiss]"), () => {
     this.hits = [
