@@ -19,7 +19,7 @@ import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 // and links it, as one choice. `((Meeting^` searches inside the notes `((Meeting` listed, in the same order. The
 // triggers stay here until ADR 0004's source contract (slice 6, PIE-750) moves them into outline-core.
 import { ListPicker, pickRows, pickRow } from "./picker";
-import { actionSet, def } from "./actions";
+import { ActionRefused, actionSet, def } from "./actions";
 import { listPreview } from "../bar/list-preview";
 import { litCells } from "../bar/filter";
 import { rankTextSearchMatches, matchesSearchText } from "@ep0ch/outline-core/search-match";
@@ -45,9 +45,9 @@ import { headingStylesReady } from "../heading-styles";
 import { componentsReady } from "../component-schemas";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import type { ListSource } from "../outline-lists";
-import { drawVariation } from "../library/draw";
-import { propertyTokensInLine } from "@ep0ch/outline-core/property-grammar";
-import { barSource, type BarHost } from "../bar/source";
+import { drawVariation, drawComponentProps } from "../library/draw";
+import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
+import { openNote, barSource, type BarHost } from "../bar/source";
 import { commandCandidates } from "../bar/command";
 import { querySuggestions } from "./settings-card";
 import { Gesture, Selection, rowsOf, paintRange, selectText, SELECT_BG } from "./selection";
@@ -66,7 +66,7 @@ export const COMPLETION_HINT = "up/down or wheel choose · enter inserts (styles
 export const REFERENCE_HINT = "up/down choose · enter/double click inserts · shift+up/down/PgUp/PgDn/wheel preview · ^/# narrow · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "componentUsage" | "listExtensions" | "templateProps">;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment" | "propertyCatalog" | "followPage" | "componentUsage" | "listExtensions" | "templateProps" | "query">;
 
 /**
  * Anything outline text is written in (PIE-626): a `Draft`, or a `LineInput` (a property's value, a filter). The completer
@@ -89,6 +89,8 @@ export interface CompletionItem {
   label: string;
   children?: CompletionItem[];
   componentSchema?: ComponentSchema;
+  source?: string;
+  definition?: string;
   subtitle?: string;
   group?: string;
   preview?: (w: number, h: number) => string[];
@@ -165,6 +167,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   } else if (target.kind === "component") {
     const src = { board, redraw: () => {} };
     const schemas = await componentsReady(src);
+    const keys = await scopedKeys(board, target, own, opts.near);
     const recent = await (opts.componentUsage ?? board.componentUsage());
     const components = schemas.flatMap(schema => {
       const name = COMPONENT_OPEN.exec(schema.source.use.split("\n")[0]!)?.[1];
@@ -172,18 +175,19 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
       return [{ id: name, title: `${name} ${schema.title}`, text: schema.intro, schema }];
     });
     const found = target.query.trim() ? rankTextSearchMatches(components.filter(c => matchesSearchText(target.query, [c.id, c.title, c.text])), target.query).map(m => m.document) : components;
-    const ordered = found.sort((a, b) => (recent[b.id] ?? 0) - (recent[a.id] ?? 0));
+    const ordered = target.query.trim() ? found : found.sort((a, b) => (recent[b.id] ?? 0) - (recent[a.id] ?? 0));
     const groupOf = (c: typeof components[number]) => `${c.schema.group}${recent[c.id] !== undefined ? " · used" : ""}`;
     const groups = [...new Set(ordered.map(groupOf))];
-    items = groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ schema }) => {
+    items = groups.flatMap(group => ordered.filter(c => groupOf(c) === group).map(({ schema: original }) => {
+      const schema = contextualSchema(original, keys);
       const item = componentItem(schema, variation(schema, {}), src);
-      const seen = new Set([item.insertion]);
+      const seen = new Set<string>();
       item.group = group;
       item.componentSchema = schema;
       item.children = schema.sweep.flatMap(axis => sweep(schema, axis).flatMap(v => {
         if (seen.has(v.use)) return [];
         seen.add(v.use);
-        return [componentItem(schema, v, src, `${axis}: ${v.values[axis]}`)];
+        return [componentItem(schema, v, src, v.use.replace(/\n/g, " "))];
       }));
       return item;
     }));
@@ -197,14 +201,22 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
     items = calloutCandidates(await calloutsReady({ board, redraw: () => {} }), target.query, { board, redraw: () => {} });
     empty = `no callout type starts ${JSON.stringify(target.query)}; [!${target.query}] still draws, in neutral (declare it with [callout-type::${target.query || "name"}])`;
   } else if (target.kind === "agent") {
-    // The extensions' agents (PIE-501), so a request is found by typing `@` (PIE-592): what each does and when it runs.
-    // Imported when asked: the extensions module reaches the tile registry, which this one is loaded under.
-    const all = (await import("../extensions")).noteAgents() ?? [];
+    const listed = await board.listExtensions();
+    const all = listed.extensions.filter(e => e.state === "active" || e.state === "failed")
+      .flatMap(extension => (extension.agents ?? []).map(agent => ({ ...agent, extension })));
     const q = target.query.toLowerCase();
-    items = all.filter(a => a.name.toLowerCase().startsWith(q)).map(a => ({
-      label: `@${a.name}${a.description ? ` · ${a.description}` : ""}`, insertion: `@${a.name} `, kind: "agent",
-      context: a.threads ? "in a note, or a comment on a passage: its answer lands in that thread" : "runs on the text above this line once the line is quiet (1.5 s), as an attributed edit · r on the line asks again",
-    }));
+    const scripts = all.some(a => a.extension.script && a.name.toLowerCase().startsWith(q)) ? await board.query("script", 1000) : [];
+    items = all.filter(a => a.name.toLowerCase().startsWith(q)).map(a => {
+      const note = a.extension.script ? scripts.find(n => n.properties?.some(p => p.key === "script" && p.value === a.name)) : undefined;
+      const definition = note ? [`[g] ${subject(note)} ((${note.id}))`, ...note.text.split("\n").slice(1)]
+        : [a.extension.directory ?? "", `handler @${a.name}`, ...a.extension.handlers.map(h => `${h.key}:: ${h.description ?? h.kind}`)];
+      const context = a.threads ? "in a note, or a comment on a passage: its answer lands in that thread" : "runs on the text above this line once the line is quiet (1.5 s), as an attributed edit · r on the line asks again";
+      return {
+        label: `@${a.name}${a.description ? ` · ${a.description}` : ""}`, insertion: `@${a.name} `, kind: "agent", context,
+        ...(note ? { definition: note.id } : {}),
+        preview: (w: number, h: number) => [...definition.flatMap(line => rowLines(printable(line), w)), ...rowLines(a.description ?? context, w)].slice(0, h),
+      };
+    });
     empty = all.length ? `no agent is called @${target.query}: ${all.map(a => `@${a.name}`).join(", ")} answer here` : "";
   } else if (target.kind === "file") {
     const files = await board.completeFiles(target.query);
@@ -366,10 +378,35 @@ function componentItem(schema: ComponentSchema, v: ReturnType<typeof variation>,
   const first = yaml >= 0 ? /^([^:\n]+:[ \t]*)([^\n]+)$/m.exec(v.use.slice(yaml + 5)) : null;
   const at = first ? yaml + 5 + first.index + first[1]!.length : -1;
   return { label: label ?? schema.title.replace(/ \(::.*\)$/, ""), insertion: v.use, kind: "component", group: schema.group,
-    context: schema.intro.split(/\n|(?<=\.) /)[0]!.replace(/[`*_]/g, ""),
-    preview: (w, h) => [fg(C.lcyan) + pad(schema.title.replace(/ \(::.*\)$/, ""), w) + RESET, ...drawVariation(v, w, src)].slice(0, h),
+    context: schema.intro.split(/\n|,|(?<=\.) /)[0]!.replace(/[`*_]/g, ""),
+    source: v.use,
+    preview: (w, h) => [
+      ...rowLines(`${schema.title.replace(/ \(::.*\)$/, "")}: ${schema.intro.split(/\n|,|(?<=\.) /)[0]!.replace(/[`*_]/g, "")}`, w),
+      ...`[copy] ${v.use}`.split("\n").flatMap(line => rowLines(line, w)),
+      ...drawVariation(v, w, src),
+      ...drawComponentProps(schema, w),
+    ].slice(0, h),
     ...(at >= 0 ? { selection: { start: at, end: at + first![2]!.length } } : {}),
   };
+}
+
+async function scopedKeys(board: CompletionBoard, target: CompletionTarget, own?: OwnNote, near?: string): Promise<string[]> {
+  const of = target.attrs?.find(a => a.key === "of")?.value;
+  let text = own?.text;
+  if (of) {
+    const ref = blockReferenceOccurrences(of)[0];
+    const id = ref?.blockId ?? (of.startsWith("[[") ? (await board.completePages(of.slice(2, -2), COMPLETION_LIMIT)).addresses.find(a => a.address === of.slice(2, -2))?.blockId : of);
+    text = own && id === own.blockId ? own.text : id ? (await board.blockContext(id)).selected?.text : undefined;
+  } else if (!own && near) text = (await board.blockContext(near)).selected?.text;
+  return [...new Set(parsePropertyRecords(text ?? "").map(p => p.key))];
+}
+
+function contextualSchema(schema: ComponentSchema, keys: string[]): ComponentSchema {
+  if (!keys.length) return schema;
+  const props = schema.props.map(p => p.type === "property" ? { ...p, samples: keys } : p);
+  const example = { ...schema.example };
+  for (const p of props) if (p.type === "property" && example[p.key] !== undefined) example[p.key] = keys[0]!;
+  return { ...schema, props, example };
 }
 
 async function attributeCandidates(board: CompletionBoard, schema: ComponentSchema, target: CompletionTarget, own: OwnNote | undefined, opts: LookupOptions): Promise<CompletionItem[]> {
@@ -390,9 +427,8 @@ async function attributeCandidates(board: CompletionBoard, schema: ComponentSche
   if (prop.complete === "query") {
     values = (await querySuggestions(q, { catalog: (key, prefix) => board.propertyCatalog(key, prefix, 100) })).map(r => ({ label: r.value, value: r.value, detail: r.detail }));
   } else if (prop.type === "property") {
-    const ownKeys = [...new Set(propertyTokensInLine(own?.text ?? "").map(p => p.key))].filter(key => key.startsWith(q));
-    const catalog = await board.propertyCatalog(undefined, q, 100);
-    values = [...new Set([...ownKeys, ...catalog.map(f => f.key)])].map(key => ({ label: key, value: key }));
+    const keys = await scopedKeys(board, { ...target, attrs: target.attrs?.filter(a => a.key !== schema.propsFrom) }, own, opts.near);
+    values = (keys.length ? keys : axisValues(prop)).filter(key => key.startsWith(q)).map(key => ({ label: key, value: key }));
   } else if (prop.type.startsWith("property:")) {
     values = (await board.propertyCatalog(prop.type.slice("property:".length), q, 100)).map(f => ({ label: f.value, value: f.value }));
   } else if (prop.type === "script") {
@@ -746,7 +782,16 @@ export class Completer {
     if (!s || !at || y < at.row || y >= at.row + at.items.length) return false;
     if (at.cols !== undefined && (x < (at.col ?? 0) || x >= (at.col ?? 0) + at.cols)) return false;
     if (this.overPreview(x, y)) {
+      const localRow = y - at.row - s.previewRect!.row + (s.previewTop ?? 0);
+      const localCol = x - (at.col ?? 0) - s.previewRect!.col;
+      const row = visible(s.previewLines?.[localRow] ?? "");
       const released = this.previewGesture.release(x, y);
+      if (!released.moved && row.startsWith("[copy]") && localCol < 6) {
+        void COMPLETION_ACTIONS.run("complete.copy", {}, this, USER); return true;
+      }
+      if (!released.moved && row.startsWith("[g]") && localCol < 3) {
+        void COMPLETION_ACTIONS.run("complete.definition", {}, this, USER); return true;
+      }
       const text = s.previewSelection?.text(rowsOf(s.previewLines ?? []));
       if (text && released.copy) copy?.(text);
       if (!released.moved && released.n === 1) s.previewSelection = undefined;
@@ -788,6 +833,21 @@ export class Completer {
       s.previewSelection = new Selection(pos, pos);
     }
     this.redraw(); return true;
+  }
+
+  copySource(actor: Actor): string {
+    const source = this.shown?.items[this.shown.index]?.source;
+    if (!source) throw new ActionRefused("select a component first");
+    if (actor.kind === "user") ambient?.host?.().ctx.copy?.(source, "component source");
+    return source;
+  }
+
+  jumpDefinition(actor: Actor): unknown {
+    const id = this.shown?.items[this.shown.index]?.definition;
+    if (!id) throw new ActionRefused("select a script note first");
+    const host = ambient?.host?.();
+    if (actor.kind === "agent" || !host) return { blockId: id };
+    return openNote(id, host, { alt: true, actor });
   }
 
   get hasParent() { return this.parent !== null; }
@@ -882,7 +942,18 @@ export const COMPLETION_STEP = {
   examples: [{ act: "complete.step direction=right", does: "shows the selected component's variations and arguments" }],
 } as const;
 
+export const COMPLETION_COPY = {
+  summary: "copy the selected component's source, ready to paste into a note",
+  keys: "choose a component, then y; click [copy]", touches: "nothing", replay: "safe", args: {},
+} as const;
+export const COMPLETION_DEFINITION = {
+  summary: "open the selected agent's defining script note beside the draft",
+  keys: "choose an agent, then g; click [g]", touches: "nothing", replay: "safe", args: {},
+} as const;
+
 export const COMPLETION_ACTIONS = actionSet<Completer>()("completion", {
+  "complete.copy": def({ ...COMPLETION_COPY, run(_, c, actor) { return c.copySource(actor); } }),
+  "complete.definition": def({ ...COMPLETION_DEFINITION, run(_, c, actor) { return c.jumpDefinition(actor); } }),
   "complete.step": def({
     ...COMPLETION_STEP,
     run({ direction }, c, actor) {
@@ -938,6 +1009,8 @@ function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boole
     if (k.kind === "esc") { c.dismiss(); return !line || !!s.items.length; }
     if (s.items.length && !s.loading) {
       const item = s.items[s.index];
+      if (k.kind === "char" && !k.ctrl && k.ch === "y" && s.picked && item?.source) { void COMPLETION_ACTIONS.run("complete.copy", {}, c, USER); return true; }
+      if (k.kind === "char" && !k.ctrl && k.ch === "g" && s.picked && item?.definition) { void COMPLETION_ACTIONS.run("complete.definition", {}, c, USER); return true; }
       if (k.kind === "char" && !k.ctrl && (k.ch === "^" || k.ch === "#") && s.target.kind === "block" && !parseFragmentCompletionQuery(s.target.query) && item?.blockId) {
         d.splice(s.target.start, s.target.end, `((${item.blockId}${k.ch}`);
         void c.refresh();
@@ -1061,14 +1134,14 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
   }
   const header = h >= 3, footer = h >= 2 && (!reference || h >= 6);
   const out: string[] = [];
-  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
+  const heading = { attribute: "attributes", "attribute-value": "values", component: "components", agent: "agents", callout: "callout types", key: "properties", "yaml-key": "properties", "filter-key": "properties", value: "values", "yaml-value": "values", "filter-value": "values" }[s.target?.kind as string] ?? "references";
   const ranking = !footer && s.jev ? ` · jev ${s.jev}` : "";
   if (header) rows.push(null), out.push(fg(C.lcyan) + pad(` ${printable(s.heading ?? heading, " ")} ${s.index + 1}/${s.items.length}${echo}${ranking}${scopes ? ` ${scopes}` : ""}${s.loading ? " · finding..." : ""}`, w) + RESET);
   const picker = completionPicker(s);
   picker.sel = s.index;
   const selected = s.items[s.index]!;
   const preview = (pw: number, ph: number) => {
-    if (selected.kind === "component" && selected.preview) {
+    if ((selected.kind === "component" || selected.kind === "agent") && selected.preview) {
       const lines = selected.preview(pw, 10000);
       s.previewLines = lines;
       return lines.slice(s.previewTop ?? 0, (s.previewTop ?? 0) + ph).map((line, i) => {
@@ -1080,15 +1153,15 @@ function completionLines(s: CompletionState, w: number, h: number, rows: (number
     const description = wholeWords(selected.context ?? selected.insertion, pw);
     return [fg(C.lcyan) + pad(description, pw) + RESET, ...(selected.preview?.(pw, Math.max(0, ph - 1)) ?? [])].slice(0, ph);
   };
-  const labelWidth = Math.max(...s.items.map(it => cells(printable(it.label + (it.subtitle ? ` · ${it.subtitle}` : ""), " ")) + 3));
-  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, reference && selected.preview ? Math.max(90, w) : w, { col: s.target.kind === "component" || s.target.kind === "attribute" || s.target.kind === "attribute-value" ? 0 : anchor, width: labelWidth });
+  const labelWidth = Math.max(...s.items.map(it => cells(printable(it.label + (it.subtitle ? ` · ${it.subtitle}` : ""), " ")) + 3 + (it.componentSchema ? 2 : 0)));
+  const drawn = listPreview(picker, w, h - Number(header) - Number(footer), preview, 0, reference && selected.preview ? Math.max(90, w) : w, { col: s.target.kind === "agent" || s.target.kind === "component" || s.target.kind === "attribute" || s.target.kind === "attribute-value" ? 0 : anchor, width: labelWidth });
   if (drawn.preview) s.previewRect = { ...drawn.preview, row: drawn.preview.row + Number(header) };
   s.listCol = drawn.listCol;
   s.listWidth = drawn.listWidth;
   rows.push(...drawn.rows); out.push(...drawn.lines);
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
   const jev = s.jev === "ranked" ? "jev ranked · " : s.jev === "asking" ? "jev… · " : "";
-  const hint = s.target?.kind === "component" ? "enter inserts · right/> variations and arguments · left returns · drag preview to copy · esc dismisses" : s.target?.kind === "block" ? REFERENCE_HINT : COMPLETION_HINT;
+  const hint = s.target?.kind === "component" ? "enter inserts · right variations · left returns · y/[copy] source · drag drawing to copy · shift+down scrolls · esc" : s.target?.kind === "agent" ? `${selected.definition ? "g/[g] definition · " : ""}shift+down scrolls · enter inserts · esc dismisses` : s.target?.kind === "block" ? REFERENCE_HINT : COMPLETION_HINT;
   const keys = "↑↓ ⏎ tab esc";
   const fitted = cells(` ${jev}${hint}`) <= w ? hint : keys;
   if (footer) rows.push(null), out.push(line(` ${jev}${s.message || fitted}`, fg(s.message ? C.yellow : C.grey)));
@@ -1106,13 +1179,11 @@ function completionPicker(s: CompletionState): ListPicker<CompletionItem, void> 
   if (!picker) {
     picker = new ListPicker({ name: "completion", items: () => s.items,
       row: (it, _i, on, w) => {
-        if (it.kind === "component") {
-          const label = ellipsize(printable(it.label, " "), Math.max(1, w - 7));
+        if (it.kind === "component" || it.kind === "agent") {
+          const label = ellipsize(printable(it.label, " "), Math.max(1, w - 3 - (it.componentSchema ? 2 : 0)));
           const name = ` ${on ? "»" : " "} ${label}`;
-          const room = Math.max(0, w - cells(name) - 3);
-          const purpose = room ? " " + ellipsize(printable(it.context ?? "", " "), room) : "";
           const arrow = it.componentSchema ? " ›" : "";
-          return [pickRow(pad(name + fg(C.dark) + purpose, w - cells(arrow)) + fg(C.grey) + arrow, on, w)];
+          return [pickRow(pad(name, w - cells(arrow)) + fg(C.grey) + arrow, on, w)];
         }
         const label = printable(it.addition ? it.label.slice(0, -it.addition.length) : it.label, " ") + (it.subtitle ? ` · ${printable(it.subtitle, " ")}` : "");
         const lit = litCells(label, s.target.query);

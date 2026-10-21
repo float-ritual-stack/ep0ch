@@ -117,7 +117,7 @@ import { findPassage, isMiss, missMessage, passageAt, type Passage as PassageTar
 import { annotationKind, annotationTone, type MarkLifecycle } from "@ep0ch/outline-core/annotation-marks";
 import { hostname } from "node:os";
 import { clipboardImage, droppedImage, imageLine, imagePathAt, keepImage, noClipboardImage } from "../paste-image";
-import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
+import { COMPLETION_ACTIONS, COMPLETION_PREVIEW, COMPLETION_STEP, COMPLETION_COPY, COMPLETION_DEFINITION, COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, reopenReference, type CompletionBoard, type Completer } from "./completer";
 import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -8923,6 +8923,22 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "draft.undo": forwardDraft("draft.undo"),
   "draft.redo": forwardDraft("draft.redo"),
   "draft.copy": forwardDraft("draft.copy"),
+  "complete.copy": def({
+    ...COMPLETION_COPY,
+    run(args, { surface }, actor) {
+      const c = surface.writingDraft && completerOf(surface.writingDraft);
+      if (!c?.shown) throw new ActionRefused("type :: in an edit first");
+      return COMPLETION_ACTIONS.run("complete.copy", args, c, actor);
+    },
+  }),
+  "complete.definition": def({
+    ...COMPLETION_DEFINITION,
+    run(args, { surface }, actor) {
+      const c = surface.writingDraft && completerOf(surface.writingDraft);
+      if (!c?.shown) throw new ActionRefused("type @ in an edit first");
+      return COMPLETION_ACTIONS.run("complete.definition", args, c, actor);
+    },
+  }),
   "complete.preview": def({
     ...COMPLETION_PREVIEW,
     run(args, { surface }: On, actor) {

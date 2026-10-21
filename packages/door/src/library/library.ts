@@ -6,7 +6,7 @@ import { chipRows } from "../surface/chip-rows";
 // (picked per axis; the matching variations drawn a page at a time, never the whole space). Each variation is drawn by
 // the readers' own renderer (src/library/draw.ts) at 40, 80 or 160 columns, and its source is copied by a click, `y`
 // or `act`. A screen spec (`library`) of one tile kind; every key and click runs one of LIBRARY_ACTIONS.
-import { axisValues, grid, spaceSize, spaceVariations, sweep, valuesWords, variation, variationText, type ComponentSchema, type PropPlace, type SpaceFilter, type Variation } from "@ep0ch/outline-core/component-schema";
+import { axisValues, grid, spaceSize, spaceVariations, sweep, variation, variationText, type ComponentSchema, type SpaceFilter, type Variation } from "@ep0ch/outline-core/component-schema";
 import { componentsOf } from "../component-schemas";
 import type { ListSource } from "../outline-lists";
 import { RowView, scrolled, wheelRows } from "../scroll";
@@ -19,8 +19,7 @@ import { rowLines, wrap } from "../text";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind } from "../desk/tile-kinds";
-import { drawingWaits, drawVariation } from "./draw";
-import { drawProps } from "../figures/props";
+import { drawingWaits, drawVariation, drawComponentProps, PROP_PLACE_WORDS } from "./draw";
 
 /** The page's parts, each a digit. */
 export const PARTS = [
@@ -34,8 +33,6 @@ export type Part = (typeof PARTS)[number]["part"];
 export const WIDTHS = [40, 80, 160] as const;
 /** Variations of the whole space drawn at once. */
 export const SPACE_PAGE = 8;
-
-const PLACE: Record<PropPlace, string> = { line: "on the line", note: "on the declaring note", yaml: "in the YAML" };
 
 /** A part of a row a click runs an action on. */
 interface Hit { from: number; to: number; action: string; args?: Record<string, unknown> }
@@ -171,7 +168,7 @@ export class LibraryPane implements Pane {
       body.push(...this.block(v, 0, Object.entries(v.values).map(([k, x]) => `${k}: ${x}`).join(" · ") || "as written", W, src, cut));
       heading("Properties");
       // The one properties table (::graph-props, PIE-1032): an action's page draws its arguments with it too.
-      drawProps({ props: s.props.map(p => ({ name: p.token ?? p.key, where: PLACE[p.where], values: valuesWords(p), ...(p.default !== undefined ? { default: p.default } : {}), meaning: p.meaning })) }, Math.max(20, W - 1))
+      drawComponentProps(s, Math.max(20, W - 1))
         .forEach(l => body.push({ text: l }));
     } else if (this.part === "property") {
       const axis = s.sweep[Math.min(this.axis, s.sweep.length - 1)];
@@ -179,7 +176,7 @@ export class LibraryPane implements Pane {
       const p = s.props.find(x => x.key === axis);
       if (!axis || !p) text("this component marks no property to show one value at a time", C.dark);
       else {
-        head.push({ text: fg(C.dark) + pad(`${PLACE[p.where]} · ${p.meaning}`, W) + RESET });
+        head.push({ text: fg(C.dark) + pad(`${PROP_PLACE_WORDS[p.where]} · ${p.meaning}`, W) + RESET });
         sweep(s, axis).forEach(v => { body.push(...this.block(v, shown.length, this.labelOf(s, v, [axis], true), W, src, cut)); shown.push(v); });
       }
     } else if (this.part === "grid") {

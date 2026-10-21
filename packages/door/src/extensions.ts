@@ -78,6 +78,7 @@ export interface ExtensionEntry {
   id: string; name?: string; version?: number; description?: string; origin?: string;
   /** `active`, `failed` (it may still serve its last good version), `disabled` or `shadowed`. */
   state: string;
+  directory?: string;
   error?: string;
   handlers: ExtensionHandler[];
   actions: ExtensionAction[];
