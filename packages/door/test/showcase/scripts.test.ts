@@ -45,6 +45,7 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
     await app.dispatch.press("bar.open", { query: 'tile.open kind=query query="#beans" name=recorded-query' });
     await until(() => !!(app as any).bar?.describe().rows.length, "the action line is offered");
     await app.dispatch.press("bar.pick");
+    await app.dispatch.press("bar.close");
     await app.act({ action: "tile.open", args: { kind: "query", query: "#agent-only", name: "agent-query" }, as: "test-agent" });
     await app.dispatch.act({ action: "block.mark", tile: "notes", args: { reason: "check planting" } }, USER);
     await app.dispatch.act({ action: "tile.link", tile: "notes", args: { to: "source", role: "target" } }, USER);
@@ -309,6 +310,7 @@ console.log(JSON.stringify({ replacement: ${JSON.stringify(replacement)}, messag
     await app.dispatch.act({ action: "bar.open", args: { query: `bound-seeds note=${seeded.notes.shed.id}`, scope: "notes" } }, USER);
     await until(() => !!app.bar?.items.some(r => r.row.label.includes("bound-seeds")), "named script row");
     await app.dispatch.act({ action: "bar.pick" }, USER);
+    await app.dispatch.press("bar.close");
     await untilAsync(async () => (await board.children(made.id)).some(n => n.text.includes("· done")), "named script ran");
     expect(JSON.stringify(await app.dispatch.act({ action: "marks.list" }, USER))).toContain("Check seeds");
     const keyed = await board.request<{ id: string }>("create", { author: "user", text: 'Key seeds [script::key-seeds] [results::keep] [keys::alt+J]\n```js\nreturn "Key seeds ran";\n```' });

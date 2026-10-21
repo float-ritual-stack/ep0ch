@@ -121,13 +121,14 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
   }),
   "bar.docs": def({
     summary: "scroll, select and copy the power bar's docs, or put an example on the command line",
-    keys: "alt+j/k scroll, alt+v docs keys (arrows, page up/down, y copy, enter example, esc line), wheel over docs, drag or double click to select, cmd+c to copy, click an example",
+    keys: "alt+j, alt+k scroll; alt+v docs keys (up down left right h j k l, pgup pgdn home end, y copy, enter example, esc or v line), wheel over docs, drag or double click to select, cmd+c to copy, click an example",
     touches: "nothing", replay: "safe", person: "the docs reading position and selection belong to the person",
     args: {
       op: { type: "string", choices: ["scroll", "select", "extend", "copy", "example", "focus", "key"], about: "the reader operation" },
       key: { type: "string", optional: true, about: "a key in docs selection mode" }, by: { type: "number", optional: true, about: "rows to scroll" }, row: { type: "number", optional: true, about: "content row from zero" },
       col: { type: "number", optional: true, about: "column from zero" }, clicks: { type: "number", optional: true, about: "2 for a word, 3 for a line" },
     },
+    examples: [{ act: "bar.docs op=scroll by=5", does: "scrolls the open bar's docs down five rows" }],
     run({ op, ...o }, { on }) { const b = on.bar(); if (!b) throw new ActionRefused("the power bar isn't open"); return b.docs(op, o); },
   }),
   "bar.command": def({
@@ -135,6 +136,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
     keys: "alt+o copy command, alt+y copy button, alt+m menu, up on an empty line recalls the last run; right click a row",
     touches: "nothing", replay: "safe", person: "the bar and clipboard are the person's",
     args: { op: { type: "string", choices: ["copy", "button", "recall", "menu"], about: "copy, button, recall or menu" }, n: { type: "number", optional: true, about: "row from 1; default the lit row" } },
+    examples: [{ act: "bar.command op=button", does: "copies the selected command as an authored note button" }],
     async run({ op, n }, { on }) {
       const b = on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open");

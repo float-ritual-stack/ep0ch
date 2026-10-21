@@ -8795,11 +8795,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "insert an act line as a note button at the person's cursor, in one unsaved draft step",
     touches: "draft", draft: "type", replay: "ask", person: "inserting at the person's cursor belongs to them",
     args: { line: { type: "string", about: "the act line the button runs" } },
+    examples: [{ act: 'edit.button line="tile.collapse on=true"', does: "inserts a collapse button at the note cursor, leaving the draft unsaved" }],
     async run({ line }, { surface, host }, actor) {
       const button = commandButton(line);
       const session = await surface.ensureDraft(host);
       if (session.openedBy.kind !== "user") throw new ActionRefused("this draft belongs to an agent; open your own edit first");
       const d = session.draft;
+      // Source line zero is the title; a button belongs below it.
+      if (d.row === 0) d.place(0, d.lines[0]!.length);
       const before = d.text.slice(0, d.offsetOf(d.row, d.col)), after = d.text.slice(d.offsetOf(d.row, d.col));
       await session.act("draft.paste", { text: (before && !before.endsWith("\n") ? "\n" : "") + button + (after && !after.startsWith("\n") ? "\n" : "") }, actor);
       host.redraw();

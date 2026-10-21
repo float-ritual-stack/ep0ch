@@ -642,6 +642,11 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(answer.rows[0]?.detail).toContain("tile.colapse -> tile.collapse");
     expect(answer.rows[0]?.detail).toContain("direction -> dir");
     await app.dispatch.press("bar.open", { query });
+    const clickRow = frame().findIndex(l => l.includes("run tile.collapse"));
+    const clickCol = (app as any).bar.rect.col + 5;
+    key({ kind: "mouse", action: "down", x: clickCol, y: clickRow, button: 0 });
+    key({ kind: "mouse", action: "up", x: clickCol, y: clickRow, button: 0 });
+    expect(desk.tileOutline().find(t => t.name === "reader")?.collapsed).toBe(false);
     await app.dispatch.press("bar.pick");
     expect(peek().bar.runs.at(-1).line).toBe("tile.collapse tile=reader on=true dir=v");
     expect(peek().bar.runs.at(-1)).toMatchObject({ refused: false });
@@ -694,6 +699,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     await app.dispatch.press("bar.insert");
     const reader = desk.pane("reader") as ReaderPane;
     expect(reader.draft!.text).toContain(button.text);
+    expect(reader.draft!.text.split("\n")[0]).toBe(before.split("\n")[0]);
     expect((await board.get(notes.garden!.id))!.text).toBe(before);
     closeBar();
     await app.dispatch.press("draft.undo", {}, "reader");

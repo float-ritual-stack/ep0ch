@@ -263,7 +263,8 @@ const ACTIONS: BarSource = {
     }
     // A menu row runs in its tile on the screen's dispatcher, as its ⋯ menu runs it; the rest on the door's.
     const on = d.tile !== undefined && top?.dispatch ? top.dispatch : host.dispatch;
-    return on.act({ action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor);
+    if (row.key.startsWith("line:") || row.key === d.action || how.actor.kind === "agent") return on.act({ action: d.action, args: d.args, ...(d.tile !== undefined ? { tile: d.tile } : {}) }, how.actor);
+    return on.press(d.action, d.args, d.tile);
   },
 };
 

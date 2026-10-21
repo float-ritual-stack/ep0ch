@@ -610,7 +610,14 @@ export class PowerBar {
     return { text };
   }
 
-  keepsRun(n: number) { const it = this.items[n - 1]; return !!it && (it.source.id === "runs" || it.source.id === "actions" && !it.row.key.startsWith("w:") && !(it.row.data as { form?: boolean })?.form); }
+  keepsRun(n: number): boolean {
+    const it = this.items[n - 1];
+    if (!it) return false;
+    if (it.source.id === "runs") return true;
+    if (it.source.id !== "actions") return false;
+    const d = it.row.data as { action: string; form?: boolean };
+    return !d.form && (it.row.key.startsWith("line:") || it.row.key === d.action);
+  }
 
   /** Pick row `n` (from 1): its source does it, as `actor`. */
   async pickRow(n: number, alt: boolean, actor: Actor): Promise<unknown> {
