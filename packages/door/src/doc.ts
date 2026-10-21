@@ -1202,7 +1202,8 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false, task
     const lead = " ".repeat(Math.max(0, Math.min(indent, W - mark.length - 1 - room))) + mark + " ";
     const box = task ? li[3]!.match(BOX)?.[0] : undefined;
     const drawn = box ? task!(box) : null;
-    if (fold?.preview) return [tint + lead + RESET + drawEllipsized(inline(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!) + (fold.folded ? foldedNote(fold) : ""), W - lead.length)];
+    // Leave room for the reader's trailing fold control, which never covers text.
+    if (fold?.preview) return [tint + lead + RESET + drawEllipsized(inline(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!) + (fold.folded ? foldedNote(fold) : ""), W - lead.length - 3)];
     const rows = wrap(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!, W - lead.length, { ...BODY, joins });
     rows.forEach((l, k) => out.push((k ? " ".repeat(lead.length) : (fold ? tint : fg(C.lcyan)) + lead + RESET) + inline(l) + (fold?.folded && k === rows.length - 1 ? foldedNote(fold) : "")));
     return out;

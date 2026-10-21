@@ -430,6 +430,7 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     const first = rows.findIndex(l => l.includes("First call"));
     expect(rows.findIndex(l => l.includes("Second call")) - first).toBe(1);
     expect(rows[first]).toContain("…");
+    expect(rows[first]).toMatch(/…\s+p/);
     const { fullPlainText, Overflow } = await import("../../src/overflow");
     expect(fullPlainText(drawn[first]!)).toContain(label);
     const overflow = new Overflow();
