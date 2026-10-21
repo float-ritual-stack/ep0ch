@@ -53,7 +53,7 @@ export interface DeskApi {
   /** The summary keys of the view a note is shown from (a board lane's `[summary-properties::…]`). */
   summaryKeys?(m: Msg): readonly string[] | null;
   /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
-  startSession?(pane: ReaderPane, kind: SessionKind): void;
+  startSession?(pane: ReaderPane, kind: SessionKind, opener?: Key): void;
   /** The tile named `name` on this screen. */
   paneNamed?(name: string): Pane | undefined;
   /** Close tile `p` as nothing was lost by it (the comment tile once its comment ended). */
@@ -488,7 +488,7 @@ export class ReaderPane implements Pane {
       ...(desk.showFrom ? { preview: (m: Msg) => desk.showFrom!(this, m) } : {}),
       // Its look (PIE-673), as the desk resolved it for this tile: margin, list density, heading spacing.
       get look() { return desk.lookOf?.(pane); },
-      startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
+      startSession: desk.startSession ? (kind, opener) => desk.startSession!(this, kind, opener) : undefined,
       // Its comment in a tile of its own beside it (PIE-846), where the screen has tiles.
       ...(desk.answerTile ? { answerTile: (ask: string, actor: Actor, fold?: string) => desk.answerTile!(this, ask, actor, fold) } : {}),
       hasWiredPreview: () => !!desk.hasWiredPreview?.(this),

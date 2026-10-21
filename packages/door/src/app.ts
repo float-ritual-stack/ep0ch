@@ -1245,7 +1245,7 @@ export class App implements Ctx {
     if (armed && disarms(k)) {
       this.disarm();
       this.redraw();
-      if (confirms(armed, k)) { armed.run(); return; }
+      if (confirms(armed, k)) { armed.run(k); return; }
     }
     // The power bar (PIE-656), while it's open, takes every key and click: esc or a click outside puts it away.
     if (this.bar) {

@@ -19,7 +19,7 @@ export interface Arm {
   /** How long it waits, in milliseconds. */
   ms: number;
   /** Open the edit, as the person's key did before arming (the confirm: the note's `edit` action). */
-  run(): void;
+  run(key: Key): void;
 }
 
 /** The window when nothing sets one. */

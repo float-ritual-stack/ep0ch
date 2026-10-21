@@ -1,4 +1,5 @@
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
+import { Draft, keepCopy } from "../edit";
 import { errorDetails } from "../status-log";
 import { HomeSurface } from "../surface/home";
 import { type Completer } from "../surface/completer";
@@ -220,8 +221,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private readonly overlays = new Modes<Desk, ListPicker<any, Desk>>();
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
   private entered = new Entered();
+  private failedEdits = new Map<ReaderPane, { of: string; keys: Key[]; text: string; copy: string; why: string }>();
   /** A session the person started by key that is still opening (the note being read): Esc cancels it. */
-  private pending: { pane: ReaderPane } | null = null;
+  private pending: { pane: ReaderPane; kind: SessionKind; opener: Key; keys: Key[] } | null = null;
 
   // ── tiles (PIE-413) ──
   /**
@@ -3563,7 +3565,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // One hint row: a tile whose keys the screen's hint row says for its kind (the board's lanes, outline, backlinks), or
     // whose controls sit on its header, doesn't repeat them along its frame.
     const said = this.headCtl.has(id) || (typeof this.spec.hint === "object" && this.spec.hint[pane.kind] !== undefined && !float && !held);
-    const hint = no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : pane.hint()) : "");
+    const recovery = pane instanceof ReaderPane ? this.failedEdits.get(pane) : undefined;
+    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `${recovery.why} · tile menu: recover typed text` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : pane.hint()) : "");
     // The focused tile's frame is double-lined (╔═╗, in the VGA font too) in whatever colour its state gives it, so which
     // tile the keys go to shows by its shape, apart from the colours of linking, marks, a drag or an edit.
     // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame
@@ -4086,28 +4089,88 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** Start a session in a reader as the person's key does (⏎ or a click on a comment mark). */
   /** …; resolves true when the person is in it (opened, and still wanted), false when it didn't open or was cancelled. */
-  startSession(rd: ReaderPane, kind: SessionKind): Promise<boolean> {
+  startSession(rd: ReaderPane, kind: SessionKind, opener: Key = { kind: "char", ch: "e", ctrl: kind === "external" }, keys: Key[] = []): Promise<boolean> {
     // Esc, or leaving the desk, while the note is read cancels it: the token is cleared and nothing opens.
     // The person's session is where their keys are: a reader the key wasn't pressed in (the board's preview, from a lane) takes focus.
     if (this.focusedReader() !== rd) this.focusPane(rd, USER);
-    const token = { pane: rd };
+    const token: NonNullable<Desk["pending"]> = { pane: rd, kind, opener, keys: [...keys] };
     this.pending = token;
     const still = () => this.pending === token && this.focusedReader() === rd && !this.overlays.top();
     const opened = (open: boolean) => {
       const want = still();
       if (this.pending === token) this.pending = null;
-      if (open && want) { this.entered.enter(rd); this.ctx.flash(`${this.readerLabel(this.focus)} · ${rd.surface.state()}`); }
+      if (open && want) {
+        this.failedEdits.delete(rd);
+        this.entered.enter(rd);
+        this.ctx.flash(`${this.readerLabel(this.focus)} · ${rd.surface.state()}`);
+        for (const key of token.keys) rd.surface.key(key, rd.host(this));
+      }
       this.redraw();
       return open && want;
     };
     const r = startSession(rd, kind, this, still);
-    const said = (e: unknown) => { this.ctx.flash(e instanceof Error ? e.message : String(e), undefined, errorDetails(e)); return false; };
+    const said = (e: unknown) => {
+      const why = e instanceof Error ? e.message : String(e);
+      if (still() && token.keys.length && (kind === "edit" || kind === "external")) {
+        const text = new Draft(rd.msg!.id, 0, "");
+        for (const key of token.keys) text.key(key);
+        const copy = keepCopy(text.text, "edit-opening");
+        this.failedEdits.set(rd, { of: rd.msg!.id, keys: token.keys, text: text.text, copy, why });
+        this.ctx.flash(`${why} · tile menu: recover typed text · copy kept at ${copy}`, undefined, errorDetails(e));
+      } else this.ctx.flash(why, undefined, errorDetails(e));
+      opened(false);
+      return false;
+    };
     // The property panel, or a thread list whose comments are already read, opens at once: the next key is already its.
     if (rd.sessionOf()) { const now = opened(true); return r.then(() => now, said); }
     return r.then(opened, said);
   }
 
+  hasFailedEdit(sel?: string): boolean {
+    const p = this.panes.get(this.tile(sel).id);
+    const kept = p instanceof ReaderPane ? this.failedEdits.get(p) : undefined;
+    return !!kept && p instanceof ReaderPane && kept.of === p.msg?.id;
+  }
+
+  async recoverEdit(sel?: string, op?: string) {
+    const t = this.tile(sel), rd = this.panes.get(t.id);
+    const kept = rd instanceof ReaderPane ? this.failedEdits.get(rd) : undefined;
+    if (!kept || !(rd instanceof ReaderPane) || kept.of !== rd.msg?.id) throw new ActionRefused("this reader has no typing from a failed edit open");
+    if (!op) {
+      this.overlay(new ListPicker<{ label: string; op: string }, Desk>({
+        name: "recover typed text", clickChooses: true,
+        items: () => [{ label: "copy typed text", op: "copy" }, { label: "open edit with typed text", op: "open" }],
+        row: (it, _i, on, w) => pickRows(` ${it.label}`, on, w),
+        choose: (it, _i, d) => d.run("edit.recover", { op: it.op }, t.name),
+        frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 4), n + 3), title: "recover typed text", head: [kept.why], foot: "up/down choose · Enter or click · Esc" }),
+      }));
+      return { text: kept.text, copy: kept.copy };
+    }
+    if (op === "copy") {
+      if (this.ctx.copy?.(kept.text) === false) throw new ActionRefused(`clipboard refused the text; copy kept at ${kept.copy}`);
+      this.ctx.flash("copied typing from the failed edit open");
+      return { text: kept.text, copy: kept.copy };
+    }
+    return { opened: await this.startSession(rd, "edit", undefined, kept.keys) };
+  }
+
   key(k: Key, ctx: Ctx): void {
+    const pending = this.pending;
+    if (pending && (pending.kind === "edit" || pending.kind === "external")) {
+      const here = pending.pane === this.focusedReader() && !this.overlays.top();
+      const pasted = k.kind === "paste" || "pasted" in k && k.pasted;
+      const repeat = !pasted && k.kind === pending.opener.kind && (k.kind !== "char" || pending.opener.kind !== "char" || k.ch === pending.opener.ch && !!k.ctrl === !!pending.opener.ctrl);
+      const text = k.kind === "paste" || k.kind === "char" && !k.ctrl && /^[^\x00-\x1f\x7f]+$/u.test(k.ch)
+        || k.kind === "enter" && !("ctrl" in k && k.ctrl) || k.kind === "tab" || k.kind === "backspace";
+      if (here && (repeat || text)) {
+        if (!repeat) pending.keys.push(k);
+        return;
+      }
+      if (k.kind !== "mouse" || k.action === "down") {
+        this.pending = null;
+        if (here && k.kind === "esc") { ctx.flash("not opened"); this.redraw(); return; }
+      }
+    }
     if (this.arriving(this.focus) && (k.kind === "pgup" || k.kind === "pgdn" || k.kind === "up" || k.kind === "down" || k.kind === "char" && !k.ctrl && "jk".includes(k.ch))) this.run("tile.arrival.clear", {}, this.nameOf(this.focus));
     if (!this.all().length && !this.overlayOpen() && this.homeSurface.press(k.kind === "mouse" ? { ...k, x: k.x - this.area.col - 2, y: k.y - this.area.row - 1 } : k, action => { void ctx.press?.(action); })) return;
     if (k.kind === "mouse" && this.completionFloat && !this.overlays.all().length) {
@@ -4247,9 +4310,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (k.kind === "esc" && this.pending?.pane === this.focusedReader()) { this.pending = null; ctx.flash("not opened"); return this.redraw(); }
     // An edit or comment of the person's kept open on the focused reader (brought back by a restore, or left by a ^W
     // chord) has their keys before anything else does (PIE-812): none of them goes to the desk underneath.
-    this.reenter();
     const focused = this.focusedReader();
     const c = ch(k);
+    // A restored edit invites e or Enter to carry on; that key belongs to entering, not to its text.
+    const resuming = focused?.surface.draft && !this.entered.in(focused) && focused.surface.keepsOnFocusAway();
+    this.reenter();
+    if (resuming && this.entered.in(focused) && (c === "e" || k.kind === "enter") && !("pasted" in k && k.pasted)) return this.redraw();
     // A step's status choice the person opened (PIE-472) takes their keys until they choose or cancel.
     const choosing = this.choosingReader();
     if (choosing && k.kind !== "mouse") { choosing.key(k, this); return this.redraw(); }
@@ -5881,7 +5947,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.ptyIn === p) this.ptyIn = null;
     if (this.chord?.pane === p) this.chord = null;
     if (this.pending?.pane === p) this.pending = null;
-    if (p instanceof ReaderPane && this.entered.in(p)) this.entered.clear();
+    if (p instanceof ReaderPane) {
+      this.failedEdits.delete(p);
+      if (this.entered.in(p)) this.entered.clear();
+    }
     if (this.floatDrag?.id === id) this.floatDrag = null;
     if (this.linking?.desk === this && this.linking.from === id) this.linking = null;
     if (this.mouseTile?.id === id) this.mouseTile = null;
@@ -7087,6 +7156,18 @@ export const HINT_ACTIONS = actionSet<DeskOn>()("hint", {
 
 /** What the desk adds to a reader's note actions: which note is current, and which pane has the keys. */
 export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
+  "edit.recover": def({
+    summary: "recover typing kept when an edit failed to open: copy it, or open a fresh edit with it inserted; a disk copy stays until the normal draft-copy cleanup",
+    keys: "tile menu: recover typed text", touches: "draft", replay: "ask",
+    person: "only the person recovers their held typing",
+    menu: { label: "recover typed text", group: "Note", now: ({ d, reader }) => d.hasFailedEdit(reader) ? null : { hide: true } },
+    args: { op: { type: "string", optional: true, choices: ["copy", "open"], about: "copy the typed text or open the edit with it; absent offers both" } },
+    examples: [
+      { act: "edit.recover op=copy", does: "copies the text kept when this reader failed to open its edit" },
+      { act: "edit.recover op=open", does: "opens a fresh edit in this reader and inserts the kept typing" },
+    ],
+    run: ({ op }, { d, reader }) => d.recoverEdit(reader, op),
+  }),
   "agent.visit": def({
     summary: "take your keys to an agent's explicit pointer", keys: "click an agent pointer",
     touches: "screen", replay: "safe", person: "only the person follows a pointer; agent.focus sets your own",
