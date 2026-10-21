@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { App } from "../../src/app";
 import { SHOWCASE_ASSETS, SEED, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
+import { wheelRows } from "../../src/scroll";
 import { completionOf } from "../../src/surface/completer";
 import { SocketBoard } from "../../src/socket";
 import type { ReaderPane } from "../../src/desk/panes";
@@ -348,4 +349,131 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     const key = await app.act({ action: "complete", args: { text: "[heading-p" }, as: "test-agent" }) as any;
     expect(key.items.map((i: any) => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
   }, 20_000);
+  test("the edit preview shares the attachment menu, split divider and tile lifecycle (PIE-1142)", async () => {
+    await app.act({ action: "section", args: { name: "edit" }, as: "preview-builder" });
+    press({ kind: "enter" });
+    const desk = S().stages.get(S().sel).top;
+    ch("e"); press({ kind: "enter" });
+    await until(() => [...desk.panes.values()].some((p: any) => p.editing), "the edit");
+    const reader = [...desk.panes.values()].find((p: any) => p.editing) as ReaderPane;
+    press({ kind: "char", ch: "p", ctrl: true });
+    screen();
+    const act = (action: string, args = {}) => desk.dispatch.act({ action, args }, { kind: "user" });
+    await act("placement.menu", { target: "edit-preview" });
+    expect(screen()).toContain("Placement");
+    await act("placement.choose", { place: "split", direction: "right" });
+    const rows = sc.render(app).lines.map(plain);
+    const header = rows.find(l => l.includes("──( preview"))!;
+    expect(header).toContain("editing ·");
+    expect(header).toContain("[split ▸]");
+    expect(rows.some(l => /Kitchen whiteboard.*│.*Kitchen whiteboard/.test(l) && !l.includes("editing ·"))).toBe(true);
+    const draft = reader.draft!, text = draft.text, cursor = [draft.row, draft.col];
+    const y = rows.indexOf(header), chip = header.indexOf("[split ▸]") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x: chip, y });
+    press({ kind: "mouse", action: "up", button: 0, x: chip, y });
+    expect(screen()).toContain("Placement");
+    press({ kind: "right" });
+    await until(() => !screen().includes("Enter choose"), "keyboard chose beside");
+    const divider = header.indexOf("│──(");
+    press({ kind: "mouse", action: "down", button: 0, x: divider, y: y + 5 });
+    press({ kind: "mouse", action: "drag", button: 0, x: divider - 5, y: y + 5 });
+    press({ kind: "mouse", action: "up", button: 0, x: divider - 5, y: y + 5 });
+    expect(sc.render(app).lines.map(plain).find(l => l.includes("──( preview"))).not.toBe(header);
+    const count = desk.all().length, focus = desk.focus;
+    await act("placement.menu", { target: "edit-preview" });
+    await act("placement.choose", { place: "tile" });
+    await until(() => desk.all().length === count + 1, "preview tile");
+    expect(screen()).toContain("preview");
+    expect(desk.focus).toBe(focus);
+    const previewTile = [...desk.panes.values()].find((p: any) => p.kind === "edit-preview") as any;
+    previewTile.key({ kind: "char", ch: "x" }, desk);
+    expect(draft.text).toBe(text);
+    expect([draft.row, draft.col]).toEqual(cursor);
+    await act("edit.preview.place", { place: "tile", side: "left" });
+    screen();
+    const tiledRows = sc.render(app).lines.map(plain), ty = tiledRows.findIndex(l => l.includes("[tile ▸]"));
+    const tx = tiledRows[ty]!.indexOf("[tile ▸]") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x: tx, y: ty });
+    press({ kind: "mouse", action: "up", button: 0, x: tx, y: ty });
+    expect(screen()).toContain("Placement");
+    press({ kind: "esc" });
+    await act("tile.focus", { dir: "right" });
+    press({ kind: "char", ch: "p", ctrl: true }); screen();
+    await until(() => desk.all().length === count, "preview tile closed");
+    press({ kind: "char", ch: "p", ctrl: true }); screen();
+    await until(() => desk.all().length === count + 1, "preview tile reopened");
+    for (const place of ["floating", "popup", "inline"]) {
+      await act("edit.preview.place", { place });
+      expect(screen()).toContain(`[${place} ▸]`);
+    }
+    screen();
+    await until(() => desk.all().length === count, "preview back below");
+    press({ kind: "char", ch: "p", ctrl: true });
+    for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 20_000);
+
+  for (const symptom of ["alignment", "images", "wheel"] as const) {
+    test(`Round 2: detached edit preview ${symptom} (PIE-1142)`, async () => {
+      (app as any).lastInput = 0;
+      await app.act({ action: "section", args: { name: "edit" }, as: "preview-builder" });
+      press({ kind: "enter" });
+      const desk = S().stages.get(S().sel).top;
+      ch("e"); press({ kind: "enter" });
+      await until(() => [...desk.panes.values()].some((p: any) => p.editing), "the edit");
+      const reader = [...desk.panes.values()].find((p: any) => p.editing) as ReaderPane;
+      const d = reader.draft!, original = d.text, video = app.video;
+      const act = (action: string, args = {}) => desk.dispatch.act({ action, args }, { kind: "user" });
+      try {
+        await act("draft.preview", { on: true });
+        screen();
+        if (symptom === "alignment") {
+          const embed = await board.createBlock(null, "Expanded passage\n" + Array.from({ length: 12 }, (_, i) => `expanded ${i}`).join("\n"));
+          d.replace(`Draft\n!((${embed.id}))\nEnd marker`);
+          d.place(2, 3);
+          await act("placement.menu", { target: "edit-preview" });
+          await act("placement.choose", { place: "split", direction: "right" });
+          await until(() => screen().includes("expanded 11"), "expanded preview");
+          const lines = reader.render(130, 28, true, desk).lines.map(plain);
+          const ends = lines.flatMap((l, i) => l.includes("End marker") ? [i] : []);
+          expect(ends).toHaveLength(1);
+          expect(lines[ends[0]!]!.match(/End marker/g)).toHaveLength(2);
+          const p = d.frame!.preview!, top = p.top;
+          reader.surface.wheel(-1, reader.host(desk), { x: p.col + 2, y: p.row + 2 });
+          reader.render(130, 28, true, desk);
+          expect(d.frame!.preview!.top).toBe(top + wheelRows(-1));
+        } else if (symptom === "images") {
+          app.video = "kitty";
+          d.replace(`Draft\n[img::${SHOWCASE_ASSETS}/seed-packet.webp] [height::4]`);
+          d.place(0, 0);
+          await act("edit.preview.place", { place: "tile" });
+          await until(() => [...desk.panes.values()].some((p: any) => p.kind === "edit-preview"), "preview tile");
+          const tile = [...desk.panes.values()].find((p: any) => p.kind === "edit-preview") as any;
+          await until(() => !!tile.render(70, 28, false, desk).placements?.length, "preview image");
+          expect(reader.render(70, 28, true, desk).placements ?? []).toHaveLength(0);
+          expect(tile.render(70, 28, false, desk).placements).toHaveLength(1);
+        } else {
+          d.replace("Draft\n" + Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n") + "\n");
+          d.place(d.lines.length - 1, 0);
+          await act("edit.preview.place", { place: "floating" });
+          for (const c of "::gr") ch(c);
+          await until(() => !!completionOf(d)?.items.length && !completionOf(d)?.loading, "completion");
+          press({ kind: "down" });
+          reader.render(130, 28, true, desk);
+          const pop = completionOf(d)!, selected = pop.index;
+          const p = d.frame!.preview!;
+          const before = p.top;
+          reader.surface.wheel(-1, reader.host(desk), { x: p.col + 2, y: p.row + 2 });
+          reader.render(130, 28, true, desk);
+          expect(completionOf(d)!.index).toBe(selected);
+          expect(d.frame!.preview!.top).toBeLessThan(before);
+        }
+      } finally {
+        app.video = video;
+        await act("edit.preview.place", { place: "inline" });
+        d.replace(original);
+        for (let i = 0; i < 5 && S().focus === "stage"; i++) press({ kind: "esc" });
+      }
+    }, 20_000);
+  }
+
 });

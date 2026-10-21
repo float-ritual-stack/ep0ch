@@ -339,10 +339,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   listPreviewTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> { return this.attachedTile(r, "list-preview", on, false, side); }
   hasListPreviewTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "list-preview"); }
+  editPreviewTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> { return this.attachedTile(r, "edit-preview", on, false, side); }
+  hasEditPreviewTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "edit-preview"); }
   sourcesTile(r: ReaderPane, on: boolean, side?: Dir): Promise<unknown> {
     return this.attachedTile(r, "sources", on, true, side);
   }
-  private async attachedTile(r: ReaderPane, attachment: "comment" | "sources" | "list-preview", on: boolean, keys: boolean, side?: Dir): Promise<unknown> {
+  private async attachedTile(r: ReaderPane, attachment: "comment" | "sources" | "list-preview" | "edit-preview", on: boolean, keys: boolean, side?: Dir): Promise<unknown> {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     if (at === undefined) return null;
     const reader = this.nameOf(at);
@@ -394,7 +396,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Reader `r`'s comment tile is open. */
   hasComposerTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "comment"); }
   hasSourcesTile(r: ReaderPane): boolean { return this.hasAttachedTile(r, "sources"); }
-  private hasAttachedTile(r: ReaderPane, attachment: "comment" | "sources" | "list-preview"): boolean {
+  private hasAttachedTile(r: ReaderPane, attachment: "comment" | "sources" | "list-preview" | "edit-preview"): boolean {
     const at = [...this.panes].find(([, p]) => p === r)?.[0];
     return at !== undefined && [...this.panes.values()].some(p => p instanceof AttachedTilePane && p.attachment === attachment && p.source === this.nameOf(at));
   }

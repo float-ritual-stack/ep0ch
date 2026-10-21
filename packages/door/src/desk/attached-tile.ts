@@ -18,12 +18,12 @@ export class AttachedTilePane implements Pane {
   private closing = false;
   private lastRow = -1;
   /** `source`: the reader whose comment it draws, by name. */
-  constructor(public source: string, readonly attachment: "comment" | "sources" | "list-preview" = "comment") {}
+  constructor(public source: string, readonly attachment: "comment" | "sources" | "list-preview" | "edit-preview" = "comment") {}
 
-  title() { if (this.attachment === "list-preview") return `list children · ${this.source}`; if (this.attachment === "sources") return `sources · ${this.source}`; return `${this.listing ? "comments" : "comment"} · ${this.source}`; }
+  title() { if (this.attachment === "edit-preview") return `edit preview · ${this.source}`; if (this.attachment === "list-preview") return `list children · ${this.source}`; if (this.attachment === "sources") return `sources · ${this.source}`; return `${this.listing ? "comments" : "comment"} · ${this.source}`; }
   /** It shows the reader's thread list (m), not a comment being written. */
   private listing = false;
-  hint() { if (this.attachment === "list-preview") return "list children · click placement chip to move · click text to edit"; if (this.attachment === "sources") return "sources · ctrl+o placement · Esc reader · q close · drag border to size"; return "ctrl+s send · esc twice puts it aside · ctrl+o back in the reader · ctrl+g then ← → ↑ ↓: another side of the note · drag its border to size it"; }
+  hint() { if (this.attachment === "edit-preview") return "edit preview · arrows scroll · Esc reader · ctrl+p hides · placement chip moves it"; if (this.attachment === "list-preview") return "list children · click placement chip to move · click text to edit"; if (this.attachment === "sources") return "sources · ctrl+o placement · Esc reader · q close · drag border to size"; return "ctrl+s send · esc twice puts it aside · ctrl+o back in the reader · ctrl+g then ← → ↑ ↓: another side of the note · drag its border to size it"; }
   /** The last row's side chips as drawn: a click puts the tile on that side of its note. */
   private sides: { from: number; to: number; side: Side }[] = [];
   spec() { return { source: `tile:${this.source}` }; }
@@ -31,7 +31,7 @@ export class AttachedTilePane implements Pane {
   /** The comment (or thread list) above its last row, the side chips on it. */
   private drawn(w: number, h: number, desk: DeskApi): PaneView | null {
     const r = this.reader(desk);
-    const v = !r ? null : this.attachment === "list-preview" ? r.surface.listPreviewTile(w, Math.max(1, h - 1), r.host(desk)) : this.attachment === "sources" ? r.surface.sourcesTile(w, Math.max(1, h - 1)) : r.surface.composerTile(w, Math.max(1, h - 1), r.host(desk));
+    const v = !r ? null : this.attachment === "edit-preview" ? r.surface.editPreviewTile(w, Math.max(1, h - 1), r.host(desk)) : this.attachment === "list-preview" ? r.surface.listPreviewTile(w, Math.max(1, h - 1), r.host(desk)) : this.attachment === "sources" ? r.surface.sourcesTile(w, Math.max(1, h - 1)) : r.surface.composerTile(w, Math.max(1, h - 1), r.host(desk));
     if (!v) return null;
     this.sides = [];
     if (h < 2) return v;
@@ -74,6 +74,12 @@ export class AttachedTilePane implements Pane {
 
   key(k: Key, desk: DeskApi): boolean {
     const r = this.reader(desk);
+    if (this.attachment === "edit-preview") {
+      if (!r) return false;
+      const handled = r.surface.editPreviewKey(k, { ...r.host(desk), attachment: "edit-preview" });
+      if (!handled) void desk.perform?.("tile.focus", {}, USER, this.source);
+      return true;
+    }
     if (this.attachment === "list-preview") return !!r && r.surface.key(k, this.listHost(r, desk));
     if (r?.surface.sourcesMode) r.surface.attachedKeys(this.attachment);
     const handled = !!r && (this.attachment === "sources" ? !!r.surface.sourcesMode : !!r.surface.session) && r.surface.key(k, r.host(desk));
@@ -86,7 +92,7 @@ export class AttachedTilePane implements Pane {
     if (!r) return false;
     // Its last row: a click on a side puts it there (comment.place side=, as ctrl+g and an arrow do).
     const chip = this.sides.find(c => x >= c.from && x < c.to);
-    if (chip && y === this.lastRow) { if (k.action === "up") void r.surface.runKey(this.attachment === "list-preview" ? "list.preview.place" : this.attachment === "sources" ? "sources.place" : "comment.place", { side: chip.side }, r.host(desk), true); return true; }
+    if (chip && y === this.lastRow) { if (k.action === "up") void r.surface.runKey(this.attachment === "edit-preview" ? "edit.preview.place" : this.attachment === "list-preview" ? "list.preview.place" : this.attachment === "sources" ? "sources.place" : "comment.place", { side: chip.side }, r.host(desk), true); return true; }
     if (this.attachment === "list-preview") {
       const host = this.listHost(r, desk);
       if (k.action === "wheel-up" || k.action === "wheel-down") r.surface.wheel(k.action === "wheel-down" ? 1 : -1, host, { x, y });
@@ -95,7 +101,7 @@ export class AttachedTilePane implements Pane {
       if (k.action === "up") r.surface.release(x, y, host);
       return true;
     }
-    if (this.attachment === "sources") {
+    if (this.attachment === "sources" || this.attachment === "edit-preview") {
       const host = { ...r.host(desk), attachment: this.attachment };
       if (k.action === "wheel-up" || k.action === "wheel-down") { r.surface.wheel(k.action === "wheel-down" ? 1 : -1, host, { x, y }); return true; }
       if (k.action === "down") r.surface.press(x, y, host);
@@ -132,5 +138,14 @@ export const LIST_PREVIEW_TILE: TileKind = {
   about: "the selected list item's children, owned by its reader",
   make: s => new AttachedTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "reader", "list-preview"),
   check: COMMENT_TILE.check,
+  describe: COMMENT_TILE.describe,
+};
+
+export const EDIT_PREVIEW_TILE: TileKind = {
+  kind: "edit-preview", noun: "an edit preview tile",
+  about: "the unsaved draft's live preview, owned by its reader",
+  make: s => new AttachedTilePane(s.source?.slice(5) ?? "reader", "edit-preview"),
+  check: COMMENT_TILE.check,
+  takesKeys: () => true, windowKeys: true,
   describe: COMMENT_TILE.describe,
 };
