@@ -255,6 +255,10 @@ export class ScriptRuns {
         try { update(); } catch (error) { controller.abort(error); }
       }, 50);
     };
+    const requireWrite = () => {
+      if (source.effects === "read" || (source.blockId && scriptFence(this.store.require(source.blockId).text, source.fence).effects === "read"))
+        throw new Error("This script is read-only; declare effects=write to write");
+    };
     const client: AgentToolsClient = {
       requireCompatibleService: () => this.client.requireCompatibleService(),
       request: async input => {
@@ -267,6 +271,8 @@ export class ScriptRuns {
           controller.abort();
           throw new Error("The script source changed; run its saved revision again");
         }
+        // Attributed mutations reach here after tool resolution and place's draft read.
+        if ("mutation" in input || "author" in input) requireWrite();
         return captured(() => this.client.request(input));
       },
     };
@@ -293,20 +299,18 @@ export class ScriptRuns {
       lines.push(`\nplace: ${result.outcome === "applied" ? said : `proposed instead: ${result.reason ?? said}`}`);
       return { outcome: result.outcome, ...(plan.anchor ? { anchor: plan.anchor } : {}), ...(plan.ok ? { created: plan.created } : {}), message: result.outcome === "applied" ? said : (plan.ok ? (result.reason ?? said) : plan.reason), ...(result.proposalId ? { proposalId: result.proposalId } : {}) };
     };
-    const store = this.store;
     const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
       onStep: step,
       ...(site.thisId ? { thisId: site.thisId } : {}),
       ...(site.resolve ? { resolve: site.resolve } : {}),
-      get effects() {
-        return source.effects === "read" ? "read" : source.blockId
-          ? scriptFence(store.require(source.blockId).text, source.fence).effects
-          : source.effects;
-      },
+      effects: source.effects,
       place: (content, opts) => place(content, opts),
       mcpAccess: request.mcpAccess,
       // The door it asks is the one that started the run (or `door=`); with none, the service picks the only door or says which there are.
-      act: (name: string, args: Record<string, unknown>) => this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) }),
+      act: (name: string, args: Record<string, unknown>) => {
+        requireWrite();
+        return this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) });
+      },
     });
     const task = (async () => {
       let failure: string | undefined;

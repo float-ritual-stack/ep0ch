@@ -293,7 +293,7 @@ export class ExtensionRegistry {
   private sourceSlot(source: ManifestSource, now: string): Slot {
     try {
       if (source.error) throw new ExtensionLoadError(source.error);
-      if (!source.script?.code.trim()) throw new ExtensionLoadError("Add a closed js or ts code fence to this script block, then run it again");
+      if (!source.script?.code.trim()) throw new ExtensionLoadError("The script is empty; add a closed js or ts code fence to this script block, then run it again");
       const extension = loadExtensionManifest(source);
       return { id: extension.id, origin: extension.origin, directory: extension.directory, state: "active", serving: extension, scriptBlockId: source.script?.blockId, loadedAt: now };
     } catch (error) {

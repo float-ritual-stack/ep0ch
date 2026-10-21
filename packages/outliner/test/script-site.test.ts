@@ -428,3 +428,62 @@ test("removing a failed fence in a draft hides its saved registry error", async 
   expect(draft.extensions.find(e => e.id === failed.id)).toBeUndefined();
   expect((await client.request<ExtensionsListResult>({ action: "extensions.list" })).extensions.find(e => e.id === failed.id)?.error).toBeTruthy();
 });
+
+
+test.each(["tool", "place"])("narrowing effects during an awaited %s write refuses the pending mutation", async (kind) => {
+  const { store, server, create, client, extensionOf } = await setup();
+  const target = create("Garden\n\nOutput goes here ^result");
+  const code = kind === "tool"
+    ? "await tools.outline_set_property({ ref: this.id, key: 'after', value: 'yes', revision: this.revision });"
+    : "await place('Written after revocation', { at: '^result' });";
+  const note = create(`Writer [results::keep]\n\`\`\`js script=pending-write effects=write\n${code}\n\`\`\``);
+  const extension = await extensionOf("pending-write");
+  let parked = false;
+  const gate = Promise.withResolvers<void>();
+  server.setLinkReader(async request => {
+    if ((kind === "tool" && request.action === "get" && request.blockId === target.id)
+      || (kind === "place" && request.action === "drafts.read")) {
+      parked = true;
+      await gate.promise;
+    }
+    return undefined;
+  });
+  try {
+    const started = await client.request<{ written: string[] }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", blockId: target.id });
+    await until("the pending write's awaited read", () => parked);
+    store.update(note.id, note.text.replace("effects=write", "effects=read"), note.revision, { author: "user" });
+    gate.resolve();
+    const answer = await until("the pending write to finish", () => {
+      const text = store.require(started.written[0]!).text;
+      return !text.split("\n")[0]!.includes("· working") && text;
+    });
+    expect(store.require(target.id).text).toBe(target.text);
+    expect(answer.split("\n").pop()).toContain("read-only");
+  } finally { gate.resolve(); }
+});
+
+test.each([
+  { own: true, broken: "" },
+  { own: true, broken: "return 'bad';", attrs: " effects=write mode=render" },
+  { own: false, broken: "return 'bad';", attrs: " effects=write mode=render" },
+])("block selection refuses an authored unavailable source ($own, $broken)", async ({ own, broken, attrs = "" }) => {
+  const { store, create, client } = await setup();
+  store.configureMcpAccess("full");
+  const note = create(`Workbench${own ? " [script::chosen]" : ""}\n\`\`\`js script=chosen${attrs}\n${broken}\n\`\`\`\n\`\`\`js script=other\nreturn 'wrong script';\n\`\`\``);
+  await expect(client.request({ action: "scripts.run", blockId: note.id, access: "full", mutation: { author: "agent", actorId: "script-reader" } }))
+    .rejects.toThrow(own ? (broken ? /mode=render/ : /chosen.*empty/) : /chosen.*other|other.*chosen/);
+  expect(store.children(note.id)).toEqual([]);
+});
+
+test("duplicate fence names fail at load with both authored line numbers", async () => {
+  const { create, client } = await setup();
+  const note = create("Workbench\n```js script=twice effects=write mode=render\nreturn 'bad';\n```\n```js script=twice\nreturn 'wrong script';\n```");
+  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true, blockId: note.id });
+  const duplicates = listed.extensions.filter(e => e.error?.includes("twice"));
+  expect(duplicates.length).toBeGreaterThan(0);
+  for (const entry of duplicates) {
+    expect(entry.state).toBe("failed");
+    expect(entry.error).toMatch(/lines 2.*5/);
+  }
+  expect(listed.extensions.some(e => e.name === "twice" && e.state === "active")).toBe(false);
+});

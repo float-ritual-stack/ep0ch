@@ -68,7 +68,7 @@ A note's `[script::y]` script is its first eligible fence with no `script=` name
 | `mode` | `[mode::render]` | A handler: a line `name::` draws what the script returns. See [Modes](#modes). | `packages/outliner/src/script-sources.ts:67` |
 | `effects` | `[effects::write]` | May call write tools and `act`. Absent: read-only. | `packages/outliner/src/script-sources.ts:44` |
 | `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:94` |
-| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:99` |
+| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:102` |
 
 Other ways a script exists: a file `<outline folder>/.ep0ch/scripts/name.js` or `.ts` whose first line is
 `// ep0ch-script` (or `// ep0ch-script effects=write`); an `actions` fence, which is one door action per line rather
@@ -238,7 +238,7 @@ The returned value becomes text, the same way in a run note and a drawn line:
 |---|---|---|
 | `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:34` |
 | `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:28` |
-| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:312` |
+| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:316` |
 | `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:38` |
 
 ## Record shapes
@@ -302,13 +302,13 @@ examples lean on:
 ## Effects, access and attribution
 
 - **Effects.** A named fence is read-only unless it says `effects=write`; a matching `[script::name]` note supplies `[effects::]` only when the fence omits `effects=`. An unnamed note script uses `[effects::write]` (a file: `// ep0ch-script effects=write`).
-  Read-only means the write tools, `place` and `act` refuse; reads, `q`, `read`, `resolve` and `wait` work. Each call checks the saved script's current effects; narrowing a fence or note script to read-only revokes further writes from an existing run.
+  Read-only means the write tools, `place` and `act` refuse; reads, `q`, `read`, `resolve` and `wait` work. At the mutation request boundary, the saved script's current effects are checked after awaited reference or draft reads; narrowing a fence or note script to read-only refuses even an already pending write. Door actions check the same rule immediately before dispatch.
 - **Who wrote it.** Every write is `author: agent` with the actor id `script:<name>`, the run's undo id as the session, and
   the task id `trigger:script:<extension id>`. Whoever asked is recorded as `requestedBy` (the person at their keyboard,
   or the agent that ran `script_run`). The run note's second line says both.
 - **Outside agents** run a script with the MCP tool `script_run` (`ref` or `uri` of the script's note). It runs as
   `script:<name>` with the caller as `requestedBy`, and has no `this`, no `props` and no `act` (no note, no slots, no door).
-  Running by block id selects the note's `[script::name]`; without that property, a single script is used, and several scripts are refused with their names.
+  Running by block id selects the note's `[script::name]` from all authored sources; without that property, a single script is used, and several scripts are refused with their names. An empty or failed selected source refuses with its reason and never falls through to another script. Duplicate fence names in one note fail at load with both line numbers, visible in `ext ls`.
   The run is capped by the outline's MCP access level: `propose` turns each write into a proposal, `full` applies it,
   `none` and `read` can't start a run. `script_run` appears only when the gateway registers write tools.
 - **Yolo** (the person's switch, `agents.yolo`): while it is on the MCP access level reads as `full`, so the outline answers `full`
@@ -324,9 +324,9 @@ examples lean on:
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:721` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1605` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4325` |
-| `viaYolo` | `packages/outliner/src/server.ts:4355` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:352` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4328` |
+| `viaYolo` | `packages/outliner/src/server.ts:4358` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:356` |
 
 ## Lifecycle
 
@@ -355,7 +355,7 @@ examples lean on:
 | `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:193` |
 | `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:205` |
 | `stopRun` | `packages/outliner/src/script-runs.ts:186` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:263` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:267` |
 | `scripts.stop` | `packages/outliner/src/server.ts:1998` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2494` |
 
