@@ -1,5 +1,5 @@
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
-import { StatusBarNote, STATUS_BAR_ACTIONS, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
+import { StatusBarNote, STATUS_BAR_ACTIONS, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
 import { fullPlainText } from "./overflow";
 import { Overflow } from "./overflow";
 import { linkUpdateLabel } from "@ep0ch/outliner/link";
@@ -1549,7 +1549,7 @@ export class App implements Ctx {
       hidden++;
     }
     if (hidden) items.push(overflow());
-    const leftItems = items.filter(i => i.place === "left"), rightItems = items.filter(i => i.place === "right");
+    const leftItems = separated(items.filter(i => i.place === "left"), "left"), rightItems = separated(items.filter(i => i.place === "right"), "right");
     const left = statusText(leftItems), right = statusText(rightItems);
     // A loud refusal (the same key refused again) is bold here too; the focused tile's frame says it in its place.
     const loud = this.refusedNow?.loud && this.refusedNow.text === this.message;

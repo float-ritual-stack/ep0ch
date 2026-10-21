@@ -3,7 +3,7 @@ import { noteCodeFences } from "@ep0ch/outline-core/component-block";
 import type { Msg } from "./board";
 import type { Actor, SocketBoard } from "./socket";
 import { ActionRefused, actionSet, def, type ActRequest } from "./surface/actions";
-import { width } from "./style";
+import { C, fg, width } from "./style";
 
 /** Bindings name the existing ActionDefs; the dispatcher owns their execution and descriptions. */
 export interface StatusItem {
@@ -31,6 +31,19 @@ export function statusHits(items: StatusItem[], from: number, limit: number): St
   return hits;
 }
 export const statusText = (items: StatusItem[]) => items.map(i => (i.before ?? "") + i.text + (i.after ?? "")).join("");
+
+/** The bar's separator between items on its right. */
+export const RIGHT_AFTER = ` ${fg(C.lcyan)}│ `;
+
+/**
+ * One side's items with the bar's separators where the note put an item next to one that leaves no gap: on the left, an
+ * item after one with no `after` (the location) is set off by `│`; on the right, every item but the last ends in `│` and
+ * the last in a space, so a button pinned after the clock reads `16:12 │ Collapse`.
+ */
+export function separated(items: StatusItem[], side: "left" | "right"): StatusItem[] {
+  if (side === "left") return items.map((item, i) => i > 0 && !items[i - 1]!.after && !item.before ? { ...item, before: " │ " } : item);
+  return items.map((item, i) => i === items.length - 1 ? { ...item, after: " " } : (item.after ?? "").includes("│") ? item : { ...item, after: RIGHT_AFTER });
+}
 
 /** The note is ordinary outline content: edits, trash and reconnects all read it through the service. */
 export class StatusBarNote {
@@ -102,7 +115,14 @@ export class StatusBarNote {
   items(builtins: StatusItem[]): StatusItem[] {
     if (!this.lines) return builtins;
     // Built-in state changes independently of edits (recording, waiting, drawer, time).
-    return this.lines.map(i => i.id.startsWith("button:") ? i : builtins.find(b => b.id === i.id)!);
+    const out: StatusItem[] = [];
+    for (const line of this.lines) {
+      if (!line.id.startsWith("button:")) { out.push(builtins.find(b => b.id === line.id)!); continue; }
+      // A button sits where its line is: after the item above it in the note, on that item's side of the bar.
+      const place = out.at(-1)?.place ?? "left";
+      out.push({ ...line, place, after: place === "right" ? RIGHT_AFTER : " │ " });
+    }
+    return out;
   }
 
   async ensure(builtins: StatusItem[], actor: Actor): Promise<Msg> {
