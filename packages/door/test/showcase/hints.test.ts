@@ -114,6 +114,10 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
     await act("edit.arm", {}, "reader");
     h.screen();
     expect(d.hintGet().cards[0]?.id).toBe("confirm");
+    await h.app.dispatch.press("section.try");
+    await Bun.sleep(40);
+    h.press({ kind: "alt", ch: "N" });
+    expect(d.hintsList().hints.find(r => r.id === "confirm")?.own).toBe("status");
     h.press({ kind: "esc" });
     await act("hints.reset");
     await act("edit.arm", {}, "reader");

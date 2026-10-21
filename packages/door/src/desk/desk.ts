@@ -4,7 +4,7 @@ import { HomeSurface } from "../surface/home";
 import { type Completer } from "../surface/completer";
 import { floatTheme } from "../theme";
 import { FRAME_GLYPHS, FRAME_LEGEND } from "./frame-controls";
-import { HintCard, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
+import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT, type Hint } from "../surface/hint-card";
 import { revealOn, type Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
 import { readNote, outlineBoards } from "./outline-boards";
@@ -2319,7 +2319,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(sel);
     const setting = hintSetting(hint.id ?? "hint.show", this.lookOf(this.panes.get(t.id)!)?.values.hints ?? "full");
     this.hintCard = setting === "card" ? new HintCard(hint, t.name, t.id, actor.kind === "agent" ? actor.id : undefined) : null;
-    if (setting === "status") this.ctx.flash(`${hint.title}: ${hint.lines[0] ?? ""}`);
+    // The armed edit already owns this status line and clears it when its window ends.
+    if (setting === "status" && hint.id !== "confirm") this.ctx.flash(hintStatus(hint));
     this.redraw();
     return this.hintGet();
   }
@@ -2338,7 +2339,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!card) throw new ActionRefused("no hint card here; hints.list shows every hint");
     const hint = card.hint;
     this.hintsSet(card.id, "status");
-    this.ctx.flash(`${hint.title}: ${hint.lines[0] ?? ""}`);
+    this.ctx.flash(hintStatus(hint));
     return this.hintGet();
   }
   hintPin(sel?: string) { const card = this.xray || sel ? this.hintCards().find(c => c.anchor === this.tile(sel).id) : this.hintCard; if (card) { card.pinned = true; this.hintCard = card; this.linkCards = []; this.xray = false; this.xrayCards = []; } this.redraw(); return this.hintGet(); }
@@ -2349,7 +2350,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.xrayCards = this.xray ? this.hits.flatMap(([id]) => hintSetting("frame", this.lookOf(this.panes.get(id)!)?.values.hints ?? "full") === "card" ? [new HintCard(this.controlsHint(id), this.nameOf(id), id)] : []) : [];
     if (this.xray && hintSetting("frame", this.lookOf(this.panes.get(this.focus)!)?.values.hints ?? "full") === "status") {
       const hint = this.controlsHint(this.focus);
-      this.ctx.flash(`${hint.title}: ${hint.lines[0]}`);
+      this.ctx.flash(hintStatus(hint));
     }
     this.redraw(); return this.hintGet();
   }

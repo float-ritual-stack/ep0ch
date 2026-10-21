@@ -15,6 +15,8 @@ export interface Hint {
   choices?: readonly { label: string; act: ActRequest; key?: string; group?: string; refused?: string; current?: boolean }[];
 }
 
+export const hintStatus = (hint: Hint) => `${hint.title}: ${hint.lines[0] ?? ""}`;
+
 /** A float's contents and pressable rows; never a mode that owns the person's keys. */
 export class HintCard {
   pinned = false;

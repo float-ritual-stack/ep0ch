@@ -8,7 +8,7 @@ import { errorDetails } from "../status-log";
 import { messageContext } from "../status-log";
 import { mentionsExtension as mentionsExtensionLine } from "../extensions";
 import { Canvas, LINE_BOX } from "../canvas";
-import { CONFIRM_HINT } from "./hint-card";
+import { CONFIRM_HINT, hintStatus } from "./hint-card";
 import { heroLook } from "./hero-look";
 import { withFigureBoard } from "../graphs";
 import { outlineBoards, readNote, type NoteAddress } from "../desk/outline-boards";
@@ -8596,7 +8596,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       // Already editing here (ctrl+e hands that draft over), arming off, or a door that can't hold an arm: at once.
       if (surface.draft || surface.session || !ms || !host.ctx.arm) { open(); return { opened: m.id }; }
       const title = subject(m);
-      host.ctx.arm({ of: surface, what: title, say: "confirm", key: external ? { kind: "char", ch: "e", ctrl: true } : { kind: "char", ch: "e" }, ms, run: open });
+      host.ctx.arm({ of: surface, what: title, say: hintStatus(CONFIRM_HINT), key: external ? { kind: "char", ch: "e", ctrl: true } : { kind: "char", ch: "e" }, ms, run: open });
       host.redraw();
       return { armed: m.id, ms };
     },
