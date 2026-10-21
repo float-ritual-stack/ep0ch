@@ -77,7 +77,7 @@ export class AttachedTilePane implements Pane {
     const chip = this.sides.find(c => x >= c.from && x < c.to);
     if (chip && y === this.lastRow) { if (k.action === "up") void r.surface.runKey(this.attachment === "sources" ? "sources.place" : "comment.place", { side: chip.side }, r.host(desk), true); return true; }
     if (this.attachment === "sources") {
-      const host = r.host(desk);
+      const host = { ...r.host(desk), attachment: this.attachment };
       if (k.action === "wheel-up" || k.action === "wheel-down") { r.surface.wheel(k.action === "wheel-down" ? 1 : -1, host, { x, y }); return true; }
       if (k.action === "down") r.surface.press(x, y, host);
       if (k.action === "drag") r.surface.drag(x, y, host);

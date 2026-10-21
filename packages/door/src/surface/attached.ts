@@ -63,11 +63,87 @@ export function drawAttachedFloat(lines: string[], w: number, h: number, rect: F
   return canvas.lines();
 }
 
-/** Both popup and floating placements stay within the reader that owns them. */
-export function attachedRect(place: "floating" | "popup", w: number, h: number, cols: number, rows: number, passage: [number, number] | null, from: number, to: number, col: number, moved?: FloatRect | null): FloatRect {
-  if (place === "floating" && moved) return clampFloat(moved, w, h);
-  return clampFloat({ cols, rows, col: place === "popup" ? Math.floor((w - cols) / 2) : col,
-    row: place === "popup" ? Math.floor((h - rows) / 2) : floatRow(passage, rows, from, to) }, w, h);
+export interface AttachedLayout {
+  min?: { cols: number; rows: number };
+  moved?: FloatRect | null;
+  passage?: [number, number] | null;
+  from?: number;
+  to?: number;
+  col?: number;
+  split?: AttachedSplit;
+}
+
+/** Every attachment's geometry, including the room offered to its content before an overlay is positioned. */
+export function attachedRect(place: AttachedPlace, w: number, h: number, options: AttachedLayout = {}, content?: (cols: number, rows: number, fill: boolean) => { cols: number; rows: number }): FloatRect {
+  const { from = 0, to = h, col, moved, min = { cols: 24, rows: 6 } } = options;
+  if (place === "tile") return { row: 0, col: 0, cols: w, rows: h };
+  if (place === "inline") return { row: from, col: col ?? 0, cols: w, rows: Math.max(min.rows, h) };
+  if (place === "split") {
+    const { beside, size } = splitSize(w, h, options.split ?? {});
+    return beside ? { row: 0, col: w - size, cols: size, rows: h } : { row: h - size, col: 0, cols: w, rows: size };
+  }
+  const room = place === "floating" && moved ? clampFloat(moved, w, h) : clampFloat({
+    cols: Math.max(min.cols, Math.min(w - 2, 80)), rows: Math.max(min.rows, place === "popup" && content ? h - 2 : Math.floor(h * .6)), row: 0, col: 0,
+  }, w, h);
+  const size = content?.(room.cols, room.rows, place === "floating" && !!moved) ?? room;
+  if (place === "floating" && moved) return room;
+  return clampFloat({ ...size, col: place === "popup" ? Math.floor((w - size.cols) / 2) : col ?? w - size.cols - 2,
+    row: place === "popup" ? Math.floor((h - size.rows) / 2) : floatRow(options.passage ?? null, size.rows, from, to) }, w, h);
+}
+
+export type AttachedSide = "left" | "right" | "up" | "down";
+export interface AttachedTileHost {
+  open(on: boolean, side?: AttachedSide): Promise<unknown>;
+  exists?(): boolean;
+  changed(why?: string): void;
+}
+
+/** A tile follows its attachment through opening, moving, closing and a close by hand. */
+export class AttachedTile {
+  private owner: { place: AttachedPlace } | null = null;
+  private opened = false;
+  private opening: Promise<void> | null = null;
+
+  sync(owner: { place: AttachedPlace } | null, host?: AttachedTileHost) {
+    if (owner?.place === "tile" && !host) owner.place = "split";
+    if (owner === this.owner && this.opened && host?.exists && !host.exists()) {
+      owner!.place = "split"; this.owner = null; this.opened = false;
+      host.changed("the attachment is back in the reader (split) · ctrl+o moves it");
+    }
+    if (owner?.place !== "tile") {
+      if (this.owner) void this.close(host);
+      return;
+    }
+    if (this.owner === owner) return;
+    this.owner = owner;
+    queueMicrotask(() => { if (this.owner === owner) void this.open(owner, host!); });
+  }
+
+  private async open(owner: { place: AttachedPlace }, host: AttachedTileHost, side?: AttachedSide) {
+    const opening = host.open(true, side).then(() => { if (this.owner === owner) this.opened = true; }, e => {
+      if (this.owner === owner) { this.owner = null; this.opened = false; owner.place = "split"; }
+      host.changed(`the attachment stays in the reader: ${e instanceof Error ? e.message : String(e)}`);
+    });
+    this.opening = opening;
+    await opening;
+    if (this.opening === opening) this.opening = null;
+  }
+
+  async close(host?: AttachedTileHost) {
+    this.owner = null; this.opened = false;
+    await this.opening;
+    await host?.open(false);
+  }
+
+  async place(owner: { place: AttachedPlace }, place: AttachedPlace, host?: AttachedTileHost, side?: AttachedSide) {
+    const was = owner.place;
+    owner.place = place;
+    if (place !== "tile") { if (was === "tile") await this.close(host); return; }
+    // Set the owner before asking the host: rendering during that request must not open another tile.
+    if (this.owner === owner && (this.opened || this.opening) && side === undefined) return;
+    this.owner = owner;
+    await this.open(owner, host!, side);
+  }
 }
 
 export type FloatMove = { dx?: number; dy?: number; col?: number; row?: number; dcols?: number; drows?: number; cols?: number; rows?: number; reset?: boolean };
@@ -85,4 +161,9 @@ export function splitSize(w: number, h: number, split: AttachedSplit) {
   const beside = (split.direction ? split.direction === "right" : w >= SPLIT_SIDE_MIN);
   return beside ? { beside, size: Math.max(12, Math.min(w - 12, split.share === undefined ? Math.max(40, Math.min(72, Math.floor(w * .4))) : Math.floor(w * split.share))) }
     : { beside, size: Math.max(1, Math.min(h - 1, Math.max(8, Math.floor(h * (split.share ?? .45))))) };
+}
+
+/** Entries are in paint order: the last covering frame owns every pointer event, including its border. */
+export function attachedAt<T>(layers: readonly { target: T; rect: FloatRect | null }[], x: number, y: number): T | null {
+  return layers.findLast(({ rect: r }) => r && x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows)?.target ?? null;
 }

@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
+import { ReaderPane } from "../../src/desk/panes";
 import { Desk } from "../../src/desk/desk";
 import { USER } from "../../src/socket";
 import { useShowcaseScreen } from "./harness";
@@ -14,9 +15,109 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
   let board!: typeof h.board, app!: typeof h.app, seeded!: typeof h.seeded;
   beforeAll(() => { ({ board, app, seeded } = h); });
 
+  test("overlapping attachments give the top float the wheel and restore keys after closing it", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes");
+    if (!(pane instanceof ReaderPane)) throw new Error("notes must be a reader");
+    const act = (action: string, args = {}) => app.dispatch.act({ action, tile: "notes", args }, USER);
+    await act("comment.note");
+    pane.key({ kind: "paste", text: Array.from({ length: 30 }, (_, n) => `Comment row ${n}`).join("\n") }, stage);
+    await act("sources.open");
+    await act("sources.place", { place: "floating" });
+    await act("comment.place", { place: "floating" });
+    screen();
+    await act("sources.move", { row: 0, col: 0, cols: 60, rows: 20 });
+    await act("comment.move", { row: 0, col: 0, cols: 60, rows: 20 });
+    screen();
+    const draft = pane.surface.session!.composer!;
+    pane.wheel(-1, stage, { x: 8, y: 8 });
+    expect(draft.follow).toBe(false);
+    await act("comment.close", { discard: true });
+    expect(screen()).toContain("sources has keys");
+    pane.key({ kind: "char", ch: "q" }, stage);
+    await until(() => !pane.surface.sourcesMode, "q closes the remaining Sources float");
+  });
+
+  test("a comment covering the note's Sources chip consumes its click", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes");
+    if (!(pane instanceof ReaderPane)) throw new Error("notes must be a reader");
+    const act = (action: string, args = {}) => app.dispatch.act({ action, tile: "notes", args }, USER);
+    await act("comment.note");
+    await act("sources.open");
+    await act("sources.place", { place: "floating" });
+    await act("comment.place", { place: "floating" });
+    screen();
+    await act("comment.move", { row: 0, col: 0, cols: pane.surface.renderedWidth(), rows: 20 });
+    screen();
+    const chip = (pane.surface as any).hits.find((hit: any) => hit.sources);
+    expect(chip).toBeTruthy();
+    pane.click(chip.from, chip.row, stage);
+    await Bun.sleep(20);
+    expect(pane.surface.sourcesMode!.describe()).toMatchObject({ keys: "reader" });
+    await act("comment.close", { discard: true });
+    await act("sources.close");
+  });
+
+  test("closing the comment returns keys to the Sources float", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes");
+    if (!(pane instanceof ReaderPane)) throw new Error("notes must be a reader");
+    const act = (action: string, args = {}) => app.dispatch.act({ action, tile: "notes", args }, USER);
+    await act("comment.note");
+    await act("sources.open");
+    await act("sources.place", { place: "floating" });
+    await act("comment.place", { place: "floating" });
+    await act("comment.close", { discard: true });
+    expect(screen()).toContain("sources has keys");
+    pane.key({ kind: "char", ch: "q" }, stage);
+    await until(() => !pane.surface.sourcesMode, "q reaches Sources after closing the comment");
+  });
+
+  test("the Sources grip keeps floating placement when Sources opens again", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const act = (action: string, args = {}) => app.dispatch.act({ action, tile: "notes", args }, USER);
+    await act("sources.open");
+    await act("sources.place", { place: "split" });
+    await act("sources.grip");
+    await act("sources.close");
+    await act("sources.open");
+    expect(screen()).toContain("[floating ▸]");
+    await act("sources.place", { place: "split" });
+    await act("sources.close");
+  });
+
+  test("the Sources grip survives closing the comment", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes");
+    if (!(pane instanceof ReaderPane)) throw new Error("notes must be a reader");
+    const act = (action: string, args = {}) => app.dispatch.act({ action, tile: "notes", args }, USER);
+    await act("comment.note");
+    await act("sources.open");
+    await act("sources.place", { place: "split" });
+    await act("sources.grip");
+    screen();
+    await act("comment.close", { discard: true });
+    pane.key({ kind: "right" }, stage);
+    expect(screen()).toContain("moving the attachment");
+    pane.key({ kind: "enter" }, stage);
+    await act("sources.place", { place: "split" });
+    await act("sources.close");
+  });
+
   test("a floating comment stays drawn while sources are open", async () => {
     await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
     await app.dispatch.act({ action: "comment.note", tile: "notes" }, USER);
+    screen();
     const stage = h.S().stages.get(h.S().sel).top as Desk;
     for (const ch of "Keep these words visible") stage.pane("notes")!.key({ kind: "char", ch }, stage);
     await app.dispatch.act({ action: "sources.open", tile: "notes" }, USER);
@@ -45,8 +146,10 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
   test("sources moves through the placement menu and its tile spreads Query, Transform and Result across the width", async () => {
     await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
     await app.dispatch.act({ action: "sources.open", tile: "notes" }, USER);
+    screen();
     const stage = h.S().stages.get(h.S().sel).top as Desk;
-    const pane = stage.pane("notes")!;
+    const pane = stage.pane("notes");
+    if (!(pane instanceof ReaderPane)) throw new Error("notes must be a reader");
     for (const place of ["inline", "floating", "split", "popup", "tile"]) {
       await app.dispatch.act({ action: "placement.menu", tile: "notes", args: { target: "sources" } }, USER);
       expect(screen()).toContain("Placement");

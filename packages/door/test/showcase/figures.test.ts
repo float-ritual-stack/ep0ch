@@ -1,3 +1,5 @@
+import type { Desk } from "../../src/desk/desk";
+import { USER } from "../../src/socket";
 import { visible } from "../../src/style";
 // PIE-439: the showcase screen, figures: steps, tabs and Markdown kinds. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
@@ -239,6 +241,43 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     (app as any).lastInput = 0;
   }, 20_000);
+
+  test("the wide Sources Query editor selects the rows it draws below a wrapped source warning", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "tabs" } }, USER);
+    screen();
+    const desk = S().stages.get(S().sel).top as Desk;
+    const tile = desk.layoutGet().tiles[0]!.name;
+    const before = (await board.get(seeded.notes.plotJobs.id))!;
+    const title = "Plot jobs";
+    await board.update(before.id, before.text.replace(/^query:.*$/m, 'query: "("'), before.revision!);
+    await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, USER);
+    await app.dispatch.act({ action: "sources.place", tile, args: { place: "tile" } }, USER);
+    await until(() => { screen(); return desk.layoutGet().tiles.some(t => t.name === "sources"); }, "Sources tile");
+    await app.dispatch.act({ action: "comment.note", tile }, USER);
+    await app.dispatch.act({ action: "comment.place", tile, args: { place: "floating" } }, USER);
+    screen();
+    await app.dispatch.act({ action: "comment.move", tile, args: { col: 0, row: 0, cols: 60, rows: 20 } }, USER);
+    screen();
+    await app.dispatch.act({ action: "tile.zoom", tile: "sources" }, USER);
+    await app.dispatch.act({ action: "sources.set", tile, args: { param: "title" } }, USER);
+    const rows = screen().split("\n");
+    const fieldHead = rows.findIndex(l => l.includes("title:"));
+    const y = fieldHead + 1;
+    const x = rows[y]!.indexOf(title);
+    expect(x).toBeGreaterThan(0);
+    h.press({ kind: "mouse", action: "down", button: 0, x, y });
+    h.press({ kind: "mouse", action: "drag", button: 0, x: x + 4, y });
+    h.press({ kind: "mouse", action: "up", button: 0, x: x + 4, y });
+    h.press({ kind: "backspace" });
+    h.press({ kind: "paste", text: "Winter" });
+    await app.dispatch.act({ action: "sources.field", tile, args: { op: "save" } }, USER);
+    expect((await board.get(before.id))!.text).toContain(JSON.stringify(title.replace("Plot", "Winter")));
+    await app.dispatch.act({ action: "tile.zoom", tile: "sources" }, USER);
+    await app.dispatch.act({ action: "sources.place", tile, args: { place: "split" } }, USER);
+    await app.dispatch.act({ action: "sources.close", tile }, USER);
+    await app.dispatch.act({ action: "comment.close", tile, args: { discard: true } }, USER);
+    await board.update(before.id, before.text, (await board.get(before.id))!.revision!);
+  });
 
   test("PIE-1100: inspector fields preserve decoded YAML and unsaved typing", async () => {
     await app.dispatch.act({ action: "section", args: { name: "tabs" } }, { kind: "user" });

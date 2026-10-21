@@ -172,6 +172,7 @@ export function drawSources(p: SourcesPanel, w: number, now: number, wide = true
     const cols = Math.floor((w - 4) / 3), narrow = drawSources(p, cols, now, false);
     const starts = FOLDS.map(f => narrow.hits.find(h => h.action === "sources.fold" && h.args.fold === f)!.row);
     const head = hits.find(h => h.action === "sources.fold")!.row;
+    p.inspector.remapEditor(0, head - starts[0]!);
     const out = lines.slice(0, head), mapped = hits.filter(h => h.row < head);
     const height = Math.max(...starts.map((start, n) => (starts[n + 1] ?? narrow.lines.length) - start));
     for (let row = 0; row < height; row++) out.push(starts.map((start, n) => pad(row < (starts[n + 1] ?? narrow.lines.length) - start ? narrow.lines[start + row]! : "", cols) + RESET).join("  "));

@@ -94,7 +94,7 @@ import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, wheelTarget, writtenBy, type EditFrame } from "./editor";
 import { composerBody, composerBox, placeBox, type ComposerBox } from "./composer";
-import { attachedPlaceOf, attachedRect, drawAttachedFloat, splitSize, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, clampFloat, ATTACHED_PLACES, floatRow, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
+import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, threadAgents } from "../extensions";
@@ -200,6 +200,8 @@ export interface SurfaceHost {
    * none: a comment there is drawn split.
    */
   answerTile?(ask: string, actor: Actor, fold?: string): Promise<unknown>;
+  /** Pointer coordinates belong to this attached tile rather than the note beneath its floats. */
+  attachment?: "comment" | "sources";
   hasSourcesTile?(): boolean;
   sourcesTile?(on: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
   composerTile?(on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down"): Promise<unknown>;
@@ -642,7 +644,7 @@ const LEAVE_SAYS: Record<LeaveChoice, string> = {
 };
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
 type LinksMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { block: string; describe(): { block: string; title: string | null; selected: string | null; typing: string | null } };
-type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; reveal: boolean; place: AttachedPlace; float: FloatRect | null; frame: FloatRect | null; room: { w: number; h: number }; tileOpened: boolean; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; footer: number; describe(): unknown };
+type SourcesMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: SourcesPanel; reveal: boolean; place: AttachedPlace; float: FloatRect | null; frame: FloatRect | null; room: { w: number; h: number }; rect: { x: number; y: number; w: number; h: number }; draw: PanelDraw | null; view: Inspector; footer: number; describe(): unknown };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
 /** How long a missing page's offer stands (PIE-544): the next ⏎ or click on its link within it makes the page. */
@@ -859,10 +861,7 @@ export class NoteSurface {
   private composerRows: [number, number] | null = null;
   /** Where the last paint put a floating or popup composer (PIE-785), in the note's cells under its header image, and the room it had. */
   private boxRect: FloatRect | null = null;
-  /** The comment session whose own tile (PIE-846) the host was asked for: asked once, again after it left the tile. */
-  private tileFor: CommentSession | null = null;
-  /** The comment session whose own tile the host opened (a tile gone after that was closed by hand). */
-  private tileOpen: CommentSession | null = null;
+  private readonly attachmentTiles = { comment: new AttachedTile(), sources: new AttachedTile() };
   private boxRoom: { w: number; h: number } | null = null;
   /** A press on a floating composer's top edge or ◢ corner: the drag moves or sizes it (comment.move) from where it was. */
   private frameDrag: { target: "comment" | "sources"; zone: NonNullable<ReturnType<typeof frameZone>>; x: number; y: number; from: FloatRect } | null = null;
@@ -913,7 +912,17 @@ export class NoteSurface {
   }
   /** Commenting on `msg` (picking a passage, writing, the thread list). Holds keys and the note like a draft. */
   get session(): CommentSession | null { return (this.modes.get("comment") as CommentMode | null)?.session ?? null; }
-  set session(s: CommentSession | null) { if (s) this.modes.push(this.commentMode(s)); else { this.modes.drop("comment"); this.modes.drop("grip"); if (this.placementMenu?.target === "comment") this.modes.drop("placement"); this.leaving = null; this.frameDrag = null; this.boxRect = null; } }
+  set session(s: CommentSession | null) {
+    if (s) { this.modes.push(this.commentMode(s)); return; }
+    const cs = this.session;
+    this.modes.drop("comment");
+    if (this.modes.get("grip")?.of === cs) this.modes.drop("grip");
+    if (this.sourcesMode) this.modes.focus(this.sourcesMode, true);
+    if (this.placementMenu?.target === "comment") this.modes.drop("placement");
+    this.leaving = null;
+    if (this.frameDrag?.target === "comment") this.frameDrag = null;
+    this.boxRect = null;
+  }
   /** The note's comment threads, for the count in the header and the marks while picking a passage. */
   comments: Comment[] | null = null;
   private commentsFor = "";
@@ -1188,6 +1197,8 @@ export class NoteSurface {
     this.boxRect = null;
     this.besideRect = null;
     this.splitDrawn = [];
+    this.attachmentTiles.comment.sync(this.session, this.attachmentTileHost("comment", host));
+    this.attachmentTiles.sources.sync(this.sourcesMode, this.attachmentTileHost("sources", host));
     if (this.replyLinks) return this.renderBeside(w, h, host, (cols, rows, row, col) => {
       const mode = this.replyLinks!;
       mode.rect = { x: col, y: row, w: cols, h: rows };
@@ -1208,7 +1219,6 @@ export class NoteSurface {
       return { lines: [pad(`THREAD · T full list · b links · Esc close${mode.truncated ? " · cut short" : ""}`, cols), ...shown.map(r => r.text)] };
     });
     const sm = this.sourcesMode;
-    if (sm?.place === "tile" && !host?.sourcesTile) sm.place = "split";
     if (sm?.place === "inline") return this.renderComment(w, h, host);
     if (sm && sm.place !== "tile") {
       const writing = this.session?.place === "tile" ? null : this.composing(host);
@@ -1216,7 +1226,7 @@ export class NoteSurface {
       if (!floating) return this.renderBeside(w, h, host,
         (cols, rows, row, col) => this.renderSources(cols, rows, row, col), "sources", (cols, rows) => this.renderComment(cols, rows, host));
       const v = this.renderComment(w, h, host);
-      const rect = attachedRect(sm.place as "floating" | "popup", w, h, Math.min(w - 2, 80), Math.min(h - 2, Math.max(10, Math.floor(h * .6))), null, 0, h, Math.max(0, w - 82), sm.float);
+      const rect = attachedRect(sm.place, w, h, { min: { cols: 24, rows: 10 }, moved: sm.float });
       sm.frame = rect;
       if (sm.place === "floating") sm.float ??= rect;
       sm.room = { w, h };
@@ -1226,16 +1236,6 @@ export class NoteSurface {
       // Both attachments are painted; the one holding the keys is the last layer.
       return writing && !this.modes.active(sm) && (writing.cs.place === "floating" || writing.cs.place === "popup")
         ? this.overComposer({ ...v, lines }, w, h, writing, writing.cs.place, host?.focused !== false) : { ...v, lines, placements: [] };
-    }
-    if (sm?.place === "tile" && sm.tileOpened && host?.hasSourcesTile && !host.hasSourcesTile()) {
-      sm.place = "split"; sm.tileOpened = false;
-    }
-    if (sm?.place === "tile" && host?.sourcesTile && !sm.tileOpened) {
-      sm.tileOpened = true;
-      queueMicrotask(() => void host.sourcesTile!(true).catch(e => {
-        sm.tileOpened = false; sm.place = "split";
-        host.ctx.flash(`sources stays in the reader: ${e instanceof Error ? e.message : String(e)}`); host.redraw();
-      }));
     }
     return this.renderComment(w, h, host);
   }
@@ -1247,27 +1247,7 @@ export class NoteSurface {
     // In a tile of its own (PIE-846) the comment (or the thread list) is drawn there and the note whole here; the host is
     // asked for the tile once (it opens after this frame); with no tile to be in, a comment is drawn split.
     const cs = this.session;
-    if (cs && cs.place === "tile" && host?.composerTile) {
-      if (this.tileFor !== cs) {
-        this.tileFor = cs;
-        const open = host.composerTile, side = this.tileSide ?? undefined;
-        this.tileSide = null;
-        // The person's keys go to it only when the comment is theirs: an agent's comment never takes them.
-        queueMicrotask(() => void open(true, cs.startedBy.kind === "user", side).then(() => { if (this.tileFor === cs) this.tileOpen = cs; }, e => {
-          // Refused (a locked screen): the comment stays in the reader, split, and says why.
-          if (this.tileFor === cs) { this.tileFor = null; cs.place = "split"; }
-          host.ctx.flash(`the comment stays in the reader: ${e instanceof Error ? e.message : String(e)}`, undefined, errorDetails(e));
-          host.redraw();
-        }));
-      } else if (this.tileOpen === cs && host.hasComposerTile && !host.hasComposerTile()) {
-        // Its tile was closed by hand (×, ^W x): the comment comes back into the reader, as it was, split.
-        this.tileFor = this.tileOpen = null;
-        cs.place = "split";
-        host.ctx.flash("the comment is back in the reader (split) · ctrl+o moves it");
-        return this.render(w, h, host);
-      }
-      return this.renderReading(w, h, host, null);
-    }
+    if (cs?.place === "tile") return this.renderReading(w, h, host, null);
     const split = writing?.cs.place === "split" || writing?.cs.place === "tile";
     return split && w >= SPLIT_MIN_W && h >= SPLIT_MIN_H ? this.renderSplit(w, h, host, writing!) : this.renderReading(w, h, host, writing);
   }
@@ -1295,24 +1275,15 @@ export class NoteSurface {
    */
   private overComposer(v: SurfaceView, w: number, h: number, c: NonNullable<ReturnType<NoteSurface["composing"]>>, place: "floating" | "popup", focused: boolean): SurfaceView {
     const lines = [...v.lines], room = Math.max(lines.length, h);
-    let box: ComposerBox, row: number, col: number;
-    if (place === "popup") {
-      box = composerBody(c.d, c.f, Math.min(w - 2, 80), Math.max(6, room - 2));
-      row = Math.max(0, Math.floor((room - box.lines.length - 2) / 2));
-      col = Math.max(0, Math.floor((w - box.width) / 2));
-    } else if (c.cs.float) {
-      // Where the person dragged or sized it (PIE-785), kept inside the reader; the passage it's on doesn't move.
-      const r = clampFloat(c.cs.float, w, room);
-      box = composerBody(c.d, c.f, r.cols, r.rows, true);
-      row = r.row; col = r.col;
-    } else {
-      box = composerBody(c.d, c.f, Math.min(w - 2, 72), Math.max(6, Math.floor(room * 0.6)), false);
-      const d = this.drawn, from = d?.top ?? 0, to = Math.min(room, from + (d?.room ?? room));
-      row = floatRow(this.composerRows, box.lines.length + 2, from, to);
-      col = Math.max(0, Math.min((d?.bx ?? 1) + 2, w - box.width));
-    }
-    this.boxRect = attachedRect(place, w, room, box.width, box.lines.length + 2, this.composerRows, this.drawn?.top ?? 0, Math.min(room, (this.drawn?.top ?? 0) + (this.drawn?.room ?? room)), col, place === "floating" ? c.cs.float : null);
-    ({ row, col } = this.boxRect);
+    let box!: ComposerBox;
+    this.boxRect = attachedRect(place, w, room, {
+      moved: c.cs.float, passage: this.composerRows, from: this.drawn?.top ?? 0,
+      to: Math.min(room, (this.drawn?.top ?? 0) + (this.drawn?.room ?? room)), col: (this.drawn?.bx ?? 1) + 2,
+    }, (cols, rows, fill) => {
+      box = composerBody(c.d, c.f, place === "floating" && !fill ? Math.min(cols, 72) : cols, rows, fill);
+      return { cols: box.width, rows: box.lines.length + 2 };
+    });
+    const { row, col } = this.boxRect;
     if (place === "floating" && this.sourcesMode) c.cs.float ??= this.boxRect;
     this.boxRoom = { w, h: room };
     const painted = drawAttachedFloat(lines, w, room, this.boxRect, place === "floating" ? "≡ move" : "", focused, this.lastLook?.values, canvas => {
@@ -1337,15 +1308,16 @@ export class NoteSurface {
   }
 
   private renderBeside(w: number, h: number, host: SurfaceHost | undefined, draw: (cols: number, rows: number, row: number, col: number) => SurfaceView, target?: "comment" | "sources", read?: (cols: number, rows: number) => SurfaceView): SurfaceView {
-    const size = splitSize(w, h, target ? this.splits[target] : {});
-    if (size.beside) {
-      const cw = size.size, nw = w - cw - 1;
+    const rect = attachedRect("split", w, h, { split: target ? this.splits[target] : {} });
+    const beside = rect.col > 0;
+    if (beside) {
+      const cw = rect.cols, nw = rect.col - 1;
       if (target) this.splitDrawn.push({ target, beside: true, w, h, edge: nw });
-      this.besideRect = { x: nw + 1, y: 0, w: cw, h };
+      this.besideRect = { x: rect.col, y: rect.row, w: rect.cols, h: rect.rows };
       const v = (read ? read(nw, h) : this.renderReading(nw, h, host, null)), side = draw(cw, h, 0, nw + 1);
       return { ...v, lines: Array.from({ length: h }, (_, i) => pad(v.lines[i] ?? "", nw) + RESET + (target ? fg(C.dark) + "│" + RESET : " ") + (side.lines[i] ?? "")), placements: [...(v.placements ?? []), ...(side.placements ?? [])] };
     }
-    const ch = size.size, nh = Math.max(0, h - ch - (target ? 1 : 0));
+    const ch = rect.rows, nh = Math.max(0, rect.row - (target ? 1 : 0));
     if (target) this.splitDrawn.push({ target, beside: false, w, h, edge: nh });
     this.besideRect = { x: 0, y: nh + (target ? 1 : 0), w, h: ch };
     const v = (read ? read(w, nh) : this.renderReading(w, nh, host, null)), side = draw(w, ch, nh + (target ? 1 : 0), 0);
@@ -1787,7 +1759,10 @@ export class NoteSurface {
     this.drawn = { w, h, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt, bx: this.bx, my: this.my, titleRows: title ? [title.row, title.row + title.rows] : [0, 1] };
     // The inline box's text and controls, where the scroll put them (a click or a drag there is the draft's).
     if (comp?.inline && writingIn) placeBox(writingIn, comp.inline.box, top + comp.inline.at - this.scroll, this.bx);
-    if (sm?.place === "inline" && inline) sm.rect = { x: this.bx, y: top + inline.at - this.scroll + heroRows, w: inline.cols, h: inline.rows };
+    if (sm?.place === "inline" && inline) {
+      const r = attachedRect("inline", inline.cols, inline.rows, { from: top + inline.at - this.scroll + heroRows, col: this.bx });
+      sm.rect = { x: r.col, y: r.row, w: r.cols, h: r.rows };
+    }
     this.composerRows = comp?.passage ? [top + comp.passage[0] - this.scroll, top + Math.max(comp.passage[1], comp.after ?? 0) - this.scroll] : null;
     this.restoreCommentSelection();
     this.selectionControl(w);
@@ -2099,11 +2074,13 @@ export class NoteSurface {
     // Expanded comment threads (PIE-420) are drawn under their passage, as rows of the body; an open status
     // choice (PIE-472) under its step.
     // The comment being written inline (PIE-770) is a box of rows under its passage, after an expanded thread's.
-    const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(bw, 96), Math.max(8, h - top)) : null;
+    const inlineRect = attachedRect("inline", bw, h - top, { min: { cols: 24, rows: 8 } });
+    const inlineBox = writing?.cs.place === "inline" ? composerBox(writing.d, writing.f, Math.min(inlineRect.cols, 96), inlineRect.rows) : null;
     const threads = this.threadPanels(m, rendered, noteLines, bw, mcols === 0, inlineBox?.lines, host, drawn);
     const sm = this.sourcesMode;
-    const inline = sm?.place === "inline" ? this.renderSources(bw, Math.max(6, Math.min(20, h - top - 2)), 0, 0) : null;
-    const sourcesInline = inline ? { at: threads.doc.lines.length, cols: bw, rows: inline.lines.length } : undefined;
+    const sourceRect = attachedRect("inline", bw, Math.min(20, h - top - 2));
+    const inline = sm?.place === "inline" ? this.renderSources(sourceRect.cols, sourceRect.rows, sourceRect.row, sourceRect.col) : null;
+    const sourcesInline = inline ? { at: threads.doc.lines.length, cols: sourceRect.cols, rows: inline.lines.length } : undefined;
     const withSource = inline ? withRows(threads.doc, [{ at: sourcesInline!.at, lines: inline.lines }]).doc : threads.doc;
     const { doc, picks } = this.pickerRows(withSource, drawn, bw);
     if (sourcesInline && picks && picks.at <= sourcesInline.at) sourcesInline.at += picks.lines;
@@ -3347,10 +3324,14 @@ export class NoteSurface {
       editing: () => true, covers: () => cs.mode !== "compose" && cs.place !== "tile",
       key: (k, host) => this.commentKey(cs, k, host),
       // Beside the box, a click on a link, a comment mark or back and forward goes there, asking first (PIE-785).
-      click: (x, y, host) => { const d = writing(); return d ? this.writeClick(d, x, y, host) || this.followFromComposer(x, y, host) : cs.mode === "compose" && cs.place === "tile" ? this.followFromComposer(x, y, host) : false; },
+      click: (x, y, host) => {
+        if (this.floatAt(x, y + (this.drawn?.heroRows ?? 0), host) === "comment" && this.sourcesMode) void this.runKey("sources.focus", { on: false }, host);
+        const d = writing();
+        return d ? this.writeClick(d, x, y, host) || this.followFromComposer(x, y, host) : cs.mode === "compose" && cs.place === "tile" ? this.followFromComposer(x, y, host) : false;
+      },
       press: (x, y, host, drag) => {
         const d = writing();
-        if (this.sourcesMode && this.boxRect && x >= this.boxRect.col && x < this.boxRect.col + this.boxRect.cols && y >= this.boxRect.row && y < this.boxRect.row + this.boxRect.rows) this.modes.focus(this.sourcesMode, false);
+        if (this.sourcesMode && this.boxRect && x >= this.boxRect.col && x < this.boxRect.col + this.boxRect.cols && y >= this.boxRect.row && y < this.boxRect.row + this.boxRect.rows) void this.runKey("sources.focus", { on: false }, host);
         if (!d) return false;
         // The floating box's top edge moves it, its ◢ corner and edges size it (PIE-785): comment.move, as ctrl+g's keys run it.
         if (this.frameDrag) { if (drag) this.dragFrame(x, y, host); return true; }
@@ -3879,6 +3860,8 @@ export class NoteSurface {
   composerTile(w: number, h: number, host: SurfaceHost): SurfaceView | null {
     const cs = this.session;
     if (!cs || cs.place !== "tile" || !this.msg) return null;
+    const rect = attachedRect("tile", w, h);
+    w = rect.cols; h = rect.rows;
     // Its thread list (or the passage picker) there too: reading the comments beside the note (PIE-846).
     if (cs.mode !== "compose") {
       this.use(host);
@@ -3916,10 +3899,20 @@ export class NoteSurface {
     }
     return false;
   }
-  /** The side its tile opens on, when comment.place named one before it opened (side=, PIE-846). */
-  tileSide: "left" | "right" | "up" | "down" | null = null;
-  /** The comment left its own tile (comment.place): put back in one, the host is asked for it again. */
-  leftTile() { this.tileFor = this.tileOpen = null; }
+  private attachmentTileHost(target: "comment" | "sources", host?: SurfaceHost): AttachedTileHost | undefined {
+    if (!host || !(target === "comment" ? host.composerTile : host.sourcesTile)) return undefined;
+    return {
+      open: (on, side) => target === "comment" ? host.composerTile!(on, this.session?.startedBy.kind === "user", side) : host.sourcesTile!(on, side),
+      exists: target === "comment" ? host.hasComposerTile : host.hasSourcesTile,
+      changed: why => { if (why) host.ctx.flash(why); host.redraw(); },
+    };
+  }
+
+  async placeAttachment(target: "comment" | "sources", place: AttachedPlace, host: SurfaceHost, side?: AttachedSide) {
+    const owner = target === "comment" ? this.session! : this.sourcesMode!;
+    await this.attachmentTiles[target].place(owner, place, this.attachmentTileHost(target, host), side);
+  }
+
   /** A drag in the comment's own tile is selecting (its release copies, never clicks). */
   private tileDrag = false;
 
@@ -4194,6 +4187,8 @@ export class NoteSurface {
    */
   wheel(dir: 1 | -1, host: SurfaceHost, at?: { x: number; y: number }) {
     // A mode first (a draft's view or its preview, a comment's box or thread list, the full panel's rows), else the note scrolls.
+    const float = at && this.floatAt(at.x, at.y, host);
+    if (float) { this.modes.get(float)?.wheel?.(dir, host, at); host.redraw(); return; }
     if (this.modes.wheel(dir, host, at)) { host.redraw(); return; }
     const d = this.drawn;
     if (at && d) {
@@ -5343,10 +5338,12 @@ export class NoteSurface {
   click(x: number, y: number, host: SurfaceHost): boolean {
     this.use(host);
     // The note's rows are under its header image (PIE-532).
-    y -= this.drawn?.heroRows ?? 0;
+    y -= host.attachment ? 0 : this.drawn?.heroRows ?? 0;
     // The `[ ]` position as the click found it: a click's own reading.place lets go of it first.
     const was = this.cur;
     if (this.placementMenu) return this.modes.click(x, y, host) ?? false;
+    const float = this.floatAt(x, y + (this.drawn?.heroRows ?? 0), host);
+    if (float) { this.modes.get(float)?.click(x, y, host); return true; }
     const h = this.hitAt(x, y);
     if (h && "sources" in h) { void this.runKey("sources.open", {}, host); return true; }
     // An open mode first (in its precedence): the edit's or comment's own click, a status choice's row, a panel row.
@@ -6070,10 +6067,10 @@ export class NoteSurface {
     host.redraw(); return { ...split };
   }
 
-  gripSources(host: SurfaceHost) {
+  async gripSources(host: SurfaceHost) {
     const sm = this.sourcesMode;
     if (!sm) throw new ActionRefused("S opens the Sources inspector");
-    if (sm.place !== "floating" && sm.place !== "tile") sm.place = "floating";
+    if (sm.place !== "floating" && sm.place !== "tile") await this.placeSources("floating", undefined, host);
     this.modes.push(this.gripMode(sm, "sources")); host.redraw();
     return { moving: true };
   }
@@ -6085,9 +6082,12 @@ export class NoteSurface {
     host.redraw(); return sm.float;
   }
 
-  private commentOnTop(x: number, y: number): boolean {
-    const r = this.boxRect;
-    return !!r && !!this.sourcesMode && !this.modes.active(this.sourcesMode) && x >= r.col && x < r.col + r.cols && y >= r.row && y < r.row + r.rows;
+  private floatAt(x: number, y: number, host: SurfaceHost): "comment" | "sources" | null {
+    if (host.attachment) return null;
+    const sm = this.sourcesMode, cs = this.session;
+    const comment = { target: "comment" as const, rect: cs && (cs.place === "floating" || cs.place === "popup") && this.boxRect ? { ...this.boxRect, row: this.boxRect.row + (this.drawn?.heroRows ?? 0) } : null };
+    const sources = { target: "sources" as const, rect: sm && (sm.place === "floating" || sm.place === "popup") ? sm.frame : null };
+    return attachedAt(sm && this.modes.active(sm) ? [comment, sources] : [sources, comment], x, y);
   }
 
   private renderSources(cols: number, rows: number, row: number, col: number): SurfaceView {
@@ -6117,7 +6117,9 @@ export class NoteSurface {
   }
 
   sourcesTile(w: number, h: number): SurfaceView | null {
-    return this.sourcesMode?.place === "tile" ? this.withPlacementMenu(this.renderSources(w, h, 0, 0), w, h, "sources") : null;
+    if (this.sourcesMode?.place !== "tile") return null;
+    const r = attachedRect("tile", w, h);
+    return this.withPlacementMenu(this.renderSources(r.cols, r.rows, r.row, r.col), w, h, "sources");
   }
 
   async placeSources(place: string | undefined, side: string | undefined, host: SurfaceHost) {
@@ -6128,11 +6130,8 @@ export class NoteSurface {
     if (side !== undefined && !["left", "right", "up", "down"].includes(side)) throw new ActionRefused("side is left, right, up or down");
     if (want === "tile" && !host.sourcesTile) throw new ActionRefused("this reader has no tiles · sources.place place=split shares the reader");
     if (want === "split" && side) this.splitAttachment("sources", side, undefined, host);
-    if (sm.place === "tile" && want !== "tile") await host.sourcesTile?.(false);
-    sm.place = want;
+    await this.placeAttachment("sources", want, host, side as AttachedSide | undefined);
     sm.reveal = true;
-    sm.tileOpened = false;
-    if (want === "tile") { await host.sourcesTile!(true, side as "left" | undefined); sm.tileOpened = true; }
     writeState("sources-place.json", { place: want });
     host.redraw();
     return { place: want };
@@ -6370,7 +6369,17 @@ export class NoteSurface {
     return { item: P.item + 1, of: items.length };
   }
 
-  closeSources(host: SurfaceHost) { if (this.sourcesMode?.view.field) throw new ActionRefused("finish the property field · Enter saves · Esc cancels"); const sm = this.sourcesMode; if (this.modes.get("grip")?.of === sm) this.modes.drop("grip"); this.modes.drop("sources"); if (this.placementMenu?.target === "sources") this.modes.drop("placement"); void host.sourcesTile?.(false); host.redraw(); return { closed: true }; }
+  closeSources(host: SurfaceHost) {
+    if (this.sourcesMode?.view.field) throw new ActionRefused("finish the property field · Enter saves · Esc cancels");
+    const sm = this.sourcesMode;
+    if (this.modes.get("grip")?.of === sm) this.modes.drop("grip");
+    this.modes.drop("sources");
+    if (this.placementMenu?.target === "sources") this.modes.drop("placement");
+    if (this.frameDrag?.target === "sources") this.frameDrag = null;
+    void this.attachmentTiles.sources.close(this.attachmentTileHost("sources", host));
+    host.redraw();
+    return { closed: true };
+  }
 
   focusSources(host: SurfaceHost, on: boolean) {
     const mode = this.sourcesMode;
@@ -6560,7 +6569,7 @@ export class NoteSurface {
     const run = (name: string, args: Record<string, unknown> = {}) => { void this.runKey(name as keyof NoteActionArgs & string, args as never, host); };
     const mode: SourcesMode = {
       name: "sources", of: P, reveal: true, word: "sources", noun: "the sources", panel: P, holdsKeys: true, editing: () => !!P.inspector.field, covers: () => false,
-      place: attachedPlaceOf(readState<{ place: string }>("sources-place.json")?.place) ?? "split", float: null, frame: null, room: { w: 0, h: 0 }, tileOpened: false,
+      place: attachedPlaceOf(readState<{ place: string }>("sources-place.json")?.place) ?? "split", float: null, frame: null, room: { w: 0, h: 0 },
       rect: { x: 0, y: 0, w: 0, h: 0 }, draw: null, view: P.inspector, footer: 0,
       changed: () => { if (!P.loading) void this.readSources(P, host); },
       key: k => {
@@ -6587,12 +6596,16 @@ export class NoteSurface {
         else if (c === "3") run("sources.fold", { fold: "result" });
         return true;
       },
-      click: (x, y) => {
-        y += this.drawn?.heroRows ?? 0;
+      click: (x, y, host) => {
+        y += host.attachment ? 0 : this.drawn?.heroRows ?? 0;
         const r = mode.rect;
-        if (this.commentOnTop(x, y)) return undefined;
+        if (this.floatAt(x, y, host) === "comment") return undefined;
         if (mode.place === "inline" && y < (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) return undefined;
-        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) { if (this.modes.active(mode)) run("sources.focus", { on: false }); return undefined; }
+        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) {
+          if (this.floatAt(x, y, host) === "sources") { run("sources.focus", { on: true }); return true; }
+          if (this.modes.active(mode)) run("sources.focus", { on: false });
+          return undefined;
+        }
         if (y >= r.y + mode.footer) { run("sources.focus", { on: !this.modes.active(mode) }); return true; }
         run("sources.focus", { on: true });
         const hit = mode.draw?.hits.filter(h => h.row === y - r.y && x - r.x >= h.from && x - r.x < h.to).sort((a, b) => (a.to - a.from) - (b.to - b.from))[0];
@@ -7075,16 +7088,18 @@ export class NoteSurface {
     this.use(host);
     this.dragging = false;
     if (this.placementMenu) { this.gesture.press(x, y); return; }
-    const split = this.splitDrawn.find(s => (s.beside ? x : y) === s.edge);
+    const float = this.floatAt(x, y, host);
+    const split = !float && this.splitDrawn.find(s => (s.beside ? x : y) === s.edge);
     if (split) { this.splitDrag = split; return; }
     const sm = this.sourcesMode, r = sm?.rect;
-    const zone = sm?.place === "floating" && sm.frame && !this.commentOnTop(x, y) ? frameZone(sm.frame, x, y) : null;
+    const zone = sm?.place === "floating" && sm.frame && this.floatAt(x, y, host) !== "comment" ? frameZone(sm.frame, x, y) : null;
     if (zone && sm?.frame) { this.frameDrag = { target: "sources", zone, x, y, from: sm.frame }; return; }
-    if (sm && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) && !this.commentOnTop(x, y) && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+    if (sm && r && (sm.place !== "inline" || y >= (this.drawn?.top ?? 0) + (this.drawn?.heroRows ?? 0)) && this.floatAt(x, y, host) !== "comment" && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
       if (y >= r.y + sm.footer) { this.gesture.press(x, y); return; }
       void this.runKey("sources.select", { phase: "start", row: y - r.y - 1 + sm.view.top, col: x - r.x }, host);
       return;
     }
+    if (float === "sources") { this.gesture.press(x, y); return; }
     const n = this.gesture.press(x, y);
     // In a draft a press puts the cursor there (shift+click: selects from where it was), a drag from it selects, a
     // double click selects the word and a triple click the line (Draft's own selection, through draft.place).
@@ -9740,13 +9755,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (!want) throw new ActionRefused(`place is ${ATTACHED_PLACES.join(", ")}, not ${JSON.stringify(place)}`);
       if (want === "tile" && !host.composerTile) throw new ActionRefused("this reader has no tiles round it to put the comment in · split is the nearest (comment.place place=split)");
       if (want === "split" && side) surface.splitAttachment("comment", side, undefined, host);
-      const was = s.place;
-      s.place = want;
+      await surface.placeAttachment("comment", want, host, side as AttachedSide | undefined);
       if (surface.sourcesMode) surface.focusSources(host, false);
-      // Out of its tile, back into the reader: the tile closes (into one, the next frame asks for it). Already in it, to
-      // another side of the note.
-      if (was === "tile" && want !== "tile") { surface.leftTile(); await host.composerTile?.(false); }
-      else if (want === "tile" && side !== undefined) { if (was === "tile") await host.composerTile!(true, s.startedBy.kind === "user", side as "left"); else surface.tileSide = side as "left"; }
       surface.revealComposerNext();
       host.redraw();
       return { place: want, ...(side !== undefined ? { side } : {}) };

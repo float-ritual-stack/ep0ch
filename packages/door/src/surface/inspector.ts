@@ -107,6 +107,10 @@ export class Inspector extends RowView {
     return { lines, hits, focus };
   }
 
+  remapEditor(dx: number, dy: number) {
+    this.editorRect = { ...this.editorRect, x: this.editorRect.x + dx, y: this.editorRect.y + dy };
+  }
+
   private placeField(at: Pos, extend: boolean) {
     const d = this.field!.session.draft, r = this.editorRect;
     const p = d.posAt(at.col - r.x, Math.max(0, Math.min(r.h - 1, at.row - r.y)));
