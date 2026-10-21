@@ -147,8 +147,36 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await until(() => { render(); return inner(g, links).backlinks.rows?.some((r: any) => r.id); }, "the grouped links loaded");
     const row = inner(g, links).backlinks.rows.find((r: any) => r.id);
     await me("backlinks.pick", { n: row.n }, `${g}/${links}`);
+    await until(() => { render(); return inner(g, preview).showing?.id === row.id; }, "the selected link's preview loaded");
+    expect(row.id).not.toBe(seeded.notes.hub.id);
+    await me("backlinks", {}, `${g}/${links}`);
+    expect(inner(g, links).backlinks.target.id).toBe(seeded.notes.hub.id);
+    await me("backlinks.pick", { n: row.n }, `${g}/${links}`);
     press({ kind: "enter" });
     await until(() => showing("detail") === row.id, "the grouped links open in their home detail");
+    await spill(g);
+  });
+
+  test("a preview from a drawer group gives the screen target the next keys (PIE-1120)", async () => {
+    await fresh();
+    await me("open", { id: seeded.notes.hub.id }, "reader");
+    await me("tile.open", { kind: "detail", name: "outside", note: seeded.notes.root.id }, "tree");
+    await until(() => showing("outside") === seeded.notes.root.id, "the screen detail loaded");
+    const g = (await me("tile.group", { with: "activity" }, "reader")).tile;
+    render();
+    await me("tile.link", { to: "../outside" }, `${g}/reader`);
+    await me("tile.drawer", {}, g);
+    (app as any).paint();
+    const drawer = app.drawer.desk!;
+    expect(await drawer.dispatch.act({ action: "tile.preview", tile: `${g}/reader` }, { kind: "user" })).toMatchObject({ existing: true });
+    render();
+    expect(get().focus).toBe("outside");
+    const target = showing("outside");
+    expect(target).toBeTruthy();
+    press({ kind: "char", ch: "b" });
+    await until(() => { render(); return get().tiles.some(t => t.backlinks?.target?.id === target); }, "the next b reaches the screen detail");
+    expect(app.drawer.entered).toBe(false);
+    await app.act({ action: "tile.drawer", args: { on: false }, tile: g, as: AS });
     await spill(g);
   });
 

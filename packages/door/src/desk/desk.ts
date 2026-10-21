@@ -1942,7 +1942,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const forKeys = (f instanceof ReaderPane && !this.inShutting(f) ? f : undefined) ?? this.readerOfFocus()
       ?? readers.find(r => this.columnsIn().some(c => leaves(c).some(id => this.followers(id).includes(r)))) ?? readers[0];
     // b in the list itself aims it at its home's note (PIE-794).
-    const home = this.focus === lid ? this.panes.get(this.idNamed(L.source) ?? -1) : undefined;
+    const home = this.focus === lid ? this.paneAtPath(L.source) : undefined;
     const reader = given ?? (m ? readers.find(r => r.msg?.id === m.id) : undefined) ?? (home instanceof ReaderPane ? home : undefined) ?? forKeys;
     const note = m ?? reader?.msg ?? null;
     if (!note) throw new ActionRefused("nothing in that reader to find backlinks for");
@@ -5127,7 +5127,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const holder = this.holder;
     const parent = holder?.desk();
     if (parent) parent.revealPane(holder!.tile, actor, focus);
-    else if (focus && this.ctx?.hostLayer?.isDrawer(this)) this.ctx.hostLayer.goTo(pane, actor);
+    else if (focus) this.ctx?.hostLayer?.goTo(pane, actor);
     this.apply({ op: "reveal", tile: id }, actor);
     if (focus) this.focusTile(this.nameOf(id), actor);
     this.save(); this.redraw();
