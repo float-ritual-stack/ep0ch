@@ -479,7 +479,12 @@ function markdownLines(node: Primitive, draw: MarkdownDraw = {}): string[] {
     ];
     case "box": return [...(node.title ? [`**${mdInline(node.title)}**`, ""] : []), ...node.children.flatMap(inner)];
     case "stack": return node.children.flatMap(inner);
-    case "row": return draw.row ? [...draw.row(node.children.map((child) => tidy(inner(child))), node), ""] : node.children.flatMap(inner);
+    case "row": {
+      if (draw.row) return [...draw.row(node.children.map((child) => tidy(inner(child))), node), ""];
+      // Side by side where each child is one line (badges, short text): a board's squares stay a row in Markdown.
+      const parts = node.children.map((child) => tidy(inner(child)));
+      return parts.every((part) => part && !part.includes("\n")) ? [parts.join(" "), ""] : node.children.flatMap(inner);
+    }
     // A band is its heading wherever a target can't draw tracks; a track is a thematic break.
     case "band": return node.text ? [`${"#".repeat(node.level ?? 2)} ${mdInline(node.text)}`, ""] : ["---", ""];
     case "track": return ["---", ""];
