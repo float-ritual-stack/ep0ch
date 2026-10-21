@@ -10,7 +10,8 @@ export interface Hint {
   title: string;
   lines: readonly string[];
   keys?: readonly { keys: string; does: string }[];
-  choices?: readonly { label: string; act: ActRequest; key?: string; group?: string; refused?: string }[];
+  /** `current` marks the choice that is the state now (the wire being changed), drawn as a selected row. */
+  choices?: readonly { label: string; act: ActRequest; key?: string; group?: string; refused?: string; current?: boolean }[];
 }
 
 /** A float's contents and pressable rows; never a mode that owns the person's keys. */
@@ -31,7 +32,7 @@ export class HintCard {
     const content: { text: string; act?: ActRequest }[] = lines.map(text => ({ text }));
     choices.forEach((choice, i) => {
       if (choice.group && (i === 0 || choices[i - 1]!.group !== choice.group)) content.push({ text: menuHeading(choice.group, w) });
-      content.push({ text: menuRow(choice, false, w), act: choice.act });
+      content.push({ text: menuRow(choice, choice.current ? "current" : false, w), act: choice.act });
     });
     const rows = Math.min(area.rows, content.length + 2);
     // Placed once, clear of the control just pressed; it holds that place while the pointer moves (into it to

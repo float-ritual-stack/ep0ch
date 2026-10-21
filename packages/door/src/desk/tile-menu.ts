@@ -11,7 +11,7 @@ import { ListPicker } from "../surface/picker";
 import { LineInput } from "../surface/line";
 import { filtered, litCells } from "../bar/filter";
 import { refused } from "../shell-keys";
-import { C, chip, fg, pad, RESET, floatSelectedRow, width } from "../style";
+import { C, chip, fg, pad, RESET, floatSelectedRow, selectedRow, width } from "../style";
 
 /** What the menu runs a row on: the person's press on the screen's dispatcher, and the status bar for a refusal. */
 export interface MenuHost {
@@ -38,11 +38,13 @@ export function menuHeading(group: string, w: number): string {
   return fg(C.dark) + ` ${group} ${"─".repeat(Math.max(0, w - width(group) - 2))}` + RESET;
 }
 
-export function menuRow(r: { label: string; key?: string; refused?: string }, on: boolean, w: number, query = ""): string {
+/** `on` is the row under the cursor (a float's solid band); `"current"` the row that is the state now, marked as a table's selected row is (Evan, Oct 20). */
+export function menuRow(r: { label: string; key?: string; refused?: string }, on: boolean | "current", w: number, query = ""): string {
   const cap = r.key ? ` ${keyCaption(r.key)} ` : "";
   const lit = litCells(r.label, query);
   const label = [...r.label].map((c, j) => (lit.has(j) ? fg(C.yellow) + c + fg(on ? C.white : r.refused ? C.dark : C.grey) : c)).join("");
   const capCell = cap ? (r.refused ? fg(C.dark) : chip(C.dark)) + cap + RESET : "";
+  if (on === "current") return selectedRow(pad(` ${label}`, w - width(cap)) + cap, w);
   if (on) return floatSelectedRow(pad(`  ${label}`, w - width(cap)) + cap, w);
   return fg(r.refused ? C.dark : C.grey) + pad(` ${label}`, w - width(cap)) + RESET + capCell;
 }

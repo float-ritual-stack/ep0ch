@@ -2347,7 +2347,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       `${what} ${tile} lands in ${desk.wireWords(from, verb)}.`,
       `Click a tile to send it there; alt+click an edge or gap for beside.`,
     ], keys: [{ keys: "h j k l / 1-9", does: "choose a tile" }],
-      choices: [ ...(["select", "open", "alt"] as const).map(v => ({ label: `change ${v} wire`, key: v === "select" ? "s" : v === "open" ? "o" : "a", act: { action: "tile.link", tile, args: { ask: true, verb: v } } })),
+      choices: [ ...(["select", "open", "alt"] as const).map(v => ({ label: `change ${v} wire`, key: v === "select" ? "s" : v === "open" ? "o" : "a", current: v === verb, act: { action: "tile.link", tile, args: { ask: true, verb: v } } })),
         { label: `unlink ${verb} wire`, act: { action: "tile.link", tile, args: { verb } } }, { label: "cancel", key: "esc", act: { action: "tile.link", tile, args: { ask: false } } } ] };
   }
 
