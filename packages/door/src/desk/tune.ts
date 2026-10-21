@@ -735,7 +735,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     },
   }),
   "tune.level": def({
-    summary: "the level a nudge goes to: auto (where the value comes from, its width variant too: a named style, the page, the tile's kind…; the tile's kind for a built-in), or global, tile (its kind), screen, page (the note it shows), instance (this tile alone, kept in its tile spec) or list (the list the reader's [ ] is in, on its lead-in line or its section's heading). Picked, each row shows what that level says itself, and a row where something nearer wins is marked",
+    summary: "the level a nudge goes to: auto (where the value comes from, its width variant too: a named style, the page, the tile's kind…; the tile's kind for a built-in), or global, tile (its kind), screen, page (the note it shows), instance (this tile alone, kept in its tile spec) or list (the list the reader's [ ] is in, on its first item, over its heading and lead-in defaults). Picked, each row shows what that level says itself, and a row where something nearer wins is marked",
     keys: "v, a click on a level",
     touches: "tile", replay: "safe",
     args: { level: { type: "string", about: "auto, global, tile, screen, page, instance (this tile) or list (this list or component)" } },

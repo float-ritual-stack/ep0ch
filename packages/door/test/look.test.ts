@@ -719,7 +719,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
     }
   }, 60_000);
 
-  test("PIE-675: this tile: one links tile airy while another stays tight, saved in its tile spec and back with the layout; this list: one list airy while its sibling stays tight, saved on its heading", async () => {
+  test("PIE-675: this tile: one links tile airy while another stays tight, saved in its tile spec and back with the layout; this list: one list airy while its sibling stays tight, saved on its first item", async () => {
     const b4 = new SocketBoard(scratch.sock);
     await b4.info();
     const garden = await create(null, "Garden lists\n## Climbers\n- runner beans\n- sweet peas\n\n## Ground\n- clover\n- thyme");
@@ -751,13 +751,13 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       const again = links();
       expect(again.map(x => gapOf(x)).sort()).toEqual([gapOf(again.find(x => !x.p.instanceLook)!), 2].sort());
       expect(again.filter(x => x.p.instanceLook?.["list.gap"] === "2")).toHaveLength(1);
-      // This list: the reader's ( ) on the Ground list; the inspector offers this list and saves onto its heading.
+      // This list: the reader's ( ) on the Ground list; the inspector offers this list and saves onto its first item.
       const reader = () => [...desk.panes.values()].find((p: any) => p.surface && p.kind !== "backlinks") as any;
       await act("tune.aim", { target: "detail" }).catch(() => {});
       desk.run("tile.focus", {}, "detail");
       d.lines();
       for (let i = 0; i < 40 && reader().surface.listAt()?.first !== 6; i++) { d.key({ kind: "char", ch: ")" }); await Bun.sleep(5); d.lines(); }
-      expect(reader().surface.listAt()).toMatchObject({ target: `list:${garden.id}:5`, first: 6 });
+      expect(reader().surface.listAt()).toMatchObject({ target: `list:${garden.id}:6`, first: 6 });
       const gap = (x: string, y: string) => d.where(y).y - d.where(x).y;
       const climbers = gap("runner beans", "sweet peas"), ground = gap("clover", "thyme");
       expect(await act("tune.set", { row: "list.gap", value: "2", level: "list" })).toMatchObject({ at: "this list" });
@@ -765,10 +765,10 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect(gap("clover", "thyme")).toBeGreaterThan(ground);
       expect(gap("runner beans", "sweet peas")).toBe(climbers);
       expect(await act("tune.save", { level: "list" })).toMatchObject({ saved: true });
-      expect((await b4.get(garden.id))!.text.split("\n")[5]).toBe("## Ground [style.list.gap::2]");
-      // Undone: the heading as it was.
+      expect((await b4.get(garden.id))!.text.split("\n")[6]).toBe("- clover [style.list.gap::2]");
+      // Undone: the item as it was.
       expect((await act("tune.undo")).words).toContain("save of style.list.gap");
-      expect((await b4.get(garden.id))!.text.split("\n")[5]).toBe("## Ground");
+      expect((await b4.get(garden.id))!.text.split("\n")[6]).toBe("- clover");
       // This list takes only a list's values; and its save refuses a note edited since it was tuned (its line may have moved).
       await expect(act("tune.set", { row: "margin.x", value: "4", level: "list" })).rejects.toThrow(/this list sets only a list's values/);
       await act("tune.set", { row: "list.gap", value: "1", level: "list" });
@@ -785,6 +785,50 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       expect((await b4.get(garden.id))!.text).not.toContain("[style.list.gap::");
     } finally { d.close(); b4.close(); }
   }, 60_000);
+
+  test("PIE-1135: tune only the middle of three lists, save and reopen", async () => {
+    const b = new SocketBoard(scratch.sock);
+    await b.info();
+    const text = "Three lists [style.list.gap::0] [style.list.divider::none]\n## Supplies\n\n- First oats\n- First rice\n\nMiddle supplies.\n\n- Middle beans\n- Middle peas\n\nLast supplies.\n\n- Last mint\n- Last sage";
+    const note = await create(null, text);
+    let d = await door(160, b, { id: note.id, drawn: "Last sage" }, 65);
+    const check = () => {
+      d.lines();
+      const doc = d.reader().surface.drawn.doc;
+      const row = (word: string) => doc.lines.findIndex((l: string) => plain(l).includes(word));
+      const gap = (a: string, z: string) => {
+        const source = doc.source[row(a)];
+        const last = doc.source.findLastIndex((n: number) => n === source);
+        return row(z) - last;
+      };
+      expect(gap("First oats", "First rice")).toBe(1);
+      expect(gap("Middle beans", "Middle peas")).toBe(4);
+      expect(doc.lines.slice(row("Middle beans") + 1, row("Middle peas")).map(plain).some((l: string) => /· · ·/.test(l))).toBe(true);
+      expect(gap("Last mint", "Last sage")).toBe(1);
+      const striped = (word: string) => (doc.tints ?? []).some((t: any) => row(word) >= t.rows[0] && row(word) < t.rows[1]);
+      expect(striped("Middle peas")).toBe(true);
+      expect(striped("First rice")).toBe(false);
+      expect(striped("Last sage")).toBe(false);
+    };
+    try {
+      const desk = d.desk as any;
+      await desk.dispatch.press("reading.place", { line: 9 }, "detail");
+      d.lines();
+      await d.app.act({ action: "tile.tune", tile: "detail", as: "look-agent" });
+      d.lines();
+      const act = (action: string, args: Record<string, unknown> = {}) => d.app.act({ action, args, tile: "tune", as: "look-agent" });
+      await act("tune.level", { level: "list" });
+      for (const [row, value] of [["list.gap", "2"], ["list.divider", "dots"], ["list.zebra", "on"]]) await act("tune.set", { row, value, level: "list" });
+      d.lines(); check();
+      expect(await act("tune.save", { level: "list" })).toMatchObject({ saved: true });
+      const saved = (await b.get(note.id))!;
+      expect(saved.text.split("\n")[8]).toContain("[style.list.gap::2]");
+      expect(saved.text.split("\n")[1]).toBe("## Supplies");
+      d.close();
+      d = await door(160, b, { id: note.id, drawn: "Last sage" }, 65);
+      d.lines(); check();
+    } finally { d.close(); b.close(); }
+  }, 30_000);
 
   test("ep0ch export leaves the look out: the note's source, whatever the style notes say", async () => {
     const { byId } = await readRecords(board, [note.id], false);

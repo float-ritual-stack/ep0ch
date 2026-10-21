@@ -60,6 +60,7 @@ export const SEED = {
   recentFiles: "Files a session touched",
   headings: "Headings and dividers",
   spacingLab: "Spacing lab",
+  singleList: "Style one list of several",
   looksLab: "Looks lab",
   rules: "Allotment committee, Saturday",
   settings: "Compost bay jobs get a badge",

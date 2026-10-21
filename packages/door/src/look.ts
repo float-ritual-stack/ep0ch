@@ -44,7 +44,7 @@ export type TuneTarget = string;
 /** The target a value saved at `level` goes to, for `place`; null where the place has no such level (no page shown). */
 export function tuneTarget(level: SaveLevel, place: StylePlace, list?: TuneTarget | null): TuneTarget | null {
   if (level === "page") return place.page ? `page:${place.page.id}` : null;
-  // This tile (its tile spec) and this list (its lead-in or heading line, where the reader's [ ] is): PIE-675.
+  // This tile (its tile spec) and this list (its first item, where the reader's [ ] is): PIE-675.
   if (level === "instance") return place.instance ? `instance:${place.instance.id}` : null;
   if (level === "list") return list ?? null;
   return levelTarget(level, place);

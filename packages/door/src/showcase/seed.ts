@@ -27,7 +27,7 @@ import { DEEP_LINKS, ERRAND, FINDING, FRONT_MATTER, FRONT_MATTER_AGENT, HALF_WRI
 import { CALLOUTS, CALLOUT_TYPE, SPAN_COPY, SHOWCASE_ASSETS, artifactsText, galleryCards, galleryText, heroText, imagesText, placeArtifacts } from "./seed/media";
 import { MARGINALIA_NOTEBOOK, MARGINALIA_PLAN, RECENT_FILES, RECENT_REPLIES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, REMOTE_WRITES, recentFilesText } from "./seed/margin";
 import { ALMANAC, FORM_READING, FORM_REPAIRS, HELD_ASK, OMENS, RULES_NOTE, TICKETS, TICKET_PAGE, seedTickets } from "./seed/extensions";
-import { HEADINGS, LOOKS_LAB, SPACING_LAB, DISPATCH_SKIN } from "./seed/looks";
+import { HEADINGS, LOOKS_LAB, SPACING_LAB, SINGLE_LIST, STYLE_MIDDLE_LIST, DISPATCH_SKIN } from "./seed/looks";
 import { seedAccess } from "./seed/access";
 import { scriptExamples } from "@ep0ch/outliner/script-examples";
 import { VENT_PERSON, VENT_PROJECT, VENT_RECIPE, ventRailText } from "./seed/values";
@@ -475,6 +475,8 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.headings = await make(notes.root.id, HEADINGS);
   notes.looksLab = await make(notes.root.id, LOOKS_LAB);
   notes.spacingLab = await make(notes.root.id, SPACING_LAB);
+  notes.singleList = await make(notes.root.id, SINGLE_LIST);
+  await make(notes.singleList.id, STYLE_MIDDLE_LIST);
   await make(notes.root.id, DISPATCH_SKIN);
   const dispatch = await make(notes.root.id, "Garden dispatch [page::Garden dispatch] [publish::public:garden-dispatch] [publish-skin::dispatch]\n> [!abstract] Field notes\n> The weekly news from the allotment.\n\n## This week\nThe greenhouse is ready for seedlings.\n\n## Open loops\n- [ ] Mend the gate\n- [x] Label the seed trays");
   await make(dispatch.id, "Seed report [page::Seed report] [publish::public:seed-report]\nThe peas are up. This page inherits the dispatch skin.");

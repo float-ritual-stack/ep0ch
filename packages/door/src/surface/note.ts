@@ -35,7 +35,7 @@ import { savedReferenceWarning } from "../reference-warnings";
 import { revisionByline } from "@ep0ch/outline-core/attribution";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { componentRowFields, listFieldsTuned, listTarget, lookFor, pageOf as lookPage, type Look } from "../look";
-import { fencedLines, LIST_ITEM, listLayers, listOwners, listStart, type StyleLayer } from "@ep0ch/outline-core/style-cascade";
+import { fencedLines, LIST_ITEM, listLayers, listStart, type StyleLayer } from "@ep0ch/outline-core/style-cascade";
 import { onlyScrolled, overscrollRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
@@ -701,7 +701,7 @@ export class NoteSurface {
   /**
    * The list the current element is in, or the one below the heading or lead-in line it's on (else the top row shown),
    * for the tune inspector's `this list` (PIE-675): where a
-   * save goes (its lead-in line, else its section's heading: `list:<note>:<line>`, null when it has neither), its own
+   * save goes (its first item: `list:<note>:<line>`), its own
    * layers (with the tuning over them), and its first item's line. Null outside a list.
    */
   listAt(): { target: string | null; layers: StyleLayer[]; first: number; revision?: number; component?: boolean } | null {
@@ -725,9 +725,8 @@ export class NoteSurface {
       for (let i = at + 1; i < body.length && (code.has(i) || !/^ {0,3}#{1,6}\s/.test(body[i]!)); i++) if (!code.has(i) && LIST_ITEM.test(body[i]!) && !/^\s/.test(body[i]!)) { first = i; break; }
     }
     if (first === null) return null;
-    const { lead, heading } = listOwners(body, first), owner = lead ?? heading;
     const layers = listLayers(body, first, m.id, n => lines[n] ?? n).map(l => ({ ...l, fields: listFieldsTuned(this.src, m.id, l.line!, l.fields) }));
-    return { target: owner === null || lines[owner] === undefined ? null : listTarget(m.id, lines[owner]!), layers, first: lines[first] ?? first, ...(m.revision !== undefined ? { revision: m.revision } : {}) };
+    return { target: lines[first] === undefined ? null : listTarget(m.id, lines[first]!), layers, first: lines[first] ?? first, ...(m.revision !== undefined ? { revision: m.revision } : {}) };
   }
   /** The look for the note shown at `w`: the host's (the desk resolves its tile's), else the global and page levels. */
   private lookAt(m: Msg, w: number, host: SurfaceHost | undefined): Look {

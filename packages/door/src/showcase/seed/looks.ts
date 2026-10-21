@@ -114,3 +114,32 @@ export const DISPATCH_SKIN = [
   readFileSync(new URL("../assets/skins/dispatch.css", import.meta.url), "utf8"),
   "```",
 ].join("\n");
+
+export const SINGLE_LIST = [
+  SEED.singleList + " [style.list.gap::0] [style.list.divider::none] [style.list.zebra::off]",
+  "Press the middle list's button to style it and save.",
+  "## Supplies",
+  "",
+  "- First oats",
+  "- First rice",
+  "",
+  "Middle supplies.",
+  "",
+  "- Middle beans [Style the middle list](act:style-middle-list)",
+  "- Middle peas",
+  "",
+  "Last supplies.",
+  "",
+  "- Last mint",
+  "- Last sage",
+].join("\n");
+
+export const STYLE_MIDDLE_LIST = [
+  "Style the middle list [script::style-middle-list] [effects::write] [results::keep]",
+  "```js",
+  "await act('tune.level', { level: 'list', tile: 'tune' });",
+  "for (const [row, value] of [['list.gap', '2'], ['list.divider', 'dots'], ['list.zebra', 'on']]) await act('tune.set', { row, value, level: 'list', tile: 'tune' });",
+  "await act('tune.save', { level: 'list', tile: 'tune' });",
+  "return 'Only the middle list has gaps, dividers and stripes. Reopen the note to see them kept.';",
+  "```",
+].join("\n");

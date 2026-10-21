@@ -41,6 +41,27 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+  test("style one list of several: its button saves the middle list through tune", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "style-one-list" }, as: "test-agent" });
+    await until(() => screen().includes("Last sage"), "three lists");
+    const frame = () => screen().split("\n");
+    const gap = (a: string, b: string) => frame().findIndex(l => l.includes(b)) - frame().findIndex(l => l.includes(a));
+    expect(gap("Middle beans", "Middle peas")).toBe(1);
+    const elements = await app.dispatch.press("elements", {}, "lists") as { elements: { n: number; label: string }[] };
+    const button = elements.elements.find(e => e.label.includes("Style the middle list"))!;
+    await app.dispatch.press("element.select", { n: button.n }, "lists");
+    screen();
+    await app.dispatch.press("button.press", { label: "Style the middle list" }, "lists");
+    await untilAsync(async () => (await board.get(seeded.notes.singleList.id))!.text.includes("[style.list.zebra::on]"), "the button saved the list");
+    await until(() => gap("Middle beans", "Middle peas") > 1, "the saved look drawn");
+    expect(gap("First oats", "First rice")).toBe(1);
+    expect(gap("Last mint", "Last sage")).toBe(1);
+    const saved = (await board.get(seeded.notes.singleList.id))!.text;
+    expect(saved.split("\n")[9]).toContain("[style.list.gap::2] [style.list.divider::dots] [style.list.zebra::on]");
+    expect(saved.split("\n")[2]).toBe("## Supplies");
+  }, 30_000);
+
   test("agents: act shows a section, never while the person is in one, and reaches the section's own actions", async () => {
     ch("1"); press({ kind: "enter" });
     expect(S().focus).toBe("stage");
