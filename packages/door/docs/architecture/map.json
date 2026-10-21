@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "f5f2f1a9", "outliner": "f5f2f1a9", "on": "2026-10-21" },
+  "verified": { "door": "1fe3f1a1", "outliner": "1fe3f1a1", "on": "2026-10-21" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -364,7 +364,7 @@
         { "r": "door", "p": "src/surface/actions.ts", "l": 88, "m": "export interface ActionDef" },
         { "r": "door", "p": "src/surface/actions.ts", "l": 73, "m": "export type Touches" },
         { "r": "door", "p": "src/surface/actions.ts", "l": 95, "m": "keys?: string" },
-        { "r": "door", "p": "src/surface/actions.ts", "l": 189, "m": "export class ActionSet" }
+        { "r": "door", "p": "src/surface/actions.ts", "l": 194, "m": "export class ActionSet" }
       ],
       "questions": [
         { "text": "Keys bind through ActionDefs: a binding table, one keymap, hints and ? generated from it.", "finding": "C-F9", "route": "PIE-492" },

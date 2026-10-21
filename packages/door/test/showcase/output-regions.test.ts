@@ -6,6 +6,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
 import { hintKeys, declaredKeys } from "../../src/surface/actions";
 import { COMMENT_KEYS, EDIT_PREVIEW_KEYS } from "../../src/surface/attached-keys";
+import { completionOf } from "../../src/surface/completer";
 import { ReaderPane } from "../../src/desk/panes";
 import { Desk } from "../../src/desk/desk";
 import { USER } from "../../src/socket";
@@ -43,6 +44,49 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
       pane.key({ kind: "esc" }, stage);
       await until(() => !pane.surface.sourcesMode, "Esc closes Sources from either side");
       await until(() => app.messages.rows.at(-1)?.message === "closed the sources", "Esc says what it closed");
+    }
+  });
+
+  test.each([{ kind: "enter" as const }, { kind: "enter" as const, shift: true as const }, { kind: "enter" as const, ctrl: true as const }])("PIE-1171: every Enter that worked before still opens Sources (%j)", async key => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    await stage.dispatch.press("sources.open", {}, "notes");
+    await until(() => !(pane.surface.sourcesMode!.describe() as { loading: boolean }).loading, "Sources loaded");
+    try {
+      pane.key(key, stage);
+      await until(() => (pane.surface.sourcesMode!.describe() as { view: string }).view === "source", "modified Enter opens the source", 2000);
+    } finally { await stage.dispatch.press("sources.close", {}, "notes"); }
+  });
+
+  test.each(["comment", "preview"])("PIE-1171: completion owns the hint over the %s", async target => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act(target === "comment" ? "comment.note" : "edit");
+    if (target === "preview") {
+      pane.key({ kind: "enter" }, stage);
+      await until(() => !!pane.draft, "the edit opens");
+      await act("draft.preview", { on: true });
+    }
+    const draft = target === "comment" ? pane.surface.session!.composer! : pane.draft!;
+    const original = draft.text;
+    try {
+      for (const ch of " ((Gree") pane.key({ kind: "char", ch }, stage);
+      await until(() => !!completionOf(draft)?.items.length, "reference completion opens");
+      expect(pane.surface.hint()).toContain("esc dismiss");
+      expect(pane.surface.hint()).not.toMatch(/close comment|close preview/);
+      pane.key({ kind: "esc" }, stage);
+      await until(() => !completionOf(draft), "Esc dismisses completion");
+      expect(target === "comment" ? pane.surface.session!.composer : pane.draft).toBe(draft);
+      expect(pane.surface.hint()).toContain(target === "comment" ? "puts comment aside" : "close preview");
+    } finally {
+      if (target === "comment") await act("comment.write", { body: original });
+      else draft.replace(original);
+      await act(target === "comment" ? "comment.close" : "edit.close", { discard: true });
     }
   });
 
@@ -90,6 +134,9 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     expect(comment).not.toMatch(/title:.*ctrl\+s saves/);
     const editor = readFileSync(new URL("../../src/surface/editor.ts", import.meta.url), "utf8");
     expect(editor).not.toContain("preview · ctrl+p hides");
+    const inspector = readFileSync(new URL("../../src/surface/inspector.ts", import.meta.url), "utf8");
+    expect(inspector).not.toMatch(/space toggle · Enter save · Esc keeps|Enter save · Esc keeps/);
+    expect(note).not.toMatch(/keys: "Z \(move to|keys: "ctrl\+z \(when a move/);
     const tile = readFileSync(new URL("../../src/desk/attached-tile.ts", import.meta.url), "utf8");
     expect(tile).not.toMatch(/Esc reader|ctrl\+s send · esc twice/);
   });

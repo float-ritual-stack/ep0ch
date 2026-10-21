@@ -366,9 +366,10 @@ function wordKeys(w: string): string[] | null {
   const mod = /^(ctrl|alt|shift|super|cmd)\+(.+)$/i.exec(w);
   if (mod) {
     const m = mod[1]!.toLowerCase().replace("cmd", "super"), rest = mod[2]!;
-    if ([...rest].length === 1) return [m === "ctrl" ? `ctrl+${rest.toLowerCase()}` : m === "shift" ? rest.toUpperCase() : `${m}+${rest}`];
     const named = NAMED[rest.toLowerCase()];
-    return named ? [`${m}+${named}`] : null;
+    if (named) return [`${m}+${named}`];
+    if ([...rest].length === 1) return [m === "ctrl" ? `ctrl+${rest.toLowerCase()}` : m === "shift" ? rest.toUpperCase() : `${m}+${rest}`];
+    return null;
   }
   const range = /^(\d)-(\d)$/.exec(w);
   if (range) { const out: string[] = []; for (let i = Number(range[1]); i <= Number(range[2]); i++) out.push(String(i)); return out; }

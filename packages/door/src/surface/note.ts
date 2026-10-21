@@ -3502,7 +3502,7 @@ export class NoteSurface {
       },
       unsaved: () => s.dirty,
       keep: () => [s.keep()],
-      hint: () => d.preview ? modeHint(EDIT_PREVIEW_READER_KEYS, action => NOTE_ACTIONS.def(action)) : this.replyParent ? `ctrl+s saves · Esc ${d.dirty ? "twice discards" : "discards"} · PgUp/PgDn scroll message · select then \" quotes` : (elementEdit(d).on ? "ctrl+o raw · Tab/↑↓ cells · alt+r/d row · alt+v/x column · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
+      hint: () => d.preview && !completionOf(d) ? modeHint(EDIT_PREVIEW_READER_KEYS, action => NOTE_ACTIONS.def(action)) : this.replyParent ? `ctrl+s saves · Esc ${d.dirty ? "twice discards" : "discards"} · PgUp/PgDn scroll message · select then \" quotes` : (elementEdit(d).on ? "ctrl+o raw · Tab/↑↓ cells · alt+r/d row · alt+v/x column · " : "") + (imagePathAt(d.lines[d.row] ?? "", d.col) ? "ctrl+v makes that path a picture · " : "") + editHint(d, { save: "save", reload: d.conflict || d.changedElsewhere ? "reload" : null, follow: true }),
       state: () => `editing${d.dirty ? " · unsaved" : ""}`,
       describe: () => ({ ...s.describe(), previewPlace: this.editPreview.place, previewSplit: this.splits["edit-preview"], rich: elementEdit(d).on, writtenBy: writtenBy(d, "save") }),
     };
@@ -3593,7 +3593,7 @@ export class NoteSurface {
       },
       unsaved: () => cs.dirty,
       keep: () => (cs.writing ? [cs.writing.keep()] : []),
-      hint: () => cs.busy ?? (cs.mode === "compose" ? modeHint(mode.keys!, action => NOTE_ACTIONS.def(action)) : cs.hint()),
+      hint: () => cs.busy ?? (cs.mode === "compose" && !(cs.composer && completionOf(cs.composer)) ? modeHint(mode.keys!, action => NOTE_ACTIONS.def(action)) : cs.hint()),
       state: () => (cs.mode === "compose" ? `writing${cs.dirty ? " · unsent" : ""}` : cs.mode === "select" ? "quoting" : "comments"),
       describe: () => cs.describe(),
       // A reply from an expanded thread landed: back to reading, the thread still open under its passage.
@@ -10412,7 +10412,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.move": def({
     summary: "move a note (PIE-943; PIE-883's note.place is this with to=): the one shown, or id=, under a note (to= inbox, root, or a note's id, ((ref)), [[page]], Work ID; position= its place among the children, from 1, default first), beside a sibling (before= or after=) or one step in its list (step= up, down, in under the note above, out after its parent). The service's move, the note checked at revision= when given (one changed since is refused), recorded as whoever asks and put back by ctrl+z (note.move.undo). The person's, left out, is asked in the power bar (\"Move to…\"): the note's parents and the notes changed lately first, the Inbox, then any note by its words. An agent's goes by outline_move's rules (the outliner's moveBlock)",
-    keys: "Z (move to…), K J or alt+up alt+down (up, down among its siblings) in a reader, I O (in, out) on a thread row, the tile menu's rows, a click on the `→ …` row of a new note's edit",
+    keys: modeActionKeys(ATTACHED_KEYS, "note.move"),
     touches: "nothing", replay: "ask",
     menu: { label: "move to…", group: "note", key: "Z", now: (_h, t) => (t.kind === "river.column" ? { hide: true } : null) },
     says: r => String((r as { said?: string }).said ?? "moved a note"),
@@ -10484,7 +10484,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "note.move.undo": def({
     summary: "put the note shown back where the last move made here (by you) took it from",
-    keys: "ctrl+z (when a move was the last change made here)", touches: "nothing", replay: "ask", args: { id: { type: "string", optional: true, about: "the moved note; default the one shown" } },
+    keys: modeActionKeys(ATTACHED_KEYS, "note.move.undo"), touches: "nothing", replay: "ask", args: { id: { type: "string", optional: true, about: "the moved note; default the one shown" } },
     examples: [
       { act: "note.move.undo", does: "puts the note shown back where your last move took it from" },
       { act: "note.move.undo id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", does: "puts that note back where your last move took it from" },
