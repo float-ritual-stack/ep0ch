@@ -56,6 +56,7 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     screen();
     await act("comment.move", { row: 10, col: 2, cols: 60, rows: 12 });
     const before = screen().split("\n").findIndex(l => l.includes("Keep my hero comment here"));
+    expect(h.sc.render(app).placements?.some(p => p.key.includes("hero:img:"))).toBe(true);
     expect(before).toBeGreaterThan(10);
     await act("sources.open");
     await act("sources.place", { place: "floating" });

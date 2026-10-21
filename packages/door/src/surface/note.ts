@@ -1295,7 +1295,7 @@ export class NoteSurface {
 
     placeBox(c.d, box, row, col);
     const under = (p: Placement) => p.row < heroRows + row + box.lines.length + 2 && p.row + p.rows > heroRows + row && p.col < col + box.width && p.col + p.cols > col;
-    return { ...v, lines: [...v.lines.slice(0, heroRows), ...painted], placements: [...(v.placements ?? []).filter(p => p.row + p.rows <= heroRows || !focused && !under(p)), ...previewPictures(c.d, 0, room).map(p => ({ ...p, row: p.row + heroRows }))] };
+    return { ...v, lines: [...v.lines.slice(0, heroRows), ...painted], placements: [...(v.placements ?? []).filter(p => p.row < heroRows || !focused && !under(p)), ...previewPictures(c.d, 0, room).map(p => ({ ...p, row: p.row + heroRows }))] };
   }
 
   /**
