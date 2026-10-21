@@ -194,7 +194,7 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
   }),
   "bar.close": def({
     summary: "put the power bar away, nothing picked. The person's: an agent never closes the bar the person has open",
-    keys: "esc on an empty line, a click outside it",
+    keys: "esc on an empty line, or right after a typed line ran; a click outside it",
     touches: "nothing", replay: "safe",
     person: "the power bar is the person's while it's open; an agent lists and picks with its own (bar.open, bar.pick)",
     args: {},

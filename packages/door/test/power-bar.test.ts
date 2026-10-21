@@ -464,7 +464,9 @@ describe.skipIf(!outliner)("the power bar", () => {
     key({ kind: "enter" });
     await until(() => peek().bar?.runs.at(-1)?.line === "tile.open kind=query query=#build-report", "the command answer", 5000);
     await until(() => (desk as any).all().length === tiles + 1, "the query tile opened", 5000);
-    closeBar();
+    // Right after the run, one Esc puts the bar away; the run waits under "this session" (Evan, Oct 21: "I need to escape a few times").
+    key({ kind: "esc" });
+    await until(() => !peek().bar, "one Esc closed the bar after the run", 3000);
     // An argument the action doesn't take is said on the row, typed key by key as well as pasted.
     key(ctrlK); type("tile.open kind=query colour=red");
     expect(peek().bar.rows[0]).toMatchObject({ source: "actions", label: "run tile.open kind=query colour=red" });
