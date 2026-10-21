@@ -1,3 +1,4 @@
+import { splitWords } from "@ep0ch/outline-core/component-block";
 import { actRequestOf, lineWords, shownLine } from "../surface/actions";
 import { formFields } from "./form";
 import { argKind } from "./arg-kinds";
@@ -8,15 +9,18 @@ export interface BarRun { line: string; answer: string; refused: boolean }
 
 /** Complete the last word with the form's fields and value providers. */
 export async function completeCommand(line: string, host: BarHost): Promise<string | null> {
-  const words = lineWords(line);
+  const parts = splitWords(line, false).flat();
+  const words = parts.map(p => p.value);
+  const tail = parts.at(-1);
+  const atEnd = !!tail && line.endsWith(tail.raw);
   let req;
-  try { req = actRequestOf(words.length > 1 && !/\s$/.test(line) && !words.at(-1)!.includes("=") ? words.slice(0, -1) : words); } catch { return null; }
+  try { req = actRequestOf(words.length > 1 && atEnd && !words.at(-1)!.includes("=") ? words.slice(0, -1) : words); } catch { return null; }
   const info = host.dispatch.list().actions.find(a => a.name === req.action);
-  if (!info || words.length < 2 && !/\s$/.test(line)) return null;
+  if (!info || words.length < 2 && atEnd) return null;
   const fields = formFields(info);
-  const last = /\s$/.test(line) ? "" : words.at(-1)!;
+  const last = atEnd ? tail.value : "";
   const equal = last.indexOf("=");
-  const start = last ? line.lastIndexOf(last.split("=")[0]!) : line.length;
+  const start = atEnd ? line.length - tail.raw.length : line.length;
   if (equal < 0) {
     const field = fields.find(f => f.name.startsWith(last) && req.args?.[f.name] === undefined && (f.name !== "tile" || req.tile === undefined));
     return field ? line.slice(0, start) + field.name + "=" : null;

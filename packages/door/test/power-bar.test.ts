@@ -664,6 +664,10 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(tile.query).toBe("tile.collapse tile=reader");
     const layout = await app.act({ action: "bar.edit", args: { op: "complete", query: "layout.load name=da" }, as: "wren-agent" }) as any;
     expect(layout.query).toBe("layout.load name=daily");
+    await app.dispatch.press("tile.open", { kind: "reader", name: "tile-sample" }, "reader");
+    const named = await app.act({ action: "bar.edit", args: { op: "complete", query: 'tile.collapse tile="tile-s"' }, as: "wren-agent" }) as any;
+    expect(named.query).toBe("tile.collapse tile=tile-sample");
+    await app.dispatch.press("tile.close", {}, "tile-sample");
     await app.dispatch.press("tile.collapse", { on: false }, "reader");
   });
 
