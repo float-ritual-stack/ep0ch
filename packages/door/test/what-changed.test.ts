@@ -80,9 +80,9 @@ describe.skipIf(!outliner)("what changed", () => {
   });
 
   test("a click on +N new opens the list in the drawer, the person's looking clears the count, the rows keep their mark", async () => {
-    const at = (app as any).changedAt;
+    const at = ((await app.dispatch.act({ action: "status.bar.items" }, { kind: "user" })) as { items: { id: string; from?: number }[] }).items.find(i => i.id === "new")!;
     expect(at).not.toBeNull();
-    key({ kind: "mouse", action: "down", button: 0, x: at.from + 1, y: at.row });
+    key({ kind: "mouse", action: "down", button: 0, x: at.from! + 1, y: 39 });
     await until(() => app.whatChanged.count() === 0, "seen once the person looked");
     expect(app.drawer.open).toBe(true);
     const tab = app.drawer.tabs().find(t => t.kind === "what-changed")!;

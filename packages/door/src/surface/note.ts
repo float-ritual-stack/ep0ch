@@ -2528,7 +2528,7 @@ export class NoteSurface {
     const buttonHook = (block: string, lines: readonly number[]): DocEnv["button"] => (call, i) => {
       const line = lines[i] ?? -1, label = printable(call.label);
       if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
-      return [tagged(drawn, { role: "control", label, press: { act: call.act, block, line } }, buttonLabel(label))];
+      return [tagged(drawn, { role: "control", label, press: { act: call.act, ...(call.alt ? { alt: call.alt } : {}), block, line } }, buttonLabel(label))];
     };
     const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id, env.inlineList);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
@@ -4253,7 +4253,7 @@ export class NoteSurface {
     if (k.kind === "enter" || k.kind === "alt-enter") {
       const fresh = k.kind === "alt-enter", e = this.inView();
       if (!fresh && this.selectedFold()) { void this.runKey("fold.toggle", {}, host); return true; }
-      if (e) { if (fresh && !opens(e)) return false; void this.runKey("element.open", fresh ? { fresh } : {}, host); return true; }
+      if (e) { if (fresh && !opens(e) && !e.link?.press?.alt) return false; void this.runKey("element.open", fresh ? { fresh } : {}, host); return true; }
       if (!this.cur && this.links[this.link]) { void this.runKey("link.follow", fresh ? { fresh } : {}, host); return true; }
       return false;
     }
@@ -5453,6 +5453,17 @@ export class NoteSurface {
     else void this.runKey("figure.density", { figure: String(f.n) }, host);
   }
 
+  statusButtonLine(label?: string): string | null {
+    const m = this.msg;
+    if (!m) return null;
+    const call = this.inView()?.link?.press;
+    const buttons = buttonCallsOf(m.text).filter(b => b.act);
+    const hits = label !== undefined ? buttons.filter(b => b.label === label)
+      : call?.block === m.id ? buttons.filter(b => b.line === call.line)
+      : buttons.length === 1 ? buttons : [];
+    return hits.length === 1 ? m.text.split("\n")[hits[0]!.line]! : null;
+  }
+
   describeElements() {
     return this.elems.map((e, i) => ({
       n: i + 1, kind: e.kind, label: printable(e.label), current: e.key === this.cur,
@@ -5720,7 +5731,7 @@ export class NoteSurface {
     }
     // A step's box: its status choice opens under it, as ⏎ on it does (PIE-472); a link (or a summary-line
     // value) opens where ⏎ on it would. Both are element.open on that element.
-    if (e) { void this.runKey("element.open", { n: this.elems.indexOf(e) + 1 }, host); host.redraw(); return true; }
+    if (e) { void this.runKey("element.open", { n: this.elems.indexOf(e) + 1, ...(host.freshClick && e.link?.press?.alt ? { fresh: true } : {}) }, host); host.redraw(); return true; }
     const i = this.links.findIndex(x => sameLink(x, h.link));
     if (i >= 0 && h.value === undefined) { void this.runKey("link.follow", { n: i + 1 }, host); return true; }
     // A link drawn outside the note's elements and links (none today): opened as ⏎ on it would.
@@ -9585,11 +9596,25 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return selected ?? surface.describeElements()[n! - 1];
     },
   }),
+  "button.pin": def({
+    summary: "pin to status bar: append this note's selected ::button to your [status-bar::true] note; label= picks a button by its exact label, or a note with one button needs no selection",
+    touches: "nothing", replay: "ask",
+    args: { label: { type: "string", optional: true, about: "the exact label of the ::button to pin; default: selected button, or the note's only one" } },
+    examples: [{ act: 'button.pin label="Collapse"', does: "pins the Collapse button from this note to your status bar" }],
+    menu: noteRow("pin to status bar", "", { now: ({ surface }) => surface.statusButtonLine() ? null : { hide: true } }),
+    async run({ label }, { surface, host }, actor) {
+      await surface.whole();
+      const line = surface.statusButtonLine(label);
+      if (!line) throw new ActionRefused("select one ::button with [ ], or say button.pin label=<its exact label>");
+      return host.ctx.dispatch!.act({ action: "status.bar.pin", args: { line } }, actor);
+    },
+  }),
   "button.press": def({
     summary: "press a button or a pressable square of a view in this note by its label (or n from elements): its action line runs through the door's dispatcher as whoever asks, attributed and undoable. It opens nothing and moves nothing the person is reading, so it works on the reader they hold; tile= names another reader, and note=<id> presses a ::button or an [label](act: …) link written in a note that is open nowhere (the door reads the note's text), with no focus moved",
     keys: "a click on a button, or ⏎ on it (element.open does the same)", touches: "nothing", replay: "ask",
     args: {
       label: { type: "string", optional: true, about: "the button's label, or part of it (`Fantasia` finds `✦ Fantasia`); the one pressable element that has it" },
+      alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
       note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters); the button's script acts on that note" },
     },
@@ -9597,38 +9622,42 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "button.press label=Water", does: "presses the Water button of this note, as whoever asks" },
       { act: 'button.press note=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 label="Water beds"', does: "presses that button of a note open nowhere, moving no focus" },
     ],
-    async run({ label, n, note }, { surface, host }, actor) {
+    async run({ label, n, note, alt }, { surface, host }, actor) {
       if (note !== undefined) {
         if (label === undefined) throw new ActionRefused("note= needs label= (the button's words); open the note in a reader and use elements for n=");
         const m = await host.ctx.board.get(note);
         if (!m) throw new ActionRefused(`no note ${note}: button.press note=<id> takes a note's id`);
-        const found: { label: string; act: string; line: number }[] = [];
-        for (const c of buttonCallsOf(m.text)) if (c.act) found.push({ label: c.label, act: c.act, line: c.line });
+        const found: { label: string; act: string; alt?: string; line: number }[] = [];
+        for (const c of buttonCallsOf(m.text)) if (c.act) found.push({ label: c.label, act: c.act, alt: c.alt, line: c.line });
         m.text.split("\n").forEach((l, line) => { if (!l.includes("](act:")) return; for (const o of linkOccurrences(l)) if (o.kind === "markdown") { const act = /^act:\s*(\S.*)$/.exec(o.url.trim())?.[1]?.trim(); if (act) found.push({ label: o.text, act, line }); } });
         const want = label.toLowerCase();
-        const hits = found.filter(f => f.label.toLowerCase().includes(want));
+        const exact = found.filter(f => f.label.toLowerCase() === want);
+        const hits = exact.length ? exact : found.filter(f => f.label.toLowerCase().includes(want));
         if (!hits.length) throw new ActionRefused(`no button says "${label}" in that note; it has ${found.length ? found.map(f => `"${f.label}"`).join(", ") : "none"}. Example: button.press note=${m.id.slice(0, 8)} label="${found[0]?.label ?? "Review"}"`);
         if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons of that note (${hits.map(f => `"${f.label}"`).join(", ")}); say more of the label`);
-        const hit = hits[0]!;
-        const r = await surface.runPress({ act: hit.act, block: m.id, line: hit.line }, host, actor);
-        surface.noteAgent(actor, `pressed ${hit.label} (${hit.act})`);
-        return { note: m.id, kind: "control", act: hit.act, ...(r && typeof r === "object" ? r : {}) };
+        const hit = hits[0]!, act = alt && hit.alt ? hit.alt : hit.act;
+        const r = await surface.runPress({ act, block: m.id, line: hit.line }, host, actor);
+        surface.noteAgent(actor, `pressed ${hit.label} (${act})`);
+        return { note: m.id, kind: "control", act, ...(r && typeof r === "object" ? r : {}) };
       }
       await surface.whole();
       surface.requireDrawn();
       if ((label === undefined) === (n === undefined)) throw new ActionRefused("say label= (the button's words) or n= (its number in elements)");
       const all = surface.describeElements();
       const pressable = (i: number) => { const e = surface.element(i + 1); return e.kind === "control" && !!e.link?.press; };
-      const hits = n !== undefined ? (n >= 1 && n <= all.length && pressable(n - 1) ? [n] : []) : all.map((_, i) => i + 1).filter(i => pressable(i - 1) && all[i - 1]!.label.toLowerCase().includes(label!.toLowerCase()));
+      let hits = n !== undefined ? (n >= 1 && n <= all.length && pressable(n - 1) ? [n] : []) : all.map((_, i) => i + 1).filter(i => pressable(i - 1) && all[i - 1]!.label.toLowerCase().includes(label!.toLowerCase()));
+      const exact = hits.filter(i => all[i - 1]!.label.replace(/^\[|\]$/g, "").toLowerCase() === label?.toLowerCase());
+      if (exact.length) hits = exact;
       if (!hits.length) {
         const have = all.map((e, i) => ({ e, i: i + 1 })).filter(x => pressable(x.i - 1)).map(x => `${x.i}: ${x.e.label}`);
         throw new ActionRefused(`${n !== undefined ? `element ${n} is not a button` : `no button says "${label}"`} in this note; ${have.length ? `it has ${have.join(", ")}` : "it has none (a button is ::button{label=… act=…} or a view's pressable square)"}. Example: button.press label="${(have[0]?.split(": ")[1] ?? "Review").replace(/^\[|\]$/g, "")}"`);
       }
       if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons (${hits.map(i => `${i}: ${all[i - 1]!.label}`).join(", ")}); say n=`);
-      const i = hits[0]!, e = surface.element(i);
-      const r = await surface.runPress(e.link!.press!, host, actor);
-      surface.noteAgent(actor, `pressed ${e.label} (${e.link!.press!.act})`);
-      return { element: i, kind: e.kind, act: e.link!.press!.act, ...(r && typeof r === "object" ? r : {}) };
+      const i = hits[0]!, e = surface.element(i), p = e.link!.press!;
+      const act = alt && p.alt ? p.alt : p.act;
+      const r = await surface.runPress({ ...p, act }, host, actor);
+      surface.noteAgent(actor, `pressed ${e.label} (${act})`);
+      return { element: i, kind: e.kind, act, ...(r && typeof r === "object" ? r : {}) };
     },
   }),
   "element.open": def({
@@ -9655,7 +9684,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const e = row === undefined ? surface.element(i) : surface.inlineRowElement(surface.element(i), row - 1);
       // A code block or a quote has nothing to open: ⏎ copies it (the person's to their clipboard, an agent's returned).
       if (e.kind === "block") { const r: unknown = await NOTE_ACTIONS.run("block.copy", { n: e.block! + 1 }, on, actor); return r; }
-      if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
+      if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed" && !e.link?.press?.alt) throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
       // Going elsewhere while the person's comment is unsent here asks them first (PIE-785).
       if (e.kind === "link" || e.kind === "row" || e.kind === "embed" || e.kind === "comment") {
         const asked = surface.askLeave("element.open", { n: i, ...(row !== undefined ? { row } : {}), ...(fresh ? { fresh } : {}) }, actor, host, e.key);
@@ -9676,9 +9705,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       }
       // A press (PIE-957): its action line, through the door's dispatcher, as whoever asks (the person's asks first when it writes).
       if (e.link?.press && e.kind === "control") {
-        const r = await surface.runPress(e.link.press, host, actor);
-        surface.noteAgent(actor, `pressed ${e.label} (${e.link.press.act})`);
-        return { element: i, kind: e.kind, act: e.link.press.act, ...(r && typeof r === "object" ? r : {}) };
+        const act = fresh && e.link.press.alt ? e.link.press.alt : e.link.press.act;
+        const r = await surface.runPress({ ...e.link.press, act }, host, actor);
+        surface.noteAgent(actor, `pressed ${e.label} (${act})`);
+        return { element: i, kind: e.kind, act, ...(r && typeof r === "object" ? r : {}) };
       }
       // An `■ unsent` line's control runs its action as whoever asks (an agent's is refused: the unsent text is the person's).
       if (e.kind === "control" && e.link?.unsent) {

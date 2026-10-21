@@ -259,6 +259,14 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   ].join("\n"));
   // Motion (PIE-958): a button runs a script whose layout changes glide; its tiles float, wander and settle, then land where the layout is.
   await make(notes.scripts.id, "Shuffle tiles [script::shuffle-tiles] [results::keep] [effects::write]\n```js\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: true, motion: 'fantasia' });\nawait wait(1400);\nawait act('float.place', { tile: 'source', dx: 10, dy: 3, motion: 'fantasia' });\nawait act('float.place', { tile: 'extra', dx: -8, dy: 2, motion: 'fantasia' });\nawait wait(1400);\nfor (const n of ['source', 'extra']) await act('tile.float', { tile: n, on: false, motion: 'fantasia' });\nreturn 'settled';\n```");
+  notes.statusBar = await make(notes.root.id, [
+    SEED.statusBar,
+    'Put [ ] on Collapse and open the tile menu: pin to status bar appends this line to your bar note. Or run button.pin label="Collapse" here.',
+    '<!-- Evan\'s layout: ::button{label="Collapse" act="tile.collapse tile=screen"} -->',
+    '::button{label="Collapse" act="tile.collapse tile=extra"}',
+    'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The first edit makes a note seeded with today\'s built-ins. Order them with - <id> lines; leave an id out to hide it. A ::button line puts the same button on the bar, and alt="theme.cycle" gives it an alternate click.',
+    'status.bar.items describes the built-ins and their actions. Changes are live; malformed lines stay saved, say why in the message log, and keep the default bar until fixed.',
+  ].join("\n"));
   notes.motion = await make(notes.root.id, [
     `${SEED.motion}`,
     "Press the button: its script floats the two tiles beside this one, moves them, and settles them back. Each change glides from where the tile was to where it is (a script asks for motion=fantasia; the setting caps it: motion.set mode=calm or off). Nothing flashes or changes brightness, and any key or click snaps it. ctrl+z puts the whole run's layout back.",

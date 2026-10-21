@@ -158,6 +158,7 @@ export const marks: Record<string, string[]> = {
   scripts: ["Seed report", "Press alt+S"],
   "scripts-in-place": ["Scripts in place", "beds-table"],
   press: ["Noughts and crosses", "ttt-board"],
+  "status-bar": ["Your buttons on the status bar", "[Collapse]"],
   "message-log": ["Message log", "garden gate needs attention"],
   motion: ["Tiles that move", "Shuffle the tiles"],
   fantasia: ["Fantasia", "✦ Fantasia"],

@@ -1148,6 +1148,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "status-bar", need: "keep a note's button on your status bar", part: "App's declared status items, StatusBarNote, outline-core button-call and button.press", files: "src/app.ts, src/status-bar.ts, src/surface/note.ts",
+    aside: 'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The note orders built-ins with - <id> lines; leave one out to hide it. Append ::button{label="Collapse" act="tile.collapse tile=screen"}; alt= names an alternate action. A note button offers pin to status bar in its tile menu. status.bar.items describes the same actions the mouse presses. Missing or broken config keeps the default bar; malformed lines stay saved and are said in the message log.',
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · status bar", panes: [a, b], names: ["notes", "extra"] }, show, [[a, n.statusBar], [b, n.shed]]);
+    },
+  },
+  {
     key: "message-log", need: "read a message after its status flash has gone", part: "App.flash appends to the session's StatusLog; the BBS list actions and RowView show every wrapped line, LineInput and the shared search matcher search it", files: "src/status-log.ts, src/app.ts, src/screens.ts",
     aside: "Click the status line or press alt+M from any screen. / searches whole messages, actions and tiles; r refreshes the rows; enter goes to the note or tile, PgUp/PgDn or the wheel reads a long message, q comes back. ep0ch log prints the session file; --follow tails it; peek includes the last 500 messages. Error stacks stay in the file.",
     stage(_n, show) {

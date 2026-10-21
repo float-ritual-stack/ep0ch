@@ -49,6 +49,34 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     return elements.filter(e => e.kind === "control" && /^\[[1-9]\]$/.test(e.label));
   };
 
+  test("button labels prefer exact matches and a note button's alt click runs its alternate action", async () => {
+    const note = await board.createBlock(null, 'Video controls\n::button{label="Video" act="video.cycle" alt="theme.cycle"}\n::button{label="Video theme" act="theme.cycle"}');
+    const desk = new Desk({ name: "button-selection", title: "Button selection", layout: { focus: "reader", root: { t: "leaf", kind: "reader", name: "reader" } } });
+    app.push(desk);
+    try {
+      await app.dispatch.act({ action: "open", args: { id: note.id } }, USER);
+      const drawn = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).join("\n");
+      await until(() => drawn().includes("[Video]"), "video buttons drawn");
+      for (const args of [{ label: "Video" }, { note: note.id, label: "Video" }]) {
+        const result = await app.dispatch.act({ action: "button.press", args }, USER);
+        expect(result).toMatchObject({ act: "video.cycle" });
+        const refused = await app.dispatch.act({ action: "button.press", args: { ...args, label: "Vid" } }, USER).then(() => "", (e: Error) => e.message);
+        expect(refused).toContain("Video");
+        expect(refused).toContain("Video theme");
+        expect(refused).toContain("matches 2 buttons");
+      }
+      const rows = drawn().split("\n"), y = rows.findIndex(l => l.includes("[Video]")), x = rows[y]!.indexOf("[Video]") + 2;
+      const ran: string[] = [];
+      const stop = traceActions(a => ran.push(a.name));
+      try {
+        press({ kind: "mouse", action: "down", button: 0, mods: 8, x, y });
+        press({ kind: "mouse", action: "up", button: 0, mods: 8, x, y });
+        await until(() => ran.includes("theme.cycle"), "the note button's alternate press");
+        expect(ran).not.toContain("video.cycle");
+      } finally { stop(); }
+    } finally { app.pop(); desk.dispose(); await board.trash(note.id); }
+  });
+
   test("a launch button clicks through the door to the desk's layout action", async () => {
     const note = seeded.notes.press;
     const desk = new Desk();

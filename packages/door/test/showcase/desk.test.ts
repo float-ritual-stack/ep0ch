@@ -1,3 +1,4 @@
+import { traceActions } from "../../src/surface/actions";
 // PIE-439: the showcase screen, the desk: esc, refusals, drawer, status, sessions, power bar, policy. One of the showcase's test files (split from the one file, so a
 // section's test is a file of its own); the harness (harness.ts) seeds a scratch outline and opens the screen on it.
 // PIE-439: the showcase. Its seed (every section's content, written through the service) and the screen drawing
@@ -35,6 +36,31 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+
+  test("the status-bar section pins Collapse through the note menu and the bar button collapses the extra tile", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "status-bar" }, as: "test-agent" });
+    await until(() => screen().includes("[Collapse]"), "the status bar guide");
+    const menu = await app.dispatch.act({ action: "tile.menu", tile: "notes" }, { kind: "agent", id: "test-agent" }) as any;
+    expect(JSON.stringify(menu)).toContain("pin to status bar");
+    await app.dispatch.act({ action: "button.pin", tile: "notes", args: { label: "Collapse" } }, { kind: "user" });
+    const note = (await board.byProp("status-bar", "true"))[0]!;
+    expect(note.text).toContain('::button{label="Collapse" act="tile.collapse tile=extra"}');
+    const bar = () => { app.flush(); return plain(h.painted.at(-1)!); };
+    await until(() => bar().includes("Collapse"), "the pinned button");
+    const ran: string[] = [];
+    const stop = traceActions(a => ran.push(a.name));
+    try {
+      const x = bar().indexOf("Collapse");
+      press({ kind: "mouse", action: "down", button: 0, x, y: 59 });
+      await until(() => ran.includes("tile.collapse"), "Collapse through the bar");
+      expect(ran).toContain("button.press");
+      expect(ran).toContain("tile.collapse");
+      const layout = await app.dispatch.act({ action: "layout.get" }, { kind: "user" }) as { tiles: { name: string; collapsed?: boolean }[] };
+      expect(layout.tiles.find(t => t.name === "extra")?.collapsed).toBe(true);
+      expect(layout.tiles.find(t => t.name === "notes")?.collapsed).not.toBe(true);
+    } finally { stop(); await board.trash(note.id); }
+  });
 
   test("the terminal showcase paints its program's browser link beside the notebook", async () => {
     (app as any).lastInput = 0;
@@ -606,10 +632,10 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect(listed.changed.filter((r: any) => !r.seen).map((r: any) => [r.title, r.who, r.kind, r.seen]).sort()).toEqual([["Bean row log", "garden-agent", "edited", false], ["Compost bay log", "garden-agent", "edited", false], ["See HOME-042 for the plan.", "garden-agent", "commented", false], ["Shed door log", "garden-agent", "edited", false]]);
     expect(app.whatChanged.count()).toBe(4);
     // Looking at the list clears the count.
-    const at = (app as any).changedAt;
+    const at = ((await app.dispatch.act({ action: "status.bar.items" }, { kind: "user" })) as { items: { id: string; from?: number }[] }).items.find(i => i.id === "new")!;
     expect(at).not.toBeNull();
-    press({ kind: "mouse", action: "down", button: 0, x: at.from + 1, y: at.row });
-    press({ kind: "mouse", action: "up", button: 0, x: at.from + 1, y: at.row });
+    press({ kind: "mouse", action: "down", button: 0, x: at.from! + 1, y: 59 });
+    press({ kind: "mouse", action: "up", button: 0, x: at.from! + 1, y: 59 });
     await until(() => app.drawer.tabs().some(t => t.kind === "what-changed"), "the list in the drawer", 5000);
     expect(app.drawer.open).toBe(true);
     expect(app.whatChanged.count()).toBe(0);
