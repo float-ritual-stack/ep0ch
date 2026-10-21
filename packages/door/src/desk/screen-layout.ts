@@ -386,7 +386,7 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string): str
  * reader), else the open rule: the next column of its flow (`next`), or none (a reader is its own home: the note
  * replaces its own; anything else moves the current note).
  */
-export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts, tile?: (id: I) => TileFacts): { to: I } | { into: string } | { next: true } | { beside: I } | { tab: I } | null {
+export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts, tile?: (id: I) => TileFacts): { to: I } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
   const wire = s.wires.find(w => w.from === id && w.verb === verb && s.names.has(w.to));
   if (verb === "alt") {
     const open = landing(s, id, "open", facts);
@@ -398,6 +398,7 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" |
       const available = leaves(s.tree).find(t => { const f = tile?.(t); return f?.notes && !f.follower && !f.held && !f.editing && !f.holds; });
       if (available !== undefined) return { to: available };
     }
+    if (!wire && open && "across" in open) return { across: open.across, rule };
     if (rule === "tile") return { to: target };
     if (rule === "tab") return { tab: target };
     if (!wire && !policy.by.altOpens && open && ("into" in open || "next" in open)) return open;
@@ -412,6 +413,7 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" |
   // A list (the links tile) opens in its home, the reader it belongs to, when no link or container says otherwise (PIE-794).
   const home = facts?.home !== undefined ? named(s, facts.home) : undefined;
   if (home !== undefined && home !== id) return { to: home };
+  if (facts?.home?.includes("/")) return { across: facts.home, rule: "tile" };
   if (e.opens === "next" && flowHolding(s.tree, id)) return { next: true };
   return null;
 }

@@ -104,6 +104,8 @@ export class ScreenTile implements Pane {
   }
 
   get screenShown(): Screen | null { return this.framed?.top ?? null; }
+  /** A target can be focused before its first paint, including a restored group in the drawer. */
+  focused() { this.framed?.open(); }
   /** Its screen's dispatcher (the board's card.*), for `act tile=<this>` and `tile=<this>/<a tile in it>`. */
   get dispatch() { return this.framed?.top.dispatch ?? null; }
   title() {

@@ -160,7 +160,7 @@ three layout models and four searches (§4).
 List tiles declare `previews: true` on their tile kind to show select, open and alt wires.
 The tree, links, query, what-changed, waiting-on-you and river column (including the library) use Desk routing;
 figure rows and the thread panel use the containing reader tile's wires through NoteSurface.
-Drawer tiles link to each other on the drawer's own desk, or across its edge to a screen tile.
+Drawer tiles link to each other on the drawer's own desk, or across its edge to a screen tile. Groups keep these wires when moved into the drawer and across screens; a temporarily absent screen target waits at its @screen path. Existing targets and a reader's links list are found inside groups too. Revealing one reveals its holding groups through the layout module's reveal operation. In the drawer, tile.collapse puts the drawer away or shows the named tab; host.toggle and tile.collapse also work from ::button.
 Waiting-on-you's terminal rows select before Enter takes the keys to that terminal; its held-note rows use note wires.
 
 

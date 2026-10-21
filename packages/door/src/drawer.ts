@@ -1043,6 +1043,14 @@ export class AgentDrawer {
     return { ...done, inDrawer: true, from: moved.from };
   }
 
+  collapse(name: string, on: boolean | undefined, actor: Actor): TileDone {
+    const collapsed = on ?? (this.open && this.shownTab() === name);
+    this.set(!collapsed, actor);
+    if (!collapsed) this.desk!.selectTab(name, undefined, actor);
+    this.host.redraw();
+    return { tile: name, collapsed };
+  }
+
   /**
    * Tile `name` in the drawer back into the screen shown, beside `to` (`where`), the same way round: asked there and here
    * first, then moved. The drawer's own tab stays (its policy). The person's keys go with it when they were in it.

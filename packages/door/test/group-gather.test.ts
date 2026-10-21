@@ -125,6 +125,33 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
   const fresh = async () => { await mine("layout.load", { name: "desk" }); render(); await mine("tile.focus", {}, "tree"); };
   const spill = async (g: string) => { await me("tile.group", { on: false }, g); render(); };
 
+  test("b reuses the grouped links and preview beside a detail (PIE-1120)", async () => {
+    D().build({ root: { t: "leaf", kind: "reader", mode: "held", name: "detail", note: seeded.notes.hub.id }, focus: "detail" }, false);
+    render();
+    await until(() => showing("detail") === seeded.notes.hub.id, "detail loaded");
+    await mine("tile.focus", {}, "detail");
+    press({ kind: "char", ch: "b" });
+    await until(() => { render(); return get().tiles.some(t => t.kind === "preview"); }, "links and preview opened by b");
+    const links = get().tiles.find(t => t.kind === "backlinks")!.name;
+    const preview = get().tiles.find(t => t.kind === "preview")!.name;
+    await me("tile.select", {}, links);
+    await me("tile.select", {}, preview);
+    const g = (await me("tile.group", { selected: true }, links)).tile;
+    render();
+    await mine("tile.focus", {}, "detail");
+    press({ kind: "char", ch: "b" });
+    await until(() => { render(); return get().focus !== "detail"; }, "b has aimed the links");
+    expect(get().tiles.some(t => t.kind === "backlinks" || t.kind === "preview")).toBe(false);
+    expect(inner(g, links).backlinks.target.id).toBe(seeded.notes.hub.id);
+    expect(inner(g, links).wires).toContainEqual({ verb: "select", to: preview });
+    await until(() => { render(); return inner(g, links).backlinks.rows?.some((r: any) => r.id); }, "the grouped links loaded");
+    const row = inner(g, links).backlinks.rows.find((r: any) => r.id);
+    await me("backlinks.pick", { n: row.n }, `${g}/${links}`);
+    press({ kind: "enter" });
+    await until(() => showing("detail") === row.id, "the grouped links open in their home detail");
+    await spill(g);
+  });
+
   test("picking tiles: shift+click on titles and ^W space pick, esc lets go; an agent's picks are its own; ^W G gathers the picked, in the arrangement they had", async () => {
     await fresh();
     const tr = tile("tree").rect, rd = tile("reader").rect;
@@ -402,6 +429,37 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await spill(a);
     await spill(b);
   }, 30_000);
+
+  test("alt+l targets across a group both ways also take preview requests without another tile (PIE-1120)", async () => {
+    await fresh();
+    const g = (await me("tile.group", { with: "activity" }, "reader")).tile;
+    render();
+    await mine("tile.focus", {}, "tree");
+    press({ kind: "alt", ch: "l" }, { kind: "char", ch: "s" });
+    const inside = innerAt(g, "reader");
+    mouse("down", inside.col + 3, inside.row + 3);
+    D().showFrom(D().pane("tree"), await board.get(seeded.notes.hub.id));
+    render();
+    expect(inner(g, "reader").showing.id).toBe(seeded.notes.hub.id);
+    expect(await me("tile.preview", {}, "tree")).toMatchObject({ existing: true, tile: `${g}/reader`, verb: "select" });
+    expect(names()).not.toContain("tree-preview");
+
+    await me("mount.enter", { on: true }, g);
+    await me("tile.focus", {}, `${g}/reader`);
+    press({ kind: "alt", ch: "l" });
+    // A reader target outside the group, chosen with the same link-mode click.
+    await me("tile.open", { kind: "detail", name: "outside" }, "replies");
+    render();
+    const target = tile("outside").rect;
+    mouse("down", target.col + 3, target.row + 3);
+    expect(inner(g, "reader").wires).toContainEqual({ verb: "open", to: "../outside" });
+    await D().pane(g).inner.dispatch.act({ action: "open", args: { id: seeded.notes.root.id, from: "reader" } }, { kind: "user" });
+    expect(showing("outside")).toBe(seeded.notes.root.id);
+    expect(await D().pane(g).inner.dispatch.act({ action: "tile.preview", tile: "reader" }, { kind: "user" })).toMatchObject({ existing: true, tile: "../outside", verb: "open" });
+    expect(inner(g, "reader-preview")).toBeUndefined();
+    await me("mount.enter", { on: false }, g);
+    await spill(g);
+  });
 
   test("gathering is a history entry the person can undo (PIE-957): layout.undo ungathers it, and the group's tiles are back where they were", async () => {
     render();
