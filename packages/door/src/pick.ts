@@ -1,5 +1,5 @@
 // Insert from a picker: the draft opens a picker program (television by default: `tv <channel>`) the way ctrl+e opens
-// $EDITOR, and what the picker prints, one choice per line, goes in at the draft's cursor; file choices become absolute list items. On a screen
+// $EDITOR, and what the picker prints, one choice per line, goes in at the draft's cursor; file choices become absolute file tokens. On a screen
 // with tiles (the desk, the river) the picker runs in a terminal tile beside the note (`Ctx.inTile`, the one ctrl+e's
 // editor runs in) with the person's keys, and the tile closes when it exits; on a screen without tiles or one whose shape
 // is locked (the board), the person's terminal is handed to it (Ctx.suspend), as ctrl+e's editor is there. The door knows nothing of any picker's channels: the program and the channel are names the
@@ -56,20 +56,22 @@ export function pickerRun(channel: string, out: string, outline: { socket: strin
   return { argv: ["sh", "-c", `${pickerOf(env)} \${1:+"$1"} > "$EP0CH_PICK_OUT"`, "sh", channel], cwd, env: e, own };
 }
 
-/** What a picker printed, as the text that goes in: references joined by spaces, files as absolute list items; blank lines dropped. */
-export function pickedText(printed: string, cwd = homedir(), channel = ""): string {
+/** References stay inline; several choices containing files form a list. Blank lines are dropped. */
+export function pickedText(printed: string, cwd = homedir()): string {
   const lines = printed.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const choices = lines.map(line => {
     const token = /^\[file::(.*)\]$/.exec(line);
     const path = resolve(cwd, (token?.[1] ?? line).replace(/^~(?=$|\/)/, homedir()));
-    return token || /(?:^|-)files$/.test(channel) || existsSync(path) ? `- [file::${path}]` : line;
+    return token || existsSync(path) ? `[file::${path}]` : line;
   });
-  return choices.join(choices.some(l => l.startsWith("- [file::")) ? "\n" : " ");
+  const list = choices.length > 1 && choices.some(l => l.startsWith("[file::"));
+  return list ? choices.map(l => l.startsWith("[file::") ? `- ${l}` : l).join("\n") : choices.join(" ");
 }
 
 /** The text as it goes in at the cursor: a space before it when it would run into a word. */
 export function atCursor(d: Draft, text: string): string {
   const before = d.lines[d.row]?.slice(0, d.col) ?? "";
+  if (!d.lines[d.row] && text.startsWith("[file::")) return `- ${text}`;
   if (text.startsWith("- [file::")) {
     const after = d.lines[d.row]?.slice(d.col) ?? "";
     return `${before ? "\n" : ""}${text}${after ? "\n" : ""}`;
@@ -127,7 +129,7 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
     if (code === null) return { nothing: `${picker} closed before a choice; nothing inserted` };
     let printed = "";
     try { printed = readFileSync(out, "utf8"); } catch { /* nothing chosen */ }
-    const text = pickedText(printed, cwd, channel);
+    const text = pickedText(printed, cwd);
     // tv and fzf exit 0 or 130 when nothing was chosen (esc, ctrl+c); tv exits 1 on a channel it doesn't have too (its
     // error went with its screen); 127 is sh's "not found".
     if (!text) return { nothing: code === 127 ? `${picker} exited 127: not found (EP0CH_PICKER names the picker); nothing inserted`

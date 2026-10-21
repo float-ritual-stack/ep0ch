@@ -2,8 +2,9 @@
 // printed at the cursor. Here the picker is a shell line that prints (no tv): the real handover path, the output
 // file, the environment it's given, and what goes in. The reader action resolves its folder through a scratch service.
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { Draft } from "../src/edit";
 import { atCursor, channelOf, pickedText, pickerOf, pickerRun, pickInto, pickRunner } from "../src/pick";
 import { USER } from "../src/socket";
@@ -31,7 +32,7 @@ const draft = (text: string, col: number) => { const d = new Draft("n1", 1, text
 describe("what a picker printed, as it goes in", () => {
   test("one choice per line, joined by spaces; blank lines dropped", () => {
     expect(pickedText("((a1))\n((b2))\n\n")).toBe("((a1)) ((b2))");
-    expect(pickedText("[file::/srv/plot/beds.md]\r\n")).toBe("- [file::/srv/plot/beds.md]");
+    expect(pickedText("[file::/srv/plot/beds.md]\r\n")).toBe("[file::/srv/plot/beds.md]");
     expect(pickedText("\n")).toBe("");
   });
 
@@ -70,7 +71,25 @@ describe("pickInto: the terminal handed over, the choice put in", () => {
   test("the channel is the picker's argument, and the picker sees the draft's outline", async () => {
     const d = draft("", 0);
     await withEnv({ EP0CH_PICKER: `sh -c 'echo "$EP0CH_WS:$1"' sh` }, () => pickInto(stepAside(), d, OUTLINE, { channel: "ep0ch-files", cwd: "/tmp" }));
-    expect(d.text).toBe("- [file::/tmp/garden:ep0ch-files]");
+    expect(d.text).toBe("garden:ep0ch-files");
+  });
+
+  test("real paths become file tokens; one stays inline mid-line and an empty line or several picks makes a list", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "picker-files-"));
+    const file = join(folder, "garden beds.md");
+    writeFileSync(file, "Beds");
+    try {
+      for (const printed of ["garden beds.md", file, `[file::${file}]`]) {
+        for (const empty of [false, true]) {
+          const d = draft(empty ? "" : "See here", empty ? 0 : 3);
+          await withEnv({ EP0CH_PICKER: "printf '%s\\n'" }, () => pickInto(stepAside(), d, OUTLINE, { channel: printed, cwd: folder }));
+          expect(d.text).toBe(empty ? `- [file::${file}]` : `See [file::${file}] here`);
+        }
+      }
+      const d = draft("See here", 3);
+      await withEnv({ EP0CH_PICKER: "printf '%s\\n'" }, () => pickInto(stepAside(), d, OUTLINE, { channel: `${file}\n[file::${file}]`, cwd: folder }));
+      expect(d.text).toBe(`See\n- [file::${file}]\n- [file::${file}]\n here`);
+    } finally { rmSync(folder, { recursive: true, force: true }); }
   });
 
   test("nothing chosen, or a picker that isn't there: nothing goes in, and the draft says so", async () => {
