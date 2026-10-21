@@ -406,7 +406,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const drawer = d.app.drawer.desk!;
       await drawer.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
       expect(d.app.describe().drawer.knows).toBeNull();
-      await until(() => { d.app.drawer.chipText(); return d.app.describe().drawer.knows?.pid === d.pane("kettle")!.pid; }, "kettle's own knowledge is read");
+      await until(() => { d.app.drawer.chipText(); return d.app.describe().drawer.knows?.pid === (d.pane("kettle") as PtyPane).pid; }, "kettle's own knowledge is read");
       await drawer.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
       expect(d.app.describe().drawer.knows?.pid).toBe(own.pid);
     } finally { d.app.quit(); }
