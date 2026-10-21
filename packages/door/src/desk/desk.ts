@@ -6691,7 +6691,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // pressing a tile's top edge resizes it. A header with no border above is all grip.
       const slid = hit ? this.slid.find(d => d.placed.rects.has(hit[0])) : undefined;
       const borders = hit && this.isFloat(hit[0]) ? [] : slid ? [...(slid.divider ? [slid.divider] : []), ...slid.placed.dividers] : this.dividers;
-      const onGrip = !!hit && k.y === hit[1].row && k.x > hit[1].col && k.x < this.gripEnd(hit[1]);
+      // Alt or ctrl held, the grip is border too: a drag on a cramped title resizes from the edge it sits on (Evan, Oct 21).
+      const onGrip = !!hit && !((k.mods ?? 0) & 24) && k.y === hit[1].row && k.x > hit[1].col && k.x < this.gripEnd(hit[1]);
       const d = this.zoom === null && !onGrip ? this.borderAt(borders, k.x, k.y) : null;
       if (d) {
         // A border the policy keeps where it is (locked, resizable off, a fixed size) doesn't follow the pointer: said once.

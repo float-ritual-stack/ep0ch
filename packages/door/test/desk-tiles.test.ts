@@ -580,4 +580,18 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     expect(D().describe().dragging).toMatchObject({ tile: "claude" });
     key({ kind: "esc" }); mouse("up", t.col + t.cols - 1, t.row);
   });
+
+  // Evan, Oct 21 12:15 AM: "[mod] drag on a border acts as a resize, not move … finding a slice of exposed border to
+  // resize is getting tricky": alt or ctrl held, a drag on the title resizes from the border it sits on.
+  for (const [name, mods] of [["alt", 8], ["ctrl", 16]] as const) test(`${name}+drag on a title resizes from its border instead of moving the tile`, async () => {
+    if (!(app as any).stack.includes(desk)) app.push(desk);
+    await mine("layout.load", { name: "terminal-day" });
+    const before = shape(), n = rect("now"), c = rect("claude");
+    render(); mouse("down", n.col + 4, n.row, mods); mouse("drag", n.col + 5, n.row, mods); render();
+    mouse("drag", n.col + 4, n.row - 4, mods); render(); mouse("up", n.col + 4, n.row - 4, mods); render();
+    expect(shape()).toBe(before);
+    expect(D().describe().dragging).toBeNull();
+    expect(rect("now").rows).toBe(n.rows + 4);
+    expect(rect("claude").rows).toBe(c.rows - 4);
+  });
 });
