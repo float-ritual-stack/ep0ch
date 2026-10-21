@@ -720,9 +720,10 @@ export class AgentDrawer {
   tabs(): { name: string; id: string; kind: string; title: string; shown: boolean; focused: boolean; pid?: number }[] {
     const d = this.desk;
     if (!d) return [{ name: DRAWER_TILE_ID, id: DRAWER_TILE_ID, kind: DRAWER_KIND, title: this.name, shown: true, focused: this.entered }];
-    const g = d.layoutGet();
+    // Chip reads must not materialize every tile's inspection and terminal scrollback.
+    const tiles = d.tileOutline();
     // A terminal's pid: `ep0ch where` from its program finds it here, though it started on another screen (its EP0CH_TILE_ID was that one's).
-    return g.tiles.map(t => { const p = d.pane(t.name), pid = p instanceof PtyPane ? p.pid : undefined; return { name: t.name, id: t.id, kind: t.kind, title: t.label, shown: t.shown, focused: this.entered && t.focused, ...(pid ? { pid } : {}) }; });
+    return tiles.map(t => { const p = d.pane(t.name), pid = p instanceof PtyPane ? p.pid : undefined; return { name: t.name, id: t.id, kind: t.kind, title: t.label, shown: d.shownNow(p!), focused: this.entered && t.focused, ...(pid ? { pid } : {}) }; });
   }
   /** The tab the drawer shows now. */
   private shownTabOf(): { name: string; kind: string } | null { const t = this.tabs().find(x => x.shown); return t ? { name: t.name, kind: t.kind } : null; }

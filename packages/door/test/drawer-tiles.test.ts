@@ -346,6 +346,28 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  test("round 3: reading the shown tile's chip does not repeatedly scan hidden terminal text (PIE-1172)", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
+      d.paint();
+      const hidden = d.pane("kettle") as PtyPane;
+      let reads = 0;
+      const text = hidden.text;
+      hidden.text = function () { reads++; return text.call(this); };
+      try {
+        // A tick and a status repaint may ask for the same chip several times; the hidden scrollback stays put.
+        for (let i = 0; i < 20; i++) {
+          expect(d.app.drawer.state()).not.toBe("empty");
+          expect(d.app.drawer.chipText()).toContain("cat");
+        }
+        expect(reads).toBeLessThanOrEqual(1);
+      } finally { hidden.text = text; }
+    } finally { d.app.quit(); }
+  });
+
   test("round 2: the shown Herdr terminal and built-in session retain independent polls (PIE-1172)", async () => {
     const herdr = join(state, "herdr");
     writeFileSync(herdr, '#!/bin/sh\nif [ "$3" = "other" ]; then while [ ! -e "' + join(state, "release") + '" ]; do sleep 0.01; done; fi\nif [ "$1 $2" = "agent get" ]; then\ncase "$3" in\nown) echo \'{"result":{"agent":{"agent_status":"blocked"}}}\';;\n*) echo \'{"result":{"agent":{"agent_status":"idle"}}}\';;\nesac\nfi\n');
