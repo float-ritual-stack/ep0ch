@@ -7,6 +7,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, t
 import { cpSync } from "node:fs";
 import { join } from "node:path";
 import { buttonCallsOf } from "@ep0ch/outline-core/button-call";
+import { shellWord } from "../src/machine";
+import { lineWords } from "../src/surface/actions";
 import { ReaderPane } from "../src/desk/panes";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
@@ -699,7 +701,14 @@ describe.skipIf(!outliner)("the power bar", () => {
     const command = await app.dispatch.press("bar.command", { op: "copy" }) as { text: string };
     const button = await app.dispatch.press("bar.command", { op: "button" }) as { text: string };
     expect(command.text).toStartWith("ep0ch act tile.title");
-    expect(buttonCallsOf(button.text)[0]?.act).toBe(command.text.slice("ep0ch act ".length));
+    // The CLI copy is the same words, each shell-quoted, so pasting it into a shell runs what the button runs.
+    expect(command.text).toBe(["ep0ch", "act", ...lineWords(buttonCallsOf(button.text)[0]!.act!)].map(shellWord).join(" "));
+    await app.dispatch.press("bar.edit", { op: "clear" });
+    key({ kind: "paste", text: 'tile.title text="$HOME and `date`" tile=reader' });
+    const quoted = await app.dispatch.press("bar.command", { op: "copy" }) as { text: string };
+    expect(quoted.text).toContain("'text=$HOME and `date`'");
+    await app.dispatch.press("bar.edit", { op: "clear" });
+    key({ kind: "paste", text: 'tile.title text="A \\"quoted\\" title" tile=reader' });
     const before = (await board.get(notes.garden!.id))!.text;
     await app.dispatch.press("bar.insert");
     const reader = desk.pane("reader") as ReaderPane;

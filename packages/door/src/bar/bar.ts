@@ -24,7 +24,8 @@ import { Draft } from "../edit";
 import { editorLineKey } from "../surface/editor";
 import { Gesture, rowsOf, wordAt, Selection, paintRange, SELECT_BG, isCopyKey, modeKey } from "../surface/selection";
 import { NoteSurface, draftPreviewDoc, type SurfaceHost } from "../surface/note";
-import { keyCaption, keyName, keyOfName, shownLine, ActionRefused } from "../surface/actions";
+import { keyCaption, keyName, keyOfName, lineWords, shownLine, ActionRefused } from "../surface/actions";
+import { shellWord } from "../machine";
 import { RowView, wheelRows, MOUSE_ALT, MOUSE_CTRL, MOUSE_MIDDLE } from "../scroll";
 import { C, chip, dim, fg, headOf, MARKS, pad, paint, RESET, TAGS, tailFrom, width } from "../style";
 import { paintable, rowLines, withRowLimit, wrap } from "../text";
@@ -611,7 +612,8 @@ export class PowerBar {
     const line = op === "recall" ? this.host.runs.at(-1)?.line : this.commandLine(n);
     if (!line) throw new Error("type an act line first");
     if (op === "recall") { this.input.splice(0, this.query.length, line); this.refresh(); return { line }; }
-    const text = op === "button" ? commandButton(line) : `ep0ch act ${line}`;
+    // Each word shell-quoted, so a value like "$HOME" or `cmd` pastes as written, never expanded.
+    const text = op === "button" ? commandButton(line) : ["ep0ch", "act", ...lineWords(line)].map(shellWord).join(" ");
     this.host.ctx.copy?.(text);
     return { text };
   }
@@ -622,7 +624,8 @@ export class PowerBar {
     if (it.source.id === "runs") return true;
     if (it.source.id !== "actions") return false;
     const d = it.row.data as { action: string; form?: boolean };
-    return !d.form && (it.row.key.startsWith("line:") || it.row.key === d.action);
+    // Only a typed act line stays with its answer; a picked action row runs and closes, as it always has.
+    return !d.form && it.row.key.startsWith("line:");
   }
 
   /** Pick row `n` (from 1): its source does it, as `actor`. */

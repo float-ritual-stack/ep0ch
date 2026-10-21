@@ -148,10 +148,11 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
     keys: "alt+i; insert button in the command menu",
     touches: "nothing", replay: "ask", person: "inserting at the person's cursor is their action",
     args: {},
-    async run(_, { on }) {
+    async run(_, { on }, actor) {
       const b = on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open");
-      return on.host().dispatch.act({ action: "edit.button", args: { line: b.commandLine() } }, { kind: "user" });
+      // Whoever pressed it is who inserted it (in yolo an agent may, and is said as itself).
+      return on.host().dispatch.act({ action: "edit.button", args: { line: b.commandLine() } }, actor);
     },
   }),
   "bar.form": def({
