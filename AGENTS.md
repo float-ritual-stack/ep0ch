@@ -53,6 +53,10 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   and design it first (PIE-1139 is the example). A gap found in a shared part is approved as an **Extended** row
   (what changes in that part, and the PROTOCOL bump if any). The ticket also says **how a person finds it** where they
   are (a completion, a chip, a hint row, a menu entry, a worked example): most of what's missing is that, not code.
+  A ticket that changes what's on screen also carries a **Sketch**: the screen as it should look, drawn with the wiretext
+  MCP (`render_wireframe` into a `text` fence, `create_wireframe` for an editable wiretext.app link on a `[web::…]` line),
+  with made-up rows. The builder matches it and the review compares the snapshot with it. A mockup only: the door draws
+  from its own parts, never from a sketch.
 - **Parts describe themselves; inspectors read the description.** What Sources, x-ray, hint cards, hint rows and footers, the power bar, the
   component library and `act`'s docs show about a part comes from the part itself (an `ActionDef`, a component schema, a
   producer's own description, the records it returns), never a label or column list written again in the inspector. The
