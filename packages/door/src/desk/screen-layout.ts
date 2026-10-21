@@ -154,6 +154,8 @@ export interface Ctx<I = number> {
   expected?: number;
   /** Applied to the host layer: where the screen shown lets it appear (its policy's `host`); `none` keeps it put away. */
   screenHost?: HostMode;
+  /** Names held by tiles in the other layer. */
+  otherNames?: readonly string[];
 }
 
 /** Where a new or moved tile goes. A drag's places, plus: into a named line (`in`), the next column of a flow, a float. */
@@ -206,6 +208,7 @@ export type Op<I = number> =
   | { op: "flow.widen"; tile: I }
   | { op: "flow.travel"; tile: I; dir: -1 | 1 }
   | { op: "flow.hold"; tile: I; on?: boolean }
+  | { op: "names" }
   | { op: "remember"; key: string; policy: Policy };
 
 /** The answer: the new state (and where the person's keys are now), or the refusal and its reason, nothing done. */
@@ -315,6 +318,22 @@ export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
     if (e instanceof Refused) return { ok: false, refused: e.message };
     throw e;
   }
+  const taken = new Set(ctx.otherNames ?? []);
+  const renamed: { from: string; to: string }[] = [];
+  for (const [id, name] of d.names) {
+    if (taken.has(name)) {
+      const to = autoName({ names: new Map([...d.names].filter(([key]) => key !== id)) }, name.replace(/\d+$/, ""), [...taken]);
+      d.names.set(id, to);
+      const rewire = (policy: Policy | undefined) => { if (policy?.opensInto === name) policy.opensInto = to; };
+      rewire(d.policy);
+      const walk = (n: LNode<I>) => { if (n.t !== "leaf") { rewire(n.policy); kidsOf(n).forEach(walk); } };
+      walk(d.tree);
+      if (d.answer.tile === name) d.answer.tile = to;
+      renamed.push({ from: name, to });
+    }
+    taken.add(d.names.get(id)!);
+  }
+  if (renamed.length) { d.answer.renamed = renamed; d.changed = true; }
   neverBlank(d);
   return { ok: true, state: seal(d, s), focus: d.focus, changed: d.changed, answer: d.answer, base: s };
 }
@@ -374,8 +393,8 @@ export const allTiles = <I>(s: Pick<LayoutState<I>, "tree" | "floats">): I[] => 
 /** The tile named `name`, if there is one. */
 export const named = <I>(s: Pick<LayoutState<I>, "names">, name: string): I | undefined => [...s.names].find(([, n]) => n === name)?.[0];
 /** A name for a new tile of `kind`: the kind, else the kind and the first number free (reader2). */
-export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string): string {
-  const taken = new Set(s.names.values());
+export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, other: readonly string[] = []): string {
+  const taken = new Set([...s.names.values(), ...other]);
   if (!taken.has(kind)) return kind;
   for (let n = 2; ; n++) if (!taken.has(`${kind}${n}`)) return `${kind}${n}`;
 }
@@ -691,6 +710,7 @@ class Step<I> {
       case "flow.widen": return this.widen(op.tile);
       case "flow.travel": return this.travel(op.tile, op.dir);
       case "flow.hold": return this.holdColumn(op.tile, op.on);
+      case "names": this.d.changed = false; return;
       case "remember": return this.rememberPolicy(op.key, op.policy);
     }
   }

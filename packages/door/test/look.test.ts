@@ -425,7 +425,9 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       const raw = () => d.desk.render((d.desk as any).ctx).lines;
       const edges = (name: string) => { raw(); const r = (d.desk as any).drawnAt(name)!; const rows = raw(); return { r, top: plain(rows[r.row]!).slice(r.col, r.col + r.cols), side: plain(rows[r.row + 2]!)[r.col], tint: rows[r.row + 2]!.includes(surfaceBg("raised", 2)) }; };
       const FRAME = /[┌┐└┘─│╭╮╰╯═║╔╗╚╝┏┓┗┛━┃]/;
-      // The tree keeps its frame; the preview of it has none, and its tint is under its edges too.
+      await d.desk.dispatch.act({ action: "tile.arrival.clear", tile: "peek" }, { kind: "user" });
+      await d.desk.dispatch.act({ action: "tile.arrival.clear", tile: "outline" }, { kind: "user" });
+      // After acknowledging the arrival, the preview rejoins its tree.
       expect(FRAME.test(edges("outline").top)).toBe(true);
       const joined = edges("peek");
       expect(FRAME.test(joined.top)).toBe(false);

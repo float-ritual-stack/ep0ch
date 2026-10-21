@@ -153,7 +153,7 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
   };
   if (known) for (const k of leafKinds(layout.root)) if (!isTileKind(canonKind(k))) throw new Error(`screen ${name}: no tile kind ${k} here`);
   // What it names by name is in its layout: a key's tile, the band's tile, where opens land and the keys go home.
-  const tiles = new Set(leafNames(layout.root)), places = new Set([...tiles, ...containerKeys(layout.root)]);
+  const tiles = new Set(slotNames(layout.root)), places = new Set([...tiles, ...containerKeys(layout.root)]);
   // `all`: every tile (tile.collapse on=false tile=all reopens every spine); a container by its key: the tile last in it.
   for (const b of spec.keys ?? []) if (b.tile !== undefined && b.tile !== "all" && !places.has(b.tile)) throw new Error(`screen ${name}: key ${b.key} runs in tile ${b.tile}, which its layout hasn't`);
   if (spec.band !== undefined && !tiles.has(spec.band)) throw new Error(`screen ${name}: its band is drawn by tile ${spec.band}, which its layout hasn't`);
@@ -170,9 +170,11 @@ export function savedNodes(n: any): any[] {
   if (n.t === "leaf") return [n];
   return [n, ...[...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b].flatMap(savedNodes)];
 }
-const leafField = (n: unknown, f: "name" | "kind"): string[] => savedNodes(n).flatMap(x => (x.t === "leaf" && typeof x[f] === "string" ? [x[f]] : []));
+const leafField = (n: unknown, f: "name" | "kind" | "role"): string[] => savedNodes(n).flatMap(x => (x.t === "leaf" && typeof x[f] === "string" ? [x[f]] : []));
 /** The names of a saved tree's tiles, the kinds of them, and the keys of its containers. */
 export const leafNames = (n: unknown) => leafField(n, "name");
+/** The public names and preserved spec slots of the tiles in a layout. */
+export const slotNames = (n: unknown): string[] => [...leafNames(n), ...leafField(n, "role")];
 const leafKinds = (n: unknown) => leafField(n, "kind");
 export const containerKeys = (n: unknown): string[] => savedNodes(n).flatMap(x => (x.t !== "leaf" && typeof x.key === "string" ? [x.key] : []));
 /** A hint per focused kind, as data: its strings only. */

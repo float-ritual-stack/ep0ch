@@ -284,6 +284,8 @@ export interface Screen {
   render(ctx: Ctx): Frame;
   key(k: Key, ctx: Ctx): void;
   enter?(ctx: Ctx): void;
+  /** Visibility of a kept screen; hidden time does not age its arrival accents. */
+  shownAs?(on: boolean): void;
   /** Called ~30×/s while it returns true (modem-speed reveals). */
   tick?(ctx: Ctx): boolean;
   onEvent?(e: OutlineEvent, ctx: Ctx): void;
@@ -633,7 +635,7 @@ export class App implements Ctx {
   kept(): readonly Screen[] { return this.background; }
   raise(s: Screen) {
     if (this.stack.at(-1) === s) return;
-    if (this.stack.includes(s)) { this.disarm(); this.stack = this.stack.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); return; }
+    if (this.stack.includes(s)) { this.stack.at(-1)?.shownAs?.(false); this.disarm(); this.stack = this.stack.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); return; }
     this.push(s);
   }
   idleFor(): number { return Date.now() - this.lastInput; }
@@ -648,7 +650,7 @@ export class App implements Ctx {
    * drawer's desk (a reader in the drawer's edit or comment is theirs as much as a shown one's).
    */
   holders(): Screen[] { return [...this.stack, ...this.background, ...(this.drawer.made ? [this.drawer.made] : [])]; }
-  push(s: Screen) { this.disarm(); this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); }
+  push(s: Screen) { this.stack.at(-1)?.shownAs?.(false); this.disarm(); this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); }
   /** The screens changed (one opened, left or kept in the background): a session checkpoints them (src/session/restore.ts). */
   onStack: (() => void) | null = null;
   pop() {
@@ -665,6 +667,8 @@ export class App implements Ctx {
     // An armed edit is the screen's that goes: it goes with it.
     this.disarm();
     const top = this.stack.pop();
+    top?.shownAs?.(false);
+    this.stack.at(-1)?.shownAs?.(true);
     if (top?.dispose?.() === "keep") { this.background.push(top); this.flash(`${top.leaveWarning?.() ?? top.title} · still running · D on the menu comes back`, 6000); }
   }
 
@@ -1381,7 +1385,8 @@ export class App implements Ctx {
     let expired = !!this.message && Date.now() > this.messageUntil;
     if (expired) this.message = "";
     if (this.toast && Date.now() > this.toast.until) { this.toast = null; expired = true; }
-    if (s?.tick?.(this) || expired || this.overflow.tick(Date.now())) this.redraw();
+    const drawerChanged = this.drawer.made?.tick() ?? false;
+    if (s?.tick?.(this) || drawerChanged || expired || this.overflow.tick(Date.now())) this.redraw();
     // An idle door still keeps time: once the clock or the uptime turns over, the status bar alone is
     // repainted (no screen render, no Kitty sync), so nothing being edited, selected or dragged moves.
     else if (s && this.timeShown() !== this.shownTime) this.paintStatus(s);
