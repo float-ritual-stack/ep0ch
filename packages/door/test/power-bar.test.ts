@@ -493,6 +493,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     const tiles = (desk as any).all().length;
     key({ kind: "enter" });
     await until(() => (desk as any).all().length === tiles + 1, "the query tile opened from the notes scope", 5000);
+    await until(() => peek().bar.rows.some((r: any) => r.source === "runs" && r.label.includes("#seed-list")), "the run answer stays visible in the notes scope");
     closeBar();
     // A row the person moved to stays lit as the rows come again, below the line's row.
     key(ctrlK); type('/tile.open kind=query query="#seed-list"');

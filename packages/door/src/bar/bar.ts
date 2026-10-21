@@ -389,7 +389,7 @@ export class PowerBar {
         return source.pick(command, host, how);
       },
     };
-    this.items = [...guests, ...out, ...(!scoped || scoped.id === "actions" ? [...this.host.runs].reverse() : []).map((run, i): BarItem => ({ source: runs, heading: i === 0 ? "this session" : undefined, row: { key: `run:${i}`, label: run.line, fill: run.line, detail: `${run.refused ? "refused: " : ""}${run.answer}` } }))];
+    this.items = [...guests, ...out, ...(!scoped || scoped.id === "actions" || guests.length ? [...this.host.runs].reverse() : []).map((run, i): BarItem => ({ source: runs, heading: i === 0 ? "this session" : undefined, row: { key: `run:${i}`, label: run.line, fill: run.line, detail: `${run.refused ? "refused: " : ""}${run.answer}` } }))];
     const at = keep ? this.items.findIndex(it => `${it.source.id}\0${it.row.key}` === keep) : -1;
     this.picker.sel = at >= 0 ? at : 0;
     this.litKey = keep;
