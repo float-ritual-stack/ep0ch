@@ -38,7 +38,7 @@ When names repeat, `ep0ch ext ls` lists both locations and which runs first. The
 its buttons. Completion after `js ` offers `script=`; `of=` offers this note's scripts first.
 
 Add `mode=render` to draw the return value under a `hello::` line and redraw when a note it read changes.
-Use `effects=write` to describe a script that writes; it does not grant permission. The note form below uses `[mode::render]` and `[effects::write]`.
+Render scripts draw and have only read functions. Action scripts (buttons, `of=`, keys and rules) have the person's reach even with `effects=read`. Use `effects=write` to describe an action script that writes. The note form below uses `[mode::render]` and `[effects::write]`.
 
 Use a script for a small thing that belongs to one note or one outline: a computed column, a sentence from properties,
 a stamp on every match. Use an extension (a folder) when you need disk, network, a secret, or another language.
@@ -117,10 +117,10 @@ write `rows.map(x => this.title + x)`, not `rows.map(function (x) { return this.
 
 | Function | Returns | Source |
 |---|---|---|
-| `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:216` |
-| `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:221` |
-| `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:230` |
-| `act(name, args?)` | Dispatches a door action in the connected door (**only when the run started from a door**: `ep0ch ext act` and MCP answer "act needs a connected door") (`await act("tile.open", { kind: "query", query: "#beans" })`) and answers what it did. Needs a door (run from the power bar or a live draft); a saved ask or rule has none. | `packages/outliner/src/host-api.ts:233` |
+| `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:222` |
+| `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:227` |
+| `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:236` |
+| `act(name, args?)` | Dispatches a door action in the connected door (**only when the run started from a door**: `ep0ch ext act` and MCP answer "act needs a connected door") (`await act("tile.open", { kind: "query", query: "#beans" })`) and answers what it did. Needs a door (run from the power bar or a live draft); a saved ask or rule has none. | `packages/outliner/src/host-api.ts:240` |
 | `wait(ms)` | Sleeps, then goes on. Ends with the run: its deadline or a stop cuts it short. | `packages/outliner/src/script-runtime.ts:58` |
 
 There is no `stop()` inside a script. Ending a run is the service's `scripts.stop` (see [Lifecycle](#lifecycle)).
@@ -276,7 +276,7 @@ examples lean on:
 
 **Render mode in detail.**
 
-- A render drawing has no write actor, run or door context, regardless of its effects description. It is drawn with a 15-second deadline unless `[deadline::]` says otherwise.
+- A render drawing has no write functions: no `act`, `place`, writing tools or `draft.patch`, regardless of its effects description. A write during render would feed its own redraw. A missing function gives its JavaScript error and the Sources hint "render scripts draw; use an action script (a button or of=) to change things". It is drawn with a 15-second deadline unless `[deadline::]` says otherwise.
 - The line's `week=42` words are `props`; two lines with different words are two drawings.
 - **What a drawing depends on, and nothing else** (`ExtensionCalls.inputs`, and the reads the run records): the host
   note's text (first 16,000 characters), its direct children's ids and text (first 50 children, 2,000 characters each),
@@ -299,7 +299,7 @@ examples lean on:
 
 ## Effects, access and attribution
 
-- **Effects describe; they do not gate.** Scripts run with the person's reach. `effects=read` or `effects=write` is a note to readers in Sources, x-ray and `ext ls`, never permission to call tools, `place` or `act`, at start or during a run. A matching `[script::name]` note supplies `[effects::]` only when the fence omits `effects=`; files describe effects in `// ep0ch-script effects=write`.
+- **Render and action are kinds, not permissions.** A render context contains only read functions. Every action invocation (buttons, `of=`, keys and rules included) has the person's reach; `effects=read` does not prevent writing. `effects=read` and `effects=write` describe the script in Sources, x-ray and `ext ls`. A matching `[script::name]` note supplies `[effects::]` only when the fence omits `effects=`; files describe effects in `// ep0ch-script effects=write`.
   Effects also keep their restart replay meaning: an `actions` macro marked as writing is not re-run by itself after a restart.
 - **Trust the source.** Code in this outline, written by the person or their agents and attributed, runs. EchoNet packets never execute. Actual writes are recorded through the run's attribution and undo, and shown in Sources.
 - **Who wrote it.** Every write is `author: agent` with the actor id `script:<name>`, the run's undo id as the session, and
@@ -376,7 +376,7 @@ Each of these cost someone an hour.
   still prints only the authored text. The draw waits up to three seconds for live answers.
 - **`ext.<id>.run` on a render script runs it as an action** (with a run note), instead of refreshing its line. To draw a
   line again, `projection.refresh` (the door's `r` on the note).
-- **A render drawing has no write actor or door context.** Run it as an action when it needs to write or `act`; its effects description does not supply that context.
+- **A render drawing has no write functions.** Run it as an action (a button or `of=`) when it needs to change things.
 - **`text()` and `console.log` are for run notes.** A render shows only what it returns.
 - **`function () { this }` loses `this`.** Use arrows.
 - **Saving a script that fails to load is allowed.** `ep0ch ext ls` is where the error shows; the note itself is fine.

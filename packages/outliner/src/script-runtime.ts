@@ -1,6 +1,6 @@
 import { actionScript } from "@ep0ch/outline-core/action-line";
 import { CodemodeSandbox, type CodemodeResult } from "@earendil-works/pi-codemode";
-import type { HostApi } from "./host-api";
+import type { HostApi, RenderHostApi } from "./host-api";
 import { PRIMITIVE_TYPES } from "./component-primitives";
 
 /**
@@ -32,15 +32,15 @@ function siteSource(site: ScriptSiteGlobals): string {
 }
 
 /** The VM runs on a worker so a computing script never holds the outline's event loop. */
-export async function runScript(source: string, api: HostApi, signal?: AbortSignal, actions?: Record<string, string>, site: ScriptSiteGlobals = {}): Promise<CodemodeResult> {
+export async function runScript(source: string, api: HostApi | RenderHostApi, signal?: AbortSignal, actions?: Record<string, string>, site: ScriptSiteGlobals = {}): Promise<CodemodeResult> {
   if (actions) source = actionScript(source, actions);
   const sandbox = new CodemodeSandbox({
     tools: api.tools.map(name => ({ name, execute: args => api.call(name, args as Record<string, unknown>) })),
     globals: [
-      { name: "act", spread: true, execute: args => api.act(...args as Parameters<HostApi["act"]>) },
+      ...("act" in api ? [{ name: "act", spread: true as const, execute: (args: unknown) => api.act(...args as Parameters<HostApi["act"]>) }] : []),
       { name: "q", spread: true, execute: args => api.q(...args as Parameters<HostApi["q"]>) },
       { name: "read", spread: true, execute: args => api.read(...args as Parameters<HostApi["read"]>) },
-      { name: "place", spread: true, execute: args => api.place(...args as Parameters<HostApi["place"]>) },
+      ...("place" in api ? [{ name: "place", spread: true as const, execute: (args: unknown) => api.place(...args as Parameters<HostApi["place"]>) }] : []),
       { name: "resolve", spread: true, execute: args => api.resolve(...args as Parameters<HostApi["resolve"]>) },
       // Bounded by the run: it ends with the run, and the run's deadline (the signal's) cuts it short.
       { name: "wait", spread: true, execute: args => wait(Number((args as unknown[])[0]), signal) },
@@ -48,8 +48,9 @@ export async function runScript(source: string, api: HostApi, signal?: AbortSign
   });
   try {
     const views = `const view = Object.fromEntries(${JSON.stringify(PRIMITIVE_TYPES)}.map(type => [type, props => ({ ...props, type })]));`;
+    const toolScope = "act" in api ? "" : `const tools = Object.fromEntries(${JSON.stringify(api.tools)}.map(name => [name, globalThis.tools[name]]));`;
     const javascript = new Bun.Transpiler({ loader: "ts" }).transformSync(`${views}\n${siteSource(site)}\nasync function __ep0ch_script__() {\n${source}\n}`) + "\nreturn await __ep0ch_script__.call(__this);";
-    return await sandbox.execute(javascript, { signal });
+    return await sandbox.execute(toolScope ? `{${toolScope}\n${javascript}\n}` : javascript, { signal });
   } finally {
     await sandbox.close();
   }

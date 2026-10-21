@@ -175,13 +175,20 @@ test("wait is bounded by the script's deadline, and stop ends one run", async ()
   expect(await client.request({ action: "scripts.stop", run: started.undo })).toMatchObject({ stopped: false });
 });
 
-test("a render drawing has no write actor", async () => {
-  const { create, output, draw } = await setup();
-  const target = create("Target");
-  create(`Meddler [script::meddler] [mode::render]\n\`\`\`js\nawait tools.outline_comment({ ref: "${target.id}", whole: true, body: "hi" });\nreturn "wrote";\n\`\`\``);
+for (const [name, code, error] of [
+  ["tool", "await tools.outline_comment({ ref: this.id, whole: true, body: 'hi' });", "not a function"],
+  ["act", "await act('draft.patch', {});", "not defined"],
+  ["place", "await place('hi');", "not defined"],
+] as const) test(`a render drawing has no ${name} write function and explains its error in Sources`, async () => {
+  const { store, client, create, output, draw } = await setup();
+  create(`Meddler [script::meddler] [mode::render] [effects::write]\n\`\`\`js\n${code}\nreturn "wrote";\n\`\`\``);
   const note = create("Draw\nmeddler::");
   await draw(note.id);
-  expect(await until("the refusal", () => output(note.id)[0])).toContain("pass --actor");
+  expect(await until("the JavaScript error", () => output(note.id)[0])).toContain(error);
+  const sources = await client.request<import("@ep0ch/outline-core/sources").SourcesAnswer>({ action: "site.sources", blockId: note.id });
+  expect(sources.sources.find(s => s.name === "meddler")?.problem).toContain("render scripts draw; use an action script (a button or of=) to change things");
+  expect(store.require(note.id).text).toBe(note.text);
+  expect(store.children(note.id)).toEqual([]);
 });
 
 test("a render line is drawn again when its script's code changes, and when a query it ran finds a new match", async () => {
