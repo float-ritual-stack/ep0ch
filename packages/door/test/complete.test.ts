@@ -520,6 +520,24 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     await until(() => e.d.text.endsWith('of="water-plants"'), "the script name inserted");
   });
 
+  test("a script fence offers its settings and its button completes local names first", async () => {
+    await create('Far script [script::water-far]\n```js\nreturn "far";\n```');
+    const id = await create('Local practice\n');
+    await board.listExtensions(true);
+    const e = await editing(id);
+    e.s.key({ kind: 'paste', text: '```js script=water-near\nreturn "near";\n```\n' }, e.h);
+    e.type('::button{of=water');
+    expect((await e.settled()).items[0]!.insertion).toBe('"water-near"');
+    e.press(K("tab"));
+    await until(() => e.d.text.endsWith('of="water-near"'), "the local name inserted");
+    const fence = await editing(await create("Fence practice\n"));
+    fence.type("```js ");
+    const settings = await fence.settled();
+    expect(settings.items.some(i => i.insertion === "script=")).toBe(true);
+    fence.press(K("tab"));
+    await until(() => fence.d.text.endsWith("```js script="), "the fence name setting inserted");
+  });
+
   test("template property-value kinds offer that key's facet values (PIE-1127 round 2)", async () => {
     const template = await create("Facet producer [page::facet-producer] [form-field::side property:trellis]");
     const e = await editing(await create("Facet practice [trellis::north]\n"));

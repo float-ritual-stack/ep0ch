@@ -15,7 +15,7 @@ test("a script reads this, self, caller and props, with no id written in it", as
   create("Seed bed", garden.id);
   create("Water butt", garden.id);
   create("Elsewhere");
-  const reader = create(`Site reader [script::site-reader]
+  const reader = create(`Site reader [SCRIPT::site-reader]
 \`\`\`js
 const kids = (await q("parent:this")).blocks.map(b => b.title).sort();
 const owner = await resolve("this.owner");
@@ -135,12 +135,12 @@ test("a ::= line is a one-line render-mode script", async () => {
   expect(await until("the line", () => output(note.id)[0])).toBe("SAM");
 });
 
-test("a render script that declares effects=write isn't served, and says why", async () => {
-  const { create, client } = await setup();
-  create("Writer [script::drawer-writer] [mode::render] [effects::write]\n```js\nreturn 'x';\n```");
-  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
-  const slot = JSON.stringify(listed.extensions.filter(e => e.name === "drawer-writer")) + JSON.stringify((listed as { errors?: unknown }).errors ?? []);
-  expect(slot + JSON.stringify(listed)).toContain("draws a view and never writes");
+test("a render script can describe write effects without being rejected", async () => {
+  const { create, output, draw } = await setup();
+  create("Writer [script::drawer-writer] [mode::render] [effects::write]\n```js\nreturn 'drawn';\n```");
+  const note = create("Drawing\ndrawer-writer::");
+  await draw(note.id);
+  expect(await until("the drawing", () => output(note.id)[0])).toBe("drawn");
 });
 
 test("a script that writes into its own note keeps running to the end", async () => {
@@ -175,13 +175,20 @@ test("wait is bounded by the script's deadline, and stop ends one run", async ()
   expect(await client.request({ action: "scripts.stop", run: started.undo })).toMatchObject({ stopped: false });
 });
 
-test("a read-only render script can't write: its write is refused", async () => {
-  const { create, output, draw } = await setup();
-  const target = create("Target");
-  create(`Meddler [script::meddler] [mode::render]\n\`\`\`js\nawait tools.outline_comment({ ref: "${target.id}", whole: true, body: "hi" });\nreturn "wrote";\n\`\`\``);
+for (const [name, code, error] of [
+  ["tool", "await tools.outline_comment({ ref: this.id, whole: true, body: 'hi' });", "not a function"],
+  ["act", "await act('draft.patch', {});", "not defined"],
+  ["place", "await place('hi');", "not defined"],
+] as const) test(`a render drawing has no ${name} write function and explains its error in Sources`, async () => {
+  const { store, client, create, output, draw } = await setup();
+  create(`Meddler [script::meddler] [mode::render] [effects::write]\n\`\`\`js\n${code}\nreturn "wrote";\n\`\`\``);
   const note = create("Draw\nmeddler::");
   await draw(note.id);
-  expect(await until("the refusal", () => output(note.id)[0])).toContain("read-only");
+  expect(await until("the JavaScript error", () => output(note.id)[0])).toContain(error);
+  const sources = await client.request<import("@ep0ch/outline-core/sources").SourcesAnswer>({ action: "site.sources", blockId: note.id });
+  expect(sources.sources.find(s => s.name === "meddler")?.problem).toContain("render scripts draw; use an action script (a button or of=) to change things");
+  expect(store.require(note.id).text).toBe(note.text);
+  expect(store.children(note.id)).toEqual([]);
 });
 
 test("a render line is drawn again when its script's code changes, and when a query it ran finds a new match", async () => {
@@ -257,7 +264,7 @@ test("a script's write to a note a render line reads draws the line again, and t
 
 test("a script that acts on a door with none connected is refused with where to find one (PIE-957)", async () => {
   const { create, run } = await setup();
-  create(`Ask door [script::ask-door] [effects::write]\n\`\`\`js\nawait act("actions", {});\nreturn "asked";\n\`\`\``);
+  create(`Ask door [script::ask-door]\n\`\`\`js\nawait act("actions", {});\nreturn "asked";\n\`\`\``);
   const note = create("Somewhere");
   const { text } = await run("ask-door", { blockId: note.id });
   expect(text).toContain("failed");
@@ -267,7 +274,7 @@ test("a script that acts on a door with none connected is refused with where to 
 
 test("a script's act with no door= uses the one connected door, which a client declares with app: \"door\", not by the look of its clientId (PIE-957)", async () => {
   const { client, create, run } = await setup();
-  create(`Ask door [script::ask-one-door] [effects::write]\n\`\`\`js\nconst r = await act("actions", {});\nreturn "door said " + JSON.stringify(r);\n\`\`\``);
+  create(`Ask door [script::ask-one-door]\n\`\`\`js\nconst r = await act("actions", {});\nreturn "door said " + JSON.stringify(r);\n\`\`\``);
   const note = create("Somewhere else");
   // A client whose id merely looks like a door's is not one.
   const impostor = client.watch({ client: { clientId: "ep0ch-door-lookalike", role: "observer", contextId: "x" }, onEvent: () => {} });
@@ -296,4 +303,147 @@ test("a line written before its script exists is drawn once the script is loaded
   expect(output(note.id)).toEqual([]);
   create("Late [script::late-bloomer] [mode::render]\n```js\nreturn 'bloomed';\n```");
   expect(await until("the line drawn by the script's arrival", () => output(note.id)[0])).toBe("bloomed");
+});
+
+
+test("named fences register separately, resolve nearest first and keep their name when moved", async () => {
+  const { store, create, client, draw, output } = await setup();
+  const other = create("Elsewhere\n```js script=pair\nreturn 'far';\n```");
+  const local = create("Workbench\n```js script=pair effects=write\nawait tools.outline_set_property({ ref: this.id, key: 'result', value: 'near', revision: this.revision });\nreturn 'near';\n```\n```js script=mark effects=write\nawait tools.outline_set_property({ ref: this.id, key: 'second', value: 'yes', revision: this.revision });\nreturn (await read(this.id)).title;\n```\n```js script=caption mode=render\nreturn 'drawn here';\n```\ncaption::\n::button{of=pair}");
+  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true, blockId: local.id });
+  const pairs = listed.extensions.filter(e => e.name === "pair");
+  expect(pairs.map(e => e.script?.blockId)).toEqual([local.id, other.id]);
+  expect(pairs[0]!.description).toContain(other.id);
+  expect(listed.extensions.find(e => e.name === "mark")?.actions[0]?.effects).toBe("write");
+  await draw(local.id);
+  expect(await until("the named render fence", () => output(local.id)[0])).toBe("drawn here");
+  const second = listed.extensions.find(e => e.name === "mark")!;
+  await client.request({ action: "extensions.act", extension: second.id, extensionAction: "run", blockId: local.id });
+  await until("the second fence's write", () => store.require(local.id).text.includes("[second::yes]"));
+  const run = await client.request<{ undo: string }>({ action: "extensions.act", extension: "script:pair", extensionAction: "run", blockId: local.id });
+  await until("the nearest fence's write", () => store.get(local.id)!.text.includes("[result::near]"));
+  expect(run.undo).toBeTruthy();
+  const current = store.require(local.id);
+  const fence = current.text.slice(current.text.indexOf("```js script=pair"), current.text.indexOf("```js script=mark"));
+  store.update(local.id, current.text.replace(fence, ""), current.revision, { author: "user" });
+  const moved = create("Pair on its own [script::pair]\n" + fence);
+  // Remove the other definition so the unchanged button now finds the relocated fence by name.
+  store.update(other.id, "Elsewhere", store.require(other.id).revision, { author: "user" });
+  const after = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true, blockId: local.id });
+  expect(after.extensions.filter(e => e.name === "pair").map(e => e.script?.blockId)).toEqual([moved.id]);
+  store.update(local.id, store.require(local.id).text.replace("[result::near]", "[result::ready]"), store.require(local.id).revision, { author: "user" });
+  await client.request({ action: "extensions.act", extension: "script:pair", extensionAction: "run", blockId: local.id });
+  await until("the relocated fence's write", () => store.require(local.id).text.includes("[result::near]"));
+});
+
+
+test("a note script never borrows a differently named fence", async () => {
+  const { store, create, client, run } = await setup();
+  const note = create("Outer [script::outer] [effects::write]\n```js script=inner effects=read\nreturn 'inner';\n```");
+  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+  expect(listed.extensions.find(e => e.name === "outer" && e.state === "active")).toBeUndefined();
+  expect(listed.extensions.find(e => e.name === "inner")?.actions[0]?.effects).toBe("read");
+  store.update(note.id, note.text + "\n```js\nreturn 'outer';\n```", note.revision, { author: "user" });
+  expect((await run("outer")).text.split("\n").pop()).toBe("outer");
+});
+
+test("moving a named fence preserves its explicit effects and ordinary note effects do not configure it", async () => {
+  const { store, create, client } = await setup();
+  const note = create("Workbench [effects::write]");
+  const target = create("Garden");
+  const settings: ("read" | "write" | undefined)[] = ["read", "write", undefined];
+  for (const effects of settings) {
+    const fence = "```js script=traveller" + (effects ? ` effects=${effects}` : "") + "\nawait tools.outline_set_property({ ref: this.id, key: 'visited', value: 'yes', revision: this.revision });\nreturn 'visited';\n```";
+    for (const matching of [false, true, false]) {
+      const current = store.require(note.id);
+      store.update(note.id, `Workbench [effects::${matching ? "read" : "write"}] [results::keep]${matching ? " [script::traveller]" : ""}\n${fence}`, current.revision, { author: "user" });
+      const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+      const entry = listed.extensions.find(e => e.name === "traveller")!;
+      expect(entry.actions[0]?.effects).toBe(effects ?? "read");
+      const before = store.children(note.id).map(b => b.id);
+      await client.request({ action: "extensions.act", extension: entry.id, extensionAction: "run", blockId: target.id });
+      const answer = await until("the moved fence's answer", () => store.children(note.id).find(b => !before.includes(b.id) && !b.text.split("\n")[0]!.includes("· working")));
+      expect(answer.text.split("\n").pop()).toBe("visited");
+      expect(store.require(target.id).text).toContain("[visited::yes]");
+    }
+  }
+});
+
+test("removing a failed named fence removes its registry entry without a manual reload", async () => {
+  const { store, create, client } = await setup();
+  for (const fence of ["```js script=unfinished\nreturn 'x';", "```js script=invalid\n```"]) {
+    const note = create("Workbench\n" + fence);
+    const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+    const failed = listed.extensions.find(e => e.state === "failed" && e.error?.includes(fence.includes("unfinished") ? "closed" : "empty"))!;
+    expect(failed?.error).toBeTruthy();
+    store.update(note.id, "Workbench", note.revision, { author: "user" });
+    await until("the removed failed fence to disappear", async () => {
+      const current = await client.request<ExtensionsListResult>({ action: "extensions.list" });
+      return !current.extensions.some(e => e.id === failed.id);
+    }, 1000);
+  }
+});
+
+
+test("running by block id chooses the note script and refuses an unnamed choice between scripts", async () => {
+  const { store, create, client } = await setup();
+  store.configureMcpAccess("full");
+  const note = create("Outer [script::outer] [results::keep]\n```js script=inner effects=write\nreturn 'inner';\n```\n```js script=outer effects=read\nreturn 'outer';\n```");
+  const started = await client.request<{ written: string[] }>({ action: "scripts.run", blockId: note.id, access: "full", mutation: { author: "agent", actorId: "script-reader" } });
+  const answer = await until("the block's own script answer", () => store.get(started.written[0]!)?.text.includes("· done") && store.get(started.written[0]!)!.text);
+  expect(answer.split("\n").pop()).toBe("outer");
+  store.update(note.id, store.require(note.id).text.replace(" [script::outer]", ""), store.require(note.id).revision, { author: "user" });
+  await expect(client.request({ action: "scripts.run", blockId: note.id, access: "full", mutation: { author: "agent", actorId: "script-reader" } })).rejects.toThrow(/(inner.*outer|outer.*inner)/);
+});
+
+
+test("removing a failed fence in a draft hides its saved registry error", async () => {
+  const { create, client } = await setup();
+  const note = create("Workbench\n```js script=draft-broken\n```");
+  const saved = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
+  const failed = saved.extensions.find(e => e.state === "failed" && e.error?.includes("empty"))!;
+  expect(failed?.error).toBeTruthy();
+  const draft = await client.request<ExtensionsListResult>({ action: "extensions.list", blockId: note.id, draft: { text: "Workbench" } });
+  expect(draft.extensions.find(e => e.id === failed.id)).toBeUndefined();
+  expect((await client.request<ExtensionsListResult>({ action: "extensions.list" })).extensions.find(e => e.id === failed.id)?.error).toBeTruthy();
+});
+
+
+test.each([
+  { own: true, broken: "" },
+  { own: false, broken: "" },
+])("block selection refuses an authored unavailable source ($own, $broken)", async ({ own, broken }) => {
+  const { store, create, client } = await setup();
+  store.configureMcpAccess("full");
+  const note = create(`Workbench${own ? " [script::chosen]" : ""}\n\`\`\`js script=chosen\n${broken}\n\`\`\`\n\`\`\`js script=other\nreturn 'wrong script';\n\`\`\``);
+  await expect(client.request({ action: "scripts.run", blockId: note.id, access: "full", mutation: { author: "agent", actorId: "script-reader" } }))
+    .rejects.toThrow(own ? /chosen.*empty/ : /chosen.*other|other.*chosen/);
+  expect(store.children(note.id)).toEqual([]);
+});
+
+test("duplicate fence names fail at load with both authored line numbers", async () => {
+  const { create, client } = await setup();
+  const note = create("Workbench\n```js script=twice\nreturn 'bad';\n```\n```js script=twice\nreturn 'wrong script';\n```");
+  const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true, blockId: note.id });
+  const duplicates = listed.extensions.filter(e => e.error?.includes("twice"));
+  expect(duplicates.length).toBeGreaterThan(0);
+  for (const entry of duplicates) {
+    expect(entry.state).toBe("failed");
+    expect(entry.error).toMatch(/lines 2.*5/);
+  }
+  expect(listed.extensions.some(e => e.name === "twice" && e.state === "active")).toBe(false);
+});
+
+
+test.each([
+  { fence: "```js script=chosen\nreturn 'bad';", reason: "closed" },
+  { fence: "```js script=chosen\n```", reason: "empty" },
+  { fence: "```js script=chosen\nreturn 'one';\n```\n```js script=chosen\nreturn 'two';\n```", reason: "more than once" },
+])("an unavailable local script refuses instead of running an outer name ($reason)", async ({ fence, reason }) => {
+  const { store, create, client } = await setup();
+  const outer = create("Outer [script::chosen] [results::keep]\n```js\nreturn 'wrong outer script';\n```");
+  const local = create("Workbench\n" + fence);
+  await client.request({ action: "extensions.list", reload: true });
+  await expect(client.request({ action: "extensions.act", extension: "script:chosen", extensionAction: "run", blockId: local.id })).rejects.toThrow(reason);
+  expect(store.children(outer.id)).toEqual([]);
 });

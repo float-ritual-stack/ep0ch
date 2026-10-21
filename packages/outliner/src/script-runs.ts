@@ -174,11 +174,11 @@ export class ScriptRuns {
         },
       } : this.client;
       const api = hostApi(client, undefined, {
-        effects: "read", cutQueries: !!bound, visibleId, onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
+        kind: "render", cutQueries: !!bound, visibleId, onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
       if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
-      if (!result.ok) throw new Error(result.error.message);
+      if (!result.ok) throw new Error(`${result.error.message}\nrender scripts draw; use an action script (a button or of=) to change things`);
       const drew = result.value === undefined ? null : scriptView(result.value);
       return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}) };
     } finally { clearTimeout(timer); }
@@ -194,6 +194,8 @@ export class ScriptRuns {
 
   start(extension: LoadedExtension, request: ExtensionActRequest): ExtensionActResult {
     const source = extension.script!;
+    // Effects in a file's opt-in header describe it; only its body is executing code.
+    const body = (code: string) => source.file ? code.split("\n").slice(1).join("\n") : code;
     const undo = this.writes.beginRun(`script:${extension.name}`);
     const actor: MutationProvenance = { author: "agent", actorId: `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
     const requestedBy = request.requestedBy ?? { author: "user" as const };
@@ -261,8 +263,8 @@ export class ScriptRuns {
         if (controller.signal.aborted) throw controller.signal.reason instanceof Error ? controller.signal.reason : new Error("The script run ended");
         // The script is its code: a run that writes into its own note (its output, a log) goes on; an edit of the code ends it.
         const changed = source.blockId
-          ? scriptFence(this.store.get(source.blockId)?.text ?? "").code !== source.code
-          : await Bun.file(source.file!).text() !== source.code;
+          ? scriptFence(this.store.get(source.blockId)?.text ?? "", source.fence).code !== source.code
+          : body(await Bun.file(source.file!).text()) !== body(source.code);
         if (changed) {
           controller.abort();
           throw new Error("The script source changed; run its saved revision again");
@@ -297,7 +299,6 @@ export class ScriptRuns {
       onStep: step,
       ...(site.thisId ? { thisId: site.thisId } : {}),
       ...(site.resolve ? { resolve: site.resolve } : {}),
-      effects: source.effects,
       place: (content, opts) => place(content, opts),
       mcpAccess: request.mcpAccess,
       // The door it asks is the one that started the run (or `door=`); with none, the service picks the only door or says which there are.
@@ -317,7 +318,7 @@ export class ScriptRuns {
         }
         const result = await runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined, site.globals);
         const current = this.registry.extension(extension.id);
-        if (!current || current.stamp !== extension.stamp) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
+        if (result.ok && (!current?.script || body(current.script.code) !== body(source.code))) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
         lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}] [machine::script]`;
         for (const output of result.output) if (output.type === "text") lines.push(output.text);
         if (result.ok) {

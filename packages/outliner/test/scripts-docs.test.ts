@@ -75,11 +75,12 @@ test("the traps: this has no children, a q row has no properties, caller and pro
   expect(seen.props).toEqual({});
 });
 
-test("a read-only script's write is refused, a render can't act, and an arrow function keeps this", async () => {
-  const { create, run } = await setup();
+test("an action script with read effects still writes, and an arrow function keeps this", async () => {
+  const { store, create, run } = await setup();
   const host = create("Host");
-  create("Reader [script::reader-only]\n```js\nawait tools.outline_create({ parent: this.id, text: 'x' });\n```");
-  expect((await run("reader-only", { blockId: host.id })).text).toContain("This script is read-only; declare effects=write to write");
+  create("Reader [script::reader-only] [effects::read]\n```js\nawait tools.outline_create({ parent: this.id, text: 'x' });\n```");
+  await run("reader-only", { blockId: host.id });
+  expect(store.children(host.id).map(b => b.text)).toEqual(["x"]);
   create("Nope [script::nope]\n```js\ntry { await tools.nope({}); } catch (e) { return e.name; }\n```");
   expect((await run("nope", { blockId: host.id })).text.split("\n").pop()).toBe("TypeError");
   create("Arrows [script::arrows]\n```js\nconst ok = [1].map(() => this.title)[0];\nconst lost = [1].map(function () { return this?.title; })[0];\nreturn JSON.stringify({ ok, lost: lost ?? null });\n```");
@@ -110,7 +111,7 @@ async function paste(example: ScriptExample) {
 }
 
 test("the examples the page promises are all there", () => {
-  expect(examples.map(e => e.example)).toEqual([1, 2, 3, 4, 5]);
+  expect(examples.map(e => e.example)).toEqual([1, 2, 3, 4, 5, 6]);
   for (const example of examples) {
     expect(example.notes.length, `example ${example.example} has notes to paste`).toBeGreaterThan(0);
     expect(example.shows.trim(), `example ${example.example} says what it shows`).not.toBe("");
@@ -195,4 +196,15 @@ test("a render line redraws for an edit of its own script note and for the host'
   expect(await until("script edit redraw", () => output(host.id)[0] === "yo Host" && "yo Host")).toBe("yo Host");
   store.update(host.id, "Host2\nsnap::", store.get(host.id)!.revision, { author: "user" });
   expect(await until("host redraw", () => output(host.id)[0] === "yo Host2" && "yo Host2")).toBe("yo Host2");
+});
+
+
+test("example 6: the named fence beside its button writes both things", async () => {
+  const example = examples.find(e => e.example === 6)!;
+  const { client, store, made } = await paste(example);
+  const desk = made.get("ex6-desk")!;
+  await client.request({ action: "extensions.list", reload: true });
+  await client.request({ action: "extensions.act", extension: "script:pack-pair", extensionAction: "run", blockId: desk.id });
+  await until("both changes from the documented fence", () => store.children(desk.id).some(b => b.text === "Labels ready"));
+  expect(store.require(desk.id).text).toContain("[packing::ready]");
 });

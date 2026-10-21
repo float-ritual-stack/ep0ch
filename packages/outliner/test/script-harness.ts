@@ -1,7 +1,7 @@
 // The scratch service the script tests share (script-site.test.ts, scripts-docs.test.ts): a store and server in a temp
 // folder, a client, and `run` to start a script by name as a person would. Every note and name is made up.
 import { afterEach } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
@@ -27,6 +27,9 @@ export async function setup() {
   const previous = { dir: process.env.OUTLINER_EXTENSIONS_DIR, registry: process.env.OUTLINER_RESOURCE_EXTENSIONS };
   process.env.OUTLINER_EXTENSIONS_DIR = join(root, "user-extensions");
   process.env.OUTLINER_RESOURCE_EXTENSIONS = join(root, "no-legacy-registry.json");
+  // Watch the extension folders themselves so SQLite writes cannot masquerade as source changes.
+  for (const folder of ["user-extensions", "outline/extensions", "outline/.ep0ch/scripts", "outline/scripts"])
+    mkdirSync(join(root, folder), { recursive: true });
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: join(root, "outline") });
   const socket = join(root, "outliner.sock");
   const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80, ruleQuietMs: 20 });
@@ -61,6 +64,6 @@ export async function setup() {
     await client.request({ action: "extensions.list", reload: true });
     await client.request({ action: "resources.projection.read", blockId, materialize: true });
   };
-  return { store, client, create, extensionOf, run, output, draw };
+  return { store, server, client, create, extensionOf, run, output, draw };
 }
 

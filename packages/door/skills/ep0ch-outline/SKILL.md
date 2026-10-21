@@ -714,9 +714,10 @@ doesn't have the environment variable: the service reads the group when a call s
 computed column over a note's children, a sentence built from its properties, a checklist stamped on every match, a move
 you keep repeating. Needing a file, the web, a key or another language makes it an extension (below).
 
-A script is a note with `[script::name]` and a closed `js` fence; `[mode::render]` makes it draw under a `name::` line,
+A script is a named fence in any note (`js script=name`), next to `::button{of=name}`; moving the fence to its own note keeps
+the name. The whole-note form uses `[script::name]` and a closed `js` fence; `[mode::render]` makes it draw under a `name::` line,
 `[effects::write]` lets it write. **The whole surface** (globals, `q`/`read`/`resolve`/`act`/`wait`, every `tools.*` and
-`view.*`, modes, effects, lifecycle, traps, five worked examples you can paste) is one page with a `path:line` pointer per
+`view.*`, modes, effects, lifecycle, traps, worked examples you can paste) is one page with a `path:line` pointer per
 entry: `packages/outliner/docs/scripts.md` in the repository. Read it before writing a script; its example 2 is the
 usual start (a table of a note's children with a computed column). Two traps to know first: `this.children` is always
 empty (use `q("parent:this")` or `read(this.id)`), and a `q` row has no properties (read the row).

@@ -5,7 +5,7 @@ import { moveNote } from "./note-move";
 import { isSqliteBusy } from "./sqlite-busy";
 import { OutlineSnapshots } from "./outline-snapshots";
 import { DEFAULT_MACHINERY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
-import { scriptSources } from "./script-sources";
+import { scriptSources, scriptsAt } from "./script-sources";
 import { ScriptRuns } from "./script-runs";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import { PERSON_READER, queryRequestProblem } from "./block-query";
@@ -2012,8 +2012,14 @@ export class OutlinerServer {
         const access = levels[Math.min(levels.indexOf(request.access), levels.indexOf(this.mcpAccess().level))];
         if (access !== "propose" && access !== "full") throw new Error(`MCP access is ${access}: no script runs`);
         await this.extensionRegistry.reload();
-        const extension = this.extensionRegistry.serving().find(e => e.script?.blockId === request.blockId);
-        if (!extension) throw new Error("This block has no runnable script; add [script::name] and a closed js or ts fence");
+        const scripts = (await scriptSources(this.store)).filter(s => s.script?.blockId === request.blockId);
+        const name = this.store.require(request.blockId).properties.find(p => p.key === "script")?.value;
+        const nameOf = (s: (typeof scripts)[number]) => s.script!.fence?.name ?? name;
+        if (!name && scripts.length > 1) throw new Error(`This block has several scripts: ${scripts.map(nameOf).join(", ")}. Set [script::name] to choose the note's own script, or run one by name from the door`);
+        const selected = name ? scripts.find(s => nameOf(s) === name) : scripts[0];
+        if (!selected) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
+        const extension = this.extensionRegistry.extension(selected.expectedId);
+        if (!extension) throw new Error(`Script ${nameOf(selected)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected.expectedId)?.error ?? "not runnable"}`);
         const result = this.scriptRuns.start(extension, { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(typeof request.door === "string" ? { clientId: request.door } : {}) });
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
@@ -2173,12 +2179,14 @@ export class OutlinerServer {
             await this.syncExtensionPages(false);
           }
           // The rules (PIE-600): the extensions' and the outline's rule notes, with what's wrong with any note.
-          const listed = this.extensionRegistry.list();
+          const listed = this.extensionRegistry.list(request.draft && request.blockId ? {
+            blockId: request.blockId, sources: await scriptSources(this.store, { blockId: request.blockId, text: request.draft.text }),
+          } : undefined);
           // Requests held for a person's r, per extension that would answer them, and the grants that let writers wake agents (PIE-888).
           const heldByExtension = new Map<string, number>();
           for (const ask of this.agentRequests.held()) heldByExtension.set(ask.extensionId, (heldByExtension.get(ask.extensionId) ?? 0) + 1);
           // Each extension's schedules (PIE-754): when each runs next, and what its last run did.
-          const extensions = listed.extensions.map((entry) => {
+          const extensions = scriptsAt(this.store, listed.extensions, { blockId: request.blockId, line: request.line, draft: request.draft, chain: request.chain }).map((entry) => {
             const schedules = entry.state === "active" || entry.state === "failed" ? this.extensionSchedules.list(entry.id) : [];
             // Its last call (any kind): when, which, and why it failed (a crash's last stderr lines, scrubbed).
             const lastRun = this.extensionRuntime.lastRun(entry.id);
@@ -2202,12 +2210,16 @@ export class OutlinerServer {
             Object.values(request.args).some((value) => typeof value !== "string"))) throw new Error("args must map names to text");
           if (request.passage !== undefined && (!request.passage || typeof request.passage !== "object" || Array.isArray(request.passage))) throw new Error("passage is { subject, revision, quote, start, end, prefix, suffix }");
           const requestedBy = declaredRequester(request, "extensions.act");
+          const script = request.extension.startsWith("script:")
+            ? scriptsAt(this.store, this.extensionRegistry.list().extensions, { blockId: request.blockId, line: request.line }).find(e => e.script && e.name === request.extension.slice(7))
+            : undefined;
+          if (script?.state === "failed") throw new Error(script.error);
           result = await this.extensionCalls.act({
             ...(request.clientId ? { clientId: request.clientId } : {}),
             ...(typeof request.invitation === "string" ? { invitation: request.invitation } : {}),
             ...(request.button && typeof request.button.block === "string" ? { button: { block: request.button.block, ...(Number.isSafeInteger(request.button.line) ? { line: request.button.line } : {}) } } : {}),
             ...(request.passage !== undefined ? { passage: request.passage } : {}),
-            extension: request.extension, action: request.extensionAction,
+            extension: script?.id ?? request.extension, action: request.extensionAction,
             ...(requestedBy ? { requestedBy } : {}),
             ...(request.blockId !== undefined ? { blockId: request.blockId } : {}),
             ...(request.line !== undefined ? { line: request.line } : {}),
@@ -3915,7 +3927,8 @@ export class OutlinerServer {
   private publishChanges(base: OutlinerEvent | undefined, changes: readonly OutlinerChange[]): OutlinerEvent[] {
     if (changes.some(change => change.blockId && (
       this.store.get(change.blockId)?.properties.some(p => p.key === "script") ||
-      this.extensionRegistry.serving().some(e => e.script?.blockId === change.blockId)
+      this.store.get(change.blockId)?.text.includes("script=") ||
+      this.extensionRegistry.hasScriptSource(change.blockId)
     ))) void this.extensionRegistry.reload();
     const events: OutlinerEvent[] = changes.map(change => ({
       ...(base ?? {}),

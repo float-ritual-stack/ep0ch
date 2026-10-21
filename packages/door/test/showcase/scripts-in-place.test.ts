@@ -29,6 +29,36 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
     await until(() => screen().includes("Robin sows beans") && /Robin\s.*42/.test(screen()) && !screen().includes("Sam sows"), "both lines redrawn", 15_000);
   }, 40_000);
 
+  test("a button beside its named fence runs the fence on a person's press", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "scripts-in-place" }, as: "test-agent" });
+    await until(() => screen().includes("[Fold the source]"), "the fence's button");
+    const rows = screen().split("\n"), y = rows.findIndex(r => r.includes("[Fold the source]"));
+    const x = rows[y]!.indexOf("[Fold the source]") + 1;
+    h.press({ kind: "mouse", action: "down", button: 0, x, y });
+    h.press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => (app as any).message.includes("Source folded"), "the named fence's answer").catch(async error => { throw new Error(`${error.message}; status: ${(app as any).message}; registry: ${JSON.stringify((await board.listExtensions()).extensions.filter(e => e.name === "fold-source" || e.error?.includes("fold-source")))}`); });
+    const layout = JSON.stringify(await app.act({ action: "layout.get", as: "test-agent" }));
+    expect(layout).toContain('"collapsed":true');
+    expect(screen()).toContain("used by ::button Fold the source");
+    await app.dispatch.act({ action: "layout.undo" }, USER);
+  }, 20_000);
+
+  test("a button explains a failed local script instead of running an outer name", async () => {
+    (app as any).lastInput = 0;
+    const outer = await board.createBlock(null, "Outer [script::broken-local] [results::keep]\n```js\nreturn 'wrong outer script';\n```");
+    const local = await board.createBlock(null, "Workbench\n```js script=broken-local\n```\n::button{label=Try of=broken-local}");
+    try {
+      await app.loadExtensions(true);
+      await app.dispatch.act({ action: "button.press", args: { note: local.id, label: "Try" } }, USER);
+      expect((app as any).message).toContain("empty");
+      expect(await board.children(outer.id)).toEqual([]);
+    } finally {
+      await board.trash(local.id, USER);
+      await board.trash(outer.id, USER);
+    }
+  });
+
   test("the published showcase draws its visible seed count through both embed forms", async () => {
     const page = await board.resolvePage("showcase-published-script-lines");
     const template = await board.resolvePage("showcase-seed-count");

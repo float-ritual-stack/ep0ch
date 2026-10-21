@@ -1,6 +1,6 @@
 # Scripts in a note: the surface
 
-A script is a note with `[script::name]` and a code fence. It runs in the outline host, in a sandbox, and sees the
+A script is a named fence in any note (`js script=name`), or a note with `[script::name]` and a code fence. It runs in the outline host, in a sandbox, and sees the
 note it is about, a few functions, the agent tools and a set of view builders. This page is the whole surface, written
 from the code on main: every entry ends in a pointer (`path:line`) to the source, and `test/scripts-docs.test.ts` fails
 when the tool list or a view's fields drift, or when a pointer's symbol is gone (a line that only moved is not drift). Read the source when a detail here isn't enough; the pointer
@@ -21,19 +21,24 @@ to reach for one while working in an outline.
 
 ## A script in one minute
 
-Write a note, and a fence under it. The note's first line says what it is:
+Write the script next to the button that runs it:
 
 ````blockdown
-Week sentence [script::week-sentence] [mode::render]
-```js
+My workbench
+```js script=hello
 return `This note is ${this.title}.`;
 ```
+::button{label="Say hello" of=hello}
 ````
 
-That is a render-mode script: write `week-sentence::` on a line of any note and the line draws "This note is …" under
-it, and draws again when the note changes. Drop `[mode::render]` and it is an action script instead: it runs when
-you press its key, type its name in the power bar, a rule fires it or an agent asks, and it leaves a run note with what it
-did. A script can write only when it says so (`[effects::write]`).
+A press runs `hello` with this note as `this`. Two named fences in one note are two scripts. Move the fence into
+another note and the button still finds `hello` by name; adding `[script::hello]` to that note does not register it twice.
+A button resolves this note's fences first, then the Site's nearest ancestors, then the outline's note and file scripts.
+When names repeat, `ep0ch ext ls` lists both locations and which runs first. The fence header has a run chip and names
+its buttons. Completion after `js ` offers `script=`; `of=` offers this note's scripts first.
+
+Add `mode=render` to draw the return value under a `hello::` line and redraw when a note it read changes.
+Render scripts draw and have only read functions. Action scripts (buttons, `of=`, keys and rules) have the person's reach even with `effects=read`. Use `effects=write` to describe an action script that writes. The note form below uses `[mode::render]` and `[effects::write]`.
 
 Use a script for a small thing that belongs to one note or one outline: a computed column, a sentence from properties,
 a stamp on every match. Use an extension (a folder) when you need disk, network, a secret, or another language.
@@ -48,14 +53,22 @@ and read records are `null`; checking them still records a dependency for the pa
 
 ## The script note
 
+A named fence accepts `script=<name>`, `effects=write` and `mode=render` in its info string, for example
+`js script=week-sentence mode=render`. The language may also be `javascript`, `ts`, `typescript` or `actions`.
+An `actions script=name` fence runs the same action-line format as an `actions` fence in a script note.
+A named fence is its own script, with its own effects: `script=x` and `effects=` on the fence decide x's effects; absent `effects=`, its description is `read`. An ordinary note's `[effects::]` does not pass down. The one exception is a matching script note (`[script::x]` with `script=x`): the fence's `effects=` wins when written, otherwise the note's `[effects::]` applies. Other fence settings also override a matching script note's settings. Other notes' properties do not configure their fences. An unclosed fence saves as written and runs no code.
+
+A note's `[script::y]` script is its first eligible fence with no `script=` name, or the fence named `y`. A fence named something else is never also the note's script. If there is no unnamed or matching fence, the note script has no code:
+
+
 | Part | Written | Means | Source |
 |---|---|---|---|
-| `script` | `[script::name]` | The script's name: its power-bar name, its `name::` handler line, its `@name` responder (an `@name` responder only when it starts with a lower-case letter and is lower case, digits and hyphens, up to 32). | `packages/outliner/src/script-sources.ts:47` |
-| the fence | a closed `js` or `ts` fence | The first closed `js`, `javascript`, `ts`, `typescript` or `actions` fence is the code. TypeScript is stripped, not type-checked. Only the first such fence counts; if it is unclosed the script is empty (nothing runs, nothing is refused). | `packages/outliner/src/script-sources.ts:11` |
-| `mode` | `[mode::render]` | A handler: a line `name::` draws what the script returns. See [Modes](#modes). | `packages/outliner/src/script-sources.ts:55` |
-| `effects` | `[effects::write]` | May call write tools and `act`. Absent: read-only. | `packages/outliner/src/script-sources.ts:54` |
-| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:56` |
-| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:59` |
+| `script` | `[script::name]` | The script's name: its power-bar name, its `name::` handler line, its `@name` responder (an `@name` responder only when it starts with a lower-case letter and is lower case, digits and hyphens, up to 32). | `packages/outliner/src/script-sources.ts:50` |
+| the fence | a closed `js` or `ts` fence | The matching named fence, or the first unnamed `js`, `javascript`, `ts`, `typescript` or `actions` fence, is the code. TypeScript is stripped, not type-checked. For the note form, only that fence counts; if it is unclosed the script is empty (nothing runs, nothing is refused). | `packages/outliner/src/script-sources.ts:50` |
+| `mode` | `[mode::render]` | A handler: a line `name::` draws what the script returns. See [Modes](#modes). | `packages/outliner/src/script-sources.ts:67` |
+| `effects` | `[effects::write]` | Describes writes to readers and the restart replay rule. Absent: `read`. | `packages/outliner/src/script-sources.ts:44` |
+| `deadline` | `[deadline::30s]` | When the run is cut short: `s`, `m` or `h`. Longer than `5m` is clamped to 5 minutes, not refused; a malformed value is ignored. Defaults: 5 minutes for a run, 15 seconds for a render drawing. | `packages/outliner/src/script-sources.ts:94` |
+| `keys` | `[keys::alt+S]` | Binds keys (several separated by commas). | `packages/outliner/src/script-sources.ts:102` |
 
 Other ways a script exists: a file `<outline folder>/.ep0ch/scripts/name.js` or `.ts` whose first line is
 `// ep0ch-script` (or `// ep0ch-script effects=write`); an `actions` fence, which is one door action per line rather
@@ -67,8 +80,8 @@ A script's arguments are `slot=value` words (`week=42`). The power bar offers th
 
 | Entry | Source |
 |---|---|
-| `scriptFence` | `packages/outliner/src/script-sources.ts:14` |
-| `propsUsed` | `packages/outliner/src/script-sources.ts:22` |
+| `scriptFence` | `packages/outliner/src/script-sources.ts:37` |
+| `propsUsed` | `packages/outliner/src/script-sources.ts:51` |
 | `MAX_DEADLINE_MS` | `packages/outliner/src/extension-manifest.ts:416` |
 
 **Script IDs:** a note's `[script::name]` is its power-bar and handler name; the action uses `ext.<id>.run`.
@@ -83,12 +96,12 @@ The code is the body of an async function: `await` and `return` work at the top.
 | Global | Is | Source |
 |---|---|---|
 | `this` | The note the run is about, as a record (see [Record shapes](#record-shapes)). A rule-fired script gets the matched note; a key or power-bar run, the note in front of the person; `act ext.<id>.run block=<id>` names one. With none, every read of `this.x` throws "this run has no note; pass at= or run it from a note". Frozen (an assignment is ignored without an error). | `packages/outliner/src/script-runtime.ts:12` |
-| `self` | The script's own note, as a record (`null` for a file script, which has no note). Frozen. | `packages/outliner/src/script-runtime.ts:25` |
+| `self` | The note containing the script fence, as a record (`null` for a file script, which has no note). Frozen. | `packages/outliner/src/script-runtime.ts:25` |
 | `caller` | `{ block, line? }`: where it was invoked (the matched note of a rule, the handler line of a render). Set only when a note is in play and the run came from a rule's trigger or a line (`act ext.<id>.run line=`, a handler line); `null` for a key, the power bar, `@name` and an MCP run, even when `this` exists. | `packages/outliner/src/script-runtime.ts:26` |
 | `props` | The slots, **every key a list of strings**: `week=42` is `props.week[0]`, an absent slot is `undefined`. A render line keeps repeats (`tag=a tag=b` is two values); every action run path gives one value per key. | `packages/outliner/src/script-runtime.ts:27` |
 | `view` | The builders of [view.*](#view). | `packages/outliner/src/script-runtime.ts:49` |
 | `tools` | The agent tools, `await tools.outline_read({ ref })`. See [tools.*](#tools). | `packages/outliner/src/script-runtime.ts:38` |
-| `text(value)`, `console.log(...)` | Keep a line as run-note output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:311` |
+| `text(value)`, `console.log(...)` | Keep a line as run-note output (a non-string is JSON). A render ignores them: only the returned value is drawn. | `packages/outliner/src/script-runs.ts:330` |
 | `exit()` | Ends the script successfully, keeping its output (the sandbox's own). | |
 
 `text`, `console`, `exit`, `store`/`load` and `ALL_TOOLS` come from the QuickJS sandbox
@@ -104,10 +117,10 @@ write `rows.map(x => this.title + x)`, not `rows.map(function (x) { return this.
 
 | Function | Returns | Source |
 |---|---|---|
-| `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:216` |
-| `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:221` |
-| `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:230` |
-| `act(name, args?)` | Dispatches a door action in the connected door (**only when the run started from a door**: `ep0ch ext act` and MCP answer "act needs a connected door") (`await act("tile.open", { kind: "query", query: "#beans" })`) and answers what it did. Needs `effects=write` and a door (run from the power bar or a live draft); a saved ask or rule has none. | `packages/outliner/src/host-api.ts:233` |
+| `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:222` |
+| `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:227` |
+| `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:236` |
+| `act(name, args?)` | Dispatches a door action in the connected door (**only when the run started from a door**: `ep0ch ext act` and MCP answer "act needs a connected door") (`await act("tile.open", { kind: "query", query: "#beans" })`) and answers what it did. Needs a door (run from the power bar or a live draft); a saved ask or rule has none. | `packages/outliner/src/host-api.ts:240` |
 | `wait(ms)` | Sleeps, then goes on. Ends with the run: its deadline or a stop cuts it short. | `packages/outliner/src/script-runtime.ts:58` |
 
 There is no `stop()` inside a script. Ending a run is the service's `scripts.stop` (see [Lifecycle](#lifecycle)).
@@ -119,8 +132,7 @@ don't depend on each other. A refused call throws an `Error` whose message says 
 
 One function per agent tool, the same list the Claude mod and the MCP gateway register
 (`packages/outline-core/src/agent-tool-definitions.ts`), each argument-checked the way those surfaces check it. A wrong
-call throws with the tool's arguments and an example. A read-only script that calls a **writes** tool throws "This
-script is read-only; declare effects=write to write". `tools.nope(...)` is a
+call throws with the tool's arguments and an example. Effects do not restrict write tools. `tools.nope(...)` is a
 TypeError (there is no such function): `Object.keys(tools)` lists the ones there are.
 
 <!-- generated:tools:start (written by packages/outliner/scripts/scripts-doc.ts; don't edit by hand) -->
@@ -225,7 +237,7 @@ The returned value becomes text, the same way in a run note and a drawn line:
 |---|---|---|
 | `string` | as it is (Blockdown: a table, a list, a link all draw) | `packages/outliner/src/script-runs.ts:34` |
 | `{ view }`, or one `view.x(…)` itself | the view, as Blockdown. **Any returned object with a `view` key is read as a view** (and refused when it isn't one): name your own keys otherwise | `packages/outliner/src/script-runs.ts:28` |
-| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:312` |
+| `undefined` | no returned content; the status says `<script title> done` | `packages/outliner/src/script-runs.ts:316` |
 | `JSON` (anything else) | JSON | `packages/outliner/src/script-runs.ts:38` |
 
 ## Record shapes
@@ -252,20 +264,19 @@ examples lean on:
 | `BlockRecord` | `packages/outline-core/src/block-record.ts:14` |
 | `textRecord` | `packages/outliner/src/block-records.ts:35` |
 | `ScriptSiteGlobals` | `packages/outliner/src/script-runtime.ts:11` |
-| `bind` | `packages/outliner/src/script-runs.ts:86` |
+| `bind` | `packages/outliner/src/script-runs.ts:89` |
 
 ## Modes
 
 | Mode | Written | Runs | Draws or writes | Source |
 |---|---|---|---|---|
-| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:195` |
+| action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:199` |
 | render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:120` |
 | `pipelineCalls` (the `::=` line) | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:150` |
 
 **Render mode in detail.**
 
-- A render script is read-only whatever else it says, and `[mode::render] [effects::write]` isn't served (the script is
-  listed with why). It is drawn with a 15-second deadline unless `[deadline::]` says otherwise.
+- A render drawing has no write functions: no `act`, `place`, writing tools or `draft.patch`, regardless of its effects description. A write during render would feed its own redraw. A missing function gives its JavaScript error and the Sources hint "render scripts draw; use an action script (a button or of=) to change things". It is drawn with a 15-second deadline unless `[deadline::]` says otherwise.
 - The line's `week=42` words are `props`; two lines with different words are two drawings.
 - **What a drawing depends on, and nothing else** (`ExtensionCalls.inputs`, and the reads the run records): the host
   note's text (first 16,000 characters), its direct children's ids and text (first 50 children, 2,000 characters each),
@@ -288,13 +299,15 @@ examples lean on:
 
 ## Effects, access and attribution
 
-- **Effects.** A script is read-only unless the note says `[effects::write]` (a file: `// ep0ch-script effects=write`).
-  Read-only means the write tools and `act` refuse; reads, `q`, `read`, `resolve` and `wait` work.
+- **Render and action are kinds, not permissions.** A render context contains only read functions. Every action invocation (buttons, `of=`, keys and rules included) has the person's reach; `effects=read` does not prevent writing. `effects=read` and `effects=write` describe the script in Sources, x-ray and `ext ls`. A matching `[script::name]` note supplies `[effects::]` only when the fence omits `effects=`; files describe effects in `// ep0ch-script effects=write`.
+  Effects also keep their restart replay meaning: an `actions` macro marked as writing is not re-run by itself after a restart.
+- **Trust the source.** Code in this outline, written by the person or their agents and attributed, runs. EchoNet packets never execute. Actual writes are recorded through the run's attribution and undo, and shown in Sources.
 - **Who wrote it.** Every write is `author: agent` with the actor id `script:<name>`, the run's undo id as the session, and
   the task id `trigger:script:<extension id>`. Whoever asked is recorded as `requestedBy` (the person at their keyboard,
   or the agent that ran `script_run`). The run note's second line says both.
 - **Outside agents** run a script with the MCP tool `script_run` (`ref` or `uri` of the script's note). It runs as
   `script:<name>` with the caller as `requestedBy`, and has no `this`, no `props` and no `act` (no note, no slots, no door).
+  Running by block id selects the note's `[script::name]` from all authored sources; without that property, a single script is used, and several scripts are refused with their names. An empty or failed selected source refuses with its reason and never falls through to another script. Duplicate fence names in one note fail at load with both line numbers, visible in `ext ls`.
   The run is capped by the outline's MCP access level: `propose` turns each write into a proposal, `full` applies it,
   `none` and `read` can't start a run. `script_run` appears only when the gateway registers write tools.
 - **Yolo** (the person's switch, `agents.yolo`): while it is on the MCP access level reads as `full`, so the outline answers `full`
@@ -306,13 +319,13 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:196` |
+| `actor` (who a script's writes belong to) | `packages/outliner/src/script-runs.ts:200` |
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:721` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1605` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4313` |
-| `viaYolo` | `packages/outliner/src/server.ts:4343` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:346` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4332` |
+| `viaYolo` | `packages/outliner/src/server.ts:4362` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:348` |
 
 ## Lifecycle
 
@@ -330,7 +343,7 @@ examples lean on:
 4. **Stop.** `scripts.stop` with the run's undo id (`script.stop run=<undo id>` in the door) ends one run; its next call
    is refused and the completion says "Stopped by <who>". `{ stopped: false }` when it isn't running.
 5. **Edits.** Changing the script's **code** while it runs ends it ("The script source changed; run its saved revision
-   again"). The check is made at the run's next host call, not at the edit. A script that writes into its own note goes on: only the fence counts. At the end, a changed script setting (its stamp) discards the output ("The script source changed during this run").
+   again"). The check is made at the run's next host call, not at the edit. A script that writes into its own note goes on: only the fence counts. At the end, a changed script setting (its stamp) discards successful output ("The script source changed during this run"); a failed call keeps its refusal reason.
 6. **End.** The run's undo is prepared; "Undo unavailable: why" is added to a kept record when it can't be.
    `scripts.ended` carries the answer (`message`), retained note ids (`written`), requester and end reason. The initiating
    door shows that answer, with `ctrl+z undoes` on success; actual failures use the refusal voice with a next action.
@@ -338,10 +351,10 @@ examples lean on:
 
 | Entry | Source |
 |---|---|
-| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:193` |
-| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:205` |
-| `stopRun` | `packages/outliner/src/script-runs.ts:186` |
-| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:263` |
+| `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:196` |
+| `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:209` |
+| `stopRun` | `packages/outliner/src/script-runs.ts:189` |
+| `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:267` |
 | `scripts.stop` | `packages/outliner/src/server.ts:1998` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2494` |
 
@@ -363,8 +376,7 @@ Each of these cost someone an hour.
   still prints only the authored text. The draw waits up to three seconds for live answers.
 - **`ext.<id>.run` on a render script runs it as an action** (with a run note), instead of refreshing its line. To draw a
   line again, `projection.refresh` (the door's `r` on the note).
-- **`[mode::render]` with `[effects::write]` isn't served.** Split it: a render script to show, an action script to do.
-- **A render drawing can't `act` or write**, and never could: its refusal reads "This script is read-only".
+- **A render drawing has no write functions.** Run it as an action (a button or `of=`) when it needs to change things.
 - **`text()` and `console.log` are for run notes.** A render shows only what it returns.
 - **`function () { this }` loses `this`.** Use arrows.
 - **Saving a script that fails to load is allowed.** `ep0ch ext ls` is where the error shows; the note itself is fine.
@@ -585,6 +597,41 @@ Beans [qty::5] [price::2]
 | Peas | 3 | 4 | 12 |
 | Total |  |  | 22 |
 ````
+
+#### One button, two tiles
+
+Keep this code and its button together in any note. The screen needs tiles named `backlinks` and `preview`.
+
+````blockdown
+My workbench
+```js script=toggle-pair effects=write
+const { tiles } = await act('layout.get');
+const on = !tiles.find(t => t.name === 'backlinks')?.collapsed;
+for (const tile of ['backlinks', 'preview']) await act('tile.collapse', { tile, on });
+return on ? 'folded both' : 'opened both';
+```
+::button{label="Make it work" of=toggle-pair}
+````
+
+#### Example 6: One button, two things
+
+A note can keep two named fences beside their buttons. Here a single press updates this note's property and adds a child:
+
+````note ex6-desk
+Packing desk
+```js script=pack-pair effects=write
+await tools.outline_set_property({ ref: this.id, key: 'packing', value: 'ready', revision: this.revision });
+await tools.outline_create({ parent: this.id, text: 'Labels ready' });
+return 'Packing ready';
+```
+::button{label="Prepare both" of=pack-pair}
+````
+
+````shows ex6
+Packing ready
+````
+
+Either fence can move to its own note without changing the button's `of=` name.
 
 #### Fantasia: a button, a transaction, motion, undo (needs a door)
 
