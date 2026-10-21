@@ -48,6 +48,9 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   for prior art. Design the end state and build it in slices of that architecture; never propose the smallest proof first.
 - **Extend a shared part rather than write a parallel one** (a second *implementation* of a reader, pane model,
   search, editor or presence view; a second place to read notes is fine). If none fits, say in the PR why not.
+  A feature ticket carries a **Parts it uses** table (need → the part that's there) ending in a **New (glue only)**
+  row naming the new code; the review holds the diff to that row. A New row that names a new primitive means stop
+  and design it first (PIE-1139 is the example).
 - **A user-visible feature gets a kitchen-sink demo** (`ep0ch --showcase`) in the same PR, which is also its
   end-to-end test, or the PR says why not (details in the door's rules).
 - For AI feature design, semantic judgments, or TypeSafe/Jev integration, use the `typesafe-ai` skill (from the skill
