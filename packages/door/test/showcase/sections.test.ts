@@ -357,6 +357,18 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     await desk.dispatch.press("placement.choose", { place: "tile" }, "reader");
     await until(() => screen().includes("list children") && desk.layoutGet().tiles.some(t => t.kind === "list-preview"), "the shared attached tile");
     expect(screen()).toContain("Rewritten first detail");
+    const attached = desk.layoutGet().tiles.find(t => t.kind === "list-preview")!;
+    await desk.dispatch.press("tile.focus", {}, attached.name);
+    press({ kind: "char", ch: "e" });
+    await until(() => screen().includes("[save]"), "the attached children editor");
+    press({ kind: "paste", text: "  - Attached" });
+    expect(desk.isIn(reader)).toBe(true);
+    for (const ch of " keys") press({ kind: "char", ch });
+    press({ kind: "char", ch: "s", ctrl: true });
+    await untilAsync(async () => (await board.get(made.id))!.text.includes("  - Attached keys\n- Second call"), "all attached edit keys saved");
+    await until(() => reader.msg?.text.includes("Attached keys") === true, "saved attached children refreshed");
+    await desk.dispatch.press("list.preview.edit", { text: "  - Rewritten first detail" }, "reader");
+    await until(() => screen().includes("Rewritten first detail"), "restored children");
     await desk.dispatch.press("list.preview.place", { side: "down" }, "reader");
     expect(screen()).toContain("Rewritten first detail");
     await desk.dispatch.press("list.preview.place", { place: "split" }, "reader");
@@ -369,6 +381,7 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     await desk.dispatch.press("tile.focus", {}, preview.name);
     press({ kind: "char", ch: "e" });
     await until(() => screen().includes("[save]"), "e opens the children editor in the wired preview");
+    expect((desk.pane(preview.name) as ReaderPane).host(desk).entered).toBe(true);
     press({ kind: "paste", text: "  - Edited from the wire" });
     press({ kind: "char", ch: "s", ctrl: true });
     await until(() => screen().includes("Edited from the wire") && !reader.surface.editing, "typing in the wired preview");
@@ -379,6 +392,22 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     expect(screen()).toContain("Second detail");
     expect(screen()).not.toContain("Edited from the wire");
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
+  });
+
+  test("handover keeps reopen steps safe with the children editor open and preview off", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "list-folds" }, as: "handover-check" });
+    const desk = S().stage(SECTIONS.findIndex(s => s.key === "list-folds")).top as Desk;
+    const reader = desk.pane("reader") as ReaderPane;
+    await until(() => !!reader.msg && !reader.msg.partial && !!screen(), "the initial reader");
+    const note = await board.createBlock(null, "Hidden preview\n[children::preview]\n- First call\n  - First detail");
+    await desk.dispatch.press("open", { id: note.id }, "reader");
+    await until(() => reader.msg?.id === note.id && !reader.msg.partial && screen().includes("First detail"), "the children");
+    await desk.dispatch.press("list.preview.edit", {}, "reader");
+    await desk.dispatch.press("list.preview", { text: "First call", on: false }, "reader");
+    expect(reader.surface.editing).toBe(true);
+    try { expect(desk.reopen()).toEqual([]); }
+    finally { await desk.dispatch.press("list.preview.field", { op: "cancel" }, "reader"); }
   });
 
   test("a saved v2 reader restores its folds and back and forward history", async () => {

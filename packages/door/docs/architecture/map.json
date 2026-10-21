@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "fb91289c", "outliner": "fb91289c", "on": "2026-10-21" },
+  "verified": { "door": "67713029", "outliner": "67713029", "on": "2026-10-21" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -314,9 +314,9 @@
         { "r": "door", "p": "src/surface/modes.ts", "l": 106, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 23, "m": "export const PRECEDENCE" },
         { "r": "door", "p": "src/surface/note.ts", "l": 156, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 8801, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1106, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1123, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 8802, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1107, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1124, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -350,7 +350,7 @@
       "built": "attached.ts owns every placement rectangle, the tile lifecycle and topmost-frame pointer routing; AttachedTilePane and Desk.attachedTile host all three contents in the same paired layout. List children use fold spans and embedRegion, with the inspector editor patching those source lines. composerBox draws the comment session's draft through renderEditor in a box sized to its text; the reader splices it under the passage as body rows (inline) or lays it over its rows (drawAttachedFloat, attachedRect); placeBox maps its frame to the reader's cells so the mouse and the completion popup reach the draft.",
       "refs": [
         { "r": "door", "p": "src/surface/attached.ts", "l": 78, "m": "export function attachedRect" },
-        { "r": "door", "p": "src/desk/attached-tile.ts", "l": 14, "m": "export class AttachedTilePane" },
+        { "r": "door", "p": "src/desk/attached-tile.ts", "l": 15, "m": "export class AttachedTilePane" },
         { "r": "door", "p": "src/surface/composer.ts", "l": 71, "m": "export function composerBox" },
         { "r": "door", "p": "src/surface/composer.ts", "l": 84, "m": "export function placeBox" }
       ]

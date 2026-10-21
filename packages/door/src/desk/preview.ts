@@ -40,7 +40,7 @@ export class PreviewPane extends ReaderPane {
   override get surface() { return this.childrenOf?.surface ?? this.ownSurface; }
   override host(desk: DeskApi): SurfaceHost {
     const local = super.host(desk);
-    return this.childrenOf ? { ...this.childrenOf.host(desk), attachment: "list-preview", focused: local.focused, enterMode: local.enterMode } : local;
+    return this.childrenOf ? { ...this.childrenOf.host(desk), attachment: "list-preview", focused: local.focused, entered: local.entered, enterMode: local.enterMode } : local;
   }
   override show(m: Msg | null, desk: DeskApi) { this.childrenOf = null; return super.show(m, desk); }
   private watching: string | null = null;

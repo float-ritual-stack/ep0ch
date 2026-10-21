@@ -1036,7 +1036,8 @@ export class NoteSurface {
    */
   reopenSteps(): Omit<Step, "tile">[] {
     if (this.listEditor.field && this.msg) {
-      const p = this.previewPoint()!;
+      const p = this.previewPoint();
+      if (!p) return [];
       const line = this.foldsIn(this.msg).lines[p.line]! + 1;
       return [{ action: "list.preview", args: { line, on: true } }, { action: "reading.place", args: { line } },
         { action: "list.preview.place", args: { place: this.listPreview.place } }, { action: "list.preview.edit", opens: "edit" }];

@@ -3,6 +3,7 @@ import { fg, C, pad, RESET, width } from "../style";
 import { USER } from "../socket";
 import type { Key } from "../term";
 import type { TileKind } from "./tile-kinds";
+import type { SurfaceHost } from "../surface/note";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "./panes";
 
 export const COMMENT_TILE_KIND = "comment";
@@ -51,6 +52,15 @@ export class AttachedTilePane implements Pane {
     return p instanceof ReaderPane ? p : null;
   }
 
+  private listHost(r: ReaderPane, desk: DeskApi): SurfaceHost {
+    const host = r.host(desk);
+    return { ...host, attachment: "list-preview", enterMode: () => {
+      // The source owns the edit session, so its reader must also own the keys.
+      desk.focusPane?.(r, USER);
+      host.enterMode?.();
+    } };
+  }
+
   render(w: number, h: number, _focused: boolean, desk: DeskApi): PaneView {
     this.lastRow = h - 1;
     const drawn = this.drawn(w, h, desk);
@@ -64,7 +74,7 @@ export class AttachedTilePane implements Pane {
 
   key(k: Key, desk: DeskApi): boolean {
     const r = this.reader(desk);
-    if (this.attachment === "list-preview") return !!r && r.surface.key(k, { ...r.host(desk), attachment: "list-preview" });
+    if (this.attachment === "list-preview") return !!r && r.surface.key(k, this.listHost(r, desk));
     if (r?.surface.sourcesMode) r.surface.attachedKeys(this.attachment);
     const handled = !!r && (this.attachment === "sources" ? !!r.surface.sourcesMode : !!r.surface.session) && r.surface.key(k, r.host(desk));
     if (r && this.attachment === "sources" && k.kind === "esc" && r.surface.sourcesMode?.state() === null) void desk.perform?.("tile.focus", {}, USER, this.source);
@@ -78,7 +88,7 @@ export class AttachedTilePane implements Pane {
     const chip = this.sides.find(c => x >= c.from && x < c.to);
     if (chip && y === this.lastRow) { if (k.action === "up") void r.surface.runKey(this.attachment === "list-preview" ? "list.preview.place" : this.attachment === "sources" ? "sources.place" : "comment.place", { side: chip.side }, r.host(desk), true); return true; }
     if (this.attachment === "list-preview") {
-      const host = { ...r.host(desk), attachment: "list-preview" as const };
+      const host = this.listHost(r, desk);
       if (k.action === "wheel-up" || k.action === "wheel-down") r.surface.wheel(k.action === "wheel-down" ? 1 : -1, host, { x, y });
       if (k.action === "down") r.surface.press(x, y, host);
       if (k.action === "drag") r.surface.drag(x, y, host);
