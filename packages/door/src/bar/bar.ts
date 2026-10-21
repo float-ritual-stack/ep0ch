@@ -540,7 +540,7 @@ export class PowerBar {
   private recordRun(line: string, result: unknown, refused: boolean) {
     this.host.runs.push({ line, answer: typeof result === "string" ? result : JSON.stringify(result), refused });
     if (this.host.runs.length > 8) this.host.runs.shift();
-    this.input.splice(0, this.query.length, line); this.refresh(); this.host.ctx.redraw();
+    this.refresh(); this.host.ctx.redraw();
   }
 
   /** What `peek` and `bar.open` say: the scope, the query and the rows, numbered from 1, the lit one marked. */
@@ -631,6 +631,7 @@ export class PowerBar {
     if (!it) throw new Error(this.items.length ? `pick 1 to ${this.items.length}` : "the bar lists nothing to pick");
     this.picker.sel = n - 1;
     const keep = actor.kind === "user" && this.keepsRun(n), line = keep ? this.commandLine(n) : "";
+    if (keep) { this.input.splice(0, this.query.length, line); this.refresh(); }
     try {
       const result = await it.source.pick(it.row, this.host, { alt, actor }) ?? null;
       if (keep) this.recordRun(line, result, false);

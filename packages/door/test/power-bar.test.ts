@@ -743,4 +743,14 @@ describe.skipIf(!outliner)("the power bar", () => {
     closeBar();
   });
 
+  test("typing the next command survives a run's answer", async () => {
+    await app.dispatch.press("bar.open", { query: "tile.collapse tile=reader on=false" });
+    const running = app.dispatch.press("bar.pick");
+    key({ kind: "char", ch: "u", ctrl: true });
+    key({ kind: "paste", text: "tile.zoom on=true" });
+    await running;
+    expect(peek().bar.query).toBe("tile.zoom on=true");
+    expect(peek().bar.runs.at(-1).line).toBe("tile.collapse tile=reader on=false");
+  });
+
 });
