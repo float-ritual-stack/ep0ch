@@ -5369,7 +5369,8 @@ export class NoteSurface {
     // position; its preview and a preview linked to this reader follow), a second click on it soon after opens it (⏎),
     // an alt-, ctrl- or middle-click opens it fresh (alt+⏎); the click that gives the reader the keys only selects.
     const lbk = h.link.linksBlock;
-    if (e && !e.link?.figure && (lbk?.row || e.link?.inlineList) && !host.opensOnClick?.(h.link)) {
+    // A figure's row is a list row like any other (Evan, Oct 21: a click selects and previews; it never opens at once).
+    if (e && (lbk?.row || e.link?.inlineList) && !host.opensOnClick?.(h.link)) {
       const i = this.elems.indexOf(e), inline = e.link?.inlineList;
       const presses = inline ? this.inlineLists.get(inline.key)!.view : this.linkPresses;
       const g = presses.press(inline?.row ?? i, { focusing: !!host.focusing, selected: e.key === was });
