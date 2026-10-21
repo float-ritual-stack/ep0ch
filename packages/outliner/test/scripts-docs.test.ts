@@ -75,11 +75,12 @@ test("the traps: this has no children, a q row has no properties, caller and pro
   expect(seen.props).toEqual({});
 });
 
-test("a read-only script's write is refused, a render can't act, and an arrow function keeps this", async () => {
-  const { create, run } = await setup();
+test("a script can write without declared effects, and an arrow function keeps this", async () => {
+  const { store, create, run } = await setup();
   const host = create("Host");
   create("Reader [script::reader-only]\n```js\nawait tools.outline_create({ parent: this.id, text: 'x' });\n```");
-  expect((await run("reader-only", { blockId: host.id })).text).toContain("This script is read-only; declare effects=write to write");
+  await run("reader-only", { blockId: host.id });
+  expect(store.children(host.id).map(b => b.text)).toEqual(["x"]);
   create("Nope [script::nope]\n```js\ntry { await tools.nope({}); } catch (e) { return e.name; }\n```");
   expect((await run("nope", { blockId: host.id })).text.split("\n").pop()).toBe("TypeError");
   create("Arrows [script::arrows]\n```js\nconst ok = [1].map(() => this.title)[0];\nconst lost = [1].map(function () { return this?.title; })[0];\nreturn JSON.stringify({ ok, lost: lost ?? null });\n```");

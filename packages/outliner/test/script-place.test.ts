@@ -161,12 +161,13 @@ test("replace aimed at a heading is refused at the call and writes nothing", asy
   expect(store.get(note.id)!.text).toBe(NOTE);
 });
 
-test("a read-only script (the default, and render mode) can't place and writes nothing", async () => {
-  const { create, run } = await setup();
-  create(`Drawer [script::drawer-placer] [effects::write]\n\`\`\`js\nreturn await place("x", { at: "^week" });\n\`\`\``.replace("[effects::write]", ""));
+test("a script without declared effects can place output", async () => {
+  const { store, create, run } = await setup();
+  create(`Drawer [script::drawer-placer]\n\`\`\`js\nreturn await place("x", { at: "^week" });\n\`\`\``);
   const note = create(NOTE);
   const ran = await run("drawer-placer", { blockId: note.id });
-  expect(ran.text).toContain("read-only");
+  expect(ran.text).toContain("applied");
+  expect(store.require(note.id).text).toContain("x");
 });
 
 /** A stand-in for a door holding a live draft: it answers the service's reads and patches against its own buffer. */

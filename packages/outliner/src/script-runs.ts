@@ -62,12 +62,11 @@ export class ScriptRuns {
   async finished(run: string): Promise<string | undefined> {
     try { return await this.tasks.get(run); } finally { this.tasks.delete(run); }
   }
-  private readonly captures = new Map<string, { actor: MutationProvenance; effects: ScriptSource["effects"]; run: <T>(work: () => T) => T }>();
+  private readonly captures = new Map<string, { actor: MutationProvenance; run: <T>(work: () => T) => T }>();
 
-  capture<T>(id: string, writes: boolean, work: (actor: MutationProvenance) => T): T {
+  capture<T>(id: string, work: (actor: MutationProvenance) => T): T {
     const capture = this.captures.get(id);
     if (!capture) throw new Error("This script run has ended");
-    if (writes && capture.effects === "read") throw new Error("This script is read-only; declare effects=write to write");
     return capture.run(() => work(capture.actor));
   }
 
@@ -175,7 +174,7 @@ export class ScriptRuns {
         },
       } : this.client;
       const api = hostApi(client, undefined, {
-        effects: "read", cutQueries: !!bound, visibleId, onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
+        cutQueries: !!bound, visibleId, onRead, onUntracked: () => { untracked = true; }, onQuery: query => { queries.push({ ...query, ids: [...query.ids] }); onRead(query.ids); }, ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
       if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
@@ -195,8 +194,7 @@ export class ScriptRuns {
 
   start(extension: LoadedExtension, request: ExtensionActRequest): ExtensionActResult {
     const source = extension.script!;
-    const effects = source.effects;
-    // A file's opt-in header configures the next run; only its body is executing code.
+    // Effects in a file's opt-in header describe it; only its body is executing code.
     const body = (code: string) => source.file ? code.split("\n").slice(1).join("\n") : code;
     const undo = this.writes.beginRun(`script:${extension.name}`);
     const actor: MutationProvenance = { author: "agent", actorId: `script:${extension.name}`, sessionId: undo, taskId: `trigger:script:${extension.id}` };
@@ -231,7 +229,7 @@ export class ScriptRuns {
         return value;
       } catch (error) { finish(); throw error; }
     };
-    this.captures.set(undo, { actor, effects, run: captured });
+    this.captures.set(undo, { actor, run: captured });
     let log: Block | undefined;
     const written: string[] = [];
     const keep = () => {
@@ -301,13 +299,10 @@ export class ScriptRuns {
       onStep: step,
       ...(site.thisId ? { thisId: site.thisId } : {}),
       ...(site.resolve ? { resolve: site.resolve } : {}),
-      effects,
       place: (content, opts) => place(content, opts),
       mcpAccess: request.mcpAccess,
       // The door it asks is the one that started the run (or `door=`); with none, the service picks the only door or says which there are.
-      act: (name: string, args: Record<string, unknown>) => {
-        return this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) });
-      },
+      act: (name: string, args: Record<string, unknown>) => this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) }),
     });
     const task = (async () => {
       let failure: string | undefined;

@@ -268,7 +268,7 @@ test.each([
 }, 10_000);
 
 
-test("only opted-in dotted-folder scripts run, read-only unless they declare write", async () => {
+test("only opted-in dotted-folder scripts run, and effects do not restrict writes", async () => {
   const { client, store, root, cliExt } = await setup();
   await Bun.write(join(root, "scripts", "stray.ts"), "throw new Error('must not execute');");
   await Bun.write(join(root, ".ep0ch", "scripts", "helper.ts"), "throw new Error('must not execute');");
@@ -288,7 +288,7 @@ test("only opted-in dotted-folder scripts run, read-only unless they declare wri
     const connectBy = Date.now() + 4000;
     while (!connected && Date.now() < connectBy) await Bun.sleep(10);
     expect(connected).toBe(true);
-    for (const name of ["reader", "writer"]) {
+    for (const [index, name] of ["reader", "writer"].entries()) {
       const extension = listed.extensions.find(e => e.name === name)!;
       expect(extension?.state).toBe("active");
       const run = await client.request<{ undo: string; writtenAs: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run", mutation: { author: "agent", actorId: "seed-requester" } });
@@ -297,12 +297,12 @@ test("only opted-in dotted-folder scripts run, read-only unless they declare wri
       const answer = completed.get(run.undo)!;
       expect(run.writtenAs).toBe(`script:${name}`);
       expect(answer.requestedBy).toMatchObject({ author: "agent", actorId: "seed-requester" });
-      expect(answer.reason).toBe(name === "reader" ? "failed" : "done");
-      expect(answer.message).toContain(name === "reader" ? "read-only" : "writer done");
-      expect(store.queryBlocks({ where: "type=packet" }).blocks.length).toBe(name === "reader" ? 0 : 1);
+      expect(answer.reason).toBe("done");
+      expect(answer.message).toContain(`${name} done`);
+      expect(store.queryBlocks({ where: "type=packet" }).blocks.length).toBe(index + 1);
     }
   } finally { await watcher.stop(); }
-  const made = store.queryBlocks({ where: "type=packet" }).blocks[0]!;
+  const made = store.queryBlocks({ where: "type=packet" }).blocks.find(b => b.actorId === "script:writer")!;
   expect(store.require(made.id).actorId).toBe("script:writer");
   const page = store.changes.since(0, 1000);
   expect(page.kind === "changes" && page.changes.find(c => c.blockId === made.id)).toMatchObject({

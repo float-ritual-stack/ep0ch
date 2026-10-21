@@ -47,11 +47,11 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
   test("a button explains a failed local script instead of running an outer name", async () => {
     (app as any).lastInput = 0;
     const outer = await board.createBlock(null, "Outer [script::broken-local] [results::keep]\n```js\nreturn 'wrong outer script';\n```");
-    const local = await board.createBlock(null, "Workbench\n```js script=broken-local mode=render effects=write\nreturn 'bad';\n```\n::button{label=Try of=broken-local}");
+    const local = await board.createBlock(null, "Workbench\n```js script=broken-local\n```\n::button{label=Try of=broken-local}");
     try {
       await app.loadExtensions(true);
       await app.dispatch.act({ action: "button.press", args: { note: local.id, label: "Try" } }, USER);
-      expect((app as any).message).toContain("mode=render");
+      expect((app as any).message).toContain("empty");
       expect(await board.children(outer.id)).toEqual([]);
     } finally {
       await board.trash(local.id, USER);

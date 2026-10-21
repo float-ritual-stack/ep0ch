@@ -1952,7 +1952,7 @@ export class OutlinerServer {
       } catch (error) { return { id: request.id, ok: false, error: (error as Error).message, sequence: this.store.sequence }; }
     }
     request = this.viaYolo(request);
-    if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, EXTENSION_WRITES.has(request.action), (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
+    if (request.scriptRun) return this.scriptRuns.capture(request.scriptRun, (actor) => this.handleAsync({ ...request, mutation: actor, scriptRun: undefined } as OutlinerRequest, subscribedClient, connection));
     if (this.linkReader) {
       try {
         const answer = await this.linkReader(request);

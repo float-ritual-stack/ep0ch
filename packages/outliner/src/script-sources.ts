@@ -97,7 +97,7 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
       const duplicates = named.filter(f => codeFenceInfo(f.fence.info).attrs.script === name);
       const problem = duplicates.length > 1
         ? `Script ${name} is defined more than once in this note, at lines ${duplicates.map(f => f.start + 1).join(", ")}; give each fence a different script name`
-        : render && effects === "write" ? `Script ${name} is mode=render, which draws a view and never writes: remove effects=write, or remove mode=render to run it as an action` : undefined;
+        : undefined;
       add(isNamed ? `${block.id}:${name}:${definition!.occurrence}` : block.id, name,
         { code, keys: (attrs.keys === undefined ? noteValues("keys") : [attrs.keys]).flatMap(value => value.split(",").map(k => k.trim()).filter(Boolean)), ...(language === "actions" ? { format: "actions" as const } : {}), blockId: block.id, ...(isNamed ? { line: fence!.start, fence: definition } : {}), revision: block.revision,
           ...(render ? { render: true as const } : {}), ...(deadline ? { deadlineMs: Math.min(deadline, MAX_DEADLINE_MS) } : {}),

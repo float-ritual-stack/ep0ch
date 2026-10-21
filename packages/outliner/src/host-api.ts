@@ -39,7 +39,6 @@ export interface HostStep {
 }
 
 export interface HostApiOptions {
-  effects?: "read" | "write";
   /** Query totals were computed after the Site’s visibility cut. */
   cutQueries?: boolean;
   /** A parent reference under the reader’s visibility cut; records the check even when withheld. */
@@ -136,7 +135,6 @@ function toolFunction(client: AgentToolsClient, actor: AgentActor | undefined, d
     const seq = step({ tool: definition.name, writes: definition.writes, phase: "start", input });
     const said = (phase: "done" | "refused", more: Partial<HostStep>) => step({ tool: definition.name, writes: definition.writes, phase, input, ...more }, seq);
     try {
-      if (options.effects === "read" && definition.writes) throw new WorkToolRefusal("This script is read-only; declare effects=write to write");
       const checked = checkToolArgs(toolArgsSpec(definition), input);
       if (!checked.ok) throw new WorkToolRefusal(checked.error);
       const command = definition.command(checked.args);
@@ -230,16 +228,12 @@ export function hostApi(client: AgentToolsClient, actor?: AgentActor, options: H
   const resolve = (path: string) => options.resolve
     ? options.resolve(path)
     : Promise.reject(new WorkToolRefusal("resolve answers for a note: run this script from a note, or pass at= (this run has no note)"));
-  const act = (name: string, args: Record<string, unknown> = {}) => options.effects === "read"
-    ? Promise.reject(new WorkToolRefusal("This script is read-only; declare effects=write to dispatch door actions"))
-    : options.mcpAccess && options.mcpAccess !== "full"
+  const act = (name: string, args: Record<string, unknown> = {}) => options.mcpAccess && options.mcpAccess !== "full"
     ? Promise.reject(new WorkToolRefusal(`MCP access is ${options.mcpAccess}: a run may not dispatch door actions (act); ep0ch mcp access full lets it`))
     : options.act
     ? options.act(name, args)
     : Promise.reject(new WorkToolRefusal("act needs a connected door; run this script from the door's power bar"));
-  const place = (content: string, opts: PlaceOptions = {}) => options.effects === "read"
-    ? Promise.reject(new WorkToolRefusal("This script is read-only; declare effects=write to place output (a render-mode script draws its result in place instead)"))
-    : options.place
+  const place = (content: string, opts: PlaceOptions = {}) => options.place
     ? options.place(String(content), opts ?? {})
     : Promise.reject(new WorkToolRefusal("place writes into this run's note: run this script from a note (this run has none)"));
   return Object.freeze({ tool: Object.freeze(tools), tools: names, call, q, read, act, resolve, place });
