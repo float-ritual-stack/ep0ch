@@ -15,6 +15,56 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
   let board!: typeof h.board, app!: typeof h.app, seeded!: typeof h.seeded;
   beforeAll(() => { ({ board, app, seeded } = h); });
 
+  test("PIE-1155 continued: floating edit preview moves and receives input outside the centred text", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const pane = stage.pane("notes") as ReaderPane;
+    const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
+    await act("tile.zoom");
+    await act("edit");
+    pane.key({ kind: "enter" }, stage);
+    await until(() => !!pane.draft, "the note edit");
+    const d = pane.draft!, original = d.text;
+    try {
+      d.replace("Margin preview\n" + Array.from({ length: 50 }, (_, i) => `preview line ${i}`).join("\n"));
+      d.place(0, 0);
+      await act("draft.preview", { on: true });
+      await act("edit.preview.place", { place: "floating" });
+      screen();
+      const frame = pane.innerFrame!;
+      const tile = stage.layoutGet().tiles.find(t => t.name === "notes")!.rect!;
+      const origin = { x: tile.col + 1 - frame.col, y: tile.row + 1 - frame.row };
+      await act("edit.preview.move", { col: frame.col + 2, row: 10, cols: 38, rows: 12 });
+      const rows = screen().split("\n");
+      expect(pane.surface.editPreview.frame!.col).toBe(frame.col + 2);
+      const label = rows.find(l => l.includes("Margin preview") && l.indexOf("Margin preview") < origin.x)!;
+      expect(label).toBeDefined();
+      const mouse = (action: "down" | "drag" | "up", x: number, y: number) =>
+        stage.key({ kind: "mouse", action, button: 0, x: origin.x + x, y: origin.y + y }, stage.ctx!);
+      const left = { ...pane.surface.editPreview.frame! }, dx = frame.cols - left.cols - 4;
+      mouse("down", left.col + 4, left.row);
+      mouse("drag", left.col + 4 + dx, left.row);
+      mouse("up", left.col + 4 + dx, left.row);
+      await until(() => { screen(); return pane.surface.editPreview.frame!.col === left.col + dx; }, "preview dragged into the right margin");
+      const r = pane.surface.editPreview.rect!, top = d.frame!.preview!.top;
+      stage.key({ kind: "mouse", action: "wheel-down", button: 0, x: origin.x + r.col + 2, y: origin.y + r.row + 3 }, stage.ctx!);
+      await until(() => { screen(); return d.frame!.preview!.top > top; }, "wheel scrolls the margin preview");
+      mouse("down", r.col + r.cols - 4, r.row);
+      mouse("up", r.col + r.cols - 4, r.row);
+      await until(() => screen().includes("Placement"), "preview placement chip opens in the margin");
+      pane.key({ kind: "esc" }, stage);
+      expect(d.text).toContain("preview line 49");
+    } finally {
+      await act("edit.preview.place", { place: "inline" });
+      d.replace(original);
+      d.place(0, 0);
+      await act("edit.close", { discard: true });
+      await act("scroll", { to: "top" });
+      await act("tile.zoom");
+    }
+  });
+
   test.each(["sources", "comment"])("Round 3: uncovered gutter folds still draw and respond beside a %s float", async target => {
     await app.dispatch.act({ action: "section", args: { name: "list-folds" } }, USER);
     screen();

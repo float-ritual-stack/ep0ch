@@ -876,7 +876,7 @@ export class NoteSurface {
   private composerRows: [number, number] | null = null;
   /** Where the last paint put a floating or popup composer (PIE-785), in the note's cells under its header image, and the room it had. */
   private boxRect: FloatRect | null = null;
-  readonly editPreview = { place: attachedPlaceOf(readState<{ place: string }>("edit-preview-place.json")?.place) ?? "inline", float: null as FloatRect | null, rect: null as FloatRect | null, frame: null as FloatRect | null, room: { w: 0, h: 0 } };
+  readonly editPreview = { place: attachedPlaceOf(readState<{ place: string }>("edit-preview-place.json")?.place) ?? "inline", float: null as FloatRect | null, rect: null as FloatRect | null, frame: null as FloatRect | null, room: { w: 0, h: 0 } as { w: number; h: number; col?: number; row?: number } };
   private readonly attachmentTiles = { comment: new AttachedTile(), sources: new AttachedTile(), "list-preview": new AttachedTile(), "edit-preview": new AttachedTile() };
   private innerFrame?: FloatRect;
   private boxRoom: { w: number; h: number; col?: number; row?: number } | null = null;
@@ -1738,7 +1738,7 @@ export class NoteSurface {
     this.use(host);
     this.lookAt(m, w, host);
     const covered = this.modes.rows(w, h, host);
-    if (covered) return { lines: covered, ...(this.draft ? { placements: this.editPreview.place === "tile" ? [] : this.draft.frame?.preview?.placements } : {}), completion: this.draft ? completerOf(this.draft) ?? undefined : undefined, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
+    if (covered) return { ...covered, ...(this.draft ? { placements: this.editPreview.place === "tile" ? [] : this.draft.frame?.preview?.placements } : {}), completion: this.draft ? completerOf(this.draft) ?? undefined : undefined, ...(this.draft ? { scroll: elementEdit(this.draft).on ? elementEdit(this.draft).scrollFigure : this.draft.scrollFigure } : {}) };
     if (m.partial) return { lines: [...(host?.header ? host.header(m, w, this.headerInfo(m, 0)) : [fg(C.white) + pad(subject(m), w) + RESET]), this.unread ? fg(C.lred) + pad(`couldn't read the note: ${this.unread}`, w) + RESET : dim("reading the note…"), ...(this.unread ? [dim("it's read again when the door reconnects")] : [])] };
     this.viewKeys = host?.summaryKeys?.(m) ?? null;
     const src = this.use(host);
@@ -2894,12 +2894,12 @@ export class NoteSurface {
     };
   }
 
-  private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false, host?: SurfaceHost, attached = true): string[] {
+  private renderDraft(d: Draft, m: Msg, w: number, h: number, away = false, host?: SurfaceHost, attached = true): SurfaceView {
     if (attached && d.preview && host && !elementEdit(d).on) return this.renderEditPreview(d, m, w, h, away, host);
     d.kept = this.keptDrawings(d, m);
     const by = writtenBy(d, "save");
-    if (elementEdit(d).on) return elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined);
-    return renderEditor(d, {
+    if (elementEdit(d).on) return { lines: elementEdit(d).render(w, h, (t, width) => this.snippetDoc(t, width), by ?? undefined) };
+    return { lines: renderEditor(d, {
       look: this.lastLook?.values, attachedPreview: !!host,
       preview: (t, pw, links) => this.snippetDoc(t, pw, undefined, links, false, isOutlineNote(m) ? m.id : undefined), pick: true, follow: true, ...(away ? { away } : {}),
       // A new note says where it lands, a click to move it (PIE-883).
@@ -2912,7 +2912,7 @@ export class NoteSurface {
           : by ? fg(C.lmagenta) + pad(by, w) + RESET
           : fg(C.cyan) + pad("whole text: subject, body and [key::value] properties", w) + RESET,
       ],
-    }, w, h);
+    }, w, h) };
   }
 
   private editPreviewRows(w: number, h: number, row: number, col: number, host: SurfaceHost, aligned = false): SurfaceView {
@@ -2924,21 +2924,21 @@ export class NoteSurface {
     return { lines, placements: d.frame?.preview?.placements };
   }
 
-  private renderEditPreview(d: Draft, m: Msg, w: number, h: number, away: boolean, host: SurfaceHost): string[] {
+  private renderEditPreview(d: Draft, m: Msg, w: number, h: number, away: boolean, host: SurfaceHost): SurfaceView {
     const p = this.editPreview;
-    p.frame = null; p.room = { w, h };
-    const read = (cols: number, rows: number): SurfaceView => ({ lines: this.renderDraft(d, m, cols, rows, away, host, false) });
-    if (p.place === "tile") return read(w, h).lines;
+    p.frame = null;
+    p.room = this.innerFrame ? { w: this.innerFrame.cols, h: this.innerFrame.rows, col: this.innerFrame.col, row: this.innerFrame.row } : { w, h };
+    const read = (cols: number, rows: number): SurfaceView => this.renderDraft(d, m, cols, rows, away, host, false);
+    if (p.place === "tile") return read(w, h);
     p.rect = null;
     if (p.place === "split" || p.place === "inline") {
-      const v = this.renderBeside(w, h, host, (cols, rows, row, col) => this.editPreviewRows(cols, rows, row, col, host, col > 0), "edit-preview", read);
-      return v.lines;
+      return this.renderBeside(w, h, host, (cols, rows, row, col) => this.editPreviewRows(cols, rows, row, col, host, col > 0), "edit-preview", read);
     }
-    const v = read(w, h), rect = attachedRect(p.place, w, h, { min: { cols: 30, rows: 6 }, moved: p.float });
+    const v = read(w, h), rect = attachedRect(p.place, w, h, { frame: this.innerFrame, min: { cols: 30, rows: 6 }, moved: p.float });
     p.frame = rect;
     const side = this.editPreviewRows(rect.cols - 2, rect.rows - 2, rect.row + 1, rect.col + 1, host);
-    return drawAttachedFloat(v.lines, w, h, rect, "edit preview", false, this.lastLook?.values,
-      canvas => side.lines.forEach((l, i) => canvas.text(rect.col + 1, rect.row + 1 + i, l, rect.cols - 2)), p.place === "floating");
+    return { ...v, frame: this.innerFrame, lines: drawAttachedFloat(v.lines, w, h, rect, "edit preview", false, this.lastLook?.values,
+      (canvas, dx, dy) => side.lines.forEach((l, i) => canvas.text(rect.col + 1 + dx, rect.row + 1 + i + dy, l, rect.cols - 2)), p.place === "floating", this.innerFrame, v.frame) };
   }
 
   editPreviewTile(w: number, h: number, host: SurfaceHost): SurfaceView | null {
@@ -3566,7 +3566,7 @@ export class NoteSurface {
         if (c?.shown) { c.move(dir); return true; }
         return !!at && !!wheelTarget(d, at.x, at.y) && this.writeWheel(d, dir, at);
       },
-      rows: (w, h, host) => { this.use(host); return this.msg && !(cs.place === "tile" && host?.composerTile) ? cs.render(w, h, subject(this.msg), (t, pw, links) => this.snippetDoc(t, pw, undefined, links)) : null; },
+      rows: (w, h, host) => { this.use(host); return this.msg && !(cs.place === "tile" && host?.composerTile) ? { lines: cs.render(w, h, subject(this.msg), (t, pw, links) => this.snippetDoc(t, pw, undefined, links)) } : null; },
       leave: async (host, actor) => {
         const w = cs.writing;
         // An agent leaves only a comment it opened and alone typed in (the draft session's rule).
