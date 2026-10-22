@@ -66,7 +66,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     expect(groups.slice(0, 1)).toEqual(["Tile"]);
     expect(groups).toContain("Note");
     const by = (action: string) => out.rows.find(r => r.action === action);
-    expect(by("tile.close")).toMatchObject({ label: "close", key: "ctrl+w x", tile: expect.stringMatching(/^t\d+$/) });
+    expect(by("tile.close")).toMatchObject({ label: "close", key: "ctrl+w x", tile: expect.stringMatching(/^t-/) });
     expect(by("tile.float")).toMatchObject({ label: "float", key: "ctrl+w f" });
     expect(by("edit")).toMatchObject({ group: "Note", key: "e" });
     expect(by("note.copy")).toMatchObject({ group: "Note", label: "copy note", key: "Y" });

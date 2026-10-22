@@ -367,7 +367,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(move({ tile: "reader", out: true, from: "group" }, { out: true })).toBe("moved reader out of group");
     expect(move({ tile: "reader", out: true }, { out: true })).toBe("moved reader out of its group");
     expect(TILE_ACTIONS.def("tile.into")!.says!({ tile: "reader", out: true }, {})).toBe("moved reader out of its group");
-    expect(move({ tile: "reader" }, { to: "tree", where: "left" })).toBe("moved reader left of tree");
+    expect(move({ tile: "reader", to: "tree" }, { to: "tree", where: "left" })).toBe("moved reader left of tree");
   });
 
   test("links cross a group's edge: grouping, spilling and moving never break them; the tree outside opens into the reader inside, a preview across the edge keeps following, and they survive a restart", async () => {
@@ -398,15 +398,16 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     render();
     await act("tile.link", { to: "../det" }, `${g}/activity`);
     expect(inner(g, "activity")).toMatchObject({ link: "../det", linkAcross: "true" });
-    // Saved by path, and back after a restart.
+    // A second copy restores the arrangement with fresh identities and local references.
     D().save();
     const again = new Desk() as any;
     app.push(again);
     again.render(again.ctx);
+    await Bun.sleep(0);
     const there = (n: string) => again.layoutGet().tiles.find((x: any) => x.name === n);
     expect(there("tree")).toMatchObject({ link: `${g}/reader`, linkAcross: "true" });
     expect(there(g).mount.layout.tiles.find((x: any) => x.name === "activity")).toMatchObject({ link: "../det" });
-    expect(there("tree").wires).toContainEqual({ verb: "select", to: inner(g, "pv").id });
+    expect(there("tree").wires).toContainEqual({ verb: "select", to: there(g).mount.layout.tiles.find((t: any) => t.name === "pv").id });
     app.pop();
     // Moved out again: the preview and the tree are on one desk, the link is the layout's own.
     await me("layout.move", { out: true, beside: "tree", where: "down" }, `${g}/pv`);

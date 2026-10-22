@@ -126,7 +126,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     desk = previous;
   });
 
-  test("its layout is its own, saved with the desk's: a fold inside it comes back after a restart, under the same mount id", async () => {
+  test("its saved arrangement restores a fold inside a second mount, with a distinct tile id", async () => {
     expect(await act("tile.collapse", { on: true }, "kanban/preview")).toMatchObject({ tile: "preview", collapsed: true });
     const id = tile("kanban").id;
     D().save();
@@ -137,7 +137,8 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     app.push(again);
     again.render(again.ctx);
     const t = () => again.layoutGet().tiles.find((x: any) => x.name === "kanban");
-    expect(t()).toMatchObject({ id, kind: "screen", mount: { screen: "board" } });
+    expect(t()).toMatchObject({ kind: "screen", mount: { screen: "board" } });
+    expect(t().id).not.toBe(id);
     expect(t().mount.layout.tiles.find((x: any) => x.name === "preview").collapsed).toBe(true);
     app.pop();
     await act("tile.expand", {}, "kanban/preview");
@@ -168,14 +169,14 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     desk = top;
     expect(tile(r.tile)).toMatchObject({ mount: { screen: "board", args: { hub: seeded.notes.hub.id } } });
     // A locked desk refuses it before the full screen goes: the person stays on the board.
-    await D().dispatch.act({ action: "layout.lock", tile: "kanban", args: { on: true } }, { kind: "user" });
+    await D().dispatch.act({ action: "layout.lock", tile: r.tile, args: { on: true } }, { kind: "user" });
     const locked = openScreen("board", { hub: seeded.notes.hub.id }) as any;
     app.push(locked);
     locked.render(locked.ctx);
     expect(await locked.dispatch.press("screen.mount", {})).toBeUndefined();
     expect((app as any).stack.at(-1)).toBe(locked);
     app.pop();
-    await D().dispatch.act({ action: "layout.lock", tile: "kanban", args: { on: false } }, { kind: "user" });
+    await D().dispatch.act({ action: "layout.lock", tile: r.tile, args: { on: false } }, { kind: "user" });
     // The tile menu offers the part around a tile (the lanes around a lane): screen.part.
     const back = openScreen("board", { hub: seeded.notes.hub.id }) as any;
     app.push(back);

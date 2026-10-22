@@ -223,7 +223,8 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     await Bun.sleep(200);
     const was = { target: list().target?.id, sel: list().sel };
     const r: any = await app.act({ action: "links", tile: "reader", as: "walker-3" });
-    expect(r.tile).toBe("backlinks");
+    expect(r.name).toBe("backlinks");
+    expect(r.tile).toBe(D().layoutGet().tiles.find((t: any) => t.name === "backlinks").id);
     expect(r.opened).toBe(false);
     expect(r.links.rows.some((x: any) => x.kind === "outlink" && x.id === n.plan.id)).toBe(true);
     expect(focusName()).toBe("reader");

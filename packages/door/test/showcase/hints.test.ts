@@ -227,7 +227,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
       const target = d.layoutGet().tiles.find(t => t.name === "reader")!.rect!;
       d.key({ kind: "mouse", action: "down", button: 0, x: target.col + 2, y: target.row + target.rows - 3 }, h.app);
       await until(() => !d.linkingHint(), "wire destination chosen");
-      expect(d.layoutGet().tiles.find(t => t.name === "source")).toMatchObject({ wires: expect.arrayContaining([{ verb, to: "reader" }]) });
+      expect(d.layoutGet().tiles.find(t => t.name === "source")).toMatchObject({ wires: expect.arrayContaining([{ verb, to: d.layoutGet().tiles.find(t => t.name === "reader")!.id }]) });
     }
   });
 

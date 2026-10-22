@@ -182,7 +182,7 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     const copies = () => written.slice(before).filter(w => w.includes("\x1b]52;"));
     // An agent typing it into the shell: the person isn't using the tile, so it isn't passed on, and the toast says so.
     for (let i = 0; ; i++) {
-      try { await app.act({ action: "tile.type", tile: "t2", args: { text: copying("Pull the bindweed", "agent") + "\\n" }, as: "test-agent" }); break; }
+      try { await app.act({ action: "tile.type", tile: "pty", args: { text: copying("Pull the bindweed", "agent") + "\\n" }, as: "test-agent" }); break; }
       catch (e) { if (i > 50 || !/isn't running/.test((e as Error).message)) throw e; await Bun.sleep(100); }
     }
     await until(() => screen().includes("agent-42"), "the agent's command to run", 8000);
@@ -202,7 +202,7 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     app.redraw(); await until(() => h.painted.map(plain).join("\n").includes("✓ copied from sh · 16 chars"), "the toast drawn", 3000);
     // Back to the door: the click a moment ago still counts, so the same agent's copy now reaches the person.
     press({ kind: "char", ch: "]", ctrl: true });
-    await app.act({ action: "tile.type", tile: "t2", args: { text: copying("Mulch the roses", "again") + "\\n" }, as: "test-agent" });
+    await app.act({ action: "tile.type", tile: "pty", args: { text: copying("Mulch the roses", "again") + "\\n" }, as: "test-agent" });
     await until(() => copies().length > 1, "the second copy written to the terminal", 8000);
     expect(copies().at(-1)).toBe(osc52("Mulch the roses"));
     // A drag across the line it printed: the door selects it and copies on release (PIE-716).

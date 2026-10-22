@@ -623,7 +623,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(B().treeOpen).toBe(false);
     expect(B().describe().backlinks).toBeNull();
     await expect(act("open", { id: cards.gate.id }, "tree")).rejects.toThrow("tree-preview isn't on screen (its dock is shut)");
-    await expect(act("edit.text", { text: "x" }, "backlinks")).rejects.toThrow("backlinks-preview isn't on screen");
+    await expect(act("edit.text", { text: "x" }, "backlinks-preview")).rejects.toThrow("backlinks-preview isn't on screen");
   });
 
   test("the control socket: `actions` lists them, `act` runs them, as the agent that asked", async () => {
