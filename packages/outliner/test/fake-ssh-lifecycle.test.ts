@@ -68,7 +68,13 @@ for (const ending of ["pass", "failure", "timeout", "killed", "clean"] as const)
     } finally {
       if (run.exitCode === null) run.kill();
       await run.exited;
-      if (pid && alive(pid)) process.kill(pid, "SIGTERM");
+      if (pid) {
+        try { process.kill(pid, "SIGTERM"); }
+        catch (error) {
+          // The forward can exit between a liveness check and the signal.
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+        }
+      }
       rmSync(root, { recursive: true, force: true });
     }
   }, 30_000);
