@@ -24,9 +24,11 @@ describe("the agent guide", () => {
     expect(guide).toContain(`## Components (${BUILTIN_COMPONENT_SCHEMAS.length} components)`);
   });
 
-  test("marks a component live when it takes a query, and not otherwise", () => {
+  test("marks a component live when it takes a query, itself or on each of its items, and not otherwise", () => {
     const index = componentIndex(BUILTIN_COMPONENT_SCHEMAS);
     expect(index).toMatch(/\n- graph-tabs: [^\n]* · live\n/);
+    // A meter's `query:` and `done:`; a stat's and a kpi's tile, each counting its own `query:`.
+    for (const id of ["graph-meter", "graph-stat", "graph-kpi"]) expect(index).toMatch(new RegExp(`\\n- ${id}: [^\\n]* · live\\n`));
     expect(index).toMatch(/\n- graph-annotate: [^\n]*\n/);
     expect(index).not.toMatch(/\n- graph-annotate: [^\n]* · live\n/);
   });
@@ -56,7 +58,7 @@ describe("the agent guide", () => {
   test("names: each group's ids on one line, live and extension ones marked, small enough for an MCP server's instructions", () => {
     const { schemas } = mergeComponentSchemas({ extensions: [{ id: "almanac", components: [WEATHER] }] });
     const guide = agentGuide(schemas, { index: "names" });
-    expect(guide).toMatch(/\n- figures: graph-meter, [^\n]*graph-tabs \(live\)[^\n]*\n/);
+    expect(guide).toMatch(/\n- figures: graph-meter \(live\), graph-spark, graph-stat \(live\), [^\n]*graph-tabs \(live\)[^\n]*\n/);
     expect(guide).toContain("\n- almanac: ext-almanac-forecast (ext:almanac)");
     for (const s of schemas) expect(guide).toContain(s.id);
     expect(agentGuide(BUILTIN_COMPONENT_SCHEMAS, { index: "names" }).length).toBeLessThan(3600);

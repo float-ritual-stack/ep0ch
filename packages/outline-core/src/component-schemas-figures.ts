@@ -17,7 +17,16 @@ const LIMIT = yaml("limit", "int", "the most results a live figure asks for", { 
 const SORT = yaml("sort", "property", "a live figure's sort field (updated when left out)", { default: "updated", samples: ["updated", "created", "title"] });
 const DIRECTION = yaml("direction", "enum", "a live figure's sort direction", { default: "desc", values: enumOf({ asc: "oldest or smallest first", desc: "newest or largest first" }) });
 const MACHINERY = yaml("machinery", "enum", "what a live figure's query holds of the notes tools write for their own bookkeeping ([machine::…]): left out unless this says show or only", { default: "hide", values: enumOf({ hide: "leave them out", show: "hold them with the rest", only: "hold just them (backup runs, tosses)" }) });
-const LIVE = [QUERY, VIEW, MACHINERY];
+export const LIVE = [QUERY, VIEW, MACHINERY];
+/** The results that count as done (check, meter) or under way (check, timeline): a filter in the query grammar over the live results. */
+export const liveFilter = (key: "done" | "now", meaning: string, samples: string[]): PropSchema => yaml(key, "query", meaning, { complete: "query", samples });
+/** A tile of `::graph-stat` / `::graph-kpi`: what it shows, and its own query or view to count live. */
+const TILE: PropSchema[] = [
+  yaml("value", "text", "the number drawn, as written (a live tile's count takes its place)", { samples: ["18", "98%"] }),
+  yaml("label", "text", "the words under the number", { samples: ["outbox", "uptime"] }),
+  yaml("accent", "enum", "the tile drawn in the accent (else the bold row, else the last)", { values: enumOf({ true: "this tile" }) }),
+  ...LIVE.map(p => ({ ...p, meaning: p.key === "query" ? "counts the blocks this query holds, live: the count is the tile's value" : p.meaning })),
+];
 const DENSITY = yaml("density", "enum", "how many lines a row's title takes (the reader's choice, `=`, goes over this)", { default: "cozy", values: enumOf({ compact: "one line a row", cozy: "two lines", comfortable: "three lines, a blank between rows" }) });
 
 const LIVE_WORDS = "\n\nWith `query:` or `view:` the figure is live: it is drawn from the outline's blocks and refreshed as they change. The library has no outline to ask, so it shows the static form and says so here.";
@@ -42,12 +51,12 @@ function figure(k: Kind): ComponentSchema {
 const FIGURES: Kind[] = [
   {
     kind: "stat", title: "Stat", intro: "Big numbers with labels under them, tiles that wrap into rows when they don't fit: the counts a note wants at a glance. The bold row (or `accent: true`) is the accent; with none, the last. A live item counts the blocks its own `query:` or `view:` holds." + LIVE_WORDS,
-    props: [TITLE, yaml("items", "list", "the tiles, each { value, label } and optionally { query } to count live", { samples: ["[{ value: \"18\", label: outbox }, { value: \"8\", label: waiting }]", "[{ value: \"3\", label: drafts }]"] })],
+    props: [TITLE, yaml("items", "list", "the tiles, each { value, label }, or { label, query } (or view) to count live", { samples: ["[{ value: \"18\", label: outbox }, { value: \"8\", label: waiting }]", "[{ value: \"3\", label: drafts }]"], each: TILE })],
     example: { title: "this week", items: "[{ value: \"18\", label: outbox }, { value: \"8\", label: waiting }, { value: \"2\", label: drafts }]" }, sweep: ["items"],
   },
   {
-    kind: "kpi", title: "KPI", intro: "The same figure as `::graph-stat`, by its other name: big numbers with labels, the last (or the bold one) in the accent. Rows are `- label: value`.",
-    props: [TITLE, yaml("items", "list", "the tiles, each { value, label }", { samples: ["[{ value: \"98%\", label: uptime }, { value: \"41\", label: notes }]"] })],
+    kind: "kpi", title: "KPI", intro: "The same figure as `::graph-stat`, by its other name: big numbers with labels, the last (or the bold one) in the accent. Rows are `- label: value`. A live item counts the blocks its own `query:` or `view:` holds.",
+    props: [TITLE, yaml("items", "list", "the tiles, each { value, label }, or { label, query } (or view) to count live", { samples: ["[{ value: \"98%\", label: uptime }, { value: \"41\", label: notes }]"], each: TILE })],
     example: { title: "this month", items: "[{ value: \"98%\", label: uptime }, { value: \"41\", label: notes }]" }, sweep: ["items"],
   },
   {
@@ -84,13 +93,16 @@ const FIGURES: Kind[] = [
   },
   {
     kind: "check", title: "Checklist", intro: "A list with boxes: `- [x] done`, `- [ ] open` (any of a checklist step's six marks: `[~]` waiting, `[!]` problem, `[✓]` approved, `[✗]` rejected), or a bold row without a box for done; a muted side note after an em dash. A boxed row is a step: a reader's x o + - w ! marks it, rewriting its box. Its words take inline Blockdown (code spans, links, emphasis). Live, each result is an item and a note's `done:` is the results that are done, `now:` those under way; with `done: \"key=value\"`, a mark writes that property on the result's own note." + LIVE_WORDS,
-    props: [TITLE, ...LIVE, yaml("note", "text", "a live figure's property whose value is each item's side note", { samples: ["owner", "when"] })],
+    props: [TITLE, ...LIVE,
+      liveFilter("done", "a live figure's results that are done; one `key=value` (`stage=done`) is also what a mark writes on the result's note", ["stage=done", "status=done"]),
+      liveFilter("now", "a live figure's results under way", ["stage=doing"]),
+      yaml("note", "text", "a live figure's property whose value is each item's side note", { samples: ["owner", "when"] })],
     rows: "- [x] Order the seed\n- [x] Dig the beds — before the frost\n- [ ] Water at nine\n- [ ] Cover the tomatoes",
     example: { title: "Saturday" }, sweep: [],
   },
   {
     kind: "timeline", title: "Timeline", intro: "Events down a spine: `- 2026-03: label`, a bold row is now (●, in the accent), an italic one is next (○), a side note after an em dash. Live, each result is an event dated by its updated time, or by the property `date:` names." + LIVE_WORDS,
-    props: [TITLE, ...LIVE, yaml("date", "text", "a live figure's property that dates each event", { samples: ["when", "due"] }), yaml("sort", "enum", "which time dates a live event (when `date:` isn't set)", { default: "updated", values: enumOf({ updated: "when it last changed", created: "when it was written" }) })],
+    props: [TITLE, ...LIVE, liveFilter("now", "a live figure's results drawn as now on the spine", ["stage=doing"]), yaml("date", "text", "a live figure's property that dates each event", { samples: ["when", "due"] }), yaml("sort", "enum", "which time dates a live event (when `date:` isn't set)", { default: "updated", values: enumOf({ updated: "when it last changed", created: "when it was written" }) })],
     rows: "- 2026-03: seeds sown\n- 2026-05: first flowers — early\n- **2026-08: the open garden**\n- *2026-10: seed collecting*",
     example: { title: "The garden year" }, sweep: [],
   },

@@ -64,6 +64,17 @@ export function componentReading(text: string, schemas: readonly ComponentSchema
       const wrong = checkValue(prop, String(value));
       if (wrong) warnings.push(`${at}: ${wrong}`);
     }
+    // A list written in the YAML whose items take named keys (a stat's tile): a near miss there draws a static tile.
+    for (const prop of props.filter(p => p.each?.length && yamlKeys(src.yaml).includes(p.key))) {
+      const each = prop.each!.map(e => e.key), told = new Set<string>();
+      for (const item of Array.isArray(read.props[prop.key]) ? read.props[prop.key] as unknown[] : []) {
+        if (!item || typeof item !== "object") continue;
+        for (const key of Object.keys(item).filter(k => !each.includes(k) && !told.has(k))) {
+          const near = closest(key, each);
+          if (near) { told.add(key); warnings.push(`${at}: its ${prop.key} don't take ${key}: did you mean ${near}?`); }
+        }
+      }
+    }
   }
   return { components, warnings };
 }

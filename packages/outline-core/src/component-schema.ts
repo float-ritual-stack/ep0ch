@@ -13,7 +13,7 @@ import { BUILTIN_HEADING_STYLES, type HeadingStyle } from "./heading-styles";
 import { BUILTIN_CALLOUTS, CALLOUT_TONES, type CalloutType } from "./callouts";
 import { codeSpanRanges } from "./code-ranges";
 import { noteCodeFences } from "./component-block";
-import { FIGURE_COMPONENT_SCHEMAS } from "./component-schemas-figures";
+import { FIGURE_COMPONENT_SCHEMAS, LIVE, liveFilter } from "./component-schemas-figures";
 import { BLOCK_COMPONENT_SCHEMAS } from "./component-schemas-blocks";
 import { USE } from "./component-schemas-use";
 import { BUTTON } from "./component-schemas-button";
@@ -60,6 +60,8 @@ export interface PropSchema {
   token?: string;
   /** The source to show this property with when its axis is drawn, in place of the component's `use`. */
   use?: string;
+  /** A list's items: the keys each one takes (a stat's tile: value, label, and its own query or view to count live). */
+  each?: PropSchema[];
 }
 
 /**
@@ -244,7 +246,7 @@ const FIGURE_TITLE: PropSchema = { key: "title", where: "yaml", type: "text", me
 const METER: ComponentSchema = {
   id: "graph-meter", group: "figures",
   title: "Meter (::graph-meter)",
-  intro: "A share drawn as a bar (`value: 0.4`, or 40 for 40%), or, with `limit:`, a budget: each value drawn up to the limit, the limit a mark at the bar's end, the headroom said beneath, an overrun in red. Rows `- label: 48` under the YAML draw one bar each against the same limit.",
+  intro: "A share drawn as a bar (`value: 0.4`, or 40 for 40%), or, with `limit:`, a budget: each value drawn up to the limit, the limit a mark at the bar's end, the headroom said beneath, an overrun in red. Rows `- label: 48` under the YAML draw one bar each against the same limit. With `query:` or `view:` the meter is live: the share of the results `done:` holds, or with `limit:` how many results there are against it.",
   where: "a `::graph-meter` block, its properties in the YAML between `---` lines",
   props: [
     { ...FIGURE_TITLE },
@@ -253,6 +255,8 @@ const METER: ComponentSchema = {
     { key: "unit", where: "yaml", type: "text", meaning: "the unit a budget's amounts are in", samples: ["TB"] },
     { key: "label", where: "yaml", type: "text", meaning: "the bar's label, with a limit", samples: ["photos"] },
     { key: "caption", where: "yaml", type: "text", meaning: "a quiet line under the bar", samples: ["the shared disk"] },
+    ...LIVE,
+    liveFilter("done", "a live meter's results that count toward its share (every result when left out)", ["stage=done", "status=shipped"]),
   ],
   source: { use: "::graph-meter\n---\n{{props.yaml}}\n---\n::" },
   example: { title: "Disk", value: "0.6" },
@@ -677,6 +681,7 @@ const cell = (s: string) => s.replace(/\|/g, "\\|").replace(/\n/g, " ");
 export function valuesWords(p: PropSchema): string {
   if (p.values?.length) return p.values.map(v => v.value).join(", ");
   if (p.type === "int" && p.min !== undefined && p.max !== undefined) return `${p.min} to ${p.max}`;
+  if (p.each?.length) return `${p.type} of { ${p.each.map(e => e.key).join(", ")} }`;
   return p.type;
 }
 
@@ -764,5 +769,5 @@ export function componentGist(schema: ComponentSchema, max = 100): string {
   return `${purpose.slice(0, word > 0 ? word : max - 1).replace(/[,:;\s]+$/, "")}…`;
 }
 
-/** Whether a component reads the outline as it's drawn: it takes a query (`query:`, `[query::]`, `where=`). */
-export const componentIsLive = (schema: ComponentSchema): boolean => schema.props.some(p => p.type === "query");
+/** Whether a component reads the outline as it's drawn: it takes a query (`query:`, `[query::]`, `where=`), itself or on each of its items (a stat's tile). */
+export const componentIsLive = (schema: ComponentSchema): boolean => schema.props.some(p => p.type === "query" || !!p.each?.some(e => e.type === "query"));
