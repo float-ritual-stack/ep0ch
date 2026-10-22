@@ -26,6 +26,18 @@ export interface ButtonCall {
 /** Attributes a button reads itself; every other word is a slot of the script it runs (`of=`). */
 const OWN = new Set(["label", "act", "of", "alt"]);
 
+/** The closing body line, or the opener when this button has no closed body. */
+export function buttonBodyEnd(lines: readonly string[], i: number): number {
+  const open = COMPONENT_OPEN.exec((lines[i] ?? "").replace(/\r$/, ""));
+  if (!open || open[1] !== BUTTON_NAME || !open[3]) return i;
+  const pairs = componentAttrs(open[3].slice(1, -1)).pairs;
+  if (pairs.some(p => ["act", "of"].includes(p.key.toLowerCase()))) return i;
+  const following = lines.slice(i);
+  const blank = following.findIndex((line, at) => at > 0 && !line.trim());
+  const block = componentBlockAt((blank < 0 ? following : following.slice(0, blank)).join("\n"));
+  return block ? i + block.raw.trimEnd().split("\n").length - 1 : i;
+}
+
 /** The `::button` starting at line `i`, or null. The body uses the shared component closing rule. */
 export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | null {
   const open = COMPONENT_OPEN.exec((lines[i] ?? "").replace(/\r$/, ""));
@@ -34,16 +46,11 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
   const get = (key: string) => pairs.find(p => p.key.toLowerCase() === key)?.value;
   const act = get("act")?.trim(), of = get("of")?.trim(), label = get("label")?.trim();
   const slots = pairs.filter(p => !OWN.has(p.key.toLowerCase()));
-  const following = lines.slice(i);
-  const blank = following.findIndex((line, at) => at > 0 && !line.trim());
-  const block = get("act") === undefined && get("of") === undefined && open[3]
-    ? componentBlockAt((blank < 0 ? following : following.slice(0, blank)).join("\n")) : null;
-  const body = block?.raw.trimEnd().split("\n");
-  const endLine = body ? i + body.length - 1 : i;
+  const endLine = buttonBodyEnd(lines, i);
   let steps: ButtonStep[] = [], problem: string | undefined;
   try {
-    if (body && endLine > i) {
-      steps = body.slice(1, -1).map(l => l.trim()).filter(Boolean).map(source => {
+    if (endLine > i) {
+      steps = lines.slice(i + 1, endLine).map(l => l.trim()).filter(Boolean).map(source => {
         const script = /^\(\((.+)\)\)$/.exec(source);
         return script ? { kind: "script", source: script[1]! } : { kind: "act", source };
       });

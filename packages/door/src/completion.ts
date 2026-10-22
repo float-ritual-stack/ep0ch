@@ -9,6 +9,7 @@ import { COMPONENT_CLOSE, componentAttributeAtCursor, componentBlocks } from "@e
 import { calloutTypeAtCursor } from "@ep0ch/outline-core/callouts";
 import { propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core/component-schema";
 import { codeSpanRanges, cursorInCode } from "@ep0ch/outline-core/code-ranges";
+import { buttonBodyEnd } from "@ep0ch/outline-core/button-call";
 
 /**
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
@@ -67,7 +68,8 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
   }
   const end = Math.max(0, Math.min(column, line.length));
   const beforeCursor = line.slice(0, end);
-  const button = lines && row !== undefined && componentBlocks([...lines.slice(0, row + 1), "::"]).find(b => b.name === "button" && row > b.start && row <= b.end);
+  const draft = lines && row !== undefined ? [...lines.slice(0, row + 1), "::"] : null;
+  const button = draft && row !== undefined && componentBlocks(draft).find(b => b.name === "button" && row > b.start && row <= buttonBodyEnd(draft, b.start));
   if (button && row === button.end && COMPONENT_CLOSE.test(line)) return null;
   const component = /^( {0,3})::([^{}\n]*)$/.exec(beforeCursor);
   if (component) return { kind: "component", start: component[1]!.length, end: end + /^[a-z0-9-]*/.exec(line.slice(end))![0].length, query: component[2]! };
