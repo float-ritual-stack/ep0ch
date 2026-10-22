@@ -969,6 +969,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const from of src !== undefined ? [src] : container ? leaves(container) : []) wires.push({ from, verb: "select", to });
     }
     for (const { from, verb, to: savedTo, rule } of wantWires) {
+      if (this.panes.get(from) instanceof ScreenTile) continue;
+      for (let i = wires.length - 1; i >= 0; i--) if (wires[i]!.from === from && wires[i]!.verb === verb) wires.splice(i, 1);
+      for (let i = across.length - 1; i >= 0; i--) if (across[i]!.from === from && across[i]!.verb === verb) across.splice(i, 1);
       const to = references.get(savedTo) ?? savedTo;
       if (to.includes("/")) { across.push({ from, to, verb, rule }); continue; }
       const target = [...names].find(([id, n]) => this.tileId(id) === to || n === to)?.[0];
@@ -5231,8 +5234,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (k !== undefined && !this.isFloat(this.focus)) this.openedIn(k).active = this.focus;
   }
 
+  private linkSource(sel: string | undefined, verb: WireVerb) {
+    const src = this.tile(sel), pane = this.panes.get(src.id);
+    if (pane instanceof ScreenTile) {
+      const inner = pane.inner?.keys().address;
+      throw new ActionRefused(`${src.name} holds tiles; wire its inner tile: tile.link tile=${inner ?? `${src.name}/<tile>`} verb=${verb} to=<destination>`);
+    }
+    return src;
+  }
+
   startLink(sel: string | undefined, verb: WireVerb, ask: boolean): TileDone {
-    const src = this.tile(sel);
+    const src = this.linkSource(sel, verb);
     this.overlays.drop("policy");
     this.linking = ask ? { desk: this, from: src.id, verb } : null;
     this.redraw();
@@ -5240,7 +5252,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   linkTile(sel: string | undefined, to: string | undefined, actor: Actor, verb: WireVerb = "open", remove = false, rule?: AltRule): TileDone {
-    const src = this.tile(sel);
+    const src = this.linkSource(sel, verb);
     this.linking = null;
     const across = to && (to.includes("/") || this.idNamed(to) === undefined && !!this.paneAtPath(to));
     if (across && remove) {

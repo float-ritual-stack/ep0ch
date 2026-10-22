@@ -471,6 +471,70 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     return () => app.drawer.desk?.dispatch.act({ action: "tile.close", tile: "screen" }, USER);
   };
 
+  for (const place of ["screen", "group", "drawer group"] as const) {
+    test(`PIE-1206: each verb replaces its destination in the ${place}`, async () => {
+      const s = await twoReaders();
+      const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+      let group: string | undefined;
+      try {
+        const made = await act("tile.open", "other", { kind: "backlinks", name: "links" }) as { tile: string };
+        const id = made.tile;
+        if (place !== "screen") {
+          group = (await act("tile.group", id, { name: "parcel" }) as { tile: string }).tile;
+          if (place === "drawer group") await act("tile.drawer", group);
+        }
+        s.d.render(app); app.drawer.render(200, 60, "Probe");
+        const first = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.tile;
+        const target = s.d.layoutAll().tiles.find(t => t.name === "other")!.tile;
+        for (const verb of ["select", "open", "alt"]) {
+          await act("tile.link", id, { to: first, verb });
+          await act("tile.link", id, { to: target, verb });
+          const tile = s.d.layoutAll().tiles.find(t => t.tile === id)!;
+          expect(tile.wires.filter(w => w.verb === verb)).toEqual([{ verb, to: target }]);
+        }
+      } finally {
+        if (group && app.drawer.made?.resolveTile(group)) await act("tile.close", group);
+        s.done();
+      }
+    }, 30_000);
+
+    test(`PIE-1206: a group refuses wires and names its inner tile in the ${place}`, async () => {
+      const s = await twoReaders();
+      const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+      let outer: string | undefined;
+      try {
+        const inner = s.d.layoutAll().tiles.find(t => t.name === "other")!.tile;
+        const group = (await act("tile.group", inner, { name: "parcel" }) as { tile: string }).tile;
+        if (place !== "screen") {
+          outer = (await act("tile.group", group, { name: "yard", on: true }) as { tile: string }).tile;
+          if (place === "drawer group") await act("tile.drawer", outer);
+        }
+        s.d.render(app); app.drawer.render(200, 60, "Probe");
+        const target = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.tile;
+        await expect(act("tile.link", group, { to: target, verb: "select" })).rejects.toThrow(/tile.link tile=.*other|tile.link tile=t-/);
+        expect(s.d.layoutAll().tiles.find(t => t.tile === group)!.wires).toEqual([]);
+      } finally {
+        if (outer && app.drawer.made?.resolveTile(outer)) await act("tile.close", outer);
+        s.done();
+      }
+    }, 30_000);
+  }
+
+  test("PIE-1206: saved duplicate destinations and group wires are repaired on load", async () => {
+    const d = new Desk({ name: "wire-load", title: "Wire load", layout: { root: { t: "split", dir: "row", kids: [
+      { t: "leaf", kind: "reader", name: "first" },
+      { t: "leaf", kind: "reader", name: "last" },
+      { t: "leaf", kind: "backlinks", name: "links", wires: [{ verb: "select", to: "first" }, { verb: "select", to: "last" }] },
+      { t: "leaf", kind: "screen", name: "parcel", wires: [{ verb: "select", to: "first" }], inner: { root: { t: "leaf", kind: "reader", name: "inside" } } },
+    ], weights: [1, 1, 1, 1] } } });
+    app.push(d);
+    try {
+      const tiles = d.layoutAll().tiles;
+      expect(tiles.find(t => t.name === "links")!.wires).toEqual([{ verb: "select", to: tiles.find(t => t.name === "last")!.tile }]);
+      expect(tiles.find(t => t.name === "parcel")!.wires).toEqual([]);
+    } finally { app.pop(); d.dispose(); }
+  });
+
   test("4 address: tile= takes the drawer path that links itself answers", async () => {
     const s = await twoReaders(); const off = await linksInDrawer(s);
     try {

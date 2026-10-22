@@ -859,7 +859,8 @@ class Step<I> {
       case "agents": return this.setAgents(op.tile, op.level);
       case "policy": return this.setPolicy(op);
       case "link": if (op.across !== undefined) {
-        this.d.across = this.d.across.filter(w => w.from !== op.tile || w.verb !== (op.verb ?? "open") || ((op.remove || op.verb === "select") && w.to !== op.across));
+        this.d.across = this.d.across.filter(w => w.from !== op.tile || w.verb !== (op.verb ?? "open") || (op.remove && w.to !== op.across));
+        if (!op.remove) this.d.wires = this.d.wires.filter(w => w.from !== op.tile || w.verb !== (op.verb ?? "open"));
         if (!op.remove) this.d.across.push({ from: op.tile, to: op.across, verb: op.verb ?? "open", ...(op.rule ? { rule: op.rule } : {}) });
         return;
       } return this.link(op.tile, op.to, op.verb, op.remove, op.rule);
@@ -1601,6 +1602,7 @@ class Step<I> {
       this.d.answer = { wire: null, verb };
       return;
     }
+    this.d.across = this.d.across.filter(w => w.from !== id || w.verb !== verb);
     this.present(to);
     const f = this.facts(to);
     if (verb === "alt" && rule && rule !== "tile") {
@@ -1614,7 +1616,8 @@ class Step<I> {
     this.shape(id, `changing where ${this.name(id)}'s ${verb} lands`);
     if (to === id) refuse(`${this.name(id)} can't open into itself · leave to= out to unlink`);
     if (!notes) refuse(`${this.name(to)} is a ${kind} tile: opens land in a tile that takes notes${this.ctx.kinds ? ` (${this.ctx.kinds.notes.join(", ")})` : ""}`);
-    this.d.wires = this.d.wires.filter(w => !(w.from === id && w.verb === verb && (verb !== "select" || w.to === to)));
+    this.d.wires = this.d.wires.filter(w => !(w.from === id && w.verb === verb));
+    this.d.across = this.d.across.filter(w => w.from !== id || w.verb !== verb);
     this.d.wires.push({ from: id, verb, to });
   }
 
