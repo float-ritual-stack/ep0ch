@@ -771,8 +771,10 @@ export class AgentDrawer {
   private do(op: Op<string>, actor: Actor) {
     const r = applyLayout(this.layer, op, this.ctx(actor, this.rows, this.cols));
     if (!r.ok) throw new ActionRefused(r.refused);
+    const moved = this.keys !== r.focus;
     this.layer = r.state;
     this.keys = r.focus;
+    if (moved) for (const d of this.desks()) d.liftedDesk?.dropLiftElsewhere();
     return r;
   }
   /** The terminal's size as last drawn (the host layer's room). */

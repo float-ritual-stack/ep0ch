@@ -87,6 +87,44 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     (app as any).lastInput = 0;
   }, 30_000);
 
+  for (const path of ["^W l", "alt+a", "status click", "ctrl+k", "tile.focus"] as const) {
+    test(`lift dismissal: ${path} exposes the destination`, async () => {
+      (app as any).lastInput = 0;
+      await sc.dispatch.press("section.leave");
+      await sc.dispatch.press("section", { name: "lift" });
+      screen();
+      const d = sc.tilesHere()!;
+      await app.dispatch.press("host.toggle", { open: false });
+      press({ kind: "enter" });
+      await d.dispatch.press("tile.focus", {}, "brief");
+      await d.dispatch.press("tile.zoom", { reach: "full", on: true }, "brief");
+      (app as any).paint(true);
+      expect(d.lifted?.reach).toBe("full");
+      try {
+        if (path === "^W l") { press({ kind: "char", ch: "w", ctrl: true }); ch("l"); }
+        else if (path === "alt+a") press({ kind: "alt", ch: "a" });
+        else if (path === "status click") {
+          const chip = (app as any).statusBoxes.find((h: any) => h.item.id === "theme");
+          press({ kind: "mouse", action: "down", button: 0, x: chip.from, y: 59 });
+        }
+        else if (path === "ctrl+k") press({ kind: "char", ch: "k", ctrl: true });
+        else await d.dispatch.act({ action: "tile.focus", tile: "other" }, { kind: "user" });
+        expect(d.lifted).toBeNull();
+        if (path === "^W l" || path === "tile.focus") expect(d.layoutGet().focus).toBe("other");
+        if (path === "alt+a") expect(app.drawer.entered).toBe(true);
+        if (path === "ctrl+k") {
+          ch("garden");
+          expect((app as any).bar.describe().query).toBe("garden");
+        }
+      } finally {
+        d.dropLift();
+        await app.dispatch.press("bar.close");
+        await app.dispatch.press("host.toggle", { open: false });
+        await sc.dispatch.press("section.leave");
+      }
+    }, 30_000);
+  }
+
   test("focus (PIE-969): the figure with the keys keeps its tint and the row under the cursor is a band with a bar, in every theme", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "focus" }, as: "test-agent" })).toMatchObject({ key: "focus" });

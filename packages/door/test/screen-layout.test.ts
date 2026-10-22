@@ -69,6 +69,14 @@ test("a lift keeps the layout and keys, and an agent cannot replace the person's
   no(s, { op: "zoom", tile: 2, reach: "column" }, /person.*keys/, AGENT);
 });
 
+test("focus leaving a lifted tile drops it through apply", () => {
+  const s = ok(fresh(), { op: "zoom", tile: 2, reach: "full" }).state;
+  expect(ok(s, { op: "focus", tile: 2 }).state.lift).toEqual(s.lift);
+  const moved = ok(s, { op: "focus", tile: 3 });
+  expect(moved.focus).toBe(3);
+  expect(moved.state.lift).toBeNull();
+});
+
 describe("one operation, one transaction", () => {
   test("the last tile closes to an empty home and another tile can open there (PIE-1119)", () => {
     extra = {};

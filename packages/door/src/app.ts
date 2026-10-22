@@ -545,6 +545,7 @@ export class App implements Ctx {
   private readonly barOn: BarOn = {
     bar: () => this.bar,
     open: o => {
+      for (const d of this.drawer.desks()) d.liftedDesk?.dropLift();
       this.bar?.close();
       const b = new PowerBar(this.barHost(), (n, alt) => { void this.dispatch.press("bar.pick", { n, alt }); }, o);
       this.bar = b;
@@ -1280,6 +1281,7 @@ export class App implements Ctx {
       return;
     }
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1 && k.action === "down") {
+      for (const d of this.drawer.desks()) d.liftedDesk?.dropLift();
       const hit = this.statusBoxes.find(h => k.x >= h.from && k.x < h.to);
       const alt = k.button === 2 || ((k.mods ?? 0) & 8) !== 0;
       const req = hit ? (alt ? hit.item.alt ?? hit.item.click : k.x === hit.to - 1 && hit.item.lastCell ? hit.item.lastCell : hit.item.click) : { action: alt ? "status.bar.edit" : "status.log" };
