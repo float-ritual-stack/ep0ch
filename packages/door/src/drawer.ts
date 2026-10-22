@@ -430,14 +430,17 @@ export class AgentDrawer {
   }
 
   /** Open block `id` on the screen shown, as its details open (a new detail when `fresh`), or where an open naming no tile lands. */
-  async openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: Reveal): Promise<{ reader: string | null; id: string }> {
+  async openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: Reveal): Promise<{ tile: string | null; name?: string; id: string }> {
     // The tile it comes from has a link to a tile of the screen (alt+l): that tile takes it, whatever has the keys (PIE-700).
     const linked = from && !fresh && this.d ? await this.d.openOnLink(id, from, actor) : null;
-    if (linked) return { reader: linked, id };
+    if (linked) {
+      const at = this.d!.resolveTile(linked)!.tile;
+      return { tile: at.id!, name: at.name, id };
+    }
     const screen = tilesOf(this.host.screen?.());
     if (!screen) throw new ActionRefused("this screen has no tiles to open it in · q goes back to one");
     const opened = screen.hasPlaces() ? await screen.openPlace(id, fresh ? "new-detail" : "detail", actor) : fresh ? await screen.openFresh(id, actor) : await screen.openLanding(id, actor);
-    if (reveal) screen.revealIn(opened.reader, reveal, actor);
+    if (reveal) screen.revealIn(opened.tile, reveal, actor);
     return opened;
   }
 
@@ -447,7 +450,7 @@ export class AgentDrawer {
    * this one or kept in the background, that screen comes to the top first (`Ctx.raise`; the person's only: an agent
    * never moves their screen this way). A spine opens first (`tile.expand`); `zoom` zooms it after.
    */
-  goTo(p: Pane, actor: Actor, o: { zoom?: boolean } = {}): { tile: string; in: "drawer" | "screen"; raised?: string } {
+  goTo(p: Pane, actor: Actor, o: { zoom?: boolean } = {}): { tile: string; name: string; in: "drawer" | "screen"; raised?: string } {
     const d = this.d, inDrawer = d?.nameOfPane(p) ?? "";
     if (d && inDrawer) {
       if (!this.open) { this.offered = true; this.set(true, actor); }
@@ -457,7 +460,8 @@ export class AgentDrawer {
       p.focused?.(d, actor);
       if (o.zoom) d.zoomTile(inDrawer, true, actor);
       this.host.redraw();
-      return { tile: inDrawer, in: "drawer" };
+      const { tile, name } = d.tileInfo(inDrawer);
+      return { tile, name, in: "drawer" };
     }
     let screen = tilesOf(this.host.screen?.()), name = screen?.nameOfPane(p) ?? "", raised: string | undefined;
     const what = (p as { statusName?(): string }).statusName?.() ?? "that tile";
@@ -478,7 +482,7 @@ export class AgentDrawer {
     p.focused?.(screen!, actor);
     if (o.zoom) screen!.zoomTile(name, true, actor);
     this.host.redraw();
-    return { tile: name, in: "screen", ...(raised ? { raised } : {}) };
+    return { tile: screen!.tileInfo(name).tile, name, in: "screen", ...(raised ? { raised } : {}) };
   }
 
   // ── agent sessions (PIE-737): every agent the door holds, wherever it's shown ──
@@ -505,12 +509,12 @@ export class AgentDrawer {
   /** Where terminal `p` is shown now: your drawer, the screen shown, a screen under it or kept, or nowhere. */
   shownOf(p: Pane): Shown {
     const inDrawer = this.d?.nameOfPane(p);
-    if (inDrawer) return { in: "drawer", tile: inDrawer, own: p === this.p, ...((p as PtyPane).herdr ? { herdr: (p as PtyPane).herdr!.pane } : {}) };
+    if (inDrawer) return { in: "drawer", tile: this.d!.tileInfo(inDrawer).tile, name: inDrawer, own: p === this.p, ...((p as PtyPane).herdr ? { herdr: (p as PtyPane).herdr!.pane } : {}) };
     const top = this.host.screen?.(), ctx = this.host.ctx?.();
     const screens = [top, ...[...(ctx?.screens?.() ?? [])].reverse(), ...(ctx?.kept?.() ?? [])].filter((x, i, all): x is Screen => !!x && all.indexOf(x) === i);
     for (const sc of screens) {
       const name = tilesOf(sc)?.nameOfPane(p);
-      if (name) return { in: "screen", screen: sc.title, tile: name, here: sc === top };
+      if (name) return { in: "screen", screen: sc.title, tile: tilesOf(sc)!.tileInfo(name).tile, name, here: sc === top };
     }
     return { in: "nowhere" };
   }
@@ -577,7 +581,7 @@ export class AgentDrawer {
     p.startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
     if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
     this.host.redraw();
-    return { attached: false, started: true, program, folder, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}), cmd, resumed, tile: done.tile, id: done.id ?? null };
+    return { attached: false, started: true, program, folder, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}), cmd, resumed, tile: done.tile, name: done.name };
   }
 
   /** Jump to session `sel`: where it's shown, the keys in it (the person's only). */
@@ -590,10 +594,10 @@ export class AgentDrawer {
   /** Pull session `sel` into your drawer, from the screen it's on: the same process, the conversation kept. */
   pullSession(sel: string | number | undefined, actor: Actor): Record<string, unknown> {
     const s = this.sessionOf(sel);
-    if (s.shown.in === "drawer") throw new ActionRefused(`${s.id} is in your drawer already (${s.shown.tile}) · d docks it on this screen`);
+    if (s.shown.in === "drawer") throw new ActionRefused(`${s.id} is in your drawer already (${s.shown.name}) · d docks it on this screen`);
     if (s.shown.in === "nowhere") throw new ActionRefused(`${s.id} isn't on a screen this door shows`);
-    const ctx = this.host.ctx?.(), top = this.host.screen?.();
-    const sc = [top, ...(ctx?.screens?.() ?? []), ...(ctx?.kept?.() ?? [])].find(x => !!x && tilesOf(x)?.nameOfPane(s.pane) === (s.shown as { tile: string }).tile);
+    const ctx = this.host.ctx?.(), top = this.host.screen?.(), address = s.shown.tile;
+    const sc = [top, ...(ctx?.screens?.() ?? []), ...(ctx?.kept?.() ?? [])].find(x => !!x && tilesOf(x)?.pane(address) === s.pane);
     const from = tilesOf(sc);
     if (!from) throw new ActionRefused(`${s.id} isn't on a screen this door shows`);
     const done = this.put(from, s.shown.tile, actor);
@@ -603,7 +607,7 @@ export class AgentDrawer {
   /** Dock session `sel` on the screen shown, from your drawer or another screen: the same process, the conversation kept. */
   dockSession(sel: string | number | undefined, actor: Actor): Record<string, unknown> {
     let s = this.sessionOf(sel);
-    if (s.shown.in === "screen" && s.shown.here) throw new ActionRefused(`${s.id} is on this screen already (${s.shown.tile})`);
+    if (s.shown.in === "screen" && s.shown.here) throw new ActionRefused(`${s.id} is on this screen already (${s.shown.name})`);
     // On another screen: through your drawer, whole.
     if (s.shown.in === "screen") { this.pullSession(s.id, actor); s = this.sessions().find(x => x.pane === s.pane) ?? s; }
     if (s.shown.in !== "drawer") throw new ActionRefused(`${s.id} isn't on a screen this door shows`);
@@ -652,14 +656,15 @@ export class AgentDrawer {
    * The agent panel (src/desk/agents-panel.ts) as a tab in your drawer, opened once and shown again after: the person's
    * pulls the drawer up and goes to it (alt+g); an agent's opens it behind the tab shown.
    */
-  async agentsPanel(actor: Actor): Promise<{ tile: string; sessions: number }> {
+  async agentsPanel(actor: Actor): Promise<{ tile: string; name: string; sessions: number }> {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready");
     if (this.ctx(actor).standing && !this.open) { this.offered = true; this.set(true, actor); }
     const tile = this.tabs().find(t => t.kind === AGENTS_KIND_NAME)?.name ?? (await d.openTile({ kind: AGENTS_KIND_NAME }, this.tabBase(), "tabs", actor)).tile;
     if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(tile, actor); this.intoShown(); }
     this.host.redraw();
-    return { tile, sessions: this.sessions().length };
+    const answer = d.tileInfo(tile);
+    return { tile: answer.tile, name: answer.name, sessions: this.sessions().length };
   }
 
   /** The session ended: its own Herdr pane closes (never another session's: the pane is named for this one). */
@@ -706,7 +711,7 @@ export class AgentDrawer {
   isDrawer(d: unknown): boolean { return !!d && d === this.d; }
   /** The drawer's desk (once made) and the screen shown's tiles (a desk, or a desk inside it: the showcase's section). */
   desks(): Desk[] {
-    const screen = tilesOf(this.host.screen?.());
+    const screen = [...(this.host.ctx?.()?.screens?.() ?? [])].reverse().map(tilesOf).find(Boolean) ?? tilesOf(this.host.screen?.());
     return [...(this.d ? [this.d] : []), ...(screen && screen !== this.d ? [screen] : [])];
   }
   /** The terminal tile a process is drawn in, on the drawer or the screen shown (`host.tileOf`, PIE-1043). */
@@ -715,7 +720,7 @@ export class AgentDrawer {
     for (const desk of this.desks()) {
       for (const t of desk.layoutGet().tiles) {
         const p = desk.pane(t.name);
-        if (p instanceof PtyPane && p.pid) tiles.push({ id: t.id, name: t.name, pid: p.pid });
+        if (p instanceof PtyPane && p.pid) tiles.push({ id: t.tile, name: t.name, pid: p.pid });
       }
     }
     return tileOf(tiles, q, realTileDeps());
@@ -1068,7 +1073,7 @@ export class AgentDrawer {
     this.set(!collapsed, actor);
     if (!collapsed) this.desk!.focusTile(name, actor);
     this.host.redraw();
-    return { tile: name, collapsed };
+    return { tile: this.desk!.tileInfo(name).tile, name, collapsed };
   }
 
   /**
@@ -1189,7 +1194,7 @@ export class AgentDrawer {
     }
     this.d?.shownAs(this.shown);
     this.host.redraw();
-    return { tile: DRAWER_TILE_ID, inDrawer: true, from: moved.from, back: true };
+    return { tile: DRAWER_TILE_ID, name: DRAWER_TILE_ID, inDrawer: true, from: moved.from, back: true };
   }
 
   /** `bringIn`, and if it's refused after all (a race), the tile goes back where it came from, for the same actor: never lost. */
@@ -1228,9 +1233,9 @@ export class AgentDrawer {
     const known = p ? this.knowledge.get(p) : null;
     return {
       open: this.open, shown: this.shown, entered: this.entered, share: Math.round(this.share * 100) / 100, host: this.mode,
-      rect: this.shown ? this.rect : null, state: this.state(), tile: shown ? { id: shown.name === DRAWER_TILE_ID ? DRAWER_TILE_ID : shown.id, name: shown.name === DRAWER_TILE_ID ? this.name : shown.name } : null,
+      rect: this.shown ? this.rect : null, state: this.state(), tile: shown ? { tile: shown.id, name: shown.name === DRAWER_TILE_ID ? this.name : shown.name } : null,
       runs: { cmd: this.prog.cmd, cwd: this.prog.cwd, why: { program: this.prog.programWhy, folder: this.prog.folderWhy } },
-      tiles: this.tabs(),
+      tiles: this.tabs().map(({ id, ...tab }) => ({ tile: id, ...tab })),
       sessions: this.sessions().map(s => sessionFacts(s)),
       knows: known?.knows ? { ...known.knows, pid: known.pid } : null, ...(this.restarting ? { restarting: true } : {}),
       ...(this.openedBy?.kind === "agent" ? { openedBy: this.openedBy.id } : {}),
@@ -1565,7 +1570,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     summary: "a new shell in the drawer (the person's $SHELL, in the drawer's folder), as a tab shown: the person's goes into it; an agent's opens it behind the tab shown, their keys where they were",
     keys: "alt+s (on every screen, and in the drawer), or a click on Shell at home",
     touches: "shape", replay: "ask",
-    says: (out: { tile?: string }) => `· opened a shell in the drawer (${out.tile ?? "shell"})`,
+    says: (out: { name?: string }) => `· opened a shell in the drawer (${out.name ?? "shell"})`,
     args: {},
     run(_, { drawer }, actor) { return drawer.newShell(actor); },
   }),
@@ -1573,7 +1578,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     summary: "the waiting-on-you list as a tab in the drawer: what the programs in terminal tiles say waits on the person (blocked on a permission, a question or a login; failed; done and not yet seen), from their program status (OSC 7501), across the screen's terminals and the drawer's. The person's pulls the drawer up and goes to it; an agent's opens it behind the tab shown (status.list reads the same rows)",
     keys: "alt+w (on every screen, and in the drawer), a click on the status bar's waiting count",
     touches: "shape", replay: "ask",
-    says: (out: { tile?: string }) => `· opened the waiting-on-you list in the drawer (${out.tile ?? "waiting-you"})`,
+    says: (out: { name?: string }) => `· opened the waiting-on-you list in the drawer (${out.name ?? "waiting-you"})`,
     args: {},
     run(_, { drawer }, actor) { return drawer.waiting(actor); },
   }),
@@ -1581,7 +1586,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     summary: "the who-can-reach-what matrix as a tab in the drawer: which MCP caller (a named path, a stdio client) can reach which outline and how far, the lower of the outline's grant and the caller's cap, with each one's calls in the last 7 days. The person's pulls the drawer up and goes to it (n r p f plan a change, ⏎ applies it: the person's only); an agent's opens it behind the tab shown (mcp.access.matrix reads the same data)",
     keys: "the power bar (ctrl+k, > access.open), then % lists it among the tiles",
     touches: "shape", replay: "ask",
-    says: (out: { tile?: string }) => `· opened who can reach what in the drawer (${out.tile ?? "access-matrix"})`,
+    says: (out: { name?: string }) => `· opened who can reach what in the drawer (${out.name ?? "access-matrix"})`,
     args: {},
     run(_, { drawer }, actor) { return drawer.accessMatrix(actor); },
   }),
@@ -1601,7 +1606,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     summary: "the what-changed list as a tab in the drawer: the notes others (agents, other clients, extensions when asked for) changed since the person last looked, newest first, with who, when and what, from the service's change feed. The person's pulls the drawer up and goes to it, and looking marks what it holds seen (the status bar's +N new goes to 0, kept per outline); an agent's opens it behind the tab shown and never marks anything seen (changes.list reads the same rows). Rows: changes.pick, changes.go (⏎, alt+⏎ in a new detail), changes.diff, changes.seen",
     keys: "alt+o (on every screen), a click on the status bar's +N new",
     touches: "shape", replay: "ask",
-    says: (out: { tile?: string }) => `· opened what changed in the drawer (${out.tile ?? "what-changed"})`,
+    says: (out: { name?: string }) => `· opened what changed in the drawer (${out.name ?? "what-changed"})`,
     args: {},
     run(_, { drawer }, actor) { return drawer.changes(actor); },
   }),
@@ -1655,7 +1660,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     summary: "the agent panel as a tab in your drawer (PIE-737): every agent session this door holds (started with agent.start or `ep0ch agent`, a claude, codex or pi run in a terminal tile, the drawer's own), with its program, folder, persona, what it's doing (working, waiting on you, idle) and where it's shown. Its rows: ⏎ or a click agents.go, a agents.drawer, d agents.dock, n agents.new. The person's pulls the drawer up and goes to it; an agent's opens it behind the tab shown (agents.list reads the same rows)",
     keys: "alt+g (on every screen, and in the drawer)",
     touches: "shape", replay: "ask",
-    says: (out: { tile?: string }) => `· opened the agent panel in the drawer (${out.tile ?? "agents"})`,
+    says: (out: { name?: string }) => `· opened the agent panel in the drawer (${out.name ?? "agents"})`,
     args: {},
     run(_, { drawer }, actor) { return drawer.agentsPanel(actor); },
   }),
@@ -1778,7 +1783,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     summary: "send the drawer's own program (▲ claude, its first tab) text as typed: \\n is ⏎, \\e Esc. It lives in the host layer, never as a tile on a screen, so this is how another agent types to it (tile.type types into a screen's terminal tile). Refused while the person is typing in it, and while it isn't running",
     keys: "the person types in the drawer (ctrl+], a click in it)",
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there",
-    says: (out: { tile?: string }) => `· typed to ${out?.tile ?? "the drawer"}`,
+    says: (out: { name?: string }) => `· typed to ${out?.name ?? "the drawer"}`,
     args: { text: { type: "string", about: "what to type (\\n ⏎, \\e Esc)" } },
     examples: [
       { act: "agent.type text=\"check the seed-swap note\\n\"", does: "types that line into the drawer's own program and presses ⏎" },
@@ -1787,7 +1792,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       const p = drawer.tile;
       if (!p?.running) throw new ActionRefused(`${drawer.name} isn't running · alt+a pulls it up and starts it`);
       p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
-      return { tile: drawer.name, chars: text.length };
+      return { tile: DRAWER_TILE_ID, name: drawer.name, chars: text.length };
     },
   }),
   "agent.knows": def({
@@ -1818,11 +1823,11 @@ export const HOST_TILE_ACTIONS = actionSet<{ drawer: AgentDrawer }>()("host", {
     run({ pane, name, on }, { drawer }) {
       const p = drawer.tile;
       if (!p) throw new ActionRefused("your drawer's own program hasn't started");
-      if (on === false) { p.herdr = null; return { tile: DRAWER_TILE_ID, herdr: null }; }
+      if (on === false) { p.herdr = null; return { tile: DRAWER_TILE_ID, name: drawer.name, herdr: null }; }
       if (!pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
       if (!p.running) throw new ActionRefused("your drawer's own program isn't running");
       p.herdr = { pane, ...(name ? { name } : {}) };
-      return { tile: DRAWER_TILE_ID, herdr: p.herdr };
+      return { tile: DRAWER_TILE_ID, name: drawer.name, herdr: p.herdr };
     },
   }),
 });

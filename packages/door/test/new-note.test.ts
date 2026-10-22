@@ -357,7 +357,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       expect(floats().every(f => f.writing)).toBe(true);
       expect(await board.get(b.id)).toBeTruthy();
       // Written, its × (tile.close) saves it and closes it; the empty one's trashes it.
-      desk.focusOn(b.tile);                                             // its edit kept open: the keys are in it again (PIE-812)
+      desk.focusOn(b.name);                                             // its edit kept open: the keys are in it again (PIE-812)
       await until(() => desk.newNoteWhileTyping(), "in b's edit", 5000);
       for (const c of "Netting up") key(char(c));
       await desk.dispatch.press("tile.close", {}, b.tile);
@@ -372,9 +372,9 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       const t = await you("note.new", { opens: "tab" });
       expect(t.opens).toBe("tab");
       const tree = JSON.stringify((await desk.dispatch.press("layout.get") as any).tree);
-      expect(tree).toContain(`"tabs":["plotf","${t.reader}"]`);
-      expect(desk.describe().focusName).toBe(t.reader);
-      await desk.dispatch.press("tile.close", {}, t.reader);
+      expect(tree).toContain(`"tabs":["plotf","${t.name}"]`);
+      expect(desk.describe().focusName).toBe(t.name);
+      await desk.dispatch.press("tile.close", {}, t.name);
       // note.opens: the person's choice, remembered; EP0CH_NEW_NOTE wins in a door that sets it.
       expect(await you("note.opens", { opens: "drawer" })).toMatchObject({ opens: "drawer", changed: true });
       expect(personOpens({})).toBe("drawer");
@@ -389,11 +389,11 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       const d = await you("note.new");
       expect(d.opens).toBe("drawer");
       const drawer = (app as any).drawer.desk;
-      await until(() => !!drawer?.pane(d.reader)?.surface?.draft, "the new note's edit in the drawer", 8000);
+      await until(() => !!drawer?.pane(d.tile)?.surface?.draft, "the new note's edit in the drawer", 8000);
       expect(floats().length).toBe(0);
       expect(await you("note.opens", { opens: "float" })).toMatchObject({ opens: "float" });
       // Put away as it came: the drawer's note closed (still empty: to the trash), the drawer down (it's saved state).
-      await drawer.dispatch.press("tile.close", {}, d.reader);
+      await drawer.dispatch.press("tile.close", {}, d.tile);
       await reads(async () => await board.isTrashed(d.id) === true, "the drawer's empty note trashed on close");
       await you("host.toggle", { open: false });
     } finally { desk.dispose?.(); }

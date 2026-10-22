@@ -370,7 +370,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
   /** The card in a detail, its link drawn by title; the detail and its frame. */
   const openCard = async () => {
     const opened = await act("open", { id: card.id }, "detail");
-    const d = b.pane(opened.reader) as ReaderPane;
+    const d = b.pane(opened.name) as ReaderPane;
     await until(() => !!d && !d.msg?.partial && plain(frame().join("\n")).includes(LINE()), "the card drawn with its link's title");
     const region = `detail${B().details.indexOf(d)}`;
     BV.at(b, region);

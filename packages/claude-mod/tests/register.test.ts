@@ -686,7 +686,7 @@ describe('register', () => {
     const answers = (whereOut: string) => (run: Run) => {
       if (run.argv[0] === 'ep0ch' && run.argv[1] === 'where') return result(0, whereOut, '')
       if (run.argv.includes('door-open')) {
-        return run.argv[run.argv.indexOf('--control') + 1] === LIVE ? result(0, '{"reader":"centre","id":"x"}\n', '') : result(3, '', 'error: no door at it (ECONNREFUSED)\n')
+        return run.argv[run.argv.indexOf('--control') + 1] === LIVE ? result(0, '{"tile":"t-fixture","name":"centre","id":"x"}\n', '') : result(3, '', 'error: no door at it (ECONNREFUSED)\n')
       }
       return succeeding(run)
     }
@@ -948,7 +948,7 @@ describe('register', () => {
     test('show opens the note in the door as an agent, from its own tile, and splits nothing in Herdr', async ($, on) => {
       // The door says where the tile's opens landed (its link).
       const session = sessionIn(on, WORKSPACE, run =>
-        run.argv.includes('door-open') ? result(0, '{"reader":"centre","id":"x"}\n', '') : succeeding(run),
+        run.argv.includes('door-open') ? result(0, '{"tile":"t-fixture","name":"centre","id":"x"}\n', '') : succeeding(run),
       '', DOOR)
       on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
@@ -971,7 +971,7 @@ describe('register', () => {
       // person on middle). The CLI's ask-again naming no tile is door-control's, proved in test/door-control.test.ts.
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open')
-          ? run.argv.includes('--reader') ? result(1, '', "error: middle has the person's keys; an agent doesn't open there\n") : result(0, '{"reader":"side","id":"x"}\n', '')
+          ? run.argv.includes('--reader') ? result(1, '', "error: middle has the person's keys; an agent doesn't open there\n") : result(0, '{"tile":"t-fixture","name":"side","id":"x"}\n', '')
           : succeeding(run),
       '', { ...DOOR, EP0CH_TILE: 'claude-gone' })
       on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
@@ -987,7 +987,7 @@ describe('register', () => {
 
     test('show is attributed like every other write: OUTLINER_ACTOR before EP0CH_AGENT', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, run =>
-        run.argv.includes('door-open') ? result(0, '{"reader":"centre","id":"x"}\n', '') : succeeding(run),
+        run.argv.includes('door-open') ? result(0, '{"tile":"t-fixture","name":"centre","id":"x"}\n', '') : succeeding(run),
       '', { ...DOOR, OUTLINER_ACTOR: 'garden-agent', EP0CH_AGENT: 'loki' })
       on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
       await session.begin(() => $.session.start(START))
@@ -1027,7 +1027,7 @@ describe('register', () => {
 
     test("a click in a terminal tile (^W o s, no Herdr pane) opens in the door, from the tile's id when its name is empty", async ($, on) => {
       const session = sessionIn(on, WORKSPACE, run =>
-        run.argv.includes('door-open') ? result(0, '{"reader":"right","id":"x"}\n', '') : succeeding(run),
+        run.argv.includes('door-open') ? result(0, '{"tile":"t-fixture","name":"right","id":"x"}\n', '') : succeeding(run),
       '', { ...NOT_IN_HERDR, EP0CH_CONTROL: DOOR.EP0CH_CONTROL, EP0CH_TILE: '', EP0CH_TILE_ID: 't21' })
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')

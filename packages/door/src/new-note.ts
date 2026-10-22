@@ -19,6 +19,12 @@ import { actorRule } from "./surface/dispatch";
 import { type Actor } from "./socket";
 import type { Key } from "./term";
 
+function destination(ctx: Ctx, reader: string | null) {
+  if (reader === null) return { tile: null };
+  const at = ctx.hostLayer?.desks()[0]?.resolveTile(reader)?.tile ?? ctx.screens?.().at(-1)?.dispatch?.tile(reader);
+  return { tile: at!.id ?? at!.name, name: at!.name };
+}
+
 /** A part of a drawn row that a click presses a key on (PaneView.spots): `from`..`to`, columns of the row. */
 export interface KeySpot { row: number; from: number; to: number; key: Key }
 
@@ -100,8 +106,8 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       if (!standing) {
         // Made either way: a showing refused (a locked screen) is said with the note's id, never as a failure to retry.
         if (opens && here?.showNew) {
-          try { return { ...out, reader: await here.showNew(note, opens, actor) }; }
-          catch (e) { return { ...out, reader: null, notShown: e instanceof Error ? e.message : String(e) }; }
+          try { return { ...out, ...destination(ctx, await here.showNew(note, opens, actor)) }; }
+          catch (e) { return { ...out, tile: null, notShown: e instanceof Error ? e.message : String(e) }; }
         }
         ctx.redraw(); return out;
       }
@@ -122,7 +128,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       // Said last, over what the open said: where it went, and how to leave it.
       ctx.flash(`new note ${placement.said}`, 8000);
       ctx.redraw();
-      return { ...out, reader, ...(here?.editNew && opens ? { opens } : {}) };
+      return { ...out, ...destination(ctx, reader), ...(here?.editNew && opens ? { opens } : {}) };
     },
   }),
   "note.opens": def({

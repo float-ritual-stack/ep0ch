@@ -176,14 +176,14 @@ export async function where(d: WhereDeps): Promise<Where> {
   // ── the door and the tile, from the door that answers ──
   const state = peek?.screen?.state;
   const desk = state?.kind === "desk" ? state : null;
-  const tilePanes: any[] = Array.isArray(desk?.panes) ? desk.panes : [];
+  const tilePanes: any[] = Array.isArray(desk?.panes) ? desk.panes.map(({ tile, ...p }: any) => ({ ...p, id: tile })) : [];
   // A door reached by folder isn't the one the inherited tile variables name: only the process table can place us in a tile of it.
   const myTileId = folderDoor ? null : inner?.tileId ?? env.EP0CH_TILE_ID ?? null;
   const myTileName = folderDoor ? null : inner?.tile ?? env.EP0CH_TILE ?? null;
   const ancestors = d.ancestors(d.pid);
   // The door's drawer (PIE-498): a tile the App owns, on every screen, up (`shown`) or put away.
   const dv = peek?.screen?.drawer;
-  const drawerTile = dv?.tile?.id ? { id: dv.tile.id, name: dv.tile.name, shown: !!dv.shown, focused: !!dv.entered, herdr: dv.herdr, terminal: dv.terminal, drawer: true } : null;
+  const drawerTile = dv?.tile?.tile ? { id: dv.tile.tile, name: dv.tile.name, shown: !!dv.shown, focused: !!dv.entered, herdr: dv.herdr, terminal: dv.terminal, drawer: true } : null;
   // In the Herdr agent's pane, "my tile" is whichever tile shows that pane now; elsewhere the tile by id, else name.
   let tile = agentPane ? tilePanes.find(p => p?.herdr?.pane === agentPane) ?? (drawerTile?.herdr?.pane === agentPane ? drawerTile : undefined) : undefined;
   // A terminal's program finds its tile by its pid first: a tile moved between screens or out of the drawer (PIE-498) has an
@@ -193,11 +193,11 @@ export async function where(d: WhereDeps): Promise<Where> {
   if (!tile && !agentPane && Array.isArray(dv?.tiles)) {
     const t = dv.tiles.find((x: any) => typeof x?.pid === "number" && (ancestors.includes(x.pid) || d.pid === x.pid));
     // The drawer's own tab is the drawer's tile as peek names it (drawer.agent), whatever its desk id.
-    if (t) tile = t.name === HOST_AGENT && drawerTile ? drawerTile : { id: t.id, name: t.name, shown: !!dv.shown && !!t.shown, focused: !!t.focused, terminal: { pid: t.pid }, drawer: true };
+    if (t) tile = t.name === HOST_AGENT && drawerTile ? drawerTile : { id: t.tile, name: t.name, shown: !!dv.shown && !!t.shown, focused: !!t.focused, terminal: { pid: t.pid }, drawer: true };
   }
   // Only then by its id (else its name): a moved terminal's stale EP0CH_TILE_ID never wins over its pid (the drawer's
   // own program, taken out onto a screen, still says drawer.agent).
-  if (!tile && !agentPane && drawerTile && myTileId === drawerTile.id) tile = drawerTile;
+  if (!tile && !agentPane && drawerTile && (myTileId === drawerTile.id || myTileId === HOST_AGENT && dv.tiles?.some((t: any) => t.name === HOST_AGENT && t.tile === drawerTile.id))) tile = drawerTile;
   if (!tile && !agentPane) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
   const answeringPid = typeof peek?.screen?.pid === "number" ? peek.screen.pid : null;
   const inDoor = !!(inner || (control && !folderDoor));
@@ -229,7 +229,7 @@ export async function where(d: WhereDeps): Promise<Where> {
     } : null,
     pointers: peek?.screen?.pointers ?? [],
     ...(peek?.screen?.person?.yolo === true ? { yolo: true as const } : {}),
-    ...(desk && (Array.isArray(desk.agentLimits) || desk.agentsDefault) ? { agents: { default: desk.agentsDefault ?? null, tiles: (desk.agentLimits ?? []).map((l: any) => ({ tile: String(l.tile), id: l.id ?? null, level: l.level, by: String(l.by) })) } } : {}),
+    ...(desk && (Array.isArray(desk.agentLimits) || desk.agentsDefault) ? { agents: { default: desk.agentsDefault ?? null, tiles: (desk.agentLimits ?? []).map((l: any) => ({ tile: String(l.name), id: l.tile ?? null, level: l.level, by: String(l.by) })) } } : {}),
   } : null;
 
   // ── each layer, checked ──
@@ -302,15 +302,15 @@ function keysOf(peek: any, desk: any, door: Where["door"], agentPane: string | n
       // Which of the drawer's tabs: its own (the agent), or a tile in the drawer.
       const dv = peek.screen.drawer, typed = Array.isArray(dv.tiles) ? dv.tiles.find((x: any) => x?.focused) : null;
       const own = !typed || typed.name === HOST_AGENT;
-      const mine = own ? (!!door.tile?.drawer && door.tile.id === dv.tile?.id) || (!!agentPane && dv.herdr?.pane === agentPane) : !!door.tile?.drawer && door.tile.id === typed.id;
-      return { mine, typing: true, tile: own ? dv.tile?.id ?? null : typed.id, text: mine ? "the person is typing in this tile (the drawer)" : `the person is typing in the drawer over the ${screen}, not this tile` };
+      const mine = own ? (!!door.tile?.drawer && door.tile.id === dv.tile?.tile) || (!!agentPane && dv.herdr?.pane === agentPane) : !!door.tile?.drawer && door.tile.id === typed.tile;
+      return { mine, typing: true, tile: own ? dv.tile?.tile ?? null : typed.tile, text: mine ? "the person is typing in this tile (the drawer)" : `the person is typing in the drawer over the ${screen}, not this tile` };
     }
     if (!desk) return { mine: false, typing: false, tile: null, text: `the person is on the door's ${screen} screen, not the desk` };
     const mine = door.tile?.found ? door.tile.name : null;
     const focus: string | null = desk.focusName ?? null;
     const typingIn: string | null = desk.inTerminal ?? null;
     const f = (desk.panes as any[] ?? []).find(p => p?.name === focus);
-    const ref = f ? `${f.id ? `${f.id} ` : ""}${f.name}` : focus ?? "?";
+    const ref = f ? `${f.tile ? `${f.tile} ` : ""}${f.name}` : focus ?? "?";
     if (mine && focus === mine) return typingIn === mine
       ? { mine: true, typing: true, tile: ref, text: `the person is typing in this tile (${ref})` }
       : { mine: true, typing: false, tile: ref, text: `this tile (${ref}) is focused, but the door has the keys (not typing in it)` };

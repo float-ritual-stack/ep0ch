@@ -233,7 +233,7 @@ describe.skipIf(!outliner)("layout.undo, transactions and the reserved arguments
     expect((await person("layout.get") as { layout: string }).layout).toBe("after-dance");
     const restored = await person("ext.undo", {}, reader.tile);
     const after = await person("layout.get") as typeof before;
-    const shape = (tree: unknown) => JSON.stringify(tree, (key, value) => key === "id" ? undefined : value);
+    const shape = (tree: unknown) => JSON.stringify(tree, (key, value) => (key === "id" || key === "tile") ? undefined : value);
     expect(shape(after.tree)).toBe(shape(before.tree));
     expect(after.floats).toEqual(before.floats);
     expect(after.layout).toBe("before-dance");

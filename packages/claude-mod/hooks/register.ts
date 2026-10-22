@@ -18,6 +18,7 @@ import {
   OUTLINE_NAME,
   workspaceEnvOf,
   workspaceForCwd,
+  openedTileOf,
 } from './mention-message'
 import {
   isProtectedDestination,
@@ -1517,9 +1518,8 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
     // reads is refused (ep0ch-door round 3), and where opens land never takes their keys.
     const opened = await outliner(['door-open', outline ? formatEp0chBlockUri({ outline, machine: machine!, blockId: id, fragment: fragmentId }) : id, '--control', control, '--actor', actor, ...(from ? ['--from', from] : [])])
     if (opened.exitCode === 0) {
-      let reader: unknown
-      try { reader = JSON.parse(opened.stdout)?.reader } catch { reader = undefined }
-      return { title: title ?? '', place: 'door', ...(typeof reader === 'string' && reader ? { reader } : {}) }
+      const destination = openedTileOf(opened.stdout)
+      return { title: title ?? '', place: 'door', ...(destination ? { reader: destination.name } : {}) }
     }
     // The door's refusal (it is on its menu, the reader holds an edit) is the answer.
     if (opened.exitCode !== 3) throw Error(failureReasonOf(opened.stderr) || 'the door did not open it')

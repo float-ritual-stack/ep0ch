@@ -464,7 +464,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
   }),
   "facets.save": def({
     summary: "save the selection as a view: a block `[type::virtual-branch] [query::<the query>]` under a hub (parent=<block id>; left out, the newest board hub, else the top level), named name= (left out, the query)",
-    keys: "v", touches: "nothing", replay: "ask", says: r => `saved view "${String(r.name)}"`,
+    keys: "v", touches: "nothing", replay: "ask", says: r => `saved view "${String(r.title)}"`,
     args: { name: { type: "string", optional: true, about: "the view's name" }, parent: { type: "string", optional: true, about: "the hub's block id" } },
     examples: [
       { act: "facets.save name=\"Garden beds\" tile=facets", does: "saves the selection as a view named Garden beds under the newest board hub" },
@@ -478,7 +478,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const label = (name?.trim() || q).replace(/[\[\]\n]/g, " ").slice(0, 60);
       const made = await board.createBlock(hub, `${label} [type::virtual-branch] [query::${q}]`, actor);
       desk.ctx.flash(`saved "${label}" as a view${hub ? " on its hub" : ""}`);
-      return { id: made.id, name: label, parent: hub, query: q };
+      return { id: made.id, title: label, parent: hub, query: q };
     },
   }),
   "facets.sort": def({
@@ -541,6 +541,7 @@ const makeFacets = (kind: "facets" | "tags") => (s: { query?: string; args?: Rec
 const kindOf = (kind: "facets" | "tags", about: string, key: string): TileKind => ({
   kind, about, noun: kind === "tags" ? "a tags tile" : "a facets tile",
   keys: [{ key, label: kind }],
+  openArgs: ["query", "args"],
   make: makeFacets(kind),
   actions: FACETS_ACTIONS,
   save: p => (p as FacetsPane).spec(),

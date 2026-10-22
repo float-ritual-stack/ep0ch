@@ -532,8 +532,8 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
   test("PIE-886: a preview that follows a tree has no frame and a tinted ground that runs to its edges, as part of the tree; border=line gives it back its frame, and border=joined joins any tile", async () => {
     const d = await door(140);
     try {
-      expect(await d.app.act({ action: "tile.open", args: { kind: "tree", name: "outline", where: "left" }, as: "look-agent" })).toMatchObject({ tile: "outline" });
-      expect(await d.app.act({ action: "tile.open", args: { kind: "preview", source: "tile:outline", name: "peek", where: "down" }, tile: "outline", as: "look-agent" })).toMatchObject({ tile: "peek" });
+      expect(await d.app.act({ action: "tile.open", args: { kind: "tree", name: "outline", where: "left" }, as: "look-agent" })).toMatchObject({ name: "outline" });
+      expect(await d.app.act({ action: "tile.open", args: { kind: "preview", source: "tile:outline", name: "peek", where: "down" }, tile: "outline", as: "look-agent" })).toMatchObject({ name: "peek" });
       const raw = () => d.desk.render((d.desk as any).ctx).lines;
       const edges = (name: string) => { raw(); const r = (d.desk as any).drawnAt(name)!; const rows = raw(); return { r, top: plain(rows[r.row]!).slice(r.col, r.col + r.cols), side: plain(rows[r.row + 2]!)[r.col], tint: rows[r.row + 2]!.includes(surfaceBg("raised", 2)) }; };
       const FRAME = /[┌┐└┘─│╭╮╰╯═║╔╗╚╝┏┓┗┛━┃]/;

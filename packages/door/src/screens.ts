@@ -1687,7 +1687,7 @@ export class MessageReader implements Screen {
       set: NOTE_ACTIONS, takes: "tile", noun: "a reader",
       on: (_, how) => ({ surface: this.surface, standing: how.standing, host: (how.given as SurfaceHost | undefined) ?? this.host(this.ctxShown()) }),
       run: (name, args, on, actor, typed) => this.surface.run(name, args, on.host, actor, on.standing, typed),
-      answer: (out: unknown) => ({ reader: READER, ...(out && typeof out === "object" ? out : { result: out }) }),
+      answer: (out: unknown) => ({ tile: READER, name: READER, ...(out && typeof out === "object" ? out : { result: out }) }),
     },
   ]);
 }

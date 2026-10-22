@@ -322,7 +322,7 @@ describe.skipIf(!outliner)("comment threads inline, against a scratch outline", 
     await expect(act("element.open", { n: preply.n }, "preview", AS)).rejects.toThrow(/preview has the person's keys/);
     await expect(act("resolve", { thread: t.canes }, "preview", AS)).rejects.toThrow(/preview has the person's keys; the thread list would cover/);
     // In a reader of its own, with the thread expanded there, the agent works on it and leaves it expanded.
-    const { reader } = await act("open", { id: note.id }, "new-detail", AS) as { reader: string };
+    const { name: reader } = await act("open", { id: note.id }, "new-detail", AS) as { name: string };
     const R = () => B().details.find(d => d.msg?.id === note.id) as ReaderPane;
     await until(() => !!R() && !R().msg!.partial && R().surface.comments?.length === 2, "the note in a detail of its own");
     R().surface.setExpanded(t.canes, true);

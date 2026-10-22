@@ -375,9 +375,9 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     const t = await act("tile.open", { kind: "pty", name: "shell", cmd: "sh" }, "side");
     await until(() => D.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the shell running");
     const n = String(D.layoutGet().tiles.findIndex((x: any) => x.name === "shell") + 1);
-    for (const sel of ["shell", t.id, n, `#${n}`]) expect(await act("tile.type", { text: "true\\n" }, sel)).toMatchObject({ tile: "shell" });
+    for (const sel of ["shell", t.tile, n, `#${n}`]) expect(await act("tile.type", { text: "true\\n" }, sel)).toMatchObject({ name: "shell" });
     // The terminal is the only one: none named reaches it; named by a reader's name, refused in the kind's words.
-    expect(await act("tile.type", { text: "true\\n" })).toMatchObject({ tile: "shell" });
+    expect(await act("tile.type", { text: "true\\n" })).toMatchObject({ name: "shell" });
     await expect(act("tile.type", { text: "x" }, "middle")).rejects.toThrow("middle is a reader tile: tile.type is for a terminal tile; here: shell");
     // The person typing in it: an agent's is refused there (the actor rule), said on the status bar.
     D.focus = D.idNamed("shell"); D.ptyIn = D.panes.get(D.focus);
@@ -386,20 +386,20 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     D.ptyIn = null; D.focus = D.idNamed("middle");
     // open: by name, id, number, a block id it shows; the person's focus never moves for an agent's.
     const focus = D.focus;
-    expect(await act("open", { id: notes.beans.id }, "side")).toMatchObject({ reader: "side", id: notes.beans.id });
-    expect(await act("open", { id: notes.peas.id }, D.layoutGet().tiles.find((x: any) => x.name === "side").id)).toMatchObject({ reader: "side" });
-    expect(await act("open", { id: notes.beans.id }, "2")).toMatchObject({ reader: "side" });
+    expect(await act("open", { id: notes.beans.id }, "side")).toMatchObject({ name: "side", id: notes.beans.id });
+    expect(await act("open", { id: notes.peas.id }, D.layoutGet().tiles.find((x: any) => x.name === "side").tile)).toMatchObject({ name: "side" });
+    expect(await act("open", { id: notes.beans.id }, "2")).toMatchObject({ name: "side" });
     // A block id names the tile showing it (a detail keeps its note).
     await act("tile.open", { kind: "detail", name: "keep", note: notes.peas.id }, "side");
     await until(() => D.layoutGet().tiles.find((x: any) => x.name === "keep")?.showing?.id === notes.peas.id, "the kept note");
-    expect(await act("open", { id: notes.beans.id }, notes.peas.id.slice(0, 8))).toMatchObject({ reader: "keep" });
+    expect(await act("open", { id: notes.beans.id }, notes.peas.id.slice(0, 8))).toMatchObject({ name: "keep" });
     await expect(act("open", { id: notes.peas.id }, "shell")).rejects.toThrow("shell is a terminal tile, not a reader");
     expect(D.focus).toBe(focus);
     // A whole screen in a tile (the river) is reached by its tile's name, id and number. (Its columns' own actions,
     // column.*, are the inner screen's tiles' kind's: the desk's kind check refuses them on the outer tile.)
     const q = await act("tile.open", { kind: "river", name: "quay" }, "side");
     const qn = String(D.layoutGet().tiles.findIndex((x: any) => x.name === "quay") + 1);
-    for (const sel of ["quay", q.id, qn, `#${qn}`]) expect(await act("tile.info", {}, sel)).toMatchObject({ name: "quay", kind: "river" });
+    for (const sel of ["quay", q.tile, qn, `#${qn}`]) expect(await act("tile.info", {}, sel)).toMatchObject({ name: "quay", kind: "river" });
     await act("tile.close", {}, "quay");
     // Its program ended (an agent doesn't end one by closing it): left running, leaving would carry it into the drawer.
     await act("tile.type", { text: "exit\\n" }, "shell");
@@ -413,22 +413,22 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     await until(() => B.lanes.length === 2 && B.lanes.every((l: any) => l.items), "the lanes", 10_000);
     const where = () => BV.where(b);
     const was = where();
-    expect(await act("open", { id: notes.beans.id }, "detail")).toMatchObject({ reader: "detail1", id: notes.beans.id });
-    expect(await act("open", { id: notes.peas.id }, "new-detail")).toMatchObject({ reader: "detail2", id: notes.peas.id });
-    expect(await act("open", { id: notes.beans.id }, "detail1")).toMatchObject({ reader: "detail1" });
+    expect(await act("open", { id: notes.beans.id }, "detail")).toMatchObject({ name: "detail1", id: notes.beans.id });
+    expect(await act("open", { id: notes.peas.id }, "new-detail")).toMatchObject({ name: "detail2", id: notes.peas.id });
+    expect(await act("open", { id: notes.beans.id }, "detail1")).toMatchObject({ name: "detail1" });
     // A block id names the reader showing it: on screen first, the one with the person's keys first among equals
     // (the lanes have them, so the preview following them does). That reader is theirs: an agent's open there is
     // refused (round 3, C3), by its name or by the block it shows.
     await expect(act("open", { id: notes.peas.id }, notes.peas.id)).rejects.toThrow(/preview has the person's keys; opening a note there would move what they're reading/);
     await expect(act("open", { id: notes.peas.id }, "preview")).rejects.toThrow(/preview has the person's keys/);
     const fl = await act("open", { id: notes.beans.id }, "float");
-    expect(fl.reader).toMatch(/^detail\d+$/);
+    expect(fl.name).toMatch(/^detail\d+$/);
     expect(where()).toBe(was);                                                        // an agent's open never moves the keys
     // No terminal on the board yet: tile.type says so; one opened is reached by name, number and id.
     await expect(act("tile.type", { text: "x" })).rejects.toThrow("no terminal tile on the board");
     const t = await act("tile.open", { kind: "pty", name: "shell", cmd: "sh", where: "edge-right" });
     await until(() => B.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the board's shell");
-    for (const sel of ["shell", t.id]) expect(await act("tile.type", { text: "true\\n" }, sel)).toMatchObject({ tile: "shell" });
+    for (const sel of ["shell", t.tile]) expect(await act("tile.type", { text: "true\\n" }, sel)).toMatchObject({ name: "shell" });
     await expect(act("tile.type", { text: "x" }, "preview")).rejects.toThrow("preview is a preview tile: tile.type is for a terminal tile; here: shell");
     await act("tile.type", { text: "exit\\n" }, "shell");
     await until(() => !B.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the board's shell ended");
@@ -442,19 +442,19 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     const lib = V().name(V().column(1));
     const a = await act("open", { id: notes.beans.id, from: lib });
     expect(a).toMatchObject({ id: notes.beans.id });
-    expect(V().columns.map(c => V().name(c))).toEqual([lib, a.reader]);
-    const b = await act("open", { id: notes.peas.id, from: a.reader });
-    expect(V().columns.map(c => V().name(c))).toEqual([lib, a.reader, b.reader]);
-    await act("tile.hold", { on: true }, b.reader);                                    // held: resists compression; its note actions run
-    expect(await act("open", { id: notes.beans.id, from: lib })).toMatchObject({ reader: a.reader });   // its own column, found
+    expect(V().columns.map(c => V().name(c))).toEqual([lib, a.name]);
+    const b = await act("open", { id: notes.peas.id, from: a.name });
+    expect(V().columns.map(c => V().name(c))).toEqual([lib, a.name, b.name]);
+    await act("tile.hold", { on: true }, b.name);                                    // held: resists compression; its note actions run
+    expect(await act("open", { id: notes.beans.id, from: lib })).toMatchObject({ name: a.name });   // its own column, found
     // A note action by the block a column shows, by its name and by its stable id.
-    expect(await act("folds", {}, notes.peas.id)).toMatchObject({ reader: b.reader });
-    expect(await act("folds", {}, b.reader)).toMatchObject({ reader: b.reader });
-    const id = (r.layoutGet() as any).tiles.find((x: any) => x.name === b.reader).id;
-    expect(await act("folds", {}, id)).toMatchObject({ reader: b.reader });
+    expect(await act("folds", {}, notes.peas.id)).toMatchObject({ name: b.name });
+    expect(await act("folds", {}, b.name)).toMatchObject({ name: b.name });
+    const id = (r.layoutGet() as any).tiles.find((x: any) => x.name === b.name).tile;
+    expect(await act("folds", {}, id)).toMatchObject({ name: b.name });
     const focus = V().focused;
     const sp = await act("column.split", {}, lib);                                          // the Library's selected card, stacked
-    expect(V().stack(1).map(c => V().name(c))).toEqual([lib, sp.tile]);
+    expect(V().stack(1).map(c => V().name(c))).toEqual([lib, sp.name]);
     expect(V().focused).toBe(focus);                                                   // an agent's never moves the keys
     await expect(act("tile.type", { text: "x" })).rejects.toThrow(/no terminal tile/);
     await expect(act("open", { id: notes.beans.id }, "nope")).rejects.toThrow("no tile nope");

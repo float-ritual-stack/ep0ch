@@ -103,9 +103,9 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
 
   test("open, scroll, fold and close: the image is placed in the column, cropped, and taken away", async () => {
     expect(app.graphics).toBe(true);
-    const r = (await app.act({ action: "open", args: { id: photo.id }, as: "river-img-agent" })) as { reader: string };
-    await mine("tile.focus", {}, r.reader);
-    await mine("tile.widen", {}, r.reader);
+    const r = (await app.act({ action: "open", args: { id: photo.id }, as: "river-img-agent" })) as { name: string };
+    await mine("tile.focus", {}, r.name);
+    await mine("tile.widen", {}, r.name);
     const col = V().byNote(photo.id)!;
     let ps = images(frame().placements);
     expect(ps).toHaveLength(1);
@@ -125,7 +125,7 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     // The column's first scrolling row: under its frame and its sticky header (the reader's: title, byline, crumbs).
     const firstRow = rect.row + 1 + (col as any).headRows;
     const by = p.row - firstRow + 1;
-    await mine("column.scroll", { by }, r.reader);
+    await mine("column.scroll", { by }, r.name);
     ps = images(frame().placements);
     expect(col.top).toBe(top + by);
     expect(ps).toHaveLength(1);
@@ -137,19 +137,19 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     expect(ps[0]!.crop!.y).toBeGreaterThan(0);
 
     // Scrolled past it: gone.
-    await mine("column.scroll", { by: p.rows + 2 }, r.reader);
+    await mine("column.scroll", { by: p.rows + 2 }, r.name);
     expect(images(frame().placements)).toEqual([]);
-    await mine("column.scroll", { by: -100 }, r.reader);
+    await mine("column.scroll", { by: -100 }, r.name);
     expect(images(frame().placements)).toHaveLength(1);
 
     // Folded under its heading: gone; unfolded: back.
-    await mine("fold.toggle", { n: 1 }, r.reader);
+    await mine("fold.toggle", { n: 1 }, r.name);
     expect(images(frame().placements)).toEqual([]);
-    await mine("fold.toggle", { n: 1 }, r.reader);
+    await mine("fold.toggle", { n: 1 }, r.name);
     expect(images(frame().placements)).toHaveLength(1);
 
     // Closed: gone.
-    await mine("tile.close", {}, r.reader);
+    await mine("tile.close", {}, r.name);
     expect(V().byNote(photo.id)).toBeUndefined();
     expect(images(frame().placements)).toEqual([]);
   });
@@ -158,11 +158,11 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     const short = await board.request("create", { parentId: null, text: "Off the clock\nMeta work, briefly.", author: "agent" });
     const words = Array.from({ length: 40 }, (_, i) => `Row ${i + 1} of the long seed list runs on past the edge of a peek, under the next column.`).join("\n");
     const longNote = await board.request("create", { parentId: null, text: `The long seed list\n${words}`, author: "agent" });
-    const long = (await app.act({ action: "open", args: { id: longNote.id }, as: "river-img-agent" })) as { reader: string };
-    await mine("tile.focus", {}, long.reader);
-    const s = (await mine("open", { id: short.id })) as { reader: string };
-    await mine("tile.focus", {}, s.reader);
-    await mine("tile.widen", {}, s.reader);
+    const long = (await app.act({ action: "open", args: { id: longNote.id }, as: "river-img-agent" })) as { name: string };
+    await mine("tile.focus", {}, long.name);
+    const s = (await mine("open", { id: short.id })) as { name: string };
+    await mine("tile.focus", {}, s.name);
+    await mine("tile.widen", {}, s.name);
     // An 80-column terminal: the short note wide, the long one squeezed to a peek beside it.
     term.info.cols = 80;
     const lc = V().byNote(longNote.id)!, sc = V().byNote(short.id)!;

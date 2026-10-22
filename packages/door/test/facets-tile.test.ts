@@ -64,7 +64,7 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
   });
 
   test("it lists the properties the notes have, each with its notes; a facet opens to its values with uses; path values are a tree; a tag is a facet like the others", async () => {
-    expect(await act("tile.open", { kind: "facets", name: "facets", where: "right" }, "1")).toMatchObject({ tile: "facets", kind: "facets" });
+    expect(await act("tile.open", { kind: "facets", name: "facets", where: "right" }, "1")).toMatchObject({ name: "facets", kind: "facets" });
     await until(() => !!facet("plot"), "the facets");
     expect(["plot", "tag", "job", "week"].every(k => facet(k))).toBe(true);
     expect(facet("job")).toMatchObject({ notes: 4, open: false, values: [] });
@@ -122,7 +122,7 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
     expect(tile().query).toBe("plot=garden/* NOT week=5");
     // One action makes it a view: a virtual-branch holding the query, which the service reads back as the same notes.
     const saved = await act("facets.save", { name: "Garden, not week 5" });
-    expect(saved).toMatchObject({ name: "Garden, not week 5", query: "plot=garden/* NOT week=5" });
+    expect(saved).toMatchObject({ title: "Garden, not week 5", query: "plot=garden/* NOT week=5" });
     const view = await board.get(saved.id);
     expect(prop(view!, "type")).toBe("virtual-branch");
     expect(prop(view!, "query")).toBe("plot=garden/* NOT week=5");
@@ -142,7 +142,7 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
   }, 20_000);
 
   test("the tags tile is this one opened on the tags facet", async () => {
-    expect(await act("tile.open", { kind: "tags", name: "tags", where: "right" }, "1")).toMatchObject({ tile: "tags", kind: "tags" });
+    expect(await act("tile.open", { kind: "tags", name: "tags", where: "right" }, "1")).toMatchObject({ name: "tags", kind: "tags" });
     const t = () => D().describe().panes.find((p: any) => p.name === "tags");
     await until(() => t()?.facets?.length > 0, "the tags tile's facets");
     expect(t().facets.find((f: any) => f.key === "tag")).toMatchObject({ open: true });

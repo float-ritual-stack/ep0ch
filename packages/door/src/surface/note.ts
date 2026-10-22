@@ -6704,7 +6704,7 @@ export class NoteSurface {
       if (!a.sources[i]) throw new ActionRefused(`this note has ${a.sources.length} generated region${a.sources.length === 1 ? "" : "s"}`);
       P.open = i; P.sel = i; P.item = 0; P.note = "";
       host.redraw();
-      return { open: i + 1, name: a.sources[i]!.name };
+      return { open: i + 1, source: a.sources[i]!.name };
     }
     const s = a.sources[P.open]!, items = itemsOf(s, P.folds), at = n !== undefined ? n - 1 : P.item;
     const it = items[at];
@@ -7359,8 +7359,9 @@ export class NoteSurface {
     this.folded = new Set(to.folded); this.previewLists = new Map(to.previewLists); this.previewOpen = new Set(to.previewOpen); this.expanded = new Set(to.expanded); this.foldedThreads = new Set(to.foldedThreads); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures);
     // The element comes into view if the history row now under the note would hide it (only that far).
     this.reveal = to.cur !== null;
-    host.redraw();
+    // A redraw may paint synchronously; the host must keep the destination before its view reads it.
     this.keptChanged?.();
+    host.redraw();
     return null;
   }
 
@@ -10752,7 +10753,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       value: { type: "string", optional: true, about: "its new value; left out, the person is asked in the power bar" },
     },
     examples: [
-      { act: "settings.set key=group value=status", does: "sets the group field of a configurable note to status" },
+      { act: "settings.set key=direction value=asc", does: "sets a view to ascending order" },
       { act: "settings.set key=limit value=20", does: "sets the limit field to 20, refused if the value does not fit its type" },
     ],
     async run({ key, value }, { surface, host }, actor) {

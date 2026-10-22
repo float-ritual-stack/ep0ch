@@ -62,7 +62,7 @@ itself).
 | `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()`, with the door's `pid` and `nest` (the layers it runs in) and `person`: where the person is (`focus`, `typingIn`, `busy`, `why`, `keys`, `idle` ms, `away`), the answer every agent rule reads; `messages` holds the last 500 status messages with time, kind, action, tile and note when known (stacks remain in the session file) | `ep0ch peek` |
 | `{"cmd":"snap","path":"x.png"}` | a PNG of exactly what the terminal was sent, written under the door's state (`path` relative to it, or inside it; default `screen.png`); anywhere else is refused | `ep0ch snap` |
 | `{"cmd":"snap","data":true}` | the same PNG, base64, for the client to write | `ep0ch snap x.png` (the command writes `x.png`, into a folder that must exist) |
-| `{"cmd":"actions"}` | every action the current screen takes, with its arguments, keys and examples (`examples`: act lines and what each does); an argument says the kind of thing it names (`kind`: `tile`, `note`, `page`, `screen`, `view`, `key`, `value` of the argument `of` names, `tile-kind`) and its `choices` when they're a fixed list (PIE-1031) | `ep0ch actions`; one action's page: `ep0ch actions --doc <name>` |
+| `{"cmd":"actions"}` | every action the current screen takes, with its arguments, keys, answer schema (`answer`, when declared) and examples (`examples`: act lines and what each does); an argument says the kind of thing it names (`kind`: `tile`, `note`, `page`, `screen`, `view`, `key`, `value` of the argument `of` names, `tile-kind`) and its `choices` when they're a fixed list (PIE-1031) | `ep0ch actions`; one action's page: `ep0ch actions --doc <name>` |
 | `{"cmd":"act","action":"…","args":{…},"tile":"<tile>","as":"<actor id>"}` | the action's result | `ep0ch act <action> k=v … tile=<tile> [--as id]` (`--tile` works too) |
 | `{"cmd":"act","action":"open","args":{"id":"<block>","from":"<tile>"},"as":"<actor id>"}` | puts a block in front of the person (the `open` action: there is one way) | `ep0ch open <id> [from=<tile>] [--as id]` (`act open id=<id>`) |
 | `{"cmd":"act","action":"open","args":{"file":"<absolute path>","diff":true},"as":"<actor id>"}` | a file on this machine where an agent's open lands (PIE-602): Markdown drawn as the preview draws a file, any other file through the file Resource reader, `diff=true` its changes (git's diff against its last commit, else against `against=<copy>`) | `ep0ch open file:<path> [diff=true] [against=<copy>] [--as id]` |
@@ -154,10 +154,10 @@ The door paints at most once a frame (16ms), however busy its terminal tiles are
 | Event | Fields | When |
 |---|---|---|
 | `hello` | `screen`, `state` (everything below, whole) | first, on subscribing |
-| `focus.changed` | `tile`, `block` (the note it shows, the outline's row, the board's card), and for a terminal tile `file` and `typing` | the person's keys move, or what the focused tile shows changes |
-| `viewport` | `tile`, `viewport` | what a tile has in view changes. A reader gives `block`, `title`, `first` and `last` (1-based note lines in view) and `top`, `room` and `total` (the body's scroll), `atEnd` (its last line is in view) and `past` (the blank rows under it, scrolled past the end, PIE-622). The outline gives `selected`. A terminal gives `file`, `running`, and for nvim `first` and `last` (lines in its window). A screen tile gives `selected` |
-| `cursor` | `tile`, `cursor` | a reader's text selection (`selection`), nvim's cursor (`file`, `line`, `col`, `mode`), or a terminal's screen cursor (`screen: {x, y}`). A terminal's cursor is sent only for the focused tile |
-| `layout.changed` | `layout`: `name`, `rev`, `rule`, `zoom`, `locked`, `tree` (splits with their `id`, `path` and `shares`, tab sets with their `id` and the tab `shown`, docks with their `id`, edge, `open` and `kid`, each container's `policy`, tiles with their `id`), `tiles` (each `tile`, `id`, `kind`, `rect`, `link`, `tabs`, `pinned` or `dock` with its `edge` and `container`, `source`, and for a terminal `cmd`, its nvim `socket` and `herdr`) | a split, move, tab, dock in or out, open or shut, resize, policy, lock, load |
+| `focus.changed` | `tile`, `name`, `block` (the note it shows, the outline's row, the board's card), and for a terminal tile `file` and `typing` | the person's keys move, or what the focused tile shows changes |
+| `viewport` | `tile`, `name`, `viewport` | what a tile has in view changes. A reader gives `block`, `title`, `first` and `last` (1-based note lines in view) and `top`, `room` and `total` (the body's scroll), `atEnd` (its last line is in view) and `past` (the blank rows under it, scrolled past the end, PIE-622). The outline gives `selected`. A terminal gives `file`, `running`, and for nvim `first` and `last` (lines in its window). A screen tile gives `selected` |
+| `cursor` | `tile`, `name`, `cursor` | a reader's text selection (`selection`), nvim's cursor (`file`, `line`, `col`, `mode`), or a terminal's screen cursor (`screen: {x, y}`). A terminal's cursor is sent only for the focused tile |
+| `layout.changed` | `layout`: `name`, `rev`, `rule`, `zoom`, `locked`, `tree` (splits with their `id`, `path` and `shares`, tab sets with their `id` and the tab `shown`, docks with their `id`, edge, `open` and `kid`, each container's `policy`, tiles with `tile` and `name`), `tiles` (each `tile`, `name`, `kind`, `rect`, `link`, `tabs`, `pinned` or `dock` with its `edge` and `container`, `source`, and for a terminal `cmd`, its nvim `socket` and `herdr`) | a split, move, tab, dock in or out, open or shut, resize, policy, lock, load |
 | `marks.changed` | `marks`: each mark's `n`, `block` or `tile`+`line`, `reason`, `by`, `at`, `showing` | a mark set or dismissed |
 | `screen` | `screen` | the door moved to another screen (the feed is the desk's) |
 
@@ -175,7 +175,7 @@ Closing a target drops its wire and says so. Saved name-path wires are resolved
 and rewritten as ids when the desks open; missing targets are reported and dropped.
 
 `layout.get.tiles` includes the screen, drawer and every mount. Each row has its
-`id`, `name`, `address` (the id), and display `path`. `layers` groups those rows by
+`tile` (the stable id), `name`, and display `path`. `layers` groups those rows by
 desk, with `screen`, `drawer`, `focus` and `zoom` (tile ids), and its local `tree`.
 Top-level layout metadata describes the screen, regardless of the focused layer. `peek` includes this
 same report as top-level `layout`. `Whereabouts.address` names the tile under the
@@ -184,7 +184,7 @@ focused tile. A group's frame and menu address the group itself.
 
 | Action | Gives |
 |---|---|
-| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each dock with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<dock's>.0`), each flow with its `id` (`f<n>`), `wide` (its wide column) and `held` (the columns held full), each container's `policy`, each tile with its door-wide `id` (`t-<uuid>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `dock` (`open`, `shut`) with its `edge` and `container`, `cover` in a flow (`full`, `peek`, `spine`), the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
+| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each dock with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<dock's>.0`), each flow with its `id` (`f<n>`), `wide` (its wide column) and `held` (the columns held full), each container's `policy`, each tile with its door-wide `tile` (`t-<uuid>`) and `name`; and each tile's `tile`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `dock` (`open`, `shut`) with its `edge` and `container`, `cover` in a flow (`full`, `peek`, `spine`), the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
 | `layout.policy tile=<tile>` (nothing to set) | each policy layer over the tile (the screen's, each container's, its kind's default), what applies (`effective`, with `by` naming the layer that said each field), and the containers' ids |
 | `view.get` (`tile=<tile>` for one) | `focus`, and each tile's `viewport` and `cursor` as the feed gives them. For one terminal tile, also its `screen` text |
 | `tile.info tile=<tile>` | one tile as `layout.get` gives it |
@@ -288,7 +288,7 @@ only the person's own reader note falls back to the Inbox. It is written as the 
 (`author: agent` and its id), opens nothing, and is said on the status bar ("an agent (<id>) · made a new note
 “…” in the Inbox"). The answer has the note's `id`, `parentId`, `rule` (`near` or `inbox`) and `said`. With
 `opens=float` (or `tab`) it is also shown to the person there (PIE-591), in a tile of its own that never takes their
-keys; the answer's `reader` names it. The person's own `ctrl+n` floats by default (`note.opens`, the screen spec's
+keys; the answer's `tile` addresses it and `name` labels it. The person's own `ctrl+n` floats by default (`note.opens`, the screen spec's
 `newNote`); `peek`'s `floats` mark those with `newNote: true` and `writing` while their edit is open. On the board's
 lanes the person's `ctrl+n` is `card.new` (the lane's composer); an agent writes a card with `card.create`.
 
@@ -598,7 +598,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 
 Example: bring the person's attention to a decision, from an agent running in a tile.
 
-    ep0ch act open id=<block> from=$EP0CH_TILE --as claude-7         # answers reader=middle (the tile's link)
+    ep0ch act open id=<block> from=$EP0CH_TILE --as claude-7         # answers tile=<id>, name=middle (the tile's link)
     ep0ch act view.scrollTo text="needs a decision" tile=middle --as claude-7
     ep0ch act block.mark reason="needs your call" tile=middle --as claude-7
 
@@ -878,3 +878,19 @@ keys and pressable choices (`act`, `key`, and any refusal), read from the same
 The `door_peek` tool accepts `xray: true` for the same result. `hint.show` accepts
 `text=` and `for=<tile>`; the card names the agent and leaves the person's keys
 where they are. `hint.get`, `hint.pin`, and `hint.dismiss` inspect or manage it.
+
+### Action arguments and tile answers
+
+The action registry checks allowed values with a did-you-mean and checks `implies` (one of the declared
+argument combinations) and `conflicts` before running a typed action. A kind's `openArgs` and `check` own
+what `tile.open` reads: `tile.open kind=reader note=<id>` holds that note without needing `mode=held`.
+An argument for a different kind is refused with a corrected call.
+
+Tile actions and desk opens return `tile` as the stable tile id and `name` as its display name. Pass `tile`
+back to any `tile=` argument, including after moving the tile into a group or the drawer. An open's `id`
+is the note id; `reader` is no longer the destination key. Layout and tile actions reach the layout host
+while a message log covers it. These control-socket answers are not the outline service's PROTOCOL wire.
+
+When Sources opens a generated region, `sources.enter` and `sources.item` return its `source` name; `tile` and `name` identify the tile containing the inspector.
+
+`tile.float` returns the floated tile under `tile` (including a copy floated from the board preview), with its `name`; the former `now` field is gone. `host.tileOf` returns `{ tile, name, by }`, with nulls when no tile matches. Peek drawer rows, details, floats and agent limits use the same `tile`/`name` pair. `ep0ch where` consumes these records while retaining its context-binding shape.

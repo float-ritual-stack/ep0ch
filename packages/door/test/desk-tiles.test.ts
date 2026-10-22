@@ -61,7 +61,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   const mouse = (action: "down" | "drag" | "up", x: number, y: number, mods?: number) => key({ kind: "mouse", action, button: 0, x, y, ...(mods ? { mods } : {}) });
   const drag = (x0: number, y0: number, x1: number, y1: number) => { render(); mouse("down", x0, y0); mouse("drag", x0 + 1, y0); render(); mouse("drag", x1, y1); render(); mouse("up", x1, y1); render(); };
   /** The tree as a short string, as the unit tests write it. */
-  const s = (n: any): string => n.pane ?? (n.tabs ? `tabs(${n.tabs.map((t: string) => (t === n.active ? "*" + t : t)).join(",")})` : n.dock ? `dock(${s(n.kid)})` : `${n.split ?? (n.flow ? "flow" : "?")}(${n.kids.map(s).join(",")})`);
+  const s = (n: any): string => n.name ?? (n.tabs ? `tabs(${n.tabs.map((t: string) => (t === n.active ? "*" + t : t)).join(",")})` : n.dock ? `dock(${s(n.kid)})` : `${n.split ?? (n.flow ? "flow" : "?")}(${n.kids.map(s).join(",")})`);
   const shape = () => s(get().tree);
   let notes: Record<string, any> = {};
   const draft = () => join(scratch.root, "door", "draft.md");
@@ -161,7 +161,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   test("while a header is dragged, the drop it would make is drawn and said; esc lets go", () => {
     const d = rect("draft"), m = rect("middle");
     mouse("down", d.col + 4, d.row); mouse("drag", d.col + 6, d.row); mouse("drag", m.col + 1, m.row + Math.floor(m.rows / 2)); render();
-    expect(D().describe().dragging).toMatchObject({ tile: "draft", drop: { kind: "split", target: "middle", dir: "left" } });
+    expect(D().describe().dragging).toMatchObject({ name: "draft", drop: { kind: "split", target: "middle", dir: "left" } });
     const drawn = D().render(D().ctx).lines.join("\n");
     expect(drawn).toContain("← split left");
     key({ kind: "esc" });
@@ -226,14 +226,14 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     const md = rect("middle"), sd = rect("side");
     key(alt("l")); key(char("s")); key(char("!")); render();
     mouse("down", sd.col + 5, sd.row + 5);
-    expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("side").id });
+    expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("side").tile });
     expect(tile("tree").link).toBe("middle");
     key(alt("l")); key(char("a")); render();
     mouse("down", md.col + 5, md.row + 5);
-    expect(tile("tree").wires).toContainEqual({ verb: "alt", to: tile("middle").id });
+    expect(tile("tree").wires).toContainEqual({ verb: "alt", to: tile("middle").tile });
     key(alt("l")); key(char("a")); render();
     mouse("down", sd.col, sd.row + 5);
-    expect(tile("tree").wires).toContainEqual({ verb: "alt", to: tile("side").id, rule: "beside" });
+    expect(tile("tree").wires).toContainEqual({ verb: "alt", to: tile("side").tile, rule: "beside" });
     key(alt("l")); key(char("s")); key({ kind: "esc" });
     expect(tile("tree").link).toBe("middle");
     await until(() => D().pane("tree").rows?.some((r: any) => r.m?.id === notes.beans.id), "the beans row loaded");
@@ -251,7 +251,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key(ctrl("w")); key(char("P")); render();
     key({ kind: "enter" }); render();
     mouse("down", sd.col + 5, sd.row + 5);
-    expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("side").id });
+    expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("side").tile });
     key(ctrl("w")); key(char("P"));
     const panelLines = render().lines.map(visible);
     const clearRow = panelLines.findIndex((line: string) => line.includes("Select shows in:"));
@@ -268,7 +268,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key(char("j")); key(char("k"));
     await until(() => tile("preview").showing?.id === notes.beans.id, "the preview following the tree");
     const r = await act("tile.preview", {}, "draft") as any;
-    expect(r.tile).toBe("draft-preview");
+    expect(r.name).toBe("draft-preview");
     expect(tile("draft-preview").source).toBe(`file:${draft()}`);
     await until(() => tile("draft-preview").showing?.title.includes("scratch"), "the draft in its preview");
     writeFileSync(draft(), `# Pea notes\n\nSee ((${notes.plan.id})).\n`);
@@ -283,7 +283,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     const focus0 = get().focus, before = shape();
     await act("tile.open", { kind: "detail", note: notes.plan.id, name: "plan", where: "down" }, "middle");
     await until(() => tile("plan").showing?.id === notes.plan.id, "the plan in its detail");
-    await expect(act("tile.preview", { where: "tabs" }, "plan")).rejects.toThrow(/where is right, down, left or up/);
+    await expect(act("tile.preview", { where: "tabs" }, "plan")).rejects.toThrow(/where is right, down, left, up/);
     // On a locked screen nothing opens and nothing is linked.
     await mine("layout.lock", { on: true });
     await expect(act("tile.preview", {}, "plan")).rejects.toThrow(/the screen is locked/);
@@ -291,7 +291,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("layout.lock", { on: false });
     const at = rect("plan"), r = await act("tile.preview", {}, "plan") as any;
     // A reader's preview is a detail (it keeps what's opened into it), beside or below by the layout's one rule.
-    expect(r).toMatchObject({ tile: "plan-preview", kind: "reader", from: tile("plan").id, where: splitAxis(at) === "row" ? "right" : "down" });
+    expect(r).toMatchObject({ name: "plan-preview", kind: "reader", from: tile("plan").tile, where: splitAxis(at) === "row" ? "right" : "down" });
     expect(tile("plan").link).toBe("plan-preview");
     expect(get().focus).toBe(focus0);                               // an agent's never takes the keys
     expect(message()).toContain("an agent (tile-agent-413) opened a reader tile (plan-preview) where plan's opens land");
@@ -304,11 +304,11 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     if (r.where === "down") await mine("layout.move", { to: "plan", where: "right" }, "plan-preview");
     await mine("tile.collapse", { on: true }, "plan-preview");
     expect(tile("plan-preview").collapsed).toBe(true);
-    expect(await act("tile.preview", {}, "plan")).toMatchObject({ tile: "plan-preview", existing: true });
+    expect(await act("tile.preview", {}, "plan")).toMatchObject({ name: "plan-preview", existing: true });
     expect(tile("plan-preview").collapsed).toBeUndefined();
     expect(get().tiles.length).toBe(count);
     expect(get().focus).toBe(focus0);
-    expect(await mine("tile.preview", {}, "plan")).toMatchObject({ tile: "plan-preview", existing: true });
+    expect(await mine("tile.preview", {}, "plan")).toMatchObject({ name: "plan-preview", existing: true });
     expect(get().focus).toBe("plan-preview");
     // By keys: ^W V on the preview opens one below it (a detail's opens land there); O in it shows that one again.
     key(ctrl("w")); key(char("V"));
@@ -375,8 +375,8 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("screen.save", { name: "garden" });
     const saved = screenNote("garden")!.spec.layout;
     expect(JSON.stringify(saved)).toContain(`"t":"dock","edge":"down","open":false`);   // a dock container, shut
-    expect(JSON.stringify(saved)).toContain(`"link":"${tile("middle").id}"`);
-    expect(JSON.stringify(saved)).toContain(`"source":"tile:${tile("tree").id}"`);
+    expect(JSON.stringify(saved)).toContain(`"link":"${tile("middle").tile}"`);
+    expect(JSON.stringify(saved)).toContain(`"source":"tile:${tile("tree").tile}"`);
     const pid = tile("claude").terminal.pid;
     await mine("layout.load", { name: "river" });
     expect(tile("claude").dock).toBe("shut");                      // no place in the river: kept, shut
@@ -577,7 +577,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("layout.load", { name: "terminal-day" });
     const t = rect("claude");
     mouse("down", bare(t), t.row); mouse("drag", t.col + t.cols - 1, t.row); render();
-    expect(D().describe().dragging).toMatchObject({ tile: "claude" });
+    expect(D().describe().dragging).toMatchObject({ name: "claude" });
     key({ kind: "esc" }); mouse("up", t.col + t.cols - 1, t.row);
   });
 

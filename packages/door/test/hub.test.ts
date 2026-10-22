@@ -115,7 +115,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     await expect(app.act({ action: "waiting.pick", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing/);
     press({ kind: "esc" });
     await until(() => !top().readerPanes()[0]?.pane.draft, "the edit closed");
-    expect(await app.act({ action: "waiting.reload", as: "test-agent" })).toEqual({ tile: "waiting", waiting: 2 });
+    expect(await app.act({ action: "waiting.reload", as: "test-agent" })).toMatchObject({ name: "waiting", waiting: 2 });
     ch("q");
   });
 
@@ -135,8 +135,8 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     // An agent's open lands beside the page (its kind's open rule): the page stays pinned.
     (app as any).lastInput = 0;
     const jar = await board.createBlock(null, "Spare jar\nOn the top shelf.");
-    const r = await app.act({ action: "open", args: { id: jar.id }, as: "test-agent" }) as { reader: string };
-    expect(r.reader).not.toBe("pinned");
+    const r = await app.act({ action: "open", args: { id: jar.id }, as: "test-agent" }) as { name: string };
+    expect(r.name).not.toBe("pinned");
     await until(() => screen().includes("On the top shelf."), "the note beside the page");
     expect((top().pane("pinned") as PinnedReader).msg?.id).toBe(page.id);
     ch("q");

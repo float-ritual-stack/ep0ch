@@ -246,6 +246,8 @@ minimums: the long-running host and a remote door on another checkout are the ca
 removal) and with any change to what outline-core's shared modules match or compute (the property grammar, the
 draft.patch compare, the search matcher). Add round-trip coverage, and restart the complete topology (the host,
 then its clients) when it ships.
+The door's control-socket answers and ActionDefs are not the PROTOCOL wire; their shape is held by
+`packages/door/docs/AGENT-INTERFACE.md` and `packages/door/test/claude-mod-contract.test.ts`.
 
 **Schema.** `packages/outliner/src/schema.ts` owns the database's one schema: the CREATE statements of the
 current version and nothing else, stamped in `PRAGMA user_version`. A new, empty file gets them; any other

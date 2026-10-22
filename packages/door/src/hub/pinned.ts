@@ -79,7 +79,7 @@ export class PinnedReader extends ReaderPane {
 export function pinnedKind(): TileKind {
   const reader = tileKind("reader")!;
   return {
-    ...reader, kind: "pinned", about: "a reader pinned to a [[page]] (page=<name>, label=<words>), waiting for it to exist", noun: "a pinned page", keys: undefined,
+    ...reader, kind: "pinned", openArgs: ["page", "label"], check: undefined, about: "a reader pinned to a [[page]] (page=<name>, label=<words>), waiting for it to exist", noun: "a pinned page", keys: undefined,
     make: s => { const now = nowPage(); return new PinnedReader(s.page ?? now.address, s.label ?? now.label); },
     save: p => (p as PinnedReader).spec(),
     // A note opened from it goes to a reader beside; the page stays where it is.

@@ -19,7 +19,7 @@ import { outliner, Scratch, until } from "./scratch";
 const char = (ch: string): Key => ({ kind: "char", ch });
 type Rect = { col: number; row: number; cols: number; rows: number };
 /** A layout tree as describeTree gives it, without the ids (a board built again gives new ones). */
-const shape = (t: unknown) => JSON.parse(JSON.stringify(t, (k, v) => (k === "id" ? undefined : v)));
+const shape = (t: unknown) => JSON.parse(JSON.stringify(t, (k, v) => (k === "id" || k === "tile" ? undefined : v)));
 
 describe.skipIf(!outliner)("the board on the desk's engine, against a scratch outline", () => {
   const scratch = new Scratch();
@@ -41,8 +41,8 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
   const find = (n: any, key: string): any => (n.key === key ? n : [...(n.kids ?? []), ...(n.kid ? [n.kid] : [])].map((k: any) => find(k, key)).find(Boolean));
   /** The tiles in the readers row, by name. */
   // The preview sits in a tab set of one, the holder of its policy (PIE-510): its place stays, it doesn't close.
-  const row = () => find(tree(), "readers").kids.map((k: any) => k.pane ?? (k.tabs?.length === 1 ? k.tabs[0] : k.tabs));
-  const panesIn = (n: any): string[] => (n.pane ? [n.pane] : n.tabs ? n.tabs : [...(n.kids ?? []), ...(n.kid ? [n.kid] : [])].flatMap(panesIn));
+  const row = () => find(tree(), "readers").kids.map((k: any) => k.name ?? (k.tabs?.length === 1 ? k.tabs[0] : k.tabs));
+  const panesIn = (n: any): string[] => (n.name ? [n.name] : n.tabs ? n.tabs : [...(n.kids ?? []), ...(n.kid ? [n.kid] : [])].flatMap(panesIn));
   const lanesNode = () => find(tree(), "lanes");
   const details = () => B().details;
   /** A new board, the saved layout cleared first, lanes loaded, the preview on the first card. */
@@ -144,11 +144,11 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     await fresh();
     expect(shape(tree())).toMatchObject({
       split: "row", kids: [
-        { dock: "left", open: false, kid: { split: "col", key: "outline", policy: { draggable: false }, kids: [{ pane: "tree" }, { pane: "tree-preview" }] } },
+        { dock: "left", open: false, kid: { split: "col", key: "outline", policy: { draggable: false }, kids: [{ name: "tree" }, { name: "tree-preview" }] } },
         { split: "col", key: "board", kids: [
-          { columns: `hub:${hub.id}`, key: "lanes", policy: { draggable: false, accepts: ["query"] }, kids: [{ pane: "Doing" }, { pane: "Queued" }] },
+          { columns: `hub:${hub.id}`, key: "lanes", policy: { draggable: false, accepts: ["query"] }, kids: [{ name: "Doing" }, { name: "Queued" }] },
           { split: "row", key: "readers", kids: [{ tabs: ["preview"], policy: { draggable: false, droppable: false, closable: false } }] },
-          { dock: "down", open: false, policy: { stays: true }, kid: { split: "row", key: "links", policy: { draggable: false }, kids: [{ pane: "backlinks" }, { pane: "backlinks-preview" }] } },
+          { dock: "down", open: false, policy: { stays: true }, kid: { split: "row", key: "links", policy: { draggable: false }, kids: [{ name: "backlinks" }, { name: "backlinks-preview" }] } },
         ] },
       ],
     });
@@ -197,7 +197,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     // The board's readers row reads as before: the same row, names and labels, in mode held.
     expect(row()).toEqual(["preview", "detail1", "detail2"]);
     // An agent switches one by name; the person's keys stay on the lanes.
-    expect(await act("reader.mode", { mode: "follows" }, "detail2")).toMatchObject({ tile: "detail2", mode: "follows", held: false });
+    expect(await act("reader.mode", { mode: "follows" }, "detail2")).toMatchObject({ name: "detail2", mode: "follows", held: false });
     expect(t("detail2").mode).toBe("follows");
     expect(focus()).toBe("lanes");
     expect(await act("reader.mode", { mode: "held" }, "detail2")).toMatchObject({ mode: "held" });
@@ -258,7 +258,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(focus()).toBe("backlinks");
     const full = rect("preview").rows;
     key({ kind: "tab" });
-    expect(B().describe().backlinks).toMatchObject({ from: B().layoutGet().tiles.find((t: any) => t.name === "preview").id, pinned: false });   // it stays (policy: stays)
+    expect(B().describe().backlinks).toMatchObject({ from: B().layoutGet().tiles.find((t: any) => t.name === "preview").tile, pinned: false });   // it stays (policy: stays)
     key({ kind: "tab" });
     key(char("B"));
     expect(B().describe().backlinks.pinned).toBe(true);
@@ -293,7 +293,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     const d = details()[0];
     key(char("o"));
     expect(row()).toEqual(["preview", "detail2"]);
-    expect(B().describe().floats).toEqual([expect.objectContaining({ tile: "detail1" })]);
+    expect(B().describe().floats).toEqual([expect.objectContaining({ name: "detail1" })]);
     expect(focus()).toBe("detail1");
     // Its title moves it, as H J K L do (float.place, the desk's).
     const f = B().describe().floats[0].rect;
@@ -382,9 +382,9 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     const f = await act("tile.float", {}, "preview") as any;
     expect(B().describe().floats).toHaveLength(1);
     expect(focus()).toBe("detail2");
-    await act("tile.close", {}, f.now);
+    await act("tile.close", {}, f.tile);
     expect(B().describe().floats).toHaveLength(0);
-    expect(message()).toContain(`an agent (${AS}) closed ${f.now}`);
+    expect(message()).toContain(`an agent (${AS}) closed ${f.name}`);
   });
 
   test("an agent's swap keeps the replaced note as a spine and leaves another reader's edit and keys alone", async () => {
@@ -407,7 +407,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     const at = x();
     expect(at).toBeDefined();
     mouse("down", at.from, at.row); mouse("up", at.from, at.row);
-    await until(() => !b.layoutGet().tiles.some(t => t.id === kept.id), "the spine closed by its x");
+    await until(() => !b.layoutGet().tiles.some(t => t.tile === kept.tile), "the spine closed by its x");
   });
 
   test("interchangeable, subject to policy: a lane leaves the columns only once they let it; a desk tile goes beside them, not in", async () => {
@@ -417,7 +417,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     // Only query tiles join the columns; another kind goes beside them.
     await expect(act("tile.open", { kind: "activity", to: "Doing", where: "right" })).rejects.toThrow(/takes only query/);
     const opened = await act("tile.open", { kind: "activity", name: "recent", where: "edge-right" }) as any;
-    expect(opened).toMatchObject({ tile: "recent" });
+    expect(opened).toMatchObject({ name: "recent" });
     await act("tile.close", {}, "recent");
     // Let them go, and the lane moves beside the preview: still a lane of the board, refilled where it is.
     const cid = lanesNode().id ?? b.containerId("lanes");
@@ -511,7 +511,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
   test("review: tile.collapse folds only a tile side by side with others, where policy lets it, never the person's tile for an agent", async () => {
     await withDetails();
     await expect(act("tile.collapse", {}, "lanes")).rejects.toThrow(/has the person's keys/);
-    expect(await act("tile.collapse", {}, "detail2")).toMatchObject({ tile: "detail2", collapsed: true });
+    expect(await act("tile.collapse", {}, "detail2")).toMatchObject({ name: "detail2", collapsed: true });
     await act("tile.collapse", { on: false }, "detail2");
     await expect(act("tile.collapse", {}, "tree")).rejects.toThrow(/stays open: s\d+ doesn.t fold/);
     const cid = b.containerId("lanes");
@@ -556,7 +556,7 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
 
   test("an agent splits, resizes, zooms and closes desk panes; the person's pane and keys stay theirs", async () => {
     // Normalised (PIE-413): the desk's nested rows are one row of three, the last a column.
-    expect(D().describe().layout).toMatchObject({ split: "row", kids: [{ pane: "1" }, { pane: "2" }, { split: "col" }] });
+    expect(D().describe().layout).toMatchObject({ split: "row", kids: [{ name: "1" }, { name: "2" }, { split: "col" }] });
     const focus = D().focus;
     const n = D().describe().panes.length;
     const r = await act("pane.split", { kind: "reader", dir: "col" }, "2") as any;
@@ -579,11 +579,11 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     // A float (PIE-511): the tile out of the tree with its own rectangle, then put back beside the person's tile.
     const fl = await act("tile.float", {}, "1") as any;
     expect(fl).toMatchObject({ floated: true });
-    expect(D().layoutGet().floats).toEqual([expect.objectContaining({ tile: fl.now })]);
-    expect(saved().floats).toEqual([expect.objectContaining({ tile: expect.objectContaining({ name: fl.now }) })]);
-    await act("float.place", { dx: 3, cols: 50 }, fl.now);
+    expect(D().layoutGet().floats).toEqual([expect.objectContaining({ tile: fl.tile })]);
+    expect(saved().floats).toEqual([expect.objectContaining({ tile: expect.objectContaining({ name: fl.name }) })]);
+    await act("float.place", { dx: 3, cols: 50 }, fl.tile);
     expect(D().layoutGet().floats[0].rect.cols).toBe(50);
-    expect(await act("tile.float", {}, fl.now)).toMatchObject({ floated: false });
+    expect(await act("tile.float", {}, fl.tile)).toMatchObject({ floated: false });
     expect(D().layoutGet().floats).toEqual([]);
     // Any tile slides over as a dock now (PIE-413).
     const docked = await act("tile.dock", { on: true }, "1") as any;
@@ -598,7 +598,7 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     const a = await board.request<any>("create", { parentId: null, text: "Oil the mower [shed::open]", author: "agent" });
     await board.request<any>("create", { parentId: null, text: "Sharpen the shears [shed::open]", author: "agent" });
     const t = await act("tile.open", { kind: "query", view: view.id, name: "shed", where: "right" }) as any;
-    expect(t).toMatchObject({ tile: "shed", kind: "query" });
+    expect(t).toMatchObject({ name: "shed", kind: "query" });
     await until(() => D().describe().panes.find((p: any) => p.name === "shed")?.count === 2, "the view's cards");
     expect(D().describe().panes.find((p: any) => p.name === "shed")).toMatchObject({ lane: "Open", view: view.id });
     await act("tile.open", { kind: "preview", source: "tile:shed", name: "shed-card" }, "shed");
@@ -627,7 +627,7 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     key({ kind: "enter" });                                            // ⏎ on a spine opens it
     expect(me().collapsed).toBeUndefined();
     W(); key(char("f"));
-    expect(D().layoutGet().floats).toEqual([expect.objectContaining({ tile: me().name })]);
+    expect(D().layoutGet().floats).toEqual([expect.objectContaining({ name: me().name })]);
     W(); key(char("f"));
     expect(D().layoutGet().floats).toEqual([]);
   });

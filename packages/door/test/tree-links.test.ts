@@ -344,7 +344,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     const selected = () => tree().describe().selected?.key;
     const was = selected();
     const out = await app.act({ action: "tree.links", args: { id: n.soil.id }, as: "walker-7" }) as any;
-    expect(out).toMatchObject({ tile: "tree", shown: true });
+    expect(out).toMatchObject({ name: "tree", shown: true });
     expect(message()).toContain("an agent (walker-7) showed the links under row");
     await until(() => rows().some(r => r.n > rowOf("Soil test results").n && r.text === "← backlinks (1)" && r.depth === 2), "the soil test's backlinks");
     expect(selected()).toBe(was);

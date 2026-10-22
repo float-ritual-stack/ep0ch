@@ -127,7 +127,7 @@ describe.skipIf(!outliner)("the showcase screen: new notes", () => {
     const rects = floats().map(f => f.rect);
     expect(new Set(rects.map(r => `${r.col},${r.row}`)).size).toBe(5);
     const top = floats().at(-1)!;
-    expect(stage().describe().focusName).toBe(top.tile);
+    expect(stage().describe().focusName).toBe(top.name);
     await until(() => stage().newNoteWhileTyping(), "the person in the newest float's edit", 5000);
     // Saved: typed in the newest, ctrl+s.
     for (const c of "Chard seed: 2 rows") press({ kind: "char", ch: c });
@@ -138,7 +138,7 @@ describe.skipIf(!outliner)("the showcase screen: new notes", () => {
     // a sixth floats, and the fourth stays open as it was until it's saved.
     const fourth = floats()[3]!;
     await stage().dispatch.press("tile.focus", {}, fourth.tile);
-    await until(() => stage().newNoteWhileTyping() && stage().describe().focusName === fourth.tile, "in the fourth's edit", 5000);
+    await until(() => stage().newNoteWhileTyping() && stage().describe().focusName === fourth.name, "in the fourth's edit", 5000);
     for (const c of "Leek trench") press({ kind: "char", ch: c });
     press({ kind: "char", ch: "n", ctrl: true });
     await until(() => floats().length === 6 && floats().at(-1)!.writing, "a sixth float from the edit", 8000);
@@ -161,8 +161,8 @@ describe.skipIf(!outliner)("the showcase screen: new notes", () => {
     press({ kind: "mouse", action: "up", button: 0, x: hx, y: head });
     await until(() => !floats().some(f => f.id === first.id), "the first float docked", 5000);
     // A tab beside the reader now, in the layout: one tab set holding both.
-    expect(((await stage().dispatch.press("layout.get")) as any).tree).toMatchObject({ tabs: ["reader", first.tile], active: first.tile });
-    expect(stage().describe().focusName).toBe(first.tile);
+    expect(((await stage().dispatch.press("layout.get")) as any).tree).toMatchObject({ tabs: ["reader", first.name], active: first.name });
+    expect(stage().describe().focusName).toBe(first.name);
     // × (tile.close) on an empty one: nothing typed, so it goes to the trash and its float with it.
     const empty = floats().find(f => f.id !== top.id && f.id !== fourth.id)!;
     await stage().dispatch.press("tile.close", {}, empty.tile);
@@ -172,7 +172,7 @@ describe.skipIf(!outliner)("the showcase screen: new notes", () => {
     // An agent's: made and shown floating for the person, attributed; their keys stay where they are.
     const keysOn = stage().describe().focusName;
     const made = await app.act({ action: "note.new", args: { text: "Bean poles: 12", opens: "float" }, as: "test-agent" }) as any;
-    expect(made.reader).toBeTruthy();
+    expect(made.tile).toBeTruthy();
     expect(stage().describe().focusName).toBe(keysOn);
     expect(await board.get(made.id)).toMatchObject({ author: "test-agent" });
     // Put the rest away, so the next test finds the stage as it was: each closed (saved, or trashed when empty).

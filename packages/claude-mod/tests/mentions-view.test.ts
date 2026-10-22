@@ -102,7 +102,7 @@ function sessionIn(on: On, env: Record<string, string>, stored: Record<string, u
       return ok(JSON.stringify({ detailClientId: beside, opened }))
     }
     if (e.argv.includes('link')) return ok('{"title":"Chain oil"}')
-    if (e.argv.includes('door-open')) return ok('{"reader":"centre"}')
+    if (e.argv.includes('door-open')) return ok('{"tile":"t-fixture","name":"centre"}')
     return ok('{}')
   })
   resetBlockViewProbe()

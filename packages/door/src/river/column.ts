@@ -1067,7 +1067,7 @@ const FLOW_KEYS: readonly ModeKey[] = [
 /** The river column as a tile kind: a reader of the river's own view, opening a column of its own kind next. */
 export function riverColumnKind(): TileKind {
   return {
-    kind: "river.column", previews: true, word: "column", noun: "a river column",
+    kind: "river.column", openArgs: ["source"], previews: true, word: "column", noun: "a river column",
     about: "a river column (Quay): the Library (source=roots), a note with its replies (source=block:<id>), or every note with a property (source=tag:<key>=<value>); filter=<clauses>",
     make: s => {
       const column = new RiverColumn(parseSource(s.source), parseFilter(s.filter ?? ""));

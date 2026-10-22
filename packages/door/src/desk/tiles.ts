@@ -35,7 +35,7 @@ export interface TileSpec {
   outline?: string;
   machine?: string;
   /** How a reader shows notes (PIE-705): omitted it follows the current note; `held` keeps `note`; `pinned` keeps the page named by `page`. */
-  mode?: "held" | "pinned";
+  mode?: "follows" | "held" | "pinned";
   /** A reader's place and back and forward stacks (NoteSurface.saveNav, PIE-643): read by version, dropped when it isn't this one's. */
   nav?: unknown;
   /** A reader's margin when it isn't trim (PIE-873): "off" (marks only) or "full". */
@@ -150,7 +150,7 @@ export { isTileKind };
  * A spec as a saved layout, a screen spec or an agent wrote it, in the kinds there are now. `detail` was a kind of its
  * own (PIE-705): it reads as a reader that starts held, or pinned when it names a `page`.
  */
-export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: "held" | "pinned"; link?: string; linkRole?: string; source?: string; wires?: TileSpec["wires"]; selectFrom?: string }>(s: S): S & { selectFrom?: string } {
+export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: "follows" | "held" | "pinned"; link?: string; linkRole?: string; source?: string; wires?: TileSpec["wires"]; selectFrom?: string }>(s: S): S & { selectFrom?: string } {
   const { link, linkRole, ...rest } = s;
   const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), { verb: "open" as const, to: link }, ...((linkRole ?? (s.kind === "backlinks" ? "target" : "preview")) === "preview" ? [{ verb: "select" as const, to: link }] : [])] } : {}) };
   if (out.kind === "detail") { out.kind = "reader"; out.mode ??= s.page ? "pinned" : "held"; }

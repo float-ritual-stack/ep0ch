@@ -26,7 +26,7 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
   const render = () => desk.render(D().ctx);
   const get = () => D().layoutGet() as { tree: any; focus: string; tiles: any[] };
   const flow = () => get().tree.kids.find((k: any) => k.flow);
-  const columns = () => flow().kids.map((k: any) => k.pane ?? k.kids?.map((x: any) => x.pane).join("+")) as string[];
+  const columns = () => flow().kids.map((k: any) => k.name ?? k.kids?.map((x: any) => x.name).join("+")) as string[];
   const tile = (name: string) => { render(); return get().tiles.find((t: any) => t.name === name); };
   const pane = (name: string) => D().panes.get([...D().names].find(([, v]: any) => v === name)![0]);
   const follow = async (name: string, actor: { kind: string; id?: string } = { kind: "user" }) => {
@@ -122,11 +122,11 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
   });
 
   test("a river column's own keys are the same on the desk as on the river: x closes it, h moves the keys left", async () => {
-    const r = await mine("tile.open", { kind: "river.column", source: "roots", where: "right" }, "tree") as { tile: string };
+    const r = await mine("tile.open", { kind: "river.column", source: "roots", where: "right" }, "tree") as { tile: string; name: string };
     await mine("tile.focus", {}, r.tile);
-    expect(get().focus).toBe(r.tile);
+    expect(get().focus).toBe(r.name);
     key({ kind: "char", ch: "h" });
-    expect(get().focus).not.toBe(r.tile);
+    expect(get().focus).not.toBe(r.name);
     await mine("tile.focus", {}, r.tile);
     key({ kind: "char", ch: "x" });
     await until(() => !tile(r.tile), "the column closed by its x");

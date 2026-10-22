@@ -171,7 +171,7 @@ async function askNote(desk: DeskApi, ask: WaitingAsk, actor: Actor) {
 
 const which = {
   n: { type: "number", optional: true, about: "its place in the list, from 1 (peek lists them)" },
-  tile: { type: "string", optional: true, about: "the terminal tile's id or name, instead of n" },
+  tile: { type: "string", optional: true, kind: "tile", about: "the terminal tile's id or name, instead of n" },
 } as const;
 
 /** The list's actions: the keys, a click and `act` call the same code. */

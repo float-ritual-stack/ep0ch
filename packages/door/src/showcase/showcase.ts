@@ -190,7 +190,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "actions", need: "let a person or agent do anything", part: "the action registry: ActionDef in an ActionSet; keys and `act` call it", files: "src/surface/actions.ts, src/control.ts",
+    key: "actions", need: "let a person or agent do anything",
+    aside: "The page shows arguments and the answer shape from the action itself. Try act layout.move where=rigth: it suggests where=right. beside= needs into= or out=true, and tile.link ask= cannot also name to=. tile.open kind=reader note=<id> keeps that note; a tree refuses note= with the call it takes. Answers give tile=<id> and its name: pass tile back to tile.info. layout.get still answers while the message log is open.", part: "the action registry: ActionDef in an ActionSet; keys and `act` call it", files: "src/surface/actions.ts, src/control.ts",
     stage(n, show) {
       const r = new ReaderPane();
       const list = new ActionsPane();

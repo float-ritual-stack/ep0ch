@@ -1186,8 +1186,8 @@ if (scenario === "river-write") {
   const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
   await snap("1-library", 2500);
   await act("open", { id: plot.id });
-  const opened = await act("open", { id: beans.id, from: (await act("layout.get")).result.tiles.at(-1).name });
-  const beansR = opened.result.reader;
+  const opened = await act("open", { id: beans.id, from: (await act("layout.get")).result.tiles.at(-1).tile });
+  const beansR = opened.result.tile;
   await snap("2-columns", 1500);
   // The agent's opens left the person in the Library; they walk over to the beans column.
   ch("l"); ch("l");

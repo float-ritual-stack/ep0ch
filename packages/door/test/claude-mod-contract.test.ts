@@ -5,6 +5,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
+import { startControl } from "../src/control";
+import { Mirror } from "../src/mirror";
+import { Desk } from "../src/desk/desk";
+import { useShowcaseScreen } from "./showcase/harness";
 import { SocketBoard } from "../src/socket";
 import { Scratch, scratchDir } from "./scratch";
 
@@ -247,5 +251,41 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
       expect(ran.stderr).not.toContain("\x1b[");
       expect(failureReasonOf(ran.stderr)).toStartWith(`ep0ch: no door runs on ${scratch.name}`);
     }
+  });
+});
+
+describe("the mod reads a real door's tile answers", () => {
+  const h = useShowcaseScreen();
+  test("open returns an address that tile.info accepts, plus the name the mod displays", async () => {
+    const { openedTileOf } = await mod("mention-message.ts");
+    const desk = new Desk({ name: "garden", title: "Garden", layout: { root: { t: "leaf", kind: "reader", name: "letters" } } });
+    h.app.push(desk);
+    const ctl = await startControl({ app: h.app, mirror: new Mirror(200, 60), info: () => ({ cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }) }, join(h.scratch.root, "contract.sock"));
+    try {
+      const env = { ...h.scratch.env, EP0CH_CONTROL: ctl.path };
+      const note = await h.board.createBlock(null, "Letters from the allotment\nBring broad beans.");
+      const opened = await run(["ep0ch", "open", note.id, "--as", "garden-helper"], { env });
+      expect(opened.exitCode).toBe(0);
+      const destination = openedTileOf(opened.stdout)!;
+      expect(destination.tile).toMatch(/^t-/);
+      expect(destination.name).toBe("letters");
+      expect(JSON.parse(opened.stdout).reader).toBeUndefined();
+      const inspected = await run(["ep0ch", "act", "tile.info", `tile=${destination.tile}`, "--as", "garden-helper"], { env });
+      expect({ code: inspected.exitCode, error: inspected.stderr }).toEqual({ code: 0, error: "" });
+      expect(JSON.parse(inspected.stdout)).toMatchObject({ tile: destination.tile, name: "letters", showing: { id: note.id } });
+      const layout = await run(["ep0ch", "act", "layout.get", "--as", "garden-helper"], { env });
+      expect(layout.exitCode).toBe(0);
+      const row = JSON.parse(layout.stdout).tiles.find((t: { name: string }) => t.name === "letters");
+      expect(row.tile).toBe(destination.tile);
+      expect(row.id).toBeUndefined();
+      expect(row.address).toBeUndefined();
+      expect(JSON.parse(layout.stdout).tree).toMatchObject({ tile: destination.tile, name: destination.name });
+      const view = await run(["ep0ch", "act", "view.get", "--as", "garden-helper"], { env });
+      expect(view.exitCode).toBe(0);
+      expect(JSON.parse(view.stdout).focus).toMatchObject({ tile: destination.tile, name: destination.name });
+      const actions = await run(["ep0ch", "actions"], { env });
+      expect(actions.exitCode).toBe(0);
+      expect(actions.stdout).toContain("answer: tile: string|null (the destination tile's stable id");
+    } finally { ctl.close(); h.app.pop(); desk.dispose(); }
   });
 });

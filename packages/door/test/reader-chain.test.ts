@@ -157,7 +157,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
       expect(JSON.stringify(g.tree)).toContain("what-changed");
       expect(g.tree.split ?? g.tree.kids).toBeDefined();
       const done = await dact("tile.link", { to: "@chain/reader9" }, "what-changed");
-      expect(done).toMatchObject({ tile: "what-changed", link: "@chain/reader9" });
+      expect(done).toMatchObject({ name: "what-changed", link: "@chain/reader9" });
       const t = (drawerDesk() as any).layoutGet().tiles.find((x: any) => x.name === "what-changed");
       expect(t).toMatchObject({ link: "@chain/reader9", linkAcross: "true" });
       expect(tile("reader9")).toMatchObject({ link: "reader10" });
@@ -235,7 +235,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
 
     test("saved and restored: the drawer's link and the screen's chain come back in the next door", async () => {
       const saved = JSON.stringify((drawerDesk() as any).saved());
-      expect(saved).toContain(`"link":"${tile("reader9").id}"`);
+      expect(saved).toContain(`"link":"${tile("reader9").tile}"`);
       const two = new App({ info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} } as any, board, Date.now(), () => {});
       try {
         const again = new Desk({ name: "chain", title: "chain", layout: D().saved() }, { saved: D().saved() });

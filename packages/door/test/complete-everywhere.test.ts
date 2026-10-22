@@ -216,7 +216,7 @@ describe.skipIf(!outliner)("on every surface that takes outline text, on a scrat
       const floats = () => (desk.describe().floats as any[]).filter(f => f.newNote);
       await until(() => floats().length === 1 && floats()[0].writing, "the floating draft", 8000);
       const f = floats()[0], pane = desk.panes.get(desk.idNamed(f.tile)) as any;
-      desk.focusOn(f.tile);
+      desk.focusOn(f.name);
       const d: Draft = pane.surface.draft;
       type("[heading-p");
       await ready(d);

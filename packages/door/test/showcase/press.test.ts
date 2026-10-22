@@ -137,7 +137,7 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
           await app.dispatch.act({ action: "host.toggle", args: { open: true } }, USER);
           await app.drawer.desk!.dispatch.act({ action: "tab.select", tile }, USER);
           await app.dispatch.act({ action: "host.enter" }, USER);
-          tile = app.drawer.desk!.layoutGet().tiles.find(t => t.name === "launch")!.id!;
+          tile = app.drawer.desk!.layoutGet().tiles.find(t => t.name === "launch")!.tile!;
         } else if (place === "desk") {
           await d.dispatch.act({ action: "tile.focus", tile }, USER);
           press({ kind: "enter" });

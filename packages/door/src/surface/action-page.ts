@@ -89,6 +89,7 @@ export function actionPage(info: ActionInfo, extras: PageExtras = {}): string {
       return `- ${s.optional ? name : `**${name}**`}: ${values} — ${inert(about.replace(/ — /g, ", "), false)}`;
     })));
   }
+  if (info.answer) out.push("", figure("props", { title: "answer" }, Object.entries(info.answer).map(([name, s]) => `- ${name}: ${s.type} — ${inert(s.about, false)}`)));
   // The rest of what it says, a fact a line, last: what a short preview cuts first.
   const rest = facts(info.summary).filter((f, i) => !(i === 0 && f.replace(/[.;]$/, "") === lead));
   if (rest.length) out.push("", ...rest.map(f => `- ${inert(f)}`));

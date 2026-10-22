@@ -260,7 +260,7 @@ export const BRIEF_ACTIONS = actionSet<KindHost>()("brief", {
 export function briefKind(): TileKind {
   const reader = tileKind("reader")!;
   return {
-    ...reader, kind: "brief", about: "the daily brief: the newest type::daily-brief note, , . stepping between days", noun: "the brief", keys: [{ key: "f", label: "brief" }],
+    ...reader, kind: "brief", openArgs: [], check: undefined, about: "the daily brief: the newest type::daily-brief note, , . stepping between days", noun: "the brief", keys: [{ key: "f", label: "brief" }],
     make: () => new BriefReader(), actions: BRIEF_ACTIONS, inherits: reader.actions ? [reader.actions] : undefined,
     // A note opened from it goes to a reader beside; the brief stays where it is.
     policy: { opens: "beside" },

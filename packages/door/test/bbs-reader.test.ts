@@ -251,7 +251,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     const names = listed.actions.map(a => a.name);
     for (const a of ["message.next", "message.previous", "message.thread", "fold", "select", "link.follow", "edit", "props"]) expect(names).toContain(a);
     const folded = await app.act({ action: "fold", args: { all: true }, as: AS }) as any;
-    expect(folded.reader).toBe("message");
+    expect(folded.name).toBe("message");
     expect(r.surface.describe().folds!.folded.length).toBeGreaterThan(0);
     expect(r.surface.agent?.id).toBe(AS);
     await app.act({ action: "unfold", args: { all: true }, as: AS });

@@ -62,9 +62,9 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
     expect(b.pane("preview")).toBeDefined();
     // A detail opens, and it closes and moves as any tile does.
     const r: any = await act("open", { id: card }, "new-detail");
-    expect(r.reader).toMatch(/^detail\d+$/);
+    expect(r.name).toMatch(/^detail\d+$/);
     // It took the keys (an agent's open does, unless the person is in an edit): the person closes it.
-    await act("tile.close", {}, r.reader, null);
+    await act("tile.close", {}, r.name, null);
     expect(BV.view(b).details).toHaveLength(0);
   });
 
@@ -84,7 +84,7 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
     await act("layout.move", { where: "edge-left" }, "preview");
     // The person can still read the card; an agent cannot choose another destination.
     const r1: any = await act("open", { id: card }, "new-detail", null);
-    expect(r1).toMatchObject({ reader: "preview", id: card });
+    expect(r1).toMatchObject({ name: "preview", id: card });
     expect(r1.why).toMatch(/readers row is gone .*opening a detail/);
     await expect(act("open", { id: card }, "new-detail")).rejects.toThrow(/readers row is gone/);
     expect(BV.view(b).details).toHaveLength(0);
@@ -93,6 +93,6 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
     const again: any = await act("layout.policy", {}, "preview");
     expect(again.effective.draggable).toBe(false);
     const r: any = await act("open", { id: card }, "new-detail");
-    expect(r.reader).toMatch(/^detail\d+$/);
+    expect(r.name).toMatch(/^detail\d+$/);
   });
 });

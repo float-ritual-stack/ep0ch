@@ -193,7 +193,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await act("tile.open", { kind: "detail", name: "side", where: "right" }, "reader");
     await act("tile.focus", {}, "links");
     await act("tile.link", { to: "side" }, "links");
-    expect(tile("links")).toMatchObject({ wires: expect.arrayContaining([{ verb: "open", to: tile("side").id }]) });
+    expect(tile("links")).toMatchObject({ wires: expect.arrayContaining([{ verb: "open", to: tile("side").tile }]) });
     await pickRow(porch.id);
     await until(() => (desk.pane("peek") as ReaderPane).msg?.id === porch.id, "the preview follows");
     expect(reader("side").msg).toBeFalsy();
@@ -202,7 +202,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     expect(reader("reader").msg?.id).toBe(lamp.id);
     // The same open by the action an agent calls.
     const out = await act("open", { id: hall.id, from: "links" }, undefined, "walker-1");
-    expect(out.reader).toBe("side");
+    expect(out.name).toBe("side");
     await until(() => reader("side").msg?.id === hall.id, "open from= lands in the target");
     expect(D().layoutGet().focus).toBe("links");
   }, 20_000);
@@ -244,7 +244,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await act("tile.focus", {}, "links");
     await act("backlinks.open", { id: hall.id }, "links");
     await until(() => reader("reader").msg?.id === hall.id, "the saved preview-role link also takes opens");
-    expect(tile("links").wires).toEqual(expect.arrayContaining([{ verb: "select", to: tile("peek").id }, { verb: "select", to: tile("reader").id }, { verb: "open", to: tile("reader").id }]));
+    expect(tile("links").wires).toEqual(expect.arrayContaining([{ verb: "select", to: tile("peek").tile }, { verb: "select", to: tile("reader").tile }, { verb: "open", to: tile("reader").tile }]));
   }, 20_000);
 
   test("an agent's open from the list lands in its home and never takes the person's keys; a group row opens or folds", async () => {

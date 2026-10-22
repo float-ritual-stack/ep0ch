@@ -143,7 +143,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       restored.key(char("x"), d.app);
       expect(restored.focusName()).toBe("kettle2");
       const floated = await restored.openPlace(note.id, "float", USER);
-      expect(restored.layoutGet().tiles.find(t => t.name === floated.reader)!.arrival).toBeDefined();
+      expect(restored.layoutGet().tiles.find(t => t.tile === floated.tile)!.arrival).toBeDefined();
       const made = await restored.saveScreen("Letters to keep", USER);
       await d.app.dispatch.act({ action: "screen.open", args: { name: String(made.screen) } }, USER);
       expect((d.app.screens().at(-1) as Desk).pane("kettle2")).toBeDefined();
@@ -182,7 +182,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(group.inner).toBe(inner);
       expect((inner.pane("draft") as any).surface.draft).toBe(draft);
       expect(draft.text).toContain("Keep this unsaved");
-      expect((inner.layoutGet() as any).tiles.find((t: any) => t.name === "replies").wires).toContainEqual({ verb: "open", to: inner.layoutGet().tiles.find((t: any) => t.name === "reader")!.id });
+      expect((inner.layoutGet() as any).tiles.find((t: any) => t.name === "replies").wires).toContainEqual({ verb: "open", to: inner.layoutGet().tiles.find((t: any) => t.name === "reader")!.tile });
       expect((inner.layoutGet() as any).tiles.filter((t: any) => t.name === "reader" || t.name === "draft").every((t: any) => t.tabs?.includes("reader") && t.tabs?.includes("draft"))).toBe(true);
       await next.dispatch.act({ action: "tile.drawer", tile: "bundle" }, USER);
       d.app.pop(); d.paint();
@@ -229,7 +229,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     const next = await door();
     try {
       await until(() => !readFileSync(path, "utf8").includes("@desk/"), "saved references rewritten");
-      const target = next.desk.layoutGet().tiles.find(t => t.name === "reader")!.id;
+      const target = next.desk.layoutGet().tiles.find(t => t.name === "reader")!.tile;
       const restored = leaves(JSON.parse(readFileSync(path, "utf8"))).find(v => v.name === "letter-links" && v.kind === "backlinks");
       expect(restored.source).toBe(`tile:${target}`);
       expect(restored.link).toBe(target);
@@ -473,7 +473,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
       const pid = d.kettle()!.pid;
       const out = await d.app.act({ action: "tile.drawer", args: {}, tile: "kettle", as: AS }) as any;
-      expect(out).toMatchObject({ tile: "kettle", inDrawer: true, from: "desk" });
+      expect(out).toMatchObject({ name: "kettle", inDrawer: true, from: "desk" });
       expect(d.desk.pane("kettle")).toBeUndefined();
       expect(d.inDrawer("kettle")).toBe(true);
       const p = d.pane("kettle") as PtyPane;
@@ -504,7 +504,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect((d.pane("kettle") as PtyPane).pid).toBe(pid);
       // Out of the drawer, into the other screen, right of its notes reader: the person's.
       const out = await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false, to: "notes", where: "right" }, tile: "kettle" }, USER) as any;
-      expect(out).toMatchObject({ tile: "kettle", inDrawer: false, into: "last callers" });
+      expect(out).toMatchObject({ name: "kettle", inDrawer: false, into: "last callers" });
       expect(d.inDrawer("kettle")).toBe(false);
       const back = other.pane("kettle") as PtyPane;
       expect(back.pid).toBe(pid);
@@ -650,14 +650,14 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await until(() => d.inDrawer("activity"), "a puts it in");
       d.paint();
       grab("replies"); d.key(char("f"));
-      await until(() => (d.desk.layoutGet() as any).floats.some((f: any) => f.tile === "replies"), "f floats");
+      await until(() => (d.desk.layoutGet() as any).floats.some((f: any) => f.name === "replies"), "f floats");
       d.paint();
       // p on the float: straight into a dock (one step), and ^W f floats it again: float → dock → float.
       await d.desk.dispatch.act({ action: "tile.dock", args: { on: true }, tile: "replies" }, USER);
       expect((d.desk.layoutGet() as any).floats).toEqual([]);
       expect((d.desk.layoutGet() as any).tiles.find((t: any) => t.name === "replies").dock).toBeTruthy();
       await d.desk.dispatch.act({ action: "tile.float", args: {}, tile: "replies" }, USER);
-      expect((d.desk.layoutGet() as any).floats.map((f: any) => f.tile)).toEqual(["replies"]);
+      expect((d.desk.layoutGet() as any).floats.map((f: any) => f.name)).toEqual(["replies"]);
     } finally { d.app.quit(); }
   });
 
@@ -674,7 +674,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(why).toContain("closing ends it");
       expect(why).not.toMatch(/drawer\.own|closable|draggable/);
       const out = await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER) as any;
-      expect(out).toMatchObject({ tile: name, fresh: true, into: "desk" });
+      expect(out).toMatchObject({ name, fresh: true, into: "desk" });
       const moved = d.desk.pane(name) as PtyPane;
       expect(moved).toBe(own);
       expect([moved.pid, moved.running, moved.kind]).toEqual([pid, true, "pty"]);   // an ordinary terminal tile on the desk now

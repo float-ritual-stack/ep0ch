@@ -162,11 +162,11 @@ export class ScreenTile implements Pane {
   }
 
   /** An open its screen has no reader for (a mounted part: the lanes alone): where this tile's opens land, on the screen holding it. */
-  private async openOut(m: Msg, by: Actor, fresh: boolean): Promise<{ reader: string | null; id: string }> {
+  private async openOut(m: Msg, by: Actor, fresh: boolean): Promise<{ tile: string | null; name?: string; id: string }> {
     const d = this.desk, name = d?.nameOfPane?.(this);
     if (!d?.perform || !name) throw new ActionRefused("nowhere to open it: the mount isn't on a screen");
-    const r = await d.perform("open", { id: m.id, from: name, ...(fresh ? { fresh: true } : {}) }, by) as { reader?: string | null } | undefined;
-    return { reader: r?.reader ?? null, id: m.id };
+    const r = await d.perform("open", { id: m.id, from: name, ...(fresh ? { fresh: true } : {}) }, by) as { tile?: string | null; name?: string } | undefined;
+    return { tile: r?.tile ?? null, name: r?.name, id: m.id };
   }
 
   /** The person goes in (every key the mounted screen's) or comes out. */
@@ -321,6 +321,7 @@ export function mountKinds(): TileKind[] {
     noun: kind === "screen" ? "a mounted screen" : `a ${kind} tile`,
     make: s => new ScreenTile(kind, s),
     actions: MOUNT_ACTIONS,
+    openArgs: ["screen", "part", "target", "label", "inner", "args"],
     check: s => (kind !== "screen" || s.screen || s.inner ? null : `a mount names its screen (screen=${mountable().join(", ")}), and part=<container> for a part of it`),
     // ^W o m with no screen named: the person picks one (a part by part= through act).
     ...(kind === "screen" ? { choices: async () => ({ title: "mount a screen here", items: mountable().map(n => ({ label: n, spec: { screen: n } })) }) } : {}),
