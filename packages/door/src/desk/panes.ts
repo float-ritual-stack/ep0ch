@@ -146,6 +146,8 @@ export interface DeskApi {
   noteGone?(p: Pane, id: string): void;
   /** Tile `p`'s name (what `tile=` and `open from=` take). */
   nameOfPane?(p: Pane): string;
+  /** The display path to a tile, across mounts and the drawer. */
+  pathTo?(p: Pane): string | undefined;
   /** Tile `p` is in a dock (not pinned in the layout). */
   inDock?(p: Pane): boolean;
   /** The side of the screen tile `p` is on (its dock's edge, else where it's placed). */

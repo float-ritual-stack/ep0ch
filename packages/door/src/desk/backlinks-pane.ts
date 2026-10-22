@@ -185,7 +185,7 @@ export class BacklinksPane implements Pane {
       chip: true as const, press: () => this.run(desk, "backlinks.groups", { choose: true }) }];
   }
   hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview · ⏎ open in ${this.sourceLabel()} · alt+⏎ new detail · b ${this.follows ? "aim" : "re-aim"} at ${this.sourceLabel()}'s note · . fold · s K w h n view · v groups`; }
-  spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const, ...(this.options.stages?.length ? { stages: this.options.stages.join(",") } : {}) }; }
+  spec() { return { source: this.source ? `tile:${this.source}` : "", ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const, ...(this.options.stages?.length ? { stages: this.options.stages.join(",") } : {}) }; }
 
   /**
    * List these groups (at least one), in the model's order; the selection stays on its row where it still shows.
@@ -218,8 +218,9 @@ export class BacklinksPane implements Pane {
 
   private desk: DeskApi | null = null;
   private sourceLabel() {
+    if (!this.source) return "no source";
     const pane = this.desk?.pane?.(this.source);
-    return pane ? this.desk?.nameOfPane?.(pane) || this.source : this.source;
+    return pane ? this.desk?.pathTo?.(pane) || this.desk?.nameOfPane?.(pane) || this.source : this.source;
   }
   init(desk: DeskApi) { this.desk = desk; this.sync(desk); }
 

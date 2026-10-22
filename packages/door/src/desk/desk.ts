@@ -1376,7 +1376,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           if (pane && owner) {
             owner.addExt(owner.idOf(pane)!, { pane: d.panes.get(to)!, path: d.tileId(to), verb: "select", found: true });
             boundSource.set(d.panes.get(to)!, pane);
-          } else d.ctx?.flash(`${d.nameOf(to)}: follow source dropped; no tile ${source}`);
+          } else this.ctx.flash(`${d.nameOf(to)}: follow source dropped; no tile ${source}`);
           d.selectSeeds.delete(to);
         }
         for (const p of d.panes.values()) {
@@ -1384,12 +1384,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           if (!aimed?.source) continue;
           const source = d.paneAtPath(aimed.source);
           if (source) { aimed.source = d.reference(source)!; boundSource.set(p, source); }
+          else {
+            this.ctx.flash(`${d.nameOfPane(p)}: source dropped; no tile ${aimed.source}`);
+            aimed.source = "";
+            boundSource.set(p, NO_SOURCE);
+            d.save();
+          }
         }
         let changed = false;
         for (const [id, wires] of d.ext) for (const w of [...wires]) {
           if (!w.pane && w.path) {
             d.cutExt(id, w);
-            d.ctx?.flash(`${d.nameOf(id)}: ${w.verb} wire dropped; no tile ${w.path}`);
+            this.ctx.flash(`${d.nameOf(id)}: ${w.verb} wire dropped; no tile ${w.path}`);
           }
           changed = true;
         }
@@ -1507,7 +1513,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const c = this.columnsIn().find(x => x.id === container);
     return c ? [...new Set(leaves(c).flatMap(id => this.followers(id)))] : [];
   }
-  nameOfPane(p: Pane): string { const id = this.idOf(p); return id === undefined ? this.pathTo(p) ?? "" : this.nameOf(id); }
+  nameOfPane(p: Pane): string { const id = this.idOf(p); return id === undefined ? "" : this.nameOf(id); }
   enterSession(p: ReaderPane) { this.entered.enter(p); this.ctx.flash(`in ${sessionName(p)}`); this.redraw(); }
   leave() { this.shell("screen.back"); }
   /** The tiles a columns container's source supplied, in its order (wherever they are now). */
@@ -6137,6 +6143,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (w.pane === p || w.path === this.tileId(id)) {
         d.cutExt(from, w);
         d.ctx?.flash(`${d.nameOf(from)}: ${w.verb} wire dropped; ${this.nameOf(id)} (${this.tileId(id)}) closed`);
+        d.save();
+      }
+    }
+    if (p) for (const d of this.relatives()) for (const q of d.panes.values()) {
+      const aim = kindOf(q)?.aim?.(q);
+      if (aim?.source && (boundSource.get(q) === p || aim.source === this.tileId(id))) {
+        aim.source = "";
+        boundSource.set(q, NO_SOURCE);
+        d.ctx?.flash(`${d.nameOfPane(q)}: source dropped; ${this.nameOf(id)} closed`);
         d.save();
       }
     }

@@ -177,7 +177,7 @@ and rewritten as ids when the desks open; missing targets are reported and dropp
 `layout.get.tiles` includes the screen, drawer and every mount. Each row has its
 `id`, `name`, `address` (the id), and display `path`. `layers` groups those rows by
 desk, with `screen`, `drawer`, `focus` and `zoom` (tile ids), and its local `tree`.
-Top-level layout metadata still describes the addressed desk. `peek` includes this
+Top-level layout metadata describes the screen, regardless of the focused layer. `peek` includes this
 same report as top-level `layout`. `Whereabouts.address` names the tile under the
 person's keys, descending into mounts and the drawer; omitted `tile=` uses that
 focused tile. A group's frame and menu address the group itself.
@@ -449,11 +449,11 @@ outline service (not a door action) is not held by it.
 Two actors (the person and an agent, or two agents) change the layout at once, so a name must mean the same
 thing after someone else's change.
 
-- **Ids.** Every split (`s4`), tab set (`g2`) and tile (`t7`) has an id, in `layout.get` and the feed. It
+- **Ids.** Every split (`s4`), tab set (`g2`) and tile (`t-<uuid>`) has an id, in `layout.get` and the feed. It
   stays with its split, tab set or tile through moves, tabs, resizes and saves (`desk.json` and
   screen notes keep them, so a restarted door gives the same ones), and is never given to another:
-  `desk.json` keeps the next ids too, and a tile made by loading a screen note's layout gets its saved
-  id only if no tile had it before in this door. A split
+  tiles get door-wide UUIDs, while containers keep desk-local counters. Restoring a session keeps tile ids;
+  copying a live saved arrangement gives the copy fresh ids and remaps its references. A split
   that's gone (its tiles moved or closed) is refused by id, never swapped for another.
 - **Names.** A tile's name starts with a letter, then letters, digits, `.`, `-` or `_`, at most 40 (`middle`,
   `claude`, `reader2`), and isn't shaped like an id (`t`, `s` or `g`, then digits). So a name is never a number,
