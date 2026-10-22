@@ -226,14 +226,14 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     const md = rect("middle"), sd = rect("side");
     key(alt("l")); key(char("s")); key(char("!")); render();
     mouse("down", sd.col + 5, sd.row + 5);
-    expect(tile("tree").wires).toContainEqual({ verb: "select", to: "side" });
+    expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("side").id });
     expect(tile("tree").link).toBe("middle");
     key(alt("l")); key(char("a")); render();
     mouse("down", md.col + 5, md.row + 5);
-    expect(tile("tree").wires).toContainEqual({ verb: "alt", to: "middle" });
+    expect(tile("tree").wires).toContainEqual({ verb: "alt", to: tile("middle").id });
     key(alt("l")); key(char("a")); render();
     mouse("down", sd.col, sd.row + 5);
-    expect(tile("tree").wires).toContainEqual({ verb: "alt", to: "side", rule: "beside" });
+    expect(tile("tree").wires).toContainEqual({ verb: "alt", to: tile("side").id, rule: "beside" });
     key(alt("l")); key(char("s")); key({ kind: "esc" });
     expect(tile("tree").link).toBe("middle");
     await until(() => D().pane("tree").rows?.some((r: any) => r.m?.id === notes.beans.id), "the beans row loaded");
@@ -251,7 +251,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key(ctrl("w")); key(char("P")); render();
     key({ kind: "enter" }); render();
     mouse("down", sd.col + 5, sd.row + 5);
-    expect(tile("tree").wires).toContainEqual({ verb: "select", to: "side" });
+    expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("side").id });
     key(ctrl("w")); key(char("P"));
     const panelLines = render().lines.map(visible);
     const clearRow = panelLines.findIndex((line: string) => line.includes("Select shows in:"));
@@ -291,7 +291,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("layout.lock", { on: false });
     const at = rect("plan"), r = await act("tile.preview", {}, "plan") as any;
     // A reader's preview is a detail (it keeps what's opened into it), beside or below by the layout's one rule.
-    expect(r).toMatchObject({ tile: "plan-preview", kind: "reader", from: "plan", where: splitAxis(at) === "row" ? "right" : "down" });
+    expect(r).toMatchObject({ tile: "plan-preview", kind: "reader", from: tile("plan").id, where: splitAxis(at) === "row" ? "right" : "down" });
     expect(tile("plan").link).toBe("plan-preview");
     expect(get().focus).toBe(focus0);                               // an agent's never takes the keys
     expect(message()).toContain("an agent (tile-agent-413) opened a reader tile (plan-preview) where plan's opens land");
@@ -375,8 +375,8 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("screen.save", { name: "garden" });
     const saved = screenNote("garden")!.spec.layout;
     expect(JSON.stringify(saved)).toContain(`"t":"dock","edge":"down","open":false`);   // a dock container, shut
-    expect(JSON.stringify(saved)).toContain(`"link":"middle"`);
-    expect(JSON.stringify(saved)).toContain(`"source":"tile:tree"`);
+    expect(JSON.stringify(saved)).toContain(`"link":"${tile("middle").id}"`);
+    expect(JSON.stringify(saved)).toContain(`"source":"tile:${tile("tree").id}"`);
     const pid = tile("claude").terminal.pid;
     await mine("layout.load", { name: "river" });
     expect(tile("claude").dock).toBe("shut");                      // no place in the river: kept, shut

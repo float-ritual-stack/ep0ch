@@ -236,16 +236,14 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
 
     test("saved and restored: the drawer's link and the screen's chain come back in the next door", async () => {
       const saved = JSON.stringify((drawerDesk() as any).saved());
-      expect(saved).toContain(`"link":"@chain/reader9"`);
+      expect(saved).toContain(`"link":"${tile("reader9").id}"`);
       const two = new App({ info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} } as any, board, Date.now(), () => {});
       try {
-        const again = new Desk({
-          name: "chain", title: "chain",
-          layout: { root: { t: "split", dir: "row", ratio: 0.5, a: { t: "leaf", kind: "reader", name: "reader9", link: "reader10" }, b: { t: "leaf", kind: "reader", name: "reader10" } } },
-        });
+        const again = new Desk({ name: "chain", title: "chain", layout: D().saved() }, { saved: D().saved() });
         two.push(again);
         two.drawer.set(true, { kind: "user" });
         const back = two.drawer.desk!;
+        await Bun.sleep(0);
         expect((back as any).layoutGet().tiles.find((x: any) => x.name === "what-changed")).toMatchObject({ link: "@chain/reader9" });
         expect((again as any).layoutGet().tiles.find((x: any) => x.name === "reader9")).toMatchObject({ link: "reader10" });
       } finally { two.quit(); }

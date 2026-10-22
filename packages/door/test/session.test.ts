@@ -1058,7 +1058,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     const titles = async () => (await reader()).history.back.map((x: any) => x.title);
     expect((await titles()).slice(0, 2)).toEqual(["Tools", "Shed"]);
     await control({ cmd: "act", action: "tile.zoom", tile: "reader", as: "test-agent" });
-    expect((await state()).zoom).toBe(2);   // the reader, tile 2
+    expect((await control({ cmd: "act", action: "layout.get", as: "test-agent" })).zoom).toBe("reader");
 
     const hand = async (c: HandoffClient) => {
       expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
@@ -1069,7 +1069,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     };
     const b1 = await hand(a);
     await until(() => b1.screen().includes("Tines up"), "the rake after the handoff", 10_000);
-    expect(await state()).toMatchObject({ zoom: 2, focus: "reader" });
+    expect(await control({ cmd: "act", action: "layout.get", as: "test-agent" })).toMatchObject({ zoom: "reader", focus: "reader" });
     expect((await titles()).slice(0, 2)).toEqual(["Tools", "Shed"]);
     b1.type("\x1b[1;3D");                                   // alt+←
     await until(() => b1.screen().includes("Sharp ones first"), "back on the tools", 10_000);

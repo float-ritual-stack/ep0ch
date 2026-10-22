@@ -6,7 +6,7 @@ import type { Hint } from "./hint-card";
 // action sets; its keys and clicks (`press`), the control socket (`act`) and a tile holding a whole screen all call
 // the dispatcher, which:
 //
-// - reads `tile=` with one grammar, over the tiles the screen lists (a name, a stable id `t4`, a number on
+// - reads `tile=` with one grammar, over the tiles the screen lists (a name, a stable id, a number on
 //   screen `#3`, `focused`, a block id, and the places a screen names: the board's `detail`), and the arguments that name a tile (`to=`) the same way;
 // - finds the set that owns an action name, in the order the screen registered them (its own sets, the desk's
 //   tile actions, the tile kinds', a reader's note actions, then the shell's, the host layer's and the extensions');
@@ -36,11 +36,11 @@ export const isTilePath = (sel: string | undefined): sel is string => !!sel && s
 export interface TileRef {
   outline?: string;
   machine?: string;
-  /** Its name: what answers say, and what `tile=` matches first. */
+  /** Its name: what answers say, and what `tile=` matches after ids. */
   name: string;
   /** A mounted screen: its tiles keep their own dispatcher and rules. */
   mount?: Dispatcher;
-  /** Its stable id (`t4`): the same tile while it lives. */
+  /** Its door-wide stable id: the same tile while it lives. */
   id?: string;
   /** Its number on screen, from 1 (`#3`, or `3`): where it is now. */
   n?: number;
@@ -410,7 +410,7 @@ export class Dispatcher {
     if (defaultTarget && defaultTarget.dispatch.host.pointerScope !== this.host.pointerScope) {
       const reg = this.regs.find(r => "set" in r && r.set.has(req.action));
       const def = reg && "set" in reg ? reg.set.def(req.action) : undefined;
-      if (reg && "set" in reg && reg.takes !== "none" && def && !def.landing) return { delegate: () => defaultTarget.dispatch, listed: false };
+      if (reg && "set" in reg && reg.takes !== "none" && def && def.touches !== "screen" && !def.landing) return { delegate: () => defaultTarget.dispatch, listed: false };
     }
     const addressed = this.addressed(req);
     if (addressed) return addressed;

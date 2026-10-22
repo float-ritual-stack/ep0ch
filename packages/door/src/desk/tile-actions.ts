@@ -135,7 +135,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       if (r.into) return `moved ${r.tile} into ${r.into}`;
       if (r.out) return `moved ${r.tile} out of ${r.from ?? "its group"}`;
       const w = whereOf(a.where, "layout.move", "right");
-      return `moved ${r.tile} ${w.startsWith("edge-") ? `to the ${w.slice(5)} edge` : `${PLACE[w]} ${a.to}`}`;
+      return `moved ${r.tile} ${w.startsWith("edge-") ? `to the ${w.slice(5)} edge` : `${PLACE[w]} ${r.to}`}`;
     },
     args: {
       to: { type: "string", optional: true, kind: "tile", about: "the tile it goes beside or into (not needed for an edge)" },
@@ -487,7 +487,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     keys: "O in a reader; ^W v beside, ^W V below",
     // Said to the person too (confirms): ^W v on a tile already linked shows the one there, which looked like nothing happening.
     touches: "shape", replay: "safe", confirms: true,
-    says: r => (r.existing ? r.verb === "open" ? `${r.from} already opens into ${r.tile}: showed it · alt+l then click ${r.tile} to unlink` : `${r.from} already selects into ${r.tile}: showed it` : `opened ${tileNoun(String(r.kind), r.tile)} ${r.verb === "open" ? `where ${r.from}'s opens land` : `for ${r.from}'s selections`}`),
+    says: r => (r.existing ? r.verb === "open" ? `${r.fromName} already opens into ${r.tile}: showed it · alt+l then click ${r.tile} to unlink` : `${r.fromName} already selects into ${r.tile}: showed it` : `opened ${tileNoun(String(r.kind), r.tile)} ${r.verb === "open" ? `where ${r.fromName}'s opens land` : `for ${r.fromName}'s selections`}`),
     // Beside it and below it: where its opens land (a flow's column opens the next column instead).
     menu: [
       { label: "preview beside", group: TILE, key: "ctrl+w v", args: { where: "right" }, now: ({ d, reader }, _t, actor) => (d.tileNow(reader, actor).flow || d.tileNow(reader, actor).inDrawer ? { hide: true } : null) },

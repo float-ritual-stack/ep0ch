@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
+import { BacklinksPane } from "../../src/desk/backlinks-pane";
 import { Desk } from "../../src/desk/desk";
 import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
@@ -343,6 +344,12 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       press({ kind: "char", ctrl: true, ch: "w" }); press({ kind: "char", ch: "z" });
       expect(s.d.layoutAll().layers.find(l => l.tiles.some(t => t.id === id))?.zoom).toBe(id);
       await act("tile.zoom", id, { on: false });
+      press({ kind: "char", ctrl: true, ch: "w" }); press({ kind: "char", ch: " " });
+      expect(tile().picked).toBe(true);
+      await act("tile.select", id, { on: false });
+      press({ kind: "char", ch: "b" });
+      await until(() => s.d.layoutAll().tiles.some(t => t.kind === "backlinks" && (s.d.resolveTile(t.id!)!.desk.pane(t.id!) as BacklinksPane).target?.id === s.testing.id), "b lists the focused reader's links");
+      await act("tile.focus", id);
       const target = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.id;
       for (const [key, verb] of [["s", "select"], ["o", "open"], ["a", "alt"]] as const) {
         await act("tile.focus", id);

@@ -158,7 +158,7 @@ export class ScreenTile implements Pane {
   private left(desk: DeskApi) {
     if (this.inside) return this.goIn(false);
     if (desk.leave) return desk.leave();
-    refused(desk.ctx, `the ${this.screen ?? "group"} is a tile · ^W x closes it, ^W z zooms it`);
+    refused(desk.ctx, `the ${this.screen ?? "group"} is a tile · its frame/menu closes or zooms it`);
   }
 
   /** An open its screen has no reader for (a mounted part: the lanes alone): where this tile's opens land, on the screen holding it. */

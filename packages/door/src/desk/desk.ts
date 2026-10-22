@@ -586,22 +586,22 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private all(): number[] { return allTiles(this.layout); }
   private isFloat(id: number) { return this.floats.some(f => f.id === id); }
   private numberOf(id: number) { return this.all().indexOf(id) + 1; }
-  /** A tile's stable id (PIE-491): `t<n>`, kept through moves, tabs and saves; never given to another tile. */
+  /** A tile's door-wide stable id, kept through moves, tabs and saves; never given to another tile. */
   private tileId(id: number): string {
     const pane = this.panes.get(id)!;
     let stable = tileIds.get(pane);
     if (!stable) { stable = `t-${crypto.randomUUID()}`; tileIds.set(pane, stable); }
     return stable;
   }
-  private claimIds() {
-    if (!this.ctx) return;
-    const door = this.ctx.hostLayer ?? this.ctx;
+  private readonly restoredIds = new Map<string, string>();
+  private claimIds(door = this.ctx?.hostLayer ?? this.ctx) {
+    if (!door) return;
     let used = doorTileIds.get(door);
     if (!used) { used = new Map(); doorTileIds.set(door, used); }
     const remapped = new Map<string, string>();
     for (const [id, pane] of this.panes) {
       const before = this.tileId(id), other = used.get(before)?.deref();
-      if (other && other !== pane) { tileIds.set(pane, `t-${crypto.randomUUID()}`); remapped.set(before, this.tileId(id)); }
+      if (other && other !== pane) { tileIds.set(pane, `t-${crypto.randomUUID()}`); remapped.set(before, this.tileId(id)); this.restoredIds.set(before, this.tileId(id)); }
       used.set(this.tileId(id), new WeakRef(pane));
     }
     for (const wires of this.ext.values()) for (const wire of wires) if (wire.path) wire.path = remapped.get(wire.path) ?? wire.path;
@@ -973,7 +973,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     // The open rule is the screen's policy now (PIE-513); a spec's `rule` says it as it did.
     const policy = { ...policyOf(spec.policy), ...(spec.rule === "next" ? { opens: "next" as const } : {}) };
-    const next = init({ tree, names, floats, collapsed: folded, wires, altReaders, agents: agentsOf, policy }, this.layout, { freshIds: !restore });
+    const restorePolicy = (p: Policy | undefined) => {
+      const to = p?.opensInto;
+      const id = to ? [...names].find(([id]) => this.tileId(id) === (references.get(to) ?? to))?.[0] : undefined;
+      return id === undefined ? p : { ...p, opensInto: names.get(id)! };
+    };
+    const restorePolicies = (n: LNode) => { if (n.t !== "leaf") { n.policy = restorePolicy(n.policy); kidsOf(n).forEach(restorePolicies); } };
+    restorePolicies(tree);
+    const next = init({ tree, names, floats, collapsed: folded, wires, altReaders, agents: agentsOf, policy: restorePolicy(policy) }, this.layout, { freshIds: !restore });
     this.state = next;
     this.specTiles = roles;
     if (this.ctx) this.reconcileNames();
@@ -1133,16 +1140,25 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   resolveTile(sel: string): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
     const desks = this.relatives();
-    const exact = desks.flatMap(d => d.tiles().filter(t => t.id === sel).map(tile => ({ tile, dispatch: d.dispatch, desk: d })));
-    if (exact.length) return exact[0]!;
-    const named = desks.flatMap(d => d.tiles().filter(t => t.name === sel).map(tile => ({ tile, dispatch: d.dispatch, desk: d, path: this.pathTo(d.panes.get(d.idNamed(tile.id!)!)!) })));
-    if (named.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${named.map(t => `${t.path} (${t.tile.id})`).join(", ")}; use tile=<id>`);
-    if (named.length) return named[0]!;
+    const found = (desk: Desk, id: number) => ({ tile: desk.tiles().find(t => t.id === desk.tileId(id))!, dispatch: desk.dispatch, desk });
+    for (const desk of desks) for (const id of desk.panes.keys()) if (desk.tileId(id) === sel) return found(desk, id);
+    const named = desks.flatMap(desk => [...desk.names].filter(([id, name]) => name === sel && desk.panes.has(id)).map(([id]) => ({ desk, id })));
+    if (named.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${named.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
+    if (named.length) return found(named[0]!.desk, named[0]!.id);
     if (sel === "focused") return this.resolveTile(this.ctx?.person?.().address ?? this.keys().address ?? "");
     const pane = sel.includes("/") ? this.paneAtPath(sel) : undefined;
     const desk = pane && desks.find(d => d.idOf(pane) !== undefined);
     if (!pane || !desk) return null;
     return { tile: desk.tiles().find(t => t.id === desk.tileId(desk.idOf(pane)!))!, dispatch: desk.dispatch, desk };
+  }
+
+  /** The address still has an owning layer when its last tile has been closed. */
+  focusedDesk(): Desk {
+    const person = this.ctx?.person?.();
+    const addressed = person?.address && this.resolveTile(person.address);
+    if (addressed) return addressed.desk;
+    const host = this.ctx?.hostLayer;
+    return host?.desks().find(d => host.isDrawer(d) === (person?.keys === "host")) ?? this;
   }
 
   private reference(pane: Pane): string | undefined {
@@ -1294,9 +1310,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   /** Tiles opened into a container (the board's details) are opened, not kept, as a ctrl+e edit tile isn't. */
   // A comment's own tile (PIE-846) isn't kept either: a handover opens it again with its comment (Screen.reopen).
-  private saved() { return serializeLayout(this.layout, id => this.specOf(id), id => { const p = this.panes.get(id); return (p instanceof PtyPane && !!p.run.temp) || p instanceof AttachedTilePane || this.openedInto(id) !== undefined; }); }
+  private saved() {
+    const saved = serializeLayout(this.layout, id => this.specOf(id), id => { const p = this.panes.get(id); return (p instanceof PtyPane && !!p.run.temp) || p instanceof AttachedTilePane || this.openedInto(id) !== undefined; });
+    for (const n of [saved, ...savedNodes(saved.root)]) {
+      const to = n.policy?.opensInto, id = to ? this.idNamed(to) : undefined;
+      if (id !== undefined) n.policy = { ...n.policy, opensInto: this.tileId(id) };
+    }
+    return saved;
+  }
   /** The layout as saved: tile specs in the tree of containers (each with its policy), the focus, the open rule, the screen's policy. */
-  layoutSpec(): LayoutSpec { return { ...this.saved(), focus: this.nameOf(this.focus), rule: this.rule, ...(this.layoutName ? { name: this.layoutName } : {}) }; }
+  layoutSpec(): LayoutSpec { return { ...this.saved(), focus: this.panes.has(this.focus) ? this.tileId(this.focus) : 0, rule: this.rule, ...(this.layoutName ? { name: this.layoutName } : {}) }; }
   private savedPolicy() { return Object.keys(this.layout.policy).length ? { policy: { ...this.layout.policy } } : {}; }
 
   private readonly writes: boolean;
@@ -1335,8 +1358,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const id of this.all()) this.startTile(id, this.movedIn.has(id));
     this.allModels();
     void this.fillColumns();
+    for (const d of this.descend()) d.claimIds(ctx.hostLayer ?? ctx);
     queueMicrotask(() => {
       if (!this.ctx) return;
+      for (const d of this.relatives()) {
+        const remapped = new Map(d.top().descend().flatMap(r => [...r.restoredIds]));
+        for (const [before, after] of d.restoredIds) remapped.set(before, after);
+        for (const wires of d.ext.values()) for (const wire of wires) if (wire.path && !wire.pane) wire.path = remapped.get(wire.path) ?? wire.path;
+        for (const [id, source] of d.selectSeeds) d.selectSeeds.set(id, remapped.get(source) ?? source);
+        for (const p of d.panes.values()) { const aim = kindOf(p)?.aim?.(p); if (aim?.source) aim.source = remapped.get(aim.source) ?? aim.source; }
+      }
       this.resolveExt();
       for (const d of this.relatives()) {
         for (const [to, source] of [...d.selectSeeds]) {
@@ -5007,7 +5038,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile dropped onto a spine opens it first, in the layout's one step (screen-layout.ts move).
     this.apply({ op: "move", tile: src.id, to: place }, actor);
     this.save(); this.redraw();
-    return { tile: src.name, where, ...(to ? { to } : {}), tree: describeLayout(this.layout, id => this.nameOf(id)) };
+    return { tile: src.name, id: this.tileId(src.id), where, ...(to ? { to: this.tile(to).name } : {}), tree: describeLayout(this.layout, id => this.nameOf(id)) };
   }
 
   /**
@@ -5049,7 +5080,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.startTile(id);
     this.arrived(id, actor);
     this.save(); this.redraw();
-    return { tile: this.nameOf(id), id: this.tileId(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where, ...(also.link !== undefined ? { from: this.tileId(also.link) } : {}) };
+    return { tile: this.nameOf(id), name: this.nameOf(id), id: this.tileId(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where, ...(also.link !== undefined ? { from: this.tileId(also.link), fromName: this.nameOf(also.link) } : {}) };
   }
 
   // ── mounts and groups (PIE-651) ──
@@ -5527,6 +5558,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   setPolicy(sel: string | undefined, nodeSel: string | undefined, set: Policy, clear: string[], actor: Actor): { node: string; policy: Policy; effective?: Effective } {
     const t = sel ? this.tile(sel) : null;
+    if (set.opensInto && this.idNamed(set.opensInto) !== undefined) set = { ...set, opensInto: this.nameOf(this.idNamed(set.opensInto)!) };
     const r = this.apply({ op: "policy", ...(t ? { tile: t.id } : {}), ...(nodeSel ? { node: nodeSel } : {}), set, clear }, actor);
     this.save(); this.redraw();
     return { node: String(r.answer.node), policy: r.answer.policy as Policy, ...(t ? { effective: this.policyAt(t.id) } : {}) };
@@ -5557,13 +5589,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const across = this.extTarget(t.id, verb);
     if (had === undefined && across) {
       across.desk.revealPane(across.pane, actor, this.dispatch.standing(actor));
-      return { tile: this.pathTo(across.pane)!, from: t.name, existing: true, verb };
+      return { tile: this.pathTo(across.pane)!, id: this.reference(across.pane), name: across.desk.nameOf(across.desk.idOf(across.pane)!), from: this.tileId(t.id), fromName: t.name, existing: true, verb };
     }
     if (had !== undefined) {
       this.apply({ op: "reveal", tile: had }, actor);
       const name = this.nameOf(had);
       if (this.dispatch.standing(actor)) this.focusTile(name, actor); else { this.save(); this.redraw(); }
-      return { tile: name, from: t.name, existing: true, verb };
+      return { tile: name, id: this.tileId(had), name, from: this.tileId(t.id), fromName: t.name, existing: true, verb };
     }
     const r0 = this.rectsNow().get(t.id);
     const dir: Dir = where ?? (r0 && splitAxis(r0) === "col" ? "down" : "right");
@@ -5801,7 +5833,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (source) this.wireSource(id, source);
     this.startTile(id);
     this.save(); this.redraw();
-    return { tile: this.nameOf(id), id: this.tileId(id), kind: t.kind, replaced: base.name };
+    return { tile: this.nameOf(id), name: this.nameOf(id), id: this.tileId(id), kind: t.kind, replaced: base.name };
   }
 
   /**
@@ -5823,10 +5855,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   layouts() { return { current: this.layoutName, layouts: layoutNames() }; }
   layoutAll() {
-    const layers = this.relatives().map(d => ({ screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()),
+    const root = this.ctx?.hostLayer?.desks().find(d => !this.ctx.hostLayer!.isDrawer(d)) ?? this.top();
+    const layers = root.relatives().map(d => ({ screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()),
       tree: describeLayout(d.layout, id => d.nameOf(id), id => d.tileId(id)),
-      tiles: d.all().map(id => ({ ...d.tileView(id), address: d.tileId(id), path: this.pathTo(d.panes.get(id)!) })) }));
-    return { ...this.layoutGet(), layers, tiles: layers.flatMap(l => l.tiles) };
+      tiles: d.all().map(id => ({ ...d.tileView(id), address: d.tileId(id), path: root.pathTo(d.panes.get(id)!) })) }));
+    return { ...root.layoutGet(), layers, tiles: layers.flatMap(l => l.tiles) };
   }
   layoutGet() {
     return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ tile: this.nameOf(f.id), id: this.tileId(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id)) };
