@@ -208,6 +208,19 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     delete process.env.EP0CH_STATE;
   });
 
+  test("PIE-1173: refusing another draft names the two Esc presses that keep unsaved text", async () => {
+    const b = await create("Draft refusal\nThe garden gate");
+    const { pane, d } = await openReader(b.id);
+    type(pane, "kept words", d);
+    expect(() => pane.surface.startReply(pane.host(d))).toThrow("esc twice puts it aside");
+    const text = pane.draft!.text;
+    pane.key({ kind: "esc" }, d);
+    expect(pane.draft!.text).toBe(text);
+    pane.key({ kind: "esc" }, d);
+    await until(() => !pane.draft, "second Esc keeps the draft aside");
+    expect((await current(b.id)).text).toBe(b.text);
+  });
+
   test("e, type, ctrl+s: the service has the new text at the next revision, attributed to the door", async () => {
     const b = await create("Card [stage::queued]\nold body");
     const { pane, d } = await openReader(b.id);

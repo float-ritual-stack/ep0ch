@@ -231,7 +231,7 @@ export class Lanes implements SourceModel {
       return paint(say);
     }
     if (this.mover) return "move a card · the picker shows what would be patched";
-    if (this.composer) return fg(C.dark) + " " + editHint(this.composer.session.draft, { save: "save", close: "back" }).replace("ctrl+s save", "ctrl+s create") + RESET;
+    if (this.composer) return fg(C.dark) + " " + editHint(this.composer.session.draft, { save: "create", close: "back" }) + RESET;
     if (this.steps) return "steps · each change is checked against the step as it was read";
     return null;
   }
@@ -667,10 +667,10 @@ export class Lanes implements SourceModel {
     // An open draft of this card keeps it where it is: the draft's base revision would go stale under
     // it. Saving or closing the edit first lets the revision checks decide in order.
     const r = openDraftOf(this.host.ctx.board, card.id);
-    if (r) return `it's open for editing${r.dirty ? " with unsaved changes" : ""} · save (ctrl+s) or close (esc) the edit first`;
+    if (r) return `it's open for editing${r.dirty ? " with unsaved changes" : ""} · ${editHint(r.draft, { save: "save" })}`;
     // A comment names the revision its passage was read at; a write under it would make the send fail.
     const c = this.readers().find(p => p.session?.blockId === card.id);
-    if (c) return `it's open for commenting${c.session!.dirty ? " with an unsent comment" : ""} · send (ctrl+s) or close (esc) the comment first`;
+    if (c) return `it's open for commenting${c.session!.dirty ? " with an unsent comment" : ""} · ${c.session!.hint()}`;
     return null;
   }
 
@@ -833,7 +833,7 @@ export class Lanes implements SourceModel {
     if (name !== undefined) this.lane = this.lanes.indexOf(this.laneFor(name));
     const lane = this.lanes[this.lane];
     if (!lane) throw new ActionRefused("no lane here to write a card in");
-    if (this.composer) throw new ActionRefused(`a new ${this.composer.kind === "card" ? "card" : "note"} is open already · ctrl+s creates it, esc closes it`);
+    if (this.composer) throw new ActionRefused(`a new ${this.composer.kind === "card" ? "card" : "note"} is open already · ${editHint(this.composer.session.draft, { save: "create", close: "back" })}`);
     this.openCardComposer();
     return { lane: lane.name, composing: !!this.composer };
   }
@@ -1335,7 +1335,7 @@ export class Lanes implements SourceModel {
     const r: Rect = { col: Math.round(W * 0.18), row: Math.round(H * 0.1), cols: Math.round(W * 0.64), rows: Math.max(10, Math.round(H * 0.6)) };
     canvas.clear(r, bg(C.black));
     const title = C0.kind === "card" ? `new card · ${C0.lane.name}` : `new note under · ${drawEllipsized(titleOf(C0.parent), 40)}`;
-    canvas.box(r, fg(C.yellow), fg(C.yellow) + title, fg(C.dark) + "ctrl+s create · esc closes");
+    canvas.box(r, fg(C.yellow), fg(C.yellow) + title, "");
     const w = r.cols - 2;
     const line = (s: string, color: number) => fg(color) + pad(s, w) + RESET;
     const status = C0.kind === "card" && C0.planning ? [

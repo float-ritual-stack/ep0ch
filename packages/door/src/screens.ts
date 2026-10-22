@@ -1566,7 +1566,7 @@ export class MessageReader implements Screen {
     if (to < 0 || to >= this.list.length) throw new ActionRefused(dir > 0 ? "end of messages" : "this is the first message");
     const was = this.index;
     this.index = to;
-    if (!this.open(ctx)) { this.index = was; throw new ActionRefused(`finish ${this.personIn()} first · ctrl+s saves · esc closes`); }
+    if (!this.open(ctx)) { this.index = was; throw new ActionRefused(`finish ${this.personIn()} first · ${this.surface.hint()}`); }
     return { index: to + 1, of: this.list.length, id: this.msg.id };
   }
 

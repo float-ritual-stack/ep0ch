@@ -3122,7 +3122,7 @@ export class NoteSurface {
   }
 
   startReply(host: SurfaceHost, quote?: string): DraftSession {
-    if (this.editing) throw new ActionRefused("finish the open draft first · ctrl+s saves · Esc closes");
+    if (this.editing) throw new ActionRefused(`finish the open draft first · ${this.hint()}`);
     const parent = this.requireNote();
     const target = noteReplyTarget(parent, host.ctx.board);
     const s: DraftSession = DraftSession.open(target, { text: `re:: ${subject(parent)}\n\n`, by: host.actor ?? USER }, {
@@ -7333,7 +7333,7 @@ export class NoteSurface {
     const stack = dir < 0 ? this.backs : this.aheads, to = stack.at(-1);
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
     const holding = this.modes.holding();
-    if (holding) return `finish ${holding} first · ctrl+s saves · esc closes`;
+    if (holding) return `finish ${holding} first · ${this.hint()}`;
     const fresh = await readNote(outlineBoards(host.ctx).home(), to.msg.id, to.msg.address).catch(() => null);
     if (stack.at(-1) !== to) return "the reader moved meanwhile";
     const here = this.place();
