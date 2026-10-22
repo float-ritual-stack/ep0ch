@@ -18,13 +18,26 @@ function picker(n: number, more: Partial<ConstructorParameters<typeof ListPicker
     name: "test", items: () => items, closers: "q",
     row: (it, _i, on, w) => [...pickRows(` ${it}`, on, w)],
     choose: it => said.push(`chose ${it}`), closed: () => said.push("closed"),
-    frame: a => ({ rect: { col: 2, row: 1, cols: 30, rows: 8 }, title: "pick", foot: "⏎ · esc" }),
+    frame: a => ({ rect: { col: 2, row: 1, cols: 30, rows: 8 }, title: "pick" }),
     ...more,
   });
   return { p, said, draw: () => { const c = new Canvas(40, 12); p.draw(c, { col: 0, row: 0, cols: 40, rows: 12 }); return c.lines().map(visible); } };
 }
 
 describe("a list picker", () => {
+  test("its drawn foot follows the input and Esc clears before closing", () => {
+    const input = new LineInput("garden");
+    const { p, draw } = picker(3, { input, escClears: true });
+    expect(p.hint()).toContain("esc clear filter");
+    p.key({ kind: "esc" }, null);
+    expect(input.text).toBe("");
+    expect(p.ended()).toBe(false);
+    expect(draw().join("\n")).toContain("type to filter");
+    expect(p.hint()).toContain("esc close");
+    p.key({ kind: "esc" }, null);
+    expect(p.ended()).toBe(true);
+  });
+
   test("j k ↑ ↓ Home End and the wheel move its cursor; ⏎ chooses; esc and its closing letter put it away", () => {
     const { p, said } = picker(5);
     p.key(char("j"), null); p.key({ kind: "down" }, null); p.key({ kind: "mouse", action: "wheel-down", button: 0, x: 0, y: 0 }, null);

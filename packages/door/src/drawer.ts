@@ -265,7 +265,7 @@ export class AgentDrawer {
         name: "replace busy agent", items: () => [false, true],
         row: (yes, _i, on, w) => pickRows(yes ? "Replace the busy agent" : "Keep it running", on, w),
         choose: yes => { if (yes) void this.run?.("host.agent", { name, herdr, default: dflt, ...(folder ? { in: folder } : {}), confirm: true }); },
-        frame: (r, n) => ({ rect: centred(r, Math.min(60, r.cols - 2), n + 2), title: "The agent is busy. Replace it?", foot: "esc keeps it running" }),
+        frame: (r, n) => ({ rect: centred(r, Math.min(60, r.cols - 2), n + 2), title: "The agent is busy. Replace it?" }),
       }));
       this.host.redraw();
       return { confirming: true };
@@ -317,7 +317,8 @@ export class AgentDrawer {
         ...this.agents().map(agent => ({ agent })),
         ...this.sessions().flatMap(s => s.shown.in === "drawer" && s.pane !== this.p ? [{ close: s.shown.tile, program: s.program }] : []),
       ],
-      keys: k => { if (k.kind === "tab") { everywhere = !everywhere; this.host.redraw(); return true; } return false; },
+      bindings: [{ key: "tab", action: "agent.scope", label: "scope" }],
+      dispatch: () => { everywhere = !everywhere; this.host.redraw(); },
       clicked: (x, y) => {
         if (!scopeAt || y !== scopeAt.row || x < scopeAt.from || x >= scopeAt.to) return false;
         everywhere = !everywhere; this.host.redraw(); return true;
@@ -337,8 +338,8 @@ export class AgentDrawer {
         const override = now.from === "env" ? ["EP0CH_DAILY_AGENT overrides your choice.", "Check ~/.zshrc, ~/.zprofile, ~/.profile or the launcher.", `Remove: export EP0CH_DAILY_AGENT=${shellQuote(process.env.EP0CH_DAILY_AGENT ?? "")}`] : [];
         scopeAt = { row: rect.row + 1 + override.length, from: rect.col + 1, to: rect.col + rect.cols - 1 };
         return {
-          rect, title: "the drawer's agent", foot: "↑↓ pick · ⏎ choose and restart · esc",
-          head: [...override, `Save for ${everywhere ? "every outline" : "this outline"} (click or Tab changes)`, "Folder:", folder.show(rect.cols - 2)],
+          rect, title: "the drawer's agent",
+          head: [...override, `Save for ${everywhere ? "every outline" : "this outline"}`, "Folder:", folder.show(rect.cols - 2)],
         };
       },
     }));
@@ -623,7 +624,7 @@ export class AgentDrawer {
       name: "new agent session", items: () => all,
       row: (c, _i, on, w) => [...pickRows(` ${c.name}${c.config ? " · from the outline" : ""}${c.persona ? ` · as ${c.persona}` : ""}  ${[c.program, ...c.args].join(" ")}${c.folder ? ` · in ${c.folder}` : ""}`, on, w)],
       choose: c => { void this.folderPicker(c.name, c.folder); },
-      frame: (r, n) => ({ rect: centred(r, Math.min(72, r.cols - 2), Math.min(r.rows - 1, n + 2)), title: "a new agent session: which program", foot: "↑↓ pick · ⏎ then the folder · esc" }),
+      frame: (r, n) => ({ rect: centred(r, Math.min(72, r.cols - 2), Math.min(r.rows - 1, n + 2)), title: "a new agent session: which program" }),
     }));
     this.host.redraw();
     return { picking: "program" };
@@ -639,7 +640,7 @@ export class AgentDrawer {
       name: "new agent session folder", items: () => folders,
       row: (f, i, on, w) => [...pickRows(` ${tildeOf(f)}${f === this.prog.cwd ? " · the drawer's folder" : i === 0 && given ? " · the config's" : this.sessions().some(s => s.folder === f) ? " · a session runs here" : ""}`, on, w)],
       choose: f => { void this.run?.("agent.start", { program, in: f }); },
-      frame: (r, n) => ({ rect: centred(r, Math.min(72, r.cols - 2), Math.min(r.rows - 1, n + 2)), title: `${program}: in which folder`, foot: "↑↓ pick · ⏎ starts it (or goes to the one running there) · esc" }),
+      frame: (r, n) => ({ rect: centred(r, Math.min(72, r.cols - 2), Math.min(r.rows - 1, n + 2)), title: `${program}: in which folder` }),
     }));
     this.host.redraw();
   }

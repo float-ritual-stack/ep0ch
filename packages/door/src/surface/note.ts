@@ -6530,7 +6530,7 @@ export class NoteSurface {
         const col = Math.max(0, Math.min(chip.col - this.menuOffset.col, area.cols - cols));
         const y = chip.row - this.menuOffset.row;
         const row = Math.max(0, Math.min(y + 1 + rows <= area.rows ? y + 1 : y - rows, area.rows - rows));
-        return { tail: ["[beside] [below]"], rect: { col, row, cols, rows }, title: "Placement", foot: "Enter choose · Esc close" };
+        return { tail: ["[beside] [below]"], rect: { col, row, cols, rows }, title: "Placement" };
       },
     });
     list.sel = list.items.indexOf(place);

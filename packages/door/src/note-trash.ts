@@ -124,13 +124,13 @@ export async function untrashNote(board: SocketBoard, id: string | undefined, ac
  */
 export function trashConfirm<H>(o: { title: string; notesUnder: number; trash: (h: H) => void }): ListPicker<string, H> {
   const rows = [`trash it${o.notesUnder ? ` and the ${o.notesUnder} note${o.notesUnder === 1 ? "" : "s"} under it` : ""}`, "keep it"];
-  const yes = (k: Key) => ch(k) === "d" || k.kind === "delete";
   const p: ListPicker<string, H> = new ListPicker<string, H>({
     name: "trash", items: () => rows, clickChooses: true,
     row: (r, _i, on, w) => [...pickRows(` ${r}`, on, w)],
     choose: (_r, i, h) => { if (i === 0) o.trash(h); },
-    keys: (k, h) => { if (!yes(k)) return false; p.close(h, "letter"); o.trash(h); return true; },
-    frame: a => ({ rect: centred(a, Math.min(a.cols, Math.max(40, width(drawEllipsized(o.title, 40)) + 10, rows[0]!.length + 4)), 5), title: `trash “${drawEllipsized(o.title, 40)}”?`, foot: "d again or ⏎ trashes · esc keeps" }),
+    bindings: ["d", "delete"].map(key => ({ key, action: "note.trash", label: "trash" })),
+    dispatch: (_, h) => { p.close(h, "letter"); o.trash(h); },
+    frame: a => ({ rect: centred(a, Math.min(a.cols, Math.max(40, width(drawEllipsized(o.title, 40)) + 10, rows[0]!.length + 4)), 5), title: `trash "${drawEllipsized(o.title, 40)}"?` }),
   });
   return p;
 }

@@ -37,7 +37,7 @@ import type { TileSpec } from "./tiles";
 import { ReaderPane, type Pane } from "./panes";
 import type { ColumnsHost, SourceModel, TileSource } from "./tile-kinds";
 import { CHECKLIST_STATUSES, isChecklistStatus, stepClosed, stepDone } from "@ep0ch/outline-core/checklist-marks";
-import { STEP_BOXES, statusWord, stepTitle } from "../steps";
+import { STEP_CHOICES, STEP_BOXES, statusWord, stepTitle } from "../steps";
 
 /** A lane: a query tile of the board's hub (its view, cards, cursor and read). */
 type Lane = QueryPane;
@@ -555,7 +555,7 @@ export class Lanes implements SourceModel {
       // q with no board shown yet leaves the screen, as q does everywhere; esc or a click away only puts the picker away.
       closed: (_h, how) => void this.run("board.hub", { close: true, ...(how === "letter" && !this.hub ? { leave: true } : {}) }),
       clicked: () => true,                                     // a click beside it isn't a choice, nor a way out
-      frame: (a, n) => ({ rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.15), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, n + 4) }, title: `pick a board · ${this.host.ctx.workspace}`, foot: "⏎ open · esc closes" }),
+      frame: (a, n) => ({ rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.15), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, n + 4) }, title: `pick a board · ${this.host.ctx.workspace}` }),
     });
   }
 
@@ -752,7 +752,7 @@ export class Lanes implements SourceModel {
         if (this.card()?.id !== card.id || this.lane !== from) return this.host.ctx.flash("the selection changed · not moved");
         if (i !== from) void this.run("card.move", { lane: this.lanes[i]!.name, card: card.id });
       },
-      frame: a => ({ rect: { col: Math.round(a.cols * 0.15), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.7), rows: Math.min(a.rows - 4, this.lanes.length * 2 + 3) }, title: `move · ${drawEllipsized(subject(card), Math.round(a.cols * 0.7) - 20)}`, foot: "enter move · esc closes" }),
+      frame: a => ({ rect: { col: Math.round(a.cols * 0.15), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.7), rows: Math.min(a.rows - 4, this.lanes.length * 2 + 3) }, title: `move · ${drawEllipsized(subject(card), Math.round(a.cols * 0.7) - 20)}` }),
     }), { card, from, plans: null as MovePlan[] | null });
     M.sel = from;
     this.mover = M;
@@ -1082,12 +1082,16 @@ export class Lanes implements SourceModel {
       name: "steps", items: () => S.read?.items ?? [], closers: "qs", stays: true,
       row: (it, _i, on, w) => [...pickRows(` ${"  ".repeat(it.depth)}${STEP_BOXES[it.status]} ${stepText(it.text)}`, on, w, COLOR[it.status])],
       choose: () => set(),
-      keys: k => { const c = ch(k), to = ({ " ": undefined, x: "done", w: "waiting", "!": "problem", "+": "approved", "-": "rejected" } as Record<string, StepStatus | undefined>)[c]; if (!(c in { " ": 1, x: 1, w: 1, "!": 1, "+": 1, "-": 1 })) return false; set(to); return true; },
+      bindings: [
+        { key: "space", action: "step.set", label: "done/to do" },
+        ...STEP_CHOICES.filter(choice => !["o", "y", "a"].includes(choice.key)).map(choice => ({ key: choice.key, action: "step.set", label: choice.label, args: { status: choice.id } })),
+      ],
+      dispatch: binding => set(binding.args?.status as StepStatus | undefined),
       frame: (a, n) => {
         const done = S.read?.items.filter(i => stepDone(i.status)).length ?? 0;
         return {
           rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, Math.max(6, n + 4)) },
-          title: `steps · ${drawEllipsized(titleOf(S.card), 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`, foot: "space done · esc closes",
+          title: `steps · ${drawEllipsized(titleOf(S.card), 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`,
           head: S.read ? [] : [fg(C.dark) + " reading the steps…" + RESET],
           tail: S.read ? [fg(S.busy ? C.grey : C.dark) + ` ${S.busy ? "saving…" : S.note || "each step is changed by the service, checked against how it was read"}` + RESET] : [],
         };

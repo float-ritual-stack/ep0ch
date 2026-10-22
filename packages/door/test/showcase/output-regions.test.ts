@@ -125,7 +125,11 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     await until(() => !pane.surface.replyLinks, "Esc closes replies");
   });
 
-  test("PIE-1171: attached surfaces never carry a prose key list", () => {
+  test("PIE-1171/1173: migrated surfaces never carry a prose key list", () => {
+    for (const path of ["home.ts", "drawer.ts", "note-trash.ts", "desk/desk.ts", "desk/lanes.ts", "desk/backlinks-pane.ts", "surface/picker.ts", "surface/note.ts"]) {
+      const source = readFileSync(new URL(`../../src/${path}`, import.meta.url), "utf8");
+      expect(source, path).not.toMatch(/foot:.*(?:⏎|esc|Enter|↑↓|j k)/);
+    }
     const sources = readFileSync(new URL("../../src/surface/sources.ts", import.meta.url), "utf8");
     expect(/j k (?:select|move) ·/.test(sources)).toBe(false);
     const note = readFileSync(new URL("../../src/surface/note.ts", import.meta.url), "utf8");

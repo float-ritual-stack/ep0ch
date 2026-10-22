@@ -4156,7 +4156,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         items: () => [{ label: "copy typed text", op: "copy" }, { label: "open edit with typed text", op: "open" }],
         row: (it, _i, on, w) => pickRows(` ${it.label}`, on, w),
         choose: (it, _i, d) => d.run("edit.recover", { op: it.op }, t.name),
-        frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 4), n + 3), title: "recover typed text", head: [kept.why], foot: "up/down choose · Enter or click · Esc" }),
+        frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 4), n + 3), title: "recover typed text", head: [kept.why] }),
       }));
       return { text: kept.text, copy: kept.copy };
     }
@@ -6353,7 +6353,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       name: "gather", hint: GATHER_HINT, items: () => rows, clickChooses: true,
       row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
       choose: (it, _i, d) => void d.run("tile.group", it.args, t.name),
-      frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group", foot: "↑↓ pick · ⏎ or a click gathers · esc" }),
+      frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group" }),
     }));
     return { tile: t.name, asked: true };
   }
@@ -6372,7 +6372,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       name: "into a group", items: () => groups, clickChooses: true,
       row: (g, _i, on, w) => [...pickRows(` ${g}`, on, w)],
       choose: (g, _i, d) => void d.run("layout.move", { into: g }, t.name),
-      frame: (a, n) => ({ rect: centred(a, Math.min(50, a.cols - 4), n + 2), title: `move ${t.name} into`, foot: "↑↓ pick · ⏎ or a click moves it · esc" }),
+      frame: (a, n) => ({ rect: centred(a, Math.min(50, a.cols - 4), n + 2), title: `move ${t.name} into` }),
     }));
     return { tile: t.name, asked: true };
   }
@@ -7056,7 +7056,7 @@ function layoutPicker(items: { name: string; title: string; saved: boolean; buil
     name: "layouts", items: () => items,
     row: (it, _i, on, w) => [...pickRows(` ${it.title}${it.saved ? (it.builtin ? " · a screen you made, over the built-in" : " · a screen you made") : " · built-in"}`, on, w)],
     choose: (it, _i, d) => d.run("layout.load", { name: it.name }),
-    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "lay this screen out as", foot: "↑↓ pick · ⏎ load · esc" }),
+    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "lay this screen out as" }),
   });
 }
 
@@ -7086,13 +7086,9 @@ function screenPicker(): DeskPicker {
     row: (it, _i, on, w) => [...pickRows(` ${it.title} · ${it.made ? "a screen you made" : "built-in"}`, on, w)],
     // screen.open is the App's (the shell's), as the menu's letters run it.
     choose: (it, _i, d) => void d.ctx.press?.("screen.open", { name: it.name }),
-    keys: (k, d) => {
-      const it = items()[p.sel];
-      if (ch(k) !== "x" || !it?.made) return false;
-      d.run("screen.delete", { name: it.name });
-      return true;
-    },
-    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "open a screen", foot: items().some(i => i.made) ? "↑↓ pick · ⏎ open · x x deletes one you made · esc" : "↑↓ pick · ⏎ open · esc · ^W w saves one you make" }),
+    bindings: [{ key: "x", action: "screen.delete", label: "delete made screen" }],
+    dispatch: (_, d) => { const it = items()[p.sel]; if (it?.made) d.run("screen.delete", { name: it.name }); },
+    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "open a screen" }),
   });
   return p;
 }
@@ -7103,7 +7099,7 @@ function choicePicker(title: string, items: { label: string; spec: Partial<TileS
     name: "choices", items: () => items,
     row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
     choose: it => then(it),
-    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, Math.max(n, 1) + 2)), title, foot: items.length ? "↑↓ pick · ⏎ open · esc" : "none yet · esc" }),
+    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, Math.max(n, 1) + 2)), title }),
   });
 }
 
@@ -7129,13 +7125,19 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
     },
     clickedItem: (r, x) => { if (!r.clear || x < wireWidth - 4) return false; r.clear(); return true; },
     choose: r => r.run?.(),
-    keys: k => {
-      const c = ch(k);
-      if (k.kind === "left" || c === "h" || k.kind === "right" || c === "l") { node = Math.max(0, Math.min(nodes().length - 1, node + (k.kind === "left" || c === "h" ? -1 : 1))); p.sel = first(); return true; }
-      if (c === " ") { rows()[p.sel]?.run?.(); return true; }
-      if (c === "x" && rows()[p.sel]?.clear) { rows()[p.sel]!.clear!(); return true; }
-      if (c === "+" || c === "-") { rows()[p.sel]?.adjust?.(c === "+" ? 1 : -1); return true; }
-      return false;
+    bindings: [
+      ...["left", "h", "right", "l"].map(key => ({ key, action: "policy.container", label: "container", args: { by: ["left", "h"].includes(key) ? -1 : 1 } })),
+      { key: "space", action: "policy.change", label: "change" },
+      { key: "x", action: "policy.clear", label: "clear wire" },
+      ...["+", "-"].map(key => ({ key, action: "policy.size", label: "size", args: { by: key === "+" ? 1 : -1 } })),
+    ],
+    dispatch: binding => {
+      switch (binding.action) {
+        case "policy.container": node = Math.max(0, Math.min(nodes().length - 1, node + (binding.args!.by as number))); p.sel = first(); break;
+        case "policy.change": rows()[p.sel]?.run?.(); break;
+        case "policy.clear": rows()[p.sel]?.clear?.(); break;
+        case "policy.size": rows()[p.sel]?.adjust?.(binding.args!.by as number); break;
+      }
     },
     clicked: (x, y) => { const n = crumbs.find(h => h.y === y && x >= h.from && x < h.to); if (n) { node = n.i; p.sel = first(); } return !!n; },
     frame: (a, n) => {
@@ -7147,7 +7149,7 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
         crumbs.push({ from: x, to: x + c.label.length, y: rect.row + 1, i });
         line += (i === node ? selected() : fg(C.grey)) + c.label + RESET; x += c.label.length;
       });
-      return { rect, title: "policy", foot: "j k pick · ⏎ / click changes · x clears wire · h l container · + - size · esc", head: [line, ""] };
+      return { rect, title: "policy", head: [line, ""] };
     },
   });
   return p;
