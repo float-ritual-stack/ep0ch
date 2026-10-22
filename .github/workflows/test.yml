@@ -53,9 +53,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The door's every-key walks (test/parity-*) are about half its time: their own job, so neither half nears the watchdog.
+          # Every-key walks use two file shards: a busy runner needs headroom below the 16-minute watchdog.
           - { pkg: door, name: door, runner: blacksmith-16vcpu-ubuntu-2404, args: "--parallel=16 $(find test -name '*.test.ts' ! -name 'parity-*' | sort)" }
-          - { pkg: door, name: door-parity, runner: blacksmith-16vcpu-ubuntu-2404, args: "--parallel=16 $(find test -name 'parity-*.test.ts' | sort)" }
+          - { pkg: door, name: door-parity-1, runner: blacksmith-16vcpu-ubuntu-2404, args: "--parallel=16 --shard=1/2 $(find test -name 'parity-*.test.ts' | sort)" }
+          - { pkg: door, name: door-parity-2, runner: blacksmith-16vcpu-ubuntu-2404, args: "--parallel=16 --shard=2/2 $(find test -name 'parity-*.test.ts' | sort)" }
           - { pkg: outliner, name: outliner, runner: blacksmith-8vcpu-ubuntu-2404, args: "" }
           - { pkg: outline-core, name: outline-core, runner: blacksmith-2vcpu-ubuntu-2404, args: "" }
     runs-on: ${{ matrix.runner }}
