@@ -699,7 +699,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
     run({ show, toggle, choose }, { pane, desk, standing }, actor) {
       if ([show, toggle, choose].filter(x => x !== undefined && x !== false).length !== 1) throw new ActionRefused("backlinks.groups takes one of show, toggle or choose");
       if (choose) {
-        if (actor.kind === "agent") throw new ActionRefused("the groups' list is the person's; an agent passes show= or toggle=");
+        if (!standing) throw new ActionRefused("the groups' list is the person's; an agent passes show= or toggle=");
         pane.chooseGroups(desk);
         return { choosing: true, groups: undefined };
       }
@@ -736,7 +736,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
     run({ step, ...args }, { pane, desk, standing }, actor) {
       if (step !== undefined) {
         if (!(["kind", "stage", "resolved", "related", "sort", "filter"] as string[]).includes(step)) throw new ActionRefused(`step is filter, kind, stage, resolved, related or sort, not ${step}`);
-        if (step === "filter" && actor.kind === "agent") throw new ActionRefused("typing a filter is the person's; an agent passes filter=<text>");
+        if (step === "filter" && !standing) throw new ActionRefused("typing a filter is the person's; an agent passes filter=<text>");
         const said = pane.control(step as BacklinkControl);
         if (said) desk.ctx.flash(said);
         desk.redraw();

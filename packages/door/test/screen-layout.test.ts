@@ -281,7 +281,7 @@ describe("agents never take the person's place (C3, C4)", () => {
     no(s, { op: "shares", split: "s1", shares: [1, 1, 1] }, /where the person is typing/, AGENT, typing);
     no(s, { op: "grow", tile: 1, axis: "row", by: 2 }, /where the person is typing/, AGENT, typing);
     no(s, { op: "even" }, /where the person is typing/, AGENT, typing);
-    // Handing over standing never lifts the typing guard.
+    // Yolo without a press keeps the typing guard.
     no(s, { op: "even" }, /where the person is typing/, AGENT, { ...typing, yolo: true });
     // A border that leaves their tile's size alone (thread over activity), the agent may move; the person may move any.
     expect(ok(s, { op: "resize", path: "2", border: 0, share: 0.3 }, AGENT, typing).state).toBeTruthy();

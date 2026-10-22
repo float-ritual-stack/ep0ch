@@ -143,6 +143,7 @@ export interface Person<I = number> {
 export interface Ctx<I = number> {
   actor: Actor;
   standing: boolean;
+  /** Uninvited agents keep typing guards, even in yolo; a press acts as the person. */
   protectTyping: boolean;
   person: Person<I>;
   tile(id: I): TileFacts;

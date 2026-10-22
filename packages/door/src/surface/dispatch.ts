@@ -192,6 +192,7 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   action?: string;
 }): string | null {
   if (actor.kind !== "agent") return null;
+  if (INVITES.covers(actor.invitation, def.touches === "screen" || def.touches === "shape" ? def.touches : "tile", actor.run)) return null;
   if (def.person) return def.person;
   const standing = standsAsPerson(actor, where, def.touches === "screen" || def.touches === "shape" ? def.touches : "tile");
   // What the tile lets an agent do (PIE-639): `edit` allows reads and the note's own edits (a `draft` action), `off` only reads.
@@ -210,7 +211,7 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       if ((def.draft === "replace" || def.draft === "text") && !at.invited && t && where.typingIn === t.name) {
         return `the person is typing in ${t.label ?? t.name}; an agent doesn't replace their text · ${def.draft === "replace" ? "draft.patch lands in their draft, or comment on the note or block.mark it to get their attention" : "block.mark gets their attention, or wait until it's sent or closed"}`;
       }
-      if (standing && t && where.typingIn === t.name) return `the person is typing in ${t.label ?? t.name}; an invited run does not change or close their draft`;
+      if (standing && t && where.typingIn === t.name) return `the person is typing in ${t.label ?? t.name}; an agent does not change or close their draft`;
       return standing ? null : at.draft?.() ?? null;
     }
     case "tile": {
@@ -231,8 +232,7 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       if (where.keys === "host" && !def.host) return null;
       // (A hold on navigation only, as the showcase's sections, is lifted by an invitation too.)
       if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return `${where.why ?? "the person is typing"}; not moved`;
-      // The person's press invited this run (src/surface/invite.ts): it may move their tiles though they pressed a moment ago,
-      // but never while they are typing (above): the invitation lifts "at the keys", nothing else.
+      // Yolo retains its existing typing guards; a press returned above.
       if (standing) return null;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;
