@@ -781,7 +781,7 @@ test("closing a store after overlapping path reads still waits for its inbox pic
     expect(existsSync(receipts)).toBe(true);
     expect(readFileSync(join(watched.live, "many-lamps/index.html"), "utf8")).toContain("Lamp");
   } finally {
-    await waitFor(() => existsSync(receipts) || existsSync(join(inbox, ".failed/many-lamps.jsx/reason.txt")));
-    await watched.close(); await peer.close();
+    try { await waitFor(() => existsSync(receipts) || existsSync(join(inbox, ".failed/many-lamps.jsx/reason.txt"))); }
+    finally { await watched.close(); await peer.close(); }
   }
 }, COMPILE_TIMEOUT);
