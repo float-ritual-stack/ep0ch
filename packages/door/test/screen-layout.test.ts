@@ -27,7 +27,7 @@ const facts = (id: number): TileFacts => {
   return { kind, notes: kind === "reader", ...extra[id] };
 };
 const ctxOf = (actor: Actor, person: Partial<Person> = {}, area = AREA): Ctx => ({
-  actor, standing: actor.kind === "user" || !!person.yolo, protectTyping: actor.kind === "agent", area, tile: facts, person: { focus: 2, typingIn: null, busy: false, ...person },
+  actor, standing: actor.kind === "user" || !!person.yolo, protectTyping: actor.kind === "agent" && !person.yolo, area, tile: facts, person: { focus: 2, typingIn: null, busy: false, ...person },
   kinds: { all: ["reader", "tree", "thread", "activity", "query", "pty", "preview"], notes: ["reader"] },
 });
 
@@ -281,8 +281,8 @@ describe("agents never take the person's place (C3, C4)", () => {
     no(s, { op: "shares", split: "s1", shares: [1, 1, 1] }, /where the person is typing/, AGENT, typing);
     no(s, { op: "grow", tile: 1, axis: "row", by: 2 }, /where the person is typing/, AGENT, typing);
     no(s, { op: "even" }, /where the person is typing/, AGENT, typing);
-    // Yolo without a press keeps the typing guard.
-    no(s, { op: "even" }, /where the person is typing/, AGENT, { ...typing, yolo: true });
+    // Yolo hands agents the keys too (Evan, Oct 22): the typing guard lifts.
+    expect(ok(s, { op: "even" }, AGENT, { ...typing, yolo: true }).state).toBeTruthy();
     // A border that leaves their tile's size alone (thread over activity), the agent may move; the person may move any.
     expect(ok(s, { op: "resize", path: "2", border: 0, share: 0.3 }, AGENT, typing).state).toBeTruthy();
     expect(ok(s, { op: "resize", path: "", border: 0, share: 0.4 }, PERSON, typing).state).toBeTruthy();
@@ -559,7 +559,7 @@ describe("two layers: the host layer above every screen (Evan, Oct 1)", () => {
   /** The host layer's tiles: the screen slot (it never closes or moves), the agent terminal, an admin outline. */
   const hostFacts = (id: string): TileFacts => (id === HOST_SCREEN ? { kind: "screen", policy: { closable: false, draggable: false } } : id === "agent" ? { kind: "pty" } : { kind: "tree" });
   const hctx = (actor: Actor, person: Partial<Person<string>> = {}, screenHost?: "beside" | "over" | "none"): Ctx<string> => ({
-    actor, standing: actor.kind === "user" || !!person.yolo, protectTyping: actor.kind === "agent", area: HOST_AREA, tile: hostFacts, person: { focus: HOST_SCREEN, typingIn: null, busy: false, ...person }, ...(screenHost ? { screenHost } : {}),
+    actor, standing: actor.kind === "user" || !!person.yolo, protectTyping: actor.kind === "agent" && !person.yolo, area: HOST_AREA, tile: hostFacts, person: { focus: HOST_SCREEN, typingIn: null, busy: false, ...person }, ...(screenHost ? { screenHost } : {}),
   });
   const hok = (s: LayoutState<string>, op: Op<string>, actor: Actor = PERSON, person: Partial<Person<string>> = {}, mode?: "beside" | "over" | "none") => {
     const r = apply(s, op, hctx(actor, person, mode));

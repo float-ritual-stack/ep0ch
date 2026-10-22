@@ -763,7 +763,7 @@ export class AgentDrawer {
   /** Who acts, and where the person is (the shell's one answer): in the agent, or busy on the screen. */
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
     return {
-      actor, standing: standsAsPerson(actor, this.host.person?.() ?? NOBODY, "shape"), protectTyping: actor.kind === "agent" && !INVITES.covers(actor.invitation, "shape", actor.run), area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
+      actor, standing: standsAsPerson(actor, this.host.person?.() ?? NOBODY, "shape"), protectTyping: actor.kind === "agent" && !this.host.person?.().yolo && !INVITES.covers(actor.invitation, "shape", actor.run), area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
       person: { focus: this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || !!this.host.person?.().busy, ...(this.host.person ? { held: actorRule({ touches: "screen", host: true }, actor, this.host.person(), {}) } : {}) },
     };
   }
