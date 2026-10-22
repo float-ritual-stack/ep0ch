@@ -150,6 +150,9 @@ type TabHit = { y0: number; y1: number; from: number; to: number } & ({ i: numbe
  * there are none, the logo, and the band its kind draws.
  */
 const WELCOME_LIST_KEYS: readonly ModeKey[] = [
+  { key: "click", action: "welcome.select", label: "pick" },
+  { key: "wheel", action: "welcome.select", label: "pick" },
+  { key: "drag", action: "welcome.move", label: "reorder" },
   ...["j", "down", "k", "up"].map(key => ({ key, action: "welcome.select", label: "pick", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
   { key: "home", action: "welcome.select", label: "first", args: { n: 1 } },
   { key: "end", action: "welcome.select", label: "last", args: { last: true } },
