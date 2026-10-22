@@ -672,3 +672,25 @@ test("undo restores every byte after resolution empties a held draft", async () 
   expect(store.require(note.id).text).toBe(note.text);
   expect(store.require(pending.proposalId).properties).toContainEqual({key: "proposal-status", value: "open"});
 });
+
+// PIE-1180: an agent still streaming when its service stops. Its next chunk's reply is refused ("the service
+// stopped while answering"); that refusal ends the run quietly, never as an unhandled rejection that fails
+// whichever test or process happens to be running next. The last chunk has no newline, as a real agent's might.
+test("an agent streaming when the service stops ends quietly, its late chunks refused, nothing unhandled", async () => {
+  const { create, writeAgent, restart, store } = await setup();
+  const unhandled: unknown[] = [];
+  const catcher = (reason: unknown) => { unhandled.push(reason); };
+  process.on("unhandledRejection", catcher);
+  try {
+    await writeAgent("drip", `await Bun.stdin.json();
+process.stdout.write(JSON.stringify({ reply: "first" }) + "\\n");
+await Bun.sleep(400);
+process.stdout.write(JSON.stringify({ reply: "late" }) + "\\n" + JSON.stringify({ reply: "last" }));
+process.exit(0);`);
+    const note = await create("Seedlings\n@drip water them");
+    await until("the first chunk in the note", () => store.get(note.id)?.text.includes("first"));
+    await restart();                             // the service that asked stops; a new one starts
+    await Bun.sleep(900);                        // the agent's late and last chunks arrive at the stopped one
+    expect(unhandled.map(String)).toEqual([]);
+  } finally { process.off("unhandledRejection", catcher); }
+}, 20_000);

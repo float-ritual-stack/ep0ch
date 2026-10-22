@@ -181,6 +181,9 @@ async function runCommand(
     const chunks: Buffer[] = [];
     const decoder = new StringDecoder("utf8");
     let pending = "", delivered = Promise.resolve();
+    // Every chunk is queued here, so a refused reply always ends the run: never an unhandled rejection, even for the
+    // last chunk queued as the process exits after the run already ended (PIE-1180; `finish` ignores a second end).
+    const queue = (text: string) => { delivered = delivered.then(() => line(text)); delivered.catch(error => finish(error)); };
     const line = async (text: string) => {
       let value: unknown;
       try { value = JSON.parse(text); } catch { chunks.push(Buffer.from(text + "\n")); return; }
@@ -241,14 +244,13 @@ async function runCommand(
         pending += decoder.write(chunk);
         const lines = pending.split("\n");
         pending = lines.pop()!;
-        for (const text of lines) delivered = delivered.then(() => line(text));
-        void delivered.catch(error => finish(error));
+        for (const text of lines) queue(text);
       }
     });
     child.stdin.on("error", () => {});
     child.on("close", (code, killed) => {
       if (code === 0) {
-        if (reply) { pending += decoder.end(); if (pending) delivered = delivered.then(() => line(pending)); }
+        if (reply) { pending += decoder.end(); if (pending) queue(pending); }
         return finish();
       }
       const tail = stderrTail(scrubCredentials(cut ? uncut(plainText(stderr.toString("utf8")), secrets()) : plainText(stderr.toString("utf8")), secrets()) as string);
