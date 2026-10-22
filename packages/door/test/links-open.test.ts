@@ -260,6 +260,19 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await expect(act("backlinks.open", { where: "sideways" }, "links")).rejects.toThrow(/home or new/);
   }, 20_000);
 
+  test("PIE-1206: a plain click after alt-click previews the same row", async () => {
+    await setup();
+    render();
+    const r = tile("links").rect;
+    const x = r.col + 6, y = r.row + 1 + (links() as any).head + rowOf(hall.id) - (links() as any).view.top;
+    await pickRow(porch.id);
+    mouse("down", x, y, 8); mouse("up", x, y, 8);
+    await until(() => reader("reader").msg?.id === hall.id, "alt-click opens the hall");
+    expect(reader("peek").msg?.id).toBe(porch.id);
+    mouse("down", x, y); mouse("up", x, y);
+    await until(() => reader("peek").msg?.id === hall.id, "the plain click previews the hall", 1000);
+  });
+
   test("by mouse: a click selects and previews, a double click opens in its home, an alt+click in a new detail", async () => {
     await setup();
     render();

@@ -553,7 +553,7 @@ export class BacklinksPane implements Pane {
     const header = row.kind === "group" || row.kind === "kind";
     if (header && gesture !== "focus" && x <= row.depth * 2 + 1) { this.run(desk, "backlinks.open", { n: i + 1 }); return true; }
     if (gesture === "open" || gesture === "fresh") this.run(desk, "backlinks.open", { n: i + 1, where: gesture === "fresh" && !header ? "new" : "home" });
-    else if (i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 });
+    else if (gesture === "select" || i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 });
     return true;
   }
 }

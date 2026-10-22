@@ -484,8 +484,8 @@ export type NotePlacement<I = number> = {
  * The one place that decides where an open lands. A new-note place, explicit container/place or named tile wins;
  * otherwise the wire, nearest container, home and flow rule are read in that order. A missing container falls
  * back to a visible reader only for the person. An unlinked reader takes its own open. A busy named destination
- * refuses an agent; the person's open keeps the edit and uses a reader beside it. A held note is kept as a spine
- * toward the invoking tile. New-note tabs that cannot fit float instead.
+ * refuses an agent; the person's open keeps the edit and uses a reader beside it. An unwired held note is kept as a spine
+ * toward the invoking tile; a wire aimed at a tile replaces its note with history. New-note tabs that cannot fit float instead.
  * Floats, tabs, docks and shapes that cannot take a spine swap with reader history only.
  * Only the person's standing moves the current note or keys; an invitation is already resolved by the dispatcher.
  */
@@ -587,7 +587,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       if (result.giveNewKeys) result.keys = target;
       const chain = chainOf(s.tree, target);
       const space = effective([{ by: "screen", policy: s.policy }, ...chain.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
-      if ((!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held || request.keep) && facts.showing && facts.showing !== note && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
+      if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held || request.keep) && facts.showing && facts.showing !== note && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
         const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
         result.keep = { tile: target, at: { kind: "split", target, dir: before ? "left" : "right" } };
       }

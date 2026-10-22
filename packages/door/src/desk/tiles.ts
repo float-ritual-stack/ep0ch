@@ -152,7 +152,7 @@ export { isTileKind };
  */
 export function canonSpec<S extends { kind: TileKindName; page?: string; mode?: "follows" | "held" | "pinned"; link?: string; linkRole?: string; source?: string; wires?: TileSpec["wires"]; selectFrom?: string }>(s: S): S & { selectFrom?: string } {
   const { link, linkRole, ...rest } = s;
-  const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), { verb: "open" as const, to: link }, ...((linkRole ?? (s.kind === "backlinks" ? "target" : "preview")) === "preview" ? [{ verb: "select" as const, to: link }] : [])] } : {}) };
+  const out = { ...rest, ...(link ? { wires: [...(s.wires ?? []), ...(!s.wires?.some(w => w.verb === "open") ? [{ verb: "open" as const, to: link }] : []), ...(!s.wires?.some(w => w.verb === "select") && (linkRole ?? (s.kind === "backlinks" ? "target" : "preview")) === "preview" ? [{ verb: "select" as const, to: link }] : [])] } : {}) };
   if (out.kind === "detail") { out.kind = "reader"; out.mode ??= s.page ? "pinned" : "held"; }
   if (out.kind === "preview" && out.source?.startsWith("tile:")) {
     out.selectFrom = out.source.slice(5);

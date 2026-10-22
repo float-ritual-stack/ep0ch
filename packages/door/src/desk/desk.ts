@@ -1848,7 +1848,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const target = this.resolveTile(dest.target);
       if (!target) return null;
       const d = target.desk, id = d.idNamed(target.tile.id!)!;
-      return d.placeNote(m, { from: id, ...(dest.source ? { default: true } : { to: id, rule: dest.rule }), fresh: request.fresh, note: m.id, keys: false }, by);
+      return d.placeNote(m, { from: id, ...(dest.source ? { default: true } : { to: id, rule: dest.rule, keep: dest.rule === "tile" ? false : undefined }), fresh: request.fresh, note: m.id, keys: false }, by);
     }
     if (dest.kind === "into") return null;
     const id = this.nextId;
@@ -4877,7 +4877,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!k || !isTileKind(t.kind)) throw new ActionRefused(`tile.open: kind is ${tileKindNames().join(", ")}, not ${t.kind}`);
     const bad = t.name !== undefined ? tileNameProblem(t.name) : null;
     if (bad) throw new ActionRefused(`tile.open: ${bad}`);
-    if (t.name && this.idNamed(t.name) !== undefined) throw new ActionRefused(`there's already a tile named ${t.name}`);
+    const existing = t.name ? this.idNamed(t.name) : undefined;
+    if (existing !== undefined) {
+      const pane = this.panes.get(existing)!;
+      if (pane.kind !== t.kind) throw new ActionRefused(`${t.name} is kind=${pane.kind}, not ${t.kind} · use ep0ch act tile.open kind=${pane.kind} name=${t.name}, or ep0ch act tile.close tile=${t.name} first`);
+      const wrong = k.check?.({ ...t, cmd: t.cmd ? lineWords(t.cmd) : undefined });
+      if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
+      if (t.note) {
+        const m = await readNote(this.ctx, t.note);
+        if (!m) throw new ActionRefused(`no block ${t.note}`);
+        const landed = this.placeNote(m, { from: this.focus, to: existing, note: m.id, keep: false, keys: false }, actor);
+        if (landed) return { ...landed.desk.tileAnswer(landed.id), kind: t.kind };
+      }
+      return { ...this.tileAnswer(existing), kind: t.kind };
+    }
     // From a float (a new note's, PIE-591) naming no tile: beside the tile under it, where esc in it goes back to.
     const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
     const empty = !this.all().length;

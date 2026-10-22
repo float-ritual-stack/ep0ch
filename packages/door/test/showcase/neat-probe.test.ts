@@ -226,6 +226,54 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       } };
     };
 
+    test(`PIE-1206 round 2: saved reader wires keep select independent of open (${placement})`, async () => {
+      const s = await placed();
+      const inner = s.owner.resolveTile(s.tile)!.desk;
+      try {
+        await inner.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "reader", name: "preview" } }, USER);
+        await inner.dispatch.act({ action: "tile.link", tile: "briefing", args: { to: "preview", verb: "select" } }, USER);
+        await inner.dispatch.act({ action: "tile.link", tile: "briefing", args: { to: "other", verb: "open" } }, USER);
+        const saved = join(h.scratch.root, `reader-wires-${placement}.json`);
+        writeFileSync(saved, JSON.stringify(inner.savedState()));
+        (inner as any).build(JSON.parse(readFileSync(saved, "utf8")), true);
+        const tiles = inner.layoutAll().tiles;
+        const source = tiles.find(t => t.name === "briefing")!;
+        expect(source.wires.find(w => w.verb === "select")?.to).toBe(tiles.find(t => t.name === "preview")!.tile);
+        expect(source.wires.find(w => w.verb === "open")?.to).toBe(tiles.find(t => t.name === "other")!.tile);
+      } finally { await s.cleanup(); }
+    });
+
+    test(`PIE-1206 round 2: wired opens replace held notes and Back restores them (${placement})`, async () => {
+      const s = await placed();
+      try {
+        const inner = s.owner.resolveTile(s.tile)!.desk;
+        const other = "other";
+        await inner.dispatch.act({ action: "tile.link", tile: "briefing", args: { to: other, verb: "open" } }, USER);
+        await inner.dispatch.act({ action: "tile.link", tile: "briefing", args: { to: other, verb: "alt" } }, USER);
+        const before = s.owner.layoutAll().tiles.map(t => t.tile);
+        for (const fresh of [false, true]) {
+          await inner.dispatch.act({ action: "open", args: { from: "briefing", id: s.briefing.id, fresh } }, USER);
+          expect(s.owner.layoutAll().tiles.map(t => t.tile)).toEqual(before);
+          await inner.dispatch.act({ action: "back", tile: other }, USER);
+          await until(() => shows(inner, "other") === s.testing.id, "Back restores the replaced held note", 1000);
+        }
+      } finally { await s.cleanup(); }
+    });
+
+    test(`PIE-1206 round 2: tile.open delivers to an existing name of the same kind (${placement})`, async () => {
+      const s = await placed();
+      const inner = s.owner.resolveTile(s.tile)!.desk;
+      try {
+        const before = s.owner.layoutAll().tiles.map(t => t.tile);
+        const original = inner.layoutAll().tiles.find(t => t.name === "other")!;
+        const result = await inner.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "other", mode: "held", note: s.briefing.id } }, USER) as { tile: string };
+        expect(result.tile).toBe(original.tile);
+        expect(s.owner.layoutAll().tiles.map(t => t.tile)).toEqual(before);
+        await until(() => shows(inner, "other") === s.briefing.id, "the named house takes its note");
+        await expect(inner.dispatch.act({ action: "tile.open", args: { kind: "tree", name: "other" } }, USER)).rejects.toThrow(/tile.open.*kind=reader|tile.close.*other/);
+      } finally { await s.cleanup(); }
+    });
+
     test(`placement: an unpressed open changes only its named reader (${placement})`, async () => {
       const s = await placed();
       try {
