@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "74c2226c", "outliner": "74c2226c", "on": "2026-10-22" },
+  "verified": { "door": "2fe4e5c1", "outliner": "2fe4e5c1", "on": "2026-10-22" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -534,7 +534,7 @@
         { "r": "door", "p": "src/desk/tiles.ts", "l": 112, "m": "export interface LayoutSpec" },
         { "r": "door", "p": "src/desk/tiles.ts", "l": 213, "m": "export function layoutNamed" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 113, "m": "interface SavedDesk" },
-        { "r": "door", "p": "src/river/column.ts", "l": 1092, "m": "saves: \"river.json\"" }
+        { "r": "door", "p": "src/river/column.ts", "l": 1096, "m": "saves: \"river.json\"" }
       ],
       "questions": [ { "text": "One LayoutSpec shape for river.json too, and presets as screen notes in the outline.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -729,7 +729,7 @@
       "built": "A screen spec on the desk (PIE-515): its columns are river.column tiles (a reader of the note surface with the river's own view: the Library, a note and its replies, a #value branch) in a flow container, the layout engine's squeeze, focus, widen, hold, travel and close; saved to river.json as the desk's layout. Reply counts from one shared index per service.",
       "refs": [
         { "r": "door", "p": "src/river/column.ts", "l": 147, "m": "export class RiverColumn extends ReaderPane" },
-        { "r": "door", "p": "src/river/column.ts", "l": 1090, "m": "export function riverSpec" },
+        { "r": "door", "p": "src/river/column.ts", "l": 1094, "m": "export function riverSpec" },
         { "r": "door", "p": "src/river/column.ts", "l": 113, "m": "class OutlineIndex" },
         { "r": "door", "p": "src/river/column.ts", "l": 871, "m": "export const COLUMN_ACTIONS" }
       ],

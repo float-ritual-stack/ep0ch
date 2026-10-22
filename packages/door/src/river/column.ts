@@ -204,7 +204,7 @@ export class RiverColumn extends ReaderPane {
   constructor(public source: Source, public filter: Clause[] = []) { super(false); }
 
   /** What the tile needs to be built again: its source and its filter. */
-  spec(): Record<string, unknown> { return { source: sourceText(this.source), ...(this.filter.length ? { filter: filterText(this.filter) } : {}) }; }
+  spec(): Record<string, unknown> { return { ...super.spec(), source: sourceText(this.source), ...(this.filter.length ? { filter: filterText(this.filter) } : {}) }; }
 
   /** The note the column's note actions act on: a block column's own; in the Library and a #tag, the selected one. */
   noteOf(): Msg | undefined {
@@ -255,7 +255,7 @@ export class RiverColumn extends ReaderPane {
     this.desk = desk;
     this.source = { kind: "block", id: m.id };
     this.root = m; this.items = null; this.sel = 0; this.top = 0; this.matched = null; this.asked++; this.fold.clear();
-    this.surface.show(m, this.host(desk));
+    this.show(m, desk);
     this.load(desk);
   }
 
@@ -290,7 +290,7 @@ export class RiverColumn extends ReaderPane {
   private showSelected(desk: DeskApi) {
     if (this.surface.editing) return;
     const m = this.source.kind === "block" ? this.rootOf() : this.flat()[this.sel]?.m;
-    if (m && this.surface.msg?.id !== m.id) this.surface.show(m, this.host(desk));
+    if (m && this.surface.msg?.id !== m.id) this.show(m, desk);
   }
 
   /** The rows the column lists: its notes (the filter applied), with replies shown in place under theirs. */
@@ -409,7 +409,7 @@ export class RiverColumn extends ReaderPane {
       for (const l of this.banner(m, w)) push(l);
       // The note's body through the shared surface's renderer (its digest): links as Detail reads them, transclusions,
       // step controls; a click on a link opens it in the next column; `[ ]` walks its elements; the column scrolls.
-      if (this.surface.msg?.id !== m.id) this.surface.show(m, host);
+      if (this.surface.msg?.id !== m.id) this.show(m, desk);
       const dg = this.digest(m, w - 1, Math.max(4, Math.round(rows * 0.8))), at = all.length;
       this.digestAt = at;
       this.digestRows = dg.lines.length;
@@ -1069,7 +1069,11 @@ export function riverColumnKind(): TileKind {
   return {
     kind: "river.column", previews: true, word: "column", noun: "a river column",
     about: "a river column (Quay): the Library (source=roots), a note with its replies (source=block:<id>), or every note with a property (source=tag:<key>=<value>); filter=<clauses>",
-    make: s => new RiverColumn(parseSource(s.source), parseFilter(s.filter ?? "")),
+    make: s => {
+      const column = new RiverColumn(parseSource(s.source), parseFilter(s.filter ?? ""));
+      column.wantNav = s.nav;
+      return column;
+    },
     save: p => (p as RiverColumn).spec(),
     start: (p, env) => (p as RiverColumn).load(env.desk),
     actions: COLUMN_ACTIONS,

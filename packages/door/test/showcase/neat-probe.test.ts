@@ -2,7 +2,7 @@
 // rest and wires the drawer's links tile to them. Each test is one seam it hit, asserting what should happen; on main
 // they go red, each for its own reason. Scratch outline, made-up notes. A red case is `test.failing` until its slice of
 // the one-desk wave (pie b567bc2a) makes it pass; that slice turns it into a plain `test`.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
@@ -129,6 +129,15 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       expect(shows(s.d, "river")).toBe(s.testing.id);
       await app.dispatch.act({ action: "forward", tile: "river" }, USER);
       await until(() => shows(s.d, "river") === s.briefing.id, "Forward restores the river's replacement");
+      const saved = join(h.scratch.root, "river-placement.json");
+      writeFileSync(saved, JSON.stringify(s.d.savedState()));
+      const restored = new Desk(s.d.spec, { saved: JSON.parse(readFileSync(saved, "utf8")) });
+      app.push(restored);
+      try {
+        await until(() => shows(restored, "river") === s.briefing.id, "the saved river reopens");
+        await restored.dispatch.act({ action: "back", tile: "river" }, USER);
+        await until(() => shows(restored, "river") === s.testing.id, "Back survives reopening the river", 1000);
+      } finally { app.pop(); restored.dispose(); }
     } finally { s.done(); }
   });
 

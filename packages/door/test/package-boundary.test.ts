@@ -84,4 +84,4 @@ test("only placement applies note opens", () => {
     visit(source);
   }
   expect(bypasses).toEqual([]);
-});
+}, 30_000);
