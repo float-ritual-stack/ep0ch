@@ -642,7 +642,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return {
       clearsOnClose: p?.clearsOnClose?.(),
       kind: this.unregistered.get(id)?.kind ?? p?.kind ?? "tile",
-      ...(k?.policy ? { policy: k.policy } : {}), ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), following: p instanceof ReaderPane && p.follows && !p.holding, pinned: p instanceof ReaderPane && p.followMode === "pinned", available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && !!k?.lists?.(p), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.holding && !this.layout.altReaders.has(id),
+      ...(k?.policy ? { policy: k.policy } : {}), ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), following: p instanceof ReaderPane && p.follows && !p.holding, pinned: p instanceof ReaderPane && p.followMode === "pinned", available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.holding && !this.layout.altReaders.has(id),
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
       ...(k?.follower ? { follower: true } : {}),
@@ -1825,7 +1825,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return !!this.placeNote(m, { from: at, fresh: !!opts.fresh, note: m.id }, by);
   }
 
+  private placedDuringTake?: (landed: { desk: Desk; id: number }) => void;
+
   private placeNote(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor): { desk: Desk; id: number } | null {
+    const landed = this.applyPlacement(m, request, by);
+    if (landed) this.placedDuringTake?.(landed);
+    return landed;
+  }
+
+  private applyPlacement(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor): { desk: Desk; id: number } | null {
     const plan = placement(this.layout, request, this.layoutCtx(by));
     const dest = plan.destination;
     if (dest.kind === "none") return null;
@@ -1857,6 +1865,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (made) {
       if (rec) { rec.count = number!; rec.ids.push(id); }
       this.startTile(id);
+      const fromId = dest.kind === "new" && "target" in dest.at ? dest.at.target : dest.kind === "new" && "from" in dest.at ? dest.at.from : request.from;
+      const from = target ?? this.panes.get(fromId);
+      if (from instanceof ReaderPane && spec?.margin === undefined) made.takeMargin(from.surface.marginMode);
       if (plan.follow) made.show(m, this); else made.hold(dest.kind === "new" ? m : prior!, this);
       if (dest.kind === "new" && this.facts(request.to ?? request.from).editing) this.besides.set(request.to ?? request.from, id);
     }
@@ -1865,19 +1876,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (dest.kind === "swap") {
       const kind = kindOf(pane);
       if (!kind?.take) throw new ActionRefused(`${this.nameOf(landed)} cannot show a note`);
-      const why = kind.take(pane, m, this, by);
-      if (why) throw new ActionRefused(`${this.nameOf(landed)} ${why}`);
+      // A kind can open elsewhere through this same placement path; keep that exact answer, including across desks.
+      let redirected: { desk: Desk; id: number } | undefined;
+      const outer = this.placedDuringTake;
+      this.placedDuringTake = result => { redirected = result; };
+      try {
+        const why = kind.take(pane, m, this, by);
+        if (why) throw new ActionRefused(`${this.nameOf(landed)} ${why}`);
+      } finally { this.placedDuringTake = outer; }
+      if (redirected) return redirected;
     }
     if (dest.kind === "new" && dest.at.kind === "in") {
       const rec = this.openedIn(dest.at.key);
       rec.active = id;
     }
     if (plan.current) this.moveCurrent(m, { by, reveal: true, from: this.panes.get(request.from), link: landed !== request.from }, by);
-    // A kind may redirect through setCurrent (the brief and pinned pages); report where its note actually went.
-    const shown = this.showing(pane)?.id === m.id ? landed : this.namedReaders().find(r => r.pane.msg?.id === m.id && !kindOf(r.pane)?.follower)?.id ?? landed;
-    this.arrived(shown, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : undefined);
+    this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : undefined);
     this.save(); this.redraw();
-    return { desk: this, id: shown };
+    return { desk: this, id: landed };
   }
 
   /** The current note moves to `m`: every reader that follows it shows it; the person's open reveals it in the outline. */
@@ -1964,29 +1980,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return to && "to" in to && this.panes.has(to.to) ? to.to : undefined;
   }
 
-  /**
-   * A new reader holding `m` at `at` (beside a reader: alt+⏎, a ctrl-click; the next column of a flow), by
-   * `tile.open`'s operation. False, said, when the layout refuses it (a locked screen): the open lands as the
-   * current note instead.
-   */
-  private openReader(m: Msg, at: At<number>, actor: Actor, spec?: TileSpec, keepKeys = false, alt = false): boolean {
-    const as: TileSpec = { ...(spec ?? { t: "leaf", kind: "reader", mode: "held" }) };
-    // Named for what it is (its kind's word: a river column is a column; a held reader is a detail), numbered after the first.
-    if (!as.name) as.name = this.autoName(this.wordFor(as));
-    // Asked before the tile is made: a refused open makes nothing.
-    const r = this.ask({ op: "open", tile: this.nextId, kind: as.kind, name: as.name, placement: { from: "target" in at ? at.target : "from" in at ? at.from : this.focus, at, note: m.id, ...(keepKeys ? { keys: false as const } : {}) } }, actor);
-    if (!r.ok) { this.ctx.flash(`${r.refused} · opened here instead`); return false; }
-    const id = this.put(makeTile(as));
-    this.commit(r);
-    this.startTile(id);
-    // A reader opened from a reader reads its margin the same way (PIE-873: marks only stays marks only).
-    const from = "target" in at ? at.target : "from" in at ? at.from : undefined, was = from === undefined ? undefined : this.panes.get(from);
-    if (was instanceof ReaderPane && as.margin === undefined) (this.panes.get(id) as ReaderPane).takeMargin(was.surface.marginMode);
-    (this.panes.get(id) as ReaderPane).hold(m, this);
-    this.arrived(id, actor);
-    this.save();
-    return true;
-  }
   /** What a new tile of this spec is called when nobody names it: its kind's word, and "detail" for a reader that is held (the glossary's word). */
   private wordFor(s: Pick<TileSpec, "kind" | "mode">): string { return s.mode ? "detail" : kindOf({ kind: s.kind } as Pane)?.word ?? s.kind; }
 
@@ -2964,9 +2957,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const held = actorRule({ touches: "screen", host: true }, actor, this.dispatch.where(), {});
     if (held) throw new ActionRefused(held);
     if (!this.all().length) {
-      this.openReader(m, { kind: "edge", dir: "right" }, actor);
-      const rd = this.panes.get(this.focus);
-      return rd instanceof ReaderPane && await this.writeNew(rd, m) ? this.focusedName() : null;
+      const placed = this.placeNote(m, { from: this.focus, at: { kind: "edge", dir: "right" }, note: m.id }, actor);
+      if (!placed) return null;
+      const rd = placed.desk.panes.get(placed.id), name = placed.desk.nameOf(placed.id);
+      placed.desk.focusTile(name, actor);
+      return rd instanceof ReaderPane && await placed.desk.writeNew(rd, m) ? name : null;
     }
     const from = this.focusedName(), f = this.panes.get(this.focus);
     // An empty reader (^W o d) is where the person asked to write: the note opens in it.

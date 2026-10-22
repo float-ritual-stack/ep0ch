@@ -103,6 +103,18 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     } finally { s.done(); unregisterTileKind("seed-reader"); }
   });
 
+  test("placement: a note opened beside an edit keeps its margin setting", async () => {
+    const s = await twoReaders();
+    try {
+      await app.dispatch.act({ action: "margin", tile: "briefing", args: { mode: "off" } }, USER);
+      await app.dispatch.act({ action: "edit", tile: "briefing" }, USER);
+      await app.dispatch.act({ action: "tile.link", tile: "other", args: { to: "briefing", verb: "open" } }, USER);
+      const opened = await app.dispatch.act({ action: "open", args: { from: "other", id: s.testing.id } }, USER) as { reader: string };
+      const destination = s.d.pane(opened.reader) as ReaderPane;
+      expect(destination.surface.marginMode).toBe("off");
+    } finally { s.done(); }
+  });
+
   for (const shape of ["float", "tabs", "dock"] as const) test(`placement: ${shape} swaps without a spine and back returns the replaced note`, async () => {
     const s = await twoReaders();
     try {

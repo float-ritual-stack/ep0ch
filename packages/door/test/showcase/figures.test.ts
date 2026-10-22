@@ -621,6 +621,8 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     // An agent opens a child bullet's note in another reader (never the person's).
     const opened = await app.act({ action: "element.open", tile: "reader", args: { n: may.n, fresh: true }, as: "test-agent" }) as any;
     expect(JSON.stringify(opened)).toContain("plant out");
+    await app.act({ action: "back", tile: "reader", as: "test-agent" });
+    await untilAsync(async () => (await els()).some(e => e.label === "sow under glass"), "back on the figure rows");
     // The person, by keys: into the stage, [ ] to the row, ⏎ opens its note in the reader.
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");

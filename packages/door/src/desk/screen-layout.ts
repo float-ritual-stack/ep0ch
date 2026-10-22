@@ -484,7 +484,7 @@ export type NotePlacement<I = number> = {
  * Floats, tabs and docks swap with reader history only: a spine cannot sit beside their destination.
  * Only the person's standing moves the current note or keys; an invitation is already resolved by the dispatcher.
  */
-export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across">, request: PlacementRequest<I>, ctx: Ctx<I>): NotePlacement<I> {
+export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across" | "collapsed">, request: PlacementRequest<I>, ctx: Ctx<I>): NotePlacement<I> {
   const { from, to, fresh, note } = request;
   const verb = fresh ? "alt" : "open";
   const wire = s.across.find(w => w.from === from && w.verb === verb);
@@ -498,12 +498,12 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   }
   if (request.container) route = { into: request.container };
   if (request.default && (!route || ctx.tile(from).notes)) {
-    const readers = leaves(s.tree).filter(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.editing && !f.holds && !f.pinned && f.available !== false; });
+    const readers = leaves(s.tree).filter(id => { const f = ctx.tile(id); return !s.collapsed.has(id) && f.notes && !f.follower && !f.editing && !f.holds && !f.pinned && f.available !== false; });
     const target = readers.find(id => ctx.tile(id).following) ?? readers[0];
     if (target !== undefined) route = { to: target };
   }
   const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: ctx.standing && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
-  if (request.at) { result.destination = { kind: "new", at: request.at }; return result; }
+  if (request.at) { result.destination = { kind: "new", at: request.at }; result.giveNewKeys = ctx.standing && request.keys !== false; return result; }
   if (route && "across" in route) result.destination = { kind: "across", target: route.across, rule: route.rule };
   else if (route && "into" in route) {
     const container = node(s.tree, route.into);
@@ -539,7 +539,8 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     if (!fresh) { result.follow = true; result.giveNewKeys = false; }
   }
   else {
-    const target = route && "to" in route ? route.to : ctx.tile(from).notes ? from : undefined;
+    const target = route && "to" in route ? route.to : ctx.tile(from).notes ? from :
+      leaves(s.tree).find(id => { const f = ctx.tile(id); return f.following && !f.follower && f.available !== false; });
     if (target === undefined) {
       if (ctx.outward) result.destination = { kind: "across", target: ctx.outward, rule: "tile", source: true };
       return result;

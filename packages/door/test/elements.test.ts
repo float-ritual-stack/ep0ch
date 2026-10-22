@@ -256,7 +256,8 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(frame().map(plain).some(l => l.includes("link Stake the beans · ⏎ follow"))).toBe(true);   // the reader's footer (the comment's margin card is an element too)
     key({ kind: "enter" });
     await whole(d, n.beans.id);
-    expect(B().details.length).toBe(1);
+    expect(B().details.length).toBe(2);
+    expect(B().details.find((p: ReaderPane) => p !== d)?.msg?.id).toBe(n.jobs.id);
     d = await detail();
     stepTo(d, "## Beds");
     key({ kind: "enter" });
@@ -314,12 +315,13 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     await until(() => B().details[0]?.msg?.id === n.jobs.id, "the card in a detail");
   }, 40_000);
 
-  test("alt+⏎ on a link opens a new detail, from a detail and from the preview", async () => {
+  test("alt+⏎ swaps the destination and keeps its former note, from a detail and from the preview", async () => {
     const d = await detail();
     stepTo(d, "Stake the beans");
     key({ kind: "alt-enter" });
     await until(() => B().details.length === 2 && B().details[1].msg?.id === n.beans.id, "a new detail");
-    expect(d.msg!.id).toBe(n.jobs.id);                                // the first detail keeps its note
+    expect(d.msg!.id).toBe(n.beans.id);
+    expect(B().details.find((p: ReaderPane) => p !== d)?.msg?.id).toBe(n.jobs.id);
     await fresh();
     key({ kind: "enter" });                                            // detail 1 on the card
     await whole(B().details[0], n.jobs.id);
@@ -327,7 +329,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     stepTo(B().preview, "Garden plan");
     key({ kind: "alt-enter" });
     await until(() => B().details.length === 2 && B().details[1].msg?.id === n.plan.id, "a new detail from the preview");
-    expect(B().details[0].msg.id).toBe(n.jobs.id);
+    expect(B().details.some((p: ReaderPane) => p.msg?.id === n.jobs.id)).toBe(true);
   }, 30_000);
 
   test("a click does what ⏎ does and sets the [ ] position: a fold, a comment mark, a figure row", async () => {
@@ -461,7 +463,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(current(B().preview)).toEqual(at);                         // Tab didn't step
   }, 20_000);
 
-  test("the desk: alt+⏎ on a link opens a new reader holding it; ⏎ follows in place", async () => {
+  test("the desk: alt+⏎ swaps the reader and keeps its former note as a spine", async () => {
     if ((app as any).stack.at(-1) instanceof Desk) app.pop();
     const desk = new Desk(), D = desk as any;
     app.push(desk);
@@ -474,8 +476,8 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
       desk.render(D.ctx);
       for (let i = 0; i < 20 && !current(r0)?.label.startsWith("Stake"); i++) { key(char("]")); desk.render(D.ctx); }
       key({ kind: "alt-enter" });
-      await until(() => readers().length === 2 && readers()[1]!.msg?.id === n.beans.id, "a new desk reader");
-      expect(r0.msg!.id).toBe(n.jobs.id);
+      await until(() => readers().length === 2 && r0.msg?.id === n.beans.id, "a new desk reader");
+      expect(readers()[1]!.msg!.id).toBe(n.jobs.id);
       expect(readers()[1]!.describe().held).toBe(true);
     } finally { app.pop(); }
   }, 30_000);
