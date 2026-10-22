@@ -215,12 +215,15 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     try {
       await first.desk.dispatch.act({ action: "tile.open", tile: "reader", args: { kind: "backlinks", name: "letter-links", source: "tile:reader" } }, USER);
       await first.desk.dispatch.act({ action: "tile.drawer", tile: "letter-links" }, USER);
+      await first.desk.dispatch.act({ action: "tile.open", tile: "reader", args: { kind: "backlinks", name: "missing-links", source: "tile:reader" } }, USER);
+      await first.desk.dispatch.act({ action: "tile.drawer", tile: "missing-links" }, USER);
       path = join(outlineState(), hostSpec().saves!);
     } finally { first.app.quit(); }
     const saved = JSON.parse(readFileSync(path, "utf8"));
     const leaves = (value: any): any[] => value && typeof value === "object" ? [value, ...Object.values(value).flatMap(leaves)] : [];
     const links = leaves(saved).find(v => v.name === "letter-links" && v.kind === "backlinks");
     links.source = "tile:@desk/reader";
+    leaves(saved).find(v => v.name === "missing-links" && v.kind === "backlinks").source = "tile:@desk/missing-source";
     links.wires = [{ verb: "open", to: "@desk/reader" }, { verb: "alt", to: "@desk/gone" }];
     writeFileSync(path, JSON.stringify(saved));
     const next = await door();
@@ -231,7 +234,10 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(restored.source).toBe(`tile:${target}`);
       expect(restored.link).toBe(target);
       expect(restored.wires).toBeUndefined();
-      expect(next.paint().join("\n")).toContain("wire dropped");
+      expect(next.app.describe().messages.some(m => m.message.includes("wire dropped"))).toBe(true);
+      const missing = leaves(JSON.parse(readFileSync(path, "utf8"))).find(v => v.name === "missing-links" && v.kind === "backlinks");
+      expect(missing.source).toBe("");
+      expect(next.app.describe().messages.filter(m => m.message.includes("source dropped") && m.message.includes("missing-source"))).toHaveLength(1);
     } finally { next.app.quit(); }
   });
 
