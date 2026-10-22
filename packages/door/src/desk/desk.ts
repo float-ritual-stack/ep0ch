@@ -1780,11 +1780,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const ext = this.extTarget(id);
     if (ext) return { short: this.plainPath(this.pathTo(ext.pane)), says: `${this.plainPath(this.pathTo(ext.pane))} (its link, across the drawer)`, change, unlink };
     const to = this.placeFrom(id).route;
-    if (to && "across" in to) return { short: to.across, says: `${to.across}, its reader (⏎ replaces its note, alt+⏎ a new detail beside it)`, change };
+    if (to && "across" in to) return { short: to.across, says: `${to.across}, its reader (opens replace here; back returns)`, change };
     if (to && "to" in to) {
       const via = this.linkVia(id), target = this.nameOf(to.to);
       if (via === "link") return { short: target, says: `${target} (its link: only what ⏎ opens)`, change, unlink };
-      if (via === "home") return { short: target, says: `${target}, its reader (⏎ replaces its note, alt+⏎ a new detail beside it)`, change };
+      if (via === "home") return { short: target, says: `${target}, its reader (opens replace here; back returns)`, change };
       return { short: target, says: `${target} (its container's opens into)`, change };
     }
     if (to && "into" in to) return { short: to.into, says: `a detail in ${to.into} (its container's opens into)`, change };
@@ -1809,14 +1809,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
   }
 
-  /**
-   * Where an open from tile `at` lands (PIE-794: every open from a tile comes here), as `placement()` says: a container
-   * (the board's readers row) takes it in a tile there; `fresh` (alt+⏎) opens a new held reader beside the tile's home
-   * (a list's reader, or the reader itself; in a flow, the next column); else the tile its link or container names, or
-   * its home, has its note replaced (`openInto`: a following reader moves the current note, a held one only itself); a
-   * flow's next column; and a held reader with none of those is its own home: the note replaces its own, and nothing
-   * else moves (held means local). False: it lands nowhere, and the current note moves.
-   */
+  /** Inspect the same placement that the open will apply, so headers and actions agree. */
   private placeFrom(from: number, fresh = false, by: Actor = USER, note = "") {
     return placement(this.layout, { from, fresh, note }, this.layoutCtx(by));
   }
@@ -2007,14 +2000,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return r?.active !== null && r?.active !== undefined && ids.includes(r.active) ? r.active : ids.at(-1);
   }
 
-  /**
-   * Show `m` in a tile opened into container `key`, for `actor` (PIE-515: the board's readers row): the one an open
-   * lands in now, unless it holds an edit, a comment or the panel, or `fresh` (alt+⏎) asks for another; a tile opened
-   * there opens its own links in place. A new one makes room as any does (`makeRoom`, PIE-794): the earlier details
-   * fold to spines (never the first tile there, nor the one the person types in). A locked or gone container takes none: the note opens in a
-   * free one there, else the first tile there that takes notes, said. The person's keys follow the note there, unless
-   * they're in an edit (it keeps them); an agent's never move. Answers the tile that shows it now, if one does.
-   */
+  /** Keep the container's active reader aligned with the destination returned by placement. */
   private openIntoContainer(key: string, m: Msg, fresh: boolean, actor: Actor, from = this.focus): number | undefined {
     const landed = this.placeNote(m, { from, container: key, fresh, note: m.id }, actor);
     if (landed?.desk === this) this.openedIn(key).active = landed.id;
