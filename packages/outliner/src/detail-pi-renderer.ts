@@ -1,3 +1,4 @@
+import { DEFAULT_OUTLINER_ACTION_KEYMAP, type OutlinerActionKeymap } from "./outliner-actions";
 import type { DetailValueBinding } from "./detail-embeds";
 import {
   HStack,
@@ -19,7 +20,7 @@ import {
   type PropertyInspectorEntry,
 } from "./property-inspector";
 import {
-  renderDetailLines,
+  renderDetailLines, propertyInspectorHint,
   type DetailHeaderOptions,
 } from "./detail-renderer";
 import { sanitizeDynamicText } from "./terminal";
@@ -151,6 +152,7 @@ function propertyTableLines(
 export function renderPropertyInspectorDocument(
   state: Readonly<DetailState>,
   width: number,
+  actionKeymap: OutlinerActionKeymap = DEFAULT_OUTLINER_ACTION_KEYMAP,
 ): string {
   const inspector = state.propertyInspector;
   const model = inspector.model;
@@ -188,7 +190,7 @@ export function renderPropertyInspectorDocument(
     );
   } else {
     lines.push(
-      `_Tab select · Enter/e edit · y copy value · o open target · / filter · G group · ${
+      `_${propertyInspectorHint(state, actionKeymap)} · ${
         entries.length
       }/${count} shown · ${inspector.groupBy ?? "source order"}${
         filter ? ` · “${escapeInspectorMarkdown(filter)}”` : ""
@@ -230,6 +232,7 @@ function valueBindingLines(bindings: readonly DetailValueBinding[]): string[] {
 
 
 export interface DetailPiComponentOptions {
+  actionKeymap?: OutlinerActionKeymap;
   state: Readonly<DetailState>;
   height(): number;
   header?(): DetailHeaderOptions | undefined;
@@ -245,6 +248,7 @@ export class DetailPiComponent implements Component {
       width,
       height: Math.max(1, this.options.height()),
     }, {
+      actionKeymap: this.options.actionKeymap,
       header: this.options.header?.(),
       helpPrefix: this.options.helpPrefix?.(),
       helpText: this.options.helpText?.(),

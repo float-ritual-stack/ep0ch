@@ -1,3 +1,4 @@
+import { renderPropertyInspectorDocument } from "../src/detail-pi-renderer";
 import {initTheme} from "@earendil-works/pi-coding-agent";
 initTheme(undefined, false);
 import { buildDetailAnnotationView } from "../src/detail-annotations";
@@ -9,7 +10,7 @@ import {
   normalizeAttentionMark,
 } from "../src/attention";
 import { createAnnotationAnchor } from "../src/annotations";
-import { DEFAULT_OUTLINER_ACTION_KEYMAP } from "../src/outliner-actions";
+import { OutlinerActionKeymap, DEFAULT_OUTLINER_ACTION_KEYMAP } from "../src/outliner-actions";
 import type { DetailState } from "../src/detail-controller";
 import {
   renderDetailFooter,
@@ -177,6 +178,24 @@ function state(overrides: Partial<DetailState> = {}): DetailState {
 }
 
 describe("detail ANSI renderer", () => {
+  test("PIE-1173: both property inspectors show rebound keys", () => {
+    const source = block("Garden [season::spring]");
+    const detail = state({ context: { selected: source, ancestors: [], children: [] } });
+    detail.propertyInspector.model = createPropertyInspectorModel(source.id, source.text);
+    detail.propertyInspector.expanded = true;
+    const actionKeymap = new OutlinerActionKeymap("<test>", {
+      "detail.property.value.copy": ["Alt+Y"],
+      "detail.property.edit.begin": ["Alt+E"],
+    });
+    const ansi = renderDetailLines(detail, { width: 250, height: 20 }, { actionKeymap }).map(stripTerminalSequences).join("\n");
+    const document = renderPropertyInspectorDocument(detail, 250, actionKeymap);
+    for (const drawn of [ansi, document]) {
+      expect(drawn).toContain("⌥Y");
+      expect(drawn).toContain("⌥E");
+      expect(drawn).not.toContain("y cop");
+    }
+  });
+
   test("draws distinct Resource choices and keeps the focused occurrence visible", () => {
     const source = block("Resource choices\n\n" + Array.from({ length: 15 }, (_, index) =>
       `Use ${index} [file::same.md].`).join("\n"));

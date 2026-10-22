@@ -1,3 +1,4 @@
+import type { OutlinerActionKeymap } from "./outliner-actions";
 import { markCurrent } from "@ep0ch/outline-core/annotation-marks";
 import { ticketScope, type TicketPrefixes } from "./work-ids";
 import {resourceDocumentObservation} from './document-resources';
@@ -246,6 +247,7 @@ interface CachedDetailDraftProjection extends DetailDraftProjection {
 }
 
 export interface DetailPiPreviewOptions {
+  actionKeymap?: OutlinerActionKeymap;
   chrome?(): ChromeLevel;
   /** This reader's pinned bar buttons and its generated hint row (compact chrome). */
   bar?(): readonly PaneBarButton[];
@@ -2218,7 +2220,7 @@ export class DetailPiPreviewLayout extends VStack {
   }
 
   private syncInspectorDocument(width: number): void {
-    const document = renderPropertyInspectorDocument(this.state, width);
+    const document = renderPropertyInspectorDocument(this.state, width, this.options.actionKeymap);
     if (
       document === this.renderedInspectorDocument &&
       width === this.renderedInspectorWidth
