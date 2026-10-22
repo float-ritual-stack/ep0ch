@@ -257,7 +257,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(focus()).toBe("backlinks");
     const full = rect("preview").rows;
     key({ kind: "tab" });
-    expect(B().describe().backlinks).toMatchObject({ from: "preview", pinned: false });   // it stays (policy: stays)
+    expect(B().describe().backlinks).toMatchObject({ from: B().layoutGet().tiles.find((t: any) => t.name === "preview").id, pinned: false });   // it stays (policy: stays)
     key({ kind: "tab" });
     key(char("B"));
     expect(B().describe().backlinks.pinned).toBe(true);
