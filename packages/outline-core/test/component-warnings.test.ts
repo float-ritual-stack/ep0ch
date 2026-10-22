@@ -42,6 +42,14 @@ describe("what a written note's components will draw", () => {
     expect(read("Garden", "::graph-stat", "---", "---", "- open: 4", "- **shut**: 2", "::").warnings).toEqual([]);
   });
 
+  test("a key quoted or in a flow map, and a value YAML reads as true or false, are read as the figure reads them", () => {
+    const wrong = "the ::graph-table on line 2: density \"snug\" is one of compact, cozy, comfortable";
+    expect(read("Garden", "::graph-table", "---", "\"density\": snug", "---", "::").warnings).toEqual([wrong]);
+    expect(read("Garden", "::graph-table", "---", "{density: snug}", "---", "::").warnings).toEqual([wrong]);
+    expect(read("Garden", "::graph-table", "---", "density: false", "---", "::").warnings).toEqual([wrong.replace("snug", "false")]);
+    expect(read("Garden", "::graph-table", "---", "{\"titel\": beds}", "---", "::").warnings).toEqual(["the ::graph-table on line 2 doesn't take titel: did you mean title?"]);
+  });
+
   test("a value outside what a property takes", () => {
     const r = read("Garden", "::graph-table", "---", "title: beds", "query: type=bed", "density: snug", "---", "::");
     expect(r.components).toEqual(["graph-table"]);

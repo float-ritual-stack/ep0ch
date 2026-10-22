@@ -8,7 +8,7 @@
 
 import { COMPONENT_OPEN, componentBlocks } from "./component-block";
 import { checkValue, type ComponentSchema } from "./component-schema";
-import { figureProps, figureSource, graphKind } from "./figure-props";
+import { figureProps, figureSource, figureYaml, graphKind } from "./figure-props";
 import { closest } from "./tool-args";
 
 export interface ComponentReading {
@@ -24,7 +24,6 @@ export function blockNameOf(schema: ComponentSchema): string | null {
 }
 
 /** A figure's top-level YAML keys, as written: their values are the parsed YAML's (a comment, quotes and `{{ }}` read as YAML reads them). */
-const yamlKeys = (yaml: string): string[] => yaml.split("\n").flatMap(line => /^([A-Za-z][\w-]*):(?:\s|$)/.exec(line)?.[1] ?? []);
 
 /** What the text's components are and what in them won't draw as written; `schemas` are the outline's merged ones. */
 export function componentReading(text: string, schemas: readonly ComponentSchema[]): ComponentReading {
@@ -49,25 +48,26 @@ export function componentReading(text: string, schemas: readonly ComponentSchema
     const src = figureSource(lines.slice(block.start + 1, block.end), undefined, false, block.attrs);
     const read = figureProps(kind, src);
     if ("error" in read) { warnings.push(`${at} doesn't draw: ${read.error}`); continue; }
+    // The keys and values as the figure reads its YAML: a quoted key, a flow map and a boolean are what they parse to.
+    const yaml = (figureYaml(src) as { yaml: Record<string, unknown> }).yaml;
     const props = schema.props.filter(p => p.where === "yaml");
     const known = props.map(p => p.key);
-    for (const key of yamlKeys(src.yaml)) {
+    for (const [key, value] of Object.entries(yaml)) {
       const prop = props.find(p => p.key === key);
       if (!prop) {
         const near = closest(key, known);
         if (near) warnings.push(`${at} doesn't take ${key}: did you mean ${near}?`);
         continue;
       }
-      const value = read.props[key];
       // A scalar as YAML read it; a `{{ }}` value is the Site's to fill when the figure is drawn.
-      if ((typeof value !== "string" && typeof value !== "number") || String(value).includes("{{")) continue;
+      if ((typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") || String(value).includes("{{")) continue;
       const wrong = checkValue(prop, String(value));
       if (wrong) warnings.push(`${at}: ${wrong}`);
     }
     // A list written in the YAML whose items take named keys (a stat's tile): a near miss there draws a static tile.
-    for (const prop of props.filter(p => p.each?.length && yamlKeys(src.yaml).includes(p.key))) {
+    for (const prop of props.filter(p => p.each?.length && p.key in yaml)) {
       const each = prop.each!.map(e => e.key), told = new Set<string>();
-      for (const item of Array.isArray(read.props[prop.key]) ? read.props[prop.key] as unknown[] : []) {
+      for (const item of Array.isArray(yaml[prop.key]) ? yaml[prop.key] as unknown[] : []) {
         if (!item || typeof item !== "object") continue;
         for (const key of Object.keys(item).filter(k => !each.includes(k) && !told.has(k))) {
           const near = closest(key, each);

@@ -1194,6 +1194,10 @@ export async function patchDraft(
   }
   await client.requireCompatibleService();
   const block = await writableBlock(client, input.ref);
+  // The note as its draft has it when a person has it open (drafts.read), else as saved: a patch into a live draft
+  // leaves the saved note as it was, so what was written is read where it went.
+  const read = async () => (await client.request<{ text: string }>({ action: "drafts.read", blockId: block.id }).catch(() => null))?.text;
+  const was = (await read()) ?? block.text;
   const result = await client.request<DraftPatchResult>({
     action: "draft.patch",
     blockId: block.id,
@@ -1206,10 +1210,10 @@ export async function patchDraft(
     ...(input.propose !== undefined ? { propose: input.propose } : {}),
   }, 15_000);
   // The note as it is now, read whole (a replacement alone loses its context); a warning the note had before isn't this write's (PIE-761).
-  const after = await client.request<Block | null>({ action: "get", blockId: block.id }).catch(() => null);
-  if (!after || after.text === block.text) return result;
-  const before = new Set(await referenceWarningsFor(client, block.text, block.id));
-  const [now, suggestion] = await Promise.all([writtenReading(client, after.text, block.id), o.suggest === false ? null : figureSuggestion(client, after.text, block.text)]);
+  const after = await read();
+  if (after === undefined || after === was) return result;
+  const before = new Set(await referenceWarningsFor(client, was, block.id));
+  const [now, suggestion] = await Promise.all([writtenReading(client, after, block.id), o.suggest === false ? null : figureSuggestion(client, after, was)]);
   const warnings = now.warnings.filter(w => !before.has(w));
   return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(suggestion ? { suggestion } : {}) };
 }

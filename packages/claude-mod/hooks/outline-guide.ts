@@ -49,7 +49,7 @@ function writtenText(input: Record<string, unknown>): string {
 /**
  * The note to draw back after a write, or null: only when the write itself wrote a `::graph-` figure, or its answer
  * warns about one (a one-word patch elsewhere in a note that holds a figure draws nothing). The id is the result's own
- * (`id`, a patch's first edit's `blockId`), never the ref the agent gave.
+ * (`id`, a patch's first edit's `blockId`), never the ref the agent gave. None for a patch into a person's open draft.
  */
 export function drawnNoteOf(tool: string, resultText: string, input: Record<string, unknown> = {}): string | null {
   if (!DRAWN_BACK.includes(tool)) return null
@@ -58,7 +58,9 @@ export function drawnNoteOf(tool: string, resultText: string, input: Record<stri
   const warnings = Array.isArray(parsed.warnings) ? parsed.warnings : []
   const wroteFigure = /^\s*::graph-/m.test(writtenText(input))
   if (!wroteFigure && !warnings.some(w => typeof w === 'string' && w.includes('::graph-'))) return null
-  const edits = Array.isArray(parsed.edits) ? parsed.edits as { blockId?: unknown }[] : []
+  const edits = Array.isArray(parsed.edits) ? parsed.edits as { blockId?: unknown; route?: unknown }[] : []
+  // A patch into the draft a person has open: `ep0ch show` draws the saved note, which isn't what was written.
+  if (edits.some(e => e.route === 'draft')) return null
   const id = typeof parsed.id === 'string' ? parsed.id : typeof edits[0]?.blockId === 'string' ? edits[0].blockId : null
   return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null
 }

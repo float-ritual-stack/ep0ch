@@ -161,6 +161,8 @@ describe('the pure parts', () => {
     expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE }), { replaceSection: { heading: 'Plan', body: figure } })).toBe(NOTE)
     expect(drawnNoteOf('outline_create', JSON.stringify({ id: NOTE, components: ['graph-check'] }), { text: figure })).toBe(NOTE)
     expect(drawnNoteOf('outline_patch', JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE }] }), { patches: [{ observed: 'x', replacement: figure }] })).toBe(NOTE)
+    // Into the draft a person has open: `ep0ch show` would draw the saved note, not what was written.
+    expect(drawnNoteOf('outline_patch', JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE, route: 'draft' }] }), { patches: [{ observed: 'x', replacement: figure }] })).toBeNull()
     expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE, warnings: ["the ::graph-stat on line 2 doesn't draw: bad YAML"] }), { append: 'tidy' })).toBe(NOTE)
     expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE, components: ['graph-stat'] }), { append: 'tidy' })).toBeNull()
     expect(drawnNoteOf('outline_comment', JSON.stringify({ id: NOTE }), { text: figure })).toBeNull()
