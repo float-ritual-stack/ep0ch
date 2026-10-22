@@ -37,9 +37,6 @@ function boardTree(hub: string): SavedTree {
   };
 }
 
-const LANES_HINT = "|08 |15g|08 boards · |15h l|08 lane · |15j k|08 card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n ^N|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15C|08 comment · |15c|08 collapse · |15alt+c|08 open all · |15t|08 outline · |15b|08 backlinks · |15tab|08 area · |15q|08 menu";
-const READER_HINT = "|08 |15tab|08 area · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15^W < > + -|08 size · |15q esc|08 lanes";
-
 /** The board as a screen spec. `hub`: the hub to show (`--screen board <id>`). */
 export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
   const hub = typeof args.hub === "string" ? args.hub : "";
@@ -49,26 +46,19 @@ export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
     // ctrl+n on the lanes is a card in the lane the person is in, born with its properties (PIE-591); elsewhere a float.
     newNote: [{ only: ["query"], action: "card.new" }],
     keys: [
+      { key: "o", action: "tile.float" },
       { key: "g", action: "board.hub" },
       { key: "t", action: "tile.slide", tile: "tree", unless: ["reader", "preview", "river.column", "echo.reader"] },
       { key: "T", action: "tile.dock", tile: "tree" },
       { key: "S", action: "tile.dock", tile: "tree", args: { edge: "other" }, unless: ["reader", "preview", "river.column", "echo.reader"] },
       { key: "b", action: "backlinks", tile: "backlinks", unless: ["backlinks"] },
       { key: "B", action: "tile.dock", tile: "backlinks" },
-      { key: "o", action: "tile.float" },
       { key: "alt+c", action: "tile.collapse", tile: "all", args: { on: false } },
       { key: "c", action: "tile.collapse", only: ["preview", "reader"] },
       { key: "x", action: "tile.close", only: ["preview", "reader"] },
       { key: "<", action: "tile.resize", args: { axis: "row", by: -1 }, unless: ["backlinks"] },
       { key: ">", action: "tile.resize", args: { axis: "row", by: 1 }, unless: ["backlinks"] },
     ],
-    hint: {
-      query: LANES_HINT,
-      backlinks: "|08 |15j k|08 row · |15⏎|08 open · |15alt+⏎|08 new detail · |15. space|08 group · |15/|08 filter · |15s|08 sort · |15K|08 kind · |15w|08 stage · |15h|08 resolved · |15n|08 this note · |15v|08 groups · |15B|08 pin · |15tab|08 area · |15esc|08 close",
-      tree: "|08 |15j k|08 row · |15⏎|08 open · |15L|08 links · |15T|08 dock · |15S|08 side · |15tab|08 area · |15esc|08 close",
-      float: "|08 drag the title to move (onto a header or an edge docks it) · drag |15◢|08 to resize · |15H J K L|08 move · |15o|08 back in · |15x|08 close · |15tab|08 area",
-      spine: "|15c ⏎|08 open · |15alt+c|08 open all · |15tab|08 area · |15esc|08 lanes",
-      "*": READER_HINT,
-    },
+
   };
 }

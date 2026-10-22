@@ -3,6 +3,7 @@
 // dock, floats and the backlinks rows have theirs. Scratch services and fictional notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { visible } from "../src/style";
 import { App } from "../src/app";
 import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
@@ -50,6 +51,14 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     board?.close();
     await scratch.dispose();
     delete process.env.EP0CH_STATE;
+  });
+
+  test("PIE-1173: the reader hint offers float and never offers t outline", async () => {
+    BV.at(b, "preview");
+    const drawn = b.render(B().ctx!).lines.map(visible).join("\n");
+    expect(drawn).not.toContain("t outline");
+    expect(drawn).not.toContain("pop out");
+    expect(drawn).toContain("o float");
   });
 
   test("an agent's board.hub lists the boards without opening the picker; with id it shows that board, said on screen", async () => {

@@ -1,3 +1,4 @@
+import { modeHint } from "../surface/modes";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
 import { Draft, keepCopy } from "../edit";
 import { errorDetails } from "../status-log";
@@ -83,7 +84,7 @@ import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
 import { DRAWER_NAME, DRAWER_TILE_ID } from "./agent-env";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
+import { W_KEYS, wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 import { prop } from "../props";
 
@@ -2530,7 +2531,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ctx: () => d.ctx,
       get where() { return d.whereNow ? () => d.whereNow!() : undefined; },
       keys: () => d.keys(),
-      bindings: () => d.spec.keys ?? [],
+      bindings: () => [
+        ...W_KEYS.map(row => ({ ...row, key: `ctrl+w ${row.key === " " ? "space" : row.key}` })),
+        ...d.spec.keys ?? [],
+        ...[...d.panes.values()].flatMap(p => p.bindings ?? []),
+        ...d.overlays.top()?.bindings ?? [],
+      ],
       tiles: () => d.tiles(),
       revision: (expected: unknown) => revisionRefusal(d.layout, expected),
       draftOf: (t: TileRef) => {
@@ -3456,12 +3462,25 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private boundKey(k: Key): boolean {
     const keys = this.spec.keys;
     if (!keys?.length || k.kind === "mouse" || this.holdsKeys() || this.linking) return false;
-    const name = keyName(k), kind = this.focusedKind();
-    const b = name === null ? undefined : keys.find(x => x.key === name && !(kind && x.unless?.includes(kind)) && (!x.only || (!!kind && x.only.includes(kind))));
+    const name = keyName(k);
+    const b = name === null ? undefined : this.screenKeys().find(x => x.key === name);
     if (!b) return false;
     const tile = b.tile === undefined ? undefined : this.specTile(b.tile);
     void this.dispatch.pressBinding(tile === undefined ? b : { ...b, tile: this.tileId(tile) });
     return true;
+  }
+
+  private screenKeys() {
+    const kind = this.focusedKind();
+    return (this.spec.keys ?? []).filter(x => !(kind && x.unless?.includes(kind)) && (!x.only || (!!kind && x.only.includes(kind))));
+  }
+
+  private screenKeyHint(): string {
+    return modeHint(this.screenKeys().map(row => {
+      const def = this.dispatch.defOf(row.action)!;
+      const menu = def.menu ? (Array.isArray(def.menu) ? def.menu[0] : def.menu) : undefined;
+      return { ...row, label: menu?.label ?? def.summary };
+    }), action => this.dispatch.defOf(action));
   }
 
   /** The band across the top (the spec's `band`: a tile whose kind draws it), if the screen has one. */
@@ -3571,7 +3590,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // whose controls sit on its header, doesn't repeat them along its frame.
     const said = this.headCtl.has(id) || (typeof this.spec.hint === "object" && this.spec.hint[pane.kind] !== undefined && !float && !held);
     const recovery = pane instanceof ReaderPane ? this.failedEdits.get(pane) : undefined;
-    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `${recovery.why} · tile menu: recover typed text` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : pane.hint()) : "");
+    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `${recovery.why} · tile menu: recover typed text` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : [this.spec.hint === undefined && focused ? this.screenKeyHint() : "", pane.hint()].filter(Boolean).join(" · ")) : "");
     // The focused tile's frame is double-lined (╔═╗, in the VGA font too) in whatever colour its state gives it, so which
     // tile the keys go to shows by its shape, apart from the colours of linking, marks, a drag or an edit.
     // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame

@@ -1,3 +1,4 @@
+import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "./surface/modes";
 // The home base: what bare `ep0ch` opens where nothing names an outline (no --ws, no EP0CH_WS, no .ep0ch). A screen
 // spec on the desk (PIE-515: `homeSpec`) with one tile of its own kind (`home`, HOME_KIND): this machine's outlines,
 // then the machines the person has opened outlines on (src/machine.ts keeps that list; ssh config names them), each
@@ -73,6 +74,14 @@ const sessionKey = (outline: string, machine?: string) => `${machine ?? ""}/${ou
 /** A choice's identity: it stays picked while rows come and go around it (a machine connecting, a list read). */
 const idOf = (r: Pick) => `${r.t}:${r.t === "offer" ? r.act : ""}:${"name" in r ? r.name ?? "" : ""}:${"machine" in r ? r.machine ?? "" : ""}`;
 
+const HOME_CHOICES = { outline: "home.open", new: "home.new", import: "home.import", machine: "home.connect", add: "home.add", cancel: "home.cancel" } as const;
+const HOME_CHOICE_KEYS: readonly ModeKey[] = Object.values(HOME_CHOICES).flatMap(action => ["enter", "click"].map(key => ({ key, action, label: "open" })));
+const HOME_KEYS: readonly ModeKey[] = [
+  ...["j", "down", "k", "up"].map(key => ({ key, action: "home.pick", label: "pick", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
+  { key: "n", action: "home.new", label: "new" }, { key: "i", action: "home.import", label: "import" },
+  { key: "a", action: "home.add", label: "add machine" }, { key: "r", action: "home.reload", label: "reload" },
+];
+
 export class HomePane implements Pane {
   readonly kind = "home";
   /** This machine's host (the socket the rule names: the home base's board). */
@@ -92,7 +101,16 @@ export class HomePane implements Pane {
   }
 
   title() { return `home base · ${hostname()}`; }
-  hint() { return "j k pick · ⏎ open · n new · i import · a add machine · x forget · r reload · q quit"; }
+  get bindings(): readonly ModeKey[] {
+    const here = this.choices()[this.at];
+    const machine = here && "machine" in here ? here.machine : undefined;
+    return [
+      ...HOME_KEYS,
+      ...(here ? [{ key: "enter", ...this.choice(here), label: "open" }] : []),
+      ...(here?.t === "machine" ? [{ key: "x", action: "home.forget", label: "forget", args: { machine: here.machine } }] : []),
+    ].map(row => row.key === "n" ? { ...row, args: machine ? { machine } : {} } : row);
+  }
+  hint() { return modeHint(this.bindings, action => HOME_ACTIONS.def(action)); }
 
   /** The missing outline (args.missing), and whether this machine has one of that name, once its outlines are read. */
   private missing() {
@@ -211,31 +229,32 @@ export class HomePane implements Pane {
 
   key(k: Key, desk: DeskApi): boolean {
     const run = (action: string, args: Record<string, unknown> = {}) => { void desk.press?.(this, HOME_ACTIONS, action, args); return true; };
-    const c = ch(k), here = this.choices()[this.at], n = this.choices().length;
-    if (isUp(k)) return this.at > 0 ? run("home.pick", { n: this.at }) : true;
-    if (isDown(k)) return this.at + 1 < n ? run("home.pick", { n: this.at + 2 }) : true;
-    if (k.kind === "enter" && here) return this.choose(here, desk);
-    if (c === "n") return run("home.new", here && "machine" in here && here.machine ? { machine: here.machine } : {});
-    if (c === "i") return run("home.import");
-    if (c === "a") return run("home.add");
-    if (c === "x" && here?.t === "machine") return run("home.forget", { machine: here.machine });
-    if (c === "r") return run("home.reload");
-    return false;
+    const binding = modeBinding(this.bindings, k);
+    if (!binding) return false;
+    if (binding.action === "home.pick") {
+      const to = this.at + (binding.args!.by as number);
+      return to >= 0 && to < this.choices().length ? run(binding.action, { n: to + 1 }) : true;
+    }
+    return run(binding.action, binding.args);
   }
 
   /** What ⏎ or a click on a row runs, as the person. */
-  private choose(r: Pick, desk: DeskApi): boolean {
+  private choice(r: Pick): { action: string; args: Record<string, unknown> } {
     if (r.t === "offer") {
       const [action, args] = r.act === "open" ? ["home.open", { outline: r.name }] : r.act === "create" ? ["home.new", { name: r.name, machine: r.machine }] : ["home.cancel", {}];
-      void desk.press?.(this, HOME_ACTIONS, action as string, args as Record<string, unknown>);
-      return true;
+      return { action: action as string, args: args as Record<string, unknown> };
     }
     const args: Record<string, unknown> =
       r.t === "outline" ? { outline: r.name, ...(r.machine ? { machine: r.machine } : {}) }
       : r.t === "new" ? (r.machine ? { machine: r.machine } : {})
       : r.t === "machine" ? { machine: r.machine } : {};
-    const action = { outline: "home.open", new: "home.new", import: "home.import", machine: "home.connect", add: "home.add" }[r.t];
-    void desk.press?.(this, HOME_ACTIONS, action, args);
+    const action = HOME_CHOICES[r.t];
+    return { action, args };
+  }
+
+  private choose(r: Pick, desk: DeskApi): boolean {
+    const binding = this.choice(r);
+    void desk.press?.(this, HOME_ACTIONS, binding.action, binding.args);
     return true;
   }
 
@@ -424,7 +443,7 @@ const WRITE = { type: "boolean", about: "write .ep0ch in the folder the home bas
 /** The home base's choices. The keys, a click on a row and `act` call the same code. */
 export const HOME_ACTIONS = actionSet<KindHost>()("home", {
   "home.pick": def({
-    summary: "move the home base's cursor to choice n (as describe numbers them, from 1)", keys: "j k ↑ ↓ wheel click",
+    summary: "move the home base's cursor to choice n (as describe numbers them, from 1)", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.pick"),
     touches: "screen", replay: "safe",
     args: { n: { type: "number", about: "the choice's place, from 1" } },
     examples: [
@@ -438,7 +457,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     },
   }),
   "home.open": def({
-    summary: "open an outline the home base lists: the door goes on to it. The person is asked whether to write the folder's .ep0ch; an agent's writes it with write=true", keys: "⏎ click",
+    summary: "open an outline the home base lists: the door goes on to it. The person is asked whether to write the folder's .ep0ch; an agent's writes it with write=true", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.open"),
     touches: "screen", replay: "ask",
     says: r => (r?.opened ? `opened ${r.opened}${on(r.machine)}${r.wrote ? ` · wrote ${r.wrote}` : ""}` : null),
     args: { outline: { type: "string", about: "the outline's name" }, machine: { type: "string", about: "the machine it is on (an ssh config name); left out, this one", optional: true }, write: WRITE },
@@ -449,7 +468,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     run({ outline, machine, write }, { pane, desk }, actor) { return open(pane as HomePane, desk, outline, machine, write, actor); },
   }),
   "home.new": def({
-    summary: "make an outline and open it: name=, on machine= (left out, this one), write= as home.open. The person's without a name types one", keys: "n, ⏎ or a click on its row",
+    summary: "make an outline and open it: name=, on machine= (left out, this one), write= as home.open. The person's without a name types one", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.new"),
     touches: "screen", replay: "ask",
     args: { name: { type: "string", about: "the new outline's name", optional: true }, machine: { type: "string", about: "an ssh config name", optional: true }, write: WRITE },
     examples: [
@@ -459,7 +478,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     run({ name, machine, write }, { pane, desk }, actor) { return make(pane as HomePane, desk, name, machine, write, actor); },
   }),
   "home.import": def({
-    summary: "import a database (.sqlite on this machine) as a new outline and open it: path=, name=, write= as home.open. The person's types them", keys: "i, ⏎ or a click on its row",
+    summary: "import a database (.sqlite on this machine) as a new outline and open it: path=, name=, write= as home.open. The person's types them", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.import"),
     touches: "screen", replay: "ask",
     args: { path: { type: "string", about: "the database file", optional: true }, name: { type: "string", about: "the new outline's name", optional: true }, write: WRITE },
     examples: [
@@ -468,7 +487,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     run({ path, name, write }, { pane, desk }, actor) { return importDb(pane as HomePane, desk, path, name, write, actor); },
   }),
   "home.connect": def({
-    summary: "start a machine's forward when it isn't up, and list its outlines", keys: "⏎ click",
+    summary: "start a machine's forward when it isn't up, and list its outlines", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.connect"),
     touches: "nothing", replay: "ask",
     args: { machine: { type: "string", about: "an ssh config name" } },
     examples: [
@@ -477,7 +496,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     run({ machine }, { pane, desk }) { return connect(pane as HomePane, desk, machine); },
   }),
   "home.add": def({
-    summary: "add a machine to the home base (and connect to it): machine=. The person's picks one from ~/.ssh/config", keys: "a, ⏎ or a click on its row",
+    summary: "add a machine to the home base (and connect to it): machine=. The person's picks one from ~/.ssh/config", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.add"),
     touches: "nothing", replay: "ask",
     args: { machine: { type: "string", about: "an ssh config name", optional: true } },
     examples: [
@@ -510,7 +529,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     },
   }),
   "home.cancel": def({
-    summary: "leave the home base, opening nothing (as q does): what the missing outline's cancel runs", keys: "⏎ click",
+    summary: "leave the home base, opening nothing (as q does): what the missing outline's cancel runs", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.cancel"),
     touches: "screen", replay: "ask",
     args: {},
     run(_, { desk }) {
@@ -521,7 +540,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     },
   }),
   "home.reload": def({
-    summary: "ask every host again: this machine's and each machine's forward as it is", keys: "r",
+    summary: "ask every host again: this machine's and each machine's forward as it is", keys: modeActionKeys([HOME_KEYS, HOME_CHOICE_KEYS], "home.reload"),
     touches: "nothing", replay: "safe",
     args: {},
     async run(_, { pane, desk }) { const p = pane as HomePane; await p.load(desk); return p.describe(); },
@@ -552,7 +571,6 @@ export const HOME_KIND: TileKind = {
 export function homeSpec(args: Partial<HomeArgs> = {}): ScreenSpec {
   return {
     name: "home", title: "home base", band: "home", digits: false,
-    hint: "|15⏎|08 open · |15n|08 new · |15i|08 import · |15a|08 add a machine · |15x|08 forget · |15r|08 reload · |15q|08 quit",
     layout: { focus: "home", policy: { host: "none" }, root: { t: "leaf", kind: "home", name: "home", state: { ...args } } },
   };
 }

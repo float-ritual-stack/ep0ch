@@ -6,6 +6,8 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
 import { hintKeys, declaredKeys } from "../../src/surface/actions";
 import { COMMENT_KEYS, EDIT_PREVIEW_KEYS } from "../../src/surface/attached-keys";
+import { HomePane } from "../../src/home";
+import { WelcomeList } from "../../src/hub/welcome";
 import { completionOf } from "../../src/surface/completer";
 import { ReaderPane } from "../../src/desk/panes";
 import { Desk } from "../../src/desk/desk";
@@ -129,6 +131,13 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     for (const path of ["home.ts", "drawer.ts", "note-trash.ts", "desk/desk.ts", "desk/lanes.ts", "desk/backlinks-pane.ts", "surface/picker.ts", "surface/note.ts"]) {
       const source = readFileSync(new URL(`../../src/${path}`, import.meta.url), "utf8");
       expect(source, path).not.toMatch(/foot:.*(?:⏎|esc|Enter|↑↓|j k)/);
+    }
+    for (const path of ["home.ts", "hub/welcome.ts", "desk/delivery.ts"]) {
+      const source = readFileSync(new URL(`../../src/${path}`, import.meta.url), "utf8");
+      expect(source.match(/(?:hint:|hint\(\).*return|const \w*HINT =).*?(?:⏎|\|15|j k|alt\+↑)/g) ?? [], path).toEqual([]);
+    }
+    for (const tile of [new HomePane({ folder: "/fictional" }), new WelcomeList()]) {
+      for (const key of hintKeys(tile.hint())) expect(tile.bindings.some(row => row.key === key), key).toBe(true);
     }
     const sources = readFileSync(new URL("../../src/surface/sources.ts", import.meta.url), "utf8");
     expect(/j k (?:select|move) ·/.test(sources)).toBe(false);

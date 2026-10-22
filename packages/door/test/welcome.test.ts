@@ -205,7 +205,6 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await until(() => plain(tileOf<WelcomePreview>("preview").render(100, 30, false, top()).lines.join("\n")).includes("The kettle"), "the preview's header");
     press({ kind: "alt-enter" });
     await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.kettle.id, "alt+⏎: the kettle is read in the detail");
-    expect(screen()).toContain("read here");
     expect(screen()).toContain("The kettle");
     press({ kind: "backspace" });
     await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "back: the start note again");

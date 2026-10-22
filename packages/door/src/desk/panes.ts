@@ -1,3 +1,4 @@
+import type { ModeKey } from "../surface/modes";
 import { outlineBoards, type NoteAddress } from "./outline-boards";
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
 import { headedTitle } from "../board";
@@ -169,6 +170,7 @@ export interface DeskApi {
 }
 
 export interface Pane {
+  readonly bindings?: readonly ModeKey[];
   /** Whether its host currently draws the tile (also reaches nested screens). */
   shownAs?(on: boolean): void;
   unsaved?(): boolean;

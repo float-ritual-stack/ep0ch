@@ -230,9 +230,9 @@ export class Lanes implements SourceModel {
         : `|12 can't drop into ${over.name}: ${p.reason}`;
       return paint(say);
     }
-    if (this.mover) return paint("|08 |15j k|08 pick a lane · |15enter|08 move the card there · |15esc|08 closes · the second line says what would be patched");
+    if (this.mover) return "move a card · the picker shows what would be patched";
     if (this.composer) return fg(C.dark) + " " + editHint(this.composer.session.draft, { save: "save", close: "back" }).replace("ctrl+s save", "ctrl+s create") + RESET;
-    if (this.steps) return paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15+|08 approve · |15-|08 reject · |15w|08 waiting · |15!|08 problem · |15esc|08 closes · each change is checked against the step as it was read");
+    if (this.steps) return "steps · each change is checked against the step as it was read";
     return null;
   }
 
