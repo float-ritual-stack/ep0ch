@@ -1,3 +1,4 @@
+import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-core/site-values";
 /**
  * Outline operations for agents (PIE-504): read, find, resolve, edit, create,
  * comment, reply, resolve a thread, recent changes and `draft.patch`. The CLI's
@@ -698,6 +699,13 @@ export async function useCallWarnings(client: AgentToolsClient, text: string, se
 
 async function referenceOnlyWarnings(client: AgentToolsClient, text: string, near?: string, self = near): Promise<string[]> {
   try {
+    const valueWarnings: string[] = [];
+    if (self && text.includes("{{")) {
+      const answer = await client.request<SiteAnswer>({ action: "site.answer", blockId: self, draft: { text } });
+      const built = valueLinkOccurrences(text, answer.values);
+      for (const span of built) for (const value of span.values) if (!hasWords(value)) valueWarnings.push(`{{${value.expression}}}: ${problemWords(value)}`);
+      for (const span of built.sort((a, b) => b.start - a.start)) text = text.slice(0, span.start) + (span.text ?? " ".repeat(span.end - span.start)) + text.slice(span.end);
+    }
     const warnings = await referenceWarnings(text, {
       resolve: async t => (await client.request<ResolvedBlockReferences>({ action: "references.resolve", text: t })).references,
       search: async query => (await client.request<{ matches: { block: { id: string }; title: string }[] }>({ action: "tree.search", query, ...(near ? { contextBlockId: near } : {}) })).matches
@@ -705,7 +713,7 @@ async function referenceOnlyWarnings(client: AgentToolsClient, text: string, nea
       text: async blockId => (await client.request<Block | null>({ action: "get", blockId }))?.text ?? null,
       ...(self ? { self } : {}),
     });
-    return warnings.map(describeReferenceWarning);
+    return [...valueWarnings, ...warnings.map(describeReferenceWarning)];
   } catch {
     return [];
   }

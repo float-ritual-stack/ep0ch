@@ -1,3 +1,4 @@
+import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { COMPONENT_OPEN } from "@ep0ch/outline-core/component-block";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 import { anchorRunbookSteps, isRunbook, runnableFences } from "@ep0ch/outline-core/runbook";
@@ -67,7 +68,7 @@ import {
   positivePropertyFilters,
   sortQueriedBlocks,
 } from "./block-query";
-import { pathValues } from "./site-answer";
+import { answerSite, pathValues } from "./site-answer";
 import type { FilterRow } from "@ep0ch/outline-core/resolve-path";
 import { closest } from "@ep0ch/outline-core/tool-args";
 import { isMachinery, MACHINE_KEY, machineryAllows, parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
@@ -3544,8 +3545,36 @@ export class OutlinerStore {
     }).deferred();
   }
 
+  private valueReferences = new Map<string, { answer: ReturnType<typeof answerSite>; versions: string[]; sequence: number; minute: number }>();
+  private valueReferenceIds: Set<string> | undefined;
+
+  private valueReferenceVersion(id: string): string {
+    const block = this.get(id);
+    // Moves preserve edit revisions; a structural read also depends on place and ordered membership.
+    return JSON.stringify([block?.revision, block?.parentId, block?.position, block?.effectiveDeletedRootId, this.children(id).map(child => child.id)]);
+  }
+
+  private refreshValueReferences(): void {
+    this.valueReferenceIds ??= new Set((this.database.query("SELECT id, text FROM blocks WHERE text LIKE '%{{%'").all() as { id: string; text: string }[]).filter(row => valueLinkOccurrences(row.text, []).length).map(row => row.id));
+    for (const id of this.valueReferenceIds) {
+      const block = this.get(id);
+      if (!block) { this.valueReferences.delete(id); this.valueReferenceIds.delete(id); continue; }
+      const cached = this.valueReferences.get(id);
+      if (cached && cached.answer.deps.every((dep, i) => this.valueReferenceVersion(dep) === cached.versions[i]) && (!cached.answer.anyChange || cached.sequence === this.sequence) && (!cached.answer.clock || cached.minute === Math.floor(Date.now() / 60_000))) continue;
+      const answer = answerSite(this, { blockId: id });
+      replaceReferenceIndex(this.database, id, block.text, answer.values);
+      this.valueReferences.set(id, { answer, versions: answer.deps.map(dep => this.valueReferenceVersion(dep)), sequence: this.sequence, minute: Math.floor(Date.now() / 60_000) });
+    }
+  }
+
+  referenceValues(id: string) {
+    this.refreshValueReferences();
+    return this.valueReferences.get(id)?.answer.values ?? [];
+  }
+
   /** A target reads indexed candidates and their ancestors; whole-outline relation queries share the graph. */
   private backlinkContextFromCurrentRead(targetIds?: readonly string[], extraAddresses: readonly string[] = []) {
+    this.refreshValueReferences();
     const addressRows = this.database.query(
       "SELECT normalized_address, block_id FROM page_addresses ORDER BY normalized_address",
     ).all() as Array<{ normalized_address: string; block_id: string }>;
@@ -3609,6 +3638,7 @@ export class OutlinerStore {
       workIdPrefix: this.workIdAllocatorFromCurrentRead()?.prefix ?? null,
       ticketPrefixes: this.workIdAllocatorStatusFromCurrentRead(),
       facetRules: this.facetRules(),
+      valuesOf: (id: string) => this.valueReferences.get(id)?.answer.values ?? [],
     };
   }
 
@@ -5870,6 +5900,9 @@ export class OutlinerStore {
   ): void {
     const source = this.database.query("SELECT text FROM blocks WHERE id = ?").get(blockId) as { text: string };
     replaceReferenceIndex(this.database, blockId, source.text);
+    this.valueReferences.delete(blockId);
+    if (valueLinkOccurrences(source.text, []).length) this.valueReferenceIds?.add(blockId);
+    else this.valueReferenceIds?.delete(blockId);
     this.database.query("DELETE FROM block_properties WHERE block_id = ?").run(blockId);
     const insert = this.database.query(
       "INSERT INTO block_properties (block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

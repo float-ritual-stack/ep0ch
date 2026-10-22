@@ -103,7 +103,7 @@ export type PathAnswer =
     from?: string;
     /** The values that are links to a note (shown by the note's title). */
     links?: ResolvedLink[];
-    /** The answer changes within the day by the clock alone (`now.time`): a watch of it needs the minute's tick. */
+    /** The answer depends on the clock alone (`now.time`): a watch of it needs the minute's tick. */
     clock?: "minute";
     route: string[];
   }
@@ -390,8 +390,8 @@ function nowAnswer(steps: readonly PathStep[], cx: Cx): PathAnswer {
   const m = NOW_KEY.exec(first.key);
   if (!m) return fail(`\`now\` has no \`${first.key}\``, ["date", "week", "time", "iso", "year", "month", "day", "weekday"], first.key, cx.route, near => `{{now.${near}}}`);
   let at = wall;
-  // Time of day (and an offset in hours or minutes) changes within the day: a watched answer needs the minute's tick.
-  if (/^(time|iso)$/i.test(m[1]!) || /[hm]$/.test(m[2] ?? "")) cx.clock = { minute: true };
+  // Every clock part can roll over without an outline change.
+  cx.clock = { minute: true };
   if (m[2]) {
     const bound = readDateBound(m[2], wall);
     if (!bound) return problem(`\`${m[2]}\` isn't an offset: write -1d, +7d, -2w, -3h or -30m`, cx.route, [], "{{now.date-1d}}");

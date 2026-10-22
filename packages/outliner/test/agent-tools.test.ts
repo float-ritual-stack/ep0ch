@@ -56,6 +56,28 @@ async function setup(extraEnv: Record<string, string> = {}) {
 
 const LONG_NOTE = "Seed swap plan [page::Seed Swap] [kind::plan]\n\n## Beans\n\nBorlotti and runner beans. ^beans\n\n## Squash\n\nButternut only.";
 
+test("saving an unresolved value-built link keeps the text and warns with the nearest key", async () => {
+  const { store, agent } = await setup();
+  const note = store.create("Plan [ticket::PC-1245]");
+  const text = note.text + "\n[[{{this.tiket}}]]";
+  const saved = await agent("edit", { ref: note.id, expectedRevision: note.revision, text });
+  expect(saved.exitCode).toBe(0);
+  expect(store.get(note.id)!.text).toBe(text);
+  expect(saved.json.warnings.join(" ")).toContain("did you mean");
+  expect(saved.json.warnings.join(" ")).toContain("ticket");
+});
+
+test("saving a value-built address with an empty part keeps the text and warns", async () => {
+  const { store, agent } = await setup();
+  store.create("Archive [page::Archive]");
+  const note = store.create("Plan");
+  const text = "Plan\n[[Archive{{this.children.title}}]]";
+  const saved = await agent("edit", { ref: note.id, expectedRevision: note.revision, text });
+  expect(saved.exitCode).toBe(0);
+  expect(store.get(note.id)!.text).toBe(text);
+  expect(saved.json.warnings?.join(" ")).toContain("did you mean");
+});
+
 test("read carries what a note's {{ }} read as (site), bounded to a note that holds one; text stays as written (PIE-533 S2)", async () => {
   const { store, agent } = await setup();
   const note = store.create("Vent rail [owner::sam]\nOwner {{this.owner}}, typo {{this.ownr}}.");

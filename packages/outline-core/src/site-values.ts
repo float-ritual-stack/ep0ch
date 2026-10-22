@@ -1,3 +1,5 @@
+import { pageLinkSpans, blockReferenceEnvelopeRanges, codeRangesOf, linkOccurrences, type LinkOccurrence, type CodeScope } from "./link-syntax";
+import { codeHides } from "./code-ranges";
 // How a `{{ }}` of a note reads in a drawing (PIE-533 S2). The service answers (`site.answer`); every reader draws that
 // answer with these words and finds the placeholders in the text it draws with the same scan, so the door, Detail, the
 // publisher and an agent's read agree on what a value says and what an unresolved one says. Pure: no I/O.
@@ -94,4 +96,31 @@ export function substituteValues(
     at = pair.end;
   }
   return out + text.slice(at);
+}
+
+/** Re-scan value-built envelopes, retaining authored offsets for clicks, comments and backlinks. */
+export function valueLinkOccurrences(text: string, values: readonly SiteValue[], code?: CodeScope): { start: number; end: number; link?: LinkOccurrence; text?: string; values: SiteValue[] }[] {
+  const pairs = pairValues(text, values);
+  // A path can itself contain ((id)) or [[page]]; those brackets belong to the value, not its enclosing link.
+  let masked = text;
+  for (const p of [...pairs].reverse()) masked = masked.slice(0, p.start) + " ".repeat(p.end - p.start) + masked.slice(p.end);
+  const envelopes = [...pageLinkSpans(masked), ...blockReferenceEnvelopeRanges(masked).map(r => ({ ...r, start: text[r.start - 1] === "!" ? r.start - 1 : r.start }))];
+  const ranges = codeRangesOf(text, code);
+  return envelopes.filter(r => !codeHides(r, ranges)).flatMap(r => {
+    const inside = pairs.filter(p => p.start >= r.start && p.end <= r.end).map(p => {
+      if (!hasWords(p.value) || p.value!.values!.some(v => v.trim().length > 0)) return p;
+      const { values: _values, ...value } = p.value!;
+      return { ...p, value: { ...value, problem: { message: "this address has an empty part; supply a destination or an explicit default", didYouMean: [`${p.expression} || destination`] } } };
+    });
+    if (!inside.length) return [];
+    let filled = "", at = r.start;
+    for (const p of inside) {
+      filled += text.slice(at, p.start) + (p.value?.values?.join(", ") ?? "");
+      at = p.end;
+    }
+    filled += text.slice(at, r.end);
+    const ready = inside.every(p => hasWords(p.value));
+    const link = ready ? linkOccurrences(filled, []).find(l => l.start === 0 && l.end === filled.length) : undefined;
+    return [{ ...r, ...(link ? { text: filled, link: { ...link, start: r.start, end: r.end } } : {}), values: inside.flatMap(p => p.value ? [p.value] : []) }];
+  });
 }

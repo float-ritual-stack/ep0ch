@@ -60,4 +60,11 @@ describe.skipIf(!outliner)("the showcase screen: notes that read themselves (PIE
     await board.update(note.id, now.text.replace("A typo: {{this.owner}}.", "A typo: {{this.ownr}}."), now.revision!);
     outlineChanged([note.id]);
   }, 20_000);
+  test("the showcase's value-built guide link opens its page", async () => {
+    await until(() => screen().includes("Open "), "the guide link drawn");
+    const link = (await act("elements")).elements.find((e: any) => e.kind === "link" && e.label.includes("Ada Marsh"));
+    expect(link).toBeDefined();
+    expect(await app.dispatch.act({ action: "element.open", args: { n: link.n }, tile: "vent rail" }, { kind: "user" })).toMatchObject({ opened: seeded.notes.ventPerson.id });
+  }, 20_000);
+
 });

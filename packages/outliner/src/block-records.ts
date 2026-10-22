@@ -70,7 +70,7 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
     const resources: BlockRecord["resources"] = [];
     if (authored.kind === "ready") {
       // Every place each link is written: the occurrences authored links read, grouped by what they name.
-      const occurrences = outlinerReferenceOccurrences(text, source.workIdAllocatorStatus(), properties);
+      const occurrences = outlinerReferenceOccurrences(text, source.workIdAllocatorStatus(), properties, source.referenceValues?.(id));
       const groups = new Map<string, [number, number][]>();
       for (const o of occurrences) { const k = occurrenceKey(o); groups.set(k, [...(groups.get(k) ?? []), [o.start, o.end]]); }
       for (const e of authored.outlinks.entries) {

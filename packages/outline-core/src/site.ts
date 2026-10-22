@@ -205,7 +205,7 @@ export interface SiteValue {
   source?: { block: string; start: number; line: number; mark: string };
   /** Values that are links to a note (shown by its title). */
   links?: { text: string; id: string; title: string; how: string }[];
-  /** The value changes within the day by the clock alone (`now.time`). */
+  /** The value depends on the clock alone (`now.time`). */
   clock?: "minute";
   /** It read a note the request said the reader may not see: no value, and nothing of it is to be drawn (`problem` says so). */
   hidden?: true;
@@ -232,7 +232,7 @@ export interface SiteAnswer {
   deps: string[];
   /** Something it looked for isn't there yet (a `[[page]]` to be): any change may fill it, so `deps` can't be trusted to name every change. */
   anyChange?: true;
-  /** Some value changes within the day by the clock alone (`now.time`): a watch of this answer is evaluated again each minute. */
+  /** Some value depends on the clock alone (`now.time`): a watch of this answer is evaluated again each minute. */
   clock?: "minute";
   /** The `{{ }}` placeholders and paths that have a problem (and no default). */
   problems: number;

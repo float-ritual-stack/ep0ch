@@ -1,3 +1,4 @@
+import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { C, fg, drawEllipsized, ellipsize } from "./style";
 // Links in read mode, as Detail shows them: `((id))` and `[[address]]` become the target's title or the
 // authored label, without delimiters; a missing target reads `label ◌` (MISSING_MARK), quiet in running text. The service
@@ -392,8 +393,9 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     for (let j = block.start + 1; j < block.end; j++) if (typed[j] === block.start) typed[j] = -1;
   }
   // A `{{ }}` as the reader draws it: tagged as an element of its own, never in a link's colour unless it is a URL.
-  const drawValue = (raw: string, v: SiteValue, block: string): string => {
+  const drawValue = (raw: string, v: SiteValue, block: string, label?: string): string => {
     const words = readerWords(raw, v);
+    const shown = label ?? words;
     const resolved = hasWords(v);
     const near = v.problem && !resolved ? problemWords(v) : undefined;
     const to: LinkTarget = {
@@ -402,12 +404,12 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
       ...(v.source ? { block: v.source.block, at: v.source.start, ...(v.source.mark ? { atLabel: v.source.mark } : {}) } : v.from && v.from !== block ? { block: v.from } : {}),
     };
     const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
-    if (!current) return fg(C.dark) + on + plainWords(words) + off + LINK_OFF;
-    if (!resolved) return MISSING_ON + on + plainWords(words) + off + LINK_OFF;
+    if (!current) return fg(C.dark) + on + plainWords(shown) + off + LINK_OFF;
+    if (!resolved) return MISSING_ON + on + plainWords(shown) + off + LINK_OFF;
     const url = (v.values ?? []).length === 1 && isExternalUrl(v.values![0]!);
     // Computed, so lightly marked: italic; a URL is a link's colour instead.
-    return url ? EXTERNAL_ON + on + plainWords(words) + off + LINK_OFF
-      : STYLE.italic[0] + on + plainWords(words === "" ? EMPTY_VALUE : words) + off + STYLE.italic[1];
+    return url ? EXTERNAL_ON + on + plainWords(shown) + off + LINK_OFF
+      : STYLE.italic[0] + on + plainWords(shown === "" ? EMPTY_VALUE : shown) + off + STYLE.italic[1];
   };
   // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
   const mark = (v: LinkView, to: LinkTarget, external = false) => {
@@ -444,7 +446,14 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
       const start = m.index! + m[1]!.length;
       spans.push({ start, end: start + tag.raw.length, draw: () => mark({ text: tag.raw, missing: false }, { tag: tag.value, label: tag.raw }) });
     }
-    for (const l of linkOccurrences(line, code)) {
+    const built = valueLinkOccurrences(line, answer?.values ?? [], code);
+    const links = linkOccurrences(line, code).filter(l => !built.some(b => b.start < l.end && l.start < b.end));
+    for (const b of built) {
+      if (b.link) links.push(b.link);
+      else spans.push({ ...b, draw: () => b.values.length ? b.values.map(v => drawValue(`{{${v.expression}}}`, v, site!.block)).join(", ") : fg(C.dark) + plainWords(line.slice(b.start, b.end)) + LINK_OFF });
+    }
+    const sourceMark = (l: typeof links[number]) => built.find(b => b.link === l)?.values.map(v => " " + drawValue(`{{${v.expression}}}`, v, site!.block, "¶")).join("") ?? "";
+    for (const l of links) {
       if (l.kind === "markdown") {
         // `[review layout](act: layout.load name=review)` (PIE-957) is a press: its text runs the action line as the person.
         const act = /^act:\s*(\S.*)$/.exec(l.url.trim())?.[1]?.trim();
@@ -464,12 +473,14 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
           spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: unresolved }, { url, label: l.text }, !unresolved && isExternalUrl(url)) });
         }
       } else if (l.kind === "page") {
-        spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) });
+        spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) + sourceMark(l) });
+      } else if (l.embed && embeds && built.some(b => b.link === l)) {
+        spans.push({ ...l, draw: () => built.find(b => b.link === l)!.text! + sourceMark(l) });
       } else if (!l.embed || !embeds) {
         const answer = resolved.get(refKey(l.blockId, l.fragmentId, l.outline));
         const v = refView(l.blockId, l.fragmentId, l.label, answer);
         const to: LinkTarget = { block: l.blockId, ...(answer?.outline || l.outline ? { outline: answer?.outline ?? l.outline, machine: answer?.machine } : {}), ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
-        spans.push({ ...l, draw: () => (l.embed ? `!${mark(v, to)} · embed not expanded here` : mark(v, to)) });
+        spans.push({ ...l, draw: () => (l.embed ? `!${mark(v, to)} · embed not expanded here` : mark(v, to)) + sourceMark(l) });
       }
     }
     let out = "", at = 0;

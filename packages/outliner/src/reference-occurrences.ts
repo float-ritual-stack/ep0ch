@@ -1,3 +1,5 @@
+import type { SiteValue } from "@ep0ch/outline-core/site";
+import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import {Lexer, type Token} from "marked";
 import { maskOutputRegions } from "@ep0ch/outline-core/output-region";
 import { codeHides, protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
@@ -113,9 +115,11 @@ export function outlinerReferenceOccurrences(
   source: string,
   workIdPrefix: TicketPrefixes = null,
   propertyRecords: readonly PropertyRecord[] = parsePropertyRecords(source),
+  values: readonly SiteValue[] = [],
 ): OutlinerReferenceOccurrence[] {
   // A reference inside an output region is machinery, never a backlink (PIE-956).
   const text = maskOutputRegions(source);
+  const built = valueLinkOccurrences(text, values);
   const blockReferences = blockReferenceOccurrences(text);
   const blockReferenceRanges = blockReferenceEnvelopeRanges(text);
   const candidates: OutlinerReferenceOccurrence[] = blockReferences.map(
@@ -150,8 +154,13 @@ export function outlinerReferenceOccurrences(
   ];
   // Code is opaque (PIE-764): outline-core's one rule, which the link scans above already applied to their own.
   const code = protectedCodeRanges(text);
+  for (let i = candidates.length - 1; i >= 0; i--) if (built.some(r => rangesOverlap(candidates[i]!, r))) candidates.splice(i, 1);
+  for (const { link } of built) {
+    if (link?.kind === "block") candidates.push(link);
+    else if (link?.kind === "page") candidates.push({ ...link, address: link.displayAddress });
+  }
   const inText = candidates.filter((candidate) =>
-    (candidate.kind === "block" ||
+    (candidate.kind === "block" || built.some(r => r.link && candidate.start === r.start && candidate.end === r.end) ||
       !blockReferenceRanges.some((range) => rangesOverlap(candidate, range))) &&
     !protectedRanges.some((range) => rangesOverlap(candidate, range)) &&
     !codeHides(candidate, code)

@@ -67,6 +67,47 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
     expect(await drawn(note.id)).not.toContain("{{");
   }, 30_000);
 
+  test("clicking a value-built page link opens the page", async () => {
+    const target = await create("First ticket [page::PC-1245]");
+    const note = await create("Plan [ticket::PC-1245]\nSee [[{{this.ticket}}]].");
+    await drawn(note.id);
+    const opened: string[] = [];
+    const host: SurfaceHost = { ctx: desk().ctx as any, redraw() {}, navigate(to: any) { opened.push(to.id); } };
+    const surface = new NoteSurface();
+    surface.show((await board.get(note.id))!, host);
+    let lines: string[] = [];
+    await until(() => {
+      lines = surface.render(100, 40, host).lines.map(visible);
+      return surface.describeElements().some(e => e.kind === "link");
+    }, "the resolved link");
+    const y = lines.findIndex(l => l.includes("See"));
+    surface.click(lines[y]!.indexOf("See ") + 5, y, host);
+    await until(() => opened.length > 0, "the linked page to open");
+    expect(opened).toEqual([target.id]);
+    const source = surface.describeElements().find(e => e.label === "¶");
+    expect(source).toBeDefined();
+    await surface.runKey("element.open", { n: source!.n }, host);
+    expect(opened.at(-1)).toBe(note.id);
+    expect(surface.focusMark?.spec.line).toBe(1);
+  }, 30_000);
+
+  test("a value-built block link and embed draw their destination, while an unresolved value cannot open a literal page", async () => {
+    const target = await create("A made-up recipe\nBring the copper scoop.");
+    const note = await create(`Recipes [destination::${target.id}]\nUse (({{this.destination}})).\n!(({{this.destination}}))\nMissing [[{{this.destnation}}]].`);
+    const text = await drawn(note.id);
+    expect(text).toContain("Bring the copper scoop.");
+    expect(text).toContain("did you mean destination?");
+    const opened: string[] = [];
+    const host: SurfaceHost = { ctx: desk().ctx as any, redraw() {}, navigate(to: any) { opened.push(to.id); } };
+    const surface = new NoteSurface();
+    surface.show((await board.get(note.id))!, host);
+    surface.render(100, 80, host);
+    const link = surface.describeElements().find(e => e.kind === "link" && e.label.includes("recipe"));
+    expect(link).toBeDefined();
+    await surface.runKey("element.open", { n: link!.n }, host);
+    expect(opened).toEqual([target.id]);
+  }, 30_000);
+
   test("a value follows a change to the note it was read from", async () => {
     const note = await create("Card [stage::queued]\nNow: {{this.stage}}");
     expect(await drawn(note.id)).toContain("Now: queued");

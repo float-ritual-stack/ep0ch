@@ -70,6 +70,7 @@ class StoreWorld implements PathWorld {
   textOf(id: string): string | undefined { return this.records.get(id)?.text; }
 
   children(id: string): BlockRecord[] {
+    this.deps.add(id);
     // One past the most a path reads, so the resolver can say there are more.
     const kids = this.store.children(id).slice(0, 1001);
     const shown = kids.filter(child => !this.hidden.has(child.id));
@@ -131,7 +132,7 @@ export interface Bound {
   blockId: string;
   revision: number;
   text: string;
-  /** A value a producer's question read changes within the day by the clock alone (`{{now.time}}` in a query). */
+  /** A value a producer's question read depends on the clock alone (`{{now.time}}` in a query). */
   clock?: true;
   /** The unsaved text of the note read, when a draft was given. */
   draft?: { id: string; text: string };
@@ -311,36 +312,48 @@ function fill(bound: Bound, ask: NonNullable<SiteAnswerRequest["interpolate"]>):
   return { text: interpolate(ask.text, span => { const v = answered.get(span.start); return v && v.values && !v.hidden ? v.values : undefined; }, { fences: ask.fences ?? "literal" }), values };
 }
 
+// Backlink reads can ask for the address currently being evaluated.
+const answeringSites = new WeakMap<SiteStore, Set<string>>();
+
 /**
  * `site.answer`: every `{{ }}` of the note (or its draft), and any `paths` asked, answered with how and from what. With a
  * `budget` (the service's own requests), past it the answer throws `StillCounting` instead of holding the loop.
  */
 export function answerSite(store: SiteStore, request: SiteAnswerRequest, clock: () => number = Date.now, budget?: SiteBudget): SiteAnswer {
-  const bound = bind(store, request, clock, budget);
-  // A producer's question (a figure, `::fields`, `::if`): asked of the bound Site, so `this` and its `{{ }}` operands are its host's.
-  if (request.produce && request.draft && request.produce.kind !== "fields" && request.produce.kind !== "if") bound.route.push("draft not read: this producer asks the saved note and the outline (a draft is read for `{{ }}` values, ::fields and ::if)");
-  const produced = request.produce ? produce(store, bound, request.produce, { read: path => valueOf(bound, path, pathSpan(path)), binder: boundBinder(bound), spend: what => bound.world.spend(what) }) : undefined;
-  // With a producer asking, only its question is answered: the note's own `{{ }}` are the client's other watch.
-  const values = request.produce ? [] : interpolationSpans(bound.text).map(span => valueOf(bound, span.expression, span, span.start, span.end));
-  const paths = (request.paths ?? []).map(path => valueOf(bound, path, pathSpan(path)));
-  const interpolated = request.interpolate ? fill(bound, request.interpolate) : undefined;
-  for (const id of bound.world.deps) bound.deps.add(id);
-  const { site } = bound;
-  return {
-    blockId: bound.blockId,
-    revision: bound.revision,
-    site: { ...(site.this ? { this: site.this.id } : {}), ...(site.self ? { self: site.self.id } : {}), ...(site.caller ? { caller: site.caller } : {}), props: site.props },
-    values,
-    ...(request.paths ? { paths } : {}),
-    ...(interpolated ? { interpolated } : {}),
-    ...(produced ? { produced: produced.answer } : {}),
-    route: bound.route,
-    deps: [...bound.deps].sort(),
-    // A question about the outline at large (a figure's query, an `::if` over links:) depends on notes the answer can't name.
-    ...(bound.world.unresolved || produced?.anyChange ? { anyChange: true as const } : {}),
-    ...([...values, ...paths, ...(interpolated?.values ?? [])].some(v => v.clock) || bound.clock ? { clock: "minute" as const } : {}),
-    problems: [...values, ...paths, ...(interpolated?.values ?? [])].filter(v => v.problem && !v.usedDefault).length,
-  };
+  const active = answeringSites.get(store) ?? new Set<string>();
+  const id = request.blockId ?? "";
+  if (active.has(id)) throw new Error("value link cycle: this address reads its own backlinks");
+  answeringSites.set(store, active);
+  active.add(id);
+  try {
+    const bound = bind(store, request, clock, budget);
+    // A producer's question (a figure, `::fields`, `::if`): asked of the bound Site, so `this` and its `{{ }}` operands are its host's.
+    if (request.produce && request.draft && request.produce.kind !== "fields" && request.produce.kind !== "if") bound.route.push("draft not read: this producer asks the saved note and the outline (a draft is read for `{{ }}` values, ::fields and ::if)");
+    const produced = request.produce ? produce(store, bound, request.produce, { read: path => valueOf(bound, path, pathSpan(path)), binder: boundBinder(bound), spend: what => bound.world.spend(what) }) : undefined;
+    // With a producer asking, only its question is answered: the note's own `{{ }}` are the client's other watch.
+    const values = request.produce ? [] : interpolationSpans(bound.text).map(span => valueOf(bound, span.expression, span, span.start, span.end));
+    const paths = (request.paths ?? []).map(path => valueOf(bound, path, pathSpan(path)));
+    const interpolated = request.interpolate ? fill(bound, request.interpolate) : undefined;
+    for (const id of bound.world.deps) bound.deps.add(id);
+    const { site } = bound;
+    return {
+      blockId: bound.blockId,
+      revision: bound.revision,
+      site: { ...(site.this ? { this: site.this.id } : {}), ...(site.self ? { self: site.self.id } : {}), ...(site.caller ? { caller: site.caller } : {}), props: site.props },
+      values,
+      ...(request.paths ? { paths } : {}),
+      ...(interpolated ? { interpolated } : {}),
+      ...(produced ? { produced: produced.answer } : {}),
+      route: bound.route,
+      deps: [...bound.deps].sort(),
+      // A question about the outline at large (a figure's query, an `::if` over links:) depends on notes the answer can't name.
+      ...(bound.world.unresolved || produced?.anyChange ? { anyChange: true as const } : {}),
+      ...([...values, ...paths, ...(interpolated?.values ?? [])].some(v => v.clock) || bound.clock ? { clock: "minute" as const } : {}),
+      problems: [...values, ...paths, ...(interpolated?.values ?? [])].filter(v => v.problem && !v.usedDefault).length,
+    };
+  } finally {
+    active.delete(id);
+  }
 }
 
 /**

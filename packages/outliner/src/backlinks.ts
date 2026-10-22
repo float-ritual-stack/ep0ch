@@ -1,3 +1,4 @@
+import type { SiteValue } from "@ep0ch/outline-core/site";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import {
   backlinkSourceFacets,
@@ -40,6 +41,7 @@ export interface BacklinkRelationInput {
   ticketPrefixes?: TicketPrefixes;
   facetRules?: BacklinkFacetRules;
   targetOutline?: string;
+  valuesOf?: (id: string) => readonly SiteValue[];
 }
 
 export function normalizeBacklinkQuery(query: BacklinkQuery): BacklinkQuery {
@@ -199,10 +201,11 @@ function sourceOccurrences(
   addressTargets: ReadonlyMap<string, string>,
   workIdPrefix: string | null,
   ticketPrefixes: TicketPrefixes = workIdPrefix,
+  values: readonly SiteValue[] = [],
 ): (BacklinkRelationOccurrence & { target: string | undefined })[] {
   const propertyRecords = parsePropertyRecords(source.text);
   return [
-    ...outlinerReferenceOccurrences(source.text, ticketPrefixes, propertyRecords),
+    ...outlinerReferenceOccurrences(source.text, ticketPrefixes, propertyRecords, values),
     ...propertyReferenceOccurrences(source.text, propertyRecords),
   ]
     .sort((left, right) => left.start - right.start)
@@ -220,7 +223,7 @@ export function backlinkSourceIds(
   const out = new Map<string, string[]>([...targets].map((id) => [id, []]));
   for (const source of input.orderedBlocks) {
     if (source.effectiveDeletedRootId || isMachinerySource(source)) continue;
-    const linked = new Set(sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes).map((o) => o.target));
+    const linked = new Set(sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes, input.valuesOf?.(source.id)).map((o) => o.target));
     for (const target of linked) if (target && targets.has(target)) out.get(target)!.push(source.id);
   }
   return out;
@@ -232,11 +235,11 @@ export function backlinkSourceIds(
  * isn't a block it links to.
  */
 export function linkTargetIds(
-  input: Pick<BacklinkRelationInput, "blocksById" | "addressTargets" | "workIdPrefix" | "ticketPrefixes">,
+  input: Pick<BacklinkRelationInput, "blocksById" | "addressTargets" | "workIdPrefix" | "ticketPrefixes" | "valuesOf">,
   source: Block,
 ): Set<string> {
   const out = new Set<string>();
-  for (const { target } of sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes)) {
+  for (const { target } of sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes, input.valuesOf?.(source.id))) {
     const block = target ? input.blocksById.get(target) : undefined;
     if (block && !block.effectiveDeletedRootId) out.add(block.id);
   }
@@ -253,7 +256,7 @@ export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkC
   for (const source of input.orderedBlocks) {
     if (source.effectiveDeletedRootId && !query.includeDeleted) continue;
     if (isMachinerySource(source)) continue;
-    const occurrences = sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes)
+    const occurrences = sourceOccurrences(source, input.addressTargets, input.workIdPrefix, input.ticketPrefixes, input.valuesOf?.(source.id))
       .filter((occurrence) => occurrence.target === input.target.id && (!("outline" in occurrence) || !occurrence.outline || occurrence.outline === input.targetOutline));
     if (occurrences.length === 0) continue;
     matches.push(backlinkSource(
