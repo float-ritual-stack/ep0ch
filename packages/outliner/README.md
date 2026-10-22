@@ -1259,7 +1259,31 @@ out, every page is the sign-in page (dark, no script) and an API call is `401`; 
 #### Artifacts
 
 An artifact is a plain folder in one machine-wide store, outside every outline.
-The main way in is a synced inbox. Set up the sync on the laptop:
+Write a path on its own note line and the host takes it into the store:
+
+```text
+- [artifact::/path/to/lantern.jsx]
+- [artifact::artifacts/lantern.jsx]
+- [artifact::~/sketches/lantern.html]
+```
+
+Paths are absolute, relative to the outline's folder, or start with `~/` for the
+host's home folder. The host must be able to read the file. Supported kinds are
+`.jsx`, `.tsx`, `.html`, `.svg` and `.mermaid`. The store names it from the file's
+stem, adding a number when another artifact has that name; the same absolute
+path keeps its name across reads and host restarts. Nothing rewrites the note.
+On the next read, changed content creates a new numbered snapshot. An unchanged
+file keeps its snapshot without rereading or hashing its source; the store checks
+its device, inode, size and modification time, and concurrent resolves share work.
+Symlinks use the target's kind. Paths with any hidden segment in the canonical
+target are refused: copy the file somewhere visible or use `ep0ch artifact put
+<file> --name <n>` explicitly. A deleted file keeps serving its last snapshot and the
+door's card says `file gone since <time>`. A file that cannot be read names the
+host and the concrete `ep0ch artifact put` command; a folder asks for its entry
+file. The web note frames the stored URL and the door opens it through the same
+`artifact.open` action as a named artifact.
+
+For dropping built folders or syncing from another machine, set up the inbox:
 
 ```sh
 mutagen sync create --name artifacts ~/artifacts-inbox float-2:~/outlines/.artifacts/inbox
@@ -1312,8 +1336,8 @@ socket/SSH forward. MCP `artifact_put` accepts `{name, kind, content}` for one f
 for a small UTF-8 site. It requires the MCP write access level. `artifact_list`
 and `artifact_versions {name}` require read access. These calls share one artifact
 root per machine. Artifact CLI commands need no outline: `--machine`, otherwise the
-nearest `.ep0ch`'s machine, otherwise this machine selects the store. Only `import`
-uses an outline to locate its source folder.
+nearest `.ep0ch`'s machine, otherwise this machine selects the store. `import` and relative path references
+use the selected outline to locate their source.
 Binary files go through CLI tar uploads. Puts replace the live folder; snapshot
 explicitly freezes it. Uploads and snapshots default to 64 MiB, configurable with
 `EP0CH_ARTIFACT_MAX_BYTES` on the host and watcher. Inbox pickups enforce the cap

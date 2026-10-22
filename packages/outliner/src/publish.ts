@@ -1922,7 +1922,7 @@ export class Publisher {
     const spec = block ? noteMediaLines(block.text ?? "").get(line) : undefined;
     if (!spec || spec.kind !== "artifact") return notFound();
     const artifact = await this.client.request<ArtifactInfo>({ action: "artifacts.show", name: spec.path }).catch(() => null);
-    if (artifact) return artifact.url ? Response.redirect(artifact.url, 302) : notFound();
+    if (artifact?.url) return Response.redirect(artifact.url, 302);
     const check = this.policy && checkAttachment(spec.path, this.policy);
     if (!check || !check.ok) return notFound();
     const contents = await this.client.request<FileContents>({ action: "files.read", path: check.path });
@@ -2333,7 +2333,7 @@ export class Publisher {
         if (artifact?.url) {
           artifacts.set(`${row.block.id}:${line}`, spec.alt ?? artifact.name);
           artifactUrls.set(`${row.block.id}:${line}`, artifact.url);
-        } else if (!artifact && policy) {
+        } else if (policy) {
           const check = checkAttachment(spec.path, policy);
           if (check.ok && check.type !== "text") {
             artifacts.set(`${row.block.id}:${line}`, artifactTitle(spec));

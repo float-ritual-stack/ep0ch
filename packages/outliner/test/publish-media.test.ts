@@ -161,10 +161,10 @@ test("imported artifact paths frame their static URLs and keep files outside the
   cleanups.push(() => { if (old === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = old; });
   mkdirSync(join(workspace, "artifacts"));
   writeFileSync(join(workspace, "artifacts", "orbit-lamp.html"), "<!doctype html><title>Orbit lamp</title><canvas></canvas>");
-  const imported = await client.request<{ imported: { url: string }[] }>({ action: "artifacts.import" });
-  const url = imported.imported[0]!.url;
+  await client.request({ action: "artifacts.import" });
   const note = store.create(`Desk toys [publish::public:desk-toys]\n[artifact::artifacts/orbit-lamp.html] [height::20] [alt::Orbit lamp]\n[artifact::${join(elsewhere, "secret.html")}]`);
   const html = await (await get("/p/desk-toys?view=html")).text();
+  const { url } = await client.request<{ url: string }>({ action: "artifacts.show", name: "artifacts/orbit-lamp.html" });
   expect(html).toContain(`<iframe src="${url}" title="Orbit lamp"`);
   expect(html).toContain("height:25.00rem");
   expect(html).not.toContain(elsewhere);

@@ -820,7 +820,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   }, 30_000);
 
 
-  test("artifacts: live and pinned cards open the static URLs by key, mouse and agent action", async () => {
+  test("artifacts: file paths, live and pinned cards open the static URLs by key, mouse and agent action", async () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "artifacts" }, as: "test-agent" });
@@ -829,6 +829,9 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     const live = await board.request<{ url: string }>("artifacts.show", { name: list[0].path });
     const pinned = await board.request<{ url: string }>("artifacts.show", { name: list[1].path });
     expect(pinned.url).toContain("showcase-orbit%401/");
+    const file = await board.request<{ url: string; version: number }>("artifacts.show", { name: list[2].path });
+    expect(file.version).toBe(1);
+    expect(await app.act({ action: "artifact.open", args: { n: 3 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: file.url, launched: false });
     expect(await app.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: pinned.url, launched: false });
     const opened: string[][] = [], run = external.run;
     external.run = cmd => { opened.push(cmd); };
@@ -842,6 +845,18 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       await until(() => opened.length === 2, "Click opened the live folder", 5000);
       expect(opened[1]!.at(-1)).toBe(live.url);
     } finally { external.run = run; }
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    const path = join(scratch.root, "gone-lamp.html");
+    writeFileSync(path, "<h1>Last lamp</h1>");
+    const text = `A lamp file\n- [artifact::${path}]`;
+    const note = await board.createBlock(null, text);
+    await app.act({ action: "open", tile: "reader", args: { id: note.id }, as: "test-agent" });
+    await until(() => screen().includes("gone-lamp") && !screen().includes("reading…"), "the file card ready", 8000);
+    const last = await board.request<{ url: string }>("artifacts.show", { name: path });
+    rmSync(path);
+    await until(() => screen().includes("file gone since"), "the deleted file's warning on its card", 10_000);
+    expect(await app.act({ action: "artifact.open", args: { n: 1 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: last.url, launched: false });
+    expect((await board.get(note.id))!.text).toBe(text);
   }, 30_000);
 
 });

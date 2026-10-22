@@ -1,10 +1,11 @@
 import { artifactResponse } from "../src/artifact-server";
 import { ArtifactStore } from "../src/artifact-store";
 import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
-import { afterAll, afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { afterAll, afterEach, expect, test, spyOn } from "bun:test";
+import * as fs from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync, symlinkSync, chmodSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, relative } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { scratchOutline } from "./scratch-outline";
 import { Publisher } from "../src/publish";
@@ -572,27 +573,6 @@ test("read-only copies can show, list and read versions of machine artifacts", a
   await expect(copy.request({ action: "artifacts.rm", name: "lantern" })).rejects.toThrow(/read.only/i);
 });
 
-test("unimported artifact paths still render and recompile after a file edit", async () => {
-  const extraRoot = mkdtempSync(join(tmpdir(), "outliner-artifact-root-"));
-  cleanups.push(() => rmSync(extraRoot, { recursive: true, force: true }));
-  const { store, get, write } = await setup({ roots: [extraRoot] });
-  const absolute = join(extraRoot, "external.html");
-  writeFileSync(absolute, "<h1>Absolute page</h1>");
-  const paths = ["notes/chart.jsx", "./artifacts/x.html", "artifacts/demos/x.jsx", absolute];
-  write(paths[0]!, "export default () => <p>First chart</p>");
-  write("artifacts/x.html", "<h1>Relative page</h1>");
-  write(paths[2]!, "export default () => <p>Nested chart</p>");
-  const note = store.create(`Paths [publish::paths]\n${paths.map(path => `[artifact::${path}]`).join("\n")}`);
-  const html = await (await get("/p/paths?view=html")).text();
-  for (let line = 1; line <= paths.length; line++) {
-    const route = `/p/${note.id}/artifact/${line}`;
-    expect(html).toContain(`src="${route}"`);
-    expect((await get(route)).status).toBe(200);
-  }
-  write(paths[0]!, "export default () => <p>Changed chart</p>");
-  expect(await (await get(`/p/${note.id}/artifact/1`)).text()).toContain("Changed chart");
-}, COMPILE_TIMEOUT);
-
 test("mermaid and markdown puts serve rendered HTML beside their source", async () => {
   const { root, client } = await setup();
   const oldOrigin = process.env.EP0CH_ARTIFACT_ORIGIN;
@@ -658,3 +638,247 @@ test("file maps, import and inbox drops enforce the same entry cap before instal
   expect(readFileSync(reason, "utf8")).toMatch(/entries.*cap/);
   expect(existsSync(join(root, ".artifacts/live/crowded"))).toBe(false);
 });
+
+
+test("artifact file lines enter the store, follow edits and retain the last snapshot when deleted", async () => {
+  const { root, workspace, store, client, get, write } = await setup();
+  const oldOrigin = process.env.EP0CH_ARTIFACT_ORIGIN;
+  process.env.EP0CH_ARTIFACT_ORIGIN = "https://artifacts.example.test";
+  cleanups.push(() => { if (oldOrigin === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = oldOrigin; });
+  const source = write("sketches/Lantern.jsx", 'export default () => <p>First lantern</p>');
+  const refs = [source, "sketches/Lantern.jsx", `~/${relative(homedir(), source)}`];
+  const text = `File art [publish::file-art]\n${refs.map(ref => `- [artifact::${ref}]`).join("\n")}`;
+  const note = store.create(text);
+  await client.request({ action: "artifacts.put", name: "lantern", files: { "index.html": "Existing artifact" } });
+  const show = (name: string) => client.request<ArtifactInfo>({ action: "artifacts.show", name });
+  const first = await show(source);
+  expect(first.name).toBe("lantern-2");
+  expect(first.version).toBe(1);
+  const serve = (info: ArtifactInfo) => artifactResponse(join(root, ".artifacts"), new Request(info.url!), "*");
+  expect(await serve(first).text()).toContain("First lantern");
+  for (const ref of refs) expect(await show(ref)).toEqual(first);
+  expect(await (await get("/p/file-art?view=html")).text()).toContain(`src="${first.url}"`);
+  expect((await get(`/p/${note.id}/artifact/1`)).headers.get("location")).toBe(first.url);
+  writeFileSync(source, 'export default () => <p>Second lantern</p>');
+  const second = await show(source);
+  expect(second.name).toBe(first.name);
+  expect(second.version).toBe(2);
+  expect(await serve(second).text()).toContain("Second lantern");
+  expect(await serve(first).text()).toContain("First lantern");
+  expect((await show(source)).version).toBe(2);
+  const other = write("other/Lantern.jsx", 'export default () => <p>Other lantern</p>');
+  expect((await show(other)).name).toBe("lantern-3");
+  // Imported aliases and spelling the same path with ./ must keep following one file.
+  write("artifacts/Pulse.html", "First pulse");
+  await client.request({ action: "artifacts.import" });
+  const pulse = await show("artifacts/Pulse.html");
+  expect((await show("./artifacts/Pulse.html")).name).toBe(pulse.name);
+  write("artifacts/Pulse.html", "Second pulse");
+  expect(await serve(await show("artifacts/Pulse.html")).text()).toBe("Second pulse");
+  rmSync(source);
+  const gone = await show(source);
+  expect(gone.url).toBe(second.url);
+  expect(gone.warning).toMatch(/file gone since \d{4}-/);
+  expect(await serve(gone).text()).toContain("Second lantern");
+  expect((await show(source)).warning).toBe(gone.warning);
+  expect(store.get(note.id)?.text).toBe(text);
+  // A fresh store instance reads the durable path index, rather than minting another name.
+  const reopened = new ArtifactStore(root);
+  expect(await reopened.request({ action: "artifacts.show", name: refs[1]! }, workspace)).toEqual(gone);
+  writeFileSync(source, 'export default () => <p>Second lantern</p>');
+  expect(await show(source)).toEqual(second);
+  const a = write("parallel-a.html", "A"), b = write("parallel-b.html", "B");
+  const peer = new ArtifactStore(root);
+  const [one, two] = await Promise.all([
+    reopened.request({ action: "artifacts.show", name: a }, workspace) as Promise<ArtifactInfo>,
+    peer.request({ action: "artifacts.show", name: b }, workspace) as Promise<ArtifactInfo>,
+  ]);
+  expect((await show(a)).name).toBe(one.name);
+  expect((await show(b)).name).toBe(two.name);
+  await client.request({ action: "artifacts.rm", name: `${one.name}@${one.version}` });
+  const restored = await show(a);
+  expect(restored.name).toBe(one.name);
+  expect(restored.version).toBe(2);
+  expect(await serve(restored).text()).toBe("A");
+  await reopened.close(); await peer.close();
+}, COMPILE_TIMEOUT);
+
+
+test("artifact file refusals name the host, supported kinds and concrete repair calls", async () => {
+  const { client, write, workspace, store } = await setup();
+  const oldMachine = process.env.EP0CH_MACHINE_NAME;
+  process.env.EP0CH_MACHINE_NAME = "garden-host";
+  cleanups.push(() => { if (oldMachine === undefined) delete process.env.EP0CH_MACHINE_NAME; else process.env.EP0CH_MACHINE_NAME = oldMachine; });
+  const unreadable = write("private.jsx", "export default () => <p>Private</p>");
+  chmodSync(unreadable, 0);
+  cleanups.push(() => chmodSync(unreadable, 0o600));
+  const wrong = write("sketch.txt", "Not an artifact");
+  const missing = join(workspace, "missing.jsx");
+  const folder = join(workspace, "entry"); mkdirSync(folder);
+  const refs = [wrong, unreadable, missing, folder];
+  const text = `Unfinished art\n${refs.map(ref => `- [artifact::${ref}]`).join("\n")}`;
+  const note = store.create(text);
+  const show = (name: string) => client.request({ action: "artifacts.show", name });
+  await expect(show(wrong)).rejects.toThrow(`.jsx, .tsx, .html, .svg or .mermaid`);
+  await expect(show(wrong)).rejects.toThrow(`ep0ch artifact put '${wrong}' --name sketch --machine garden-host`);
+  for (const [file, name, code] of [[unreadable, "private", "EACCES"], [missing, "missing", "ENOENT"]]) {
+    await expect(show(file!)).rejects.toThrow(`on garden-host (${code})`);
+    await expect(show(file!)).rejects.toThrow(`ep0ch artifact put '${file}' --name ${name} --machine garden-host`);
+  }
+  await expect(show(folder)).rejects.toThrow(`[artifact::${join(folder, "index.html")}]`);
+  await expect(show("entry")).rejects.toThrow(`[artifact::${join(folder, "index.html")}]`);
+  expect(store.get(note.id)?.text).toBe(text);
+});
+
+test("unimported artifact paths still render and recompile after a file edit", async () => {
+  const extraRoot = mkdtempSync(join(tmpdir(), "outliner-artifact-root-"));
+  cleanups.push(() => rmSync(extraRoot, { recursive: true, force: true }));
+  const { store, get, write } = await setup({ roots: [extraRoot] });
+  const absolute = join(extraRoot, "external.html");
+  writeFileSync(absolute, "<h1>Absolute page</h1>");
+  const paths = ["notes/chart.jsx", "./artifacts/x.html", "artifacts/demos/x.jsx", absolute];
+  write(paths[0]!, "export default () => <p>First chart</p>");
+  write("artifacts/x.html", "<h1>Relative page</h1>");
+  write(paths[2]!, "export default () => <p>Nested chart</p>");
+  const note = store.create(`Paths [publish::paths]\n${paths.map(path => `[artifact::${path}]`).join("\n")}`);
+  const html = await (await get("/p/paths?view=html")).text();
+  for (let line = 1; line <= paths.length; line++) {
+    const route = `/p/${note.id}/artifact/${line}`;
+    expect(html).toContain(`src="${route}"`);
+    expect((await get(route)).status).toBe(200);
+  }
+  write(paths[0]!, "export default () => <p>Changed chart</p>");
+  expect(await (await get(`/p/${note.id}/artifact/1`)).text()).toContain("Changed chart");
+}, COMPILE_TIMEOUT);
+
+
+test("closing a store after overlapping path reads still waits for its inbox pickup", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-artifact-overlap-"));
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const inbox = join(root, "inbox"); mkdirSync(inbox);
+  const old = { inbox: process.env.EP0CH_ARTIFACT_INBOX, settle: process.env.EP0CH_ARTIFACT_SETTLE_MS };
+  process.env.EP0CH_ARTIFACT_INBOX = inbox; process.env.EP0CH_ARTIFACT_SETTLE_MS = "1";
+  cleanups.push(() => {
+    for (const [key, value] of [["EP0CH_ARTIFACT_INBOX", old.inbox], ["EP0CH_ARTIFACT_SETTLE_MS", old.settle]]) {
+      if (value === undefined) delete process.env[key!]; else process.env[key!] = value;
+    }
+  });
+  const watched = new ArtifactStore(root), peer = new ArtifactStore(root);
+  const receipts = join(inbox, "receipts.log");
+  const waitFor = async (ready: () => boolean) => {
+    const end = Date.now() + 30_000;
+    while (!ready()) { if (Date.now() > end) throw new Error("Inbox pickup did not finish"); await Bun.sleep(1); }
+  };
+  watched.startWatcher();
+  writeFileSync(join(inbox, "many-lamps.jsx"), `export default () => <div>${"<span>Lamp</span>".repeat(40_000)}</div>`);
+  try {
+    await waitFor(() => readdirSync(watched.root).some(name => name.endsWith(".incoming")));
+    const a = join(root, "a.html"), b = join(root, "b.html");
+    writeFileSync(a, "A"); writeFileSync(b, "B");
+    const other = peer.request({ action: "artifacts.show", name: a }, root);
+    await watched.request({ action: "artifacts.show", name: b }, root);
+    await other;
+    await watched.close();
+    expect(existsSync(receipts)).toBe(true);
+    expect(readFileSync(join(watched.live, "many-lamps/index.html"), "utf8")).toContain("Lamp");
+  } finally {
+    try { await waitFor(() => existsSync(receipts) || existsSync(join(inbox, ".failed/many-lamps.jsx/reason.txt"))); }
+    finally { await watched.close(); await peer.close(); }
+  }
+}, COMPILE_TIMEOUT);
+
+
+test("artifact symlinks use the target kind and read the checked open file", async () => {
+  const { client, write, workspace, root } = await setup();
+  const target = write("drawing.svg", "<svg>Lantern</svg>");
+  const link = join(workspace, "drawing.html"); symlinkSync(target, link);
+  const original = fs.fstatSync;
+  let replaced = false;
+  const probe = spyOn(fs, "fstatSync").mockImplementation(((...args: Parameters<typeof fs.fstatSync>) => {
+    const result = original(...args);
+    if (!replaced && result.ino === fs.statSync(target).ino) {
+      replaced = true;
+      fs.renameSync(target, `${target}.previous`);
+      writeFileSync(target, "<svg>Replacement</svg>");
+    }
+    return result;
+  }) as typeof fs.fstatSync);
+  let info: ArtifactInfo;
+  try { info = await client.request<ArtifactInfo>({ action: "artifacts.show", name: link }); }
+  finally { probe.mockRestore(); }
+  expect(replaced).toBe(true);
+  expect(readFileSync(join(root, ".artifacts/snapshots", info.name, String(info.version), "files/drawing.svg"), "utf8")).toBe("<svg>Lantern</svg>");
+  rmSync(link); symlinkSync(write("other/drawing.html", "<svg>Lantern</svg>"), link);
+  const retargeted = await client.request<ArtifactInfo>({ action: "artifacts.show", name: link });
+  expect(retargeted.files).toContain("drawing.html");
+  expect(retargeted.version).toBe(info.version! + 1);
+  const jsx = "export default () => <p>Same bytes, different target kind</p>";
+  rmSync(link); symlinkSync(write("other/counter.jsx", jsx), link);
+  const compiled = await client.request<ArtifactInfo>({ action: "artifacts.show", name: link });
+  rmSync(link); symlinkSync(write("other/index.html", jsx), link);
+  const html = await client.request<ArtifactInfo>({ action: "artifacts.show", name: link });
+  expect(readFileSync(join(root, ".artifacts/snapshots", html.name, String(html.version), "files/index.html"), "utf8")).toBe(jsx);
+  expect(html.version).toBe(compiled.version! + 1);
+  rmSync(link); symlinkSync(write("credentials.txt", "fictional key"), link);
+  await expect(client.request({ action: "artifacts.show", name: link })).rejects.toThrow(/target.*isn't an artifact/i);
+  rmSync(link); symlinkSync(write(".env", "FICTIONAL=value"), link);
+  await expect(client.request({ action: "artifacts.show", name: link })).rejects.toThrow(/target.*isn't an artifact/i);
+}, COMPILE_TIMEOUT);
+
+test("artifact paths refuse canonical hidden segments and explain the visible copy or explicit put", async () => {
+  const { client, write, workspace } = await setup();
+  for (const relative of [".secret.html", ".config/panel.html", ".ssh/panel.html"]) {
+    const target = write(relative, "<p>Fictional private panel</p>");
+    const link = join(workspace, "visible.html"); symlinkSync(target, link);
+    for (const name of [target, link]) {
+      await expect(client.request({ action: "artifacts.show", name })).rejects.toThrow(/hidden.*copy.*visible.*ep0ch artifact put/i);
+      await expect(client.request({ action: "artifacts.show", name })).rejects.toThrow(`ep0ch artifact put '${target}' --name `);
+    }
+    rmSync(link);
+  }
+});
+
+test("unchanged artifact paths do no source reads and concurrent resolves share one read", async () => {
+  const { client, write } = await setup();
+  const source = write("cached.html", "<p>First lantern</p>");
+  const identity = fs.statSync(source);
+  const original = fs.readFileSync;
+  let reads = 0;
+  const probe = spyOn(fs, "readFileSync").mockImplementation(((...args: Parameters<typeof fs.readFileSync>) => {
+    const file = args[0];
+    if (file === source || (typeof file === "number" && fs.fstatSync(file).ino === identity.ino && fs.fstatSync(file).dev === identity.dev)) reads++;
+    return original(...args);
+  }) as typeof fs.readFileSync);
+  try {
+    const show = () => client.request<ArtifactInfo>({ action: "artifacts.show", name: source });
+    const first = await show();
+    expect(reads).toBe(1);
+    reads = 0;
+    expect(await show()).toEqual(first);
+    expect(reads).toBe(0);
+    writeFileSync(source, "<p>Changed lantern</p>");
+    const [second, concurrent] = await Promise.all([show(), show()]);
+    expect(second.version).toBe(2);
+    expect(concurrent).toEqual(second);
+    expect(reads).toBe(1);
+  } finally { probe.mockRestore(); }
+});
+
+
+test("joining one artifact resolve preserves queued imports of other files", async () => {
+  const { root, workspace, client, write } = await setup();
+  const stores = [new ArtifactStore(root), new ArtifactStore(root), new ArtifactStore(root)];
+  cleanups.push(async () => { for (const store of stores) await store.close(); });
+  const a = write("queue-a.html", "A");
+  const b = write("queue-b.jsx", "export default () => <p>Queued lantern</p>");
+  const c = write("queue-c.html", "C");
+  const show = (store: ArtifactStore, name: string) => store.request({ action: "artifacts.show", name }, workspace) as Promise<ArtifactInfo>;
+  const first = show(stores[0]!, a);
+  const queued = show(stores[1]!, b);
+  const joined = show(stores[2]!, a);
+  expect(await joined).toEqual(await first);
+  const concurrent = client.request<ArtifactInfo>({ action: "artifacts.show", name: c });
+  const [second, third] = await Promise.all([queued, concurrent]);
+  expect((await client.request<ArtifactInfo>({ action: "artifacts.show", name: b })).name).toBe(second.name);
+  expect((await client.request<ArtifactInfo>({ action: "artifacts.show", name: c })).name).toBe(third.name);
+}, COMPILE_TIMEOUT);

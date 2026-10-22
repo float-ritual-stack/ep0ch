@@ -1046,6 +1046,7 @@ function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: Doc
   const open = env.image && (facts.kind || isArtifactName(spec.path)) ? fg(C.cyan) + env.image(line, { open: true }, "[open ↗]") + RESET : "";
   const said = [
     facts.state === "missing" ? `✗ can't read it: ${facts.reason ?? "missing"}` : facts.state === "reading" ? "◌ reading…" : "",
+    ...(facts.warning ? [`⚠ ${facts.warning}`] : []),
     ...spec.problems.map(p => `⚠ ${p}`),
   ].filter(Boolean);
   const facts2 = [name !== facts.title ? name : "", spec.height ? `${spec.height} rows` : "", sizeText(spec.size), facts.kind ? "runs on its web page" : ""].filter(Boolean).join(" · ");
