@@ -20,7 +20,7 @@ import { basename, join, resolve } from "node:path";
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { loadFigureFitPrompt } from "../../src/ai-prompts";
-import { askFigureFit, FIGURE_FIT_THRESHOLDS, figureFitRequest, figureOptions, type FigureFitReading } from "../../src/figure-fit";
+import { askFigureFit, FIGURE_FIT_THRESHOLDS, figureFitRequest, figureOptions, figureShape, type FigureFitReading } from "../../src/figure-fit";
 import { evalSet, reportNote, scoreReadings, sweepThresholds, type EvalItem } from "../../src/figure-fit-eval";
 import { JEV_MODEL } from "../../src/search-ranking";
 
@@ -56,7 +56,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
   // The whole request is the key: a prompt, a figure's description or the text cut changed is a new question.
   const keyOf = (text: string) => createHash("sha256").update(JSON.stringify(figureFitRequest(text, options, prompt))).digest("hex");
   let asked = 0, cached = 0, unavailable = 0, lastWhy = "";
-  const queue = [...items];
+  // Only what the live path would ask about: a hand label on prose, or on a note that draws a figure, is never told.
+  const queue = items.filter(i => figureShape(i.text, schemas) === "shaped");
   await Promise.all(Array.from({ length: 4 }, async () => {
     for (let item = queue.shift(); item; item = queue.shift()) {
       const file = join(cacheDir, `${keyOf(item.text)}.json`);

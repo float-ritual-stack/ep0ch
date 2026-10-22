@@ -73,7 +73,11 @@ export interface EvalScore {
   confusion: { label: string; choice: string; n: number }[];
 }
 
-/** The scores of readings at one pair of thresholds; an item with no reading (Jev unavailable) is left out. */
+/**
+ * The scores of readings at one pair of thresholds, as the live path would tell: a note without a figure's shape
+ * (a hand label on prose, or on a note that draws one) is never told, and needs no reading. A shaped item with no
+ * reading (Jev unavailable) is left out.
+ */
 export function scoreReadings(items: readonly (EvalItem & { reading?: FigureFitReading })[], schemas: readonly ComponentSchema[], thresholds: FigureFitThresholds): EvalScore {
   const score: EvalScore = {
     thresholds, positives: { n: 0, top1: 0, suggested: 0, correct: 0 }, perKind: {}, none: { n: 0, suggested: 0 },
@@ -81,9 +85,10 @@ export function scoreReadings(items: readonly (EvalItem & { reading?: FigureFitR
   };
   const confused = new Map<string, number>();
   for (const item of items) {
-    if (!item.reading) continue;
-    const answer = fitOf(item.reading, schemas, thresholds);
-    const fit = "fit" in answer ? answer.fit : null;
+    const shaped = figureShape(item.text, schemas) === "shaped";
+    if (shaped && !item.reading) continue;
+    const answer = shaped ? fitOf(item.reading!, schemas, thresholds) : null;
+    const fit = answer && "fit" in answer ? answer.fit : null;
     if (item.label === null) {
       score.shaped.n++;
       if (fit) { score.shaped.suggested++; score.shaped.examples.push({ id: item.id, title: item.title, component: fit.component, confidence: fit.confidence }); }
@@ -93,8 +98,8 @@ export function scoreReadings(items: readonly (EvalItem & { reading?: FigureFitR
     } else {
       const kind = (score.perKind[item.label] ??= { n: 0, top1: 0, correct: 0 });
       score.positives.n++; kind.n++;
-      if (item.reading.choice === item.label) { score.positives.top1++; kind.top1++; }
-      else confused.set(`${item.label}\t${item.reading.choice}`, (confused.get(`${item.label}\t${item.reading.choice}`) ?? 0) + 1);
+      if (item.reading?.choice === item.label) { score.positives.top1++; kind.top1++; }
+      else if (item.reading) confused.set(`${item.label}\t${item.reading.choice}`, (confused.get(`${item.label}\t${item.reading.choice}`) ?? 0) + 1);
       if (fit) score.positives.suggested++;
       if (fit?.component === item.label) { score.positives.correct++; kind.correct++; }
     }
@@ -108,7 +113,8 @@ export function scoreReadings(items: readonly (EvalItem & { reading?: FigureFitR
 export function sweepThresholds(items: readonly (EvalItem & { reading?: FigureFitReading })[], schemas: readonly ComponentSchema[], gates = [0.5, 0.6, 0.7], confidences = [0.3, 0.4, 0.5, 0.6]) {
   return gates.flatMap(gate => confidences.map(confidence => {
     const s = scoreReadings(items, schemas, { gate, confidence });
-    return { gate, confidence, recall: ratio(s.positives.correct, s.positives.n), precision: ratio(s.positives.correct, s.positives.suggested), shapedRate: ratio(s.shaped.suggested, s.shaped.n), noneRate: ratio(s.none.suggested, s.none.n) };
+    // Precision over every labelled note told: a suggestion on a note labelled `none` is a wrong one.
+    return { gate, confidence, recall: ratio(s.positives.correct, s.positives.n), precision: ratio(s.positives.correct, s.positives.suggested + s.none.suggested), shapedRate: ratio(s.shaped.suggested, s.shaped.n), noneRate: ratio(s.none.suggested, s.none.n) };
   }));
 }
 
@@ -130,7 +136,7 @@ export function reportNote(score: EvalScore, sweep: ReturnType<typeof sweepThres
     "---",
     "::",
     "",
-    `${p.n} notes that draw a figure, taken back to rows; ${score.shaped.n} shaped notes with none; ${score.none.n} labelled none. Jev asked ${meta.asked} times, ${meta.cached} answers from the cache, ${meta.unavailable} unavailable. Thresholds: gate ${score.thresholds.gate}, confidence ${score.thresholds.confidence}.`,
+    `${p.n} notes that draw a figure, taken back to rows; ${score.shaped.n} shaped notes with none; ${score.none.n} labelled none. Jev asked ${meta.asked} times, ${meta.cached} answers from the cache, ${meta.unavailable} unavailable. Thresholds: gate ${score.thresholds.gate}, confidence ${score.thresholds.confidence}. The figures offered are the built-in ones (a copy holds no extensions).`,
     "",
     "::graph-table",
     "---",

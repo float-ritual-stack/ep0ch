@@ -46,6 +46,13 @@ describe("a note's shape", () => {
     const drawn = `${SEASON}\n::rainfall\n---\n---\n- 2026-09: 40\n::`;
     expect(figureShape(drawn, schemas)).toBe("has-figure");
     expect(figureShape(drawn)).toBe("shaped");
+    // Suggested as it is written, looked up by its id.
+    const options = figureOptions(schemas);
+    const reading = readFigureFit({ answers: { ...TIMELINE, which: { ...TIMELINE.which, choice: "ext-almanac-rainfall" } } }, options, []);
+    if ("error" in reading) throw new Error(reading.error);
+    const said = (fitOf(reading, schemas) as { fit: { said: string } }).fit.said;
+    expect(said).toContain("::rainfall would draw it");
+    expect(said).toContain("outline_components ext-almanac-rainfall");
   });
 });
 

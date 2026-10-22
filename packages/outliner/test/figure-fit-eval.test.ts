@@ -38,11 +38,11 @@ describe("the labelled set", () => {
 
 describe("the scores", () => {
   const items = [
-    { id: "a", title: "A", text: "", label: "graph-timeline", source: "figure" as const, reading: reading("graph-timeline", 0.8, 0.9) },
-    { id: "b", title: "B", text: "", label: "graph-check", source: "figure" as const, reading: reading("graph-timeline", 0.5, 0.8) },
-    { id: "c", title: "C", text: "", label: null, source: "shaped" as const, reading: reading("graph-table", 0.45, 0.7) },
-    { id: "d", title: "D", text: "", label: "none", source: "hand" as const, reading: reading("graph-check", 0.9, 0.3) },
-    { id: "e", title: "E", text: "", label: "graph-rank", source: "figure" as const },
+    { id: "a", title: "A", text: SHAPED, label: "graph-timeline", source: "figure" as const, reading: reading("graph-timeline", 0.8, 0.9) },
+    { id: "b", title: "B", text: SHAPED, label: "graph-check", source: "figure" as const, reading: reading("graph-timeline", 0.5, 0.8) },
+    { id: "c", title: "C", text: SHAPED, label: null, source: "shaped" as const, reading: reading("graph-table", 0.45, 0.7) },
+    { id: "d", title: "D", text: SHAPED, label: "none", source: "hand" as const, reading: reading("graph-check", 0.9, 0.3) },
+    { id: "e", title: "E", text: SHAPED, label: "graph-rank", source: "figure" as const },
   ];
 
   test("first choice, suggested and right, per figure, the mix-ups, how chatty: at the thresholds given; no reading is left out", () => {
@@ -60,6 +60,19 @@ describe("the scores", () => {
     expect(loose.shapedRate).toBe(1);
     expect(strict.shapedRate).toBe(0);
     expect(strict.recall).toBe(0.5);
+  });
+
+  test("precision counts a suggestion on a note labelled none as a wrong one; a note without the shape is never told", () => {
+    const told = [
+      { id: "a", title: "A", text: SHAPED, label: "graph-timeline", source: "figure" as const, reading: reading("graph-timeline", 0.8, 0.9) },
+      { id: "n", title: "N", text: SHAPED, label: "none", source: "hand" as const, reading: reading("graph-check", 0.9, 0.9) },
+      // Prose labelled as a checklist: the live path never asks about it, so neither does the eval.
+      { id: "p", title: "P", text: PROSE, label: "graph-check", source: "hand" as const },
+    ];
+    const s = scoreReadings(told, BUILTIN_COMPONENT_SCHEMAS, { gate: 0.6, confidence: 0.4 });
+    expect(s.positives).toEqual({ n: 2, top1: 1, suggested: 1, correct: 1 });
+    expect(s.none).toEqual({ n: 1, suggested: 1 });
+    expect(sweepThresholds(told, BUILTIN_COMPONENT_SCHEMAS).find(r => r.gate === 0.6 && r.confidence === 0.4)).toMatchObject({ recall: 0.5, precision: 0.5 });
   });
 
   test("the report is a note that draws: its figures read without a warning", () => {

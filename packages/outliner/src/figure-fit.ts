@@ -106,7 +106,8 @@ export function fitOf(reading: FigureFitReading, schemas: readonly ComponentSche
   // A reading kept from before the outline's figures changed (the eval's cache) can name one that's gone.
   const schema = schemas.find(s => s.id === reading.choice);
   if (!schema) return { fit: null, why: "not-a-figure", reading };
-  const said = `this reads as a ${figureWord(schema).toLowerCase()}: ::${schema.id} would draw it (${componentGist(schema)}); outline_components ${schema.id} gives its properties and an example`;
+  // Written as its opener says (an extension's `::rainfall`), looked up by its id.
+  const said = `this reads as a ${figureWord(schema).toLowerCase()}: ::${blockNameOf(schema) ?? schema.id} would draw it (${componentGist(schema)}); outline_components ${schema.id} gives its properties and an example`;
   return { fit: { component: schema.id, said, gate: round(reading.gate), confidence: round(reading.confidence), probability: round(reading.probabilities[schema.id] ?? 0) }, reading };
 }
 
