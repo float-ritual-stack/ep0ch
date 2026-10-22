@@ -863,3 +863,22 @@ test("unchanged artifact paths do no source reads and concurrent resolves share 
     expect(reads).toBe(1);
   } finally { probe.mockRestore(); }
 });
+
+
+test("joining one artifact resolve preserves queued imports of other files", async () => {
+  const { root, workspace, client, write } = await setup();
+  const stores = [new ArtifactStore(root), new ArtifactStore(root), new ArtifactStore(root)];
+  cleanups.push(async () => { for (const store of stores) await store.close(); });
+  const a = write("queue-a.html", "A");
+  const b = write("queue-b.jsx", "export default () => <p>Queued lantern</p>");
+  const c = write("queue-c.html", "C");
+  const show = (store: ArtifactStore, name: string) => store.request({ action: "artifacts.show", name }, workspace) as Promise<ArtifactInfo>;
+  const first = show(stores[0]!, a);
+  const queued = show(stores[1]!, b);
+  const joined = show(stores[2]!, a);
+  expect(await joined).toEqual(await first);
+  const concurrent = client.request<ArtifactInfo>({ action: "artifacts.show", name: c });
+  const [second, third] = await Promise.all([queued, concurrent]);
+  expect((await client.request<ArtifactInfo>({ action: "artifacts.show", name: b })).name).toBe(second.name);
+  expect((await client.request<ArtifactInfo>({ action: "artifacts.show", name: c })).name).toBe(third.name);
+}, COMPILE_TIMEOUT);

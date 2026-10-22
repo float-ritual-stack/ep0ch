@@ -342,8 +342,11 @@ export class ArtifactStore {
           const clear = () => { if (ArtifactStore.resolving.get(key) === result) ArtifactStore.resolving.delete(key); };
           void result.then(clear, clear);
           const settled = this.pending = result.then(() => {}, () => {});
-          ArtifactStore.pathReads.set(this.root, settled);
-          void settled.then(() => { if (ArtifactStore.pathReads.get(this.root) === settled) ArtifactStore.pathReads.delete(this.root); });
+          // Joining an earlier path must not replace a later import's root queue.
+          if (!shared) {
+            ArtifactStore.pathReads.set(this.root, settled);
+            void settled.then(() => { if (ArtifactStore.pathReads.get(this.root) === settled) ArtifactStore.pathReads.delete(this.root); });
+          }
           return result;
         }
         return this.info(name);
