@@ -1786,10 +1786,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id), name = this.nameOf(id);
     const change = { label: "change: link it to another tile", short: "change", run: () => this.askLink(id) };
     const unlink = { label: "unlink: its opens go by the screen's rule", run: () => this.run("tile.link", {}, name) };
-    const ext = this.extTarget(id);
-    if (ext) return { short: this.plainPath(this.pathTo(ext.pane)), says: `${this.plainPath(this.pathTo(ext.pane))} (its link, across the drawer)`, change, unlink };
     const to = this.placeFrom(id).route;
-    if (to && "across" in to) return { short: to.across, says: `${to.across}, its reader (opens replace here; back returns)`, change };
+    if (to && "across" in to) {
+      const target = this.paneAtPath(to.across), name = target ? this.plainPath(this.pathTo(target)) : to.across;
+      return { short: name, says: `${name} (its placement across the drawer or group)`, change, unlink };
+    }
     if (to && "to" in to) {
       const via = this.linkVia(id), target = this.nameOf(to.to);
       if (via === "link") return { short: target, says: `${target} (its link: only what ⏎ opens)`, change, unlink };
@@ -1965,7 +1966,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return x && path ? { link: path, linkAcross: "true" } : {};
   }
   /** What layout.get says of tile `id`'s link beyond where it goes (PIE-646): its verb, and where it comes from when it isn't a link of its own. */
-  private linkView(id: number): Record<string, unknown> {
+  private linkView(id: number) {
     return { ...(this.linkVia(id) ? { linkFrom: this.linkVia(id) } : {}), wires: [...this.layout.wires.filter(w => w.from === id).map(w => ({ verb: w.verb, to: this.tileId(w.to), ...(w.rule ? { rule: w.rule } : {}) })), ...(this.extSpec(id).wires ?? [])] };
   }
 
@@ -3130,8 +3131,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return c?.key ?? this.nameOf(this.focus);
   }
 
-  private tileView(id: number, n = this.numberOf(id)) {
-    const p = this.panes.get(id)!; const r = this.placed.rects.get(id) ?? this.hits.find(([x]) => x === id)?.[1];
+  private tileView(id: number, n = this.numberOf(id), rects?: ReadonlyMap<number, Rect>) {
+    const p = this.panes.get(id)!; const r = rects ? rects.get(id) : this.placed.rects.get(id) ?? this.hits.find(([x]) => x === id)?.[1];
     const set = tabsOf(this.root, id);
     const link = wireTarget(this.layout, id), into = this.linkOf(id);
     const m = this.showing(p);
@@ -4636,15 +4637,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private wireWords(id: number, verb: WireVerb): string {
     if (verb === "open") return this.opensOf(id).short;
-    const targets = this.layout.wires.filter(w => w.from === id && w.verb === verb);
-    const said = (target: string, rule?: AltRule) => rule === "first-unheld" ? "first unheld reader" : rule === "tab" ? `tab of ${target}` : rule === "beside" ? `beside ${target}` : target;
-    const external = (this.ext.get(id) ?? []).filter(w => w.verb === verb).map(w => {
-      const t = this.extTarget(id, verb, w);
-      return said(t ? this.plainPath(this.pathTo(t.pane)) : w.path ?? "", w.rule);
-    });
-    if (targets.length || external.length) return [...targets.map(w => said(this.nameOf(w.to), w.rule)), ...external].join(", ");
-    if (verb === "select") return kindOf(this.panes.get(id))?.previews ? "current note" : "nowhere";
+    if (verb === "select") {
+      const targets = this.layout.wires.filter(w => w.from === id && w.verb === verb).map(w => this.nameOf(w.to));
+      const external = (this.ext.get(id) ?? []).filter(w => w.verb === verb).map(w => {
+        const t = this.extTarget(id, verb, w);
+        return t ? this.plainPath(this.pathTo(t.pane)) : w.path ?? "";
+      });
+      return [...targets, ...external].join(", ") || (kindOf(this.panes.get(id))?.previews ? "current note" : "nowhere");
+    }
     const to = this.placeFrom(id, verb === "alt").route;
+    if (to && "across" in to) {
+      const p = this.paneAtPath(to.across), target = p ? this.plainPath(this.pathTo(p)) : to.across;
+      return to.rule === "beside" ? `beside ${target}` : to.rule === "tab" ? `tab of ${target}` : to.rule === "first-unheld" ? "first unheld reader" : target;
+    }
     if (to && "to" in to) return this.nameOf(to.to);
     if (to && "beside" in to) return `beside ${this.nameOf(to.beside)}`;
     if (to && "tab" in to) return `tab of ${this.nameOf(to.tab)}`;
@@ -5677,13 +5682,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   layouts() { return { current: this.layoutName, layouts: layoutNames() }; }
   layoutAll() {
     const root = this.ctx?.hostLayer?.desks().find(d => !this.ctx.hostLayer!.isDrawer(d)) ?? this.top();
-    const layers = root.relatives().map(d => ({ screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()),
+    const layers = root.relatives().map(d => { const rects = d.rectsNow(); return { screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()),
       tree: describeLayout(d.layout, id => d.nameOf(id), id => d.tileId(id)),
-      tiles: d.all().map(id => ({ ...d.tileView(id), path: root.pathTo(d.panes.get(id)!) })) }));
+      tiles: d.all().map(id => ({ ...d.tileView(id, undefined, rects), path: root.pathTo(d.panes.get(id)!) })) }; });
     return { ...root.layoutGet(), layers, tiles: layers.flatMap(l => l.tiles) };
   }
   layoutGet() {
-    return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ ...this.tileAnswer(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id)) };
+    const rects = this.rectsNow();
+    return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ ...this.tileAnswer(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id, undefined, rects)) };
   }
 
   /**

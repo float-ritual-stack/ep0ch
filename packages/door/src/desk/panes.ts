@@ -149,6 +149,8 @@ export interface DeskApi {
   nameOfPane?(p: Pane): string;
   /** The display path to a tile, across mounts and the drawer. */
   pathTo?(p: Pane): string | undefined;
+  /** The placement owner's description of a tile's destination. */
+  wireDescription?(tile: string | undefined, verb: import("./screen-layout").WireVerb): string;
   /** Tile `p` is in a dock (not pinned in the layout). */
   inDock?(p: Pane): boolean;
   /** The side of the screen tile `p` is on (its dock's edge, else where it's placed). */

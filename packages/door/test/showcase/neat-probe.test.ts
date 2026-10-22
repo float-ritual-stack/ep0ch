@@ -535,6 +535,140 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     } finally { app.pop(); d.dispose(); }
   });
 
+  test("PIE-1206: links pins a following list until b re-aims it", async () => {
+    const s = await twoReaders();
+    const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+    const d = new Desk({ name: "pin-links", title: "Pin links", layout: { root: { t: "split", dir: "row", kids: [
+      { t: "leaf", kind: "reader", name: "brief", mode: "held", note: s.briefing.id },
+      { t: "leaf", kind: "backlinks", name: "links", source: "tile:brief", subject: "follows" },
+    ], weights: [1, 1] } } });
+    app.push(d);
+    try {
+      await until(() => shows(d, "brief") === s.briefing.id, "brief loaded");
+      const shown = await act("links", "brief") as { tile: string };
+      const list = d.pane(shown.tile) as BacklinksPane;
+      await act("open", "brief", { id: s.testing.id });
+      d.render(app);
+      expect(list.target?.id).toBe(s.briefing.id);
+      await act("tile.focus", shown.tile);
+      press({ kind: "char", ch: "b" });
+      await until(() => list.target?.id === s.testing.id, "b re-aims the pinned list");
+    } finally { app.pop(); d.dispose(); s.done(); }
+  });
+
+  test("PIE-1206: the links hint names the destinations that open and alt use", async () => {
+    const s = await twoReaders(); const off = await linksInDrawer(s);
+    try {
+      s.d.render(app); app.drawer.render(200, 60, "Probe");
+      const shown = await app.dispatch.act({ action: "links", tile: "briefing" }, USER) as { tile: string };
+      const tiles = s.d.layoutAll().tiles;
+      const a = tiles.find(t => t.name === "briefing")!.tile, b = tiles.find(t => t.name === "other")!.tile;
+      await app.dispatch.act({ action: "tile.link", tile: shown.tile, args: { to: b, verb: "open" } }, USER);
+      await app.dispatch.act({ action: "tile.link", tile: shown.tile, args: { to: a, verb: "alt" } }, USER);
+      const owner = s.d.resolveTile(shown.tile)!.desk, list = owner.pane(shown.tile) as BacklinksPane;
+      expect(list.hint()).toContain("open in other");
+      expect(list.hint()).toContain("alt+⏎ briefing");
+      await app.dispatch.act({ action: "open", args: { from: shown.tile, id: s.briefing.id } }, USER);
+      expect(shows(s.d, "other")).toBe(s.briefing.id);
+      await app.dispatch.act({ action: "open", args: { from: shown.tile, id: s.testing.id, fresh: true } }, USER);
+      expect(shows(s.d, "briefing")).toBe(s.testing.id);
+      app.drawer.render(200, 60, "Probe");
+      expect(list.target?.id).toBe(s.briefing.id);
+    } finally { await off(); s.done(); }
+  });
+
+  test("PIE-1206: layout.get reports saved spines and the painted widths", async () => {
+    const d = new Desk({ name: "spines", title: "Spines", layout: { root: { t: "split", dir: "row", kids: [
+      ...Array.from({ length: 5 }, (_, i) => ({ t: "leaf" as const, kind: "reader", name: `spine${i}` })),
+      { t: "leaf", kind: "reader", name: "brief" }, { t: "leaf", kind: "reader", name: "terrible" },
+    ], weights: Array(7).fill(1) } } });
+    app.push(d);
+    try {
+      d.render(app);
+      for (let i = 0; i < 5; i++) await app.dispatch.act({ action: "tile.collapse", tile: `spine${i}`, args: { on: true } }, USER);
+      const layout = await app.dispatch.act({ action: "layout.get" }, USER) as ReturnType<Desk["layoutAll"]>;
+      for (const tile of layout.tiles.filter(t => t.name.startsWith("spine"))) {
+        expect(tile.collapsed).toBe(true);
+        expect(tile.rect?.cols).toBeLessThanOrEqual(3);
+      }
+      const a = layout.tiles.find(t => t.name === "brief")!, b = layout.tiles.find(t => t.name === "terrible")!;
+      expect(Math.abs(a.rect!.cols - b.rect!.cols)).toBeLessThanOrEqual(1);
+      expect(a.rect!.cols).toBeGreaterThan(70);
+    } finally { app.pop(); d.dispose(); }
+  });
+
+  test("PIE-1206: neat twice keeps two equal readers, spines and one destination per verb", async () => {
+    const s = await twoReaders();
+    const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+    const leaf = await board.createBlock(null, "Seed catalogue\nPeas and beans.");
+    const tool = await board.createBlock(null, "Tool cupboard\nA copper watering can.");
+    await board.update(s.briefing.id, `Garden briefing\n((${leaf.id}|Seed catalogue))\n((${tool.id}|Tool cupboard))`, s.briefing.revision);
+    const off = await linksInDrawer(s);
+    await act("tile.open", "@drawer/screen/backlinks", { kind: "preview", name: "preview", source: "tile:backlinks" });
+    await act("tile.open", "@drawer/screen/backlinks", { kind: "reader", name: "companion", mode: "held", note: leaf.id });
+    try {
+      for (let i = 0; i < 5; i++) await act("tile.open", "other", { kind: "reader", name: `spine${i}`, mode: "held", note: leaf.id });
+      s.d.render(app); app.drawer.render(200, 60, "Probe");
+      const script = `const BRIEF = ${JSON.stringify(s.briefing.id)};
+const TERRIBLE = ${JSON.stringify(s.testing.id)};
+const failed = [];
+const step = async (name, args) => { try { return await act(name, args); } catch (e) { failed.push(\`\${name}: \${String(e).slice(0, 140)}\`); return null; } };
+const tiles = async () => (await act('layout.get')).tiles;
+
+// A reader holding a note: one showing it already, else a new held one.
+async function readerFor(id, name) {
+  const t = (await tiles()).find(x => x.kind === 'reader' && x.showing?.id === id);
+  if (t) return t.name;
+  const r = await step('tile.open', { kind: 'reader', mode: 'held', note: id, name });
+  return r?.tile ?? name;
+}
+const A = await readerFor(BRIEF, 'brief');
+const B = await readerFor(TERRIBLE, 'terrible');
+await step('reader.follow', { tile: A, source: 'none' });
+await step('reader.follow', { tile: B, source: 'none' });
+
+// side by side, 50/50; every other tile a spine
+await step('tile.collapse', { tile: A, on: false });
+await step('tile.collapse', { tile: B, on: false });
+await step('layout.move', { tile: B, to: A, where: 'right' });
+for (const t of await tiles()) if (t.name !== A && t.name !== B && !t.collapsed && t.shown !== false) await step('tile.collapse', { tile: t.name, on: true });
+await step('layout.even', {});
+
+// the briefing's links in the drawer, wired: select and open → B, alt → A
+const shown = await step('links', { tile: A });
+const L = shown?.tile;
+if (L) {
+  await step('tile.link', { tile: L, to: B, verb: 'select' });
+  await step('tile.link', { tile: L, to: B, verb: 'open' });
+  await step('tile.link', { tile: L, to: A, verb: 'alt' });
+}
+return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(' · ')}\` : \`neat: \${A} | \${B}, links wired\`;
+`;
+      for (let i = 0; i < 2; i++) {
+        const answer = await pressed(script);
+        expect(answer).toContain("neat: briefing | other, links wired");
+        expect(answer).not.toContain("steps failed");
+      }
+      const layout = s.d.layoutAll(), a = layout.tiles.find(t => t.name === "briefing")!, b = layout.tiles.find(t => t.name === "other")!;
+      expect(Math.abs(a.rect!.cols - b.rect!.cols)).toBeLessThanOrEqual(1);
+      for (const tile of layout.tiles.filter(t => t.name.startsWith("spine"))) { expect(tile.collapsed).toBe(true); expect(tile.rect!.cols).toBeLessThanOrEqual(3); }
+      const links = layout.tiles.find(t => t.name === "backlinks")!;
+      expect(links.wires).toEqual(expect.arrayContaining([{ verb: "select", to: b.tile }, { verb: "open", to: b.tile }, { verb: "alt", to: a.tile }]));
+      expect(links.wires).toHaveLength(3);
+      expect(layout.tiles.find(t => t.name === "screen")!.wires).toEqual([]);
+      for (const how of [{}, { open: true }, { fresh: true }]) {
+        await act("backlinks.pick", links.tile, { id: how.fresh ? tool.id : leaf.id, ...how });
+        expect(shows(s.d, "other")).toBe(leaf.id);
+        expect(shows(s.d, "briefing")).toBe(how.fresh ? tool.id : s.briefing.id);
+      }
+      app.drawer.render(200, 60, "Probe");
+      const list = s.d.resolveTile(links.tile)!.desk.pane(links.tile) as BacklinksPane;
+      expect(list.target?.id).toBe(s.briefing.id);
+      expect(list.hint()).toContain("open in other");
+      expect(list.hint()).toContain("alt+⏎ briefing");
+    } finally { await off(); s.done(); }
+  }, 30_000);
+
   test("4 address: tile= takes the drawer path that links itself answers", async () => {
     const s = await twoReaders(); const off = await linksInDrawer(s);
     try {
