@@ -379,7 +379,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       { act: "facets.set key=tag value=garden tile=facets", does: "includes the #garden tag, so the notes left must carry it" },
       { act: "facets.set key=project value=seed-swap mode=exclude tile=facets", does: "leaves out the notes whose project is seed-swap" },
     ],
-    run({ key, value, n, mode }, { pane, desk }, actor) {
+    run({ key, value, n, mode }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane;
       if (mode !== undefined && !["include", "exclude", "off"].includes(mode)) throw new ActionRefused(`mode is include, exclude or off, not ${mode}`);
       // Which value, as of this action's arrival: a click's row number means the rows the person saw, not those after an earlier pick lands.
@@ -399,7 +399,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
         if (next !== "off") p.clauses.push({ key: name, value: val, mode: next, ...(name !== "tag" && (was?.path || pathy(p, name, val)) ? { path: true } : {}) } as Clause);
         // The service didn't answer: the selection is what the rows describe, as it was.
         if (!(await p.load(desk))) { p.clauses = before; throw new ActionRefused(`${name}=${val}: the service couldn't answer · r asks again`); }
-        if (actor.kind !== "agent") { const at = p.rows().findIndex(r => (r.kind === "value" && r.key === name && r.node.path === val) || (r.kind === "clause" && r.clause.key === name && r.clause.value === val)); if (at >= 0) p.at = at; }
+        if (standing) { const at = p.rows().findIndex(r => (r.kind === "value" && r.key === name && r.node.path === val) || (r.kind === "clause" && r.clause.key === name && r.clause.value === val)); if (at >= 0) p.at = at; }
         desk.keepLayout?.(); desk.redraw();
         return { clause: clauseText({ key: name, value: val, mode: "include" }), mode: next, query: p.query(), notes: p.describe().matched };
       });
@@ -434,7 +434,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       { act: "facets.open id=7d9a1f40 tile=facets", does: "opens that note where the facets tile's opens land" },
       { act: "facets.open n=9 fresh=true tile=facets", does: "opens the note on row 9 in a new detail beside" },
     ],
-    run({ n, id, fresh }, { pane, desk }, actor) {
+    run({ n, id, fresh }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane, rows = p.rows();
       const row = id !== undefined ? rows.find(r => r.kind === "note" && (r.note.id === id || (id.length >= 8 && r.note.id.startsWith(id)))) : n !== undefined ? rows[n - 1] : p.current();
       if (!row || row.kind !== "note") throw new ActionRefused(id !== undefined ? `the selection leaves no note ${id}` : "the cursor isn't on a note (the notes the selection leaves are listed under the facets)");
@@ -470,7 +470,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       { act: "facets.save name=\"Garden beds\" tile=facets", does: "saves the selection as a view named Garden beds under the newest board hub" },
       { act: "facets.save name=\"Shed to-do\" parent=2b7f5e90-1c34-4a86-8d5e-9f0a3c7b1d62 tile=facets", does: "saves the selection as a view under that hub block" },
     ],
-    async run({ name, parent }, { pane, desk }, actor) {
+    async run({ name, parent }, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane, q = p.query();
       if (!q) throw new ActionRefused("nothing is selected: pick a value or type a query first, then save it as a view");
       const board = desk.ctx.board;
@@ -511,11 +511,11 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     summary: "drop every pick and the typed query: the tile lists all the outline's facets again",
     keys: "x", touches: "tile", while: "typing", replay: "safe", way: "an agent clears the person's selection by calling it",
     args: {},
-    run(_, { pane, desk }, actor) {
+    run(_, { pane, desk, standing }, actor) {
       const p = pane as FacetsPane;
       return p.serial(async () => {
         const before = { raw: p.raw, clauses: p.clauses, at: p.at };
-        p.raw = ""; p.clauses = []; if (actor.kind !== "agent") p.at = 0;
+        p.raw = ""; p.clauses = []; if (standing) p.at = 0;
         if (!(await p.load(desk))) { p.raw = before.raw; p.clauses = before.clauses; p.at = before.at; throw new ActionRefused("the service couldn't answer · r asks again"); }
         desk.keepLayout?.();
         return { query: "", facets: p.describe().facets.length };

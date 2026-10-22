@@ -15,7 +15,7 @@ import type { Hint } from "./hint-card";
 //   (`actorRule`, below), so no action asks who is acting for this;
 // - runs it as the person (a key, a click: a refusal is said, then the screen is redrawn) or as an agent (said on
 //   the status bar before it runs, refused with the reason, and what it did said after: ActionDef.says).
-import { INVITES } from "./invite";
+import { INVITES, type InviteScope } from "./invite";
 import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { Offline, USER, type Actor } from "../socket";
@@ -88,7 +88,7 @@ export interface Target {
  * What a set's `on` is built with: who acts, a context whose messages say so, and what the caller already has for
  * it (`given`: a reader's own host for this key or click, its navigate a click's own), when it has it.
  */
-export interface RunHow<C> { actor: Actor; ctx: C; given?: unknown }
+export interface RunHow<C> { actor: Actor; ctx: C; standing: boolean; given?: unknown }
 
 /** One action set on a dispatcher, and how its actions reach what they run on. */
 export interface Registration<On = any> {
@@ -173,6 +173,11 @@ export interface DraftAt { board?: object | null; blockId?: string | null; sessi
 /** How a tile was named: by what it is (a name, an id, a block it shows) or by where it is (a number, an alias, the focus). */
 type NamedBy = "name" | "id" | "place" | "block" | "focused" | "default";
 
+/** Standing comes from a press, never from a script's attribution or requestedBy. */
+export function standsAsPerson(actor: Actor, where: Whereabouts, touch: InviteScope): boolean {
+  return actor.kind === "user" || !!where.yolo || INVITES.covers(actor.invitation, touch, actor.run);
+}
+
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
 export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way" | "ownGate" | "host"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
   /** The tile it runs in (by name, and how a refusal says it). */
@@ -187,12 +192,11 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   action?: string;
 }): string | null {
   if (actor.kind !== "agent") return null;
-  // Yolo: the person handed the door to their agents, so none of the rules below (theirs) holds an agent back.
-  if (where.yolo) return null;
   if (def.person) return def.person;
+  const standing = standsAsPerson(actor, where, def.touches === "screen" || def.touches === "shape" ? def.touches : "tile");
   // What the tile lets an agent do (PIE-639): `edit` allows reads and the note's own edits (a `draft` action), `off` only reads.
   const g = at.gate;
-  if (g && g.agents.level !== "free" && !def.ownGate) {
+  if (!standing && g && g.agents.level !== "free" && !def.ownGate) {
     const reads = def.touches === "nothing" && def.replay === "safe", edits = def.touches === "draft" || def.touches === "nothing";
     const no = agentRefusal(g.agents.level, at.tile?.label ?? at.tile?.name ?? "that tile", g.action, { by: g.agents.by, note: g.agents.level === "edit" ? edits : reads });
     if (no) return no;
@@ -206,14 +210,15 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       if ((def.draft === "replace" || def.draft === "text") && !at.invited && t && where.typingIn === t.name) {
         return `the person is typing in ${t.label ?? t.name}; an agent doesn't replace their text · ${def.draft === "replace" ? "draft.patch lands in their draft, or comment on the note or block.mark it to get their attention" : "block.mark gets their attention, or wait until it's sent or closed"}`;
       }
-      return at.draft?.() ?? null;
+      if (standing && !at.invited && t && where.typingIn === t.name) return `the person is typing in ${t.label ?? t.name}; an invited run does not change or close their draft`;
+      return standing ? null : at.draft?.() ?? null;
     }
     case "tile": {
       const t = at.tile;
       if (!t) return null;
       const label = t.label ?? t.name;
       const typing = where.typingIn === t.name;
-      const theirs = def.while === "typing" ? typing : typing || where.focus === t.name;
+      const theirs = def.while === "typing" ? typing : typing || (!standing && where.focus === t.name);
       if (!theirs) return null;
       return `${typing ? `the person is typing in ${label}` : `${label} has the person's keys`}; ${def.way ?? "an agent doesn't act there (block.mark gets their attention)"}`;
     }
@@ -225,10 +230,10 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       // (`host`, putting it away) still waits for them.
       if (where.keys === "host" && !def.host) return null;
       // (A hold on navigation only, as the showcase's sections, is lifted by an invitation too.)
-      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && INVITES.covers(actor.invitation, "screen", actor.run))) return `${where.why ?? "the person is typing"}; not moved`;
+      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return `${where.why ?? "the person is typing"}; not moved`;
       // The person's press invited this run (src/surface/invite.ts): it may move their tiles though they pressed a moment ago,
       // but never while they are typing (above): the invitation lifts "at the keys", nothing else.
-      if (INVITES.covers(actor.invitation, "screen", actor.run)) return null;
+      if (standing) return null;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;
     }
@@ -521,7 +526,8 @@ export class Dispatcher {
     const def = reg.set.def(req.action);
     if (!def) throw new ActionRefused(`no action ${req.action} here; try: ${reg.set.names().join(", ")}`);
     // The person's own: refused to an agent before anything is read.
-    if (actor.kind === "agent" && def.person && !this.where().yolo) throw new ActionRefused(def.person);
+    const personOnly = def.person ? actorRule(def, actor, this.where(), {}) : null;
+    if (personOnly) throw new ActionRefused(personOnly);
     const tiles = this.tilesNow();
     const at = this.target(reg, def, req, actor, tiles);
     const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles);
@@ -532,7 +538,7 @@ export class Dispatcher {
     this.host.beforeAction?.(req.action);
     const confirmation = ++this.nextConfirmation;
     const ctx = this.host.ctx();
-    const on = reg.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
+    const on = reg.on(at, { actor, standing: this.standing(actor, def.touchesWith?.(seen as never, at.name) ?? def.touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
     // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
     const run = () => messageContext.run({ ...messageContext.getStore(), action: req.action, ...(at.tile ? { tile: at.tile.id ?? at.tile.name, note: at.tile.shows ?? undefined } : {}) }, () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor));
     const recordedArgs = { ...seen };
@@ -598,7 +604,7 @@ export class Dispatcher {
         if (!at.tile) continue;
         let on: unknown;
         for (const e of entries) {
-          const now = e.now ? e.now((on ??= r.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx })), { name: at.tile.name, kind: at.tile.kind }, actor) : null;
+          const now = e.now ? e.now((on ??= r.on(at, { actor, standing: this.standing(actor, def.touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx })), { name: at.tile.name, kind: at.tile.kind }, actor) : null;
           if (now?.hide) continue;
           const args = { ...(e.args ?? {}), ...(now?.args ?? {}) } as Record<string, unknown>;
           const why = this.refusal(r, def, name, at, args, args, actor, where) ?? now?.refused ?? null;
@@ -629,6 +635,10 @@ export class Dispatcher {
       return [ ...(hit ? [`${t.id ?? t.name}/${hit.t.id ?? hit.t.name}`] : []),
         ...t.mount.mountedPaths(sel).map(path => `${t.id ?? t.name}/${path}`) ];
     });
+  }
+
+  standing(actor: Actor, touch: ActionDef<unknown, unknown>["touches"] = "tile"): boolean {
+    return standsAsPerson(actor, this.where(), touch === "shape" || touch === "screen" ? touch : "tile");
   }
 
   private tilesNow(): TileRef[] { return this.host.tiles?.() ?? []; }
@@ -678,7 +688,7 @@ export class Dispatcher {
       if (focused && can.includes(focused)) hit = { t: focused, by: "focused" };
       else if (sel === "focused") throw new ActionRefused(`the focused tile${focused ? `, ${focused.name},` : ""} isn't ${noun(req.action)}: ${req.action} is for ${noun(req.action)}${can.length ? `; here: ${can.map(t => t.name).join(", ")}` : ""}`);
       else if (!can.length) throw new ActionRefused(`no ${noun(req.action).replace(/^an? /, "")} on the ${this.host.title}`);
-      else if (reg.pick === "only" && can.length > 1 && actor.kind === "agent") throw new ActionRefused(`${req.action} needs tile=<tile>: the focused tile has no such action and several here do (${can.map(t => t.name).join(", ")})`);
+      else if (reg.pick === "only" && can.length > 1 && !this.standing(actor, "tile")) throw new ActionRefused(`${req.action} needs tile=<tile>: the focused tile has no such action and several here do (${can.map(t => t.name).join(", ")})`);
       else hit = { t: can[0]!, by: "default" };
     } else {
       hit = this.named(sel, can) ?? this.byBlock(sel, can, actor);
@@ -699,7 +709,7 @@ export class Dispatcher {
       }
     }
     // An agent's: the person's own keys and clicks in a peek or a spine are theirs to press (ctrl+z, an element).
-    if (reg.seen && actor.kind === "agent" && t.readOnly && !t.editing) throw new ActionRefused(t.readOnly);
+    if (reg.seen && !this.standing(actor, "tile") && t.readOnly && !t.editing) throw new ActionRefused(t.readOnly);
     return { tile: t, name: t.name };
   }
 

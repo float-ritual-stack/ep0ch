@@ -2,10 +2,12 @@
 // rest and wires the drawer's links tile to them. Each test is one seam it hit, asserting what should happen; on main
 // they go red, each for its own reason. Scratch outline, made-up notes. A red case is `test.failing` until its slice of
 // the one-desk wave (pie b567bc2a) makes it pass; that slice turns it into a plain `test`.
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
 import { Desk } from "../../src/desk/desk";
-import { USER } from "../../src/socket";
+import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
@@ -22,15 +24,39 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
 
   let n = 0;
   /** Run `body` as a script on the person's press of its button; its answer, or the error it threw. */
-  const pressed = async (body: string): Promise<string> => {
+  const pressed = async (body: string, actor: Actor = USER, via: "button" | "rule" | "ask" | "ask-source" | "mcp" = "button"): Promise<string> => {
     const name = `probe-${++n}`;
-    const script = await board.createBlock(seeded.notes.scripts.id, [
+    let script = await board.createBlock(seeded.notes.scripts.id, [
       `Probe ${n} [script::${name}] [results::keep]`, `::button{label="Probe ${n}" of=${name}}`,
       "```js", "try {", body, "} catch (e) { return 'threw: ' + String(e); }", "```",
     ].join("\n"));
     await app.loadExtensions(true);
     await until(() => !!extensionList()?.extensions.find(e => e.name === name), `script ${name} loaded`);
-    await app.dispatch.act({ action: "button.press", args: { note: script.id, label: `Probe ${n}` } }, USER);
+    if (via === "button") await app.dispatch.act({ action: "button.press", args: { note: script.id, label: `Probe ${n}` } }, actor);
+    else if (via === "rule") {
+      await board.createBlock(null, `Probe rule [rule-name::${name}] [rule-match::#${name}] [rule-on::script:${name}]`);
+      await untilAsync(async () => (await board.request<{ rules: { name: string }[] }>("extensions.list", {})).rules.some(r => r.name === name), "probe rule loaded");
+      await board.createBlock(null, `Water the beans #${name}`);
+    } else if (via === "mcp") {
+      await board.request("mcp.access.configure", { level: "full" });
+      await board.request("scripts.run", { blockId: script.id, access: "full", mutation: { author: "agent", actorId: "garden-helper" }, door: board.clientId });
+    } else if (via === "ask-source") {
+      const responder = `answer-${name}`;
+      const folder = join(h.scratch.root, "config", "pi-herdr-outliner", "extensions", responder);
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: responder, version: 1, name: responder, run: ["bun", "respond.ts"], agents: [{ name: responder, effects: "write" }] }));
+      const reply = script.text.replace(`[script::${name}]`, `[script::${name}-source]`);
+      writeFileSync(join(folder, "respond.ts"), `await Bun.stdin.json(); console.log(JSON.stringify({ok: true, value: {reply: ${JSON.stringify(reply)}}}));`);
+      await app.loadExtensions(true);
+      await board.createBlock(null, `Ask for a script\n@${responder} arrange the readers\n`);
+      await untilAsync(async () => {
+        const found = (await board.queryNotes(`script=${name}-source`, 10)).notes[0];
+        if (found) script = found;
+        return !!found;
+      }, "the answer's authored script");
+    } else {
+      await board.createBlock(null, `Ask the probe\n@${name}\n`);
+    }
     let answer = "";
     await untilAsync(async () => { const c = (await board.children(script.id)).at(-1); answer = c?.text ?? ""; return !!c && !/ · working /.test(answer); }, `script ${name} answered`);
     return answer;
@@ -43,6 +69,8 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     const d = new Desk({ name: "probe", title: "Probe", layout: { root: { t: "split", dir: "row", ratio: 0.5,
       a: { t: "leaf", kind: "reader", name: "briefing" }, b: { t: "leaf", kind: "reader", name: "other" } } } });
     app.push(d);
+    await app.dispatch.act({ action: "reader.mode", tile: "briefing", args: { mode: "held" } }, USER);
+    await app.dispatch.act({ action: "reader.mode", tile: "other", args: { mode: "held" } }, USER);
     await app.dispatch.act({ action: "open", tile: "briefing", args: { id: briefing.id } }, USER);
     await app.dispatch.act({ action: "open", tile: "other", args: { id: testing.id } }, USER);
     await app.dispatch.act({ action: "tile.focus", tile: "briefing" }, USER);
@@ -50,14 +78,102 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
   };
   const shows = (d: Desk, name: string) => ((d as any).layoutGet().tiles.find((t: any) => t.name === name)?.showing?.id) as string | undefined;
 
-  test.failing("1 standing: a script the person pressed folds the reader the person is in", async () => {
-    const s = await twoReaders();
-    try {
-      const answer = await pressed("await act('tile.collapse', { tile: 'briefing', on: true }); return 'ok';");
-      expect(answer).toContain("ok");
-      expect((s.d as any).layout.collapsed.has((s.d as any).tile("briefing").id)).toBe(true);
-    } finally { s.done(); }
-  }, 30_000);
+  for (const placement of ["screen", "group", "drawer"] as const) {
+    const placed = async () => {
+      const s = await twoReaders();
+      let owner = s.d, tile = "briefing";
+      if (placement !== "screen") {
+        await app.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "reader", name: "anchor" } }, USER);
+        await app.dispatch.act({ action: "tile.group", tile, args: { name: "nest", with: "other" } }, USER);
+        tile = "nest/briefing";
+        if (placement === "drawer") {
+          await app.dispatch.act({ action: "tile.drawer", tile: "nest" }, USER);
+          owner = app.drawer.desk!;
+        }
+      }
+      s.d.render(app);
+      if (placement === "drawer") app.drawer.render(200, 60, "Probe");
+
+      if (placement !== "screen") await owner.dispatch.act({ action: "tile.focus", tile: "nest" }, USER);
+      await owner.dispatch.act({ action: "tile.focus", tile }, USER);
+      return { ...s, owner, tile, cleanup: async () => {
+        if (placement === "drawer") await owner.dispatch.act({ action: "tile.close", tile: "nest" }, USER);
+        s.done();
+      } };
+    };
+
+    // turns green with slice 1 (one-desk-address)
+    const standingTest = placement === "drawer" ? test.failing : test;
+    standingTest(`1 standing: a pressed script folds the focused reader (${placement})`, async () => {
+      const s = await placed();
+      try {
+        const answer = await pressed(`await act('tile.collapse', { tile: '${placement === "drawer" ? "@drawer/nest/briefing" : s.tile}', on: true }); return 'folded';`);
+        expect(answer).toContain("folded");
+        const unfolded = await s.owner.dispatch.act({ action: "tile.collapse", tile: s.tile, args: { on: false } }, USER) as { collapsed: boolean };
+        expect(unfolded.collapsed).toBe(false);
+      } finally { await s.cleanup(); }
+    }, 30_000);
+
+    standingTest(`standing: a press follows, aims and wires a reader's links (${placement})`, async () => {
+      const s = await placed();
+      try {
+        const tile = placement === "drawer" ? "@drawer/nest/briefing" : s.tile;
+        const other = "other";
+        const answer = await pressed(`
+          await act('reader.follow', { tile: '${tile}', source: 'none' });
+          const links = await act('links', { tile: '${tile}' });
+          await act('tile.link', { tile: links.tile, to: '${other}', verb: 'open' });
+          return JSON.stringify({ aimed: links.of, tile: links.tile });
+        `);
+        expect(answer).toContain(`"aimed":"${s.briefing.id}"`);
+        expect(answer).not.toContain("threw:");
+        const reader = await s.owner.dispatch.act({ action: "tile.info", tile: s.tile }, USER);
+        expect(JSON.stringify(reader)).toContain(s.briefing.id);
+      } finally { await s.cleanup(); }
+    }, 30_000);
+
+    standingTest(`standing: an agent's button has no invitation (${placement})`, async () => {
+      const s = await placed();
+      try {
+        const answer = await pressed(`await act('tile.collapse', { tile: '${placement === "drawer" ? "@drawer/nest/briefing" : s.tile}', on: true }); return 'folded';`, { kind: "agent", id: "garden-helper" });
+        expect(answer).toContain("person's keys");
+        expect(answer).not.toContain("\nfolded");
+      } finally { await s.cleanup(); }
+    }, 30_000);
+
+    for (const via of ["rule", "ask", "ask-source", "mcp"] as const) {
+      standingTest(`standing: ${via} has no press invitation (${placement})`, async () => {
+        const s = await placed();
+        try {
+          const tile = placement === "drawer" ? "@drawer/nest/briefing" : s.tile;
+          const answer = await pressed(`await act('tile.collapse', { tile: '${tile}', on: true }); return 'folded';`, USER, via);
+          expect(answer).toContain("person's keys");
+        } finally { await s.cleanup(); }
+      }, 30_000);
+    }
+
+    standingTest(`standing: a press leaves the person's typing and keys in place (${placement})`, async () => {
+      const s = await placed();
+      try {
+        await s.owner.dispatch.act({ action: "edit", tile: s.tile }, USER);
+        await s.owner.dispatch.act({ action: "draft.paste", tile: s.tile, args: { text: "Keep these seedlings" } }, USER);
+        press({ kind: "char", ch: "e" });
+        press({ kind: "enter" });
+        await until(() => s.owner.dispatch.where().busy, "person typing in the editor");
+        const before = s.owner.dispatch.where();
+        expect(before.busy).toBe(true);
+        const answer = await pressed(`await act('tile.focus', { tile: '${placement === "drawer" ? "@drawer/nest/other" : placement === "group" ? "nest/other" : "other"}' }); return 'moved';`);
+        expect(answer).toMatch(/typing|edit/);
+        expect(s.owner.dispatch.where().focus).toBe(before.focus);
+        const close = await pressed(`await act('edit.close', { tile: '${placement === "drawer" ? "@drawer/nest/briefing" : s.tile}', discard: true }); return 'closed';`);
+        expect(close).toMatch(/typing/);
+      } finally {
+        await s.owner.dispatch.act({ action: "edit.close", tile: s.tile, args: { discard: true } }, USER);
+        if (placement === "drawer") app.drawer.leave(s.d, false);
+        await s.cleanup();
+      }
+    }, 30_000);
+  }
 
   test("2 standing: a script the person pressed opens a note in the reader the person is in", async () => {
     const s = await twoReaders();
