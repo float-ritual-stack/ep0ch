@@ -59,23 +59,28 @@ export class StatusBarNote {
     this.stale = true;
     if (this.reading) return this.reading;
     this.reading = (async () => {
-      while (this.stale) {
-        this.stale = false;
-        try {
-          const notes = await this.board.byProp("status-bar", "true");
-          if (notes.length > 1) throw new Error(`more than one [status-bar::true] note: ${notes.map(n => n.id).join(", ")}; keep the property on one`);
-          this.note = notes[0] ?? null;
-          this.lines = this.note ? this.read(this.note, builtins) : null;
-          this.said = "";
-        } catch (e) {
-          this.lines = null;
-          const text = `Status bar: ${e instanceof Error ? e.message : String(e)}`;
-          if (text !== this.said) this.warn(text);
-          this.said = text;
+      try {
+        while (this.stale) {
+          this.stale = false;
+          try {
+            const notes = await this.board.byProp("status-bar", "true");
+            if (notes.length > 1) throw new Error(`more than one [status-bar::true] note: ${notes.map(n => n.id).join(", ")}; keep the property on one`);
+            this.note = notes[0] ?? null;
+            this.lines = this.note ? this.read(this.note, builtins) : null;
+            this.said = "";
+          } catch (e) {
+            this.lines = null;
+            const text = `Status bar: ${e instanceof Error ? e.message : String(e)}`;
+            if (text !== this.said) this.warn(text);
+            this.said = text;
+          }
+          this.changed();
         }
-        this.changed();
+      } finally {
+        // Release before resolving: the next microtask must not join a reader whose loop has already ended.
+        this.reading = null;
       }
-    })().finally(() => { this.reading = null; });
+    })();
     return this.reading;
   }
 

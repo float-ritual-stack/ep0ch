@@ -2,7 +2,7 @@
 import { describe, expect, test, spyOn } from "bun:test";
 import { App, statusLine } from "../src/app";
 import { visible, width } from "../src/style";
-import { theme } from "../src/theme";
+import { setTheme, theme } from "../src/theme";
 
 const plain = visible;
 const right = "kitty+crt │ on 0m │ 09:13 ";
@@ -88,8 +88,9 @@ describe("the status bar keeps time while the door is idle", () => {
 });
 
 // The bar uses the real outline: a live edit changes its drawing and its presses.
-import { afterAll, beforeAll } from "bun:test";
+import { afterAll, afterEach, beforeAll } from "bun:test";
 import { join } from "node:path";
+import { StatusBarNote } from "../src/status-bar";
 import { SocketBoard, USER } from "../src/socket";
 import { openScreen } from "../src/desk/screen-specs";
 import { traceActions } from "../src/surface/actions";
@@ -98,8 +99,10 @@ import { Scratch, outliner, until } from "./scratch";
 
 describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
   const scratch = new Scratch();
-  const savedAgent = process.env.EP0CH_DAILY_AGENT;
-  let board: SocketBoard, app: App, painted: string[] = [], press: (k: Key) => void;
+  const savedAgent = process.env.EP0CH_DAILY_AGENT, savedState = process.env.EP0CH_STATE;
+  const savedTheme = theme().name;
+  const size = { cols: 220, rows: 40, cellW: 9, cellH: 16, kitty: true };
+  let board: SocketBoard, app: App, initialVideo: App["video"], painted: string[] = [], press: (k: Key) => void;
   const bar = () => { (app as any).paint(); return visible(painted.at(-1)!); };
   const click = (text: string, alt = false) => {
     const x = bar().indexOf(text);
@@ -111,12 +114,26 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     process.env.EP0CH_DAILY_AGENT = "cat";
     board = new SocketBoard(await scratch.start());
     await board.info();
-    app = new App({ info: { cols: 220, rows: 40, cellW: 9, cellH: 16, kitty: true }, write() {}, paint(l: string[]) { painted = l; }, paintRow(r: number, l: string) { painted[r] = l; }, invalidate() {}, onKey(f: (k: Key) => void) { press = f; }, onResize() {}, stop() {}, resume() {} }, board, Date.now(), () => {});
+    app = new App({ info: size, write() {}, paint(l: string[]) { painted = l; }, paintRow(r: number, l: string) { painted[r] = l; }, invalidate() {}, onKey(f: (k: Key) => void) { press = f; }, onResize() {}, stop() {}, resume() {} }, board, Date.now(), () => {});
+    initialVideo = app.video;
     board.subscribe(e => app.event(e));
     await app.loadExtensions();
     app.push(openScreen("desk")!);
   }, 30_000);
-  afterAll(async () => { app?.quit(); app?.drawer.tile?.kill(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; if (savedAgent === undefined) delete process.env.EP0CH_DAILY_AGENT; else process.env.EP0CH_DAILY_AGENT = savedAgent; });
+  afterAll(async () => { app?.quit(); app?.drawer.tile?.kill(); board?.close(); await scratch.dispose(); if (savedState === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = savedState; if (savedAgent === undefined) delete process.env.EP0CH_DAILY_AGENT; else process.env.EP0CH_DAILY_AGENT = savedAgent; });
+
+  afterEach(async () => {
+    if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
+    await app.drawer.restarting;
+    while (app.screens().length > 1) app.pop();
+    for (const note of await board.byProp("status-bar", "true")) await board.trash(note.id, USER);
+    await app.loadExtensions();
+    app.drawer.active = false;
+    app.video = initialVideo;
+    setTheme(savedTheme);
+    size.cols = 220;
+    app.flash("");
+  });
 
   test("without a config note the current bar and every item's declared gestures agree, including conditional chips", async () => {
     expect(bar()).toContain("ep0ch ^K");
@@ -145,7 +162,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     const items = async () => (await app.dispatch.act({ action: "status.bar.items" }, USER) as any).items;
     try {
       // Every conditional chip is present, so hidden defaults cannot silently escape parity.
-      (app.t as any).cols = 500;
+      size.cols = 500;
       await force();
       const declared = await items();
       expect(declared.find((i: any) => i.id === "drawer").lastCell.action).toBe("agent.restart");
@@ -179,12 +196,34 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       app.offline = false; app.agentsYolo = false;
       await app.drawer.restarting;
       (app.drawer as any).knowledge.delete(app.drawer.tile!);
-      (app.t as any).cols = 220;
+      size.cols = 220;
     }
   });
 
+  test("a refresh in the completion microtask sees the newly created status note", async () => {
+    const reader = new SocketBoard(board.path);
+    let created = "", again: Promise<void> | undefined, queued = false, first = true;
+    const query = reader.byProp.bind(reader);
+    const probe = spyOn(reader, "byProp").mockImplementation(async (...args) => {
+      const snapshot = await query(...args);
+      if (first) {
+        first = false;
+        created = (await reader.createBlock(null, "Late status [status-bar::true]")).id;
+      }
+      return snapshot;
+    });
+    const status = new StatusBarNote(reader, () => {
+      if (!queued) { queued = true; queueMicrotask(() => { again = status.refresh([]); }); }
+    }, () => {});
+    try {
+      await status.refresh([]);
+      await again;
+      expect(status.note?.id).toBe(created);
+    } finally { probe.mockRestore(); reader.close(); }
+  });
+
   test("eight pins at 80 columns keep whole, clickable items in their own sections", async () => {
-    (app.t as any).cols = 80;
+    size.cols = 80;
     app.drawer.active = true;
     const note = await board.createBlock(null, 'Narrow status [status-bar::true]\n- brand\n- drawer\n- clock');
     try {
@@ -219,7 +258,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       }
     } finally {
       await board.trash(note.id, USER);
-      (app.t as any).cols = 220;
+      size.cols = 220;
       if (app.drawer.open) await app.dispatch.act({ action: "host.toggle" }, USER);
       while (app.screens().length > 1) app.pop();
     }
@@ -285,6 +324,5 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     expect((await board.get(note.id))!.text).toContain('label="Broken"');
     app.flash("");
     expect(bar()).toContain("^K");
-    await board.trash(note.id, USER);
   });
 });
