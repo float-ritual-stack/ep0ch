@@ -56,6 +56,10 @@ that script in the button's Site. Each script sees the last return as `input`. A
 Sources and the previous value continues. A script returning nothing replaces the value with `undefined` (Sources
 says "returned nothing"). `act=["action one", "action two"]` and `of=[first, second]` are one-line sugar for the
 same steps. A press is one undo group, stops at its first failure, and reports completed steps and remaining effects.
+Only a `::button{...}` without `act=` or `of=` has a body: its steps begin on the next line and close with `::` before any blank line.
+Script steps keep their own slots (`((fold tile=links))` fills `{{props.tile}}` in an `actions` fence).
+A render script stays read-only as a step and can pass its return to the next step.
+Each press has its own run-id undo group. Undo refuses an older group while a later group's layout changes remain, even for the same button.
 The kitchen sink's **One button, two tiles** demonstrates both forms. Disk/network effects remain after undo.
 
 ## The script note
@@ -272,14 +276,14 @@ examples lean on:
 | `BlockRecord` | `packages/outline-core/src/block-record.ts:14` |
 | `textRecord` | `packages/outliner/src/block-records.ts:35` |
 | `ScriptSiteGlobals` | `packages/outliner/src/script-runtime.ts:11` |
-| `bind` | `packages/outliner/src/script-runs.ts:89` |
+| `bind` | `packages/outliner/src/script-runs.ts:93` |
 
 ## Modes
 
 | Mode | Written | Runs | Draws or writes | Source |
 |---|---|---|---|---|
 | action | `[script::name]` | when asked: key, power bar, `/name slot=value`, `@name`, a rule's `[rule-on::script:name]` (also `-stop`, `-change`), `ext.<id>.run`, MCP `script_run` | a run note beside the source, plus whatever it writes | `packages/outliner/src/script-runs.ts:204` |
-| render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:120` |
+| render | `[script::name] [mode::render]` and a line `name:: week=42` | when a line asks, and again when what it read changes | the returned value, under the line; **no run note, no undo step, nothing written** | `packages/outliner/src/script-runs.ts:127` |
 | `pipelineCalls` (the `::=` line) | `::= (await resolve("this.owner")).values[0]` | like a render script whose code is `return (expression);` | the value, under the line | `packages/outliner/src/extension-handlers.ts:150` |
 
 **Render mode in detail.**
@@ -333,7 +337,7 @@ examples lean on:
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4344` |
 | `viaYolo` | `packages/outliner/src/server.ts:4374` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:430` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:437` |
 
 ## Lifecycle
 
@@ -361,7 +365,7 @@ examples lean on:
 |---|---|
 | `ScriptRuns.start` | `packages/outliner/src/script-runs.ts:222` |
 | `setTimeout` (the deadline timer) | `packages/outliner/src/script-runs.ts:236` |
-| `stopRun` | `packages/outliner/src/script-runs.ts:189` |
+| `stopRun` | `packages/outliner/src/script-runs.ts:193` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:304` |
 | `scripts.stop` | `packages/outliner/src/server.ts:2009` |
 | `scripts.stop` request | `packages/outliner/src/types.ts:2494` |

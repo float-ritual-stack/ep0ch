@@ -777,8 +777,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const entry of entries) {
       // Rebuilding clears what the person is in the middle of (an edit, a terminal): never under their typing.
       if (this.holdsKeys()) return { done, blocked: "you are typing; ctrl+z (layout.undo) puts it back when you are done" };
-      // A change by someone else since (the same transaction's own steps are part of taking this one back): undoing under it would erase it.
-      const later = this.history.after(entry).find(e => e.party !== entry.party && (entry.txn === undefined || e.txn !== entry.txn));
+      // Another run can share this actor: undoing under its later transaction would erase its layout.
+      const later = this.history.after(entry).find(e => entry.txn !== undefined ? e.txn !== entry.txn : e.party !== entry.party);
       if (later) return { done, blocked: `the layout changed since (${later.party === "you" ? "you" : later.party.replace("agent:", "")} ${later.what}); undo that first${later.party === "you" ? ": ctrl+z" : ""}` };
       this.replaying = true;
       try { this.apply({ op: "load", name: "the layout before" }, actor); }

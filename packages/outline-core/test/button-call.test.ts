@@ -42,3 +42,16 @@ test("a button body and its array sugar preserve the same ordered steps and nest
     { kind: "script", source: "pick" }, { kind: "script", source: "convert" }, { kind: "script", source: "wire" },
   ]);
 });
+
+
+test("one-line buttons and blank-separated prose never become a button body", () => {
+  for (const attrs of ['act="tile.collapse tile=links"', 'of=fold', 'label=Empty']) {
+    const call = buttonCallAt([`::button{${attrs}}`, "", "Following prose", "::"], 0)!;
+    expect(call.endLine).toBe(0);
+    expect(call.sequence).toBe(false);
+    expect(call.steps.map(s => s.source)).not.toContain("Following prose");
+  }
+  for (const attrs of ['act="tile.collapse tile=links"', 'of=fold']) {
+    expect(buttonCallAt([`::button{${attrs}}`, "Following prose", "::"], 0)?.endLine).toBe(0);
+  }
+});

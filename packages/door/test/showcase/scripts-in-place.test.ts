@@ -159,6 +159,110 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
     } finally { await app.dispatch.act({ action: "section", args: { name: "scripts-in-place" } }, USER); }
   }, 45000);
 
+  const untilAsync = async (ok: () => Promise<boolean>, what: string) => {
+    const end = Date.now() + 10000;
+    while (!await ok()) {
+      if (Date.now() > end) throw new Error(`Timed out waiting for ${what}`);
+      await Bun.sleep(30);
+    }
+  };
+
+  test.each([
+    ["tool", "await tools.outline_comment({ ref: this.id, whole: true, body: 'Forbidden comment' });", "not a function"],
+    ["place", "await place('Forbidden output');", "not defined"],
+    ["act", "await act('tile.collapse', { tile: 'links', on: true });", "not defined"],
+  ])("a render sequence step has no %s write function", async (_name, code, missing) => {
+    await app.dispatch.act({ action: "section", args: { name: "button-sequences" } }, USER);
+    await app.dispatch.act({ action: "tile.collapse", tile: "links", args: { on: false } }, USER);
+    const note = await board.createBlock(null, `Render sequence
+\`\`\`js script=draw mode=render
+${code}
+return 'wrote';
+\`\`\`
+::button{label=Render}
+((draw))
+::`);
+    try {
+      await app.loadExtensions(true);
+      await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Render" } }, USER);
+      let source;
+      await untilAsync(async () => {
+        source = (await board.siteSources(note.id)).sources.find(s => s.name === "Render");
+        return !!source && (source.problem !== undefined || source.result.text.includes("Finished"));
+      }, "the render step");
+      expect(source!.problem).toContain(missing);
+      expect(source!.problem).toContain("render scripts draw; use an action script (a button or of=) to change things");
+      expect(await board.comments(note.id)).toEqual([]);
+      expect((await board.get(note.id))!.text).toBe(note.text);
+      const layout = await app.dispatch.act({ action: "layout.get" }, USER) as { tiles: { name: string; collapsed?: boolean }[] };
+      expect(layout.tiles.find(t => t.name === "links")?.collapsed).not.toBe(true);
+    } finally { await app.dispatch.act({ action: "section", args: { name: "scripts-in-place" } }, USER); }
+  });
+
+  test("an actions fence receives its sequence step's arguments", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "button-sequences" } }, USER);
+    await app.dispatch.act({ action: "tile.collapse", tile: "links", args: { on: false } }, USER);
+    const note = await board.createBlock(null, `Step arguments
+\`\`\`actions script=fold
+tile.collapse on=true tile={{props.tile}}
+\`\`\`
+::button{label=Slots}
+((fold tile=links))
+::`);
+    try {
+      await app.loadExtensions(true);
+      await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Slots" } }, USER);
+      await untilAsync(async () => {
+        const source = (await board.siteSources(note.id)).sources.find(s => s.name === "Slots");
+        if (source?.problem) throw new Error(source.problem);
+        return !!source?.result.text.includes("Finished");
+      }, "the slotted action");
+      const layout = await app.dispatch.act({ action: "layout.get" }, USER) as { tiles: { name: string; collapsed?: boolean }[] };
+      expect(layout.tiles.find(t => t.name === "links")?.collapsed).toBe(true);
+      await app.dispatch.act({ action: "layout.undo" }, USER);
+    } finally { await app.dispatch.act({ action: "section", args: { name: "scripts-in-place" } }, USER); }
+  });
+
+  test("undoing the first overlapping press preserves the second press's layout", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "button-sequences" } }, USER);
+    for (const tile of ["links", "preview"]) await app.dispatch.act({ action: "tile.collapse", tile, args: { on: false } }, USER);
+    const note = await board.createBlock(null, `First press
+\`\`\`js script=fold
+await act('tile.collapse', { tile: this.title === 'First press' ? 'links' : 'preview', on: true });
+while (!(await read(this.id)).title.startsWith('Released')) await wait(20);
+\`\`\`
+::button{label=Overlap}
+((fold))
+::`);
+    const observer = new SocketBoard(h.scratch.sock), finished = new Set<string>();
+    observer.subscribe(e => { if (e.ended) finished.add(e.ended.run); });
+    const collapsed = async (name: string) => {
+      const layout = await app.dispatch.act({ action: "layout.get" }, USER) as { tiles: { name: string; collapsed?: boolean }[] };
+      return layout.tiles.find(t => t.name === name)?.collapsed === true;
+    };
+    try {
+      await observer.info();
+      await app.loadExtensions(true);
+      const first = await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Overlap" } }, USER) as { undo: string };
+      await untilAsync(() => collapsed("links"), "the first press's layout");
+      const current = (await board.get(note.id))!;
+      await board.update(note.id, current.text.replace("First press", "Second press"), current.revision!, USER);
+      const second = await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Overlap" } }, USER) as { undo: string };
+      await untilAsync(() => collapsed("preview"), "the second press's layout");
+      const held = (await board.get(note.id))!;
+      await board.update(note.id, held.text.replace("Second press", "Released presses"), held.revision!, USER);
+      await until(() => finished.has(first.undo) && finished.has(second.undo), "both interleaved presses");
+      expect(await collapsed("preview")).toBe(true);
+      try { await app.dispatch.act({ action: "layout.undo", args: { txn: first.undo } }, USER); } catch (error) {
+        expect(String(error)).toContain("undo that first");
+      }
+      expect(await collapsed("preview")).toBe(true);
+      await app.dispatch.act({ action: "layout.undo", args: { txn: second.undo } }, USER);
+      await app.dispatch.act({ action: "layout.undo", args: { txn: first.undo } }, USER);
+      expect([await collapsed("links"), await collapsed("preview")]).toEqual([false, false]);
+    } finally { observer.close(); await app.dispatch.act({ action: "section", args: { name: "scripts-in-place" } }, USER); }
+  });
+
   test("Enter starts the next button step while action completion is unchosen", async () => {
     await app.dispatch.act({ action: "section.try", args: { name: "button-sequences" } }, USER);
     const note = await board.createBlock(null, 'Typing a button\n::button{label=Fold}\n');

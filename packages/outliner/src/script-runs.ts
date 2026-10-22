@@ -24,6 +24,8 @@ import type { Address, SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
+const RENDER_ERROR = "render scripts draw; use an action script (a button or of=) to change things";
+
 /**
  * The view a script returned (`{ view }`, or one `view.table(…)` itself), checked against the catalogue; null for anything
  * else. A component carries the data its view shows (`data`); a script that draws a view and has no data says none.
@@ -181,7 +183,7 @@ export class ScriptRuns {
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
       if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
-      if (!result.ok) throw new Error(`${result.error.message}\nrender scripts draw; use an action script (a button or of=) to change things`);
+      if (!result.ok) throw new Error(`${result.error.message}\n${RENDER_ERROR}`);
       const drew = result.value === undefined ? null : scriptView(result.value);
       return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}) };
     } finally { clearTimeout(timer); }
@@ -357,7 +359,9 @@ export class ScriptRuns {
             caller = { text: draft.text, span: { observed, replacement: observed, range: { start, end: start + observed.length } } };
           }
         }
-        const execute = () => runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined, site.globals);
+        const execute = (args = request.args ?? {}) => runScript(source.code, source.render ? hostApi(client, undefined, {
+          kind: "render", ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
+        }) : api, controller.signal, source.format === "actions" ? args : undefined, site.globals);
         const result = sequence ? await (async () => {
           let value: unknown;
           const show = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
@@ -378,12 +382,13 @@ export class ScriptRuns {
                 if (entry.state === "failed") throw new Error(entry.error);
                 source = this.registry.extension(entry.id)!.script!;
               } else source = { ...extension.script!, code: item.source, format: "actions" };
-              const props = item.kind === "script" ? Object.fromEntries(Object.entries(actRequestOf(lineWords(item.source)).args ?? {}).map(([k, v]) => [k, [String(v)]])) : {};
+              const args = item.kind === "script" ? Object.fromEntries(slotPairs(item.source).map(p => [p.key, p.value])) : {};
+              const props = Object.fromEntries(Object.entries(args).map(([k, v]) => [k, [v]]));
               site = this.bind(source, { blockId: request.blockId, line: request.line, props });
               site.globals.input = value;
-              const answer = await execute();
+              const answer = await execute(args);
               output.push(...answer.output.filter((o): o is { type: "text"; text: string } => o.type === "text"));
-              if (!answer.ok) throw new Error(answer.error.message);
+              if (!answer.ok) throw new Error(`${answer.error.message}${source.render ? `\n${RENDER_ERROR}` : ""}`);
               if (item.kind === "script") value = answer.value;
               trace!.result.table!.push([String(index + 1), spelling, show(before), show(value), item.kind === "act" ? show(actionAnswer) : value === undefined ? "returned nothing" : show(value), effects.join("\n")]);
               trace!.result.rows++;

@@ -34,7 +34,10 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
   const get = (key: string) => pairs.find(p => p.key.toLowerCase() === key)?.value;
   const act = get("act")?.trim(), of = get("of")?.trim(), label = get("label")?.trim();
   const slots = pairs.filter(p => !OWN.has(p.key.toLowerCase()));
-  const block = componentBlockAt(lines.slice(i).join("\n"));
+  const following = lines.slice(i);
+  const blank = following.findIndex((line, at) => at > 0 && !line.trim());
+  const block = get("act") === undefined && get("of") === undefined && open[3]
+    ? componentBlockAt((blank < 0 ? following : following.slice(0, blank)).join("\n")) : null;
   const body = block?.raw.trimEnd().split("\n");
   const endLine = body ? i + body.length - 1 : i;
   let steps: ButtonStep[] = [], problem: string | undefined;
