@@ -503,6 +503,8 @@ export function register(on: On, options: PluginOptions): void {
       if (workboard) blocks.push({ name: WORKBOARD_BLOCK, text: workboard })
       guideGiven = guide
       if (guide) blocks.push({ name: GUIDE_BLOCK, text: guide })
+      // Made without it: one that lands later makes the context again.
+      else void readGuide($, option).then(text => { if (text && guideGiven === null) $.ui.invalidate('prompt.context') })
       // A newer read (a compaction, a /clear) started while this one was awaited: when it lands, the context follows it.
       const newer = workboardLoad
       if (newer && newer !== board) void newer.then(text => { if (newer === workboardLoad && text !== workboardGiven) $.ui.invalidate('prompt.context') })
@@ -579,7 +581,7 @@ export function register(on: On, options: PluginOptions): void {
       try {
         const written = await runOutlinerCli($, workspace, ['agent', command.operation, '--stdin', '--actor', actor], JSON.stringify(command.input))
         // A note that now holds a figure comes back drawn (PIE-721), so a figure that doesn't draw is seen in this turn.
-        const drawn = drawnNoteOf(tool.name, written)
+        const drawn = drawnNoteOf(tool.name, written, input)
         const drawing = drawn ? await $.process.run(drawArgv(drawn), { cwd: workspace.root, env: envFor(workspace), timeoutMs: DRAW_TIMEOUT_MS }).then(r => r.exitCode === 0 ? r.stdout : '', () => '') : ''
         return { result: droppedNote(tool, checked.dropped) + withDrawing(written, drawing) }
       } catch (error) {
@@ -949,7 +951,7 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
  */
 /**
  * The outline's guide (`ep0ch library --guide`, hooks/outline-guide.ts), read once for a folder and outline: null outside
- * a bound folder, or when `ep0ch` can't say it. One that lands after the context was made without it makes it again.
+ * a bound folder, or when `ep0ch` can't say it. prompt.context makes the context again when one lands after it.
  */
 async function readGuide($: EngineInterface, option: PluginOptions): Promise<string | null> {
   try {
@@ -961,7 +963,6 @@ async function readGuide($: EngineInterface, option: PluginOptions): Promise<str
       const load = $.process.run([...GUIDE_ARGV], { cwd: workspace.root, env: envFor(workspace), timeoutMs: GUIDE_TIMEOUT_MS })
         .then(ran => ran.exitCode === 0 ? guideText(ran.stdout) : null, () => null)
       guideLoad = { key, load }
-      void load.then(text => { if (text && guideGiven === null && guideLoad?.load === load) $.ui.invalidate('prompt.context') })
     }
     return await guideLoad.load
   } catch {

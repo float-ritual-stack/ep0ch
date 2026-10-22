@@ -13,8 +13,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { agentGuide } from "@ep0ch/outline-core/agent-guide";
+import { UP_FRONT_TOOLS } from "@ep0ch/outline-core/agent-tool-definitions";
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
-import { skillsIn, type Skill } from "./skills";
+import { skillRoots, skillsIn, type Skill } from "./skills";
 
 /** The gateway's tool lines in the guide: how to orient, where an outline's own components are, where the skills are. */
 export const GATEWAY_GUIDE_TOOLS = [
@@ -31,17 +32,14 @@ let instructions: string | undefined;
 export const gatewayInstructions = (): string =>
   (instructions ??= agentGuide(BUILTIN_COMPONENT_SCHEMAS, { index: "names", tools: GATEWAY_GUIDE_TOOLS, scope: "the built-ins; each outline adds its own" }));
 
-/** The tools Claude Code loads up front (`_meta` `anthropic/alwaysLoad`): where an agent starts, reads, learns the components and writes a note. */
-export const ALWAYS_LOADED: readonly string[] = ["list_outlines", "outline_find", "outline_query", "outline_read", "outline_components", "outline_create"];
-
-/** A tool as `tools/list` lists it, with `anthropic/alwaysLoad` when it is a core one. */
+/** A tool as `tools/list` lists it, with `anthropic/alwaysLoad` when it is one of outline-core's UP_FRONT_TOOLS. */
 export const withLoadHint = <T extends { name: string }>(tool: T): T | T & { _meta: Record<string, unknown> } =>
-  ALWAYS_LOADED.includes(tool.name) ? { ...tool, _meta: { "anthropic/alwaysLoad": true } } : tool;
+  UP_FRONT_TOOLS.includes(tool.name) ? { ...tool, _meta: { "anthropic/alwaysLoad": true } } : tool;
 
-/** The door's own skills: the folder `ep0ch --skill` lists first. */
-export const SKILLS_DIR = resolve(import.meta.dir, "..", "skills");
 export const SKILL_URI = /^ep0ch:\/\/skills\/([a-z0-9][a-z0-9-]*)$/;
-export const gatewaySkills = (dir = SKILLS_DIR): Skill[] => skillsIn([{ source: "door", dir }]);
+let skills: Skill[] | undefined;
+/** The door's own skills, the first folder `ep0ch --skill` lists (`skillRoots`), read once: a deploy restarts the gateway. */
+export const gatewaySkills = (): Skill[] => (skills ??= skillsIn(skillRoots(resolve(import.meta.dir, ".."), null, false)));
 
 /** A SKILL.md without its frontmatter. */
 const skillText = (s: Skill) => readFileSync(s.path, "utf8").replace(/^---\n[\s\S]*?\n---\n+/, "");
@@ -61,7 +59,7 @@ export const skillResources = (skills: readonly Skill[]) =>
 
 /** `resources/read` of an `ep0ch://skills/<name>` URI, or null for any other. */
 export function skillResource(skills: readonly Skill[], uri: unknown): { contents: { uri: string; mimeType: string; text: string }[] } | null {
-  const m = typeof uri === "string" ? SKILL_URI.exec(uri.trim()) : null;
+  const m = typeof uri === "string" && uri.trim().startsWith("ep0ch://skills/") ? SKILL_URI.exec(uri.trim()) : null;
   const s = m ? skills.find(k => k.name === m[1]) : undefined;
   return s ? { contents: [{ uri: `ep0ch://skills/${s.name}`, mimeType: "text/markdown", text: skillText(s) }] } : null;
 }

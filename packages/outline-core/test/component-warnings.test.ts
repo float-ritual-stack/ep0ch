@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { componentReading, nearestName } from "../src/component-warnings";
-import { BUILTIN_COMPONENT_SCHEMAS } from "../src/component-schema";
+import { blockNameOf, componentReading } from "../src/component-warnings";
+import { BUILTIN_COMPONENT_SCHEMAS, mergeComponentSchemas, type ComponentSchema } from "../src/component-schema";
 
 const read = (...lines: string[]) => componentReading(lines.join("\n"), BUILTIN_COMPONENT_SCHEMAS);
 const STAT = ["::graph-stat", "---", "title: the beds", "items: [{ value: \"4\", label: raised }, { value: \"2\", label: bags }]", "---", "::"];
@@ -44,12 +44,39 @@ describe("what a written note's components will draw", () => {
   });
 });
 
-describe("nearestName", () => {
-  test("within two edits, one for a short name; never the name itself", () => {
-    expect(nearestName("graph-stats", ["graph-stat", "graph-spark"])).toBe("graph-stat");
-    expect(nearestName("titel", ["title", "items"])).toBe("title");
-    expect(nearestName("lnk", ["link", "rows"])).toBe("link");
-    expect(nearestName("abc", ["xyz"])).toBeUndefined();
-    expect(nearestName("title", ["title"])).toBeUndefined();
+describe("found by the name it's written with", () => {
+  const FORECAST: ComponentSchema = {
+    id: "ext-almanac-forecast", title: "Forecast", group: "almanac", intro: "Tomorrow's weather for the garden.", where: "a `::forecast` block",
+    props: [{ key: "days", where: "yaml", type: "int", meaning: "how many days", min: 1, max: 7 }],
+    source: { use: "::forecast\n---\n{{props.yaml}}---\n::" }, example: { days: "3" }, sweep: [], grids: [], space: [],
+  };
+
+  test("a component's ::name is the opener its own source writes; one written otherwise has none", () => {
+    expect(blockNameOf(BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === "graph-stat")!)).toBe("graph-stat");
+    expect(blockNameOf(BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === "box")!)).toBe("box");
+    for (const id of ["callout", "table", "view", "embed", "image"]) expect(blockNameOf(BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === id)!)).toBeNull();
+    expect(blockNameOf(FORECAST)).toBe("forecast");
+  });
+
+  test("::tables and ::views are no near miss of anything written with ::, so nothing is suggested", () => {
+    expect(read("Garden", "::tables", "---", "---", "::")).toEqual({ components: [], warnings: [] });
+    expect(read("Garden", "::views", "---", "---", "::")).toEqual({ components: [], warnings: [] });
+  });
+
+  test("an extension's component is counted by its own name", () => {
+    const { schemas } = mergeComponentSchemas({ extensions: [{ id: "almanac", components: [FORECAST] }] });
+    expect(componentReading(["Garden", "::forecast", "---", "days: 3", "---", "::"].join("\n"), schemas)).toEqual({ components: ["ext-almanac-forecast"], warnings: [] });
+  });
+});
+
+describe("what isn't warned", () => {
+  test("a figure without its --- lines is said once, by syntax-warnings, not here", () => {
+    expect(read("Garden", "::graph-stat", "title: the beds", "::").warnings).toEqual([]);
+  });
+
+  test("a value's comment, quotes and {{ }} read as YAML reads them", () => {
+    expect(read("Garden", "::graph-table", "---", "query: type=bed", "density: compact # tighter", "---", "::").warnings).toEqual([]);
+    expect(read("Garden", "::graph-table", "---", "query: type=bed", "density: \"cozy\"", "---", "::").warnings).toEqual([]);
+    expect(read("Garden", "::graph-table", "---", "query: type=bed", "density: \"{{props.density}}\"", "---", "::").warnings).toEqual([]);
   });
 });

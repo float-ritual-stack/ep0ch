@@ -17,6 +17,7 @@ import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/mach
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
+import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
@@ -580,14 +581,24 @@ export async function writtenReading(client: AgentToolsClient, text: string, nea
   };
 }
 
-/** outline-core's `componentReading` over the outline's own components (`components.schemas`); nothing when the text holds no `::` or the service can't be asked. */
+/**
+ * The outline's own components (`components.schemas`), asked once per connection for a few seconds, so a write that
+ * reads two texts (a patch's before and after) asks once; null when the service can't be asked.
+ */
+const schemasAsked = new WeakMap<AgentToolsClient, { at: number; schemas: Promise<ComponentSchema[] | null> }>();
+function schemasOf(client: AgentToolsClient): Promise<ComponentSchema[] | null> {
+  const kept = schemasAsked.get(client);
+  if (kept && Date.now() - kept.at < 10_000) return kept.schemas;
+  const schemas = client.request<{ schemas: ComponentSchema[] }>({ action: "components.schemas" }).then(r => r.schemas, () => null);
+  schemasAsked.set(client, { at: Date.now(), schemas });
+  return schemas;
+}
+
+/** outline-core's `componentReading` over the outline's own components; nothing asked when the text holds no `::` component. */
 async function componentsRead(client: AgentToolsClient, text: string): Promise<ComponentReading> {
-  if (!text.includes("::")) return { components: [], warnings: [] };
-  try {
-    return componentReading(text, (await client.request<{ schemas: ComponentSchema[] }>({ action: "components.schemas" })).schemas);
-  } catch {
-    return { components: [], warnings: [] };
-  }
+  if (!componentBlocks(text.split("\n")).length) return { components: [], warnings: [] };
+  const schemas = await schemasOf(client);
+  return schemas ? componentReading(text, schemas) : { components: [], warnings: [] };
 }
 
 /**

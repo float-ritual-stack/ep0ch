@@ -4,7 +4,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { mcpCommand } from "../src/mcp";
-import { ALWAYS_LOADED, gatewayInstructions, gatewaySkills, INSTRUCTIONS_MAX, writeReading } from "../src/mcp-guide";
+import { UP_FRONT_TOOLS } from "@ep0ch/outline-core/agent-tool-definitions";
+import { gatewayInstructions, gatewaySkills, INSTRUCTIONS_MAX, writeReading } from "../src/mcp-guide";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
 
@@ -77,9 +78,9 @@ describe.skipIf(!outliner)("the gateway over stdio", () => {
     expect(init!.result.capabilities.prompts).toEqual({});
 
     const tools = list!.result.tools as { name: string; _meta?: Record<string, unknown> }[];
-    for (const t of tools) expect(!!t._meta?.["anthropic/alwaysLoad"]).toBe(ALWAYS_LOADED.includes(t.name));
+    for (const t of tools) expect(!!t._meta?.["anthropic/alwaysLoad"]).toBe(UP_FRONT_TOOLS.includes(t.name));
     expect(tools.find(t => t.name === "outline_read")?._meta).toEqual({ "anthropic/alwaysLoad": true });
-    expect(tools.find(t => t.name === "outline_patch")?._meta).toBeUndefined();
+    expect(tools.find(t => t.name === "outline_trash")?._meta).toBeUndefined();
 
     expect(prompts!.result.prompts).toContainEqual(expect.objectContaining({ name: "ep0ch-outline", description: expect.stringContaining("outline") }));
     const text = prompt!.result.messages[0].content.text as string;

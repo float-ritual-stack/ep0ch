@@ -676,7 +676,7 @@ async function componentResources(outlines: McpOutlines): Promise<unknown[]> {
 }
 
 async function resourceRead(outlines: McpOutlines, uriValue: unknown): Promise<unknown> {
-  const skill = skillResource(gatewaySkills(), uriValue);
+  const skill = typeof uriValue === "string" && uriValue.trim().startsWith("ep0ch://skills/") ? skillResource(gatewaySkills(), uriValue) : null;
   if (skill) return skill;
   const component = typeof uriValue === "string" ? COMPONENT_URI.exec(uriValue.trim()) : null;
   if (component) {

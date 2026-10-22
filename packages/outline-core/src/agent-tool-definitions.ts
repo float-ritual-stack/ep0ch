@@ -64,8 +64,16 @@ export const REF_WORDS: TargetWords = { note: "the note `ref`", parent: "`parent
 const NOTE_HOLDS =
   "A note can hold more than prose: live figures (::graph-* with query: or view:, so a count or a status stays true), " +
   "callouts, views, rules, buttons, templates and the outline's own components; outline_components gives each one's " +
-  "properties and an example. The answer lists the `components` the note now holds and its `warnings` (a figure's name or " +
-  "key with a typo, YAML that doesn't read, a reference that leads nowhere): the text is saved as written, so fix them now.";
+  "properties and an example. The answer lists the `::` components the note now holds (`components`) and its `warnings` (a " +
+  "figure's name or key with a typo, YAML that doesn't read, a reference that leads nowhere): the text is saved as written, " +
+  "so fix them now.";
+
+/**
+ * The tools a session lists up front instead of behind tool search (PIE-721): where an agent starts, reads, learns the
+ * components and writes a note. Each surface marks the ones it registers (the mod with `isDeferred: false`, the
+ * gateway with `_meta` `anthropic/alwaysLoad`); the rest wait behind tool search.
+ */
+export const UP_FRONT_TOOLS: readonly string[] = ["list_outlines", "outline_find", "outline_query", "outline_read", "outline_components", "outline_edit", "outline_create", "outline_patch"];
 
 const REF: ToolSchema = {
   type: "string",

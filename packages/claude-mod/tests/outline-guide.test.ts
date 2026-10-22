@@ -84,7 +84,10 @@ describe('the core tools up front', () => {
     const s = sessionIn(on, {})
     await $.session.start(START)
     await s.clock.settle()
-    for (const name of UPFRONT_TOOLS) expect(s.registered.find(t => t.name === name)?.isDeferred).toBe(false)
+    // The shared list's tools this mod registers (list_outlines and outline_query are the gateway's).
+    const mine = UPFRONT_TOOLS.filter(name => s.registered.some(t => t.name === name))
+    expect(mine).toEqual(expect.arrayContaining(['outline_read', 'outline_find', 'outline_edit', 'outline_create', 'outline_patch', 'outline_components']))
+    for (const name of mine) expect(s.registered.find(t => t.name === name)?.isDeferred).toBe(false)
     expect(s.registered.find(t => t.name === 'outline_trash')?.isDeferred).toBeUndefined()
   })
 })
@@ -95,11 +98,21 @@ describe('a written figure drawn back', () => {
     await $.session.start(START)
     await s.clock.settle()
     s.runs.length = 0
-    const out = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, append: '::graph-stat\n---\n---\n::' })
+    const out = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, append: '::graph-stat\n---\ntitel: the beds\n---\n::' })
     const text = String(out.result)
     expect(text).toStartWith('The note as it draws (ep0ch show, 80 columns):\n┌ the beds')
     expect(outputJsonOf(text)).toMatchObject({ id: NOTE, components: ['graph-stat'] })
     expect(s.runs.find(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'show')!.argv).toEqual(['ep0ch', 'show', NOTE, '--width', '80', '--rows', '40'])
+  })
+
+  test('a small write elsewhere in a note that holds a figure draws nothing', async ($, on) => {
+    const s = sessionIn(on, { edit: { id: NOTE, revision: 4, components: ['graph-stat'] } })
+    await $.session.start(START)
+    await s.clock.settle()
+    s.runs.length = 0
+    const out = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, append: 'Water at nine.' })
+    expect(JSON.parse(String(out.result))).toMatchObject({ id: NOTE, components: ['graph-stat'] })
+    expect(s.runs.some(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'show')).toBe(false)
   })
 
   test('a write with no figure is answered as before, and nothing is drawn', async ($, on) => {
@@ -116,7 +129,7 @@ describe('a written figure drawn back', () => {
     const s = sessionIn(on, { edit: { id: NOTE, revision: 4, components: ['graph-stat'] }, show: result(1, '', 'ep0ch: the host is down') })
     await $.session.start(START)
     await s.clock.settle()
-    const out = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, append: 'x' })
+    const out = await $.tool.call({ tool: 'mcp__ep0ch__outline_edit', ref: NOTE, expectedRevision: 3, append: '::graph-stat\n---\n---\n::' })
     expect(JSON.parse(String(out.result))).toMatchObject({ id: NOTE })
   })
 })
@@ -128,14 +141,17 @@ describe('the pure parts', () => {
     expect(guideText('')).toBeNull()
   })
 
-  test('drawnNoteOf: the written note when it holds a figure, by the result\'s own id', () => {
-    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE, components: ['graph-tabs'] }))).toBe(NOTE)
-    expect(drawnNoteOf('outline_create', JSON.stringify({ id: NOTE, components: ['links', 'graph-check'] }))).toBe(NOTE)
-    expect(drawnNoteOf('outline_patch', JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE }], components: ['graph-stat'] }))).toBe(NOTE)
-    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE, components: ['callout'] }))).toBeNull()
-    expect(drawnNoteOf('outline_comment', JSON.stringify({ id: NOTE, components: ['graph-stat'] }))).toBeNull()
-    expect(drawnNoteOf('outline_edit', 'not json')).toBeNull()
-    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: 'PIE-12', components: ['graph-stat'] }))).toBeNull()
+  test('drawnNoteOf: the written note when the write wrote a figure or was warned about one, by the result\'s own id', () => {
+    const figure = '::graph-tabs\n---\nquery: type=task\n---\n::'
+    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE, components: ['graph-tabs'] }), { text: `Plan\n${figure}` })).toBe(NOTE)
+    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE }), { replaceSection: { heading: 'Plan', body: figure } })).toBe(NOTE)
+    expect(drawnNoteOf('outline_create', JSON.stringify({ id: NOTE, components: ['graph-check'] }), { text: figure })).toBe(NOTE)
+    expect(drawnNoteOf('outline_patch', JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE }] }), { patches: [{ observed: 'x', replacement: figure }] })).toBe(NOTE)
+    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE, warnings: ["the ::graph-stat on line 2 doesn't draw: bad YAML"] }), { append: 'tidy' })).toBe(NOTE)
+    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: NOTE, components: ['graph-stat'] }), { append: 'tidy' })).toBeNull()
+    expect(drawnNoteOf('outline_comment', JSON.stringify({ id: NOTE }), { text: figure })).toBeNull()
+    expect(drawnNoteOf('outline_edit', 'not json', { text: figure })).toBeNull()
+    expect(drawnNoteOf('outline_edit', JSON.stringify({ id: 'PIE-12' }), { text: figure })).toBeNull()
   })
 
   test('withDrawing: the drawing first, the JSON last; nothing drawn leaves the result alone', () => {
