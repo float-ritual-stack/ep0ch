@@ -609,20 +609,22 @@ async function componentsRead(client: AgentToolsClient, text: string): Promise<C
  * The figure the written text would read best as (figure-fit.ts, PIE-721), for the answer to a create, an edit or a
  * patch: asked only when this write gave the note a figure's shape it didn't have (`before`, its text before the write;
  * none for a create), so a note is told once and a property set or a comment never asks, and said only when Jev is
- * sure enough. Off unless OUTLINER_FIGURE_FIT is `on`, until the eval (scripts/evals/figure-fit.ts) has set the
- * thresholds. Null when Jev can't be asked; it never throws, since the write has landed.
+ * sure enough. On unless OUTLINER_FIGURE_FIT is `off` (the tests' preloads set it): a feature that waits for someone to
+ * switch it on is one nobody switched on (Evan, Oct 22). Null when Jev can't be asked; it never throws, since the write has landed.
  */
 async function figureSuggestion(client: AgentToolsClient, text: string, before?: string): Promise<{ component: string; said: string } | null> {
-  if (process.env.OUTLINER_FIGURE_FIT !== "on" || figureShape(text) !== "shaped") return null;
-  try {
+  if (process.env.OUTLINER_FIGURE_FIT === "off" || figureShape(text) !== "shaped") return null;
+  const ask = async () => {
     const schemas = await schemasOf(client);
     if (!schemas || figureShape(text, schemas) !== "shaped" || (before !== undefined && figureShape(before, schemas) === "shaped")) return null;
-    const answer = await suggestFigure(text, schemas, { timeoutMs: 2500 });
+    const answer = await suggestFigure(text, schemas, { timeoutMs: FIGURE_FIT_BUDGET_MS });
     return "fit" in answer && answer.fit ? { component: answer.fit.component, said: answer.fit.said } : null;
-  } catch {
-    return null;
-  }
+  };
+  // The whole ask (schemas, key, prompt and Jev) is bounded, since the write's answer waits on it.
+  return Promise.race([ask().catch(() => null), Bun.sleep(FIGURE_FIT_BUDGET_MS).then(() => null)]);
 }
+/** At most this long added to a write's answer by its figure suggestion, whatever Jev does. */
+const FIGURE_FIT_BUDGET_MS = 1500;
 
 /** What a figure-fit sweep found: each note it would tell, and the margin thread it left when asked to. */
 export interface FigureSweep {

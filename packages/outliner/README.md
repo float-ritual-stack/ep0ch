@@ -2773,7 +2773,7 @@ prose out. The request is made three ways:
   about the notes under `under` (its comments aside) that have a figure's shape and draw none. Each note Jev is sure
   of gets one `[kind::figure-fit]` margin thread by the actor: a suggestion, never a rewrite. A note with a
   figure-fit thread already (Seen, Kept or resolved) is never asked about again. Without `comment` it only lists.
-- With `OUTLINER_FIGURE_FIT=on` (off until the eval has set the thresholds), a create, an edit or a patch that gives
+- Unless `OUTLINER_FIGURE_FIT=off` (the tests set it), a create, an edit or a patch that gives
   a note that shape answers with a `suggestion`. The MCP gateway lifts it beside `said`. A property set and a
   comment never ask.
 - `bun scripts/evals/figure-fit.ts <copy.sqlite> --note` is the eval. It scores the suggestions on an outline's own
