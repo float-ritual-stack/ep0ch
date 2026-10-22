@@ -137,13 +137,13 @@ export interface Person<I = number> {
   held?: string | null;
   /** Agents are in yolo (Whereabouts.yolo): an agent acts here as the person would. */
   yolo?: boolean;
-  /** The actor's run was invited by the person's press (src/surface/invite.ts): it may float the tile they are in, never the one they type in. */
-  invited?: boolean;
 }
 
 /** What an operation is applied with: who acts, where the person is, what each tile is, the screen's room. */
 export interface Ctx<I = number> {
   actor: Actor;
+  standing: boolean;
+  protectTyping: boolean;
   person: Person<I>;
   tile(id: I): TileFacts;
   /** The room the screen's tiles have: floats are kept on it, flows are squeezed in it. */
@@ -314,6 +314,7 @@ export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
   const d = draftOf(s, ctx.person.focus);
   try {
     new Step(d, ctx).run(op);
+    if (ctx.protectTyping && ctx.person.typingIn !== null && d.focus !== ctx.person.focus) refuse("the person is typing; their keys stay in that tile");
   } catch (e) {
     if (e instanceof Refused) return { ok: false, refused: e.message };
     throw e;
@@ -535,9 +536,9 @@ const AGENT_ORDER: Record<AgentLevel, number> = { free: 0, edit: 1, off: 2 };
 
 class Step<I> {
   constructor(private readonly d: Draft<I>, private readonly ctx: Ctx<I>) {}
-  private get agent() { return this.ctx.actor.kind === "agent" && !this.ctx.person.yolo; }
+  private get agent() { return !this.ctx.standing; }
   /** An agent in yolo: the person handed it the door, so their locks don't hold it either. */
-  private get yolo() { return this.ctx.actor.kind === "agent" && !!this.ctx.person.yolo; }
+  private get yolo() { return !!this.ctx.person.yolo; }
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
   private facts(id: I): TileFacts { return this.ctx.tile(id); }
   private isFloat(id: I) { return this.d.floats.some(f => f.id === id); }
@@ -569,14 +570,14 @@ class Step<I> {
   }
   /** An agent never moves, floats or pins the tile the person is typing in. */
   private guard(id: I, what: string) {
-    refuse(this.agent && this.ctx.person.typingIn === id ? `${this.name(id)} is where the person is typing; an agent doesn't ${what} it` : null);
+    refuse(this.ctx.protectTyping && this.ctx.person.typingIn === id ? `${this.name(id)} is where the person is typing; an agent doesn't ${what} it` : null);
   }
   /**
    * An agent never resizes the tile the person is typing in (a border moved, a split's shares, a tile grown, the
    * screen evened out): the size it has on screen after the step is the size it had before, or the step is refused.
    */
   private keepsSize(step: () => void) {
-    const t = this.agent ? this.ctx.person.typingIn : null;
+    const t = this.ctx.protectTyping ? this.ctx.person.typingIn : null;
     if (t === null || !has(this.d.tree, t)) return step();
     const before = shareOf(this.d.tree, t);
     step();
@@ -588,7 +589,7 @@ class Step<I> {
   /** An agent doesn't move the person's keys while they type. */
   private mayMoveKeys(what: string) {
     const p = this.ctx.person;
-    refuse(!this.agent ? null : p.held !== undefined ? (p.held ? `${p.held} · an agent doesn't ${what} now` : null) : p.busy ? `the person is typing; an agent doesn't ${what} (block.mark gets their attention)` : null);
+    refuse(!this.ctx.protectTyping ? null : p.held !== undefined ? (p.held ? `${p.held} · an agent doesn't ${what} now` : null) : p.busy ? `the person is typing; an agent doesn't ${what} (block.mark gets their attention)` : null);
   }
   /** Tile `id` can't leave where it is: locked, or its container keeps its tiles (draggable off). */
   private drag(id: I) {
@@ -680,8 +681,8 @@ class Step<I> {
       case "float":
         // Popping a tile out or putting it back moves the tile the person has: an agent doesn't, typing or not (as it
         // doesn't close or fold it).
-        if (this.agent && op.tile === this.ctx.person.typingIn) refuse(`${this.name(op.tile)} is where the person is typing; an agent doesn't float it`);
-        if (this.agent && !this.ctx.person.invited && op.tile === this.d.focus) refuse(`${this.name(op.tile)} has the person's keys; an agent doesn't float it`);
+        if (this.ctx.protectTyping && op.tile === this.ctx.person.typingIn) refuse(`${this.name(op.tile)} is where the person is typing; an agent doesn't float it`);
+        if (this.agent && op.tile === this.d.focus) refuse(`${this.name(op.tile)} has the person's keys; an agent doesn't float it`);
         return this.isFloat(op.tile) ? this.land(op.tile, op.at) : this.float(op.tile);
       case "place": return this.place(op);
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
@@ -1178,7 +1179,7 @@ class Step<I> {
     // would), then its dock wraps it, both in this one transaction (refused whole, it stays the float it was).
     // on=true puts it back pinned outright.
     if (this.isFloat(id)) {
-      if (this.agent && !this.ctx.person.invited && id === this.d.focus) refuse(`${this.name(id)} has the person's keys; an agent doesn't move it`);
+      if (this.agent && id === this.d.focus) refuse(`${this.name(id)} has the person's keys; an agent doesn't move it`);
       if (container !== undefined) refuse(`${this.name(id)} is a float: no container holds it · tile.dock without container= puts it in a dock of its own`);
       this.land(id);
       if (on === true) { this.d.answer = { pinned: true, floated: false }; return; }
@@ -1530,7 +1531,7 @@ class Step<I> {
     for (const t of this.foldSet(id)) this.d.collapsed.delete(t);
     // An agent doesn't move a flow's strip under the column the person is typing in (as its widen doesn't).
     const f = flowHolding(this.d.tree, id), typing = this.ctx.person.typingIn;
-    const steps = !(this.agent && f && typing !== null && flowHolding(this.d.tree, typing)?.flow === f.flow);
+    const steps = !(this.ctx.protectTyping && f && typing !== null && flowHolding(this.d.tree, typing)?.flow === f.flow);
     this.bringOut(id, steps);
     this.d.answer = { tile: this.name(id) };
   }
@@ -1653,7 +1654,7 @@ class Step<I> {
     if (e.locked && !this.yolo) refuse(this.lockedWhy(e, "widening"));
     // The column the person is typing in never squeezes under them for an agent's shift.
     const typing = this.ctx.person.typingIn;
-    if (this.agent && typing !== null && typing !== id && columnOf(f.flow, typing) >= 0) refuse(`the person is typing in ${this.name(typing)}, a column of this flow; an agent's widen would squeeze it (block.mark gets their attention)`);
+    if (this.ctx.protectTyping && typing !== null && typing !== id && columnOf(f.flow, typing) >= 0) refuse(`the person is typing in ${this.name(typing)}, a column of this flow; an agent's widen would squeeze it (block.mark gets their attention)`);
     const before = f.flow.anchor;
     widenFlow(f.flow, f.ci);
     if (f.flow.anchor === before) this.d.changed = false;

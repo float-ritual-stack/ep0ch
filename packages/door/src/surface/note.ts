@@ -1,3 +1,4 @@
+import { standsAsPerson } from "./dispatch";
 import { READER_MOVE_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
@@ -145,7 +146,7 @@ import { AGENT_BG, selectText, cellsOf, copyOnSelect, Gesture, isCopyKey, lineAt
  * How a note was opened: a followed link (`link`), into a new reader (`fresh`), and by whom (`by`, PIE-514: the actor
  * itself, carried to where it lands, so an agent's open is an agent's there too: it never takes the person's keys).
  */
-export interface OpenHow { link?: boolean; fresh?: boolean; by?: Actor }
+export interface OpenHow { link?: boolean; fresh?: boolean; by?: Actor; standing?: boolean }
 /**
  * A link that names something outside the door: a web page (`browser`) or a file (`viewer`, a figure). The person's
  * follow opens it there; an agent's never does (`launched: false`): it is given the address instead.
@@ -272,7 +273,7 @@ export interface SurfaceHost {
    * one, or can open one beside the reader. Without it `b` says so and points at the inline `::links`.
    */
   conference?: boolean;
-  links?(actor: Actor): Promise<Record<string, unknown>>;
+  links?(actor: Actor, standing: boolean): Promise<Record<string, unknown>>;
 }
 
 /** Back and forward where a view keeps them (SurfaceHost.history). */
@@ -280,7 +281,7 @@ export interface ReaderHistory {
   /** The title back (-1) or forward (1) goes to, or null when there's nowhere to go. */
   peek(dir: -1 | 1): string | null;
   /** Go there: null when it went, else why not. */
-  go(dir: -1 | 1): string | null;
+  go(dir: -1 | 1, actor: Actor): string | null | Promise<string | null>;
   /** Why an agent can't go back or forward here: it would move the person's screen or focus. */
   agentRefusal: string;
 }
@@ -3036,7 +3037,7 @@ export class NoteSurface {
     const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: propertyListOf(fresh), by: host.actor ?? USER, position: this.position }, {
       board: host.ctx.board, redraw,
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
-      answered: (ask, by) => { void this.run("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e))); },
+      answered: (ask, by) => { void this.act("ask.beside", { ask }, host, by).catch(e => host.ctx.flash(String(e), undefined, errorDetails(e))); },
       closed: how => this.draftClosed(s, how, host),
     });
     s.draft.onAskSelected = (ask, fold) => { void this.runKey("ask.beside", { ask, fold }, host); };
@@ -4329,7 +4330,7 @@ export class NoteSurface {
       where: () => ({ ...(host.ctx.person?.() ?? NOBODY), focus: host.focused === false ? null : me, typingIn: this.personHolds ? me : null, ...(this.holdsKeys ? { busy: true } : {}) }),
       tiles: () => [{ name: me, kind: "reader", shows: this.msg?.id ?? null, editing: this.editing, holds: a => this.heldBy(a) }],
       draftOf: () => ({ board: host.ctx.board, blockId: this.msg?.id ?? null, session: this.draftSession() }),
-    }, [{ set: NOTE_ACTIONS, takes: "tile", noun: "a reader", on: () => ({ surface: this, host }), run: (name, args, _on, actor, typed) => this.run(name, args, host, actor, typed) }]);
+    }, [{ set: NOTE_ACTIONS, takes: "tile", noun: "a reader", on: (_, how) => ({ surface: this, host, standing: how.standing }), run: (name, args, on, actor, typed) => this.run(name, args, host, actor, on.standing, typed) }]);
   }
 
   /**
@@ -4343,7 +4344,7 @@ export class NoteSurface {
   }
   /** The same, inside an action already running for `actor` (element.open on a line's head): run as that actor. */
   runExt(action: string, x: NonNullable<Link["ext"]>, host: SurfaceHost, actor: Actor): Promise<unknown> {
-    if (action === RUN_AGAIN) return NOTE_ACTIONS.run("projection.refresh", { block: x.block, line: x.line }, { surface: this, host }, actor);
+    if (action === RUN_AGAIN) return this.act("projection.refresh", { block: x.block, line: x.line }, host, actor);
     if (!EXT_ACTIONS.has(action)) { host.ctx.flash(`${action} isn't here any more: its extension was removed or reloaded`); return Promise.resolve(null); }
     return EXT_ACTIONS.run(action, { block: x.block, line: x.line }, { ctx: host.ctx as Ctx }, actor);
   }
@@ -5449,7 +5450,7 @@ export class NoteSurface {
     const r = await this.rewriteLines(ref.block, edits, this.imageHistory, host, actor, IMAGE_STALE);
     if (!edits.length) return { block: ref.block, line: ref.line + 1, changed: false, image: ref.source, revision: r.revision ?? null };
     // The person's image stays in view as it grows or moves, so its keys keep working on it.
-    if (actor.kind === "user") this.reveal = true;
+    if (standsAsPerson(actor, host.ctx.person?.() ?? NOBODY, "tile")) this.reveal = true;
     const said = `image ${printable(name)}: ${what}`;
     host.ctx.flash(said);
     this.noteAgent(actor, said);
@@ -5487,7 +5488,7 @@ export class NoteSurface {
   runFigureControl(c: FigureControl, host: SurfaceHost, actor: Actor): Promise<unknown> {
     const f = this.figuresDrawn.find(x => x.key === c.figure);
     if (!f) throw new ActionRefused("that figure isn't drawn now (figures lists what is)");
-    return NOTE_ACTIONS.run(c.tab !== undefined ? "figure.tab" : "figure.density", c.tab !== undefined ? { figure: String(f.n), tab: c.tab } : { figure: String(f.n) }, { surface: this, host }, actor);
+    return this.act(c.tab !== undefined ? "figure.tab" : "figure.density", c.tab !== undefined ? { figure: String(f.n), tab: c.tab } : { figure: String(f.n) }, host, actor);
   }
 
   pressFigure(c: FigureControl, host: SurfaceHost) {
@@ -5974,13 +5975,13 @@ export class NoteSurface {
    * top of the Inbox) as `X [page::X]`, then opened as a followed link opens; one that exists already is opened. An
    * agent's is made and said, opening nothing.
    */
-  async createPage(address: string, host: SurfaceHost, actor: Actor): Promise<{ id: string; created: boolean; said?: string }> {
+  async createPage(address: string, host: SurfaceHost, actor: Actor, standing: boolean): Promise<{ id: string; created: boolean; said?: string }> {
     const r = await host.ctx.board.followPage(address, actor).catch((e: Error) => { throw new ActionRefused(`no page ${address}: ${e.message}`); });
     if (!r.note) throw new ActionRefused(r.status === "deleted" ? `[[${address}]] is a page in the trash: restore it there` : `no page ${address}`);
     const said = r.created ? `created page ${subject(r.note)} ${r.placement?.said ?? ""}`.trim() : `${subject(r.note)} was there already`;
-    if (actor.kind !== "agent") {
+    if (standing) {
       const target = r.note;
-      this.track(() => host.navigate(target, { link: true }));
+      this.track(() => host.navigate(target, { link: true, by: actor, standing }));
       host.ctx.flash(said);
     }
     host.redraw();
@@ -5991,7 +5992,7 @@ export class NoteSurface {
   private takeReveal(m: Msg, host: SurfaceHost) {
     const r = revealOn.get(m);
     if (!r) return;
-    if (r.by.kind === "agent" && host.focused !== false) return;
+    if (!standsAsPerson(r.by, host.ctx.person?.() ?? NOBODY, "tile") && host.focused !== false) return;
     // Every surface that shows the note takes it once (a preview following the list and the detail it opens in): the mark stays on the note.
     if (this.revealed === r) return;
     this.revealed = r;
@@ -6184,7 +6185,7 @@ export class NoteSurface {
     const r = await this.rewriteLines(ref.block, next === ref.header ? [] : [{ line: ref.line, before: ref.header, after: next }], this.calloutHistory, host, actor, CALLOUT_STALE);
     if (next === ref.header) return { block: ref.block, line: ref.line + 1, changed: false, header: ref.header, revision: r.revision ?? null };
     // "Make it start folded" folds it here too; "start open" opens it.
-    if (change.fold !== undefined && ref.foldKey && actor.kind === "user") { if (change.fold === "-") this.folded.add(ref.foldKey); else this.folded.delete(ref.foldKey); }
+    if (change.fold !== undefined && ref.foldKey && standsAsPerson(actor, host.ctx.person?.() ?? NOBODY, "tile")) { if (change.fold === "-") this.folded.add(ref.foldKey); else this.folded.delete(ref.foldKey); }
     const said = `callout ${printable(calloutTitle(ref))}: ${what}`;
     host.ctx.flash(said);
     this.noteAgent(actor, said);
@@ -6638,16 +6639,17 @@ export class NoteSurface {
    * region with when it last read, and, at `line` (a note line, from 0), that region's three folds. The person's; an
    * agent's call answers the same list and opens nothing in their reader.
    */
-  async openSources(host: SurfaceHost, actor: Actor, at?: { line: number } | { anchor: string }) {
+  async openSources(host: SurfaceHost, actor: Actor, standing: boolean, at?: { line: number } | { anchor: string }) {
     const m = this.requireNote();
     if (!isOutlineNote(m)) throw new ActionRefused("a resource or a file isn't a block: it generates nothing here");
-    if (actor.kind !== "user") {
+    if (!standing) {
       const a = await host.ctx.board.siteSources(m.id);
       const i = this.sourceIndex(a, at);
       if (at !== undefined && i < 0) throw new ActionRefused(`no generated region holds ${"line" in at ? `line ${at.line + 1}` : `^${at.anchor}`}: ${a.sources.map(s => `${s.name} (line ${s.line + 1})`).join(", ") || "this note has none"}`);
       this.noteAgent(actor, `read the sources of this note`);
       return { ...this.sourcesRead(a), ...(i >= 0 ? { at: i + 1 } : {}), opened: false };
     }
+    if (actor.kind === "agent" && this.holdsKeys) throw new ActionRefused("the person is typing here; the Sources inspector does not take their keys");
     let mode = this.sourcesMode;
     if (!mode || mode.panel.block !== m.id) { mode = this.sourcesModeOf(newPanel(m.id, ""), host); this.modes.push(mode); }
     mode.reveal = true;
@@ -6831,19 +6833,19 @@ export class NoteSurface {
   }
 
   /** The transform's note, opened in this reader (the person's; an agent reads it with outline_read). */
-  async jumpSource(host: SurfaceHost, actor: Actor) {
+  async jumpSource(host: SurfaceHost, actor: Actor, standing = standsAsPerson(actor, host.ctx.person?.() ?? NOBODY, "tile")) {
     const P = this.requireSources(), s = P.answer?.sources[P.open ?? -1];
     if (!s) throw new ActionRefused("open a source first");
     if (!s.transform.block) {
-      if (actor.kind !== "user") return { block: P.block, line: s.line + 1, opened: false };
+      if (!standing) return { block: P.block, line: s.line + 1, opened: false };
       this.focusSources(host, false);
       const text = this.requireNote().text;
       await this.revealAt(text.split("\n").slice(0, s.line).join("\n").length + (s.line ? 1 : 0), host, actor);
       return { block: P.block, line: s.line + 1, opened: true };
     }
-    if (actor.kind !== "user") return { block: s.transform.block, opened: false, said: "an agent reads it with outline_read; the jump opens it in the person's reader" };
+    if (!standing) return { block: s.transform.block, opened: false, said: "an agent reads it with outline_read; the jump opens it in the person's reader" };
     this.modes.drop("sources");
-    await this.followTarget({ block: s.transform.block, role: "embed" }, host, { link: true });
+    await this.followTarget({ block: s.transform.block, role: "embed" }, host, { link: true, by: actor, standing });
     return { opened: s.transform.block };
   }
 
@@ -7339,9 +7341,9 @@ export class NoteSurface {
    * this reader moves (in place, not through the host's navigate: nothing else follows it). Where the view
    * keeps the history (SurfaceHost.history), the view goes. Null when it went, else why not.
    */
-  async travel(dir: -1 | 1, host: SurfaceHost): Promise<string | null> {
+  async travel(dir: -1 | 1, host: SurfaceHost, actor: Actor = USER): Promise<string | null> {
     this.use(host);
-    if (host.history) return host.history.go(dir);
+    if (host.history) return host.history.go(dir, actor);
     const stack = dir < 0 ? this.backs : this.aheads, to = stack.at(-1);
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
     const holding = this.modes.holding();
@@ -8007,14 +8009,16 @@ export class NoteSurface {
    * the reader's own modes keep their rule (the property panel), and an agent's run gets a host that says who acts.
    * The actor rule is the dispatcher's, checked before this.
    */
-  run(name: string, args: Record<string, unknown>, host: SurfaceHost, actor: Actor, typed = false): Promise<unknown> {
+  run(name: string, args: Record<string, unknown>, host: SurfaceHost, actor: Actor, standing: boolean, typed = false): Promise<unknown> {
     this.use(host);
     // The property panel is the person's (only their `i` opens it); an agent doesn't start an edit or a
     // comment under it, where the panel would take the keys meant for the agent's session (the mode stack's own rule).
     if (actor.kind === "agent" && this.sessionMode()?.name === "panel" && STARTS_SESSION.has(name))
       return Promise.reject(new ActionRefused("the person has the property panel open on this note; try again once they close it"));
-    const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: (m, how) => host.navigate(m, { ...how, by: actor }), startSession: undefined, actor } : host;
-    try { return Promise.resolve(typed ? NOTE_ACTIONS.run(name as never, args as never, { surface: this, host: h }, actor) : NOTE_ACTIONS.runUntyped(name, args, { surface: this, host: h }, actor)); }
+    const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: (m, how) => host.navigate(m, { ...how, by: actor, standing }),
+      ...(host.query ? { query: (q: string, how?: OpenHow) => host.query!(q, { ...how, by: actor, standing }) } : {}),
+      ...(host.tag ? { tag: (t: string, how?: OpenHow) => host.tag!(t, { ...how, by: actor, standing }) } : {}), startSession: standing ? host.startSession : undefined, actor } : host;
+    try { return Promise.resolve(typed ? NOTE_ACTIONS.run(name as never, args as never, { surface: this, host: h, standing }, actor) : NOTE_ACTIONS.runUntyped(name, args, { surface: this, host: h, standing }, actor)); }
     catch (e) { return Promise.reject(e); }
   }
 
@@ -8601,7 +8605,7 @@ function openConstructs(text: string): ReturnType<typeof syntaxWarnings> {
 
 // ── the actions ──────────────────────────────────────────────────────────────
 
-interface On { surface: NoteSurface; host: SurfaceHost }
+interface On { surface: NoteSurface; host: SurfaceHost; standing: boolean }
 
 /**
  * A note action's row in its reader's menu (tile.menu, PIE-492): under "Note", hidden while the reader shows no note,
@@ -8763,19 +8767,19 @@ function foldResult(surface: NoteSurface, p: FoldPoint) {
 }
 
 /** fold, unfold: one fold point, or with all=true every outermost one (fold) or all of them (unfold). */
-async function runFold(on: boolean, { all, ...which }: FoldArgs & { all?: boolean }, { surface, host }: On, actor: Actor) {
+async function runFold(on: boolean, { all, ...which }: FoldArgs & { all?: boolean }, { surface, host, standing }: On, actor: Actor) {
   const now = surface.msg && !surface.msg.partial ? surface.msg : null;
   if (all) {
     if (Object.values(which).some(x => x !== undefined)) throw new ActionRefused("all=true folds or unfolds every one; leave out text, line and n");
     const m = now ?? await surface.whole();
-    const changed = surface.foldAll(on, actor.kind === "user");
+    const changed = surface.foldAll(on, standing);
     surface.noteAgent(actor, on ? "folded the note's sections" : "unfolded the whole note");
-    if (actor.kind === "user") host.ctx.flash(changed ? `${on ? "folded" : "unfolded"} ${changed}` : "this note has no headings, nested lists or callouts to fold");
+    if (standing) host.ctx.flash(changed ? `${on ? "folded" : "unfolded"} ${changed}` : "this note has no headings, nested lists or callouts to fold");
     host.redraw();
     return { changed, foldedNow: surface.foldsIn(m).points.filter(q => surface.folded.has(q.key)).map(foldLabel) };
   }
   const p = now ? foldPointIn(surface, now, which) : await foldTarget(surface, which);
-  surface.setFold(p, on, actor.kind === "user");
+  surface.setFold(p, on, standing);
   surface.noteAgent(actor, `${on ? "folded" : "unfolded"} ${foldLabel(p)}`);
   host.redraw();
   return foldResult(surface, p);
@@ -8849,15 +8853,15 @@ async function sendComment(surface: NoteSurface, host: SurfaceHost, actor: Actor
  * back, forward (PIE-453). An agent's never moves what the person is reading: refused on the reader they have
  * focused, and where the view keeps the history (it would move their screen or focus).
  */
-async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
+async function travelAction(dir: -1 | 1, { surface, host, standing }: On, actor: Actor) {
   const word = dir < 0 ? "back" : "forward";
   // Where the view keeps the history itself (the river's columns), it moves the person's keys: theirs alone.
-  if (actor.kind === "agent" && host.history) throw new ActionRefused(host.history.agentRefusal);
+  if (!standing && host.history) throw new ActionRefused(host.history.agentRefusal);
   // The person's comment unsent here: asked first (PIE-785).
   // (Synchronous when nothing is asked: the follow goes on in the same tick, as it always did.)
   const asked = surface.askLeave(word, {}, actor, host);
   if (asked) return asked;
-  const why = await surface.travel(dir, host);
+  const why = await surface.travel(dir, host, actor);
   if (why) throw new ActionRefused(why);
   surface.noteAgent(actor, `went ${word} here`);
   host.redraw();
@@ -9416,7 +9420,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const parent = surface.requireNote();
       const text = await surface.quoteSelection(host, actor, quote);
       if (movedOn(host, surface, parent.id)) throw new ActionRefused("the reader moved while the quote was read");
-      if (actor.kind === "agent") return NOTE_ACTIONS.run("note.reply", { text }, { surface, host }, actor);
+      if (actor.kind === "agent") return surface.act("note.reply", { text }, host, actor);
       const s = surface.replyParent ? surface.drafting! : surface.startReply(host);
       s.draft.pasteText(text, actor);
       surface.clearSelections();
@@ -9535,10 +9539,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "page.create address=seed-swap", does: "makes the page seed-swap where new notes go, then opens it" },
       { act: "page.create", does: "makes the page the selected [[link]] names, then opens it" },
     ],
-    async run({ address }, { surface, host }, actor) {
+    async run({ address }, { surface, host, standing }, actor) {
       const page = address ?? surface.selectedPage();
       if (!page) throw new ActionRefused("name the page: address=<its name>, or select a [[page]] link first");
-      return surface.createPage(page, host, actor);
+      return surface.createPage(page, host, actor, standing);
     },
   }),
   "link.select": def({
@@ -9562,7 +9566,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "link.follow n=1", does: "opens the note's first link where the view opens links" },
       { act: "link.follow n=2 fresh=true", does: "opens the note's second link in a new reader" },
     ],
-    async run({ n, fresh, ref }, { surface, host }, actor) {
+    async run({ n, fresh, ref }, { surface, host, standing }, actor) {
       surface.requireNote();
       // While the person's comment is unsent here, they're asked first (PIE-785).
       const asked = surface.askLeave("link.follow", { ...(ref !== undefined ? { ref } : {}), ...(n !== undefined ? { n } : {}), ...(fresh ? { fresh } : {}) }, actor, host);
@@ -9574,10 +9578,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         return m && "id" in m ? { opened: m.id, title: subject(m) } : { opened: null, ...(m ?? {}) };
       }
       // The person's n= becomes their [ ] position; an agent's follows that link and leaves the position alone.
-      if (n !== undefined && actor.kind !== "agent") surface.selectLink(n - 1);
+      if (n !== undefined && standing) surface.selectLink(n - 1);
       const links = surface.describe().links;
       if (n !== undefined && !links[n - 1]) throw new ActionRefused(`there is no link ${n}; the note has ${links.length}`);
-      const i = n !== undefined && actor.kind === "agent" ? n - 1 : links.findIndex(l => l.selected);
+      const i = n !== undefined && !standing ? n - 1 : links.findIndex(l => l.selected);
       if (i < 0) throw new ActionRefused("no link is selected; pass n");
       const m = await surface.followLink(i, host, !!fresh);
       // Outside the door (a web page, a file): the person's opened there; an agent's is given the address.
@@ -9714,11 +9718,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "element.open n=2 fresh=true", does: "opens the second element, a link, row or embed, in a new reader" },
     ],
     async run({ n, fresh, row }, on, actor) {
-      const { surface, host } = on;
+      const { surface, host, standing } = on;
       // The person's key or click is on what's drawn now: no wait for the whole note.
-      if (actor.kind === "agent") await surface.whole();
-      if (n === undefined && actor.kind === "agent") throw new ActionRefused("say which element: n (elements lists them); the current one is the person's");
-      const cur = actor.kind === "user" ? surface.inView() : null;
+      if (!standing) await surface.whole();
+      if (n === undefined && !standing) throw new ActionRefused("say which element: n (elements lists them); the current one is the person's");
+      const cur = standing ? surface.inView() : null;
       const i = n ?? (cur ? surface.describeElements().findIndex(e => e.current) + 1 : 0);
       if (!i) throw new ActionRefused("no element is current in view; pass n");
       if (row !== undefined && (!Number.isInteger(row) || row < 1)) throw new ActionRefused("row must be a whole number from 1");
@@ -9736,7 +9740,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (e.kind === "figure" && e.link?.figure) {
         return surface.runFigureControl(e.link.figure, host, actor);
       }
-      if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem|approved|rejected (tasks lists the steps)`);
+      if (e.kind === "task" && !standing) throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem|approved|rejected (tasks lists the steps)`);
       // An extension's line (PIE-512): its head runs the line's primary action, a control its own; an agent's
       // run is the agent's (said on the status bar), and what it writes is the extension's (ext:<id>).
       if (e.link?.ext && !e.link.press && (e.kind === "control" || e.kind === "resource")) {
@@ -9767,12 +9771,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // A `::use` that needs a prop: an agent names them (use.fill with=); the person is asked.
-      if (e.link?.use && actor.kind === "agent") throw new ActionRefused(`that's a ::use that needs a prop: an agent gives it with use.fill block=${e.link.use.block} line=${e.link.use.line + 1} with='{"name":"value"}'`);
+      if (e.link?.use && !standing) throw new ActionRefused(`that's a ::use that needs a prop: an agent gives it with use.fill block=${e.link.use.block} line=${e.link.use.line + 1} with='{"name":"value"}'`);
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
-      if (e.kind === "control" && actor.kind === "agent") throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "edit" ? `comment.edit thread=${e.thread!.slice(0, 8)}${e.value ? ` reply=${e.value.slice(0, 8)}` : ""} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : e.control === "untldr" || e.control === "tldr" ? `thread.tldr thread=${e.thread!.slice(0, 8)}${e.control === "untldr" ? " remove=true" : ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
+      if (e.kind === "control" && !standing) throw new ActionRefused(`that's the person's ${e.control} control on ${e.control === "card" ? "a margin card" : "an expanded thread"}; an agent uses ${e.control === "select" ? "select text=…" : e.control === "reply" ? `reply thread=${e.thread!.slice(0, 8)} body=…` : e.control === "edit" ? `comment.edit thread=${e.thread!.slice(0, 8)}${e.value ? ` reply=${e.value.slice(0, 8)}` : ""} body=…` : e.control === "card" ? "threads, or reply" : e.control === "quote" ? `quote threads=${(e.value ?? e.thread!).slice(0, 8)} where=inbox` : e.control === "quoted" ? `open id=${e.value ?? ""}` : e.control === "untldr" || e.control === "tldr" ? `thread.tldr thread=${e.thread!.slice(0, 8)}${e.control === "untldr" ? " remove=true" : ""}` : `resolve thread=${e.thread!.slice(0, 8)} (open=true reopens)`}`);
       // An agent's comment mark opens the thread list as its own session, on that thread (never under the
       // person's property panel, which would take the keys meant for it).
-      if (e.kind === "comment" && actor.kind === "agent") {
+      if (e.kind === "comment" && !standing) {
         if (surface.panel && !surface.draft && !surface.session) throw new ActionRefused("the person has the property panel open on this note; try again once they close it");
         const r = await NOTE_ACTIONS.run("threads", {}, on, actor) as { threads: { id: string }[] };
         const s = surface.session;
@@ -9781,7 +9785,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         host.redraw();
         return { thread: e.thread, ...r };
       }
-      const r = await surface.openElement(e, host, !!fresh, actor.kind === "user");
+      const r = await surface.openElement(e, host, !!fresh, standing);
       // Outside the door, an agent's was given the address (openOutside said so); it opened nothing.
       if (!(r && typeof r === "object" && "outside" in r)) surface.noteAgent(actor, `${e.kind === "fold" ? "toggled" : "opened"} ${e.label}`);
       host.redraw();
@@ -9842,8 +9846,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "tile", replay: "safe", way: "up would move what they're reading · an agent goes up in another reader (tile=), or opens the parent with open id=",
     menu: noteRow("up to the parent", "u", { busy: true }),
     args: {},
-    async run(_, { surface, host }, actor) {
-      if (actor.kind === "user") surface.letGo();
+    async run(_, { surface, host, standing }, actor) {
+      if (standing) surface.letGo();
       const m = await surface.goUp(host);
       if (!m) throw new ActionRefused("the note has no parent");
       return { opened: m.id, title: subject(m) };
@@ -9855,12 +9859,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "shape", replay: "safe", says: () => "showed the links",
     menu: noteRow("links", "b", { now: ({ surface, host }) => (!host.links || !surface.msg || !isOutlineNote(surface.msg) ? { hide: true } : null) }),
     args: {},
-    async run(_, { surface, host }, actor) {
+    async run(_, { surface, host, standing }, actor) {
       const m = surface.msg;
       if (!m) throw new ActionRefused("no note here to show the links of");
       if (!isOutlineNote(m)) throw new ActionRefused("a resource or a file isn't a block: it has no links here");
       if (!host.links) throw new ActionRefused("this screen has no room for a links tile · write ::links in a note to list them inline");
-      return host.links(actor);
+      return host.links(actor, standing);
     },
   }),
   "back": def({
@@ -10281,9 +10285,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "tile", replay: "safe", way: "the thread list would cover what they're reading · an agent lists threads in another reader (tile=)",
     menu: noteRow("comments", "m", { busy: true }),
     args: {},
-    async run(_, { surface, host }, actor) {
+    async run(_, { surface, host, standing }, actor) {
       // The person's opens as it was asked for: on a comment mark's thread, or with a Reply control's reply started.
-      const s = actor.kind === "user" && !surface.session && !surface.draft ? await personComments(surface, host, "threads") : await surface.ensureSession(host, "threads", actor);
+      const s = standing && !surface.session && !surface.draft ? await personComments(surface, host, "threads") : await surface.ensureSession(host, "threads", actor);
       host.redraw();
       return { threads: s.threads.map(t => ({ id: t.id, open: t.open, author: t.author, quote: t.quote, body: t.body, replies: t.replies.length })) };
     },
@@ -10594,10 +10598,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "props", does: "lists every property of the note; the person's panel opens above it" },
       { act: "props full=true", does: "lists every property of the note; the person's panel fills the reader" },
     ],
-    async run({ full }, { surface, host }, actor) {
+    async run({ full }, { surface, host, standing }, actor) {
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
       // The panel holds the reader's keys: an agent reads the rows in its reply and leaves the panel be.
-      if (actor.kind === "user") { surface.requireNote(); surface.openPanel(!!full); host.redraw(); }
+      if (standing) { surface.requireNote(); surface.openPanel(!!full); host.redraw(); }
       const m = await surface.whole();
       const t = await tokensFor(m.text, surface.src);
       host.redraw();
@@ -10634,7 +10638,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "props.follow key=seed-list", does: "opens the note the seed-list property's value names" },
       { act: "props.follow n=3", does: "opens what the third property's value names, as props lists them" },
     ],
-    async run({ n, key }, { surface, host }, actor) {
+    async run({ n, key }, { surface, host, standing }, actor) {
       const { row } = await propRow(surface, n, key);
       if (!row.target) throw new ActionRefused(`${row.key} holds plain text (${row.value}); there is nothing to follow`);
       const m = await surface.followValue(row, host);
@@ -10718,7 +10722,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "nothing", replay: "safe",
     menu: noteRow("settings", ",", { now: ({ surface }) => (!surface.msg || surface.msg.partial || !surface.settingsSchemaOf(surface.msg) ? { hide: true } : null) }),
     args: {},
-    async run(_, { surface, host }, actor) {
+    async run(_, { surface, host, standing }, actor) {
       const typing = () => { if (surface.panel?.field) throw new ActionRefused(`a property value (${surface.panel.field.row.key}) is being typed here · enter saves it, esc cancels, then , opens the settings`); };
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
       typing();
@@ -10727,7 +10731,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (surface.src) await componentsReady(surface.src);
       typing();
       // The card holds the reader's keys: an agent reads the fields in its reply and leaves the reader be.
-      const card = actor.kind === "user" ? surface.openSettings(m) : null;
+      const card = standing ? surface.openSettings(m) : null;
       const schemas = card?.schemas ?? surface.settingsSchemaOf(m);
       if (!schemas) surface.openSettings(m);
       host.redraw();
@@ -10896,13 +10900,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "scroll by=10", does: "scrolls the note down ten rows" },
       { act: "scroll to=end", does: "scrolls until the last line is at the bottom edge" },
     ],
-    run({ by, to }, { surface, host }, actor) {
+    run({ by, to }, { surface, host, standing }, actor) {
       if (to !== undefined && to !== "top" && to !== "end") throw new ActionRefused(`to is top or end, not ${to}`);
       if ((by === undefined) === (to === undefined)) throw new ActionRefused("say by= (rows) or to=top|end");
       surface.requireNote();
       // The person's own scrolling lets go of their [ ] position; an agent's never touches it.
-      if (to === "end") surface.scrollEnd(actor.kind === "user");
-      else surface.scrollBy(to === "top" ? -1e9 : by!, actor.kind === "user");
+      if (to === "end") surface.scrollEnd(standing);
+      else surface.scrollBy(to === "top" ? -1e9 : by!, standing);
       surface.noteAgent(actor, "scrolled this reader");
       host.redraw();
       return surface.viewport();
@@ -11017,7 +11021,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "fold.toggle text=\"Seed list\"", does: "folds the Seed list heading, or unfolds it if it is folded" },
       { act: "fold.toggle n=2", does: "toggles the second fold point, as folds lists them" },
     ],
-    async run(args, { surface, host }, actor) {
+    async run(args, { surface, host, standing }, actor) {
       const none = args.text === undefined && args.line === undefined && args.n === undefined;
       const draft = surface.draft;
       if (draft) {
@@ -11028,13 +11032,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         host.redraw();
         return { line: p.line + 1, folded };
       }
-      if (none && actor.kind === "agent") throw new ActionRefused("say which heading, list item or callout: one of text=, line= or n= (folds lists them)");
+      if (none && !standing) throw new ActionRefused("say which heading, list item or callout: one of text=, line= or n= (folds lists them)");
       const at = none ? surface.foldTargetAtKeys() : null;
       if (none && !at) throw new ActionRefused("nothing to fold here · ( ) pick a heading or a list item");
       const now = surface.msg;
       const p = at ?? (now && !now.partial ? foldPointIn(surface, now, args) : await foldTarget(surface, args));
       const on = !surface.effectiveFolded(p);
-      surface.setFold(p, on, actor.kind === "user");
+      surface.setFold(p, on, standing);
       surface.noteAgent(actor, `${on ? "folded" : "unfolded"} ${foldLabel(p)}`);
       host.redraw();
       return foldResult(surface, p);
@@ -11063,7 +11067,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "figure.tab n=2", does: "shows the second tab of the note's tabs figure" },
       { act: "figure.tab by=1 figure=\"Beds by stage\"", does: "shows the next tab of the figure titled Beds by stage" },
     ],
-    run({ n, by, tab, figure }, { surface, host }, actor) {
+    run({ n, by, tab, figure }, { surface, host, standing }, actor) {
       surface.requireNote();
       if ([n, by, tab].filter(x => x !== undefined).length !== 1) throw new ActionRefused("say one of n= (a tab's number or value), tab= (its value) or by=1|-1");
       const f = surface.figureNamed(figure, "tabs"), tabs = f.tabs ?? [];
@@ -11074,7 +11078,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       else { const v = String(n).trim(); i = /^\d+$/.test(v) ? Number(v) - 1 : tabs.findIndex(t => t.value.toLowerCase() === v.toLowerCase()); }
       const t = tabs[i];
       if (!t) throw new ActionRefused(`${f.title} has no tab ${n ?? tab}; its tabs: ${tabs.map((x, j) => `${j + 1} ${x.value}`).join(", ")}`);
-      surface.setFigureTab(f, t.value, actor.kind === "user", host);
+      surface.setFigureTab(f, t.value, standing, host);
       surface.noteAgent(actor, `showed the ${t.value} tab of ${f.title}`);
       host.redraw();
       return { figure: f.n, title: f.title, tab: t.value, count: t.count, tabs: tabs.map((x, j) => ({ n: j + 1, ...x, shown: x === t })) };
@@ -11124,7 +11128,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "links.pick n=3", does: "picks row 3 of a ::links list; an agent's call only reads the row" },
       { act: "links.pick by=1 block=\"Garden notes\"", does: "picks the row after the selected one in the Garden notes list" },
     ],
-    run({ block, n, id, by }, { surface, host }, actor) {
+    run({ block, n, id, by }, { surface, host, standing }, actor) {
       surface.requireNote();
       if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("say one of n= (a row from 1), id= (the block it stands for) or by=1|-1");
       const b = surface.linkBlockNamed(block);
@@ -11133,7 +11137,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const i = id !== undefined ? b.rows.findIndex(r => !!r.id && r.id.startsWith(id)) : by !== undefined ? at + Math.trunc(by) : n! - 1;
       const r = b.rows[i];
       if (!r) throw new ActionRefused(id !== undefined ? `${b.title} has no row for ${id}` : `${b.title} has rows 1 to ${b.rows.length}`);
-      const person = actor.kind !== "agent";
+      const person = standing;
       if (person) { surface.selectLinkRow(b, r.key); surface.previewRow(host); host.redraw(); }
       return { block: b.n, title: b.title, row: i + 1, text: r.text, ...(r.id ? { id: r.id } : {}), moved: person };
     },
@@ -11608,7 +11612,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "shape", replay: "safe", says: () => "opened the sources", way: "the inspector opens beside their note · an agent reads the list in the answer, or sources.at line=",
     menu: noteRow("where this comes from (sources)", "S", { now: ({ surface }) => (!surface.msg || !isOutlineNote(surface.msg) || surface.msg.partial ? { hide: true } : null) }),
     args: {},
-    run: (_, { surface, host }, actor) => surface.openSources(host, actor),
+    run: (_, { surface, host, standing }, actor) => surface.openSources(host, actor, standing),
   }),
   "sources.at": def({
     summary: "open the Sources inspector on the generated region that holds a line: line= (from 1), else the person's selection, `[ ]` position or reading line. The passage toolbar's \"Where from\" (a then w) is this. An agent's call answers that source's row and opens nothing in their reader",
@@ -11618,10 +11622,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     examples: [
       { act: "sources.at line=14", does: "opens the Sources inspector on the generated region that holds line 14" },
     ],
-    run({ line }, { surface, host }, actor) {
-      const at = line !== undefined ? { line: line - 1 } : actor.kind === "user" ? surface.regionHere() : null;
+    run({ line }, { surface, host, standing }, actor) {
+      const at = line !== undefined ? { line: line - 1 } : standing ? surface.regionHere() : null;
       if (!at || ("line" in at && at.line < 0)) throw new ActionRefused("say which line: line=<from 1>, or select words (or put [ ] on a line) in a generated region first");
-      return surface.openSources(host, actor, at);
+      return surface.openSources(host, actor, standing, at);
     },
   }),
   "sources.field": def({
@@ -11748,7 +11752,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "sources.jump": def({
     summary: "jump to the open source's transform note (the script, the template): the person's reader opens it; an agent is told its id and reads it with outline_read", keys: modeActionKeys(ATTACHED_KEYS, "sources.jump"),
     touches: "tile", replay: "ask", way: "the jump leaves the page they are reading · an agent reads the note with outline_read",
-    args: {}, run: (_, { surface, host }, actor) => surface.jumpSource(host, actor),
+    args: {}, run: (_, { surface, host, standing }, actor) => surface.jumpSource(host, actor, standing),
   }),
   "sources.scroll": def({
     summary: "scroll the Sources inspector's rows (a tall result or transform), by rows; moving the focus scrolls it into view too", keys: modeActionKeys(ATTACHED_KEYS, "sources.scroll"),
@@ -11814,12 +11818,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     examples: [
       { act: "unsent.diff kind=edit", does: "compares the kept edit with the note now, marking each change" },
     ],
-    async run({ kind }, { surface, host }, actor) {
+    async run({ kind }, { surface, host, standing }, actor) {
       const { of, u, now } = await unsentHere(surface, host, kind ?? "edit", true);
       const base = await baseTextOf(u, of, now!, host.ctx.board);
       const view = diffNote(now!, u, base);
       const verdict = compareDraft(base, u.text, now!.text);
-      if (actor.kind === "agent") return { of, base: u.base, revision: now!.revision ?? null, at: u.at, basis: verdict.basis, verdict: verdict.kind, said: verdictWords(verdict, dayOf(u.at)), hunks: verdict.hunks.map(h => ({ line: h.start + 1, state: h.state, removed: h.removed, added: h.added, now: h.now })), diff: view.text };
+      if (!standing) return { of, base: u.base, revision: now!.revision ?? null, at: u.at, basis: verdict.basis, verdict: verdict.kind, said: verdictWords(verdict, dayOf(u.at)), hunks: verdict.hunks.map(h => ({ line: h.start + 1, state: h.state, removed: h.removed, added: h.added, now: h.now })), diff: view.text };
       host.navigate(view, { fresh: true });
       return { of, base: u.base, revision: now!.revision ?? null, verdict: verdict.kind, opened: view.id };
     },
@@ -11834,10 +11838,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       { act: "unsent.copy kind=comment", does: "shows the comment kept unsent on this note, as it was written" },
       { act: "unsent.copy", does: "shows the first text kept on this note (edit, comment, child or card)" },
     ],
-    async run({ kind }, { surface, host }, actor) {
+    async run({ kind }, { surface, host, standing }, actor) {
       const k = kind ?? firstUnsent(surface) ?? "edit";
       const { of, u, now } = await unsentHere(surface, host, k, false);
-      if (actor.kind === "agent") return { of, kind: k, text: u.text, copy: u.copy, at: u.at };
+      if (!standing) return { of, kind: k, text: u.text, copy: u.copy, at: u.at };
       const base = k === "edit" && now ? await baseTextOf(u, of, now, host.ctx.board) : undefined;
       const view = copyNote(now ?? ({ id: of, text: "", parentId: null, childIds: [], createdAt: u.at, updatedAt: u.at, author: "unsent", properties: [] } as Msg), u, base);
       host.navigate(view, { fresh: true });

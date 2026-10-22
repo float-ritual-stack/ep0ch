@@ -375,11 +375,11 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
       { act: "changes.go n=1", does: "opens the note the newest change is about, where opens land" },
       { act: "changes.go id=7d9a1f40 fresh=true", does: "opens that note in a new detail, as alt+enter does" },
     ],
-    async run({ fresh, ...a }, { pane, desk }, actor: Actor) {
+    async run({ fresh, ...a }, { pane, desk, standing }, actor: Actor) {
       const w = pane as WhatChangedPane, { row, n } = rowOf(w, a);
       const m = await desk.ctx.board.get(row.blockId);
       if (!m) throw new ActionRefused("that note is gone (trashed notes open from the trash)");
-      if (actor.kind !== "agent") w.at = n - 1;
+      if (standing) w.at = n - 1;
       await desk.setCurrent(m, { from: w, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
       desk.redraw();
       return { n, id: row.blockId, title: subject(m) };
@@ -393,9 +393,9 @@ export const WHAT_CHANGED_ACTIONS = actionSet<KindHost>()("what-changed", {
     examples: [
       { act: "changes.diff n=2", does: "shows the note's earlier text against what it became, under row 2" },
     ],
-    async run(a, { pane, desk }, actor: Actor) {
+    async run(a, { pane, desk, standing }, actor: Actor) {
       const w = pane as WhatChangedPane, { row, n } = rowOf(w, a);
-      if (actor.kind === "agent") return { n, id: row.blockId, diff: await changeDiff(desk.ctx.board, row) };
+      if (!standing) return { n, id: row.blockId, diff: await changeDiff(desk.ctx.board, row) };
       if (w.showing(row)) { w.fold(row); desk.redraw(); return { n, id: row.blockId, diff: null }; }
       return { n, id: row.blockId, diff: await w.diff(row, desk) };
     },

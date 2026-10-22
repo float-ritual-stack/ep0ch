@@ -1,19 +1,19 @@
 // Two grants are called an invitation here, and they are different on purpose; both travel the dispatcher's one `invitation=`
-// argument and `Actor.invitation` field. THIS one is the screen grant: a token the person's press mints, scoped to shape and screen,
+// argument and `Actor.invitation` field. THIS one is the screen grant: a token the person's press mints, scoped to tiles, shape and screen,
 // bound to one script run and spent when the run ends. The other is the draft grant (src/draft-session.ts `Invitation`): an `@name`
 // line in a draft asks one agent for one range, checked against that text, and spent by one reply. They share no state or rules;
 // if a third kind appears, put them behind one interface (PIE-996).
 //
 // A press invites the run it starts (PIE-957, S7; design §4.8): the person's click on a button that runs a script mints
-// a one-run invitation, scoped to what the run may touch of the person's screen (shape and screen), and every action the run
+// a one-run invitation, scoped to what the run may touch of the person's screen (tiles, shape and screen), and every action the run
 // asks of the door carries it. It lets the run move the person's tiles, including the one they are looking at, where
-// "the person is at the keys" would refuse an agent the moment after their click. It never reaches a draft's text, and a
-// tile the person starts typing in during the run is still refused (the layout module's own rule). Any actor gets one on
+// "the person is at the keys" would refuse an agent the moment after their click. A tile the person starts typing in during the run is still refused, including changes to its draft
+// (the dispatcher and the layout module keep that typing guard). Any actor gets one on
 // the same terms (an MCP action the person confirmed carries one too): there is no script-only exception. It is spent
 // when the run ends (`scripts.ended`), or lapses after ten minutes.
 import { randomUUID } from "node:crypto";
 
-export type InviteScope = "shape" | "screen";
+export type InviteScope = "tile" | "shape" | "screen";
 
 interface Invite { id: string; scope: readonly InviteScope[]; until: number; run?: string; by: string }
 
@@ -23,7 +23,7 @@ class Invites {
   private readonly open = new Map<string, Invite>();
 
   /** Mint one for the person's press: `by` says whose it is in words (for a status line). */
-  mint(by = "you", scope: readonly InviteScope[] = ["shape", "screen"], now = Date.now()): string {
+  mint(by = "you", scope: readonly InviteScope[] = ["tile", "shape", "screen"], now = Date.now()): string {
     for (const [id, inv] of this.open) if (inv.until <= now) this.open.delete(id);
     const id = randomUUID();
     this.open.set(id, { id, scope, until: now + LAPSE_MS, by });

@@ -142,13 +142,13 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
     test("PIE-1100: scrolling reveals whole result values and transform lines in a narrow panel", async () => {
       await board.createBlock(null, `A long result with many words before inspector-wrap-tail [type::inspector-wrap]`);
       const { s } = await reader('Figure\n\n::graph-tabs\n---\ntitle: A long title that ends in inspector-title-tail\nquery: type=inspector-wrap\ngroup: type\n---\n::', /Figure/);
-      await NOTE_ACTIONS.run("sources.at", { line: 3 }, { surface: s, host }, USER);
-      await NOTE_ACTIONS.run("sources.fold", { fold: "transform" }, { surface: s, host }, USER);
+      await NOTE_ACTIONS.run("sources.at", { line: 3 }, { surface: s, host, standing: true }, USER);
+      await NOTE_ACTIONS.run("sources.fold", { fold: "transform" }, { surface: s, host, standing: true }, USER);
       const seen: string[] = [];
       for (let i = 0; i < 45; i++) {
         const lines = s.render(60, 22, host).lines.map(plain), r = s.sourcesMode!.rect;
         seen.push(lines.slice(r.y, r.y + r.h - 1).map(l => l.slice(r.x, r.x + r.w)).join("\n"));
-        await NOTE_ACTIONS.run("sources.scroll", { by: 2 }, { surface: s, host }, USER);
+        await NOTE_ACTIONS.run("sources.scroll", { by: 2 }, { surface: s, host, standing: true }, USER);
       }
       expect(seen.join("\n")).toContain("inspector-wrap-tail");
       expect(seen.join("\n")).toContain("inspector-title-tail");
@@ -185,12 +185,12 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
 
     test("a parameter is written back onto the line, attributed and undoable; the person is asked, an agent passes it", async () => {
       const { s, note, text } = await SOURCES_NOTE();
-      await NOTE_ACTIONS.run("sources.open", {}, { surface: s, host }, USER);
+      await NOTE_ACTIONS.run("sources.open", {}, { surface: s, host, standing: true }, USER);
       await until(() => text().includes("Sources ·"), "the list", 15_000);
-      await NOTE_ACTIONS.run("sources.pick", { n: 3 }, { surface: s, host }, USER);
-      await NOTE_ACTIONS.run("sources.enter", {}, { surface: s, host }, USER);
-      await expect(NOTE_ACTIONS.run("sources.set", { param: "who" }, { surface: s, host }, AGENT)).rejects.toThrow(/give the new value/);
-      await NOTE_ACTIONS.run("sources.set", { param: "who", value: "Ada" }, { surface: s, host }, USER);
+      await NOTE_ACTIONS.run("sources.pick", { n: 3 }, { surface: s, host, standing: true }, USER);
+      await NOTE_ACTIONS.run("sources.enter", {}, { surface: s, host, standing: true }, USER);
+      await expect(NOTE_ACTIONS.run("sources.set", { param: "who" }, { surface: s, host, standing: false }, AGENT)).rejects.toThrow(/give the new value/);
+      await NOTE_ACTIONS.run("sources.set", { param: "who", value: "Ada" }, { surface: s, host, standing: true }, USER);
       expect((await board.get(note.id))!.text).toContain("who=Ada");
       expect((await board.get(note.id))!.text).not.toContain("who=Kit");
       await until(() => /who\s+Ada/.test(text()), "the field reads Ada", 15_000);
@@ -202,19 +202,19 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
 
     test("an agent reads the same list and opens nothing in the person's reader; a region without a field says it is written in the note", async () => {
       const { s, note, text } = await SOURCES_NOTE();
-      const a = await NOTE_ACTIONS.run("sources.open", {}, { surface: s, host }, AGENT) as { opened: boolean; sources: { name: string; kind: string }[] };
+      const a = await NOTE_ACTIONS.run("sources.open", {}, { surface: s, host, standing: false }, AGENT) as { opened: boolean; sources: { name: string; kind: string }[] };
       expect(a.opened).toBe(false);
       expect(a.sources.map(x => x.kind)).toEqual(["handler", "handler", "use"]);
       expect(text()).not.toContain("Sources ·");
-      const at = await NOTE_ACTIONS.run("sources.at", { line: 6 }, { surface: s, host }, AGENT) as { at: number };
+      const at = await NOTE_ACTIONS.run("sources.at", { line: 6 }, { surface: s, host, standing: false }, AGENT) as { at: number };
       expect(at.at).toBe(3);
-      await expect(NOTE_ACTIONS.run("sources.at", { line: 1 }, { surface: s, host }, AGENT)).rejects.toThrow(/no generated region holds line 1/);
+      await expect(NOTE_ACTIONS.run("sources.at", { line: 1 }, { surface: s, host, standing: false }, AGENT)).rejects.toThrow(/no generated region holds line 1/);
       expect(note.id).toBeTruthy();
     }, 60_000);
 
     test("an agent writes a parameter by naming the source, never needing the person's inspector", async () => {
       const { s, note, text } = await SOURCES_NOTE();
-      const r = await NOTE_ACTIONS.run("sources.set", { source: "3", param: "who", value: "Zed" }, { surface: s, host }, AGENT) as { recordedAs: unknown };
+      const r = await NOTE_ACTIONS.run("sources.set", { source: "3", param: "who", value: "Zed" }, { surface: s, host, standing: false }, AGENT) as { recordedAs: unknown };
       expect(r.recordedAs).toBeTruthy();
       expect((await board.get(note.id))!.text).toContain("who=Zed");
       expect(text()).not.toContain("Sources ·");
@@ -232,7 +232,7 @@ describe.skipIf(!outliner)("generated regions in a door, against a scratch servi
 
     test("select words in a generated region and the passage toolbar offers Where from; a then w opens that source", async () => {
       const { s, text } = await SOURCES_NOTE();
-      await NOTE_ACTIONS.run("select", { text: "Virgo," }, { surface: s, host }, USER);
+      await NOTE_ACTIONS.run("select", { text: "Virgo," }, { surface: s, host, standing: true }, USER);
       s.render(120, 80, host);
       expect(s.passageChoices().map(c => c.label)).toContain("Where from");
       s.key(char("a"), host); s.key(char("w"), host);
