@@ -165,6 +165,8 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
         const answer = await pressed(`await act('tile.focus', { tile: '${placement === "drawer" ? "@drawer/nest/other" : placement === "group" ? "nest/other" : "other"}' }); return 'moved';`);
         expect(answer).toMatch(/typing|edit/);
         expect(s.owner.dispatch.where().focus).toBe(before.focus);
+        const menu = await pressed(`await act('tile.menu', { tile: '${placement === "drawer" ? "@drawer/nest/other" : placement === "group" ? "nest/other" : "other"}' }); return 'opened';`);
+        expect(menu).toMatch(/typing|edit/);
         const close = await pressed(`await act('edit.close', { tile: '${placement === "drawer" ? "@drawer/nest/briefing" : s.tile}', discard: true }); return 'closed';`);
         expect(close).toMatch(/typing/);
       } finally {

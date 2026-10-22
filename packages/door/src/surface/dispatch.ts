@@ -210,7 +210,7 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       if ((def.draft === "replace" || def.draft === "text") && !at.invited && t && where.typingIn === t.name) {
         return `the person is typing in ${t.label ?? t.name}; an agent doesn't replace their text · ${def.draft === "replace" ? "draft.patch lands in their draft, or comment on the note or block.mark it to get their attention" : "block.mark gets their attention, or wait until it's sent or closed"}`;
       }
-      if (standing && !at.invited && t && where.typingIn === t.name) return `the person is typing in ${t.label ?? t.name}; an invited run does not change or close their draft`;
+      if (standing && t && where.typingIn === t.name) return `the person is typing in ${t.label ?? t.name}; an invited run does not change or close their draft`;
       return standing ? null : at.draft?.() ?? null;
     }
     case "tile": {
