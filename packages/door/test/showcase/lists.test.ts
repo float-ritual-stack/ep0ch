@@ -297,7 +297,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     // The following list's header says \u00ab detail; a click on it opens ^W P at its follows row, and the unlink row holds it.
     const rows = () => sc.render(app).lines.map(plain);
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
-    const mark = () => { const r = rows(), y = r.findIndex(l => l.includes("#frost-jobs") && l.includes("\u00ab deta")); return { y, x: y >= 0 ? r[y]!.indexOf("\u00ab deta") : -1 }; };
+    const mark = () => { const r = rows(), y = r.findIndex(l => l.includes("\u00ab detail")); return { y, x: y >= 0 ? r[y]!.indexOf("\u00ab deta") : -1 }; };
     await until(() => mark().y >= 0, "\u00ab detail on the following list's header", 5000);
     click(mark().x + 1, mark().y);
     const panel = () => stage().overlays.top();

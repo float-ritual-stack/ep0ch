@@ -2467,7 +2467,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   private controlsHint(id: number): Hint {
     const pane = this.panes.get(id);
-    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND, ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])], keys: this.wRows().filter(r => r.action === "tile.zoom").map(r => ({ keys: r.chord, does: r.label })) };
+    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND, ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])] };
   }
   linkingHint(): Hint | null {
     if (!this.linking) return null;
@@ -6108,6 +6108,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.finishFrame(canvas, area, area.cols, area.rows + 1, placements), covered: this.overlays.all().length ? area : r };
   }
 
+  dropLiftElsewhere() {
+    const lift = this.layout.lift;
+    if (lift && (!this.keysHere() || this.focus !== lift.tile)) this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile));
+  }
+
   liftInput(k: Key, enter: () => void): boolean {
     const lift = this.layout.lift, r = this.liftedRect;
     if (!lift || !r) return false;
@@ -6116,7 +6121,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.action === "down" || k.action === "wheel-up" || k.action === "wheel-down") this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile));
     } else if (this.keysHere() && this.focus === lift.tile) {
       if (k.kind === "esc") { this.key(k, this.ctx); return true; }
-    } else this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile));
+    } else this.dropLiftElsewhere();
     return false;
   }
 

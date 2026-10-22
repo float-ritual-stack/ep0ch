@@ -78,6 +78,10 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     (app as any).paint(true);
     press({ kind: "mouse", action: "down", button: 0, x: 5, y: 55 });
     expect(d.lifted).toBeNull();
+    await app.act({ action: "tile.zoom", tile: "brief", args: { reach: "column" }, as: "test-agent" });
+    expect(d.lifted?.reach).toBe("column");
+    (app as any).term.rawSink()("# typing in the drawer\r");
+    expect(d.lifted).toBeNull();
     press({ kind: "alt", ch: "a" });
     await sc.dispatch.press("section.leave");
     (app as any).lastInput = 0;

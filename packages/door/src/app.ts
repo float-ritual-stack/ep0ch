@@ -587,7 +587,13 @@ export class App implements Ctx {
     // Raw input while the person types in the drawer or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
-    (term as { rawSink?: unknown }).rawSink = () => (this.probing ? null : this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
+    (term as { rawSink?: unknown }).rawSink = () => {
+      const sink = this.probing ? null : this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
+      return sink ? (bytes: string) => {
+        this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
+        sink(bytes);
+      } : null;
+    };
     connectFigures(board, () => this.redraw());
     // Every line typed in completes outline text from this connection by default (PIE-626: LineInput, src/surface/line.ts).
     useCompletion(board, () => this.redraw(), () => this.barHost());
