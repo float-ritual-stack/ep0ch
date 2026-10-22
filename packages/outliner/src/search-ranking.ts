@@ -1,8 +1,26 @@
 import {loadGotoPrompt,PromptFileError,type PromptRevision} from './ai-prompts';
+import {readGroupSecret} from './extension-secrets';
 import type {BlockCollectionCompleteness,GotoSearchCollection} from './types';
 export interface SearchExcerpt {title:string;path:string;snippet:string;exact:boolean}
 export interface SearchCollection<T extends SearchExcerpt> {matches:T[];completeness:BlockCollectionCompleteness;semantic:GotoSearchCollection['semantic']}
 const MODEL='jev-1.13.0';
+
+/**
+ * Jev's key: the environment's, else the `typesafe` with-secrets group's, as the service reads every other key
+ * (`readGroupSecret`; a host under systemd or launchd has no shell environment). Found once per process; a miss is
+ * looked for again after a minute, so adding the key needs no restart.
+ */
+let found: { key: string | undefined; at: number } | null = null;
+async function jevKey(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
+  if (env.TYPESAFE_API_KEY) return env.TYPESAFE_API_KEY;
+  if (found && (found.key || Date.now() - found.at < 60_000)) return found.key;
+  let key: string | undefined;
+  try { key = await readGroupSecret("typesafe", "TYPESAFE_API_KEY", "ranked search", undefined, env); } catch { key = undefined; }
+  found = { key, at: Date.now() };
+  return key;
+}
+/** Forget the key looked up (a test, or after the person changes it). */
+export function resetJevKey() { found = null; }
 /** HTTP and model output stay outside the synchronous SQLite read transaction. */
 export async function rankSearchWithJev<T extends SearchExcerpt>(
   query: string,
@@ -11,10 +29,12 @@ export async function rankSearchWithJev<T extends SearchExcerpt>(
     apiKey?: string; endpoint?: string; fetch?: (url: string, init: RequestInit) => Promise<Response>; timeoutMs?: number; promptDirectory?: string;
     /** The note the person is writing in or searching from (`contextBlockId`): Jev judges what they mean from there. */
     note?: { title: string; path: string };
+    /** Where the key is looked up (`TYPESAFE_API_KEY`, `WITH_SECRETS_DIR`); a test passes its own. */
+    env?: NodeJS.ProcessEnv;
   } = {},
 ): Promise<SearchCollection<T>> {
-  const apiKey = options.apiKey ?? process.env.TYPESAFE_API_KEY;
-  if (!apiKey) return { ...candidates, semantic: { status: "unavailable", message: "Jev is not configured; showing text matches" } };
+  const apiKey = options.apiKey ?? await jevKey(options.env);
+  if (!apiKey) return { ...candidates, semantic: { status: "unavailable", message: "Jev is not configured; showing text matches · add its key: with-secrets --add typesafe TYPESAFE_API_KEY" } };
   if (query.trim().length < 3 || candidates.matches.length === 0 || candidates.matches[0]?.exact) return candidates;
   const started = performance.now();
   let promptRevisions: PromptRevision[] | undefined;
