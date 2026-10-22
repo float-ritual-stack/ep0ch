@@ -592,9 +592,25 @@ A component the readers draw can't lack an entry: a test fails when one does. Re
 `ep0ch library --json` prints the full schemas (each value's meaning too). The library screen
 (`ep0ch --screen library`) is for people: don't open it; it draws each value with its source.
 
+**One button, two tiles** (PIE-1175). Write the body form first:
+
+```blockdown
+::button{label="Fold the bottom"}
+tile.collapse on=true tile=links
+tile.collapse on=true tile=preview
+::
+```
+
+Each plain line is an action; `((script-name))` is a script step. Scripts receive `input` and return the next value;
+a return of `undefined` replaces it. Acts pass the value through; their answers appear in Sources. The same list can
+be written `act=["tile.collapse on=true tile='links'", "tile.collapse on=true tile='preview'"]` or `of=[pick, convert, wire]`.
+A press is one undo group over reversible effects. A failure stops there and reports completed steps and remaining
+effects in the message log and Sources. Completion inside the body offers actions and `((` offers scripts.
+The kitchen sink's **One button, two tiles** section demonstrates both forms and the pipe.
+
 **Buttons on the status bar** (PIE-1121). A note with `[status-bar::true]` configures the door's bar live:
 `- <built-in id>` lines order the built-ins (omitted ids are hidden), and `::button{label="Collapse" act="tile.collapse tile=screen"}`
-lines place buttons there. `alt="theme.cycle"` names a button's alternate click. The shared `button.press note=<id> label=...`
+lines place buttons there. Closed button bodies and list sugar work there too; pinning preserves the whole body. `alt="theme.cycle"` names a button's alternate click. The shared `button.press note=<id> label=...`
 presses it without moving focus. `status.bar.items` describes the ids and their declared actions; `status.bar.edit` opens
 or creates the config note, also reached by right-click or alt+click on empty bar space and the power bar's `status bar: edit`.
 A note button's menu offers **pin to status bar** (`button.pin label="Collapse"`). Missing or broken config keeps the default

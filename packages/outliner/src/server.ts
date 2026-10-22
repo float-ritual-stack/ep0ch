@@ -1978,7 +1978,7 @@ export class OutlinerServer {
             } catch { projection.output = { ...projection.output, markdown: "hidden here" }; }
           }
         }
-        const sources = readSources({ store: this.store, projections, depend: ids => ids.forEach(id => deps.add(id)), transformOf: id => {
+        const sources = readSources({ store: this.store, projections, sequenceSource: request.hidden === undefined ? (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text) : undefined, depend: ids => ids.forEach(id => deps.add(id)), transformOf: id => {
           const ext = this.extensionRegistry.extension(id);
           return ext?.script ? { kind: "script", label: `script ${ext.name ?? id}`, ...(ext.script.blockId ? { block: ext.script.blockId } : {}), text: ext.script.code } : { kind: "extension", label: ext?.name ?? id };
         } }, { blockId: answer.blockId, ...(request.hidden ? { hidden: request.hidden } : {}) });
@@ -1995,6 +1995,16 @@ export class OutlinerServer {
         for (const id of ids) deps.add(id);
         return { id: request.id, ok: true, result: { ...answer, deps: [...deps], script: { markdown: rendered.markdown, ...(rendered.view ? { view: rendered.view } : {}), reads: { ids, ...(rendered.untracked ? { untracked: true } : {}) } } }, sequence: this.store.sequence };
       } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), ...(error instanceof StillCounting ? { problem: error.problem } : {}), sequence: this.store.sequence }; }
+    }
+    if (request.action === "scripts.sequence") {
+      try {
+        await this.extensionRegistry.reload();
+        const result = this.scriptRuns.startSequence({ extension: "button", action: "run", blockId: request.blockId, line: request.line,
+          clientId: request.clientId, invitation: request.invitation, button: { block: request.blockId, line: request.line },
+          requestedBy: declaredRequester(request, "scripts.sequence") ?? { author: "user" },
+        });
+        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
     }
     if (request.action === "scripts.stop") {
       try {
@@ -2515,6 +2525,7 @@ export class OutlinerServer {
           const read = this.withExtensionProjections(this.decorateProjections(readResourceProjections(this.store, normalizeResourceProjectionRequest({ blockId })), false));
           result = readSources({
             store: this.store, projections: read.projections,
+            sequenceSource: (blockId, button, text) => this.scriptRuns.sequenceSource(blockId, button, text),
             transformOf: (id) => {
               const ext = this.extensionRegistry.extension(id);
               return ext?.script
@@ -2753,6 +2764,7 @@ export class OutlinerServer {
           );
           break;
         }
+        case "scripts.sequence":
         case "scripts.stop":
         case "scripts.run":
         case "extensions.list":

@@ -9,6 +9,7 @@ import { PRIMITIVE_TYPES } from "./component-primitives";
  * record and refuses every read when the run has none.
  */
 export interface ScriptSiteGlobals {
+  input?: unknown;
   this?: unknown;
   self?: unknown;
   caller?: unknown;
@@ -22,6 +23,7 @@ function siteSource(site: ScriptSiteGlobals): string {
   const data = (name: string, value: unknown) => `const ${name} = __freeze(JSON.parse(${JSON.stringify(JSON.stringify(value ?? null))}));`;
   return [
     "const __freeze = o => { if (o && typeof o === 'object') { for (const v of Object.values(o)) __freeze(v); Object.freeze(o); } return o; };",
+    site.input === undefined ? "const input = undefined;" : data("input", site.input),
     data("self", site.self),
     data("caller", site.caller),
     data("props", site.props ?? {}),

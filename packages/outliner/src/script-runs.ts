@@ -2,7 +2,10 @@ import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-par
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
 import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { createPatch } from "diff";
-import { slotPairs } from "@ep0ch/outline-core/action-line";
+import { buttonCallAt, type ButtonCall } from "@ep0ch/outline-core/button-call";
+import type { SourceEntry } from "@ep0ch/outline-core/sources";
+import { scriptsAt } from "./script-sources";
+import { actRequestOf, lineWords, slotPairs } from "@ep0ch/outline-core/action-line";
 import type { AgentToolsClient } from "./agent-tools";
 import type { ExtensionActRequest, ExtensionActResult } from "./extension-calls";
 import type { LoadedExtension, ScriptSource } from "./extension-manifest";
@@ -20,6 +23,8 @@ import { MAX_DEADLINE_MS } from "./extension-manifest";
 import type { Address, SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
+
+const RENDER_ERROR = "render scripts draw; use an action script (a button or of=) to change things";
 
 /**
  * The view a script returned (`{ view }`, or one `view.table(…)` itself), checked against the catalogue; null for anything
@@ -56,7 +61,7 @@ interface SiteBinding { globals: ScriptSiteGlobals; thisId?: string; resolve?: H
 export class ScriptRuns {
   private readonly running = new Set<AbortController>();
   /** The runs that are going, by their undo id (a run note's `script-run::`): what `stop(run)` ends. */
-  private readonly runs = new Map<string, AbortController>();
+  private readonly runs = new Map<string, { controller: AbortController; sequence: boolean }>();
   private readonly tasks = new Map<string, Promise<string | undefined>>();
 
   async finished(run: string): Promise<string | undefined> {
@@ -178,22 +183,46 @@ export class ScriptRuns {
       });
       const result = await runScript(source.code, api, signal, undefined, site.globals);
       if (hiddenQueryRoot) return { markdown: "not shared", reads: [...reads].map(([id, revision]) => ({ id, revision })), queries };
-      if (!result.ok) throw new Error(`${result.error.message}\nrender scripts draw; use an action script (a button or of=) to change things`);
+      if (!result.ok) throw new Error(`${result.error.message}\n${RENDER_ERROR}`);
       const drew = result.value === undefined ? null : scriptView(result.value);
       return { markdown: result.value === undefined ? "" : scriptText(result.value), ...(drew ? { view: drew.view } : {}), reads: [...reads].map(([id, revision]) => ({ id, revision })), queries, ...(untracked ? { untracked: true as const } : {}) };
     } finally { clearTimeout(timer); }
   }
 
   /** Ends one run (`script.stop`): its remaining calls are refused, and its note says it was stopped and by whom. */
-  stopRun(run: string, by: MutationProvenance): { stopped: boolean } {
-    const controller = this.runs.get(run);
-    if (!controller) return { stopped: false };
-    controller.abort(new Error(`Stopped by ${by.actorId ?? by.author}`));
-    return { stopped: true };
+  stopRun(run: string, by: MutationProvenance): { stopped: boolean; sequence?: true } {
+    const active = this.runs.get(run);
+    if (!active) return { stopped: false };
+    active.controller.abort(new Error(`Stopped by ${by.actorId ?? by.author}`));
+    return { stopped: true, ...(active.sequence ? { sequence: true } : {}) };
   }
 
-  start(extension: LoadedExtension, request: ExtensionActRequest): ExtensionActResult {
-    const source = extension.script!;
+  private readonly sequences = new Map<string, { text: string; source: SourceEntry }>();
+
+  sequenceSource(blockId: string, button: ButtonCall, text: string): SourceEntry {
+    const run = this.sequences.get(`${blockId}:${button.line}`);
+    if (run?.text === text) return run.source;
+    return {
+      key: String(button.line), kind: "button", name: button.label, line: button.line, endLine: button.endLine, live: false,
+      query: { params: [], text, editable: false },
+      transform: { kind: "script", label: "Sequence: scripts pipe their return; actions tap the value", text: button.steps.map(s => s.kind === "script" ? `((${s.source}))` : s.source).join("\n") },
+      result: { rows: 0, columns: ["Step", "Source", "Input", "Output", "Answer", "Effects that remain"], table: [], text: "Not pressed yet" },
+      ...(button.problem ? { problem: button.problem } : {}),
+    };
+  }
+
+  startSequence(request: ExtensionActRequest): ExtensionActResult {
+    const note = this.store.require(request.blockId!);
+    const button = buttonCallAt(note.text.split("\n"), request.line!);
+    if (!button || button.problem) throw new Error(button?.problem ?? "No button on that line; read the note and press its current button");
+    return this.start({ id: `button:${note.id}:${button.line}`, name: button.label, script: {
+      code: "", effects: "write", keys: [], blockId: note.id, revision: note.revision,
+      author: { author: note.author, actorId: note.actorId },
+    } }, request, button);
+  }
+
+  start(extension: Pick<LoadedExtension, "id" | "name" | "script">, request: ExtensionActRequest, sequence?: ButtonCall): ExtensionActResult {
+    let source = extension.script!;
     // Effects in a file's opt-in header describe it; only its body is executing code.
     const body = (code: string) => source.file ? code.split("\n").slice(1).join("\n") : code;
     const undo = this.writes.beginRun(`script:${extension.name}`);
@@ -204,7 +233,7 @@ export class ScriptRuns {
     const button = request.button && buttonBlock ? { block: buttonBlock.id, author: buttonBlock.actorId ?? buttonBlock.author } : null;
     const controller = new AbortController();
     this.running.add(controller);
-    this.runs.set(undo, controller);
+    this.runs.set(undo, { controller, sequence: sequence !== undefined });
     const deadlineMs = source.deadlineMs ?? MAX_DEADLINE_MS;
     const deadline = setTimeout(() => controller.abort(new Error(`The script ran past its deadline (${Math.round(deadlineMs / 1000)}s)`)), deadlineMs);
     const old = this.previous.get(extension.id);
@@ -248,7 +277,17 @@ export class ScriptRuns {
       this.store.update(log.id, lines.join("\n"), now.revision, actor);
     });
     let progress: ReturnType<typeof setTimeout> | undefined;
+    const trace = sequence ? { ...this.sequenceSource(request.blockId!, sequence,
+      this.store.require(request.blockId!).text.split("\n").slice(sequence.line, sequence.endLine + 1).join("\n")) } : undefined;
+    if (trace) {
+      delete trace.readAt;
+      delete trace.problem;
+      trace.result = { ...trace.result, rows: 0, table: [], text: "Running" };
+      this.sequences.set(`${request.blockId}:${sequence!.line}`, { text: trace.query.text, source: trace });
+    }
+    let effects: string[] = [], actionAnswer: unknown, sequenceAct = sequence !== undefined;
     const step = (s: HostStep) => {
+      if (trace && s.phase === "done" && s.writes) effects.push(`${s.tool}: ${JSON.stringify(s.result)}`);
       if (s.phase === "start") return;
       lines.push(`\n${s.seq}. ${s.tool}: ${s.phase === "done" ? JSON.stringify(s.result) : s.error}`);
       // A tight host-call loop must not flood readers and delay the person's save behind progress events.
@@ -262,7 +301,7 @@ export class ScriptRuns {
       request: async input => {
         if (controller.signal.aborted) throw controller.signal.reason instanceof Error ? controller.signal.reason : new Error("The script run ended");
         // The script is its code: a run that writes into its own note (its output, a log) goes on; an edit of the code ends it.
-        const changed = source.blockId
+        const changed = sequence && sequenceAct ? false : source.blockId
           ? scriptFence(this.store.get(source.blockId)?.text ?? "", source.fence).code !== source.code
           : body(await Bun.file(source.file!).text()) !== body(source.code);
         if (changed) {
@@ -272,7 +311,7 @@ export class ScriptRuns {
         return captured(() => this.client.request(input));
       },
     };
-    const site = this.bind(source, { blockId: request.blockId, line: request.line, trigger: !!request.trigger, props: Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, [String(v)]])) });
+    let site = this.bind(source, { blockId: request.blockId, line: request.line, trigger: !!request.trigger, props: Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, [String(v)]])) });
     let caller: { text: string; span: DraftPatchSpan } | undefined;
     // place(): the plan is made on the note as its draft has it now, sent as this script, applied or one proposal at the caller.
     const place = async (content: string, opts: { at?: string; mode?: string; label?: string; interpolate?: boolean }) => {
@@ -298,11 +337,15 @@ export class ScriptRuns {
     const api = hostApi(client, { ...actor, actorId: actor.actorId ?? actor.author }, {
       onStep: step,
       ...(site.thisId ? { thisId: site.thisId } : {}),
-      ...(site.resolve ? { resolve: site.resolve } : {}),
+      ...(site.resolve ? { resolve: (path: string) => site.resolve!(path) } : {}),
       place: (content, opts) => place(content, opts),
       mcpAccess: request.mcpAccess,
       // The door it asks is the one that started the run (or `door=`); with none, the service picks the only door or says which there are.
-      act: (name: string, args: Record<string, unknown>) => this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) }),
+      act: async (name: string, args: Record<string, unknown>) => {
+        const answer = await this.act(request.clientId, name, args, actor, controller.signal, { requestedBy, ...(request.invitation ? { invitation: request.invitation } : {}) });
+        if (trace) { actionAnswer = answer; effects.push(`${name}: ${JSON.stringify(answer)}`); }
+        return answer;
+      },
     });
     const task = (async () => {
       let failure: string | undefined;
@@ -316,9 +359,58 @@ export class ScriptRuns {
             caller = { text: draft.text, span: { observed, replacement: observed, range: { start, end: start + observed.length } } };
           }
         }
-        const result = await runScript(source.code, api, controller.signal, source.format === "actions" ? request.args ?? {} : undefined, site.globals);
+        const execute = (args = request.args ?? {}) => runScript(source.code, source.render ? hostApi(client, undefined, {
+          kind: "render", ...(site.thisId ? { thisId: site.thisId } : {}), ...(site.resolve ? { resolve: site.resolve } : {}),
+        }) : api, controller.signal, source.format === "actions" ? args : undefined, site.globals);
+        const result = sequence ? await (async () => {
+          let value: unknown;
+          const show = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
+          const output: { type: "text"; text: string }[] = [];
+          for (const [index, item] of sequence.steps.entries()) {
+            const before = value;
+            effects = []; actionAnswer = undefined;
+            const spelling = item.kind === "script" ? `((${item.source}))` : item.source;
+            try {
+              if (controller.signal.aborted) throw controller.signal.reason;
+              sequenceAct = item.kind === "act";
+              const args: Record<string, string> = {};
+              if (item.kind === "script") {
+                const entries = scriptsAt(this.store, this.registry.list().extensions, { blockId: request.blockId, line: request.line });
+                const call = actRequestOf(lineWords(item.source));
+                Object.assign(args, call.args);
+                if (call.tile !== undefined) args.tile = call.tile;
+                if (call.as !== undefined) args.as = call.as;
+                const ref = call.action;
+                const entry = entries.find(e => e.script && (e.name === ref || e.script.blockId === ref || e.id === ref));
+                if (!entry) throw new Error(`No script ${ref} here; ext ls lists the scripts`);
+                if (entry.state === "failed") throw new Error(entry.error);
+                source = this.registry.extension(entry.id)!.script!;
+              } else source = { ...extension.script!, code: item.source, format: "actions" };
+              const props = Object.fromEntries(Object.entries(args).map(([k, v]) => [k, [v]]));
+              site = this.bind(source, { blockId: request.blockId, line: request.line, props });
+              site.globals.input = value;
+              const answer = await execute(args);
+              output.push(...answer.output.filter((o): o is { type: "text"; text: string } => o.type === "text"));
+              if (!answer.ok) throw new Error(`${answer.error.message}${source.render ? `\n${RENDER_ERROR}` : ""}`);
+              if (item.kind === "script") value = answer.value;
+              trace!.result.table!.push([String(index + 1), spelling, show(before), show(value), item.kind === "act" ? show(actionAnswer) : value === undefined ? "returned nothing" : show(value), effects.join("\n")]);
+              trace!.result.rows++;
+            } catch (error) {
+              const why = `Step ${index + 1} (${spelling}): ${error instanceof Error ? error.message : String(error)}`;
+              trace!.problem = why;
+              trace!.result.table!.push([String(index + 1), spelling, show(before), "failed", why, effects.join("\n")]);
+              trace!.result.rows++;
+              throw new Error(`${why}. Finished: ${index ? trace!.result.table!.slice(0, -1).map(r => r[0] + " (" + r[1] + ")").join(", ") : "none"}. Effects that remain: ${trace!.result.table!.flatMap(r => r[5] ? [r[5]] : []).join("; ") || "none"}. Undo takes back what is reversible.`);
+            } finally {
+              trace!.readAt = new Date().toISOString();
+              trace!.result.text = trace!.result.table!.map(r => r.join(" | ")).join("\n");
+            }
+          }
+          trace!.result.text += `\nFinished: ${sequence.steps.length} steps. Effects that remain are listed per step; undo takes back what is reversible.`;
+          return { ok: true as const, value, output };
+        })() : await execute();
         const current = this.registry.extension(extension.id);
-        if (result.ok && (!current?.script || body(current.script.code) !== body(source.code))) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
+        if (!sequence && result.ok && (!current?.script || body(current.script.code) !== body(source.code))) throw new Error("The script source changed during this run; its remaining output was discarded. Run the saved revision again.");
         lines[0] = `${extension.name} · ${result.ok ? "done" : "failed"} [script-run::${undo}] [machine::script]`;
         for (const output of result.output) if (output.type === "text") lines.push(output.text);
         if (result.ok) {
@@ -359,7 +451,8 @@ export class ScriptRuns {
           this.runs.delete(undo);
           result.message = failure !== undefined ? `${failure || "Script failed"} · check the script and run it again`
             : reason === "done" ? message : "Script stopped; run it again when ready";
-          this.ended?.({ run: undo, reason, message: result.message, written, requestedBy, undo: reason === "done" && undoAvailable,
+          if (trace && failure) { trace.problem = failure; trace.result.text += `\n${failure}`; }
+          this.ended?.({ run: undo, reason, ...(sequence ? { sequence: true } : {}), message: result.message, written, requestedBy, undo: (sequence !== undefined || reason === "done") && undoAvailable,
             ...(request.clientId && !request.background ? { targetClientId: request.clientId } : {}) });
         }
       }

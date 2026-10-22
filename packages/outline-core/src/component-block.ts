@@ -78,7 +78,7 @@ export interface Word { value: string; raw: string; quote?: string }
 export function splitWords(line: string, lines: boolean, shell = true): Word[][] {
   const rows: Word[][] = [];
   let out: Word[] = [];
-  let word = "", inWord = false, close: string | null = null, escaped = false, brace = false, from = 0, at = 0;
+  let word = "", inWord = false, close: string | null = null, escaped = false, brace = false, list = false, from = 0, at = 0;
   const push = (end: number) => { out.push({ value: word, raw: line.slice(from, end), ...(close ? { quote: close } : {}) }); word = ""; inWord = false; };
   for (const c of line) {
     const here = at;
@@ -88,6 +88,16 @@ export function splitWords(line: string, lines: boolean, shell = true): Word[][]
     if (brace && c === "\n") brace = false;
     if (brace) { word += c; if (c === "}" && word.endsWith("}}")) brace = false; continue; }
     if (c === "{" && !close && !escaped && word.endsWith("{") && !word.endsWith("\\{")) { word += c; brace = true; continue; }
+    if (!shell && !close && !escaped && c === "[" && word.endsWith("=")) list = true;
+    if (list) {
+      word += c;
+      if (escaped) { escaped = false; continue; }
+      if (c === "\\" && close !== "'") { escaped = true; continue; }
+      if (close) { if (c === close) close = null; }
+      else if (c === '"' || c === "'") close = c;
+      else if (c === "]") list = false;
+      continue;
+    }
     if (escaped) { word += (close && c !== close && c !== "\\") || c === "{" ? `\\${c}` : c; escaped = false; continue; }
     if (c === "\\" && close !== "'" && close !== "\u2019") { if (!inWord) from = here; escaped = true; inWord = true; continue; }
     if (close) { if (c === close) close = null; else word += c; continue; }

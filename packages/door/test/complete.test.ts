@@ -510,6 +510,21 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     }
   });
 
+  test.each([
+    ['::button{of=fold}\n\n', "block"],
+    ['::button{label="Fold"}\n\n', "block"],
+    ['::button{label="Fold"}\n', "button-step"],
+  ] as const)("(( completes notes outside a button body and scripts inside it: %s", async (prefix, kind) => {
+    const note = await create("Ordinary note\nA note to link in prose.");
+    await create('Ordinary script [script::ordinary-script]\n```js\nreturn "folded";\n```');
+    await board.listExtensions(true);
+    const e = await editing(await create(`Button body practice\n${prefix}`));
+    e.type("((ordinary");
+    const popup = await e.settled();
+    expect(popup.target.kind).toBe(kind);
+    expect(popup.items.some(i => i.insertion === (kind === "block" ? `((${note}))` : "((ordinary-script))"))).toBe(true);
+  });
+
   test("button of completes runnable script names (PIE-1127 round 2)", async () => {
     await create('Water script [script::water-plants]\n```js\nreturn "watered";\n```');
     await board.listExtensions(true);
@@ -636,7 +651,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
       expect(hits.filter(i => i === p.index)).toHaveLength(1);
       expect(lines[row]!.indexOf(label)).toBeLessThan(6);
       expect(lines[row]!.slice(0, p.listWidth).trimEnd()).toEndWith("›");
-      expect(p.previewLines!.map(visible).join("\n")).toContain(label === "Fields" ? "Seed list" : label === "Button" ? "Review" : "Properties");
+      expect(p.previewLines!.map(visible).join("\n")).toContain(label === "Fields" ? "Seed list" : label === "Button" ? "Fold the bottom" : "Properties");
       expect(p.previewLines!.map(visible)[0]).toContain(label);
     }
   });

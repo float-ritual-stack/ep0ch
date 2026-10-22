@@ -584,7 +584,7 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
     const argNames = new Set<string>();
     for (const [at, arg] of (action.args ?? []).entries()) {
       const where = `extension.json: actions/${index}/args/${at}`;
-      if (RESERVED_ARG_NAMES.has(arg.name)) throw new ExtensionLoadError(`${where}/name ${arg.name} is one the request already uses (${[...RESERVED_ARG_NAMES].join(", ")})`);
+      if (!script && RESERVED_ARG_NAMES.has(arg.name)) throw new ExtensionLoadError(`${where}/name ${arg.name} is one the request already uses (${[...RESERVED_ARG_NAMES].join(", ")})`);
       if (argNames.has(arg.name)) throw new ExtensionLoadError(`${where}/name ${arg.name} is declared twice`);
       argNames.add(arg.name);
       if (arg.type === "choice" && !arg.options) throw new ExtensionLoadError(`${where}: a choice needs options`);

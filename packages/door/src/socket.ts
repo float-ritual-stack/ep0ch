@@ -604,7 +604,7 @@ export class SocketBoard implements Board {
   }
 
   /** End one running script (`scripts.stop`) by its run id (the undo its start answered with); `stopped` is false when it isn't running. */
-  stopScript(run: string, actor: Actor = USER): Promise<{ run: string; stopped: boolean }> {
+  stopScript(run: string, actor: Actor = USER): Promise<{ run: string; stopped: boolean; sequence?: true }> {
     return this.request("scripts.stop", { run, mutation: requesterOf(actor) });
   }
 
