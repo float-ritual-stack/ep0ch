@@ -99,7 +99,7 @@ export function substituteValues(
 }
 
 /** Re-scan value-built envelopes, retaining authored offsets for clicks, comments and backlinks. */
-export function valueLinkOccurrences(text: string, values: readonly SiteValue[], code?: CodeScope): { start: number; end: number; link?: LinkOccurrence; values: SiteValue[] }[] {
+export function valueLinkOccurrences(text: string, values: readonly SiteValue[], code?: CodeScope): { start: number; end: number; link?: LinkOccurrence; text?: string; values: SiteValue[] }[] {
   const pairs = pairValues(text, values);
   const envelopes = [...pageLinkSpans(text), ...blockReferenceEnvelopeRanges(text).map(r => ({ ...r, start: text[r.start - 1] === "!" ? r.start - 1 : r.start }))];
   const ranges = codeRangesOf(text, code);
@@ -108,12 +108,12 @@ export function valueLinkOccurrences(text: string, values: readonly SiteValue[],
     if (!inside.length) return [];
     let filled = "", at = r.start;
     for (const p of inside) {
-      filled += text.slice(at, p.start) + (p.value?.values?.[0] ?? "");
+      filled += text.slice(at, p.start) + (p.value?.values?.join(", ") ?? "");
       at = p.end;
     }
     filled += text.slice(at, r.end);
-    const ready = inside.every(p => hasWords(p.value) && p.value!.values!.length === 1);
+    const ready = inside.every(p => hasWords(p.value));
     const link = ready ? linkOccurrences(filled, []).find(l => l.start === 0 && l.end === filled.length) : undefined;
-    return [{ ...r, ...(link ? { link: { ...link, start: r.start, end: r.end } } : {}), values: inside.flatMap(p => p.value ? [p.value] : []) }];
+    return [{ ...r, ...(link ? { text: filled, link: { ...link, start: r.start, end: r.end } } : {}), values: inside.flatMap(p => p.value ? [p.value] : []) }];
   });
 }

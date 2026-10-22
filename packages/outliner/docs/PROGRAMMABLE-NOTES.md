@@ -287,8 +287,7 @@ Read [[{{this.ticket}}]].
 The reader opens PC-1245, and that page lists Follow-up in its backlinks.
 Edit the property to `PC-1246` and the link and backlink follow it. A block-id
 property can likewise supply `(({{this.destination}}))` or an embed
-`!(({{this.destination}}))`. Each placeholder in an address must yield one value.
-An unresolved value saves as typed and shows a warning with a nearest-key suggestion
+`!(({{this.destination}}))`. An unresolved value saves as typed and shows a warning with a nearest-key suggestion
 when available. In the door, the `¶` beside the link opens the line its value reads; click it
 or step to it with `]` and press Enter. The link itself opens its destination.
 The showcase's **Notes that read themselves** section has a working guide link.

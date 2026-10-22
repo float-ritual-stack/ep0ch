@@ -449,7 +449,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
     const links = linkOccurrences(line, code).filter(l => !built.some(b => b.start < l.end && l.start < b.end));
     for (const b of built) {
       if (b.link) links.push(b.link);
-      else spans.push({ ...b, draw: () => b.values.map(v => drawValue(`{{${v.expression}}}`, v, site!.block)).join(", ") });
+      else spans.push({ ...b, draw: () => b.values.length ? b.values.map(v => drawValue(`{{${v.expression}}}`, v, site!.block)).join(", ") : fg(C.dark) + plainWords(line.slice(b.start, b.end)) + LINK_OFF });
     }
     const sourceMark = (l: typeof links[number]) => built.find(b => b.link === l)?.values.map(v => " " + drawValue(`{{${v.expression}}}`, v, site!.block, "¶")).join("") ?? "";
     for (const l of links) {
@@ -474,7 +474,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
       } else if (l.kind === "page") {
         spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) + sourceMark(l) });
       } else if (l.embed && embeds && built.some(b => b.link === l)) {
-        spans.push({ ...l, draw: () => `!((${l.blockId}${l.fragmentId ? `^${l.fragmentId}` : ""}))` });
+        spans.push({ ...l, draw: () => built.find(b => b.link === l)!.text! });
       } else if (!l.embed || !embeds) {
         const answer = resolved.get(refKey(l.blockId, l.fragmentId, l.outline));
         const v = refView(l.blockId, l.fragmentId, l.label, answer);

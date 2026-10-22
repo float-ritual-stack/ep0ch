@@ -701,10 +701,10 @@ async function referenceOnlyWarnings(client: AgentToolsClient, text: string, nea
   try {
     const valueWarnings: string[] = [];
     if (self && text.includes("{{")) {
-      const answer = await client.request<import("@ep0ch/outline-core/site").SiteAnswer>({ action: "site.answer", blockId: self, draft: { text } });
+      const answer = await client.request<SiteAnswer>({ action: "site.answer", blockId: self, draft: { text } });
       const built = valueLinkOccurrences(text, answer.values);
       for (const span of built) for (const value of span.values) if (!hasWords(value)) valueWarnings.push(`{{${value.expression}}}: ${problemWords(value)}`);
-      for (const span of built.sort((a, b) => b.start - a.start)) text = text.slice(0, span.start) + " ".repeat(span.end - span.start) + text.slice(span.end);
+      for (const span of built.sort((a, b) => b.start - a.start)) text = text.slice(0, span.start) + (span.text ?? " ".repeat(span.end - span.start)) + text.slice(span.end);
     }
     const warnings = await referenceWarnings(text, {
       resolve: async t => (await client.request<ResolvedBlockReferences>({ action: "references.resolve", text: t })).references,
