@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "2b87c0eb", "outliner": "2b87c0eb", "on": "2026-10-22" },
+  "verified": { "door": "73203566", "outliner": "73203566", "on": "2026-10-22" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -657,7 +657,7 @@
         { "r": "door", "p": "src/session/daemon.ts", "l": 88, "m": "export async function serve" },
         { "r": "door", "p": "src/session/session-term.ts", "l": 90, "m": "export class SessionTerm" },
         { "r": "door", "p": "src/session/client.ts", "l": 254, "m": "export async function attach(" },
-        { "r": "door", "p": "src/session/protocol.ts", "l": 132, "m": "export class Frames" },
+        { "r": "door", "p": "src/session/protocol.ts", "l": 134, "m": "export class Frames" },
         { "r": "door", "p": "src/display.ts", "l": 70, "m": "export class Painter" },
         { "r": "door", "p": "src/door.ts", "l": 60, "m": "export async function openDoor" }
       ],
