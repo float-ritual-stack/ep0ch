@@ -144,6 +144,8 @@ export interface Person<I = number> {
 /** What an operation is applied with: who acts, where the person is, what each tile is, the screen's room. */
 export interface Ctx<I = number> {
   actor: Actor;
+  /** The dispatcher decides whose standing a run has; actor keeps its attribution. */
+  personStanding?: boolean;
   person: Person<I>;
   tile(id: I): TileFacts;
   /** The room the screen's tiles have: floats are kept on it, flows are squeezed in it. */
@@ -535,7 +537,7 @@ const AGENT_ORDER: Record<AgentLevel, number> = { free: 0, edit: 1, off: 2 };
 
 class Step<I> {
   constructor(private readonly d: Draft<I>, private readonly ctx: Ctx<I>) {}
-  private get agent() { return this.ctx.actor.kind === "agent" && !this.ctx.person.yolo; }
+  private get agent() { return this.ctx.actor.kind === "agent" && !this.ctx.personStanding && !this.ctx.person.yolo; }
   /** An agent in yolo: the person handed it the door, so their locks don't hold it either. */
   private get yolo() { return this.ctx.actor.kind === "agent" && !!this.ctx.person.yolo; }
   private name(id: I) { return this.d.names.get(id) ?? String(id); }

@@ -43,7 +43,7 @@ import { INVITES } from "../surface/invite";
 import { partyOf } from "../steps";
 import { ActionRefused, ActionSet, actionSet, def, asActor, asBoundKey, hintSpots, keyCaption, keyName, lineWords, type ActRequest } from "../surface/actions";
 import { newNoteOffer, type NewNoteHow } from "../new-note";
-import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
+import { actorRule, personStanding, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
@@ -633,7 +633,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     return {
       otherNames: this.otherNames(),
-      actor, area: this.area, tile: id => this.facts(id, actor),
+      actor, personStanding: personStanding(actor), area: this.area, tile: id => this.facts(id, actor),
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, { action: "layout.change" }), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}), ...(actor.kind === "agent" && INVITES.covers(actor.invitation, "screen", actor.run) ? { invited: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
@@ -2532,6 +2532,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       keys: () => d.keys(),
       bindings: () => d.spec.keys ?? [],
       tiles: () => d.tiles(),
+      tilePath: (name: string) => {
+        const paths = d.relatives().filter(other => other !== d).flatMap(other => {
+          const tile = other.dispatch.tile(name), pane = tile ? other.pane(tile.name) : undefined;
+          const path = pane ? d.pathTo(pane) : undefined;
+          return path ? [path] : [];
+        });
+        if (paths.length > 1) throw new ActionRefused(`several tiles named ${name}: ${paths.join(", ")}; name its path`);
+        return paths[0];
+      },
       revision: (expected: unknown) => revisionRefusal(d.layout, expected),
       draftOf: (t: TileRef) => {
         const p = d.pane(t.name);
@@ -2613,6 +2622,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The dispatcher of the screen mounted in the tile a path's first part names (`tile=<mount>/…`). */
   private mountIn(req: ActRequest): Dispatcher | null {
     const head = req.tile?.slice(0, req.tile.indexOf("/")) ?? "";
+    if (head.startsWith("@")) return this.hostDesk(head.slice(1))?.dispatch ?? null;
     const t = head ? this.dispatch.tile(head) : null, p = t ? this.pane(t.name) : undefined;
     return p ? kindOf(p)?.dispatcher?.(p) ?? null : null;
   }

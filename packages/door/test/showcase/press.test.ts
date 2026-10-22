@@ -16,6 +16,7 @@ import { Mirror } from "../../src/mirror";
 import { Conferences } from "../../src/screens";
 import { openScreen } from "../../src/desk/screen-specs";
 import { ReaderPane } from "../../src/desk/panes";
+import { BacklinksPane } from "../../src/desk/backlinks-pane";
 import { Desk } from "../../src/desk/desk";
 import { USER } from "../../src/socket";
 import { outliner, until } from "../scratch";
@@ -44,6 +45,42 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
 
   const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
   const status = () => (app as any).armedNow?.a?.say as string | undefined;
+
+  test("PIE-1186: a person's script press aims the existing drawer links tile at the briefing", async () => {
+    const briefing = await board.createBlock(null, "Garden briefing\nWater the seedlings.");
+    const previous = await board.createBlock(null, "Previous reading\nRepair the fence.");
+    const script = await board.createBlock(seeded.notes.scripts.id, [
+      "Arrange garden reading [script::arrange-garden-reading] [results::keep]",
+      '::button{label="Arrange reading" of=arrange-garden-reading}',
+      "```js",
+      "await act('links', { tile: 'briefing' });",
+      "return 'Reading arranged';",
+      "```",
+    ].join("\n"));
+    await app.loadExtensions(true);
+    await until(() => !!extensionList()?.extensions.find(e => e.name === "arrange-garden-reading"), "the arrangement script loaded");
+    const d = new Desk({ name: "reading", title: "Garden reading", layout: { root: { t: "split", dir: "row", ratio: 0.5,
+      a: { t: "leaf", kind: "reader", name: "briefing" }, b: { t: "leaf", kind: "reader", name: "other" } } } });
+    app.push(d);
+    try {
+      await app.dispatch.act({ action: "open", tile: "briefing", args: { id: briefing.id } }, USER);
+      await app.dispatch.act({ action: "reader.follow", tile: "briefing", args: { source: "none" } }, USER);
+      await app.dispatch.act({ action: "open", tile: "other", args: { id: previous.id } }, USER);
+      await app.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "backlinks", name: "backlinks" } }, USER);
+      await app.dispatch.act({ action: "backlinks", tile: "backlinks", args: { id: previous.id } }, USER);
+      await app.dispatch.act({ action: "tile.group", tile: "backlinks", args: { name: "screen" } }, USER);
+      await app.dispatch.act({ action: "tile.drawer", tile: "screen" }, USER);
+      const links = app.drawer.desk!.paneAtPath("screen/backlinks") as BacklinksPane;
+      expect(links.target?.id).toBe(previous.id);
+      await app.dispatch.act({ action: "tile.focus", tile: "briefing" }, USER);
+      await app.dispatch.act({ action: "button.press", args: { note: script.id, label: "Arrange reading" } }, USER);
+      await untilAsync(async () => (await board.children(script.id)).some(note => note.text.includes("Reading arranged")), "the person's script finished");
+      expect(links.target?.id).toBe(briefing.id);
+    } finally {
+      await app.drawer.desk?.dispatch.act({ action: "tile.close", tile: "screen" }, USER);
+      app.pop(); d.dispose();
+    }
+  }, 30_000);
   const squarePresses = async () => {
     const { elements } = await app.dispatch.act({ action: "elements", tile: "notes" }, USER) as { elements: { kind: string; label: string }[] };
     return elements.filter(e => e.kind === "control" && /^\[[1-9]\]$/.test(e.label));

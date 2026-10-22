@@ -160,6 +160,8 @@ export interface DispatchHost {
   where?(): Whereabouts;
   /** The tiles `tile=` names, in order on screen. */
   tiles?(): TileRef[];
+  /** A tile argument outside this screen, in the host's existing cross-layout path grammar. */
+  tilePath?(name: string): string | undefined;
   /** `expected=`: why it's refused (the layout changed since that revision), or null. Absent: the screen has none. */
   revision?(expected: unknown): string | null;
   /** A tile's draft for the draft rule: the note it shows and the session it holds. */
@@ -171,6 +173,11 @@ export interface DraftAt { board?: object | null; blockId?: string | null; sessi
 
 /** How a tile was named: by what it is (a name, an id, a block it shows) or by where it is (a number, an alias, the focus). */
 type NamedBy = "name" | "id" | "place" | "block" | "focused" | "default";
+
+/** A person's run keeps its script attribution, but their own button has their standing. */
+export function personStanding(actor: Actor): boolean {
+  return actor.kind === "user" || actor.for === "you";
+}
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
 export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way" | "ownGate" | "host"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
@@ -185,7 +192,7 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   /** The action asked for, by name: a press's invitation lifts a hold on navigation for layout and tile actions only, never for leaving the section. */
   action?: string;
 }): string | null {
-  if (actor.kind !== "agent") return null;
+  if (actor.kind !== "agent" || personStanding(actor)) return null;
   // Yolo: the person handed the door to their agents, so none of the rules below (theirs) holds an agent back.
   if (where.yolo) return null;
   if (def.person) return def.person;
@@ -517,7 +524,7 @@ export class Dispatcher {
     const def = reg.set.def(req.action);
     if (!def) throw new ActionRefused(`no action ${req.action} here; try: ${reg.set.names().join(", ")}`);
     // The person's own: refused to an agent before anything is read.
-    if (actor.kind === "agent" && def.person && !this.where().yolo) throw new ActionRefused(def.person);
+    if (!personStanding(actor) && def.person && !this.where().yolo) throw new ActionRefused(def.person);
     const tiles = this.tilesNow();
     const at = this.target(reg, def, req, actor, tiles);
     const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles);
@@ -643,8 +650,9 @@ export class Dispatcher {
       // A path (`group/tile`, `../tile`) names a tile of another screen of the family: the action reads it (tile.link to=).
       if (isTilePath(String(out[k]))) continue;
       const hit = this.named(String(out[k]), tiles);
-      if (!hit) throw new ActionRefused(`no tile ${out[k]} here; ${this.which(tiles)}`);
-      out[k] = hit.t.name;
+      const name = hit?.t.name ?? this.host.tilePath?.(String(out[k]));
+      if (!name) throw new ActionRefused(`no tile ${out[k]} here; ${this.which(tiles)}`);
+      out[k] = name;
     }
     return out;
   }

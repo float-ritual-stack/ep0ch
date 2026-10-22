@@ -22,6 +22,7 @@ import { MainMenu } from "../src/screens";
 import { SocketBoard, USER, type Actor } from "../src/socket";
 import { ActionRefused, ActionSet, allActionSets, type ActionDef, type Touches } from "../src/surface/actions";
 import { actorRule, Dispatcher, type TileRef } from "../src/surface/dispatch";
+import { INVITES } from "../src/surface/invite";
 import { DraftSession, draftRule } from "../src/draft-session";
 import { NOBODY, SHELL_IDLE_MS, type Whereabouts } from "../src/whereabouts";
 import { outliner, Scratch, until } from "./scratch";
@@ -366,6 +367,52 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     board?.close();
     await scratch.dispose();
     delete process.env.EP0CH_STATE;
+  });
+
+  test("PIE-1186: a person's script press folds the reader with their keys", async () => {
+    const desk = twoReaders();
+    app.push(desk);
+    const invitation = INVITES.mint();
+    const run = "press-fold-1186";
+    INVITES.bind(invitation, run);
+    try {
+      await app.dispatch.act({ action: "tile.focus", tile: "middle" }, USER);
+      await app.dispatch.act({ action: "tile.collapse", tile: "middle", args: { on: true } },
+        { kind: "agent", id: "script:neat", for: "you", run, invitation });
+      expect(desk.layoutGet().tiles.find(t => t.name === "middle")?.collapsed).toBe(true);
+    } finally {
+      INVITES.spendRun(run);
+      app.pop();
+      desk.dispose();
+    }
+  });
+
+  test("PIE-1186: note= opens a held reader instead of silently showing the current note", async () => {
+    const desk = twoReaders();
+    app.push(desk);
+    try {
+      await app.dispatch.act({ action: "open", tile: "middle", args: { id: notes.beans.id } }, USER);
+      await app.dispatch.act({ action: "tile.open", tile: "side", args: { kind: "reader", name: "kept", note: notes.peas.id } }, USER);
+      await until(() => (desk.pane("kept") as ReaderPane).msg !== null, "the reader loaded");
+      expect((desk.pane("kept") as ReaderPane).msg?.id).toBe(notes.peas.id);
+    } finally { app.pop(); desk.dispose(); }
+  });
+
+  test("PIE-1186: a drawer links tile wires to a screen reader by path and bare name", async () => {
+    const desk = twoReaders();
+    app.push(desk);
+    try {
+      await app.dispatch.act({ action: "tile.open", tile: "side", args: { kind: "backlinks", name: "garden-links" } }, USER);
+      await app.dispatch.act({ action: "tile.drawer", tile: "garden-links" }, USER);
+      for (const tile of ["@drawer/garden-links", "garden-links"]) {
+        await app.dispatch.act({ action: "tile.link", tile, args: { to: "side", verb: "open" } }, USER);
+        await app.drawer.desk!.dispatch.act({ action: "open", args: { from: "garden-links", id: notes.peas.id } }, USER);
+        expect((desk.pane("side") as ReaderPane).msg?.id).toBe(notes.peas.id);
+      }
+    } finally {
+      await app.drawer.desk?.dispatch.act({ action: "tile.close", tile: "garden-links" }, USER);
+      app.pop(); desk.dispose();
+    }
   });
 
   test("the desk: tile.type by name, id, number and focused reaches the terminal; a reader is refused, saying what it is", async () => {

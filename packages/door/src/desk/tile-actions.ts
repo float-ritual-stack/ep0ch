@@ -189,6 +189,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     ],
     async run({ kind, to, where, mode, id, ...t }, { d, reader }, actor) {
       if (id !== undefined && t.note === undefined) t.note = id;
+      if (kind === "reader" && mode === undefined && t.note !== undefined) mode = "held";
       return await d.openTile({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "held" | "pinned" } : {}), ...t }, to ?? reader, whereOf(where, "tile.open", "right"), actor);
     },
   }),
