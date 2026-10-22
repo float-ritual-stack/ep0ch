@@ -1,3 +1,5 @@
+import { COLUMN_MOVE_KEYS } from "../surface/attached-keys";
+import { modeBinding, modeHint, modeActionKeys } from "../surface/modes";
 import { errorDetails } from "../status-log";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // The River (Quay) as a screen spec on the desk (PIE-515): its columns are tiles of one kind, `river.column`, in a
@@ -141,6 +143,7 @@ const filterInput = (text = "") => new LineInput(text, false, { complete: { gram
 // ── a column ─────────────────────────────────────────────────────────────────
 
 export class RiverColumn extends ReaderPane {
+  readonly bindings = COLUMN_MOVE_KEYS;
   override readonly kind: TileKindName = "river.column";
   /** A block column's note, as read; the Library's and a #tag's list. */
   root: Msg | null = null;
@@ -230,7 +233,7 @@ export class RiverColumn extends ReaderPane {
     if (this.mode === "filter") return completionOf(this.input)?.items.length ? paint(`|08${COMPLETION_HINT}`) : paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
     if (this.mode === "tags") return paint(this.tagChoices.length ? `|14same property|08 · ${this.tagChoices.map(([k, v], i) => `|15${i + 1}|08 ${k}:: |11${v}`).join("|08 · ")}|08 · |15esc|08 cancel` : "|14same property|08 · this note has no properties to follow · |15esc|08 back");
     if (this.surface.editing || this.linked()) return this.surface.hint();
-    return "j k notes · K/J reorder · I/O in/out · Z move · ⏎ open · space replies · / filter · v select";
+    return modeHint(COLUMN_MOVE_KEYS, action => COLUMN_ACTIONS.def(action)) + " · j k notes · ⏎ open · space replies · / filter · v select";
   }
   override spine() {
     const hold = this.surface.draft ? "✎" : this.surface.session ? "¶" : "";
@@ -576,12 +579,12 @@ export class RiverColumn extends ReaderPane {
         return true;
       }
       if (c === "s") { this.run(desk, "column.split"); return true; }
-      // The selected card moves (PIE-943): alt+↑ alt+↓ among its siblings (as in the outline tile), Z asks where.
-      if (k.kind === "alt-up" || k.kind === "alt-down" || c === "K" || c === "J" || c === "I" || c === "O") { this.run(desk, "column.move", { step: k.kind === "alt-up" || c === "K" ? "up" : k.kind === "alt-down" || c === "J" ? "down" : c === "I" ? "in" : "out" }); return true; }
-      if (c === "Z") { this.run(desk, "column.move"); return true; }
-      if (k.kind === "char" && k.ctrl && k.ch === "z") {
-        const id = [this.flat()[this.sel]?.m.id, this.lastMoved].find(x => x && MOVE_UNDO.last("you", x));
-        if (id) { this.run(desk, "column.move", { id, undo: true }); return true; }
+      const move = modeBinding(COLUMN_MOVE_KEYS, k);
+      if (move) {
+        if (move.args?.undo) {
+          const id = [this.flat()[this.sel]?.m.id, this.lastMoved].find(x => x && MOVE_UNDO.last("you", x));
+          if (id) { this.run(desk, "column.move", { id, ...move.args }); return true; }
+        } else { this.run(desk, "column.move", move.args); return true; }
       }
       if (c === "/") { this.mode = "filter"; this.input = filterInput(filterText(this.filter)); desk.redraw(); return true; }
       if (c === "#") { this.tagChoices = followable(this.flat()[this.sel]?.m ?? (this.source.kind === "block" ? this.rootOf() ?? undefined : undefined)); this.mode = "tags"; desk.redraw(); return true; }
@@ -978,7 +981,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   }),
   "column.move": def({
     summary: "move the selected card of a river column, or id=, as note.move does (to=, before=, after=, step=up|down|in|out, position=, revision=): the shared move, recorded as who asks; with none of them the person is asked in the power bar. The column reads its notes again; an agent's never moves your selection",
-    keys: "K J or alt+up alt+down (up, down), I O (in, out), Z (move to…), ctrl+z (undo), drag from the left mark",
+    keys: modeActionKeys([COLUMN_MOVE_KEYS], "column.move"),
     touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"),
     menu: { label: "move the card to…", group: "Column", key: "Z" },
     args: {
@@ -1070,8 +1073,6 @@ export function riverColumnKind(): TileKind {
   };
 }
 
-const HINT = "|08 |15h l|08 columns · |15w|08 widen · |15j k|08 notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 filter this column · |15#|08 same property · |15s|08 split · |15p|08 hold full · |15x|08 close · |15alt+←|08 back · |15g|08 go to · |15q|08 menu";
-
 /** The river as a screen spec: a flow of columns, the Library first; opens go into the next column. */
 export function riverSpec(): ScreenSpec {
   return {
@@ -1079,6 +1080,5 @@ export function riverSpec(): ScreenSpec {
     // The Library is what the river is made around: it doesn't close (closable off, held by its tab set of one, as the
     // board's preview's is), so a saved river always comes back with it.
     layout: { focus: "library", root: { t: "flow", key: "river", held: [0], kids: [{ t: "tabs", tabs: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec], active: 0, policy: { closable: false } }] } },
-    hint: { "river.column": HINT },
   };
 }

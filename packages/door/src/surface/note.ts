@@ -1,4 +1,4 @@
-import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
+import { READER_MOVE_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
@@ -4278,12 +4278,10 @@ export class NoteSurface {
     if (c === "f" && this.msg && !this.msg.partial) { void this.runKey("fold.toggle", {}, host); return true; }
     if (c === "F" && this.msg && !this.msg.partial) { void this.runKey(this.folded.size === 0 ? "fold" : "unfold", { all: true }, host); return true; }
     if (c === "u" && this.msg?.parentId) { void this.runKey("up", {}, host, true); return true; }
-    // Z: move this note under another (PIE-943; > is the board's tile-widening and the power bar's actions scope): asked in the power bar, its parents and the places changed lately first.
-    if (c === "Z" && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", {}, host); return true; }
+    const move = modeBinding(READER_MOVE_KEYS, k);
+    if (move && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", move.args ?? {}, host); return true; }
     // alt+z: route this note by the outline's routing rules (PIE-1010); alt+Z says what would move, moving nothing.
     if (k.kind === "alt" && (k.ch === "z" || k.ch === "Z") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.route", k.ch === "Z" ? { dry: true } : {}, host); return true; }
-    // alt+↑ alt+↓: this note up or down among its siblings, as they do in the outline tile, the board's lanes and the Welcome list.
-    if ((k.kind === "alt-up" || k.kind === "alt-down" || c === "K" || c === "J") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", { step: k.kind === "alt-up" || c === "K" ? "up" : "down" }, host); return true; }
     // b: this note's links (Outlinks, Resources, Backlinks) in the screen's links tile.
     if (c === "b" && this.msg && !this.msg.partial) { void this.runKey("links", {}, host, true); return true; }
     // The margin's cards (ADR 0004 contract 6): a row each, whole, or off.

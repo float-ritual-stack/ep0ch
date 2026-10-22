@@ -143,6 +143,10 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
       const source = readFileSync(new URL(`../../src/${path}`, import.meta.url), "utf8");
       expect(source.match(/(?:finish.*first|open for editing|open for commenting|is open already).*?(?:ctrl\+s|close \(esc\))/g) ?? [], path).toEqual([]);
     }
+    for (const path of ["desk/tree.ts", "river/column.ts", "screens.ts", "surface/note.ts"]) {
+      const source = readFileSync(new URL(`../../src/${path}`, import.meta.url), "utf8");
+      expect(source.match(/(?:return |keys: |hotLine).*?(?:K[ /]J|K\/J|I\/O)/g) ?? [], path).toEqual([]);
+    }
     const sources = readFileSync(new URL("../../src/surface/sources.ts", import.meta.url), "utf8");
     expect(/j k (?:select|move) ·/.test(sources)).toBe(false);
     const note = readFileSync(new URL("../../src/surface/note.ts", import.meta.url), "utf8");
