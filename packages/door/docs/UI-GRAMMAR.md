@@ -879,6 +879,28 @@ mount. Shell shortcuts (including the drawer toggle and agent panel) keep
 their existing host-level meanings.
 
 
+### A temporary lift (PIE-1189)
+
+`tile.zoom reach=screen` keeps the usual screen zoom (the default). `reach=column`
+lifts the tile through its column's full terminal height above the drawer;
+`reach=full` fills the terminal above the status bar. The host composition paints
+that same tile after the drawer with the desk's existing tile renderer. Its tree,
+layout revision and saved layout stay unchanged. There is only one lift.
+
+`^W Z` toggles column reach; `^W F` toggles full reach. The frame's ⇡/⇣ lifts or
+drops, and Ctrl+wheel on the frame steps screen → column → full and back.
+The keys come from `W_KEYS`, and the frame wheel binding from `ZOOM_WHEEL`.
+Typing in the lifted tile keeps it up; work in another tile or the drawer drops it.
+Esc closes the tile's own temporary modes first, then drops the lift before the drawer.
+Agents may lift another tile, with attribution, but never replace the person's lift.
+The showcase's `lift` section exercises this path.
+
+Key-clash pass: Z and F were unused after ^W in the shared table used by the desk,
+brief, welcome, river, board and showcase. BBS screens have no tile chord; terminal
+programs keep their keys while entered. Ctrl+wheel was unused on tile frames;
+content wheel handling, including reader and terminal modifiers, is unchanged.
+
+
 The editor's `::` popup shows each component once under its schema's group, with the library demo. Enter inserts; Right or `>` opens variations and arguments; Left returns. Inside `{}` and component YAML, schema types select property, query-value, reference, action and enum pickers. The preview reads the schema: its purpose, copyable source, drawing, then props. Property examples and variations use the draft's keys, or the `of=` target's; schema samples apply when there are none. After choosing a row, `y` copies the source; `[copy]` does too; dragging selects and copies the drawing. The `@` preview reads the script note and fence (choose a row then `g`, or click `[g]`, to open its definition beside the draft), a file script's registered path and code, or the extension folder and handler.
 
 ### Facets keys (PIE-1220)

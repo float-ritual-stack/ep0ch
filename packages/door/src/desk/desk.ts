@@ -1,4 +1,6 @@
 import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
+import { ZOOM_WHEEL } from "./wkeys";
+import type { ZoomReach } from "./screen-layout";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
 import { Draft, keepCopy } from "../edit";
 import { errorDetails } from "../status-log";
@@ -451,6 +453,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private agentChips: { id: number; from: number; to: number; row: number }[] = [];
   private pointerHits: { id: number; from: number; to: number; row: number; agent: string }[] = [];
   private floatButtons: { id: number; from: number; to: number; row: number }[] = [];
+  private liftButtons: { id: number; from: number; to: number; row: number }[] = [];
   private foldButtons: { id: number; from: number; to: number; row: number }[] = [];
   private holdButtons: { id: number; from: number; to: number; row: number }[] = [];
   private closeButtons: { id: number; from: number; to: number; row: number }[] = [];
@@ -2464,7 +2467,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   private controlsHint(id: number): Hint {
     const pane = this.panes.get(id);
-    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND, ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])] };
+    return { id: "frame", title: `${this.numLabel(id)}${this.displayTitle(id)} controls`, lines: [FRAME_LEGEND, ...(pane instanceof ReaderPane ? pane.surface.buttonHint() : [])], keys: this.wRows().filter(r => r.action === "tile.zoom").map(r => ({ keys: r.chord, does: r.label })) };
   }
   linkingHint(): Hint | null {
     if (!this.linking) return null;
@@ -3226,11 +3229,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const ghosts: [number, Rect][] = [];
     this.tileSpots = [];
     this.pointerHits = [];
-    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.dockCloses = []; this.floatButtons = []; this.foldButtons = []; this.holdButtons = []; this.closeButtons = []; this.wireChips = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
+    this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.dockCloses = []; this.floatButtons = []; this.foldButtons = []; this.liftButtons = []; this.holdButtons = []; this.closeButtons = []; this.wireChips = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a dock, a float) takes away the images under it;
     // drawTile paints every cell of its box.
     const lay = (id: number, r: Rect, dock = false, float = false) => {
+      if (this.layout.lift?.tile === id) return;
       const at = flying ? flying.at(id, this.clock(), area) : "settled";
       if (at !== "settled") { ghosts.push([id, at]); return; }
       const box = this.boxOf(id, r);
@@ -3289,6 +3293,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.dragging) this.drawGhost(canvas, this.dragging.drawer ? null : this.dragging.drop, this.nameOf(this.dragging.src), this.dragging.x, this.dragging.y, this.dragging.drawer ?? undefined);
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
     else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
+    if (this.layout.lift) return { lines: canvas.lines(), placements };
+    return this.finishFrame(canvas, area, cols, rows, placements);
+  }
+
+  private finishFrame(canvas: Canvas, area: Rect, cols: number, rows: number, placements: Placement[]): Frame {
     this.syncModeHint();
     for (const card of this.hintCards()) {
       const id = card.anchor, anchor = this.hits.find(([i]) => i === id)?.[1];
@@ -3380,7 +3389,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** Where tile `id`, placed at `r0`, is drawn: a flow's peek in its whole box (its right side under its neighbour), else `r0`. */
   private boxOf(id: number, r0: Rect): Rect {
-    if (this.cover(id) !== "peek") return r0;
+    if (this.layout.lift?.tile === id || this.cover(id) !== "peek") return r0;
     return this.placed.boxes?.get(id) ?? this.slid.find(d => d.placed.boxes?.has(id))?.placed.boxes?.get(id) ?? r0;
   }
 
@@ -3474,8 +3483,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const focused = id === this.focus;
     // A flow's column squeezed to a spine, or a tile folded to one; a peek is drawn whole in its box, its right
     // side under its neighbour (drawn after it), like a dock (PIE-513).
-    const cover = this.cover(id);
-    const fold = this.collapsed.get(id);
+    const cover = this.layout.lift?.tile === id ? undefined : this.cover(id);
+    const fold = this.layout.lift?.tile === id ? undefined : this.collapsed.get(id);
     if (fold?.dir === "h" ? r0.rows <= 1 : (fold || cover === "spine") && r0.cols <= SPINE) return this.drawSpineTile(canvas, id, r0, focused);
     const r = this.boxOf(id, r0);
     // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it (a dock's
@@ -3520,7 +3529,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const holdK = kindOf(pane)?.hold, listHeld = menus && !float && r.cols >= 24 && holdK ? holdK.held(pane) : null;
     const holdX = (foldDir ? foldX : menuX) - 2;
     const titleModeX = menus && pane.writtenTitle && r.cols >= 28 ? (listHeld !== null ? holdX : foldDir ? foldX : menuX) - 7 : null;
-    const fits = Math.max(1, (titleModeX ?? (listHeld !== null ? holdX : foldDir ? foldX : menuX)) - r.col - 4);
+    const liftX = (titleModeX ?? (listHeld !== null ? holdX : foldDir ? foldX : menuX)) - 2;
+    const lifts = menus && r.cols >= 24;
+    const lifting = this.layout.lift?.tile === id ? this.layout.lift : null;
+    const liftBadge = lifting ? `lifted ${lifting.reach}${lifting.by.kind === "agent" ? ` @${lifting.by.id}` : ""}` : "";
+    const badgeWidth = Math.min(width(liftBadge), Math.max(0, liftX - r.col - 10));
+    const fits = Math.max(1, (lifts ? liftX - (badgeWidth ? badgeWidth + 1 : 0) : titleModeX ?? (listHeld !== null ? holdX : foldDir ? foldX : menuX)) - r.col - 4);
 
     const arrival = this.arriving(id);
     const bright = (TONE[lv.tone] % 8) + 8;
@@ -3571,6 +3585,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
     const foot = fitHint(armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, Math.max(0, r.cols - 4)).text;
     canvas.box(r, float && !arrival ? fgRgb(floatTheme(lv).border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
+    if (badgeWidth) canvas.text(liftX - badgeWidth - 1, r.row, fg(C.yellow) + liftBadge + RESET, badgeWidth);
+    if (lifts) {
+      canvas.text(liftX, r.row, fg(C.yellow) + (this.layout.lift?.tile === id ? "⇣" : "⇡") + RESET, 1);
+      this.liftButtons.push({ id, row: r.row, from: liftX, to: liftX + 1 });
+    }
     if (arrival) canvas.text(r.col + 2, r.row, fg(bright) + BOLD + "*" + RESET, 1);
     let markerX = r.col + 3;
     for (const p of pointers) {
@@ -4156,6 +4175,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   key(k: Key, ctx: Ctx): void {
+    if (k.kind === "mouse" && (k.mods ?? 0) === ZOOM_WHEEL.mods && (k.action === "wheel-up" || k.action === "wheel-down")) {
+      const hit = this.hits.find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
+      if (hit && (k.y === hit[1].row || k.y === hit[1].row + hit[1].rows - 1 || k.x === hit[1].col || k.x === hit[1].col + hit[1].cols - 1)) {
+        const reaches = ["screen", "column", "full"] as const;
+        const current = this.layout.lift?.tile === hit[0] ? this.layout.lift.reach : "screen";
+        const reach = reaches[Math.max(0, Math.min(2, reaches.indexOf(current) + (k.action === "wheel-up" ? 1 : -1)))]!;
+        return this.run(ZOOM_WHEEL.action, { reach, on: true }, this.nameOf(hit[0]));
+      }
+    }
+
     const pending = this.pending;
     if (pending && (pending.kind === "edit" || pending.kind === "external")) {
       const here = pending.pane === this.focusedReader() && !this.overlays.top();
@@ -4449,6 +4478,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private closeStep(esc: boolean): boolean {
     const step = (name: string, args: Record<string, unknown>, tile: string) => { this.run(name, args, tile); return true; };
+    if (this.layout.lift) return step("tile.zoom", { on: false, reach: this.layout.lift.reach }, this.nameOf(this.layout.lift.tile));
     if (this.zoom !== null) return step("tile.zoom", { on: false }, String(this.numberOf(this.zoom)));
     // Esc lets go of the tiles the person picked to gather.
     if (esc && this.pickedBy(USER).length) return step("tile.select", { clear: true }, this.nameOf(this.focus));
@@ -6055,10 +6085,48 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(p.id), pane: p.n, axis, by };
   }
 
+  get lifted() { return this.layout.lift; }
+  get liftedDesk() { return this.descend().find(d => d.lifted); }
+  private liftedRect: Rect | null = null;
+
+  dropLift(actor: Actor = USER) {
+    const lift = this.layout.lift;
+    if (lift) this.zoomTile(this.nameOf(lift.tile), false, actor, lift.reach);
+  }
+
+  paintLift(canvas: Canvas, area: Rect): Frame & { covered: Rect } {
+    const lift = this.layout.lift!;
+    const home = rectsOf({ ...this.layout, zoom: null }, this.area, this.holds).get(lift.tile);
+    const drawn = this.screenTiles().find(t => t.pane === this.panes.get(lift.tile))?.rect;
+    const local = this.hits.find(([id]) => id === lift.tile)?.[1];
+    const offset = drawn && local ? drawn.col - local.col : this.screenOrigin.col;
+    if (!home || !this.panes.has(lift.tile)) { this.dropLift(); return { lines: canvas.lines(), covered: { ...area, cols: 0, rows: 0 } }; }
+    const r = lift.reach === "full" ? area : { ...area, col: home.col + offset, cols: home.cols };
+    this.liftedRect = r;
+    this.hits = [[lift.tile, r], ...this.hits.filter(([id]) => id !== lift.tile)];
+    const placements = this.drawTile(canvas, lift.tile, r);
+    return { ...this.finishFrame(canvas, area, area.cols, area.rows + 1, placements), covered: this.overlays.all().length ? area : r };
+  }
+
+  liftInput(k: Key, enter: () => void): boolean {
+    const lift = this.layout.lift, r = this.liftedRect;
+    if (!lift || !r) return false;
+    if (k.kind === "mouse") {
+      if (k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows) { if (k.action === "down") enter(); this.key(k, this.ctx); return true; }
+      if (k.action === "down" || k.action === "wheel-up" || k.action === "wheel-down") this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile));
+    } else if (this.keysHere() && this.focus === lift.tile) {
+      if (k.kind === "esc") { this.key(k, this.ctx); return true; }
+    } else this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile));
+    return false;
+  }
+
   /** `tile.zoom`: the tile fills the screen, or the screen comes back. */
-  zoomTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone {
+  zoomTile(sel: string | undefined, on: boolean | undefined, actor: Actor, reach: ZoomReach = "screen"): TileDone {
     const p = this.tileNumbered(sel);
-    const r = this.apply({ op: "zoom", tile: p.id, ...(on !== undefined ? { on } : {}) }, actor);
+    const others = this.relatives().filter(d => d !== this && d.layout.lift);
+    if (actor.kind === "agent" && others.some(d => d.layout.lift?.by.kind === "user")) throw new ActionRefused("the person's lift stays up until they drop it");
+    const r = this.apply({ op: "zoom", tile: p.id, reach, ...(on !== undefined ? { on } : {}) }, actor);
+    if (this.layout.lift) for (const d of others) d.dropLift(actor);
     this.redraw();
     return { ...this.tileAnswer(p.id), pane: p.n, zoomed: !!r.answer.zoomed };
   }
@@ -6921,6 +6989,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // ○ ● on a list's frame: it is held off its home or let go (tile.hold, as p in it), without taking the keys.
       const hb = this.holdButtons.find(at);
       if (hb) return this.run("tile.hold", {}, this.nameOf(hb.id));
+      const lb = this.liftButtons.find(at);
+      if (lb) return this.run("tile.zoom", this.layout.lift?.tile === lb.id ? { reach: this.layout.lift.reach, on: false } : { reach: "column", on: true }, this.nameOf(lb.id));
       const ob = this.foldButtons.find(at);
       if (ob) {
         const alt = ((k.mods ?? 0) & 28) !== 0;

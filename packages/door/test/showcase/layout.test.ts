@@ -35,6 +35,54 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
 
 
+  test("lift: the host draws above the drawer, drops on outside work, and keeps the layout", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "lift" }, as: "test-agent" });
+    screen();
+    const d = sc.tilesHere()!;
+    const before = await app.act({ action: "layout.get", as: "test-agent" });
+    await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
+    for (let i = 0; i < 10; i++) {
+      await app.act({ action: "tile.zoom", tile: "other", args: { reach: "column" }, as: "test-agent" });
+      (app as any).paint(true);
+      expect(h.painted.map(plain).join("\n")).toContain("⇣");
+      expect(d.lifted?.reach).toBe("column");
+      await app.act({ action: "tile.zoom", tile: "other", args: { reach: "column", on: false }, as: "test-agent" });
+    }
+    screen();
+    expect(await app.act({ action: "layout.get", as: "test-agent" })).toEqual(before);
+    await app.act({ action: "tile.zoom", tile: "other", args: { reach: "column" }, as: "test-agent" });
+    (app as any).paint(true);
+    press({ kind: "mouse", action: "down", button: 0, x: 170, y: 10 });
+    press({ kind: "mouse", action: "up", button: 0, x: 170, y: 10 });
+    expect(S().focus).toBe("stage");
+    press({ kind: "esc" });
+    press({ kind: "char", ch: "w", ctrl: true }); ch("Z");
+    (app as any).paint(true);
+    expect(d.lifted?.reach).toBe("column");
+    press({ kind: "mouse", action: "wheel-up", button: 0, mods: 16, x: 170, y: 0 });
+    expect(d.lifted?.reach).toBe("full");
+    (app as any).paint(true);
+    press({ kind: "mouse", action: "wheel-down", button: 0, mods: 16, x: 170, y: 0 });
+    expect(d.lifted?.reach).toBe("column");
+    (app as any).paint(true);
+    ch("e"); press({ kind: "enter" });
+    await until(() => !!d.keys().typingIn, "editing the lifted note");
+    ch("x");
+    expect(d.lifted?.reach).toBe("column");
+    press({ kind: "esc" });
+    expect(d.lifted?.reach).toBe("column");
+    press({ kind: "esc" });
+    expect(d.lifted).toBeNull();
+    press({ kind: "char", ch: "w", ctrl: true }); ch("Z");
+    (app as any).paint(true);
+    press({ kind: "mouse", action: "down", button: 0, x: 5, y: 55 });
+    expect(d.lifted).toBeNull();
+    press({ kind: "alt", ch: "a" });
+    await sc.dispatch.press("section.leave");
+    (app as any).lastInput = 0;
+  }, 30_000);
+
   test("focus (PIE-969): the figure with the keys keeps its tint and the row under the cursor is a band with a bar, in every theme", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "focus" }, as: "test-agent" })).toMatchObject({ key: "focus" });

@@ -67,6 +67,8 @@ export const W_KEYS = [
   { key: "}", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "left" }), short: "align" },
   { key: "|", group: "size & shape", action: "layout.gather", how: run("layout.gather", { side: "centre" }), short: "align" },
   { key: "z", group: "size & shape", action: "tile.zoom", how: run("tile.zoom", {}, "n"), short: "zoom" },
+  { key: "Z", group: "size & shape", action: "tile.zoom", how: run("tile.zoom", { reach: "column" }, "n"), label: "lift or drop this column", short: "lift" },
+  { key: "F", group: "size & shape", action: "tile.zoom", how: run("tile.zoom", { reach: "full" }, "n"), label: "lift or drop across the terminal" },
   { key: "c", group: "size & shape", action: "tile.collapse", how: run("tile.collapse"), short: "spine" },
   { key: "W", group: "size & shape", action: "tile.widen", how: run("tile.widen") },
   { key: "f", group: "size & shape", action: "tile.float", how: run("tile.float"), short: "float" },
@@ -173,3 +175,5 @@ export function wBoxLines(rows: readonly WRow[]): string[] {
   }
   return lines;
 }
+
+export const ZOOM_WHEEL = { mods: 16, key: "ctrl+wheel on the frame", action: "tile.zoom" } as const;

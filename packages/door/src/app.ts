@@ -1,3 +1,4 @@
+import { Canvas } from "./canvas";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { StatusBarNote, STATUS_BAR_ACTIONS, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
 import { OSC8, OSC8_CLOSE } from "./hyperlink";
@@ -381,6 +382,8 @@ export interface Screen {
   hostMode?(): HostMode;
   /** The tiles shown here, when they're a desk inside this screen (the showcase's stage): where a tile taken out of the drawer lands. */
   tilesHere?(): Desk | undefined;
+  /** A click in a tile lifted out of this screen enters its existing tile host. */
+  enterTiles?(): void;
 }
 
 /**
@@ -1280,6 +1283,11 @@ export class App implements Ctx {
     // The hyper layer (PIE-699): ⌃⌥⇧⌘ and a key, before any tile's own keys (a draft's and a terminal tile's too). Each chord
     // presses an action that has other keys and a click (src/hyper.ts); the layer is off unless turned on.
     if (k.kind === "hyper") { this.hyper(k.ch); return; }
+    const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
+    if (lifted?.liftInput(k, () => {
+      if (this.drawer.entered && !this.drawer.isDrawer(lifted)) this.drawerRun("host.leave", { quiet: true });
+      this.stack.at(-1)?.enterTiles?.();
+    })) return;
     // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1) {
@@ -1485,6 +1493,14 @@ export class App implements Ctx {
       // One running down under it is cut short at its edge (a spine's long title, PIE-794), not dropped whole.
       placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
     } else { this.drawer.rect = null; this.drawer.made?.shownAs(false); }
+    const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
+    if (lifted) {
+      const canvas = new Canvas(cols, rows - 1);
+      lines.forEach((line, row) => canvas.text(0, row, line, cols));
+      const lift = lifted.paintLift(canvas, { col: 0, row: 0, cols, rows: rows - 1 });
+      lines = lift.lines;
+      placements = [...uncover(placements, lift.covered), ...(lift.placements ?? [])];
+    }
     // The power bar over the screen and the drawer; images under it would show through it.
     if (this.bar) {
       const b = this.bar.draw(cols, rows - 1), r = b.rect;

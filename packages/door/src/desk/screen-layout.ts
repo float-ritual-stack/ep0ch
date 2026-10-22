@@ -47,6 +47,9 @@ export type { Cover } from "./flow";
 /** The flow's squeeze, and where back and forward go from a column (its trail). */
 export { columnOf, squeeze, PEEK, travelTarget, tileOfColumn } from "./flow";
 
+export type ZoomReach = "screen" | "column" | "full";
+export type Lift<I> = { tile: I; reach: Exclude<ZoomReach, "screen">; by: Actor };
+
 /**
  * A tile folded to a spine (`tile.collapse`): the agent that folded it, if an agent did, and which way. Vertical (the
  * default) is a strip `SPINE` cells wide in a row of tiles side by side; `dir: "h"` is one row high in a column of
@@ -65,6 +68,7 @@ export interface LayoutState<I = number> {
   readonly collapsed: ReadonlyMap<I, Fold>;
   /** The tile filling the screen, if one does. */
   readonly zoom: I | null;
+  readonly lift: Lift<I> | null;
   readonly wires: readonly Wire<I>[];
   readonly across: readonly AcrossWire<I>[];
   readonly altReaders: ReadonlySet<I>;
@@ -216,7 +220,7 @@ export type Op<I = number> =
   | { op: "focus"; tile: I; quiet?: boolean }
   | { op: "reveal"; tile: I }
   | { op: "tab"; tile: I; by?: number }
-  | { op: "zoom"; tile: I; on?: boolean }
+  | { op: "zoom"; tile: I; on?: boolean; reach?: ZoomReach }
   | { op: "load"; name: string }
   | { op: "fill"; container: string; order: I[]; fresh?: { id: I; kind: string; name?: string }[]; drop?: I[]; weights?: [I, number][]; names?: [I, string][]; select?: I[] }
   | { op: "source"; container: string; source: string }
@@ -241,11 +245,11 @@ const refuse = (why: string | null | undefined): void => { if (why) throw new Re
 // ── the state as an operation changes it (a private copy: a refused operation leaves the caller's as it was) ──
 
 interface Draft<I> {
-  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; wires: Wire<I>[]; across: AcrossWire<I>[]; altReaders: Set<I>; touched: I[]; names: Map<I, string>; agents: Map<I, AgentLevel>;
+  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; lift: Lift<I> | null; wires: Wire<I>[]; across: AcrossWire<I>[]; altReaders: Set<I>; touched: I[]; names: Map<I, string>; agents: Map<I, AgentLevel>;
   policy: Policy; locks: Set<string>; remembered: Map<string, Policy | undefined>; focus: I; changed: boolean; answer: Record<string, unknown>;
 }
 const draftOf = <I>(s: LayoutState<I>, focus: I): Draft<I> => ({
-  tree: clone(s.tree), floats: s.floats.map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map([...s.collapsed].map(([k, v]) => [k, { ...v }])), zoom: s.zoom,
+  tree: clone(s.tree), floats: s.floats.map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map([...s.collapsed].map(([k, v]) => [k, { ...v }])), zoom: s.zoom, lift: s.lift,
   across: s.across.map(w => ({ ...w })), wires: s.wires.map(w => ({ ...w })), altReaders: new Set(s.altReaders), touched: [...s.touched], names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
 });
 
@@ -286,7 +290,7 @@ function stamp<I>(tree: LNode<I>, policy: Policy, floats: readonly Float<I>[], p
 function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: string }): LayoutState<I> {
   const s = stamp(d.tree, d.policy, d.floats, prev);
   return freeze({
-    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, wires: d.wires, across: d.across, altReaders: d.altReaders, touched: d.touched, names: d.names, agents: d.agents, policy: d.policy,
+    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, lift: d.lift, wires: d.wires, across: d.across, altReaders: d.altReaders, touched: d.touched, names: d.names, agents: d.agents, policy: d.policy,
     locks: [...d.locks], remembered: d.remembered, rev: s.rev, nextNode: s.nextNode, shapeKey: s.shapeKey,
   });
 }
@@ -303,7 +307,7 @@ export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; 
   if (opts.freshIds) forgetIds(given, num => num < (prev?.nextNode ?? 1));
   const tree = normalise(given);
   const d: Draft<I> = {
-    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, across: (parts.across ?? []).map(w => ({ ...w })), wires: (parts.wires ?? []).map(w => ({ ...w })), altReaders: new Set(parts.altReaders), touched: prev && "touched" in prev ? prev.touched.filter(id => parts.names.has(id)) : [], names: new Map(parts.names), agents: new Map(parts.agents ?? []),
+    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, lift: null, across: (parts.across ?? []).map(w => ({ ...w })), wires: (parts.wires ?? []).map(w => ({ ...w })), altReaders: new Set(parts.altReaders), touched: prev && "touched" in prev ? prev.touched.filter(id => parts.names.has(id)) : [], names: new Map(parts.names), agents: new Map(parts.agents ?? []),
     policy: policyOf(parts.policy), locks: new Set(prev && "locks" in prev ? prev.locks : []), remembered: new Map(prev && "remembered" in prev ? prev.remembered : []),
     focus: leaves(tree)[0]!, changed: true, answer: {},
   };
@@ -880,7 +884,7 @@ class Step<I> {
       case "focus": return this.focus(op.tile, !!op.quiet);
       case "reveal": return this.reveal(op.tile);
       case "tab": return this.tab(op.tile, op.by);
-      case "zoom": return this.zoom(op.tile, op.on);
+      case "zoom": return this.zoom(op.tile, op.on, op.reach);
       case "load": return this.load(op.name);
       case "fill": return this.fill(op);
       case "source": return this.source(op.container, op.source);
@@ -1259,6 +1263,7 @@ class Step<I> {
     this.d.wires = this.d.wires.filter(w => w.from !== id && w.to !== id);
     this.d.altReaders.delete(id);
     if (this.d.zoom === id) this.d.zoom = null;
+    if (this.d.lift?.tile === id) this.d.lift = null;
   }
 
   private move(src: I, to: Place<I>) {
@@ -1831,8 +1836,18 @@ class Step<I> {
     this.d.answer = { tile: this.name(showing), tabs: set!.ids.map(x => this.name(x)) };
   }
 
-  private zoom(id: I, on: boolean | undefined) {
+  private zoom(id: I, on: boolean | undefined, reach: ZoomReach = "screen") {
     this.present(id);
+    const lift = this.d.lift;
+    if (this.agent && lift?.by.kind === "user") refuse("the person's lift stays up until they drop it");
+    if (reach !== "screen") {
+      const want = on ?? !(lift?.tile === id && lift.reach === reach);
+      if (this.agent && want && ((this.ctx.person.here !== false && id === this.d.focus) || id === this.ctx.person.typingIn)) refuse(`${this.name(id)} has the person's keys; an agent lifts another tile`);
+      this.d.lift = want ? { tile: id, reach, by: this.ctx.actor } : null;
+      this.d.answer = { zoomed: want, reach };
+      return;
+    }
+    this.d.lift = null;
     const want = on ?? this.d.zoom !== id;
     // Zooming another tile would hide the one with the person's keys.
     if (this.agent && want && id !== this.d.focus) refuse(`zooming tile ${this.name(id)} would hide tile ${this.name(this.d.focus)}, which has the person's keys`);
