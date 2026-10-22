@@ -70,8 +70,8 @@ describe.skipIf(!outliner)("what a following reader follows (PIE-814)", () => {
   });
 
   test("reader.follow source=<tile>: a select wire; the tree's selection shows there, held from the current note", async () => {
-    expect(await act("reader.follow", { source: "tree" }, "b")).toMatchObject({ source: D().layoutGet().tiles.find((t: any) => t.name === "tree").id });
-    expect(D().layoutGet().tiles.find((t: any) => t.name === "tree").wires).toContainEqual({ verb: "select", to: D().layoutGet().tiles.find((t: any) => t.name === "b").id });
+    expect(await act("reader.follow", { source: "tree" }, "b")).toMatchObject({ source: D().layoutGet().tiles.find((t: any) => t.name === "tree").tile });
+    expect(D().layoutGet().tiles.find((t: any) => t.name === "tree").wires).toContainEqual({ verb: "select", to: D().layoutGet().tiles.find((t: any) => t.name === "b").tile });
     expect(chipText("b")).toBe("stays put");
     const was = r("b").msg?.id;
     // The current note moved from elsewhere: b stays (it follows the tree, not the current note).

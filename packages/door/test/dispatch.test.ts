@@ -387,7 +387,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     // open: by name, id, number, a block id it shows; the person's focus never moves for an agent's.
     const focus = D.focus;
     expect(await act("open", { id: notes.beans.id }, "side")).toMatchObject({ name: "side", id: notes.beans.id });
-    expect(await act("open", { id: notes.peas.id }, D.layoutGet().tiles.find((x: any) => x.name === "side").id)).toMatchObject({ name: "side" });
+    expect(await act("open", { id: notes.peas.id }, D.layoutGet().tiles.find((x: any) => x.name === "side").tile)).toMatchObject({ name: "side" });
     expect(await act("open", { id: notes.beans.id }, "2")).toMatchObject({ name: "side" });
     // A block id names the tile showing it (a detail keeps its note).
     await act("tile.open", { kind: "detail", name: "keep", note: notes.peas.id }, "side");
@@ -450,7 +450,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     // A note action by the block a column shows, by its name and by its stable id.
     expect(await act("folds", {}, notes.peas.id)).toMatchObject({ name: b.name });
     expect(await act("folds", {}, b.name)).toMatchObject({ name: b.name });
-    const id = (r.layoutGet() as any).tiles.find((x: any) => x.name === b.name).id;
+    const id = (r.layoutGet() as any).tiles.find((x: any) => x.name === b.name).tile;
     expect(await act("folds", {}, id)).toMatchObject({ name: b.name });
     const focus = V().focused;
     const sp = await act("column.split", {}, lib);                                          // the Library's selected card, stacked

@@ -24,7 +24,7 @@ import { outliner, Scratch, until } from "./scratch";
 
 /** A split in layout.get's tree whose kids are these tiles, by name. */
 const splitOfTiles = (n: any, names: string[]): any =>
-  n.split && n.kids.every((k: any, i: number) => k.pane === names[i]) && n.kids.length === names.length ? n : n.kids?.map((k: any) => splitOfTiles(k, names)).find(Boolean);
+  n.split && n.kids.every((k: any, i: number) => k.name === names[i]) && n.kids.length === names.length ? n : n.kids?.map((k: any) => splitOfTiles(k, names)).find(Boolean);
 const shares = (n: any) => n.kids.map((k: any) => k.share);
 
 describe("ids in the saved form", () => {
@@ -99,7 +99,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     const right = splitOfTiles(g.tree, ["draft", "side"]);
     expect(right.path).toBe("2");
     expect(right.id).toMatch(/^s\d+$/);
-    expect(right.kids[0].id).toMatch(/^t-/);
+    expect(right.kids[0].tile).toMatch(/^t-/);
     for (const t of g.tiles) expect(t.tile).toMatch(/^t-/);
     expect(new Set(g.tiles.map((t: any) => t.tile)).size).toBe(g.tiles.length);
     // The live feed's shape names them the same way.

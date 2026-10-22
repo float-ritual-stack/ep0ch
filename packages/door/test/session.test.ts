@@ -515,7 +515,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     const opened = await control({ cmd: "act", action: "tile.open", args: { kind: "pty", cmd: "sh" }, as: "test-agent" });
     // Its program starts at the tile's first paint: typed once it runs.
     for (let i = 0; ; i++) {
-      try { await control({ cmd: "act", action: "tile.type", tile: opened.id, args: { text: "echo leeks-$((6*7))\\n" }, as: "test-agent" }); break; }
+      try { await control({ cmd: "act", action: "tile.type", tile: opened.tile, args: { text: "echo leeks-$((6*7))\\n" }, as: "test-agent" }); break; }
       catch (e) { if (i > 50 || !/isn't running/.test((e as Error).message)) throw e; await Bun.sleep(100); }
     }
     await until(() => a.screen().includes("leeks-42"), "the tile's output on the client", 10_000);
@@ -570,14 +570,14 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     const copying = (what: string, done: string) => `printf '\\033]52;c;?\\007'; printf '\\033]52;c;%s\\007' "$(printf '${what}' | base64)"; echo ${done}-$((6*7))`;
     // An agent typing into the shell: the copy is the program's, but the person isn't using the tile: not passed on.
     for (let i = 0; ; i++) {
-      try { await control({ cmd: "act", action: "tile.type", tile: opened.id, args: { text: copying("Pull the bindweed", "agent") + "\\n" }, as: "test-agent" }); break; }
+      try { await control({ cmd: "act", action: "tile.type", tile: opened.tile, args: { text: copying("Pull the bindweed", "agent") + "\\n" }, as: "test-agent" }); break; }
       catch (e) { if (i > 50 || !/isn't running/.test((e as Error).message)) throw e; await Bun.sleep(100); }
     }
     await until(() => a.screen().includes("agent-42"), "the agent's command to run", 10_000);
     await until(() => a.screen().includes("click in it, then copy again"), "the toast saying it wasn't copied", 5000);
     expect(clip(a)).toEqual([]);
     // The person clicks in the tile (they type there) and runs it themselves.
-    const t = (await control({ cmd: "act", action: "layout.get", as: "test-agent" })).tiles.find((x: any) => x.id === opened.id);
+    const t = (await control({ cmd: "act", action: "layout.get", as: "test-agent" })).tiles.find((x: any) => x.tile === opened.tile);
     const x = t.rect.col + 4, y = t.rect.row + 3;
     a.type(`\x1b[<0;${x};${y}M\x1b[<0;${x};${y}m`);
     for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== t.name; i++) await Bun.sleep(100);
@@ -587,7 +587,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect(clip(a)).toEqual([`\x1b]52;c;${Buffer.from("Net the brassicas").toString("base64")}\x07`]);
     expect(clip(w)).toEqual([]);
     a.type("\x1d");                                       // ctrl+] back to the door
-    await control({ cmd: "act", action: "tile.close", tile: opened.id, as: "test-agent" }).catch(() => {});
+    await control({ cmd: "act", action: "tile.close", tile: opened.tile, as: "test-agent" }).catch(() => {});
     a.close(); w.close();
     for (let i = 0; i < 50 && (await infoOn(sessionSocket(dir)))!.clients.length; i++) await Bun.sleep(100);
   }, 40_000);
@@ -1091,7 +1091,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     await until(() => a.screen().includes("outline"), "the desk", 10_000);
     const opened = await control({ cmd: "act", action: "tile.open", args: { kind: "pty", cmd: "sh" }, as: "test-agent" });
     for (let i = 0; ; i++) {
-      try { await control({ cmd: "act", action: "tile.type", tile: opened.id, args: { text: "echo chard-$((6*7))\\n" }, as: "test-agent" }); break; }
+      try { await control({ cmd: "act", action: "tile.type", tile: opened.tile, args: { text: "echo chard-$((6*7))\\n" }, as: "test-agent" }); break; }
       catch (e) { if (i > 50 || !/isn't running/.test((e as Error).message)) throw e; await Bun.sleep(100); }
     }
     await until(() => a.screen().includes("chard-42"), "the shell's output", 10_000);

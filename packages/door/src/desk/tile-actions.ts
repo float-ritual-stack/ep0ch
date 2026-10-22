@@ -139,9 +139,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     args: {
       to: { type: "string", optional: true, kind: "tile", about: "the tile it goes beside or into (not needed for an edge)" },
       where: { type: "string", optional: true, choices: WHERE, about: "left, right, up, down, tabs, or edge-left/right/up/down (default right)" },
-      index: { type: "number", optional: true, about: "with where=tabs: the place among the tabs (0 first)" },
+      index: { type: "number", optional: true, implies: [{ where: "tabs" }], conflicts: ["into", "out"], about: "with where=tabs: the place among the tabs (0 first)" },
       into: { type: "string", optional: true, kind: "tile", conflicts: ["out", "to"], about: "a group tile on this screen: the tile goes into it whole" },
-      out: { type: "boolean", optional: true, about: "on a tile of a group: it goes out onto the screen holding the group" },
+      out: { type: "boolean", optional: true, conflicts: ["to"], about: "on a tile of a group: it goes out onto the screen holding the group" },
       beside: { type: "string", optional: true, kind: "tile", implies: [{ into: null }, { out: true }], about: "with into=: the group's tile it goes beside or into; with out=true: the tile outside it goes beside (default the group)" },
     },
     examples: [
@@ -169,7 +169,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       outline: { type: "string", optional: true, kind: "outline", about: "the outline the reader reads and saves in (default: this door)" },
       machine: { type: "string", optional: true, implies: [{ outline: null }], about: "the outline host machine (default: this door's host)" },
       note: { type: "string", optional: true, kind: "note", about: "reader, held: the note it keeps" },
-      id: { type: "string", optional: true, kind: "note", about: "reader, held: the same as note=" },
+      id: { type: "string", optional: true, kind: "note", conflicts: ["note"], about: "reader, held: the same as note=" },
       page: { type: "string", optional: true, kind: "page", about: "reader, pinned: the page it's pinned to, as in [[name]]" },
       cwd: { type: "string", optional: true, about: "pty: the folder it runs in" },
       view: { type: "string", optional: true, kind: "view", about: "query: the saved view (virtual branch) whose cards it lists" },

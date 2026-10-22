@@ -3111,8 +3111,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       layoutName: this.layoutName, rule: this.rule, focusName: this.nameOf(this.focus), inTerminal: this.rawKeys() ? this.nameOf(this.focus) : null,
       linking: this.linking ? this.linking.desk.nameOf(this.linking.from) : null,
       dragging: this.dragging ? { tile: this.nameOf(this.dragging.src), drop: this.dragging.drop ? dropView(this.dragging.drop, id => this.nameOf(id)) : null } : null,
-      layout: describeLayout(this.layout, id => String(order.indexOf(id) + 1)),
-      tree: describeLayout(this.layout, id => this.nameOf(id)),
+      layout: describeLayout(this.layout, id => String(order.indexOf(id) + 1), id => this.tileId(id)),
+      tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)),
       floats: this.floats.map(f => { const p = this.panes.get(f.id)!; return { ...brief(this.showing(p)), tile: this.nameOf(f.id), rect: this.floatRect(f), ...(madeFor(p) ? { newNote: true, writing: p instanceof ReaderPane && !!p.surface.drafting } : {}) }; }),
       // Every reader holding a note, as its surface says it, and whether it's folded (with comments since).
       collapsedReaders: this.namedReaders().filter(r => this.collapsed.has(r.id)).map(r => r.name),
@@ -4850,7 +4850,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile dropped onto a spine opens it first, in the layout's one step (screen-layout.ts move).
     this.apply({ op: "move", tile: src.id, to: place }, actor);
     this.save(); this.redraw();
-    return { ...this.tileAnswer(src.id), where, ...(to ? { to: this.tile(to).name } : {}), tree: describeLayout(this.layout, id => this.nameOf(id)) };
+    return { ...this.tileAnswer(src.id), where, ...(to ? { to: this.tile(to).name } : {}), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)) };
   }
 
   /**
@@ -5761,12 +5761,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The layout's shape: what changes only when the layout does (not with what a tile shows). */
   private layoutShape() {
     return {
-      name: this.layoutName, rev: this.layout.rev, rule: this.rule, zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...(this.layout.policy.agents ? { agents: this.layout.policy.agents } : {}), tree: layoutShapeOf(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ tile: this.nameOf(f.id), rect: this.floatRect(f) })),
+      name: this.layoutName, rev: this.layout.rev, rule: this.rule, zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...(this.layout.policy.agents ? { agents: this.layout.policy.agents } : {}), tree: layoutShapeOf(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ ...this.tileAnswer(f.id), rect: this.floatRect(f) })),
       tiles: this.all().map(id => {
         const p = this.panes.get(id)!, link = this.linkOf(id), set = tabsOf(this.root, id), cover = this.cover(id);
         const dv = this.dockView(id);
         return {
-          tile: this.nameOf(id), id: this.tileId(id), kind: p.kind, rect: this.hits.find(([x]) => x === id)?.[1] ?? null,
+          ...this.tileAnswer(id), kind: p.kind, rect: this.hits.find(([x]) => x === id)?.[1] ?? null,
           ...(link !== undefined ? { link: this.nameOf(link) } : {}),
           ...this.linkView(id),
           ...(set ? { tabs: set.ids.map(x => this.nameOf(x)), shown: set.ids[set.active] === id } : {}),
@@ -5792,7 +5792,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   viewState(): ViewState {
     const f = this.panes.get(this.focus);
     return {
-      focus: { tile: this.nameOf(this.focus), block: this.showing(f)?.id ?? null, ...(f instanceof PtyPane ? { file: f.file ?? null, typing: this.rawKeys() } : {}) },
+      focus: { ...this.tileAnswer(this.focus), block: this.showing(f)?.id ?? null, ...(f instanceof PtyPane ? { file: f.file ?? null, typing: this.rawKeys() } : {}) },
       layout: this.layoutShape(),
       tiles: this.all().map(id => ({ ...this.tileAnswer(id), ...this.viewOf(id) })),
       marks: this.markList(),
@@ -6138,7 +6138,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = this.apply({ op: "place", ...(t ? { tile: t.id } : {}), ...a }, actor);
     if (!this.floatDrag) this.save();
     this.redraw();
-    return r.answer as TileDone;
+    return { ...r.answer, ...this.tileAnswer(this.tile(String(r.answer.tile)).id) };
   }
 
   /**
@@ -7240,10 +7240,10 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     touches: "tile", touchesWith: (_, tile) => (tile !== undefined ? "tile" : "nothing"), way: "opening a note there would move what they're reading · name another reader with tile=, or name none (ep0ch open <id>): it lands where opens land, never their keys or a reader they type in",
     replay: "safe", confirms: true, landing: true, places: ["detail", "new-detail", "float"],
     args: { id: { type: "string", optional: true, about: "the block id (or file=)" }, from: { type: "string", optional: true, kind: "tile", about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎); alone: a new detail beside the tile with the keys" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" },
-      file: { type: "string", optional: true, conflicts: ["id", "from", "fresh", "resource"], about: "a file on this machine (an absolute path) in place of id: Markdown drawn as a preview draws it, any other file through the file Resource reader (PIE-602)" },
-      diff: { type: "boolean", optional: true, about: "with file=: its changes (git's diff against its last commit, else against=)" },
-      against: { type: "string", optional: true, about: "with file= diff=true: a copy of the file from before the change, for a file outside git" },
-      resource: { type: "string", optional: true, about: "a Resource in place of id (PIE-754): file:/path, web:https://… or resource:<id>, registered first when it isn't yet, its stored text shown as a note (as the links tile opens one)" } },
+      file: { type: "string", optional: true, conflicts: ["id", "from", "fresh", "resource", "fragment"], about: "a file on this machine (an absolute path) in place of id: Markdown drawn as a preview draws it, any other file through the file Resource reader (PIE-602)" },
+      diff: { type: "boolean", optional: true, implies: [{ file: null }], about: "with file=: its changes (git's diff against its last commit, else against=)" },
+      against: { type: "string", optional: true, implies: [{ file: null, diff: true }], about: "with file= diff=true: a copy of the file from before the change, for a file outside git" },
+      resource: { type: "string", optional: true, conflicts: ["id", "from", "fresh", "fragment"], about: "a Resource in place of id (PIE-754): file:/path, web:https://… or resource:<id>, registered first when it isn't yet, its stored text shown as a note (as the links tile opens one)" } },
     examples: [
       { act: "open id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 tile=reader", does: "makes that note the desk's current one and shows it in the reader" },
       { act: "open file=/tmp/garden-plan.md", does: "shows the Markdown file as a preview draws it, where opens land" },

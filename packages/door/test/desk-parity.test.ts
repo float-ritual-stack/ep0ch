@@ -110,7 +110,7 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     expect(prog.inherits).toContain(PTY_ACTIONS);
     // The shell has the keys (the test above left it): an agent's tile.type with no reader goes to it.
     expect(get().focus).toBe("shell");
-    expect((await act("tile.type", { text: "echo kind-typed\\n" }) as any).tile).toBe("shell");
+    expect((await act("tile.type", { text: "echo kind-typed\\n" }) as any).name).toBe("shell");
     await expect(act("tile.restart", {}, "shell")).rejects.toThrow(/shell is still running/);
     const other = get().tiles.find((t: any) => t.kind === "reader" || t.kind === "tree").name;
     await expect(act("tile.type", { text: "x" }, other)).rejects.toThrow(new RegExp(`${other} is an? \\w+ tile: tile.type is for a terminal tile`));
@@ -136,7 +136,7 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     await D().dispatch.act({ action: "tile.focus", args: {}, tile: other }, { kind: "user" });
     // The person's keys are on neither terminal: which one would be a guess, so the agent names it.
     await expect(act("tile.type", { text: "x" })).rejects.toThrow(/tile\.type needs tile=<tile>: .*shell, shell2/);
-    expect((await act("tile.type", { text: "echo named\\n" }, "shell2") as any).tile).toBe("shell2");
+    expect((await act("tile.type", { text: "echo named\\n" }, "shell2") as any).name).toBe("shell2");
     await D().dispatch.act({ action: "tile.close", args: { confirm: true }, tile: "shell2" }, { kind: "user" }).catch(() => {});
   });
 

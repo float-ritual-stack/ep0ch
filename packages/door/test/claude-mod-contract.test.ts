@@ -279,6 +279,10 @@ describe("the mod reads a real door's tile answers", () => {
       expect(row.tile).toBe(destination.tile);
       expect(row.id).toBeUndefined();
       expect(row.address).toBeUndefined();
+      expect(JSON.parse(layout.stdout).tree).toMatchObject({ tile: destination.tile, name: destination.name });
+      const view = await run(["ep0ch", "act", "view.get", "--as", "garden-helper"], { env });
+      expect(view.exitCode).toBe(0);
+      expect(JSON.parse(view.stdout).focus).toMatchObject({ tile: destination.tile, name: destination.name });
       const actions = await run(["ep0ch", "actions"], { env });
       expect(actions.exitCode).toBe(0);
       expect(actions.stdout).toContain("answer: tile: string|null (the destination tile's stable id");

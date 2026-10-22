@@ -141,8 +141,8 @@ export interface ActionDef<A, H> {
   /** Words `tile=` may give instead of a tile: where something new goes (the board's open: new-detail, float). */
   places?: readonly string[];
   args: { [K in keyof A]-?: ArgSpec };
-  /** One or two real calls and what each does (ActionExample): its page's examples. An action with arguments has them (test/action-pages.test.ts). */
   answer?: Readonly<Record<string, { type: string; about: string; kind?: ArgKind }>>;
+  /** One or two real calls and what each does (ActionExample): its page's examples. An action with arguments has them (test/action-pages.test.ts). */
   examples?: readonly ActionExample[];
   /** Its rows in a tile's menu (`tile.menu`, PIE-492): absent, it isn't in one. */
   menu?: MenuEntry<A, H> | readonly MenuEntry<A, H>[];

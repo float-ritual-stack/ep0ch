@@ -110,7 +110,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     expect(tiles.find(t => t.name === "tree")).toMatchObject({ kind: "tree", link: "middle" });
     expect(tiles.find(t => t.name === "preview")).toMatchObject({ source: "tile:tree" });
     // The feed's view of the shape says the same.
-    expect(desk.viewState().layout).toMatchObject({ tree: { path: "", kids: expect.arrayContaining([expect.objectContaining({ path: "1" })]) }, tiles: expect.arrayContaining([expect.objectContaining({ tile: "claude", kind: "pty", pinned: true, cmd: ["sh"] })]) });
+    expect(desk.viewState().layout).toMatchObject({ tree: { path: "", kids: expect.arrayContaining([expect.objectContaining({ path: "1" })]) }, tiles: expect.arrayContaining([expect.objectContaining({ name: "claude", kind: "pty", pinned: true, cmd: ["sh"] })]) });
   });
 
   test("a terminal tile is told this door's control socket (EP0CH_CONTROL) and its own name (EP0CH_TILE)", async () => {
@@ -124,14 +124,14 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
   test("view.subscribe from another process: a click moves focus and the event arrives; a move is layout.changed", async () => {
     const f = feed();
     await until(() => f.events.some(e => e.type === "hello"), "the hello");
-    expect(f.events[0]).toMatchObject({ state: { focus: { tile: "tree" } } });
+    expect(f.events[0]).toMatchObject({ state: { focus: { name: "tree" } } });
     const r = tile("side")!.rect!;
     mouse("down", r.col + 5, r.row + 5); mouse("up", r.col + 5, r.row + 5);
-    await until(() => f.of("focus.changed").some(e => e.tile === "side"), "focus.changed to side");
+    await until(() => f.of("focus.changed").some(e => e.name === "side"), "focus.changed to side");
     expect(person().focus).toBe("side");
     await act("layout.move", { to: "middle", where: "tabs" }, "now");
     await until(() => f.of("layout.changed").length > 0, "layout.changed");
-    expect(f.of("layout.changed").at(-1)).toMatchObject({ layout: { tiles: expect.arrayContaining([expect.objectContaining({ tile: "now", tabs: ["middle", "now"] })]) } });
+    expect(f.of("layout.changed").at(-1)).toMatchObject({ layout: { tiles: expect.arrayContaining([expect.objectContaining({ name: "now", tabs: ["middle", "now"] })]) } });
     // Only what was asked for, when a subscriber names types.
     const only = feed(["marks.changed"]);
     await until(() => only.events.length > 0, "its hello");
@@ -152,7 +152,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     await act("folds", {}, "middle");                               // its whole note read
     render();
     expect(await act("view.scrollTo", { text: "parsnips" }, "middle")).toMatchObject({ line: 43, viewport: { first: 43 } });
-    await until(() => f.of("viewport").some(e => e.tile === "middle" && (e.viewport as { first?: number }).first === 43), "the viewport event");
+    await until(() => f.of("viewport").some(e => e.tile === tile("middle")!.tile && (e.viewport as { first?: number }).first === 43), "the viewport event");
     await expect(act("view.scrollTo", { line: 3, block: notes.shed.id }, "middle")).rejects.toThrow(/open it there first/);
     expect(await act("block.mark", { reason: "needs your call" }, "middle")).toMatchObject({ showing: ["middle"] });
     await until(() => f.of("marks.changed").length > 0, "marks.changed");
@@ -318,7 +318,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     expect(person().typingIn).toBe("draft");
     for (const c of "20Gi") key(char(c));
     for (const c of "typed by the person ") key(char(c));
-    await until(() => f.of("cursor").some(e => e.tile === "draft" && (e.cursor as { line?: number; mode?: string }).line === 20 && (e.cursor as { mode?: string }).mode === "i"), "nvim's cursor on line 20 in insert mode");
+    await until(() => f.of("cursor").some(e => e.tile === tile("draft")!.tile && (e.cursor as { line?: number; mode?: string }).line === 20 && (e.cursor as { mode?: string }).mode === "i"), "nvim's cursor on line 20 in insert mode");
     // While they type: an agent's tile.open lands beside another tile, and the keys stay in nvim.
     await act("tile.open", { kind: "detail", note: notes.shed.id, name: "agent-note", where: "right" }, "side");
     expect(person().typingIn).toBe("draft");

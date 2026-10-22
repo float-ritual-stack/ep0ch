@@ -93,10 +93,10 @@ describe.skipIf(!outliner)("tile spines: one click folds a tile, a click on the 
     await expect(act("tile.collapse", { dir: "v" }, stacked)).rejects.toThrow(/isn't side by side/);
     await expect(act("tile.collapse", { on: true }, focus)).rejects.toThrow(/has the person's keys/);
     expect(stacked).not.toBe(focus);
-    expect(await act("tile.collapse", { dir: "h" }, stacked)).toMatchObject({ tile: stacked, collapsed: true, dir: "h" });
+    expect(await act("tile.collapse", { dir: "h" }, stacked)).toMatchObject({ name: stacked, collapsed: true, dir: "h" });
     expect(tile(stacked)).toMatchObject({ collapsed: true, collapsedBy: AS, collapsedDir: "h" });
     expect(get().focus).toBe(focus);
-    expect(await act("tile.expand", {}, stacked)).toMatchObject({ tile: stacked, collapsed: false });
+    expect(await act("tile.expand", {}, stacked)).toMatchObject({ name: stacked, collapsed: false });
     expect(tile(stacked).collapsed).toBeUndefined();
   });
 

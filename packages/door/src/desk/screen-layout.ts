@@ -648,7 +648,7 @@ export function describe<I>(s: Pick<LayoutState<I>, "tree" | "collapsed">, name:
 export function shape<I>(s: Pick<LayoutState<I>, "tree">, name: (id: I) => string, tileId: (id: I) => string): unknown {
   const go = (n: LNode<I>, path: string): unknown => {
     const pol = n.t !== "leaf" && n.policy ? { policy: n.policy } : {};
-    if (n.t === "leaf") return { tile: name(n.id), id: tileId(n.id) };
+    if (n.t === "leaf") return { tile: tileId(n.id), name: name(n.id) };
     if (n.t === "tabs") return { tabs: n.ids.map(name), id: n.id, shown: name(n.ids[n.active]!), ...pol };
     if (n.t === "dock") return { dock: n.edge, open: n.open, id: n.id, path, ...pol, kid: go(n.kid, path ? `${path}.0` : "0") };
     const kids = n.kids.map((k, i) => go(k, path ? `${path}.${i}` : String(i)));

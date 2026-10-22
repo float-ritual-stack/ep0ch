@@ -1063,13 +1063,13 @@ export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): NaryForm<L> 
  * says its `path` (kid indexes from the root, "1.0"); a split or tab set that has an id says it, and so does
  * each pane when `leafId` is given.
  */
-export type LayoutView = { pane: string; id?: string; share: number; fixed?: number } | { split: Axis; key?: string; id?: string; policy?: Policy; path: string; share: number; kids: LayoutView[] }
+export type LayoutView = { tile: string; name: string; id?: never; share: number; fixed?: number } | { split: Axis; key?: string; id?: string; policy?: Policy; path: string; share: number; kids: LayoutView[] }
   | { tabs: string[]; id?: string; policy?: Policy; active: string; share: number } | { dock: Dir; open: boolean; id?: string; policy?: Policy; path: string; share: number; kid: LayoutView }
   | { columns: string | null; key?: string; id?: string; policy?: Policy; path: string; share: number; kids: LayoutView[] }
   | { flow: true; key?: string; id?: string; policy?: Policy; path: string; share: number; wide?: string; held?: string[]; kids: LayoutView[] };
 export function describeTree<I>(n: LNode<I>, name: (id: I) => string, opts: PlaceOpts<I> = {}, leafId?: (id: I) => string, sh = 1, parent: Axis = "row", path = ""): LayoutView {
   const round = (x: number) => Math.round(x * 1000) / 1000;
-  if (n.t === "leaf") { const f = opts.fixed?.(n.id, parent); return { pane: name(n.id), ...(leafId ? { id: leafId(n.id) } : {}), share: round(sh), ...(f !== undefined ? { fixed: f } : {}) }; }
+  if (n.t === "leaf") { const f = opts.fixed?.(n.id, parent); return { tile: leafId ? leafId(n.id) : name(n.id), name: name(n.id), share: round(sh), ...(f !== undefined ? { fixed: f } : {}) }; }
   if (n.t === "tabs") return { tabs: n.ids.map(name), ...idOf(n), active: name(n.ids[n.active]!), share: round(sh) };
   // A dock's kid is at path `<dock's>.0`, as a split's first kid would be.
   if (n.t === "dock") return { dock: n.edge, open: n.open, ...idOf(n), path, share: round(sh), kid: describeTree(n.kid, name, opts, leafId, 1, parent, path ? `${path}.0` : "0") };

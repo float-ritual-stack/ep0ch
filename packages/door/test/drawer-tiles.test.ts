@@ -650,7 +650,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await until(() => d.inDrawer("activity"), "a puts it in");
       d.paint();
       grab("replies"); d.key(char("f"));
-      await until(() => (d.desk.layoutGet() as any).floats.some((f: any) => f.tile === "replies"), "f floats");
+      await until(() => (d.desk.layoutGet() as any).floats.some((f: any) => f.name === "replies"), "f floats");
       d.paint();
       // p on the float: straight into a dock (one step), and ^W f floats it again: float → dock → float.
       await d.desk.dispatch.act({ action: "tile.dock", args: { on: true }, tile: "replies" }, USER);

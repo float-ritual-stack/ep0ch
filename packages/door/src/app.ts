@@ -387,9 +387,9 @@ export interface Screen {
  * layout's shape, each tile's viewport (what's in view) and cursor or selection, and the attention marks.
  */
 export interface ViewState {
-  focus: { tile: string; block?: string | null; file?: string | null };
+  focus: { tile: string; name?: string; block?: string | null; file?: string | null };
   layout: unknown;
-  tiles: { tile: string; viewport: unknown; cursor?: unknown }[];
+  tiles: { tile: string; name?: string; viewport: unknown; cursor?: unknown }[];
   marks?: unknown;
 }
 /** One event of the live feed: `focus.changed`, `layout.changed`, `viewport`, `cursor`, `marks.changed`, `screen`. */
@@ -864,8 +864,8 @@ export class App implements Ctx {
     for (const t of v.tiles) {
       const vp = JSON.stringify(t.viewport), cu = JSON.stringify(t.cursor ?? null);
       now.tiles.set(t.tile, vp); now.cursors.set(t.tile, cu);
-      if (was?.tiles.get(t.tile) !== vp) send({ type: "viewport", tile: t.tile, viewport: t.viewport });
-      if (t.cursor !== undefined && was?.cursors.get(t.tile) !== cu) send({ type: "cursor", tile: t.tile, cursor: t.cursor });
+      if (was?.tiles.get(t.tile) !== vp) send({ type: "viewport", tile: t.tile, name: t.name, viewport: t.viewport });
+      if (t.cursor !== undefined && was?.cursors.get(t.tile) !== cu) send({ type: "cursor", tile: t.tile, name: t.name, cursor: t.cursor });
     }
     if (was?.marks !== now.marks && v.marks !== undefined) send({ type: "marks.changed", marks: v.marks });
     this.shown = now;

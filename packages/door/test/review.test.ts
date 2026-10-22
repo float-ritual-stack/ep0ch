@@ -166,12 +166,12 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
   test("blocker: pane.split and pane.close are tile.open and tile.close (one path: a split along the same axis joins it)", async () => {
     const before = D().layoutGet().tree;
     const r = await act("pane.split", { kind: "reader", dir: "col" }, "middle") as any;
-    expect(r.tile).toBe("reader");
+    expect(r.name).toBe("reader");
     expect(D().focus).not.toBe(idOf("reader"));                     // an agent's split leaves the keys
-    const col = (D().layoutGet().tree.kids as any[]).find(k => k.kids?.some((x: any) => x.pane === "reader"));
-    expect(col.kids.map((k: any) => k.pane)).toContain("middle");  // joined the column, not a nested pair
+    const col = (D().layoutGet().tree.kids as any[]).find(k => k.kids?.some((x: any) => x.name === "reader"));
+    expect(col.kids.map((k: any) => k.name)).toContain("middle");  // joined the column, not a nested pair
     await act("tile.close", {}, "reader");
-    const names = (n: any): string => n.pane ?? `${n.split}(${n.kids.map(names).join(",")})`;
+    const names = (n: any): string => n.name ?? `${n.split}(${n.kids.map(names).join(",")})`;
     expect(names(D().layoutGet().tree)).toBe(names(before));
   });
 
@@ -246,7 +246,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
   test("S6: an unfocused terminal's cursor stays out of the feed; paints are one a frame", async () => {
     D().focus = idOf("tree");
     const v = D().viewState();
-    expect(v.tiles.find((t: any) => t.tile === "claude").cursor).toBeUndefined();
+    expect(v.tiles.find((t: any) => t.name === "claude").cursor).toBeUndefined();
     let renders = 0;
     const real = desk.render.bind(desk);
     (desk as any).render = (c: any) => { renders++; return real(c); };

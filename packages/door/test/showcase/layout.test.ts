@@ -326,7 +326,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     // A tab holding a split: the reader and the thread gathered into a group in the reader's tab.
     const grouped = await app.act({ action: "tile.group", tile: "reader", args: { with: "replies" }, as: "test-agent" }) as any;
     expect(grouped).toMatchObject({ grouped: ["reader", "replies"] });
-    const gt = (await get()).tiles.find((t: any) => t.id === grouped.tile);
+    const gt = (await get()).tiles.find((t: any) => t.tile === grouped.tile);
     expect(gt.tabs).toEqual([grouped.name, "activity"]);
     expect(gt.mount).toMatchObject({ group: true, layout: { tree: { split: "row" } } });
     expect(gt.mount.layout.tiles.map((t: any) => t.name).sort()).toEqual(["reader", "replies"]);
@@ -431,7 +431,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const source = () => group("a").layoutGet().tiles.find((t: any) => t.name === "source");
     const act = (action: string, args = {}, tile?: string) => d.dispatch.act({ action, args, tile }, { kind: "user" });
     const click = (x: number, y: number) => press({ kind: "mouse", action: "down", button: 0, x, y });
-    expect(source().wires).toContainEqual({ verb: "open", to: group("b").layoutGet().tiles.find((t: any) => t.name === "detail").id });
+    expect(source().wires).toContainEqual({ verb: "open", to: group("b").layoutGet().tiles.find((t: any) => t.name === "detail").tile });
     expect(screen()).toContain("◄ ../b/detail");
     await act("tile.link", {}, "a/source");
     await act("tile.link", { ask: true }, "a/source");
@@ -439,7 +439,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const at = S().stageRect, b = d.layoutGet().tiles.find((t: any) => t.name === "b").rect;
     const detail = group("b").layoutGet().tiles.find((t: any) => t.name === "detail").rect;
     click(at.col + b.col + 1 + detail.col + 3, at.row + b.row + 1 + detail.row + detail.rows - 3);
-    expect(source().wires).toContainEqual({ verb: "open", to: group("b").layoutGet().tiles.find((t: any) => t.name === "detail").id });
+    expect(source().wires).toContainEqual({ verb: "open", to: group("b").layoutGet().tiles.find((t: any) => t.name === "detail").tile });
     await group("a").dispatch.act({ action: "open", args: { id: seeded.notes.hub.id, from: "source" } }, { kind: "agent", id: "test-agent" });
     expect(group("b").pane("detail").msg.id).toBe(seeded.notes.hub.id);
     expect(await group("a").dispatch.act({ action: "tile.preview", tile: "source" }, { kind: "user" })).toMatchObject({ existing: true, tile: group("b").tileInfo("detail").tile });

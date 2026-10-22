@@ -115,7 +115,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     await expect(app.act({ action: "waiting.pick", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing/);
     press({ kind: "esc" });
     await until(() => !top().readerPanes()[0]?.pane.draft, "the edit closed");
-    expect(await app.act({ action: "waiting.reload", as: "test-agent" })).toEqual({ tile: "waiting", waiting: 2 });
+    expect(await app.act({ action: "waiting.reload", as: "test-agent" })).toMatchObject({ name: "waiting", waiting: 2 });
     ch("q");
   });
 

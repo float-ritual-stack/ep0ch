@@ -24,7 +24,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
   const me = (action: string, args: Record<string, unknown> = {}, tile?: string) => D().dispatch.act({ action, args, tile }, { kind: "user" }) as Promise<any>;
   const render = () => desk.render(D().ctx);
   const get = () => D().layoutGet() as { tree: any; focus: string; tiles: any[]; rev: number };
-  const tile = (name: string) => get().tiles.find((t: any) => (t.name === name || t.id === name));
+  const tile = (name: string) => get().tiles.find((t: any) => (t.name === name || t.tile === name));
   const names = () => get().tiles.map((t: any) => t.name);
 
   beforeAll(async () => {
@@ -43,7 +43,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
   afterAll(async () => { D().dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   const showing = (name: string) => tile(name)?.showing?.id ?? null;
-  const inner = (g: string, name: string) => tile(g).mount.layout.tiles.find((t: any) => (t.name === name || t.id === name));
+  const inner = (g: string, name: string) => tile(g).mount.layout.tiles.find((t: any) => (t.name === name || t.tile === name));
 
   test("a tile goes into a group and back out whole: the program keeps running, its policy and spine travel with it", async () => {
     await act("tile.open", { kind: "pty", cmd: "sh", name: "shell" }, "activity");
@@ -143,7 +143,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await until(() => { render(); return get().focus !== "detail"; }, "b has aimed the links");
     expect(get().tiles.some(t => t.kind === "backlinks" || t.kind === "preview")).toBe(false);
     expect(inner(g, links).backlinks.target.id).toBe(seeded.notes.hub.id);
-    expect(inner(g, links).wires).toContainEqual({ verb: "select", to: inner(g, preview).id });
+    expect(inner(g, links).wires).toContainEqual({ verb: "select", to: inner(g, preview).tile });
     await until(() => { render(); return inner(g, links).backlinks.rows?.some((r: any) => r.id); }, "the grouped links loaded");
     const row = inner(g, links).backlinks.rows.find((r: any) => r.id);
     await me("backlinks.pick", { n: row.n }, `${g}/${links}`);
@@ -164,7 +164,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await until(() => showing("outside") === seeded.notes.root.id, "the screen detail loaded");
     const g = (await me("tile.group", { with: "activity" }, "reader")).name;
     render();
-    await me("tile.link", { to: tile("outside").id }, `${g}/reader`);
+    await me("tile.link", { to: tile("outside").tile }, `${g}/reader`);
     await me("tile.drawer", {}, g);
     (app as any).paint();
     const drawer = app.drawer.desk!;
@@ -380,11 +380,11 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await fresh();
     const g = (await me("tile.group", { with: "replies" }, "reader")).name;
     await me("tile.open", { kind: "detail", name: "outside" }, "tree");
-    await me("tile.link", { to: tile("outside").id }, `${g}/replies`);
+    await me("tile.link", { to: tile("outside").tile }, `${g}/replies`);
     await me("layout.lock", { on: true }, `${g}/replies`);
     const before = get();
     try {
-      for (const args of [{ to: tile("outside").id }, { verb: "open" }, {}]) {
+      for (const args of [{ to: tile("outside").tile }, { verb: "open" }, {}]) {
         await expect(me("tile.link", args, `${g}/replies`)).rejects.toThrow(/locked/);
         expect(get()).toEqual(before);
       }
@@ -441,7 +441,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     const there = (n: string) => again.layoutGet().tiles.find((x: any) => x.name === n);
     expect(there("tree")).toMatchObject({ link: `${g}/reader`, linkAcross: "true" });
     expect(there(g).mount.layout.tiles.find((x: any) => x.name === "activity")).toMatchObject({ link: "../det" });
-    expect(there("tree").wires).toContainEqual({ verb: "select", to: there(g).mount.layout.tiles.find((t: any) => t.name === "pv").id });
+    expect(there("tree").wires).toContainEqual({ verb: "select", to: there(g).mount.layout.tiles.find((t: any) => t.name === "pv").tile });
     app.pop();
     // Moved out again: the preview and the tree are on one desk, the link is the layout's own.
     await me("layout.move", { out: true, beside: "tree", where: "down" }, `${g}/pv`);
@@ -472,19 +472,19 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(render().lines.filter(l => l.includes(" lands in ")).length).toBe(1);
     const r = innerAt(b, "reader");
     mouse("down", r.col + 3, r.row + 3);
-    expect(inner(a, "tree").wires).toContainEqual({ verb: "open", to: inner(b, "reader").id });
+    expect(inner(a, "tree").wires).toContainEqual({ verb: "open", to: inner(b, "reader").tile });
     await D().pane(a).inner.dispatch.act({ action: "open", args: { id: seeded.notes.hub.id, from: "tree" } }, { kind: "agent", id: AS });
     expect(inner(b, "reader").showing?.id).toBe(seeded.notes.hub.id);
     await me("tile.link", {}, `${a}/tree`);
     await me("tile.link", { ask: true }, `${a}/tree`);
     render();
     key({ kind: "char", ch: "3" });
-    expect(inner(a, "tree").wires).toContainEqual({ verb: "open", to: inner(b, "reader").id });
+    expect(inner(a, "tree").wires).toContainEqual({ verb: "open", to: inner(b, "reader").tile });
     await me("tile.link", {}, `${a}/tree`);
     await me("tile.link", { ask: true }, `${a}/tree`);
     render();
     key({ kind: "char", ch: "l" });
-    expect(inner(a, "tree").wires).toContainEqual({ verb: "open", to: inner(b, "reader").id });
+    expect(inner(a, "tree").wires).toContainEqual({ verb: "open", to: inner(b, "reader").tile });
     await me("tile.link", { ask: true }, `${a}/tree`);
     key({ kind: "esc" });
     expect(render().lines.join("\n")).not.toContain("click to link here");
@@ -504,7 +504,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     D().showFrom(D().pane("tree"), await board.get(seeded.notes.hub.id));
     render();
     expect(inner(g, "reader").showing.id).toBe(seeded.notes.hub.id);
-    expect(await me("tile.preview", {}, "tree")).toMatchObject({ existing: true, tile: inner(g, "reader").id, verb: "select" });
+    expect(await me("tile.preview", {}, "tree")).toMatchObject({ existing: true, tile: inner(g, "reader").tile, verb: "select" });
     expect(names()).not.toContain("tree-preview");
 
     await me("mount.enter", { on: true }, g);
@@ -515,10 +515,10 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     render();
     const target = tile("outside").rect;
     mouse("down", target.col + 3, target.row + 3);
-    expect(inner(g, "reader").wires).toContainEqual({ verb: "open", to: tile("outside").id });
+    expect(inner(g, "reader").wires).toContainEqual({ verb: "open", to: tile("outside").tile });
     await D().pane(g).inner.dispatch.act({ action: "open", args: { id: seeded.notes.root.id, from: "reader" } }, { kind: "user" });
     expect(showing("outside")).toBe(seeded.notes.root.id);
-    expect(await D().pane(g).inner.dispatch.act({ action: "tile.preview", tile: "reader" }, { kind: "user" })).toMatchObject({ existing: true, tile: tile("outside").id, verb: "open" });
+    expect(await D().pane(g).inner.dispatch.act({ action: "tile.preview", tile: "reader" }, { kind: "user" })).toMatchObject({ existing: true, tile: tile("outside").tile, verb: "open" });
     expect(inner(g, "reader-preview")).toBeUndefined();
     await me("mount.enter", { on: false }, g);
     await spill(g);
@@ -541,17 +541,17 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
       await fresh();
       await me("tile.link", { verb: "alt", to: "reader", rule }, "tree");
       const g = (await me("tile.group", { with: "activity" }, "reader")).name;
-      expect(tile("tree").wires).toContainEqual({ verb: "alt", to: inner(g, "reader").id, rule });
+      expect(tile("tree").wires).toContainEqual({ verb: "alt", to: inner(g, "reader").tile, rule });
       await spill(g);
       const h = (await me("tile.group", { with: "activity" }, "tree")).name;
-      expect(inner(h, "tree").wires).toContainEqual({ verb: "alt", to: tile("reader").id, rule });
+      expect(inner(h, "tree").wires).toContainEqual({ verb: "alt", to: tile("reader").tile, rule });
       await spill(h);
       const k = (await me("tile.group", { with: "activity" }, "replies")).name;
       await me("layout.move", { into: k, beside: "activity" }, "tree");
-      expect(inner(k, "tree").wires).toContainEqual({ verb: "alt", to: tile("reader").id, rule });
+      expect(inner(k, "tree").wires).toContainEqual({ verb: "alt", to: tile("reader").tile, rule });
       await me("layout.move", { out: true }, `${k}/tree`);
       await me("layout.move", { into: k, beside: "activity" }, "reader");
-      expect(tile("tree").wires).toContainEqual({ verb: "alt", to: inner(k, "reader").id, rule });
+      expect(tile("tree").wires).toContainEqual({ verb: "alt", to: inner(k, "reader").tile, rule });
       await spill(k);
     }
   });

@@ -127,7 +127,7 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     const d = screen() as any;
     d.focus = [...d.names].find(([, v]: any) => v === "side")[0];
     key(ctrl("w")); key(char("f"));
-    expect(d.layoutGet().floats.map((f: any) => f.tile)).toEqual(["side"]);
+    expect(d.layoutGet().floats.map((f: any) => f.name)).toEqual(["side"]);
     const frame = lines().join("\n");
     expect(frame).toContain("^W f back in");
     expect(frame).not.toContain("o back in");

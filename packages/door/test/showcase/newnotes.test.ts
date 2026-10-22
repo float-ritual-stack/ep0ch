@@ -172,7 +172,7 @@ describe.skipIf(!outliner)("the showcase screen: new notes", () => {
     // An agent's: made and shown floating for the person, attributed; their keys stay where they are.
     const keysOn = stage().describe().focusName;
     const made = await app.act({ action: "note.new", args: { text: "Bean poles: 12", opens: "float" }, as: "test-agent" }) as any;
-    expect(made.reader).toBeTruthy();
+    expect(made.tile).toBeTruthy();
     expect(stage().describe().focusName).toBe(keysOn);
     expect(await board.get(made.id)).toMatchObject({ author: "test-agent" });
     // Put the rest away, so the next test finds the stage as it was: each closed (saved, or trashed when empty).

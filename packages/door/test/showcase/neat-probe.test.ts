@@ -414,6 +414,13 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       for (const [action, args, reason] of [
         ["layout.move", { where: "rigth" }, "right"],
         ["layout.move", { beside: "briefing" }, "into="],
+        ["layout.move", { out: true, to: "briefing" }, "conflicts"],
+        ["layout.move", { index: 1, where: "left" }, "where=tabs"],
+        ["tile.open", { kind: "reader", id: s.testing.id, note: s.briefing.id }, "conflicts"],
+        ["open", { id: s.testing.id, diff: true }, "file="],
+        ["open", { id: s.testing.id, against: "/tmp/before.md" }, "file="],
+        ["open", { id: s.testing.id, resource: "file:/tmp/unused.md" }, "conflicts"],
+        ["open", { file: "/tmp/unused.md", fragment: "heading" }, "conflicts"],
         ["tile.link", { ask: false, to: "briefing" }, "conflicts"],
         ["open", { file: "/tmp/unused.md", from: "other" }, "conflicts"],
         ["open", { file: "/tmp/unused.md", fresh: true }, "conflicts"],

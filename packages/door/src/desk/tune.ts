@@ -934,7 +934,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     summary: "point the tune inspector at another tile on this screen",
     touches: "tile", replay: "safe",
     // `target`, not `tile`: an act line's tile= names the tile the action runs in, so it would never arrive (PIE-1032).
-    args: { target: { type: "string", about: "the tile's name" } },
+    args: { target: { type: "string", kind: "tile", about: "the tile's name" } },
     examples: [
       { act: "tune.aim target=activity", does: "points the tune inspector at the activity tile" },
     ],
