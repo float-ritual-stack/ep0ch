@@ -46,6 +46,25 @@ export interface AgentToolDefinition {
 /** The words the Claude mod and the CLI use for the block a tool acts on. */
 export const REF_WORDS: TargetWords = { note: "the note `ref`", parent: "`parent` (a ref, or root)" };
 
+/**
+ * What a write tool says a note can hold (PIE-721), said where an agent writes so it reaches past prose without being
+ * reminded. The components themselves are outline_components' (each outline's own, extensions' among them); this names
+ * only their kinds, and what the answer reports back.
+ */
+const NOTE_HOLDS =
+  "A note can hold more than prose: live figures (::graph-* with query: or view:, so a count or a status stays true), " +
+  "callouts, views, rules, buttons, templates and the outline's own components; outline_components gives each one's " +
+  "properties and an example. The answer lists the `::` components the note now holds (`components`) and its `warnings` (a " +
+  "figure's name or key with a typo, YAML that doesn't read, a reference that leads nowhere): the text is saved as written, " +
+  "so fix them now.";
+
+/**
+ * The tools a session lists up front instead of behind tool search (PIE-721): where an agent starts, reads, learns the
+ * components and writes a note. Each surface marks the ones it registers (the mod with `isDeferred: false`, the
+ * gateway with `_meta` `anthropic/alwaysLoad`); the rest wait behind tool search.
+ */
+export const UP_FRONT_TOOLS: readonly string[] = ["list_outlines", "outline_find", "outline_query", "outline_read", "outline_components", "outline_edit", "outline_create", "outline_patch"];
+
 const REF: ToolSchema = {
   type: "string",
   description: "The block: its id, ((id)), [[page]] or a Work ID (PIE-123). Never a title: find it with outline_find first.",
@@ -188,7 +207,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "Refused before anything is written: an empty or whitespace-only result, a stale revision (read again, then " +
       "edit in the same turn), and dropping a [page::…] property or an ^anchor other notes link to (pass allowStructural: true only " +
       "when removing them is the point). Returns the new revision and a short diff. Use it for rewriting your own " +
-      "pages, such as a status page; for small edits to a note the person may be typing in, use outline_patch.",
+      "pages, such as a status page; for small edits to a note the person may be typing in, use outline_patch. " + NOTE_HOLDS,
     properties: {
       ref: REF,
       expectedRevision: EXPECTED,
@@ -225,7 +244,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     target: "parent",
     description:
       "Create a block under {parent}, at `position` among its siblings (0 is first; default last). " +
-      "Returns its id, ((ref)) and revision.",
+      "Returns its id, ((ref)) and revision. " + NOTE_HOLDS,
     properties: {
       parent: { type: "string", description: "The parent: a ref, or root" },
       text: { type: "string" },
@@ -366,7 +385,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
       "If the note was saved since you read it, the patch applies on the newer text when every observed span is still there " +
       "once and nobody rewrote its line (the answer says rebasedFrom: the revision you read); it is refused with an error when a span is gone, changed or ambiguous, when it touches the paragraph, list item or heading at the cursor or selection endpoint, the draft is busy or unavailable, or when prose refuses. Treat refusal as a task now: re-read the note and retry against the new text in the same turn. With mark, spans must also stay above the mark and above the cursor block when the cursor is before that mark. This leaves the passage being typed in alone; an unmarked patch can land above or below it. " +
       "Use propose: true only for an intentional suggestion for Evan to decide. A proposal sits beside the note and never changes its text or revision; sending the same patch again while yours is open " +
-      "returns that proposal (deduped: true) instead of a second copy.",
+      "returns that proposal (deduped: true) instead of a second copy. " + NOTE_HOLDS,
     properties: {
       ref: REF,
       revision: EXPECTED,

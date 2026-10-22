@@ -10,6 +10,8 @@ import { scratchOutline } from "./scratch-outline";
 import { OutlinerClient, type RequestInput } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
+import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
+import type { OutlinerEvent } from "../src/types";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -623,6 +625,67 @@ test("agent operations take ref and its aliases; two aliases for different notes
   expect(typo.stderr).toContain(`Call it as: outliner agent read --json '{"ref":"${note.id}"}'`);
   // view-order keeps its old name for the view.
   expect((await agent("view-order", { view: note.id })).stderr).not.toContain("is not an argument");
+});
+
+// PIE-721: a write says what its components will draw, and what in them won't draw as written, without refusing it.
+test("a written figure is confirmed in components; a typo in its name or a key, or YAML that doesn't read, is a warning", async () => {
+  const { store, agent } = await setup();
+  const good = ["Beds", "::graph-stat", "---", "title: the beds", "items: [{ value: \"4\", label: raised }]", "---", "::"].join("\n");
+  const created = await agent("create", { parent: "root", text: good });
+  expect(created.exitCode).toBe(0);
+  expect(created.json.components).toEqual(["graph-stat"]);
+  expect(created.json.warnings).toBeUndefined();
+
+  const note = store.create("Plot");
+  const typos = ["Plot", "::graph-stats", "---", "title: x", "---", "::", "::graph-stat", "---", "titel: the beds", "---", "::"].join("\n");
+  const edit = await agent("edit", { ref: note.id, expectedRevision: note.revision, text: typos });
+  expect(edit.exitCode).toBe(0);
+  expect(store.get(note.id)!.text).toBe(typos);
+  expect(edit.json.components).toEqual(["graph-stat"]);
+  expect(edit.json.warnings).toEqual([
+    "the ::graph-stats on line 2 isn't a component: did you mean ::graph-stat?",
+    "the ::graph-stat on line 7 doesn't take titel: did you mean title?",
+  ]);
+
+  const now = store.get(note.id)!;
+  const broken = await agent("edit", { ref: note.id, expectedRevision: now.revision, text: ["Plot", "::graph-stat", "---", "items: [{ value: 1", "---", "::"].join("\n") });
+  expect(broken.exitCode).toBe(0);
+  expect(broken.json.warnings[0]).toStartWith("the ::graph-stat on line 2 doesn't draw: bad YAML");
+});
+
+// PIE-721: a patch into the draft a person has open lands in the draft, not the saved note: what it wrote is read there.
+test("a patch into a live draft says what the draft now holds: its components and warnings, not the saved note's", async () => {
+  const { store, agent, socket } = await setup();
+  const note = store.create("Plot\nThe beds this year.");
+  // A door holding the note's draft: it answers the service's reads and patches against its own text.
+  const client = new OutlinerClient(socket);
+  let draft = note.text;
+  const connected = Promise.withResolvers<void>();
+  const watcher = client.watch({
+    client: { clientId: "door-1", role: "observer", contextId: "door-1" },
+    onConnect: connected.resolve,
+    onEvent: async (event: OutlinerEvent) => {
+      if (event.domain !== "draft" || !event.draft) return;
+      const request = event.draft;
+      let answer: unknown = { applied: false, reason: "not in this stand-in" };
+      if (request.kind === "read") answer = { text: draft, revision: note.revision };
+      else if (request.kind === "patch") {
+        const located = locateSpans(draft, request.patches, request.force);
+        if (located.ok) { draft = applyLocated(draft, located.spans); answer = { applied: true }; }
+      }
+      await client.request({ action: "drafts.answer", requestId: request.requestId, clientId: "door-1", answer: answer as never }).catch(() => undefined);
+    },
+  });
+  cleanups.push(async () => watcher.stop());
+  await connected.promise;
+  await client.request({ action: "drafts.hold", blockId: note.id, clientId: "door-1", revision: note.revision });
+
+  const patched = await agent("patch", { ref: note.id, revision: note.revision, patches: [{ observed: "The beds this year.", replacement: "The beds this year.\n::graph-stats\n---\n---\n- raised: 4\n::" }] });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  expect(patched.json.edits[0].route).toBe("draft");
+  expect(store.require(note.id).text).toBe(note.text);
+  expect(draft).toContain("::graph-stats");
+  expect(patched.json.warnings).toEqual(["the ::graph-stats on line 3 isn't a component: did you mean ::graph-stat?"]);
 });
 
 // PIE-761: what's written always lands. A broken `((id`, an anchor the note doesn't have and a `((` round words are

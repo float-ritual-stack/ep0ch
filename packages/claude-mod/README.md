@@ -203,6 +203,26 @@ read anew each time.
 - **Never delays the session:** the read starts at `session.start` (and when a compaction or `/clear` begins). The
   first prompt waits for it no longer than for the binding (1.5s); one that lands later makes the context again.
 
+### What the outline can hold, at the start (PIE-721)
+
+A session bound to an outline also starts knowing what a note there can hold, so it reaches for figures, views,
+callouts and rules without being reminded:
+
+- **The guide:** one more context block, `ep0ch-outline-guide`: `ep0ch library --guide` (outline-core's
+  `agent-guide.ts`), the house lines and every component the outline has, one line each, grouped by its own `group`,
+  marked live when it reads a query, an extension's with its origin. Built from the merged schemas, so a new
+  component or an extension's appears with nothing written here. Read once a session off the start; the first prompt
+  waits for it no longer than for the binding, and one that lands later makes the context again. Silent outside a
+  bound folder or with an `ep0ch` that can't say it.
+- **The core tools up front:** `outline_read`, `outline_find`, `outline_edit`, `outline_create`, `outline_patch` and
+  `outline_components` register with `isDeferred: false`, in the prompt's tool list instead of behind tool search.
+  Their descriptions say what a note can hold and what the answer reports.
+- **A written figure drawn back:** a write's answer lists the `components` the note now holds and its `warnings`
+  (outline-core's `component-warnings.ts`: a figure's name or key with a typo, YAML that doesn't read, a value
+  outside a property's; with the references that lead nowhere, as before). When the note holds a `::graph-*`, the
+  answer starts with the note as it draws (`ep0ch show <id> --width 80 --rows 40`), its JSON still last for the tool
+  rows. A drawing that fails leaves the answer as it was.
+
 ### What this Claude is doing, to its terminal (PIE-614)
 
 The mod reports Claude's own state to the terminal it runs in with OSC 7501 (the Program Status Protocol), so a door's

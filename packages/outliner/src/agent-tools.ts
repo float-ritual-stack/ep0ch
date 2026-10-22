@@ -16,6 +16,9 @@
 import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
+import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
+import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
 import { randomUUID } from "node:crypto";
@@ -537,8 +540,10 @@ export interface EditResult {
   section?: { heading: string; previous: string };
   /** With allowStructural: the `[page::…]` properties and `^anchors` the edit removed. */
   dropped?: string[];
-  /** References the saved text kept that lead nowhere, with a did-you-mean (PIE-761): saved anyway. */
+  /** References the saved text kept that lead nowhere, with a did-you-mean (PIE-761), and what its components won't draw as written (PIE-721): saved anyway. */
   warnings?: string[];
+  /** The components the saved text holds, by id (PIE-721): what the note now draws besides its prose. */
+  components?: string[];
 }
 
 /** A short line diff: the changed lines between the common head and tail, `-` then `+`, at most `max` lines. */
@@ -558,11 +563,42 @@ export function shortDiff(before: string, after: string, max = 40): string {
 
 /**
  * The references `text` kept that lead nowhere, each with what it may have meant (PIE-761), then each construct it
- * left open (PIE-669: an unclosed fence, `[[`, `[key::`, component or literal region, and what is read instead): said
- * after the write, never a reason to refuse it. A lookup that fails only drops a suggestion; none at all gives no field.
+ * left open (PIE-669: an unclosed fence, `[[`, `[key::`, component or literal region, and what is read instead), then
+ * what its components won't draw as written (PIE-721: a figure's name or key with a typo, YAML that doesn't read, a value
+ * outside a property's): said after the write, never a reason to refuse it. A lookup that fails only drops a suggestion;
+ * none at all gives no field.
  */
 export async function referenceWarningsFor(client: AgentToolsClient, text: string, near?: string, self = near): Promise<string[]> {
-  return [...await referenceOnlyWarnings(client, text, near, self), ...syntaxWarnings(text).map(w => w.message), ...await useCallWarnings(client, text, self)];
+  return (await writtenReading(client, text, near, self)).warnings;
+}
+
+/** `referenceWarningsFor`'s warnings, with the components the text holds (`components`: a write's confirmation of what it drew). */
+export async function writtenReading(client: AgentToolsClient, text: string, near?: string, self = near): Promise<{ warnings: string[]; components: string[] }> {
+  const reading = await componentsRead(client, text);
+  return {
+    warnings: [...await referenceOnlyWarnings(client, text, near, self), ...syntaxWarnings(text).map(w => w.message), ...reading.warnings, ...await useCallWarnings(client, text, self)],
+    components: reading.components,
+  };
+}
+
+/**
+ * The outline's own components (`components.schemas`), asked once per connection for a few seconds, so a write that
+ * reads two texts (a patch's before and after) asks once; null when the service can't be asked.
+ */
+const schemasAsked = new WeakMap<AgentToolsClient, { at: number; schemas: Promise<ComponentSchema[] | null> }>();
+function schemasOf(client: AgentToolsClient): Promise<ComponentSchema[] | null> {
+  const kept = schemasAsked.get(client);
+  if (kept && Date.now() - kept.at < 10_000) return kept.schemas;
+  const schemas = client.request<{ schemas: ComponentSchema[] }>({ action: "components.schemas" }).then(r => r.schemas, () => null);
+  schemasAsked.set(client, { at: Date.now(), schemas });
+  return schemas;
+}
+
+/** outline-core's `componentReading` over the outline's own components; nothing asked when the text holds no `::` component. */
+async function componentsRead(client: AgentToolsClient, text: string): Promise<ComponentReading> {
+  if (!componentBlocks(text.split("\n")).length) return { components: [], warnings: [] };
+  const schemas = await schemasOf(client);
+  return schemas ? componentReading(text, schemas) : { components: [], warnings: [] };
 }
 
 /**
@@ -665,9 +701,9 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
   };
 }
 
-async function warned(client: AgentToolsClient, text: string, near?: string, self = near): Promise<{ warnings?: string[] }> {
-  const warnings = await referenceWarningsFor(client, text, near, self);
-  return warnings.length ? { warnings } : {};
+async function warned(client: AgentToolsClient, text: string, near?: string, self = near): Promise<{ warnings?: string[]; components?: string[] }> {
+  const { warnings, components } = await writtenReading(client, text, near, self);
+  return { ...(warnings.length ? { warnings } : {}), ...(components.length ? { components } : {}) };
 }
 
 // ─── Create ────────────────────────────────────────────────────────────────
@@ -677,7 +713,7 @@ export async function createBlock(
   client: AgentToolsClient,
   input: { parent: string; text: string; position?: number },
   actor: AgentActor,
-): Promise<{ id: string; ref: string; revision: number; parentId: string | null; warnings?: string[] }> {
+): Promise<{ id: string; ref: string; revision: number; parentId: string | null; warnings?: string[]; components?: string[] }> {
   const text = requireText(input.text, "The new block's text");
   if (typeof input.parent !== "string" || !input.parent.trim()) throw new WorkToolRefusal("Give the parent: a reference, or root");
   const parentId = input.parent.trim() === "root" ? null : (await writableBlock(client, input.parent)).id;
@@ -1067,7 +1103,7 @@ export async function patchDraft(
   client: AgentToolsClient,
   input: { ref: string; revision: number; patches: DraftPatchSpan[]; mark?: string; policy?: DraftPatchPolicyName; allowStructural?: boolean; propose?: DraftPatchInput["propose"] },
   actor: AgentActor,
-): Promise<DraftPatchResult & { warnings?: string[] }> {
+): Promise<DraftPatchResult & { warnings?: string[]; components?: string[] }> {
   const revision = requireRevision(input.revision);
   const policy = input.policy ?? "edit";
   if (!DRAFT_PATCH_POLICIES.includes(policy)) throw new WorkToolRefusal(`policy is ${DRAFT_PATCH_POLICIES.join(" or ")}`);
@@ -1079,6 +1115,10 @@ export async function patchDraft(
   }
   await client.requireCompatibleService();
   const block = await writableBlock(client, input.ref);
+  // The note as its draft has it when a person has it open (drafts.read), else as saved: a patch into a live draft
+  // leaves the saved note as it was, so what was written is read where it went.
+  const read = async () => (await client.request<{ text: string }>({ action: "drafts.read", blockId: block.id }).catch(() => null))?.text;
+  const was = (await read()) ?? block.text;
   const result = await client.request<DraftPatchResult>({
     action: "draft.patch",
     blockId: block.id,
@@ -1091,11 +1131,12 @@ export async function patchDraft(
     ...(input.propose !== undefined ? { propose: input.propose } : {}),
   }, 15_000);
   // The note as it is now, read whole (a replacement alone loses its context); a warning the note had before isn't this write's (PIE-761).
-  const after = await client.request<Block | null>({ action: "get", blockId: block.id }).catch(() => null);
-  if (!after || after.text === block.text) return result;
-  const before = new Set(await referenceWarningsFor(client, block.text, block.id));
-  const warnings = (await referenceWarningsFor(client, after.text, block.id)).filter(w => !before.has(w));
-  return { ...result, ...(warnings.length ? { warnings } : {}) };
+  const after = await read();
+  if (after === undefined || after === was) return result;
+  const before = new Set(await referenceWarningsFor(client, was, block.id));
+  const now = await writtenReading(client, after, block.id);
+  const warnings = now.warnings.filter(w => !before.has(w));
+  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}) };
 }
 
 // ─── One header property ───────────────────────────────────────────────────
