@@ -609,11 +609,11 @@ async function componentsRead(client: AgentToolsClient, text: string): Promise<C
  * The figure the written text would read best as (figure-fit.ts, PIE-721), for the answer to a create, an edit or a
  * patch: asked only when this write gave the note a figure's shape it didn't have (`before`, its text before the write;
  * none for a create), so a note is told once and a property set or a comment never asks, and said only when Jev is
- * sure enough. Off unless OUTLINER_FIGURE_FIT is `on`, until the eval (scripts/evals/figure-fit.ts) has set the
- * thresholds. Null when Jev can't be asked; it never throws, since the write has landed.
+ * sure enough. On unless OUTLINER_FIGURE_FIT is `off` (the tests' preloads set it): a feature that waits for someone to
+ * switch it on is one nobody switched on (Evan, Oct 22). Null when Jev can't be asked; it never throws, since the write has landed.
  */
 async function figureSuggestion(client: AgentToolsClient, text: string, before?: string): Promise<{ component: string; said: string } | null> {
-  if (process.env.OUTLINER_FIGURE_FIT !== "on" || figureShape(text) !== "shaped") return null;
+  if (process.env.OUTLINER_FIGURE_FIT === "off" || figureShape(text) !== "shaped") return null;
   try {
     const schemas = await schemasOf(client);
     if (!schemas || figureShape(text, schemas) !== "shaped" || (before !== undefined && figureShape(before, schemas) === "shaped")) return null;
