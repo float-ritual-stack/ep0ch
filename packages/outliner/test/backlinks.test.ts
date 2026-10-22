@@ -38,7 +38,7 @@ describe("semantic backlink relation", () => {
     const first = workspace.create("First page [page::PC-1245]");
     const second = workspace.create("Second page [page::PC-1246]");
     const parent = workspace.create(`Settings [ticket::PC-1245] [destination::${first.id}]`);
-    const source = workspace.create("Plan\n[[{{parent.ticket}}]] and (({{parent.destination}}))\n!(({{parent.destination}}))", parent.id);
+    const source = workspace.create(`Plan\n[[{{((${parent.id})).ticket}}]] and (({{((${parent.id})).destination}}))\n!(({{parent.destination}}))`, parent.id);
     const links = (id: string) => workspace.queryBacklinks({ targetBlockId: id, limit: 10 }).sources.find(s => s.blockId === source.id);
     expect(links(first.id)?.occurrenceCount).toBe(3);
     workspace.update(parent.id, `Settings [ticket::PC-1246] [destination::${second.id}]`, parent.revision);

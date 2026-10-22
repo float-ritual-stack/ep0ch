@@ -394,7 +394,8 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   }
   // A `{{ }}` as the reader draws it: tagged as an element of its own, never in a link's colour unless it is a URL.
   const drawValue = (raw: string, v: SiteValue, block: string, label?: string): string => {
-    const words = label ?? readerWords(raw, v);
+    const words = readerWords(raw, v);
+    const shown = label ?? words;
     const resolved = hasWords(v);
     const near = v.problem && !resolved ? problemWords(v) : undefined;
     const to: LinkTarget = {
@@ -403,12 +404,12 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
       ...(v.source ? { block: v.source.block, at: v.source.start, ...(v.source.mark ? { atLabel: v.source.mark } : {}) } : v.from && v.from !== block ? { block: v.from } : {}),
     };
     const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
-    if (!current) return fg(C.dark) + on + plainWords(words) + off + LINK_OFF;
-    if (!resolved) return MISSING_ON + on + plainWords(words) + off + LINK_OFF;
+    if (!current) return fg(C.dark) + on + plainWords(shown) + off + LINK_OFF;
+    if (!resolved) return MISSING_ON + on + plainWords(shown) + off + LINK_OFF;
     const url = (v.values ?? []).length === 1 && isExternalUrl(v.values![0]!);
     // Computed, so lightly marked: italic; a URL is a link's colour instead.
-    return url ? EXTERNAL_ON + on + plainWords(words) + off + LINK_OFF
-      : STYLE.italic[0] + on + plainWords(words === "" ? EMPTY_VALUE : words) + off + STYLE.italic[1];
+    return url ? EXTERNAL_ON + on + plainWords(shown) + off + LINK_OFF
+      : STYLE.italic[0] + on + plainWords(shown === "" ? EMPTY_VALUE : shown) + off + STYLE.italic[1];
   };
   // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
   const mark = (v: LinkView, to: LinkTarget, external = false) => {
@@ -474,7 +475,7 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
       } else if (l.kind === "page") {
         spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) + sourceMark(l) });
       } else if (l.embed && embeds && built.some(b => b.link === l)) {
-        spans.push({ ...l, draw: () => built.find(b => b.link === l)!.text! });
+        spans.push({ ...l, draw: () => built.find(b => b.link === l)!.text! + sourceMark(l) });
       } else if (!l.embed || !embeds) {
         const answer = resolved.get(refKey(l.blockId, l.fragmentId, l.outline));
         const v = refView(l.blockId, l.fragmentId, l.label, answer);

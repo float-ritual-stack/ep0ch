@@ -160,7 +160,7 @@ export function outlinerReferenceOccurrences(
     else if (link?.kind === "page") candidates.push({ ...link, address: link.displayAddress });
   }
   const inText = candidates.filter((candidate) =>
-    (candidate.kind === "block" ||
+    (candidate.kind === "block" || built.some(r => r.link && candidate.start === r.start && candidate.end === r.end) ||
       !blockReferenceRanges.some((range) => rangesOverlap(candidate, range))) &&
     !protectedRanges.some((range) => rangesOverlap(candidate, range)) &&
     !codeHides(candidate, code)

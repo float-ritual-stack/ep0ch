@@ -101,7 +101,10 @@ export function substituteValues(
 /** Re-scan value-built envelopes, retaining authored offsets for clicks, comments and backlinks. */
 export function valueLinkOccurrences(text: string, values: readonly SiteValue[], code?: CodeScope): { start: number; end: number; link?: LinkOccurrence; text?: string; values: SiteValue[] }[] {
   const pairs = pairValues(text, values);
-  const envelopes = [...pageLinkSpans(text), ...blockReferenceEnvelopeRanges(text).map(r => ({ ...r, start: text[r.start - 1] === "!" ? r.start - 1 : r.start }))];
+  // A path can itself contain ((id)) or [[page]]; those brackets belong to the value, not its enclosing link.
+  let masked = text;
+  for (const p of [...pairs].reverse()) masked = masked.slice(0, p.start) + " ".repeat(p.end - p.start) + masked.slice(p.end);
+  const envelopes = [...pageLinkSpans(masked), ...blockReferenceEnvelopeRanges(masked).map(r => ({ ...r, start: text[r.start - 1] === "!" ? r.start - 1 : r.start }))];
   const ranges = codeRangesOf(text, code);
   return envelopes.filter(r => !codeHides(r, ranges)).flatMap(r => {
     const inside = pairs.filter(p => p.start >= r.start && p.end <= r.end);
