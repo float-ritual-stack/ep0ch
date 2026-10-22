@@ -2,9 +2,9 @@ import { artifactResponse } from "../src/artifact-server";
 import { ArtifactStore } from "../src/artifact-store";
 import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync, symlinkSync, chmodSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, relative } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { scratchOutline } from "./scratch-outline";
 import { Publisher } from "../src/publish";
@@ -657,4 +657,72 @@ test("file maps, import and inbox drops enforce the same entry cap before instal
   while (!existsSync(reason) && Date.now() < until) await Bun.sleep(20);
   expect(readFileSync(reason, "utf8")).toMatch(/entries.*cap/);
   expect(existsSync(join(root, ".artifacts/live/crowded"))).toBe(false);
+});
+
+
+test("artifact file lines enter the store, follow edits and retain the last snapshot when deleted", async () => {
+  const { root, workspace, store, client, get, write } = await setup();
+  const oldOrigin = process.env.EP0CH_ARTIFACT_ORIGIN;
+  process.env.EP0CH_ARTIFACT_ORIGIN = "https://artifacts.example.test";
+  cleanups.push(() => { if (oldOrigin === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = oldOrigin; });
+  const source = write("sketches/Lantern.jsx", 'export default () => <p>First lantern</p>');
+  const refs = [source, "sketches/Lantern.jsx", `~/${relative(homedir(), source)}`];
+  const text = `File art [publish::file-art]\n${refs.map(ref => `- [artifact::${ref}]`).join("\n")}`;
+  const note = store.create(text);
+  await client.request({ action: "artifacts.put", name: "lantern", files: { "index.html": "Existing artifact" } });
+  const show = (name: string) => client.request<ArtifactInfo>({ action: "artifacts.show", name });
+  const first = await show(source);
+  expect(first.name).toBe("lantern-2");
+  expect(first.version).toBe(1);
+  const serve = (info: ArtifactInfo) => artifactResponse(join(root, ".artifacts"), new Request(info.url!), "*");
+  expect(await serve(first).text()).toContain("First lantern");
+  for (const ref of refs) expect(await show(ref)).toEqual(first);
+  expect(await (await get("/p/file-art?view=html")).text()).toContain(`src="${first.url}"`);
+  expect((await get(`/p/${note.id}/artifact/1`)).headers.get("location")).toBe(first.url);
+  writeFileSync(source, 'export default () => <p>Second lantern</p>');
+  const second = await show(source);
+  expect(second.name).toBe(first.name);
+  expect(second.version).toBe(2);
+  expect(await serve(second).text()).toContain("Second lantern");
+  expect(await serve(first).text()).toContain("First lantern");
+  expect((await show(source)).version).toBe(2);
+  const other = write("other/Lantern.jsx", 'export default () => <p>Other lantern</p>');
+  expect((await show(other)).name).toBe("lantern-3");
+  rmSync(source);
+  const gone = await show(source);
+  expect(gone.url).toBe(second.url);
+  expect(gone.warning).toMatch(/file gone since \d{4}-/);
+  expect(await serve(gone).text()).toContain("Second lantern");
+  expect((await show(source)).warning).toBe(gone.warning);
+  expect(store.get(note.id)?.text).toBe(text);
+  // A fresh store instance reads the durable path index, rather than minting another name.
+  const reopened = new ArtifactStore(root);
+  expect(await reopened.request({ action: "artifacts.show", name: refs[1]! }, workspace)).toEqual(gone);
+  await reopened.close();
+}, COMPILE_TIMEOUT);
+
+
+test("artifact file refusals name the host, supported kinds and concrete repair calls", async () => {
+  const { client, write, workspace, store } = await setup();
+  const oldMachine = process.env.EP0CH_MACHINE_NAME;
+  process.env.EP0CH_MACHINE_NAME = "garden-host";
+  cleanups.push(() => { if (oldMachine === undefined) delete process.env.EP0CH_MACHINE_NAME; else process.env.EP0CH_MACHINE_NAME = oldMachine; });
+  const unreadable = write("private.jsx", "export default () => <p>Private</p>");
+  chmodSync(unreadable, 0);
+  cleanups.push(() => chmodSync(unreadable, 0o600));
+  const wrong = write("sketch.txt", "Not an artifact");
+  const missing = join(workspace, "missing.jsx");
+  const folder = join(workspace, "entry"); mkdirSync(folder);
+  const refs = [wrong, unreadable, missing, folder];
+  const text = `Unfinished art\n${refs.map(ref => `- [artifact::${ref}]`).join("\n")}`;
+  const note = store.create(text);
+  const show = (name: string) => client.request({ action: "artifacts.show", name });
+  await expect(show(wrong)).rejects.toThrow(`.jsx, .tsx, .html, .svg or .mermaid`);
+  await expect(show(wrong)).rejects.toThrow(`ep0ch artifact put '${wrong}' --name sketch --machine garden-host`);
+  for (const [file, name, code] of [[unreadable, "private", "EACCES"], [missing, "missing", "ENOENT"]]) {
+    await expect(show(file!)).rejects.toThrow(`on garden-host (${code})`);
+    await expect(show(file!)).rejects.toThrow(`ep0ch artifact put '${file}' --name ${name} --machine garden-host`);
+  }
+  await expect(show(folder)).rejects.toThrow(`[artifact::${join(folder, "index.html")}]`);
+  expect(store.get(note.id)?.text).toBe(text);
 });

@@ -1,6 +1,9 @@
+import { homedir } from "node:os";
+import { artifactKind } from "@ep0ch/outline-core/media-line";
+import { localMachineName } from "./machine-name";
 import { deployedArtifacts } from "./artifact-deploy";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, writeSync, rmSync, lstatSync, existsSync, cpSync, watch, type FSWatcher } from "node:fs";
-import { join, dirname, extname, basename } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, writeSync, rmSync, statSync, lstatSync, existsSync, cpSync, watch, type FSWatcher } from "node:fs";
+import { join, dirname, extname, basename, resolve } from "node:path";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { artifactReference, type ArtifactInfo, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 
@@ -210,6 +213,49 @@ export class ArtifactStore {
     } finally { rmSync(stage, { recursive: true, force: true }); }
   }
 
+  private async resolveFile(ref: string, workspace: string): Promise<ArtifactInfo> {
+    const path = resolve(workspace, ref.startsWith("~/") ? join(homedir(), ref.slice(2)) : ref);
+    const indexFile = join(this.root, "paths.json");
+    const paths: Record<string, { name: string; hash?: string; version?: number; gone?: string }> = existsSync(indexFile) ? JSON.parse(readFileSync(indexFile, "utf8")) : {};
+    let entry = paths[path];
+    const stem = artifactSlug(basename(path, extname(path))) || "artifact";
+    let name = entry?.name ?? stem;
+    for (let suffix = 2; !entry && (existsSync(join(this.live, name)) || existsSync(join(this.root, "snapshots", name)) || Object.values(paths).some(row => row.name === name)); suffix++) name = `${stem}-${suffix}`;
+    const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
+    const machine = localMachineName(dirname(this.root));
+    const put = `ep0ch artifact put ${quote(path)} --name ${name} --machine ${machine}`;
+    const save = () => {
+      const temporary = `${indexFile}.tmp`;
+      writeFileSync(temporary, JSON.stringify(paths));
+      renameSync(temporary, indexFile);
+    };
+    let content: Buffer;
+    try {
+      const stat = statSync(path);
+      if (stat.isDirectory()) throw new Error(`${path} is a folder; name its entry file, for example [artifact::${join(path, "index.html")}].`);
+      if (!artifactKind(path)) throw new Error(`${path} isn't an artifact (.jsx, .tsx, .html, .svg or .mermaid); to store it explicitly, run ${put}.`);
+      if (!stat.isFile()) throw new Error(`${path} isn't a regular file on ${machine}; run ${put} with a regular file.`);
+      checkArtifactSize(1, stat.size);
+      content = readFileSync(path);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" && entry?.version) {
+        if (!entry.gone) { entry.gone = new Date().toISOString(); save(); }
+        return { ...this.info(`${entry.name}@${entry.version}`), warning: `file gone since ${entry.gone}: ${path}` };
+      }
+      if (code) throw new Error(`Can't read ${path} on ${machine} (${code}); from the machine with the file, run ${put}.`);
+      throw error;
+    }
+    const hash = new Bun.CryptoHasher("sha256").update(content).digest("hex");
+    if (entry?.hash !== hash) {
+      await this.put(name, { [basename(path)]: content });
+      const snapshot = await this.snapshot(name);
+      entry = paths[path] = { name, hash, version: snapshot.version };
+      save();
+    } else if (entry.gone) { delete entry.gone; save(); }
+    return this.info(`${name}@${entry!.version}`);
+  }
+
   async request(request: ArtifactRequest, workspace?: string): Promise<unknown> {
     this.prepare();
     switch (request.action) {
@@ -260,6 +306,13 @@ export class ArtifactStore {
         const aliases = workspace ? join(this.root, "aliases", basename(workspace)) : "";
         const map = aliases && existsSync(aliases) ? JSON.parse(readFileSync(aliases, "utf8")) : {};
         const name = Object.hasOwn(map, request.name) ? map[request.name] : request.name;
+        const parsed = artifactReference(name);
+        if (parsed && (parsed.version || existsSync(join(this.live, parsed.name)))) return this.info(name);
+        if (name.includes("/") || extname(name)) {
+          const result = this.pending.then(() => this.resolveFile(name, workspace ?? dirname(this.root)));
+          this.pending = result.then(() => {}, () => {});
+          return result;
+        }
         return this.info(name);
       }
       case "artifacts.list": {

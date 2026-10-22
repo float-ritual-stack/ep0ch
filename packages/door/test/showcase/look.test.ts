@@ -820,7 +820,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   }, 30_000);
 
 
-  test("artifacts: live and pinned cards open the static URLs by key, mouse and agent action", async () => {
+  test("artifacts: file paths, live and pinned cards open the static URLs by key, mouse and agent action", async () => {
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "artifacts" }, as: "test-agent" });
@@ -829,6 +829,9 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     const live = await board.request<{ url: string }>("artifacts.show", { name: list[0].path });
     const pinned = await board.request<{ url: string }>("artifacts.show", { name: list[1].path });
     expect(pinned.url).toContain("showcase-orbit%401/");
+    const file = await board.request<{ url: string; version: number }>("artifacts.show", { name: list[2].path });
+    expect(file.version).toBe(1);
+    expect(await app.act({ action: "artifact.open", args: { n: 3 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: file.url, launched: false });
     expect(await app.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: pinned.url, launched: false });
     const opened: string[][] = [], run = external.run;
     external.run = cmd => { opened.push(cmd); };

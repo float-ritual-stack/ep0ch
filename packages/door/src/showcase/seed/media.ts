@@ -123,6 +123,10 @@ export const artifactsText = (pinned = "showcase-orbit@1") => [
   "The snapshot is pinned by number:",
   "",
   `artifact:: ${pinned} [alt::Orbit lamp pinned]`,
+  "",
+  "Or name a file the host can read. Absolute paths, paths relative to the outline folder and ~/ paths enter the same store. The next read snapshots changed content; a deleted file keeps its last snapshot, with a warning on the card. The note keeps the path you wrote.",
+  "",
+  `[artifact::${join(SHOWCASE_ASSETS, "artifacts", "orbit-lamp.html")}] [alt::Orbit lamp from a file]`,
 ].join("\n");
 
 /**

@@ -110,8 +110,8 @@ const ART = "[artifact::artifacts/pulse-pad.jsx]";
 const ARTIFACT: ComponentSchema = {
   id: "artifact", group: "media",
   title: "Artifacts (claude.ai's, in a note)",
-  intro: "A file claude.ai would run, in a note (PIE-793): a line that is only `[artifact::path]` (or `artifact:: path`) naming a React component (`.jsx`, `.tsx`), an HTML page, an SVG or a mermaid diagram. A relative path is the outline's own folder (`artifacts/` there, say). The web pages run it inline in a sandboxed frame; the door draws a card that opens that page (`artifact.open`). The path here is illustrative, so the library draws the card a missing file gets.",
-  where: "a line of a note: `[artifact::path]` and the `[height::…]`, `[size::…]`… beside it on the same line",
+  intro: "A runnable file in a note: write `[artifact::/path/to/lantern.jsx]`, `[artifact::artifacts/lantern.jsx]` (relative to the outline folder), or `[artifact::~/sketches/lantern.html]`. The host reads .jsx, .tsx, .html, .svg and .mermaid files into the artifact store, naming them from the file stem. Changed content gets a new snapshot on the next read. A deleted file keeps its last snapshot; the card says when it went missing. The note's text stays as written. Stored names (`[artifact::lantern]`) and pinned versions (`[artifact::lantern@1]`) also work. Web pages run it inline; the door's card opens the same stored page (`artifact.open`). The example path is illustrative, so the library shows the missing-file card.",
+  where: "a line of a note: `[artifact::path]`, `[artifact::name]` or `[artifact::name@1]`, with height, size, align and alt on the same line",
   props: [
     { key: "height", where: "line", type: "int", meaning: "its frame's height on the web page, in rows", min: 1, max: 80, samples: ["16", "24", "40"], use: `${ART} [height::{{props.height}}]` },
     { key: "size", where: "line", type: "text", meaning: "its frame's width: columns, a percentage of the page, or `full`", samples: ["60%", "full"], use: `${ART} [size::{{props.size}}]` },

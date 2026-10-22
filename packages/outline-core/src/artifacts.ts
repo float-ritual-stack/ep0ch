@@ -1,4 +1,4 @@
-export interface ArtifactInfo { name: string; version?: number; files: string[]; bytes: number; url: string | null }
+export interface ArtifactInfo { name: string; version?: number; files: string[]; bytes: number; url: string | null; warning?: string }
 export type ArtifactRequest =
   | { action: "artifacts.deploy"; repo: string; domain?: string; mutation?: { author: "agent" | "user" | "system"; actorId?: string; sessionId?: string; taskId?: string } }
   | { action: "artifacts.dns"; name: string; to: "vercel" | "float-2" }
