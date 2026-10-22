@@ -7359,8 +7359,9 @@ export class NoteSurface {
     this.folded = new Set(to.folded); this.previewLists = new Map(to.previewLists); this.previewOpen = new Set(to.previewOpen); this.expanded = new Set(to.expanded); this.foldedThreads = new Set(to.foldedThreads); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures);
     // The element comes into view if the history row now under the note would hide it (only that far).
     this.reveal = to.cur !== null;
-    host.redraw();
+    // A redraw may paint synchronously; the host must keep the destination before its view reads it.
     this.keptChanged?.();
+    host.redraw();
     return null;
   }
 
