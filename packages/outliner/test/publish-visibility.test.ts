@@ -225,17 +225,18 @@ test("a script that calls a tool directly, or reads deep, is tracked as well as 
   const alpha = store.create("Alpha project [type::project] [publish::public]");
   store.create("Alpha sign-off [status::approved] [publish::never]", alpha.id);
   store.create("Direct [script::direct] [mode::render] [publish::public]\n```js\nconst found = await tools.outline_find({ query: \"type=project child:status=approved\" });\nreturn `${found.blocks.length} signed`;\n```");
-  const top = store.create("Top [publish::public]");
+  // A visible UUID can contain the old four-digit secret; it must not count as leaked content.
+  const top = store.create("Top [publish::public]", null, "user", undefined, { id: "af372873-9c2a-46c1-acc5-5d9649023057" });
   let at = top;
   for (let level = 0; level < 5; level++) at = store.create(`Level ${level}`, at.id);
-  store.create("Deep vault [publish::never] [code::9023]", at.id);
+  store.create("Deep vault [publish::never] [code::DEEP_VAULT_CODE]", at.id);
   store.create("Deep [script::deep] [mode::render] [publish::public]\n```js\nreturn JSON.stringify(await read(\"" + top.id + "\", { depth: 6 }));\n```");
   const page = store.create("Script page [publish::public:script-page]\ndirect::\ndeep::", null, "user");
   await draw(page.id);
   await until("both drawn", () => store.extensionOutputs(page.id).filter(row => row.result).length === 2);
   for (const html of [await tailnet("script-page"), await publicly("script-page")]) {
     expect(html).not.toContain("1 signed");
-    expect(html).not.toContain("9023");
+    expect(html).not.toContain("DEEP_VAULT_CODE");
     expect(html).toContain("hidden here");
   }
 });
