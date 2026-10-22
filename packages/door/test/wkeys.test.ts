@@ -207,8 +207,8 @@ describe.skipIf(!outliner)("^W keys, the keys box and the ^W list (PIE-704)", ()
     if (D().overlays.top()) key({ kind: "enter" });
     await until(() => D().all().some((id: number) => D().isGroup(D().nameOf(id))), "the focused tile gathered into a group by ⏎");
     expect(tiles).toBeGreaterThan(0);
-    key(ctrlW); key(ch("G"));
-    await until(() => !D().all().some((id: number) => D().isGroup(D().nameOf(id))), "spilled by its key");
+    await D().dispatch.press("tile.group", { on: false }, D().layoutGet().focus);
+    await until(() => !D().all().some((id: number) => D().isGroup(D().nameOf(id))), "spilled through the group menu action");
   });
 
   test("a key that waits for another leaves the desk waiting for it when picked", async () => {

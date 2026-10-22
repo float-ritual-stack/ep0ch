@@ -90,9 +90,9 @@ describe.skipIf(!outliner)("refusals and a desk holding only a group, against a 
     await expect(app.act({ action: "tile.zoom", tile: "nowhere-727", args: {}, as: "refusal-agent-727" })).rejects.toThrow();
     expect(app.refusal()).toBeNull();
     expect(A().message).toContain("refusal-agent-727");
-    // Inside the group (^W e, mount.enter), q comes out of it; the screen stays.
+    // Entering through the group menu, q comes out of it; the screen stays.
     const g = D().pane(names()[0]);
-    press({ kind: "char", ch: "w", ctrl: true }, { kind: "char", ch: "e" });
+    await D().dispatch.press("mount.enter", {}, names()[0]);
     expect(g.inside).toBe(true);
     press({ kind: "char", ch: "q" });
     expect(g.inside).toBe(false);
@@ -104,7 +104,7 @@ describe.skipIf(!outliner)("refusals and a desk holding only a group, against a 
   });
 
   test("a refused click says why on the focused tile too: a dimmed row of the tile menu", async () => {
-    desk = new Desk();
+    desk = new Desk(undefined, { layout: "desk" });
     app.push(desk);
     frame();
     // The tile menu of the focused tile (its ⋯, ^W .); a row it would refuse is dimmed, and a click on it says why.

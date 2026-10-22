@@ -259,7 +259,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().card()?.id).toBe(cards.kettle.id);
     expect(q.items[q.sel].id).toBe(queuedSel);
     expect(B().describe().lanes.find((l: any) => l.name === "Queued").collapsed).toBe(true);
-    expect(JSON.stringify(JSON.parse(await Bun.file(join(scratch.root, "door", "delivery.json")).text()).root)).toContain(`"name":"Queued","id":"t${B().tileNum("Queued")}","view":"${B().lanes[laneIndex("Queued")].view}","collapsed":true`);
+    expect(JSON.stringify(JSON.parse(await Bun.file(join(scratch.root, "door", "delivery.json")).text()).root)).toContain(`"name":"Queued","id":"${B().layoutGet().tiles.find((t: any) => t.name === "Queued").id}","view":"${B().lanes[laneIndex("Queued")].view}","collapsed":true`);
     await act("lane.collapse", { lane: "Queued", on: false });
     // An agent trashes and restores another card in the person's lane: the person stays on theirs.
     await act("card.trash", { card: cards.bulb.id, confirm: cards.bulb.id });

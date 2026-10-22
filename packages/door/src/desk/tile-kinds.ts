@@ -20,7 +20,7 @@ import type { TileSpec } from "./tiles";
 export type TileKindName = string;
 
 /** What a kind's actions run on: the tile (its pane and its name) and the desk it's on. */
-export interface KindHost { pane: any; desk: DeskApi; tile: string }
+export interface KindHost { pane: any; desk: DeskApi; tile: string; standing: boolean }
 
 /** What a kind's hooks get from the desk a tile of it is on. */
 export interface TileEnv {

@@ -166,9 +166,25 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 
 ## Reads
 
+Tile addresses are door-wide ids (`t-<uuid>`). `tile=` and tile arguments resolve an
+id first, then an unambiguous name, then a path: `<mount>/<tile>`, `../<tile>`,
+`@drawer/<tile>` or `@<screen>/<tile>`. Ambiguous names report candidates and ids.
+Names and paths are input and display; saved wires and tile sources keep ids, so
+renaming or moving a tile between groups and the drawer keeps its connections.
+Closing a target drops its wire and says so. Saved name-path wires are resolved
+and rewritten as ids when the desks open; missing targets are reported and dropped.
+
+`layout.get.tiles` includes the screen, drawer and every mount. Each row has its
+`id`, `name`, `address` (the id), and display `path`. `layers` groups those rows by
+desk, with `screen`, `drawer`, `focus` and `zoom` (tile ids), and its local `tree`.
+Top-level layout metadata describes the screen, regardless of the focused layer. `peek` includes this
+same report as top-level `layout`. `Whereabouts.address` names the tile under the
+person's keys, descending into mounts and the drawer; omitted `tile=` uses that
+focused tile. A group's frame and menu address the group itself.
+
 | Action | Gives |
 |---|---|
-| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each dock with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<dock's>.0`), each flow with its `id` (`f<n>`), `wide` (its wide column) and `held` (the columns held full), each container's `policy`, each tile with its `id` (`t<n>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `dock` (`open`, `shut`) with its `edge` and `container`, `cover` in a flow (`full`, `peek`, `spine`), the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
+| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each dock with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<dock's>.0`), each flow with its `id` (`f<n>`), `wide` (its wide column) and `held` (the columns held full), each container's `policy`, each tile with its door-wide `id` (`t-<uuid>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `dock` (`open`, `shut`) with its `edge` and `container`, `cover` in a flow (`full`, `peek`, `spine`), the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
 | `layout.policy tile=<tile>` (nothing to set) | each policy layer over the tile (the screen's, each container's, its kind's default), what applies (`effective`, with `by` naming the layer that said each field), and the containers' ids |
 | `view.get` (`tile=<tile>` for one) | `focus`, and each tile's `viewport` and `cursor` as the feed gives them. For one terminal tile, also its `screen` text |
 | `tile.info tile=<tile>` | one tile as `layout.get` gives it |
@@ -433,11 +449,11 @@ outline service (not a door action) is not held by it.
 Two actors (the person and an agent, or two agents) change the layout at once, so a name must mean the same
 thing after someone else's change.
 
-- **Ids.** Every split (`s4`), tab set (`g2`) and tile (`t7`) has an id, in `layout.get` and the feed. It
+- **Ids.** Every split (`s4`), tab set (`g2`) and tile (`t-<uuid>`) has an id, in `layout.get` and the feed. It
   stays with its split, tab set or tile through moves, tabs, resizes and saves (`desk.json` and
   screen notes keep them, so a restarted door gives the same ones), and is never given to another:
-  `desk.json` keeps the next ids too, and a tile made by loading a screen note's layout gets its saved
-  id only if no tile had it before in this door. A split
+  tiles get door-wide UUIDs, while containers keep desk-local counters. Restoring a session keeps tile ids;
+  copying a live saved arrangement gives the copy fresh ids and remaps its references. A split
   that's gone (its tiles moved or closed) is refused by id, never swapped for another.
 - **Names.** A tile's name starts with a letter, then letters, digits, `.`, `-` or `_`, at most 40 (`middle`,
   `claude`, `reader2`), and isn't shaped like an id (`t`, `s` or `g`, then digits). So a name is never a number,

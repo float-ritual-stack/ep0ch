@@ -77,8 +77,8 @@ export class BoardView {
   selectedCardId(): string { return this.model.selectedCardId(); }
   /** The columns filled from their sources again. */
   fill() { return this.b.fillColumns(); }
-  /** A tile's stable number (`t<n>` in layout.get and a saved layout). */
-  tileNum(place: string | Pane): number { const p = typeof place === "string" ? tileOf(this, place) : place; const n = p ? this.b.nameOfPane(p) : ""; const t = (this.layoutGet().tiles as { name: string; id: string }[]).find(x => x.name === n); return Number(t?.id.slice(1)); }
+  /** The layout's local handle, used by the graphics placement keys. */
+  tileNum(place: string | Pane): number { const p = typeof place === "string" ? tileOf(this, place) : place; return (this.b as any).idOf(p); }
   /** The names of the tiles folded to spines. */
   get collapsed(): Set<string> { return new Set((this.layoutGet().tiles as { name: string }[]).map(t => t.name).filter(n => { const p = this.b.pane(n); return !!p && this.b.folded(p); })); }
   /** The tile's rectangle as last drawn (a float's too), by place or pane. */

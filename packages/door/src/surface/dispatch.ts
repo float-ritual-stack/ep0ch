@@ -6,7 +6,7 @@ import type { Hint } from "./hint-card";
 // action sets; its keys and clicks (`press`), the control socket (`act`) and a tile holding a whole screen all call
 // the dispatcher, which:
 //
-// - reads `tile=` with one grammar, over the tiles the screen lists (a name, a stable id `t4`, a number on
+// - reads `tile=` with one grammar, over the tiles the screen lists (a name, a stable id, a number on
 //   screen `#3`, `focused`, a block id, and the places a screen names: the board's `detail`), and the arguments that name a tile (`to=`) the same way;
 // - finds the set that owns an action name, in the order the screen registered them (its own sets, the desk's
 //   tile actions, the tile kinds', a reader's note actions, then the shell's, the host layer's and the extensions');
@@ -15,7 +15,7 @@ import type { Hint } from "./hint-card";
 //   (`actorRule`, below), so no action asks who is acting for this;
 // - runs it as the person (a key, a click: a refusal is said, then the screen is redrawn) or as an agent (said on
 //   the status bar before it runs, refused with the reason, and what it did said after: ActionDef.says).
-import { INVITES } from "./invite";
+import { INVITES, type InviteScope } from "./invite";
 import { TXN, takeReserved } from "./txn";
 import type { KeyBinding } from "../desk/screen-spec";
 import { Offline, USER, type Actor } from "../socket";
@@ -36,11 +36,11 @@ export const isTilePath = (sel: string | undefined): sel is string => !!sel && s
 export interface TileRef {
   outline?: string;
   machine?: string;
-  /** Its name: what answers say, and what `tile=` matches first. */
+  /** Its name: what answers say, and what `tile=` matches after ids. */
   name: string;
   /** A mounted screen: its tiles keep their own dispatcher and rules. */
   mount?: Dispatcher;
-  /** Its stable id (`t4`): the same tile while it lives. */
+  /** Its door-wide stable id: the same tile while it lives. */
   id?: string;
   /** Its number on screen, from 1 (`#3`, or `3`): where it is now. */
   n?: number;
@@ -88,7 +88,7 @@ export interface Target {
  * What a set's `on` is built with: who acts, a context whose messages say so, and what the caller already has for
  * it (`given`: a reader's own host for this key or click, its navigate a click's own), when it has it.
  */
-export interface RunHow<C> { actor: Actor; ctx: C; given?: unknown }
+export interface RunHow<C> { actor: Actor; ctx: C; standing: boolean; given?: unknown }
 
 /** One action set on a dispatcher, and how its actions reach what they run on. */
 export interface Registration<On = any> {
@@ -161,6 +161,7 @@ export interface DispatchHost {
   where?(): Whereabouts;
   /** The tiles `tile=` names, in order on screen. */
   tiles?(): TileRef[];
+  resolveTile?(sel: string): { tile: TileRef; dispatch: Dispatcher } | null;
   /** `expected=`: why it's refused (the layout changed since that revision), or null. Absent: the screen has none. */
   revision?(expected: unknown): string | null;
   /** A tile's draft for the draft rule: the note it shows and the session it holds. */
@@ -172,6 +173,11 @@ export interface DraftAt { board?: object | null; blockId?: string | null; sessi
 
 /** How a tile was named: by what it is (a name, an id, a block it shows) or by where it is (a number, an alias, the focus). */
 type NamedBy = "name" | "id" | "place" | "block" | "focused" | "default";
+
+/** Standing comes from a press, never from a script's attribution or requestedBy. */
+export function standsAsPerson(actor: Actor, where: Whereabouts, touch: InviteScope): boolean {
+  return actor.kind === "user" || !!where.yolo || INVITES.covers(actor.invitation, touch, actor.run);
+}
 
 /** The answer to who may run an action, in plain words: null, or why not. Every action's actor rule is this. */
 export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "while" | "draft" | "person" | "way" | "ownGate" | "host"> & { replay?: ActionDef<unknown, unknown>["replay"] }, actor: Actor, where: Whereabouts, at: {
@@ -187,12 +193,12 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
   action?: string;
 }): string | null {
   if (actor.kind !== "agent") return null;
-  // Yolo: the person handed the door to their agents, so none of the rules below (theirs) holds an agent back.
-  if (where.yolo) return null;
+  if (INVITES.covers(actor.invitation, def.touches === "screen" || def.touches === "shape" ? def.touches : "tile", actor.run)) return null;
   if (def.person) return def.person;
+  const standing = standsAsPerson(actor, where, def.touches === "screen" || def.touches === "shape" ? def.touches : "tile");
   // What the tile lets an agent do (PIE-639): `edit` allows reads and the note's own edits (a `draft` action), `off` only reads.
   const g = at.gate;
-  if (g && g.agents.level !== "free" && !def.ownGate) {
+  if (!standing && g && g.agents.level !== "free" && !def.ownGate) {
     const reads = def.touches === "nothing" && def.replay === "safe", edits = def.touches === "draft" || def.touches === "nothing";
     const no = agentRefusal(g.agents.level, at.tile?.label ?? at.tile?.name ?? "that tile", g.action, { by: g.agents.by, note: g.agents.level === "edit" ? edits : reads });
     if (no) return no;
@@ -206,14 +212,15 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       if ((def.draft === "replace" || def.draft === "text") && !at.invited && t && where.typingIn === t.name) {
         return `the person is typing in ${t.label ?? t.name}; an agent doesn't replace their text · ${def.draft === "replace" ? "draft.patch lands in their draft, or comment on the note or block.mark it to get their attention" : "block.mark gets their attention, or wait until it's sent or closed"}`;
       }
-      return at.draft?.() ?? null;
+      if (standing && t && where.typingIn === t.name) return `the person is typing in ${t.label ?? t.name}; an agent does not change or close their draft`;
+      return standing ? null : at.draft?.() ?? null;
     }
     case "tile": {
       const t = at.tile;
       if (!t) return null;
       const label = t.label ?? t.name;
       const typing = where.typingIn === t.name;
-      const theirs = def.while === "typing" ? typing : typing || where.focus === t.name;
+      const theirs = def.while === "typing" ? typing : typing || (!standing && where.focus === t.name);
       if (!theirs) return null;
       return `${typing ? `the person is typing in ${label}` : `${label} has the person's keys`}; ${def.way ?? "an agent doesn't act there (block.mark gets their attention)"}`;
     }
@@ -225,10 +232,9 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       // (`host`, putting it away) still waits for them.
       if (where.keys === "host" && !def.host) return null;
       // (A hold on navigation only, as the showcase's sections, is lifted by an invitation too.)
-      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && INVITES.covers(actor.invitation, "screen", actor.run))) return `${where.why ?? "the person is typing"}; not moved`;
-      // The person's press invited this run (src/surface/invite.ts): it may move their tiles though they pressed a moment ago,
-      // but never while they are typing (above): the invitation lifts "at the keys", nothing else.
-      if (INVITES.covers(actor.invitation, "screen", actor.run)) return null;
+      if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return `${where.why ?? "the person is typing"}; not moved`;
+      // Yolo retains its existing typing guards; a press returned above.
+      if (standing) return null;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;
     }
@@ -372,6 +378,8 @@ export class Dispatcher {
   name(sel: string): string | null { return this.tile(sel)?.name ?? null; }
   /** The tile `sel` names, by the same grammar, as the dispatcher sees it (what it shows, whether it's on screen). */
   tile(sel: string): TileRef | null {
+    const resolved = this.host.resolveTile?.(sel);
+    if (resolved) return resolved.tile;
     const tiles = this.tilesNow();
     if (sel === "focused") return this.focusedOf(tiles) ?? null;
     return (this.named(sel, tiles) ?? this.byBlock(sel, tiles, USER))?.t ?? null;
@@ -397,6 +405,15 @@ export class Dispatcher {
   /** The set that owns a request's action: the first registered that claims it. */
   private owner(req: ActRequest, actor?: Actor): Registration | Delegation | null {
     req = this.mountedRequest(req);
+    const defaultAddress = req.tile === undefined ? this.where().address : null;
+    const defaultTarget = defaultAddress ? this.host.resolveTile?.(defaultAddress) : null;
+    if (defaultTarget && defaultTarget.dispatch.host.pointerScope !== this.host.pointerScope) {
+      const reg = this.regs.find(r => "set" in r && r.set.has(req.action));
+      const def = reg && "set" in reg ? reg.set.def(req.action) : undefined;
+      if (reg && "set" in reg && reg.takes !== "none" && def && def.touches !== "screen" && !def.landing) return { delegate: () => defaultTarget.dispatch, listed: false };
+    }
+    const addressed = this.addressed(req);
+    if (addressed) return addressed;
     for (const r of this.regs) {
       // A delegate is asked about the whole request: a screen in a tile is found by the tile it names.
       if (r.claims ? r.claims(req) : "set" in r ? r.set.has(req.action) : !!r.delegate(req)?.takes(r.request ? r.request(req) : req, actor)) return r;
@@ -494,15 +511,16 @@ export class Dispatcher {
 
   /** One request, for one actor: who owns it, the revision, then that set's run. */
   private runPlain(req: ActRequest, actor: Actor, typed = false): unknown {
-    req = this.mountedRequest(this.pointed(req, actor));
+    req = this.pointed(req, actor);
+    req = this.mountedRequest(req);
     const args = { ...(req.args ?? {}) };
-    // A path (`tile=<mount>/<tile>`, PIE-651) names a tile of a screen mounted in a tile: expected= is that screen's revision.
-    if (this.host.revision && "expected" in args && !isTilePath(req.tile)) {
+    const r = this.owner(req, actor);
+    // The desk that owns the addressed tile owns its layout revision too.
+    if (r && "set" in r && this.host.revision && "expected" in args) {
       const why = this.host.revision(args.expected);
       if (why) throw new ActionRefused(why);
       delete args.expected;
     }
-    const r = this.owner(req, actor);
     if (!r && GONE_ACTIONS[req.action]) throw new ActionRefused(GONE_ACTIONS[req.action]!);
     if (!r) throw new ActionRefused(this.unknownAction(req.action));
     if (!("set" in r)) {
@@ -521,7 +539,8 @@ export class Dispatcher {
     const def = reg.set.def(req.action);
     if (!def) throw new ActionRefused(`no action ${req.action} here; try: ${reg.set.names().join(", ")}`);
     // The person's own: refused to an agent before anything is read.
-    if (actor.kind === "agent" && def.person && !this.where().yolo) throw new ActionRefused(def.person);
+    const personOnly = def.person ? actorRule(def, actor, this.where(), {}) : null;
+    if (personOnly) throw new ActionRefused(personOnly);
     const tiles = this.tilesNow();
     const at = this.target(reg, def, req, actor, tiles);
     const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles);
@@ -532,7 +551,7 @@ export class Dispatcher {
     this.host.beforeAction?.(req.action);
     const confirmation = ++this.nextConfirmation;
     const ctx = this.host.ctx();
-    const on = reg.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
+    const on = reg.on(at, { actor, standing: this.standing(actor, def.touchesWith?.(seen as never, at.name) ?? def.touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
     // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
     const run = () => messageContext.run({ ...messageContext.getStore(), action: req.action, ...(at.tile ? { tile: at.tile.id ?? at.tile.name, note: at.tile.shows ?? undefined } : {}) }, () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor));
     const recordedArgs = { ...seen };
@@ -578,15 +597,17 @@ export class Dispatcher {
    * would be refused. Nothing runs; nothing is drawn.
    */
   menu(sel: string, actor: Actor): MenuRow[] {
+    const resolved = this.host.resolveTile?.(sel);
+    if (resolved && resolved.dispatch.host.pointerScope !== this.host.pointerScope) return resolved.dispatch.menu(resolved.tile.id!, actor);
     const tiles = this.tilesNow(), tile = this.tile(sel);
     if (!tile) throw new ActionRefused(`no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
     const out: MenuRow[] = [], where = this.where(), ctx = this.host.ctx();
     // A row is listed by the registration that would run it: the owner a press of it finds (claims included).
-    const owns = (r: Registration | Delegation, action: string) => this.owner({ action, tile: tile.name }) === r;
+    const owns = (r: Registration | Delegation, action: string) => this.owner({ action, tile: tile.id ?? tile.name }) === r;
     for (const r of this.regs) {
       if (!("set" in r)) {
         if (r.listed === false) continue;
-        try { out.push(...(r.delegate()?.menu(tile.name, actor) ?? []).filter(row => owns(r, row.action))); } catch { /* the tile isn't one it reaches */ }
+        try { out.push(...(r.delegate()?.menu(tile.id ?? tile.name, actor) ?? []).filter(row => owns(r, row.action))); } catch { /* the tile isn't one it reaches */ }
         continue;
       }
       if (r.takes === "none" || (r.menuIn && !r.menuIn(tile))) continue;
@@ -594,11 +615,11 @@ export class Dispatcher {
         const def = r.set.def(name)!, entries = def.menu === undefined ? [] : Array.isArray(def.menu) ? def.menu : [def.menu as MenuEntry<unknown, unknown>];
         if (!entries.length || !owns(r, name)) continue;
         let at: Target;
-        try { at = this.target(r, def, { action: name, tile: tile.name }, actor, tiles); } catch { continue; }      // not this tile's kind
+        try { at = this.target(r, def, { action: name, tile: tile.id ?? tile.name }, actor, tiles); } catch { continue; }      // not this tile's kind
         if (!at.tile) continue;
         let on: unknown;
         for (const e of entries) {
-          const now = e.now ? e.now((on ??= r.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx })), { name: at.tile.name, kind: at.tile.kind }, actor) : null;
+          const now = e.now ? e.now((on ??= r.on(at, { actor, standing: this.standing(actor, def.touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx })), { name: at.tile.name, kind: at.tile.kind }, actor) : null;
           if (now?.hide) continue;
           const args = { ...(e.args ?? {}), ...(now?.args ?? {}) } as Record<string, unknown>;
           const why = this.refusal(r, def, name, at, args, args, actor, where) ?? now?.refused ?? null;
@@ -612,6 +633,10 @@ export class Dispatcher {
 
   /** Ownership discovery and execution must resolve the same mounted target. Local tiles keep their scope. */
   private mountedRequest(req: ActRequest): ActRequest {
+    if (this.host.resolveTile && req.tile) {
+      const hit = this.host.resolveTile(req.tile);
+      return hit ? { ...req, tile: hit.tile.id ?? hit.tile.name } : req;
+    }
     const sel = req.tile;
     if (!sel || isTilePath(sel) || sel === "focused" || NUMBER.test(sel)) return req;
     const local = this.named(sel, this.tilesNow());
@@ -621,14 +646,22 @@ export class Dispatcher {
     return paths.length === 1 ? { ...req, tile: paths[0] } : req;
   }
 
-  /** Names inside mounts resolve to paths; execution still goes through each mounted dispatcher. */
   private mountedPaths(sel: string): string[] {
-    return this.tilesNow().flatMap(t => {
-      if (!t.mount) return [];
-      const hit = t.mount.named(sel, t.mount.tilesNow());
-      return [ ...(hit ? [`${t.id ?? t.name}/${hit.t.id ?? hit.t.name}`] : []),
-        ...t.mount.mountedPaths(sel).map(path => `${t.id ?? t.name}/${path}`) ];
-    });
+    return this.tilesNow().flatMap(t => !t.mount ? [] : [
+      ...t.mount.tilesNow().filter(x => x.id === sel || x.name === sel).map(x => `${t.id ?? t.name}/${x.id ?? x.name}`),
+      ...t.mount.mountedPaths(sel).map(path => `${t.id ?? t.name}/${path}`),
+    ]);
+  }
+
+  private addressed(req: ActRequest): Delegation | null {
+    if (!this.host.resolveTile || !req.tile) return null;
+    const hit = this.host.resolveTile(req.tile);
+    if (!hit || hit.dispatch.host.pointerScope === this.host.pointerScope) return null;
+    return { delegate: () => hit.dispatch, request: r => ({ ...r, tile: hit.tile.id ?? hit.tile.name }), listed: false };
+  }
+
+  standing(actor: Actor, touch: ActionDef<unknown, unknown>["touches"] = "tile"): boolean {
+    return standsAsPerson(actor, this.where(), touch === "shape" || touch === "screen" ? touch : "tile");
   }
 
   private tilesNow(): TileRef[] { return this.host.tiles?.() ?? []; }
@@ -644,7 +677,8 @@ export class Dispatcher {
     const out = { ...raw };
     for (const [k, s] of Object.entries(spec)) {
       if (s.kind !== "tile" || typeof out[k] !== "string" || !tiles.length) continue;
-      // A path (`group/tile`, `../tile`) names a tile of another screen of the family: the action reads it (tile.link to=).
+      const resolved = this.host.resolveTile?.(String(out[k]));
+      if (resolved) { out[k] = resolved.tile.id ?? resolved.tile.name; continue; }
       if (isTilePath(String(out[k]))) continue;
       const hit = this.named(String(out[k]), tiles);
       if (!hit) throw new ActionRefused(`no tile ${out[k]} here; ${this.which(tiles)}`);
@@ -678,7 +712,7 @@ export class Dispatcher {
       if (focused && can.includes(focused)) hit = { t: focused, by: "focused" };
       else if (sel === "focused") throw new ActionRefused(`the focused tile${focused ? `, ${focused.name},` : ""} isn't ${noun(req.action)}: ${req.action} is for ${noun(req.action)}${can.length ? `; here: ${can.map(t => t.name).join(", ")}` : ""}`);
       else if (!can.length) throw new ActionRefused(`no ${noun(req.action).replace(/^an? /, "")} on the ${this.host.title}`);
-      else if (reg.pick === "only" && can.length > 1 && actor.kind === "agent") throw new ActionRefused(`${req.action} needs tile=<tile>: the focused tile has no such action and several here do (${can.map(t => t.name).join(", ")})`);
+      else if (reg.pick === "only" && can.length > 1 && !this.standing(actor, "tile")) throw new ActionRefused(`${req.action} needs tile=<tile>: the focused tile has no such action and several here do (${can.map(t => t.name).join(", ")})`);
       else hit = { t: can[0]!, by: "default" };
     } else {
       hit = this.named(sel, can) ?? this.byBlock(sel, can, actor);
@@ -699,21 +733,24 @@ export class Dispatcher {
       }
     }
     // An agent's: the person's own keys and clicks in a peek or a spine are theirs to press (ctrl+z, an element).
-    if (reg.seen && actor.kind === "agent" && t.readOnly && !t.editing) throw new ActionRefused(t.readOnly);
+    if (reg.seen && !this.standing(actor, "tile") && t.readOnly && !t.editing) throw new ActionRefused(t.readOnly);
     return { tile: t, name: t.name };
   }
 
   private focusedOf(tiles: TileRef[]): TileRef | undefined {
-    const f = this.where().focus;
+    const where = this.where();
+    const addressed = tiles.find(t => t.id === where.address);
+    if (addressed) return addressed;
+    const f = where.focus;
     return f === null ? undefined : tiles.find(t => t.name === f);
   }
 
   /** A tile by what names it: its name, its id, its number, one of its aliases (in that order). */
   private named(sel: string, tiles: TileRef[]): { t: TileRef; by: NamedBy } | null {
-    const byName = tiles.find(t => t.name === sel);
-    if (byName) return { t: byName, by: "name" };
     const byId = tiles.find(t => t.id === sel);
     if (byId) return { t: byId, by: "id" };
+    const byName = tiles.find(t => t.name === sel);
+    if (byName) return { t: byName, by: "name" };
     const num = NUMBER.exec(sel);
     const byN = num ? tiles.find(t => t.n === Number(num[1])) : undefined;
     if (byN) return { t: byN, by: "place" };

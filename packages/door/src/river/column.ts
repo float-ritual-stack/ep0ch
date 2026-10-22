@@ -1,3 +1,5 @@
+import { standsAsPerson } from "../surface/dispatch";
+import { NOBODY } from "../whereabouts";
 import { COLUMN_MOVE_KEYS } from "../surface/attached-keys";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { errorDetails } from "../status-log";
@@ -319,7 +321,7 @@ export class RiverColumn extends ReaderPane {
     const r = this.linkList()[j];
     if (!r) throw new ActionRefused(`no link row ${j + 1} in ${this.titleOf()}`);
     if (r.kind === "group" || r.kind === "kind") {
-      if (actor.kind === "agent") throw new ActionRefused(LINK_GROUPS_ARE_THE_PERSONS);
+      if (!standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile")) throw new ActionRefused(LINK_GROUPS_ARE_THE_PERSONS);
       if (r.kind === "group") { if (this.linkShut.has(r.group)) this.linkShut.delete(r.group); else this.linkShut.add(r.group); }
       desk.redraw();
       return { group: r.kind === "group" ? r.group : r.group.kind };
@@ -495,14 +497,14 @@ export class RiverColumn extends ReaderPane {
     const h = super.host(desk), redraw = h.redraw;
     h.redraw = () => { this.gen++; redraw(); };
     // `b` (the note action links): this column's own links, under its replies, rather than a links tile beside it.
-    h.links = async actor => {
-      if (actor.kind === "agent") throw new ActionRefused("showing or hiding a column's links changes what the person reads · peek reads them (noteLinks)");
+    h.links = async (actor, standing) => {
+      if (!standing) throw new ActionRefused("showing or hiding a column's links changes what the person reads · peek reads them (noteLinks)");
       return this.toggleLinks(undefined, desk);
     };
     // Back and forward are the flow's (its trail): the surface's own history keys and actions go there.
     h.history = {
       peek: dir => desk.travelPeek?.(this, dir) ?? null,
-      go: dir => { void desk.perform?.("tile.travel", { dir: dir < 0 ? "back" : "forward" }, USER, this); return null; },
+      go: async (dir, actor) => { await desk.perform?.("tile.travel", { dir: dir < 0 ? "back" : "forward" }, actor, this); return null; },
       agentRefusal: "back and forward in the river move the person's keys between columns; an agent opens beside (open, link.follow) instead",
     };
     return h;
@@ -760,7 +762,7 @@ export class RiverColumn extends ReaderPane {
   // ── what the column's actions do ──
 
   /** `column.select`: a card by id, the nth row, or rows from the selected one, as j k and a click do. */
-  pick(to: { id?: string; n?: number; by?: number; scroll?: boolean }, desk: DeskApi, actor: Actor = USER): { selected: string; n: number } {
+  pick(to: { id?: string; n?: number; by?: number; scroll?: boolean }, desk: DeskApi, actor: Actor = USER, standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile")): { selected: string; n: number } {
     const rows = this.flat(), links = this.linkList(), total = rows.length + links.length, { id, n, by } = to;
     if (!total) throw new ActionRefused(`${this.titleOf()} lists nothing${this.filter.length ? " (it's filtered)" : ""}`);
     // Its cards, then its links' rows (j k walk on into them).
@@ -776,7 +778,7 @@ export class RiverColumn extends ReaderPane {
       if (!this.surface.editing) this.surface.clearLink();
       const r = links[i - rows.length]!;
       // The person's pick shows the row's note where the river's selection goes (a preview following it), read only.
-      if (actor.kind !== "agent" && desk.showFrom) void linkNote(r, desk.ctx.board, "show").then(({ note }) => { if (this.sel === i) desk.showFrom?.(this, note); }, () => {});
+      if (standing && desk.showFrom) void linkNote(r, desk.ctx.board, "show").then(({ note }) => { if (this.sel === i) desk.showFrom?.(this, note, actor); }, () => {});
       desk.redraw();
       return { selected: r.key, n: i + 1 };
     }
@@ -786,7 +788,7 @@ export class RiverColumn extends ReaderPane {
     if (!this.surface.editing) this.surface.clearLink();
     this.showSelected(desk);
     // The person's pick is the column's selection: a preview following the river shows it (desk.showFrom).
-    if (actor.kind !== "agent") desk.showFrom?.(this, rows[i]!.m);
+    if (standing) desk.showFrom?.(this, rows[i]!.m, actor);
     desk.redraw();
     return { selected: rows[i]!.m.id, n: i + 1 };
   }
@@ -875,7 +877,7 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
       { act: "column.select n=3 tile=library", does: "selects the third note the library lists" },
       { act: "column.select id=7d9a1f40 tile=card", does: "selects the note with that id in the card column" },
     ],
-    run: ({ id, n, by, scroll }, { pane, desk, tile }, actor) => ({ tile, ...columnOf(pane).pick({ id, n, by, scroll }, desk, actor) }),
+    run: ({ id, n, by, scroll }, { pane, desk, tile, standing }, actor) => ({ tile, ...columnOf(pane).pick({ id, n, by, scroll }, desk, actor, standing) }),
   }),
   "column.links": def({
     summary: "show or hide a river column's links under its replies: its note's Outlinks, Resources and Backlinks, the links tile's rows (on=true or false, default toggles). Their rows follow the cards in column.select's n",
@@ -955,13 +957,13 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
       { act: "column.tag key=project value=seed-swap tile=library", does: "opens a column of every note with project seed-swap beside the library" },
       { act: "column.tag key=type tile=card", does: "opens a column of notes sharing the selected note's type" },
     ],
-    async run({ key, value }, { pane, desk, tile }, actor) {
+    async run({ key, value }, { pane, desk, tile, standing }, actor) {
       const c = columnOf(pane), m = c.flat()[c.sel]?.m ?? c.noteOf();
       const v = value ?? prop(m, key);
       if (!v) throw new ActionRefused(`the selected note in ${tile} has no ${key}::; pass value=`);
       if (!desk.within) throw new ActionRefused("a column of the same property opens on a screen with tiles");
       const r = await desk.within("tile.open", { kind: "river.column", source: `tag:${key}=${v}`, where: "next" }, actor, pane) as { tile: string };
-      if (actor.kind !== "agent") await desk.within("tile.focus", {}, actor, desk.pane?.(r.tile));
+      if (standing) await desk.within("tile.focus", {}, actor, desk.pane?.(r.tile));
       return { tile: r.tile, from: tile, key, value: v };
     },
   }),
@@ -970,12 +972,12 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
     keys: "s",
     touches: "shape", replay: "safe", says: r => `stacked ${r.tile} under ${r.from}`,
     args: {},
-    async run(_, { pane, desk, tile }, actor) {
+    async run(_, { pane, desk, tile, standing }, actor) {
       const c = columnOf(pane), m = c.flat()[c.sel]?.m;
       if (!m) throw new ActionRefused(`nothing is selected in ${tile}`);
       if (!desk.within) throw new ActionRefused("a column splits on a screen with tiles");
       const r = await desk.within("tile.open", { kind: "river.column", source: `block:${m.id}`, where: "down" }, actor, pane) as { tile: string };
-      if (actor.kind !== "agent") await desk.within("tile.focus", {}, actor, desk.pane?.(r.tile));
+      if (standing) await desk.within("tile.focus", {}, actor, desk.pane?.(r.tile));
       return { tile: r.tile, from: tile, id: m.id };
     },
   }),

@@ -308,7 +308,14 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `ep0ch --showcase` (or `ep0ch try --showcase`, `scripts/try-it.sh --showcase`) opens it on its
   own seeded outline, whatever this folder names. `X` on the main menu (its key line; the menu art has twelve
   slots) opens the screen on the outline you're on: on one without the seed it says so and writes nothing.
-- **Groups:** `ep0ch act section name=groups` shows a source in group A wired to a detail in group B; Alt+L can retarget it across groups, outside them or into the drawer. Preview requests reuse targets inside groups. Group a reader's links and preview, then press `b` in the reader to reuse them. `^W a` carries a whole group through the drawer between screens, keeping its tabs, wires and drafts. In the drawer, `^W c` (`tile.collapse`) puts it away or shows the named tab; note buttons can run `host.toggle` or `tile.collapse tile=<group>`.
+Groups and mounted screens share tile addressing with the screen and drawer.
+With the keys on a group, alt and ^W operate on its focused tile, including
+wiring, folding and zooming. The group itself is available through its frame
+and menu. Number keys and Tab still navigate the holder unless you enter the
+mount. Shell shortcuts (including the drawer toggle and agent panel) keep
+their existing host-level meanings.
+
+- **Groups:** `ep0ch act section name=groups` shows a source in group A wired to a detail in group B; Alt+L can retarget it across groups, outside them or into the drawer. Preview requests reuse targets inside groups. Group a reader's links and preview, then press `b` in the reader to reuse them. The group frame or menu carries it through the drawer between screens, keeping its tabs, wires and drafts. Inside it, `^W a` carries the focused tile and `^W c` folds that tile; note buttons can run `host.toggle` or `tile.collapse tile=<group>`.
 - **Agents:** `ep0ch act section name=<n|key>` shows a section (by its key, or its number in the list) (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.

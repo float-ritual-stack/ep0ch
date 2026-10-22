@@ -8,6 +8,8 @@
 
 /** Where the person's keys are on one screen, as that screen says it (Screen.keys). Tiles by the name `tile=` uses. */
 export interface ScreenKeys {
+  /** Stable address of the tile under the keys, through mounted desks. */
+  address?: string | null;
   /** The tile that has their focus (the keys come back to it from the host layer), or null on a screen with no tiles. */
   focus: string | null;
   /** The tile they're typing in (an edit, a comment, a panel, a terminal, a filter), or null. */
@@ -86,6 +88,7 @@ export function whereabouts(o: {
   inHost: boolean;
   /** In the drawer, the tile they type in: its own (HOST_AGENT), else `drawer:<name>` (a tile in the drawer). */
   hostTile?: string | null;
+  hostAddress?: string | null;
   suspended: string | null;
   loggedOn: boolean;
   idle: number;
@@ -93,9 +96,9 @@ export function whereabouts(o: {
   const k = o.keys ?? { focus: null, typingIn: null, busy: false };
   const away = !o.loggedOn ? `the door is at the ${o.screen ?? "logon"}; the person hasn't logged on`
     : o.suspended ? `the person is in the door's ${o.suspended} (the door waits under it)` : null;
-  if (o.inHost) return { focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in the drawer${o.hostTile && o.hostTile !== HOST_AGENT ? ` (${o.hostTile.replace(/^drawer:/, "")})` : ""}`, keys: "host", screen: o.screen, idle: o.idle, away };
+  if (o.inHost) return { address: o.hostAddress, focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in the drawer${o.hostTile && o.hostTile !== HOST_AGENT ? ` (${o.hostTile.replace(/^drawer:/, "")})` : ""}`, keys: "host", screen: o.screen, idle: o.idle, away };
   const why = k.busy ? (k.why ?? `the person is typing on the ${o.screen ?? "screen"}`) : undefined;
-  return { focus: k.focus, typingIn: k.typingIn, busy: k.busy || !!o.suspended, ...(k.busy && k.navHold && !o.suspended ? { navHold: true as const } : {}), ...(why ? { why } : o.suspended ? { why: away! } : {}), keys: "screen", screen: o.screen, idle: o.idle, away };
+  return { address: k.address, focus: k.focus, typingIn: k.typingIn, busy: k.busy || !!o.suspended, ...(k.busy && k.navHold && !o.suspended ? { navHold: true as const } : {}), ...(why ? { why } : o.suspended ? { why: away! } : {}), keys: "screen", screen: o.screen, idle: o.idle, away };
 }
 
 /**

@@ -293,7 +293,7 @@ describe.skipIf(!outliner)("against a scratch outline: past a save, and back to 
     const pasted = await board.update(b.id, `Shed rota\nTuesdays: oil the hinges\n${doc}`, b.revision) as { revision: number };
     // In the door: the edit, revision.restore (the tile menu's row), and the earlier text is in, as one step.
     const r = await open(b.id);
-    const on = { surface: r.pane.surface, host: r.pane.host(r.d) };
+    const on = { surface: r.pane.surface, host: r.pane.host(r.d), standing: true };
     expect(await NOTE_ACTIONS.run("revision.restore", {}, on, USER)).toMatchObject({ revision: b.revision, current: pasted.revision });
     expect(r.draft().text).toBe("Shed rota\nTuesdays: oil the hinges");
     expect(r.draft().note).toContain(`revision ${b.revision} of ${pasted.revision}`);

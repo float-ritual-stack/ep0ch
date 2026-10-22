@@ -217,7 +217,7 @@ export class TunePane implements Pane {
     const target = this.aimAt(t, token);
     if (!target) throw new ActionRefused("choose a level this value can be written at");
     await this.view.edit(row.name, styleValueText(this.values(t).values[token]), choices, false, `tune:${target.target}:${row.name}`,
-      value => TUNE_ACTIONS.run("tune.set", { row: row.name, value }, { pane: this, desk }, { kind: "user" }), { redraw: () => desk.redraw(), said: text => desk.ctx.flash(text) });
+      value => TUNE_ACTIONS.run("tune.set", { row: row.name, value }, { pane: this, desk, standing: true }, { kind: "user" }), { redraw: () => desk.redraw(), said: text => desk.ctx.flash(text) });
     desk.redraw();
     return { editing: row.name };
   }
@@ -474,7 +474,7 @@ export class TunePane implements Pane {
 }
 
 /** A tune tile's actions: the row picked, a nudge, a value set outright, the level and width a nudge targets, save, the history, resets and revert. */
-export interface TuneOn { pane: TunePane; desk: DeskApi }
+export interface TuneOn { pane: TunePane; desk: DeskApi; standing: boolean }
 
 const says = (actor: Actor, did: string) => (actor.kind === "agent" ? `${agentLabel(actor)} ${did}` : did);
 const refuse = <T>(f: () => T): T => { try { return f(); } catch (e) { throw e instanceof ActionRefused ? e : new ActionRefused((e as Error).message); } };
@@ -627,13 +627,13 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       { act: "tune.nudge by=1 row=measure tile=tune", does: "widens the tuned tile's text measure by one step, in memory until saved" },
       { act: "tune.nudge by=-1 row=list.gap level=screen width=this tile=tune", does: "tightens the list gap for this screen's current width only" },
     ],
-    async run({ by, row, level, width, shadow }, { pane, desk }, actor) {
+    async run({ by, row, level, width, shadow }, { pane, desk, standing }, actor) {
       const r = row === undefined ? (pane.group ? undefined : TUNE_ROWS[pane.sel]) : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
       if (level !== undefined && !TUNE_LEVELS.includes(level as TuneLevel)) throw new ActionRefused(`level is ${TUNE_LEVELS.join(", ")}`);
       if (shadow !== undefined && !["anyway", "instead", "clear"].includes(shadow)) throw new ActionRefused("shadow is anyway, instead or clear");
       // The level and width it writes: the inspector's, or the ones asked for (an agent's never change the inspector's).
-      const person = actor.kind !== "agent";
+      const person = standing;
       let lv = (level ?? pane.level) as TuneLevel, sc: "all" | "this" = width === undefined ? pane.scope : width === "this" ? "this" : "all";
       if (person) { pane.level = lv; pane.scope = sc; }
       const tuning = tuningOf(desk.ctx.board);
@@ -643,7 +643,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       const sh = pane.shadowOf(t, last, lv, sc);
       if (sh && !shadow) {
         const choices = sh.can.map(c => (c === "anyway" ? `shadow=anyway (it shows only where nothing nearer sets it)` : c === "instead" ? `shadow=instead (${sh.instead})` : `shadow=clear (${sh.clear})`)).join(", ");
-        if (actor.kind === "agent") throw new ActionRefused(`${r.name}: ${sh.why}: ${choices}`);
+        if (!standing) throw new ActionRefused(`${r.name}: ${sh.why}: ${choices}`);
         pane.offer = { row: r.name, by: step, shadow: sh };
         desk.ctx.flash(`${r.name}: ${sh.why} · a: nudge ${lv === "auto" ? "it" : lv} anyway${sh.can.includes("instead") ? ` · o: ${sh.instead}` : ""}${sh.can.includes("clear") ? ` · c: ${sh.clear}` : ""}`);
         desk.redraw();
@@ -693,7 +693,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       { act: "tune.set row=measure value=72 tile=tune", does: "sets the text measure to 72 cells at the inspector's level, until saved" },
       { act: "tune.set row=list.zebra value=on level=global tile=tune", does: "turns zebra stripes on in every list, until saved" },
     ],
-    run({ row, value, level, width }, { pane, desk }, actor) {
+    run({ row, value, level, width }, { pane, desk, standing }, actor) {
       const r = rowNamed(row);
       if (!r || r.tokens.length !== 1) throw new ActionRefused(`row is one token: ${TUNE_ROWS.filter(x => x.tokens.length === 1).map(x => x.name).join(", ")}`);
       const tk = r.tokens[0]!;
@@ -718,7 +718,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     examples: [
       { act: "tune.unset row=measure tile=tune", does: "takes away what sets the measure here, so it falls back to what it inherits" },
     ],
-    async run({ row }, { pane, desk }, actor) {
+    async run({ row }, { pane, desk, standing }, actor) {
       const r = row === undefined ? (pane.group ? undefined : TUNE_ROWS[pane.sel]) : rowNamed(row);
       if (!r) throw new ActionRefused(`row is one of ${TUNE_ROWS.map(x => x.name).join(", ")}`);
       const t = fresh(pane, desk);
@@ -726,7 +726,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       const plan: (() => void)[] = [];
       for (const tk of r.tokens) plan.push(await takeAway(pane, desk, t, tk, pane.values(t).sources[tk], actor));
       for (const f of plan) f();
-      if (actor.kind !== "agent") pane.offer = null;
+      if (standing) pane.offer = null;
       desk.redraw();
       // What shows now, resolved again (the tile's look as drawn is the frame before this one).
       const now = pane.values(fresh(pane, desk)), last = r.tokens[r.tokens.length - 1]!;
@@ -779,7 +779,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       { act: "tune.save tile=tune", does: "writes the tuned tile's nudges to the style notes they belong to" },
       { act: "tune.save level=page tile=tune", does: "writes the page-level nudges onto the note the tile shows" },
     ],
-    async run({ level }, { pane, desk }, actor) {
+    async run({ level }, { pane, desk, standing }, actor) {
       const lv = (level ?? pane.level) as TuneLevel;
       if (!TUNE_LEVELS.includes(lv)) throw new ActionRefused(`level is ${TUNE_LEVELS.join(", ")}`);
       const t = pane.info(desk);
@@ -819,12 +819,12 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     keys: "u, a click on [undo]",
     touches: "nothing", replay: "ask", says: out => `· undo: ${out.words}`,
     args: {},
-    async run(_, { pane, desk }, actor) {
+    async run(_, { pane, desk, standing }, actor) {
       const tuning = tuningOf(desk.ctx.board), s = refuse(() => tuning.nextUndo(actor));
       if (!s) throw new ActionRefused("nothing to take back");
       if (s.kind === "write") await refuseAsync(() => rewrite(board(desk), tuning, s.writes, true, actor, desk.tileLooks));
       tuning.undone(s);
-      if (actor.kind !== "agent") { pane.offer = null; pane.armed = null; }
+      if (standing) { pane.offer = null; pane.armed = null; }
       desk.redraw();
       const words = stepSaid(actor, desk, `undo: ${stepWords(s, true)}`).slice(6);
       return { undone: s.kind === "nudge" ? s.field : s.what, ...(s.kind === "nudge" ? { at: targetWords(s.target) } : {}), words };
@@ -835,12 +835,12 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     keys: "U, ctrl+r, a click on [redo]",
     touches: "nothing", replay: "ask", says: out => `· redo: ${out.words}`,
     args: {},
-    async run(_, { pane, desk }, actor) {
+    async run(_, { pane, desk, standing }, actor) {
       const tuning = tuningOf(desk.ctx.board), s = refuse(() => tuning.nextRedo(actor));
       if (!s) throw new ActionRefused("nothing to redo");
       if (s.kind === "write") await refuseAsync(() => rewrite(board(desk), tuning, s.writes, false, actor, desk.tileLooks));
       tuning.redone(s);
-      if (actor.kind !== "agent") { pane.offer = null; pane.armed = null; }
+      if (standing) { pane.offer = null; pane.armed = null; }
       desk.redraw();
       const words = stepSaid(actor, desk, `redo: ${stepWords(s, false)}`).slice(6);
       return { redone: s.kind === "nudge" ? s.field : s.what, words };
@@ -854,7 +854,7 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     examples: [
       { act: "tune.resetlevel confirm=true tile=tune", does: "takes every value the picked level sets for this tile off its style notes" },
     ],
-    async run({ confirm }, { pane, desk }, actor) {
+    async run({ confirm }, { pane, desk, standing }, actor) {
       const t = pane.info(desk);
       if (!t) throw new ActionRefused(`tile ${pane.source} isn't on this screen`);
       if (pane.level === "auto") throw new ActionRefused("pick the level to reset first (v, or tune.level): global, tile, screen, page, instance (this tile) or list (this list or component)");
@@ -872,13 +872,13 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
       // Asked in place: the person's inspector arms (X again, or [confirm]); an agent is told to send confirm=true, and the
       // person's inspector is left as it was.
       if (!confirm) {
-        if (actor.kind === "agent") return { armed: true, words, confirm: "send confirm=true to do it" };
+        if (!standing) return { armed: true, words, confirm: "send confirm=true to do it" };
         pane.armed = { action: "tune.resetlevel", words, target }; pane.offer = null;
         desk.ctx.flash(`${words} · X again or [confirm] to do it`);
         desk.redraw();
         return { armed: true, words };
       }
-      if (actor.kind !== "agent") pane.armed = null;
+      if (standing) pane.armed = null;
       const before = tuning.snapshot(), writes: NoteWrite[] = [];
       try {
         await refuseAsync(async () => {
@@ -910,18 +910,18 @@ export const TUNE_ACTIONS = actionSet<TuneOn>()("tune", {
     examples: [
       { act: "tune.revert confirm=true tile=tune", does: "puts every style note this session wrote back as it was and lets nudges go" },
     ],
-    async run({ confirm }, { pane, desk }, actor) {
+    async run({ confirm }, { pane, desk, standing }, actor) {
       const tuning = tuningOf(desk.ctx.board), notes = tuning.baseline.size, nudges = tuning.unsavedCount();
       if (!notes && !nudges) throw new ActionRefused("nothing changed this session: no style note written, no nudge");
       const words = `revert all: ${nudges} unsaved nudge${nudges === 1 ? "" : "s"} let go, ${notes} saved style note${notes === 1 ? "" : "s"} put back`;
       if (!confirm) {
-        if (actor.kind === "agent") return { armed: true, words, confirm: "send confirm=true to do it", notes: [] as string[] };
+        if (!standing) return { armed: true, words, confirm: "send confirm=true to do it", notes: [] as string[] };
         pane.armed = { action: "tune.revert", words }; pane.offer = null;
         desk.ctx.flash(`${words} · R again or [confirm] to do it`);
         desk.redraw();
         return { armed: true, words, notes: [] as string[] };
       }
-      if (actor.kind !== "agent") pane.armed = null;
+      if (standing) pane.armed = null;
       const before = tuning.snapshot(), writes: NoteWrite[] = [];
       try { await refuseAsync(() => revertAll(board(desk), tuning, actor, writes, desk.tileLooks)); tuning.clear(); }
       finally { if (writes.length) tuning.record({ kind: "write", what: "revert of the session", writes, tuningBefore: before, tuningAfter: tuning.snapshot(), by: actor }); }

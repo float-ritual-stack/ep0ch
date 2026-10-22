@@ -296,7 +296,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect(e.d.text).toContain("Another entry");
     expect(e.d.text).toContain("Typing here. More words.");
     expect((await board.get(e.id))!.text).toBe(saved.text);
-    await NOTE_ACTIONS.run("draft.place", { line: e.d.lines.findIndex(l => l.includes("Another entry")) + 1, col: 5 }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("draft.place", { line: e.d.lines.findIndex(l => l.includes("Another entry")) + 1, col: 5 }, { surface: e.s, host: e.h, standing: true }, USER);
     expect(await append(`^${first.anchor}`)).toMatchObject({ outcome: "applied" });
     e.s.dispose();
   });
@@ -323,7 +323,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     expect((await board.get(e.id))!.text).toBe(saved.text);
     // His save carries both: one write, the block keeps its id, and note A's deep links still resolve.
     const a = await create(`Note A\nsee [[morning plan]] and ((${e.id}^deep-link))`);
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, { kind: "user" });
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     const after = (await board.get(e.id))!;
     expect(after.id).toBe(e.id);
     expect(after.text).toContain("The beans go along the fence. ^deep-link");
@@ -334,8 +334,8 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
 
   test("rich tables: streamed rows remain editable while the current cell stays put", async () => {
     const e = await editing("Seed plan\n| Crop | Count |\n| --- | --- |\n| Beans | 2 |\n\n@tidy add a table\n");
-    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
-    await NOTE_ACTIONS.run("rich.move", { direction: "down" }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
+    await NOTE_ACTIONS.run("rich.move", { direction: "down" }, { surface: e.s, host: e.h, standing: true }, USER);
     const position = { row: e.d.row, col: e.d.col };
     const read = await agent.readDraft(e.id);
     const graph = `::graph-table\n---\nheaders: [Crop, Count]\nrows:\n  - ["Peas", 'O''Brien']\n---\n::`;
@@ -351,44 +351,44 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     e.s.key({ kind: "paste", text: "Green | yellow" }, e.h);
     expect(e.d.text).toContain("| Green \\| yellowBeans |");
     const g = elementEdit(e.d).elements()[1]!;
-    await NOTE_ACTIONS.run("draft.place", { line: g.fields[1]![1]!.line + 1, col: g.fields[1]![1]!.end + 1 }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("draft.place", { line: g.fields[1]![1]!.line + 1, col: g.fields[1]![1]!.end + 1 }, { surface: e.s, host: e.h, standing: true }, USER);
     e.type("x");
     expect(elementEdit(e.d).current()?.field.value).toBe("O'Brienx");
-    await NOTE_ACTIONS.run("draft.place", { line: g.fields[1]![0]!.line + 1, col: g.fields[1]![0]!.start + 1 }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("draft.place", { line: g.fields[1]![0]!.line + 1, col: g.fields[1]![0]!.start + 1 }, { surface: e.s, host: e.h, standing: true }, USER);
     e.type('"');
     e.s.key({ kind: "backspace" }, e.h);
     expect(elementEdit(e.d).elements()).toHaveLength(2);
-    await NOTE_ACTIONS.run("rich.set", { value: "Radish" }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.set", { value: "Radish" }, { surface: e.s, host: e.h, standing: true }, USER);
     e.s.key({ kind: "home" }, e.h);
     e.s.key({ kind: "end", shift: true }, e.h);
     e.s.key({ kind: "delete" }, e.h);
     expect(elementEdit(e.d).current()?.field.value).toBe("");
-    await NOTE_ACTIONS.run("rich.set", { value: "Radish\nSpring" }, { surface: e.s, host: e.h }, USER);
-    await NOTE_ACTIONS.run("rich.change", { op: "column.add" }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.set", { value: "Radish\nSpring" }, { surface: e.s, host: e.h, standing: true }, USER);
+    await NOTE_ACTIONS.run("rich.change", { op: "column.add" }, { surface: e.s, host: e.h, standing: true }, USER);
     expect(elementEdit(e.d).elements()[1]!.fields[1]![0]!.value).toBe("Radish\nSpring");
-    await NOTE_ACTIONS.run("rich.set", { value: "one two three four five six" }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.set", { value: "one two three four five six" }, { surface: e.s, host: e.h, standing: true }, USER);
     const view = elementEdit(e.d);
     const drawn = view.render(26, 30, (text, width) => e.s.snippetDoc(text, width)).map(visible);
     const y = drawn.findIndex(line => line.includes("six"));
     expect(y).toBeGreaterThan(1);
     view.click(drawn[y]!.indexOf("six"), y, (action, args = {}) => {
-      void NOTE_ACTIONS.run(action as any, args as any, { surface: e.s, host: e.h }, USER);
+      void NOTE_ACTIONS.run(action as any, args as any, { surface: e.s, host: e.h, standing: true }, USER);
     });
     e.type("X");
     expect(view.current()?.field.value).toBe("one two three four five Xsix");
 
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
     expect((await board.get(e.id))!.text).toContain("Radish");
   });
 
   test("rich tables: reordered YAML keeps headers and the selected row aligned", async () => {
     const e = await editing('Inventory\n::graph-table\n---\nrows:\n  - ["Beans", "2"]\n  - ["Peas", "3"]\nheaders: ["Crop", "Count"]\n---\n::\n');
     const { elementEdit } = await import("../src/surface/element-editor");
-    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
     expect(elementEdit(e.d).current()?.field.value).toBe("Crop");
     e.s.key({ kind: "down" }, e.h);
     e.s.key({ kind: "alt", ch: "d" }, e.h);
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
     const saved = (await board.get(e.id))!.text;
     expect(saved).toContain('Peas');
     expect(saved).not.toContain("Beans");
@@ -397,32 +397,32 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
   test("rich tables: typing words at a cell's end stays in rich edit and saves", async () => {
     const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n| Beans | 2 |\n");
     const { elementEdit } = await import("../src/surface/element-editor");
-    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
     e.s.key({ kind: "down" }, e.h);
     e.s.key({ kind: "end" }, e.h);
     e.type(" green beans");
     expect(elementEdit(e.d).on).toBe(true);
     expect(elementEdit(e.d).current()?.field.value).toBe("Beans green beans");
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
     expect((await board.get(e.id))!.text).toContain("| Beans green beans | 2 |");
   });
 
   test("rich tables: backspace removes one literal apostrophe", async () => {
     const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n| O''Brien | 2 |\n");
     const { elementEdit } = await import("../src/surface/element-editor");
-    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
     e.s.key({ kind: "down" }, e.h);
     const field = elementEdit(e.d).current()!.field;
-    await NOTE_ACTIONS.run("draft.place", { line: field.line + 1, col: field.start + 4 }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("draft.place", { line: field.line + 1, col: field.start + 4 }, { surface: e.s, host: e.h, standing: true }, USER);
     e.s.key({ kind: "backspace" }, e.h);
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
     expect((await board.get(e.id))!.text).toContain("| O'Brien | 2 |");
   });
 
   test("rich tables: replacing an unquoted graph cell keeps it editable", async () => {
     const e = await editing('Inventory\n::graph-table\n---\nheaders: [Crop, Count]\nrows:\n  - [Beans, 2]\n---\n::\n');
     const { elementEdit } = await import("../src/surface/element-editor");
-    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
     e.s.key({ kind: "down" }, e.h);
     e.s.key({ kind: "home" }, e.h);
     e.s.key(ctrl("k"), e.h);
@@ -433,15 +433,15 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     e.type("Peas");
     expect(elementEdit(e.d).on).toBe(true);
     expect(elementEdit(e.d).current()?.field.value).toBe("Peas");
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
     expect((await board.get(e.id))!.text).toContain('["Peas", 2]');
   });
 
   test.each([false, true])("PIE-920: a patch above a rich table keeps its row still (raw first=%s)", async raw => {
     const e = await editing("Inventory\nBefore the table.\n\n| Crop | Count |\n| --- | --- |\n" + Array.from({length: 20}, (_, i) => `| Crop ${i} | ${i} |`).join("\n"));
     if (raw) e.s.render(60, 12, e.h);
-    await NOTE_ACTIONS.run("rich.toggle", {on: true}, {surface:e.s, host:e.h}, USER);
-    await NOTE_ACTIONS.run("draft.place", {line: e.d.lines.findIndex(l => l.includes("Crop 10")) + 1, col: 3}, {surface:e.s, host:e.h}, USER);
+    await NOTE_ACTIONS.run("rich.toggle", {on: true}, {surface:e.s, host:e.h, standing: true}, USER);
+    await NOTE_ACTIONS.run("draft.place", {line: e.d.lines.findIndex(l => l.includes("Crop 10")) + 1, col: 3}, {surface:e.s, host:e.h, standing: true}, USER);
     const rows = () => e.s.render(60, 12, e.h).lines.map(visible);
     const y = rows().findIndex(l => l.includes("Crop 10"));
     expect(y).toBeGreaterThan(1);
@@ -454,7 +454,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
   test("rich tables scroll beyond separators without returning to the first row (PIE-920)", async () => {
     const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n" + Array.from({ length: 20 }, (_, i) => `| Crop ${i} | ${i} |`).join("\n"));
     const { elementEdit } = await import("../src/surface/element-editor");
-    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
     const view = elementEdit(e.d);
     const draw = () => view.render(40, 8, (text, width) => e.s.snippetDoc(text, width)).map(visible).join("\n");
     draw();
@@ -465,17 +465,17 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
   test("rich tables: clicking an escaped pipe keeps the column whole while typing", async () => {
     const e = await editing("Inventory\n| Crop | Count |\n| --- | --- |\n| A\\|B | 2 |\n");
     const { elementEdit } = await import("../src/surface/element-editor");
-    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
     e.s.key({ kind: "down" }, e.h);
     const view = elementEdit(e.d);
     const lines = view.render(70, 20, (text, width) => e.s.snippetDoc(text, width)).map(visible);
     const y = lines.findIndex(line => line.includes("A\\|B"));
     expect(y).toBeGreaterThan(1);
     view.click(lines[y]!.indexOf("A\\|B") + 2, y, (action, args = {}) => {
-      void NOTE_ACTIONS.run(action as any, args as any, { surface: e.s, host: e.h }, USER);
+      void NOTE_ACTIONS.run(action as any, args as any, { surface: e.s, host: e.h, standing: true }, USER);
     });
     e.type("x");
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
     expect((await board.get(e.id))!.text).toContain("| Ax\\|B | 2 |");
   });
 
@@ -493,10 +493,10 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     ];
     for (const c of cases) {
       const e = await editing(prefix + rows + suffix);
-      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
       e.s.key({ kind: "down" }, e.h);
-      await NOTE_ACTIONS.run("rich.change", { op: c.op, to: c.to }, { surface: e.s, host: e.h }, USER);
-      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("rich.change", { op: c.op, to: c.to }, { surface: e.s, host: e.h, standing: true }, USER);
+      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
       expect((await board.get(e.id))!.text).toBe((c.header ? prefix.replace('[Crop, Count]', c.header) : prefix) + c.changed + suffix);
     }
   });
@@ -505,11 +505,11 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     const source = 'Inventory\n::graph-table\n---\nheaders: [Crop, Count]\nrows: [] # keep list comment\n# keep this too\n---\nrows: prose\n::\n';
     for (const empty of ["[]", "[ ]"]) {
       const e = await editing(source.replace("rows: []", `rows: ${empty}`));
-      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
-      await NOTE_ACTIONS.run("rich.change", { op: "row.add" }, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
+      await NOTE_ACTIONS.run("rich.change", { op: "row.add" }, { surface: e.s, host: e.h, standing: true }, USER);
       expect(e.d.text).toBe(source.replace("rows: [] # keep list comment\n", 'rows: # keep list comment\n  - ["",""]\n'));
-      await NOTE_ACTIONS.run("rich.change", { op: "row.remove" }, { surface: e.s, host: e.h }, USER);
-      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("rich.change", { op: "row.remove" }, { surface: e.s, host: e.h, standing: true }, USER);
+      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
       expect((await board.get(e.id))!.text).toBe(source);
     }
   });
@@ -517,21 +517,21 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
   test("rich tables: entering rich edit releases a raw selection outside the cell", async () => {
     const source = 'Inventory\nKeep this prose.\n| Crop | Count |\n| --- | --- |\n| Beans | 2 |\nAfter the table.\n';
     const e = await editing(source);
-    await NOTE_ACTIONS.run("draft.place", { line: 2, col: 1 }, { surface: e.s, host: e.h }, USER);
-    await NOTE_ACTIONS.run("draft.place", { line: 5, col: 3, extend: true }, { surface: e.s, host: e.h }, USER);
-    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("draft.place", { line: 2, col: 1 }, { surface: e.s, host: e.h, standing: true }, USER);
+    await NOTE_ACTIONS.run("draft.place", { line: 5, col: 3, extend: true }, { surface: e.s, host: e.h, standing: true }, USER);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
     e.s.key({ kind: "paste", text: "Green " }, e.h);
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
     expect((await board.get(e.id))!.text).toBe(source.replace('Beans', 'Green Beans'));
   });
 
   test("rich tables: cell edits preserve YAML comments and prose byte for byte", async () => {
     const source = 'Inventory\nBefore  the figure.\n::graph-table\n---\nheaders: [Crop, Count]\nrows:\n  - [Beans, 2] # keep this comment\n---\nrows: keep this sentence  \nheaders: [This, is, prose]\n::\nAfter  the figure.\n';
     const e = await editing(source);
-    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
     e.s.key({ kind: "down" }, e.h);
-    await NOTE_ACTIONS.run("rich.set", { value: "Peas" }, { surface: e.s, host: e.h }, USER);
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("rich.set", { value: "Peas" }, { surface: e.s, host: e.h, standing: true }, USER);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
     expect((await board.get(e.id))!.text).toBe(source.replace('[Beans, 2]', '["Peas", 2]'));
   });
 
@@ -555,9 +555,9 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     });
     try {
       const e = await editing("Garden label\n::seed-label\nBeans\n::");
-      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
       e.type("Runner ");
-      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
       expect((await board.get(e.id))!.text).toContain("::seed-label\nRunner Beans\n::");
     } finally { unregister(); }
   });
@@ -645,14 +645,14 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     await patchDemo(a.id);
     const said = (s: NoteSurface, h: SurfaceHost) => s.render(80, 20, h).lines.map(visible).join("\n");
     expect(a.s.agent?.did).toBe("edited text above your cursor");
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: a.s, host: a.h }, { kind: "user" });
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: a.s, host: a.h, standing: true }, { kind: "user" });
     expect(a.s.draft).toBeNull();
     expect(said(a.s, a.h)).not.toMatch(/an agent \((patch-demo|tidy)\)/);
     // Put aside (closed with its changes kept as unsent): said in the past, with no cursor in it.
     const b = await editing(`Bulbs\nplant   deep\n\n${tidyMark}\n`);
     await patchDemo(b.id);
     expect(b.s.agent?.did).toBe("edited text above your cursor");
-    NOTE_ACTIONS.run("edit.close", { discard: true }, { surface: b.s, host: b.h }, { kind: "user" });
+    NOTE_ACTIONS.run("edit.close", { discard: true }, { surface: b.s, host: b.h, standing: true }, { kind: "user" });
     const now = said(b.s, b.h);
     expect(now).toMatch(/an agent \((patch-demo|tidy)\) edited the draft you put aside/);   // patch-demo since pi-herdr-outliner PIE-510
     expect(now).not.toContain("your cursor");
@@ -674,7 +674,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
     // What the service's extension runtime sends as the tidy extension's patch (a client can't name ext:tidy).
     e.d.replace(e.d.text.replace("the  rake   and the hoe", "the rake and the hoe"), EXT_TIDY);
     const since = board.lastSequence ?? 0;
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, { kind: "user" });
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     expect((await board.get(e.id))!.text).toContain("the rake and the hoe");
     const changes = (await board.request<any>("changes.since", { sequence: since, limit: 50 })).changes as any[];
     expect(changes.find(c => c.blockId === e.id && c.kind === "edit")?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:tidy` });
@@ -701,7 +701,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     await until(() => e.d.text.includes("the pump and the tubes"), "the tidy in the draft");
     expect(e.d.text).toBe("Bike shed\nthe pump and the tubes\n\nstill to list:\nlights");
     expect(e.d.writers).toEqual([{ kind: "user" }, { kind: "agent", id: "ext:spacer" }]);
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, { kind: "user" });
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     expect((await board.get(e.id))!.text).toBe("Bike shed\nthe pump and the tubes\n\nstill to list:\nlights");
     const changes = (await board.request<any>("changes.since", { sequence: since, limit: 50 })).changes as any[];
     expect(changes.filter(c => c.blockId === e.id && c.kind === "edit").at(-1)?.actor).toMatchObject({ author: "user", actorId: `${ACTOR_ID}+ext:spacer` });
@@ -710,7 +710,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     await agent.actExtension("spacer", "tidy", { blockId: only.id }, { kind: "user" });
     await until(() => only.d.text.includes("the saw and the plane"), "the tidy in the second draft");
     expect(only.d.writers).toEqual([{ kind: "agent", id: "ext:spacer" }]);
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: only.s, host: only.h }, { kind: "user" });
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: only.s, host: only.h, standing: true }, { kind: "user" });
     expect((await board.get(only.id))!.text).toContain("Tool wall\nthe saw and the plane");
   }, 30_000);
 
@@ -733,7 +733,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     await until(() => e.d.text.includes("the vice and the clamps"), "@tidy's answer in the draft", 20_000);
     expect(e.d.writers.map(actorIdOf)).toContain("ext:tidy");
     expect((await board.get(e.id))!.text).toBe(saved);                    // nothing saved yet: it waits for the person
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, { kind: "user" });
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     expect((await board.get(e.id))!.text).toContain("the vice and the clamps\n@tidy");
   }, 40_000);
 
@@ -922,7 +922,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     if (rich) {
       e.s.key({ kind: "paste", text: "\n| Work |\n| --- |\n| Still writing |" }, e.h);
       e.d.place(e.d.lines.length - 1, 15);
-      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("rich.toggle", { on: true }, { surface: e.s, host: e.h, standing: true }, USER);
     } else e.type("Still writing");
     const frameRow = () => e.s.render(70, 18, e.h).lines.findIndex(l => visible(l).includes("Still writing"));
     const row = frameRow();
@@ -938,19 +938,19 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
     expect(frameRow()).toBe(row);
     expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
     const answerLine = e.d.answerFolds()[0]!.line + 1;
-    await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h, standing: true }, USER);
     expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).toContain("Sow the peas.");
-    await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h, standing: true }, USER);
     expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
     if (!rich) {
-      await NOTE_ACTIONS.run("draft.place", { line: answerLine - 1, col: 1 }, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("draft.place", { line: answerLine - 1, col: 1 }, { surface: e.s, host: e.h, standing: true }, USER);
       expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).toContain("Sow the peas.");
-      await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h }, USER);
+      await NOTE_ACTIONS.run("fold.toggle", { line: answerLine }, { surface: e.s, host: e.h, standing: true }, USER);
       expect(e.s.render(70, 18, e.h).lines.map(visible).join("\n")).not.toContain("Sow the peas.");
     }
     expect(e.d.writers.map(actorIdOf)).toContain("ext:gardener");
     expect((await board.get(e.id))!.text).toBe("Garden\n\n");
-    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h }, USER);
+    await NOTE_ACTIONS.run("edit.save", {}, { surface: e.s, host: e.h, standing: true }, USER);
     expect((await board.get(e.id))!.text).toContain("Sow the peas.");
   }, 20_000);
 
@@ -1007,7 +1007,7 @@ process.stdout.write(JSON.stringify({ ok: true, value: { message: "tidied", writ
 
   test("a closed draft lets go of its hold: the next patch goes to the saved note", async () => {
     const e = await editing("Compost\nturn  it   weekly");
-    NOTE_ACTIONS.run("edit.close", { discard: true }, { surface: e.s, host: e.h }, { kind: "user" });
+    NOTE_ACTIONS.run("edit.close", { discard: true }, { surface: e.s, host: e.h, standing: true }, { kind: "user" });
     await Bun.sleep(100);
     const m = (await board.get(e.id))!;
     const r = await agent.request("draft.patch", { blockId: e.id, revision: m.revision, patches: [span(m.text, "turn  it   weekly", "turn it weekly")], mutation: { author: "agent", actorId: "tidy" } });
