@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
+import { ReaderPane } from "../src/desk/panes";
 import { boardScreen } from "./board-view";
 import { openScreen } from "../src/desk/screen-specs";
 import { view as riverView } from "./river-view";
@@ -368,9 +369,9 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
 
   /** The card in a detail, its link drawn by title; the detail and its frame. */
   const openCard = async () => {
-    await act("open", { id: card.id }, "detail");
-    const d = B().details.find((x: any) => x.msg?.id === card.id);
-    await until(() => !!d && !d.msg.partial && plain(frame().join("\n")).includes(LINE()), "the card drawn with its link's title");
+    const opened = await act("open", { id: card.id }, "detail");
+    const d = b.pane(opened.reader) as ReaderPane;
+    await until(() => !!d && !d.msg?.partial && plain(frame().join("\n")).includes(LINE()), "the card drawn with its link's title");
     const region = `detail${B().details.indexOf(d)}`;
     BV.at(b, region);
     d.surface.clearSelections();                                    // each test starts with nothing selected
@@ -390,7 +391,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     expect(writes.join("")).toContain(`\x1b]52;c;${Buffer.from(LINE()).toString("base64")}\x07`);
     expect(message()).toBe(`copied ${LINE().length} chars`);
     expect((app as any).toast.text).toBe(`copied to clipboard · ${LINE().length} chars`);
-    expect(d.surface.describe().selection.text).toBe(LINE());
+    expect(d.surface.describe().selection?.text).toBe(LINE());
     key(char("y"));
     expect(copied()).toEqual([LINE(), LINE()]);
     key({ kind: "esc" });
@@ -414,8 +415,8 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     writes.length = 0;
     drag({ x: l.x + 2, y: l.y }, { x: l.x + 6, y: l.y });
     await Bun.sleep(200);
-    expect(d.msg.id).toBe(card.id);
-    expect(d.surface.describe().selection.text).toBe("ake t");
+    expect(d.msg?.id).toBe(card.id);
+    expect(d.surface.describe().selection?.text).toBe("ake t");
     expect(copied()).toEqual(["ake t"]);
     click({ x: l.x + 2, y: l.y });
     await until(() => d.msg?.id === beans.id, "the link to open on a click");
@@ -466,20 +467,20 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     click(where(frame(), "Sow peas", r));
     key(char("y"));
     expect(copied()).toEqual([]);
-    expect(d.surface.describe().agentSelection.text).toBe("Water the seedlings");
+    expect(d.surface.describe().agentSelection?.text).toBe("Water the seedlings");
   });
 
   test("in an edit, a drag is the draft's selection and is copied when the button comes up (PIE-621); cmd+c copies it too", async () => {
     const { d, r } = await openCard();
     key(char("e"));
     await until(() => !!d.surface.editing && !!d.surface.draft, "the edit");
-    const draft = d.surface.draft;
+    const draft = d.surface.draft!;
     writes.length = 0;
     const w = where(frame(), "Water the", r);
     drag(w, { x: w.x + 8, y: w.y });
     expect(draft.selectedText()).toBeTruthy();                       // the mouse selected in the draft
     await until(() => copied().length > 0, "the drag's copy");
-    expect(copied()).toEqual([draft.selectedText()]);                // and copied it, as a reader's drag does
+    expect(copied()).toEqual([draft.selectedText()!]);                // and copied it, as a reader's drag does
     writes.length = 0;
     draft.place(1, 0); draft.place(1, 8, true);                     // as a drag in the draft leaves it
     key(CMD_C);
@@ -498,9 +499,9 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     const { d, r } = await openCard();
     const w = where(frame(), "seedlings", r);
     click({ x: w.x + 3, y: w.y }); click({ x: w.x + 3, y: w.y });
-    expect(d.surface.describe().selection.text).toBe("seedlings");
+    expect(d.surface.describe().selection?.text).toBe("seedlings");
     click({ x: w.x + 3, y: w.y });
-    expect(d.surface.describe().selection.text).toBe("Water the seedlings every morning.");
+    expect(d.surface.describe().selection?.text).toBe("Water the seedlings every morning.");
   });
 
   test("the keyboard mode: v, then j and End, then y", async () => {
@@ -520,7 +521,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     drag(w, { x: w.x + "seedlings every".length - 1, y: w.y });
     key(char("C"));
     await until(() => !!d.surface.session, "the comment session");
-    expect(d.surface.session.passage.quote).toBe("seedlings every");
+    expect(d.surface.session?.passage?.quote).toBe("seedlings every");
     expect(d.surface.describe().selection).toBeNull();
     d.surface.closeSession();
   });
@@ -534,7 +535,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     expect(await act("select.copy", { source: true }, "detail")).toMatchObject({ text: LINE().replace("Stake the beans", `((${beans.id}))`), clipboard: false });
     expect(copied()).toEqual([]);
     expect(message()).toStartWith("an agent (test-agent-419) · copied");
-    expect(d.surface.describe().selection.text).toBe("Water");
+    expect(d.surface.describe().selection?.text).toBe("Water");
     expect(plain(frame().join("\n"))).toContain("an agent (test-agent-419) copied");
   });
 
@@ -556,7 +557,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     await until(() => plain(frame().join("\n")).includes("Water the seedlings"), "the float drawn");
     const w = where(frame(), "Water", fr());
     drag(w, { x: w.x + 4, y: w.y });
-    expect(f().surface.describe().selection.text).toBe("Water");
+    expect(f().surface.describe().selection?.text).toBe("Water");
     key(char("x"));
   });
 
@@ -574,7 +575,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
       writes.length = 0;
       drag(a, { x: a.x + 8, y: a.y });
       expect(copied()).toEqual(["Water the"]);                       // copy on select
-      expect(reader()[1].surface.describe().selection.text).toBe("Water the");
+      expect(reader()[1].surface.describe().selection?.text).toBe("Water the");
       key(char("y"));
       expect(copied()).toEqual(["Water the", "Water the"]);
     } finally { app.pop(); }

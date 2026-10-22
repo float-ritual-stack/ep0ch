@@ -200,8 +200,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await whole(p0);
     key({ kind: "esc" }); key(char("j")); key({ kind: "alt-enter" });
     const p1 = B().details[1] as ReaderPane;
-    key({ kind: "backtab" });
-    expect(BV.where(b)).toBe("detail0");
+    await mine("tile.focus", {}, nm(p0));
     key(char("i"));
     expect(p0.surface.panel).not.toBeNull();
     await act("open", { id: cards.gate.id });

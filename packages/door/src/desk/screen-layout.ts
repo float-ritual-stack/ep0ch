@@ -165,7 +165,8 @@ export interface Ctx<I = number> {
   /** Names held by tiles in the other layer. */
   otherNames?: readonly string[];
   beside?: ReadonlyMap<I, I>;
-  opened?: ReadonlyMap<string, { ids: number[]; active: I | null }>;
+  outward?: string;
+  opened?: ReadonlyMap<string, { ids: I[]; active: I | null }>;
 }
 
 /** Where a new or moved tile goes. A drag's places, plus: into a named line (`in`), the next column of a flow, a float. */
@@ -466,19 +467,21 @@ export interface PlacementRequest<I = number> {
   keys?: false;
 }
 export type NotePlacement<I = number> = {
-  destination: { kind: "swap"; tile: I } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule } | { kind: "none"; reason: string };
+  destination: { kind: "swap"; tile: I } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true } | { kind: "none"; reason: string };
   keep?: { tile: I; at: At<I> };
   current: boolean;
   route: ReturnType<typeof landing<I>>;
   keys?: I;
   nextFrom?: I;
   giveNewKeys: boolean;
+  follow?: true;
 };
 
 /**
  * The one place that decides where an open lands. An explicit destination wins; otherwise the wire, nearest
  * container, home and flow rule are read in that order. An unlinked reader takes its own open. A busy reader
  * keeps its edit and gets a reader beside it. A held note is kept as a spine toward the invoking tile.
+ * Floats, tabs and docks swap with reader history only: a spine cannot sit beside their destination.
  * Only the person's standing moves the current note or keys; an invitation is already resolved by the dispatcher.
  */
 export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across">, request: PlacementRequest<I>, ctx: Ctx<I>): NotePlacement<I> {
@@ -496,10 +499,10 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   if (request.container) route = { into: request.container };
   if (request.default && (!route || ctx.tile(from).notes)) {
     const readers = leaves(s.tree).filter(id => { const f = ctx.tile(id); return f.notes && !f.follower && !f.editing && !f.holds && !f.pinned && f.available !== false; });
-    const target = ctx.standing && readers.includes(from) ? from : readers.find(id => ctx.tile(id).following) ?? readers[0];
+    const target = readers.find(id => ctx.tile(id).following) ?? readers[0];
     if (target !== undefined) route = { to: target };
   }
-  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: ctx.standing && request.keys !== false && !ctx.person.busy };
+  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: ctx.standing && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
   if (request.at) { result.destination = { kind: "new", at: request.at }; return result; }
   if (route && "across" in route) result.destination = { kind: "across", target: route.across, rule: route.rule };
   else if (route && "into" in route) {
@@ -516,9 +519,9 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       return result;
     }
     const active = ctx.opened?.get(route.into)?.active;
-    const target = active !== null && active !== undefined && leaves(container).includes(active) ? active : leaves(container).find(id => ctx.tile(id).notes && !ctx.tile(id).follower);
+    const target = ctx.tile(from).notes && !ctx.tile(from).follower && (leaves(container).includes(from) || !!ctx.opened?.get(route.into)?.ids.includes(from)) ? from : active !== null && active !== undefined && leaves(container).includes(active) ? active : leaves(container).find(id => ctx.tile(id).notes && !ctx.tile(id).follower);
     if (target !== undefined && !ctx.tile(target).editing && !ctx.tile(target).holds && ctx.tile(target).available !== false)
-      return { ...placement(s, { ...request, container: undefined, default: false, to: target, keep: fresh }, ctx), route };
+      return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, container: undefined, default: false, to: target, keep: fresh }, ctx), route };
     result.destination = { kind: "new", at: { kind: "in", key: route.into } };
   }
   else if (route && "next" in route) {
@@ -531,23 +534,27 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
   else if (route && "tab" in route) result.destination = { kind: "new", at: { kind: "tabs", target: route.tab } };
   else if (route && "beside" in route) {
     if (fresh && ctx.tile(route.beside).notes && !ctx.tile(route.beside).editing && !ctx.tile(route.beside).holds)
-      return { ...placement(s, { ...request, default: false, rule: undefined, to: route.beside, keep: true }, ctx), route };
+      return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, rule: undefined, to: route.beside, keep: true }, ctx), route };
     result.destination = { kind: "new", at: { kind: "split", target: route.beside, dir: "right" } };
+    if (!fresh) { result.follow = true; result.giveNewKeys = false; }
   }
   else {
     const target = route && "to" in route ? route.to : ctx.tile(from).notes ? from : undefined;
-    if (target === undefined) return result;
+    if (target === undefined) {
+      if (ctx.outward) result.destination = { kind: "across", target: ctx.outward, rule: "tile", source: true };
+      return result;
+    }
     const facts = ctx.tile(target);
     if (facts.editing || facts.holds) {
       const beside = fresh ? undefined : ctx.beside?.get(target);
       if (beside !== undefined && s.names.has(beside) && !ctx.tile(beside).editing && !ctx.tile(beside).holds && ctx.tile(beside).available !== false)
-        return { ...placement(s, { ...request, default: false, to: beside }, ctx), route };
+        return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: beside }, ctx), route };
       result.destination = { kind: "new", at: { kind: "split", target, dir: "right" } };
     }
     else {
       result.destination = { kind: "swap", tile: target };
-      if (ctx.standing && request.keys !== false && !ctx.person.busy) result.keys = target;
-      if ((facts.held || request.keep) && facts.showing && facts.showing !== note) {
+      if (result.giveNewKeys) result.keys = target;
+      if ((facts.held || request.keep) && facts.showing && facts.showing !== note && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
         const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
         result.keep = { tile: target, at: { kind: "split", target, dir: before ? "left" : "right" } };
       }

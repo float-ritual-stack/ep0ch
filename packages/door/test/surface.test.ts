@@ -403,8 +403,8 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   });
 
   test("an agent never replaces the person's draft: edit.text is refused in their edit, which stays theirs (round 3, C2)", async () => {
-    await act("open", { id: cards.mine.id }, "detail");
-    const pane = B().details[B().active] as ReaderPane, reader = `detail${B().active + 1}`;
+    const { reader } = await act("open", { id: cards.mine.id }, "detail") as { reader: string };
+    const pane = b.pane(reader) as ReaderPane;
     await until(() => pane.msg?.id === cards.mine.id && !pane.msg?.partial, "the note");
     await mine("tile.focus", {}, reader);
     key(char("e"));
@@ -428,8 +428,8 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   /** Open a fresh note in a detail and give that detail the keys, as a person would have it. */
   const openFresh = async (text: string) => {
     const m = await create(null, text);
-    await act("open", { id: m.id }, "detail");
-    const pane = B().details[B().active] as ReaderPane, reader = `detail${B().active + 1}`;
+    const { reader } = await act("open", { id: m.id }, "detail") as { reader: string };
+    const pane = b.pane(reader) as ReaderPane;
     await until(() => pane.msg?.id === m.id && !pane.msg?.partial, "the note");
     await mine("tile.focus", {}, reader);
     return { id: m.id as string, pane, reader };
@@ -520,11 +520,11 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
 
     // A comment the agent wrote and the person sent is the agent's; one they both wrote names both.
     const commentOn = async (id: string, quote: string, body: string, more = "") => {
-      await act("open", { id }, "detail");
-      await act("passage.select", { quote }, id);
-      await act("comment.write", { body }, id);
-      await mine("tile.focus", {}, id);
-      const pane = B().details.find((p: ReaderPane) => p.msg?.id === id) as ReaderPane;
+      const { reader } = await act("open", { id }, "detail") as { reader: string };
+      await act("passage.select", { quote }, reader);
+      await act("comment.write", { body }, reader);
+      await mine("tile.focus", {}, reader);
+      const pane = b.pane(reader) as ReaderPane;
       key(char("e"));                                                          // enter the agent's comment
       key({ kind: "end" }); type(more); key(ctrl("s"));
       await until(() => pane.session?.mode === "threads" && !pane.session.busy, "the comment sent");
@@ -538,8 +538,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   });
 
   test("comment, reply, resolve: the same session the keys drive, authored by the agent", async () => {
-    await act("open", { id: cards.beans.id }, "detail");
-    const reader = `detail${B().active + 1}`;
+    const { reader } = await act("open", { id: cards.beans.id }, "detail") as { reader: string };
     await expect(act("passage.select", { quote: "Tie them tightly" }, reader)).rejects.toThrow("isn't in the note's current text");
     const pane = B().details[B().active] as ReaderPane;
     expect(pane.session?.mode).toBe("select");                                   // the person sees what the agent tried
@@ -585,7 +584,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await expect(act("card.move", { lane: "Doing", card: cards.squash.id })).rejects.toThrow("already in Doing");
     await expect(act("card.move", { lane: "Compost" })).rejects.toThrow("no lane Compost");
     await expect(act("card.fly", {})).rejects.toThrow("nothing here answers to card.fly; `actions` lists them");
-    await expect(act("edit.save", {}, "detail9")).rejects.toThrow("no tile detail9");
+    await expect(act("edit.save", {}, "absent-reader")).rejects.toThrow("no tile absent-reader");
   });
 
   test("an agent's card.select and card.move leave the person's keys where they are", async () => {

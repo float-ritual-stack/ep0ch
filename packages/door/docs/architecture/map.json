@@ -470,7 +470,7 @@
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 60, "m": "export interface LayoutState" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 168, "m": "export type Op<" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 284, "m": "export function init" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 408, "m": "export function landing" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 408, "m": "export function placement" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 141, "m": "export type LNode" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 127, "m": "export type Dock" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 119, "m": "export type Columns" },
@@ -993,7 +993,7 @@
       "does": "A tile's link (a reader beside its tree) may end on a tile of another desk of the family: inside a group, outside it, in the holder or the drawer (PIE-696). The link is drawn and followed the same; moving a tile in or out of a group keeps it.",
       "built": "The layout tree holds links only between its own tiles, so a link whose far end is elsewhere is kept on the desk as ext, by the tile it starts from, naming the far tile by pane or path (`<group>/<tile>`, `../<tile>`); extTarget finds it, relink turns it back into the layout's own when both ends meet on one desk.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1073, "m": "private readonly ext = new Map" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1073, "m": "private get ext()" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1211, "m": "extTarget(id: number," },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1099, "m": "pathTo(pane: Pane)" }
       ]

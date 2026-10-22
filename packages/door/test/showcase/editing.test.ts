@@ -216,7 +216,7 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     // The preview's link: a click on it opens in the same detail, not one more.
     press({ kind: "char", ch: "p", ctrl: true });
     const rows = sc.render(app).lines.map(plain), rule = rows.findIndex(l => l.includes("( preview )"));
-    const y = rows.findIndex((l, i) => i > rule && l.includes(`open: ${SEED.shed}.`)), x = rows[y]!.indexOf(`open: ${SEED.shed}.`) + 8;
+    const y = rows.findIndex((l, i) => i > rule && l.includes("stays open: Bike")), x = rows[y]!.indexOf("stays open: Bike") + 13;
     expect(y).toBeGreaterThan(rule);
     // The detail beside moved on to another note meanwhile: the click brings the shed back into it.
     const beside = shed(), nb = (await board.get(seeded.notes.notebook.id))!;
@@ -236,6 +236,7 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     const desk = () => S().stages.get(4).top;
     ch("e"); press({ kind: "enter" });
     await until(() => !!desk().describe().panes[0].editing, "the whiteboard in an edit", 5000);
+    await desk().dispatch.act({ action: "tile.zoom" }, { kind: "user" });
     const d = ([...desk().panes.values()].find((p: any) => p.editing) as any).surface.draft;
     const tap = (await board.get(seeded.notes.notebook.id))!.text.match(/!\(\(([0-9a-f-]{36})\^t-7a9c11\)\)/)![1]!;
     d.row = d.lines.length - 1; press({ kind: "end" });
@@ -256,6 +257,7 @@ describe.skipIf(!outliner)("the showcase screen: editing: keys, links, pictures,
     press({ kind: "char", ch: "z", ctrl: true });
     expect(d.lines.join("\n")).not.toContain(tap);
     press({ kind: "char", ch: "p", ctrl: true });
+    await desk().dispatch.act({ action: "tile.zoom" }, { kind: "user" });
     for (let i = 0; i < 4 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 20_000);
 

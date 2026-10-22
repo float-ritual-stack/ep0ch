@@ -195,14 +195,15 @@ describe.skipIf(!outliner)("the brief screen", () => {
     press({ kind: "tab" });
   });
 
-  test("an agent's open of a brief steps to it (refused, and said, while the person types); any other note opens beside", async () => {
+  test("an agent's open of a brief steps to it, or opens beside while the person types", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).toMatchObject({ id: notes.a.id, reader: "brief" });
     expect(brief().shown?.id).toBe(notes.a.id);
     expect(await app.act({ action: "brief.show", args: { id: notes.b.id }, as: "test-agent" })).toMatchObject({ id: notes.b.id, tile: "brief" });
     ch("e");
     await until(() => !!brief().draft, "the person's edit");
-    await expect(app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).rejects.toThrow(/the person is typing/);
+    await app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" });
+    expect(top().readerPanes().some(p => p.pane !== brief() && p.pane.msg?.id === notes.a.id)).toBe(true);
     expect(brief().shown?.id).toBe(notes.b.id);
     press({ kind: "esc" });                                                         // nothing typed: one esc closes it
     await until(() => !brief().draft, "the edit closed");

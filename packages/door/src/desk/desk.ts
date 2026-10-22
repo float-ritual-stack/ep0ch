@@ -604,7 +604,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (other && other !== pane) { tileIds.set(pane, `t-${crypto.randomUUID()}`); remapped.set(before, this.tileId(id)); this.restoredIds.set(before, this.tileId(id)); }
       used.set(this.tileId(id), new WeakRef(pane));
     }
-    for (const wires of this.ext.values()) for (const wire of wires) if (wire.path) wire.path = remapped.get(wire.path) ?? wire.path;
+    for (const [id, wires] of this.ext) for (const wire of wires) {
+      const target = wire.path && remapped.get(wire.path);
+      if (target) { this.cutExt(id, wire); this.addExt(id, { ...wire, pane: undefined, path: target }); }
+    }
     for (const [id, source] of this.selectSeeds) this.selectSeeds.set(id, remapped.get(source) ?? source);
     for (const pane of this.panes.values()) {
       const aimed = kindOf(pane)?.aim?.(pane);
@@ -658,7 +661,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const w = this.dispatch.where();
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     return {
-      beside: this.besides, opened: this.opened, otherNames: this.otherNames(),
+      beside: this.besides, opened: this.opened, outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileIds.get(this.holder.tile) : undefined, otherNames: this.otherNames(),
       actor, standing: this.dispatch.standing(actor, "shape"), protectTyping: actor.kind === "agent" && !INVITES.covers(actor.invitation, "shape", actor.run), area: this.area, tile: id => this.facts(id, actor),
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, { action: "layout.change" }), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
@@ -1072,7 +1075,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Links whose far end is on another desk of the family, by the tile they start from: the pane (once found) or its path. */
   private get ext(): Map<number, ExtLink[]> {
     const out = new Map<number, ExtLink[]>();
-    for (const w of this.layout.across) out.set(w.from, [...(out.get(w.from) ?? []), { path: w.to, pane: this.storedPane(w.to), verb: w.verb, rule: w.rule }]);
+    for (const w of this.layout.across) out.set(w.from, [...(out.get(w.from) ?? []), { path: w.to, pane: this.storedPane(w.to) ?? doorTileIds.get(this.ctx?.hostLayer ?? this.ctx)?.get(w.to)?.deref(), verb: w.verb, rule: w.rule }]);
     return out;
   }
   /** The outermost desk this one is mounted under. */
@@ -1410,7 +1413,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const d of this.relatives()) {
         const remapped = new Map(d.top().descend().flatMap(r => [...r.restoredIds]));
         for (const [before, after] of d.restoredIds) remapped.set(before, after);
-        for (const wires of d.ext.values()) for (const wire of wires) if (wire.path && !wire.pane) wire.path = remapped.get(wire.path) ?? wire.path;
+        for (const [id, wires] of d.ext) for (const wire of wires) {
+          const target = wire.path && remapped.get(wire.path);
+          if (target) { d.cutExt(id, wire); d.addExt(id, { ...wire, pane: undefined, path: target }); }
+        }
         for (const [id, source] of d.selectSeeds) d.selectSeeds.set(id, remapped.get(source) ?? source);
         for (const p of d.panes.values()) { const aim = kindOf(p)?.aim?.(p); if (aim?.source) aim.source = remapped.get(aim.source) ?? aim.source; }
       }
@@ -1816,7 +1822,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private landFrom(at: number, m: Msg, opts: OpenHow & { reveal?: boolean }, by: Actor): boolean {
-    return !!this.placeNote(m, { from: at, fresh: !!opts.fresh, note: m.id, keys: false }, by);
+    return !!this.placeNote(m, { from: at, fresh: !!opts.fresh, note: m.id }, by);
   }
 
   private placeNote(m: Msg, request: import("./screen-layout").PlacementRequest<number>, by: Actor): { desk: Desk; id: number } | null {
@@ -1825,9 +1831,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (dest.kind === "none") return null;
     if (dest.kind === "across") {
       const target = this.resolveTile(dest.target);
-      if (!target) throw new ActionRefused(`no tile ${dest.target} takes this open`);
+      if (!target) return null;
       const d = target.desk, id = d.idNamed(target.tile.id!)!;
-      return d.placeNote(m, { from: id, to: id, rule: dest.rule, fresh: request.fresh, note: m.id, keys: request.keys }, by);
+      return d.placeNote(m, { from: id, ...(dest.source ? { default: true } : { to: id, rule: dest.rule }), fresh: request.fresh, note: m.id, keys: false }, by);
     }
     if (dest.kind === "into") return null;
     const id = this.nextId;
@@ -1839,19 +1845,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const container = request.container ?? (dest.kind === "new" && dest.at.kind === "in" ? dest.at.key : plan.keep ? this.openedInto(plan.keep.tile) : undefined);
     const rec = container ? this.openedIn(container) : undefined;
     const number = rec ? rec.count + 1 : undefined;
-    const name = number !== undefined ? `detail${number}` : this.autoName("detail");
+    const name = number !== undefined ? this.autoName(`detail${number}`) : this.autoName(plan.follow ? "reader" : "detail");
     const r = this.ask({ op: "open", tile: id, name, kind: spec?.kind, placement: request }, by);
     if (!r.ok) throw new ActionRefused(r.refused);
     let made: ReaderPane | undefined;
     if (dest.kind === "new" || plan.keep) {
-      made = makeTile(spec ?? { kind: "reader", mode: "held", ...(number !== undefined ? { label: `detail ${number}` } : {}) }) as ReaderPane;
+      made = makeTile(spec ?? { kind: "reader", mode: plan.follow ? undefined : "held", ...(number !== undefined ? { label: `detail ${number}` } : {}) }) as ReaderPane;
       this.put(made);
     }
     this.commit(r);
     if (made) {
       if (rec) { rec.count = number!; rec.ids.push(id); }
       this.startTile(id);
-      made.hold(dest.kind === "new" ? m : prior!, this);
+      if (plan.follow) made.show(m, this); else made.hold(dest.kind === "new" ? m : prior!, this);
       if (dest.kind === "new" && this.facts(request.to ?? request.from).editing) this.besides.set(request.to ?? request.from, id);
     }
     const landed = dest.kind === "swap" ? dest.tile : id;
@@ -1866,10 +1872,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const rec = this.openedIn(dest.at.key);
       rec.active = id;
     }
-    if (plan.current) this.moveCurrent(m, { by, reveal: true }, by);
-    this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : undefined);
+    if (plan.current) this.moveCurrent(m, { by, reveal: true, from: this.panes.get(request.from), link: landed !== request.from }, by);
+    // A kind may redirect through setCurrent (the brief and pinned pages); report where its note actually went.
+    const shown = this.showing(pane)?.id === m.id ? landed : this.namedReaders().find(r => r.pane.msg?.id === m.id && !kindOf(r.pane)?.follower)?.id ?? landed;
+    this.arrived(shown, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : undefined);
     this.save(); this.redraw();
-    return { desk: this, id: landed };
+    return { desk: this, id: shown };
   }
 
   /** The current note moves to `m`: every reader that follows it shows it; the person's open reveals it in the outline. */
@@ -1877,7 +1885,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!this.dispatch.standing(by)) return;
     this.current = m;
     for (const p of this.panes.values()) {
-      if (this.keptFrom(p, by)) continue;
+      if (this.keptFrom(p, by) || opts.link && p === opts.from) continue;
       const was = this.showing(p)?.id;
       p.select?.(m, this);
       if (m && was !== m.id && this.showing(p)?.id === m.id) this.arrived(this.idOf(p)!, by, !opts.link && !opts.reveal);
@@ -2316,6 +2324,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(target === undefined && this.spec.lands ? { container: this.spec.lands } : { default: target === undefined }) }, by);
     if (!landed) throw new ActionRefused("no reader takes this open; tile.open kind=reader gives it a destination");
     this.redraw();
+    return landed;
   }
   /**
    * The reader an open naming no tile lands in (the drawer's what-changed list, `ep0ch open <id>`): a tile that cannot
@@ -2372,7 +2381,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const landed = d.placeNote(m, { from: source, fresh, note: m.id }, actor);
     if (!landed) return d.land(m, actor);
     this.redraw(); landed.desk.redraw();
-    return { reader: this.pathTo(landed.desk.panes.get(landed.id)!) ?? landed.desk.nameOf(landed.id), id: m.id };
+    return { reader: (landed.desk === this ? this : this.top()).pathTo(landed.desk.panes.get(landed.id)!) ?? landed.desk.nameOf(landed.id), id: m.id };
   }
 
   /**
@@ -2404,11 +2413,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** `openBlock(m)`, saying which reader shows it now. */
   private land(m: Msg, by: Actor): { reader: string | null; id: string } {
-    // A spec's landing refuses with its reason (thrown to the agent); otherwise the screen's own open.
-    this.landBlock(m, by);
-    // A reader that keeps what it's given (a detail) before one that follows (a preview showing it already).
-    const showing = this.namedReaders().filter(r => r.pane.msg?.id === m.id);
-    return { reader: (showing.find(r => !kindOf(r.pane)?.follower) ?? showing[0])?.name ?? null, id: m.id };
+    const landed = this.landBlock(m, by);
+    return { reader: this.pathTo(landed.desk.panes.get(landed.id)!) ?? landed.desk.nameOf(landed.id), id: m.id };
   }
 
   // ── actions: what the keys do, by name, for agents (`ep0ch act`), through one dispatcher (PIE-514) ──

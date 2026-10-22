@@ -203,7 +203,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
       const nine = showing("reader9");
       await goInList("hens");
       await until(() => showing("reader10") === id("hens"), "reader10 on hens");
-      expect(showing("reader9")).toBe(nine);
+      expect(showing("reader9")).toBe(id("hens"));
       await dact("tile.link", { to: "@chain/reader9" }, "what-changed");
       await goInList("beans");
       await until(() => showing("reader9") === id("beans"), "reader9 on beans");
@@ -227,8 +227,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
       expect(chain(drawerDesk(), "what-changed")).not.toContain("reader9 (elsewhere)");
       // The other screen has a reader9 of its own: the link is by the screen's name, so it is not that one.
       await goInList("beans");
-      await until(() => showing("reader9") === id("beans") || (other.pane("reader9") as ReaderPane).msg?.id === id("beans"), "an open somewhere");
-      expect((other.pane("reader9") as ReaderPane).msg?.id).toBe(id("beans"));
+      expect((other.pane("reader9") as ReaderPane).msg?.id).not.toBe(id("beans"));
       expect(showing("reader9")).toBe(id("gate"));
       app.pop();
       expect(chain(drawerDesk(), "what-changed")).toBe("");

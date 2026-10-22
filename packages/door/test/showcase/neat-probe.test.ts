@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
 import { BacklinksPane } from "../../src/desk/backlinks-pane";
+import { ReaderPane } from "../../src/desk/panes";
+import { registerTileKind, tileKind, unregisterTileKind } from "../../src/desk/tile-kinds";
 import { Desk } from "../../src/desk/desk";
 import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
@@ -78,6 +80,48 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     return { d, briefing, testing, done: () => { app.pop(); d.dispose(); } };
   };
   const shows = (d: Desk, name: string) => ((d as any).layoutGet().tiles.find((t: any) => t.name === name)?.showing?.id) as string | undefined;
+
+  test("placement: a kind refusal says why and one undo restores the layout", async () => {
+    class SeedReader extends ReaderPane { readonly kind = "seed-reader"; }
+    const reader = tileKind("reader")!;
+    registerTileKind({ ...reader, kind: "seed-reader", make: () => new SeedReader(true),
+      take: (p, m, d, by) => m.text.startsWith("Refused seed") ? "takes only accepted seeds" : reader.take!(p, m, d, by) });
+    const s = await twoReaders();
+    try {
+      await app.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "seed-reader", name: "seeds" } }, USER);
+      await app.dispatch.act({ action: "reader.mode", tile: "seeds", args: { mode: "held" } }, USER);
+      await app.dispatch.act({ action: "open", tile: "seeds", args: { id: s.testing.id } }, USER);
+      await app.dispatch.act({ action: "tile.focus", tile: "briefing" }, USER);
+      const before = s.d.layoutAll();
+      const note = await board.createBlock(null, "Refused seed\nKeep the desk as it was.");
+      await expect(app.dispatch.act({ action: "open", tile: "seeds", args: { id: note.id } }, USER)).rejects.toThrow("takes only accepted seeds");
+      await app.dispatch.act({ action: "layout.undo" }, USER);
+      const after = s.d.layoutAll();
+      expect(after.tree).toMatchObject({ ...before.tree, id: after.tree.id });
+      const contents = (layout: typeof before) => layout.tiles.map(({ id, showing, collapsed }) => ({ id, showing, collapsed }));
+      expect(contents(after)).toEqual(contents(before));
+    } finally { s.done(); unregisterTileKind("seed-reader"); }
+  });
+
+  for (const shape of ["float", "tabs", "dock"] as const) test(`placement: ${shape} swaps without a spine and back returns the replaced note`, async () => {
+    const s = await twoReaders();
+    try {
+      if (shape === "float") await app.dispatch.act({ action: "tile.float", tile: "other" }, USER);
+      else if (shape === "dock") await app.dispatch.act({ action: "tile.dock", tile: "other", args: { edge: "right" } }, USER);
+      else await app.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "reader", name: "tabmate", where: "tabs" } }, USER);
+      const floats = (s.d as any).layoutGet().floats;
+      const before = s.d.layoutAll();
+      const original = before.tiles.find(t => t.name === "other")!;
+      const note = await board.createBlock(null, "New seed order\nPlant in spring.");
+      await app.dispatch.act({ action: "open", tile: "other", args: { id: note.id } }, USER);
+      const after = s.d.layoutAll();
+      expect(after.tiles.map(t => t.id)).toEqual(before.tiles.map(t => t.id));
+      expect(after.tiles.find(t => t.id === original.id)?.showing?.id).toBe(note.id);
+      expect((s.d as any).layoutGet().floats).toEqual(floats);
+      await app.dispatch.act({ action: "back", tile: "other" }, USER);
+      await until(() => shows(s.d, "other") === s.testing.id, "back restores the replaced note");
+    } finally { s.done(); }
+  });
 
   for (const placement of ["screen", "group", "drawer"] as const) {
     const placed = async () => {
@@ -343,7 +387,8 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       expect(wire().wires).toContainEqual({ verb: "open", to: target });
       await app.dispatch.act({ action: "open", args: { from: source, id: s.briefing.id, fresh: true } }, USER);
       expect(s.d.layoutAll().tiles.find(t => t.id === target)?.showing?.id).toBe(s.briefing.id);
-      expect(app.drawer.desk!.layoutAll().tiles.some(t => t.collapsed && t.showing?.id === s.testing.id)).toBe(true);
+      await act("back", target);
+      expect(s.d.layoutAll().tiles.find(t => t.id === target)?.showing?.id).toBe(s.testing.id);
       await act("tile.title", target, { text: "Potting bench" });
       await act("tile.group", target, { name: "garden" });
       expect(s.d.layoutAll().tiles.find(t => t.id === target)?.name).toBe("other");

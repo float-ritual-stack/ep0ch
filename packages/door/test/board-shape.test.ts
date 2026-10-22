@@ -82,11 +82,9 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
     // The policy can be changed (it is the screen's, not code); then the preview can move out of the row.
     await act("layout.policy", { node: holder, draggable: true });
     await act("layout.move", { where: "edge-left" }, "preview");
-    // An agent's open is refused with the reason; the person's opens in the preview instead, and says why: nothing throws.
-    await expect(act("open", { id: card }, "new-detail")).rejects.toThrow(/readers row is gone/);
-    const r1: any = await act("open", { id: card }, "new-detail", null);
-    expect(r1).toMatchObject({ reader: "preview", id: card });
-    expect(r1.why).toMatch(/readers row is gone .*opening a detail/);
+    // A missing destination refuses the open for either actor without changing the preview.
+    await expect(act("open", { id: card }, "new-detail")).rejects.toThrow(/no readers/);
+    await expect(act("open", { id: card }, "new-detail", null)).rejects.toThrow(/no readers/);
     expect(BV.view(b).details).toHaveLength(0);
     // Reopened, the board is whole again: the saved layout without a readers row isn't taken back.
     await open(true);
