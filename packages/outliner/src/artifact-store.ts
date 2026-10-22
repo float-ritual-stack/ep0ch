@@ -314,8 +314,8 @@ export class ArtifactStore {
         const parsed = artifactReference(name);
         if (parsed && (parsed.version || existsSync(join(this.live, parsed.name))) && (name === request.name || !artifactKind(request.name))) return this.info(name);
         if (request.name.includes("/") || extname(request.name) || (workspace && existsSync(resolve(workspace, request.name)))) {
-          const before = ArtifactStore.pathReads.get(this.root) ?? this.pending;
-          const result = before.then(() => this.resolveFile(request.name, workspace ?? dirname(this.root)));
+          const result = Promise.all([ArtifactStore.pathReads.get(this.root), this.pending])
+            .then(() => this.resolveFile(request.name, workspace ?? dirname(this.root)));
           const settled = this.pending = result.then(() => {}, () => {});
           ArtifactStore.pathReads.set(this.root, settled);
           void settled.then(() => { if (ArtifactStore.pathReads.get(this.root) === settled) ArtifactStore.pathReads.delete(this.root); });

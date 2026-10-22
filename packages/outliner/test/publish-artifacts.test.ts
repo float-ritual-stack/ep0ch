@@ -749,3 +749,39 @@ test("unimported artifact paths still render and recompile after a file edit", a
   write(paths[0]!, "export default () => <p>Changed chart</p>");
   expect(await (await get(`/p/${note.id}/artifact/1`)).text()).toContain("Changed chart");
 }, COMPILE_TIMEOUT);
+
+
+test("closing a store after overlapping path reads still waits for its inbox pickup", async () => {
+  const root = mkdtempSync(join(tmpdir(), "outliner-artifact-overlap-"));
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const inbox = join(root, "inbox"); mkdirSync(inbox);
+  const old = { inbox: process.env.EP0CH_ARTIFACT_INBOX, settle: process.env.EP0CH_ARTIFACT_SETTLE_MS };
+  process.env.EP0CH_ARTIFACT_INBOX = inbox; process.env.EP0CH_ARTIFACT_SETTLE_MS = "1";
+  cleanups.push(() => {
+    for (const [key, value] of [["EP0CH_ARTIFACT_INBOX", old.inbox], ["EP0CH_ARTIFACT_SETTLE_MS", old.settle]]) {
+      if (value === undefined) delete process.env[key!]; else process.env[key!] = value;
+    }
+  });
+  const watched = new ArtifactStore(root), peer = new ArtifactStore(root);
+  const receipts = join(inbox, "receipts.log");
+  const waitFor = async (ready: () => boolean) => {
+    const end = Date.now() + 30_000;
+    while (!ready()) { if (Date.now() > end) throw new Error("Inbox pickup did not finish"); await Bun.sleep(1); }
+  };
+  watched.startWatcher();
+  writeFileSync(join(inbox, "many-lamps.jsx"), `export default () => <div>${"<span>Lamp</span>".repeat(40_000)}</div>`);
+  try {
+    await waitFor(() => readdirSync(watched.root).some(name => name.endsWith(".incoming")));
+    const a = join(root, "a.html"), b = join(root, "b.html");
+    writeFileSync(a, "A"); writeFileSync(b, "B");
+    const other = peer.request({ action: "artifacts.show", name: a }, root);
+    await watched.request({ action: "artifacts.show", name: b }, root);
+    await other;
+    await watched.close();
+    expect(existsSync(receipts)).toBe(true);
+    expect(readFileSync(join(watched.live, "many-lamps/index.html"), "utf8")).toContain("Lamp");
+  } finally {
+    await waitFor(() => existsSync(receipts) || existsSync(join(inbox, ".failed/many-lamps.jsx/reason.txt")));
+    await watched.close(); await peer.close();
+  }
+}, COMPILE_TIMEOUT);
