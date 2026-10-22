@@ -1152,13 +1152,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { tile: desk.tiles().find(t => t.id === desk.tileId(desk.idOf(pane)!))!, dispatch: desk.dispatch, desk };
   }
 
-  /** The address still has an owning layer when its last tile has been closed. */
-  focusedDesk(): Desk {
+  /** An empty drawer still owns capture; no tile on the screen leaves capture to its screen wrapper. */
+  focusedDesk(): Desk | undefined {
     const person = this.ctx?.person?.();
     const addressed = person?.address && this.resolveTile(person.address);
     if (addressed) return addressed.desk;
     const host = this.ctx?.hostLayer;
-    return host?.desks().find(d => host.isDrawer(d) === (person?.keys === "host")) ?? this;
+    return person?.keys === "host" ? host?.desks().find(d => host.isDrawer(d)) : undefined;
   }
 
   private reference(pane: Pane): string | undefined {
