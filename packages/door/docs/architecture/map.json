@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "c9ab2e8a", "outliner": "c9ab2e8a", "on": "2026-10-22" },
+  "verified": { "door": "004aff76", "outliner": "004aff76", "on": "2026-10-22" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -381,7 +381,7 @@
         { "r": "door", "p": "src/whereabouts.ts", "l": 85, "m": "export function whereabouts" },
         { "r": "door", "p": "src/app.ts", "l": 1139, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 607, "m": "export function draftRule" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2642, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2690, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
       "questions": [
         { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" }
@@ -407,7 +407,7 @@
         { "r": "door", "p": "src/app.ts", "l": 771, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 477, "m": "private asPerson(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 7186, "m": "export function refusalHint" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 7233, "m": "export function refusalHint" }
       ]
     },
     {
@@ -500,9 +500,9 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 158, "m": "export class Desk" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 699, "m": "private apply(" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 657, "m": "private layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2885, "m": "  run(name: string, args" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1419, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6205, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2933, "m": "  run(name: string, args" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1467, "m": "async fillColumns" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6252, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 116, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 398, "m": "\"tile.widen\": def({" }
       ],
@@ -556,7 +556,7 @@
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
         { "r": "door", "p": "src/app.ts", "l": 648, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1553, "m": "private static kept" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1601, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -618,7 +618,7 @@
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 193, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6473, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6520, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 927, "m": "private take(id: I, heir?" }
       ]
     },
@@ -994,7 +994,7 @@
       "built": "The layout tree holds links only between its own tiles, so a link whose far end is elsewhere is kept on the desk as ext, by the tile it starts from, naming the far tile by pane or path (`<group>/<tile>`, `../<tile>`); extTarget finds it, relink turns it back into the layout's own when both ends meet on one desk.",
       "refs": [
         { "r": "door", "p": "src/desk/desk.ts", "l": 1073, "m": "private readonly ext = new Map" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1169, "m": "extTarget(id: number," },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1211, "m": "extTarget(id: number," },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1099, "m": "pathTo(pane: Pane)" }
       ]
     },
