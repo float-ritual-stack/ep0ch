@@ -2300,7 +2300,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private landBlock(m: Msg, by: Actor) {
     const target = this.spec.lands === undefined ? undefined : this.specTile(this.spec.lands);
     const landed = this.placeNote(m, { from: this.focus, note: m.id, to: target,
-      ...(target === undefined && this.spec.lands ? { container: this.spec.lands } : { default: target === undefined }) }, by);
+      ...(target === undefined && this.spec.lands ? { container: this.spec.lands } : { default: true }) }, by);
     if (!landed) throw new ActionRefused("no reader takes this open; tile.open kind=reader gives it a destination");
     this.redraw();
     return landed;

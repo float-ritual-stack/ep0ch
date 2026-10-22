@@ -464,6 +464,7 @@ export interface PlacementRequest<I = number> {
   at?: At<I>;
   container?: string;
   newNote?: "tab" | "float";
+  /** An unnamed open, optionally aimed at the screen's default tile. */
   default?: boolean;
   keys?: false;
 }
@@ -501,7 +502,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     route = available !== undefined ? { to: available } : request.rule === "tab" ? { tab: to } : { beside: to };
   }
   if (request.container) route = { into: request.container };
-  if (request.default && (!route || ctx.tile(from).notes)) {
+  if (request.default && to === undefined && (!route || ctx.tile(from).notes)) {
     const readers = leaves(s.tree).filter(id => { const f = ctx.tile(id); return !s.collapsed.has(id) && f.notes && !f.follower && !f.editing && !f.holds && !f.pinned && f.available !== false; });
     const target = readers.find(id => ctx.tile(id).following) ?? readers[0];
     if (target !== undefined) route = { to: target };
@@ -572,7 +573,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     // Following a wire into a preview leaves the invoking reader's keys where they are.
     if (to === undefined && !fresh && facts.follower) result.giveNewKeys = false;
     if (facts.editing || facts.holds) {
-      if (to !== undefined && !ctx.standing) {
+      if (to !== undefined && !request.default && !ctx.standing) {
         result.destination = { kind: "none", reason: `${s.names.get(target)} holds an edit or a comment` };
         return result;
       }

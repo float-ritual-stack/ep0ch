@@ -281,7 +281,7 @@ export class RiverColumn extends ReaderPane {
     else {
       const id = this.source.id;
       // The column's surface gets the new text too; an open draft is only marked "changed elsewhere".
-      b.get(id).then(m => { this.root = m; if (m) this.surface.refresh(m); desk.redraw(); }, () => {});
+      b.get(id).then(m => { if (this.loads !== ask) return; this.root = m; if (m) this.surface.refresh(m); this.showSelected(desk); desk.redraw(); }, () => {});
       b.children(id).then(done, fail);
     }
   }
