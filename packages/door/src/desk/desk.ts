@@ -1789,7 +1789,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const unlink = { label: "unlink: its opens go by the screen's rule", run: () => this.run("tile.link", {}, name) };
     const to = this.placeFrom(id).route;
     if (to && "across" in to) {
-      const target = this.paneAtPath(to.across), name = target ? this.plainPath(this.pathTo(target)) : to.across;
+      const target = this.storedPane(to.across), name = target ? this.plainPath(this.pathTo(target)) : to.across;
       return { short: name, says: `${name} (its placement across the drawer or group)`, change, unlink };
     }
     if (to && "to" in to) {
@@ -4648,7 +4648,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const to = this.placeFrom(id, verb === "alt").route;
     if (to && "across" in to) {
-      const p = this.paneAtPath(to.across), target = p ? this.plainPath(this.pathTo(p)) : to.across;
+      const p = this.storedPane(to.across), target = p ? this.plainPath(this.pathTo(p)) : to.across;
       return to.rule === "beside" ? `beside ${target}` : to.rule === "tab" ? `tab of ${target}` : to.rule === "first-unheld" ? "first unheld reader" : target;
     }
     if (to && "to" in to) return this.nameOf(to.to);
@@ -4796,7 +4796,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Where each tile is right now, placed from the tree as it is (not as last painted: paints are coalesced, and
    * a key that follows a change within a frame must see the change).
    */
-  private rectsNow(): Map<number, Rect> { return rectsOf(this.layout, this.area, this.holds); }
+  private rectsNow(): Map<number, Rect> {
+    const rects = rectsOf(this.layout, this.area, this.holds);
+    for (const f of this.floats) if (rects.has(f.id)) rects.set(f.id, this.floatRect(f));
+    return rects;
+  }
 
   // ── policy (PIE-505): what each container allows; the screen-layout module checks it in every operation ──
 
