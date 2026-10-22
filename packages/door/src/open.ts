@@ -35,14 +35,14 @@ export const external = {
 /** The one place that decides whether an outside open belongs on this machine. */
 export function opensRemotely(): boolean {
   const client = servingSession()?.typingOn();
-  return (client ? client.hello.remote : !!(process.env.SSH_CONNECTION || process.env.SSH_TTY))
+  return (client ? client.hello.remote : !!(process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY))
     || (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY);
 }
 
 export async function openRemote(url: string, ctx: Ctx): Promise<boolean> {
   const session = servingSession(), client = session?.typingOn();
   const write = session && client ? (bytes: string) => session.write(bytes, client) : undefined;
-  const result = await openLinked(outlinesDir(), url);
+  const result = await openLinked(outlinesDir(), url, client ? client.hello.remoteAddress : (process.env.SSH_CONNECTION || process.env.SSH_CLIENT)?.split(" ")[0]);
   if (result.opened) {
     ctx.flash(`opened ${url} on ${result.machine}`);
     return true;

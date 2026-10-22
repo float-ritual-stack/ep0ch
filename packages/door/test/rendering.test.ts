@@ -152,10 +152,10 @@ describe("inline Markdown, by Detail's rules", () => {
 
 describe("Markdown links", () => {
   let runs: string[][] = [];
-  const run = external.run, display = process.env.DISPLAY, ssh = process.env.SSH_CONNECTION, tty = process.env.SSH_TTY;
-  beforeAll(() => { process.env.DISPLAY = ":fictional"; delete process.env.SSH_CONNECTION; delete process.env.SSH_TTY; external.run = cmd => { runs.push(cmd); }; });
+  const run = external.run, display = process.env.DISPLAY, ssh = process.env.SSH_CONNECTION, sshClient = process.env.SSH_CLIENT, tty = process.env.SSH_TTY;
+  beforeAll(() => { process.env.DISPLAY = ":fictional"; delete process.env.SSH_CONNECTION; delete process.env.SSH_CLIENT; delete process.env.SSH_TTY; external.run = cmd => { runs.push(cmd); }; });
   afterEach(() => { runs = []; });
-  afterAll(() => { external.run = run; if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display; if (ssh === undefined) delete process.env.SSH_CONNECTION; else process.env.SSH_CONNECTION = ssh; if (tty === undefined) delete process.env.SSH_TTY; else process.env.SSH_TTY = tty; });
+  afterAll(() => { external.run = run; if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display; if (ssh === undefined) delete process.env.SSH_CONNECTION; else process.env.SSH_CONNECTION = ssh; if (sshClient === undefined) delete process.env.SSH_CLIENT; else process.env.SSH_CLIENT = sshClient; if (tty === undefined) delete process.env.SSH_TTY; else process.env.SSH_TTY = tty; });
   const shed = note("Bike shed\nThree bikes.");
   const TEXT = "Allotment notes\nAsk [the society](https://example.org/allotments) or see [the shed](pi-outliner://page/Bike%20shed), not ![a photo](plot.png).";
 

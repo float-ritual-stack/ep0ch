@@ -125,7 +125,14 @@ before this verb was implemented cannot install itself over the link.
 A remote or headless door sends its web URL through the link server's private
 `.host/link-open.sock` (0600), then over the authenticated link as `open` with a
 request id. The Mac connector accepts only HTTP(S), runs `open <url>` and answers
-with the id and any error. The server answers the door after that receipt. Multiple connected machine links leave the destination ambiguous and use the terminal instead. A
+with the id and any error. The server answers the door after that receipt.
+
+The attaching terminal captures the source address from `SSH_CONNECTION` (or
+`SSH_CLIENT`). The connector reports its non-loopback interface addresses when
+it authenticates. Only a single compatible link whose addresses include that
+terminal's source receives the open. Unmatched or unknown sources, including
+addresses hidden by NAT or a jump host, use the terminal path. Multiple matching
+links also use the terminal instead of choosing a destination by connection order. A
 missing link, disconnect or unanswered request leaves the URL copied by OSC 52
 to the pressing terminal, with an OSC 8 link in its flash. A local Mac door keeps
 using `open` directly; agent follows only return the address.

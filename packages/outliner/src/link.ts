@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type Server as SocketServer } from "node:net";
+import { networkInterfaces } from "node:os";
 import { chmodSync, existsSync, readFileSync, readlinkSync, readdirSync, statSync, writeFileSync, renameSync, watch } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
@@ -17,9 +18,9 @@ export type OpenResult = { opened: true; machine: string } | { opened: false; er
 const openSocket = (outlines: string) => join(outlines, ".host/link-open.sock");
 
 /** Ask the link process on this host; a missing link leaves delivery to the terminal. */
-export async function openLinked(outlines: string, url: string): Promise<OpenResult> {
+export async function openLinked(outlines: string, url: string, remoteAddress: string | undefined): Promise<OpenResult> {
   try {
-    const response = await fetch("http://localhost/open", { unix: openSocket(outlines), method: "POST", body: JSON.stringify({ url }) });
+    const response = await fetch("http://localhost/open", { unix: openSocket(outlines), method: "POST", body: JSON.stringify({ url, remoteAddress }) });
     return await response.json() as OpenResult;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -39,7 +40,7 @@ function saveState(path: string, state: LinkState) {
 
 const proof = (key: string, machine: string, nonce: string, role: "client" | "server" = "client") => createHmac("sha256", key).update(`ep0ch-link-${role}\n${machine}\n${nonce}`).digest();
 const receiptKey = (result: LinkInstallResult) => createHash("sha256").update(JSON.stringify(result)).digest("hex");
-type Peer = { nonce: string; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
+type Peer = { nonce: string; addresses?: string[]; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
 export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void; onResult?: (machine: string, result: LinkInstallResult, deploy: LinkDeploy) => Promise<void> }) {
   let reporting = Promise.resolve();
   let openId = 0;
@@ -94,6 +95,7 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
             const key = Object.hasOwn(o.keys, auth.machine) ? o.keys[auth.machine] : undefined;
             if (!key || !timingSafeEqual(proof(key, auth.machine, p.nonce), Buffer.from(auth.proof, "hex"))) throw new Error("unknown machine or wrong key");
             if (peers.has(auth.machine)) throw new Error("machine already linked");
+            p.addresses = auth.addresses;
             p.machine = auth.machine;
             peers.set(auth.machine, ws);
             const paths = forwardPaths(o.outlines, auth.machine);
@@ -155,8 +157,8 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
   const socket = openSocket(o.outlines);
   io.remove(socket);
   const opener = Bun.serve({ unix: socket, async fetch(req) {
-    const { url } = await req.json() as { url: string };
-    const [ws, ...others] = [...peers.values()].filter(ws => ws.data.authenticated && ws.data.streams && !ws.data.closed);
+    const { url, remoteAddress } = await req.json() as { url: string; remoteAddress?: string };
+    const [ws, ...others] = [...peers.values()].filter(ws => ws.data.authenticated && ws.data.streams && !ws.data.closed && remoteAddress && ws.data.addresses?.includes(remoteAddress));
     if (!ws) return Response.json({ opened: false });
     if (others.length) return Response.json({ opened: false, error: "multiple machine links are up; click the copied URL" });
     const id = ++openId;
@@ -260,7 +262,7 @@ export function connectLink(o: { server: string; machine: string; key: string; h
         const message = JSON.parse(event.data);
         if (typeof message.challenge === "string" && !authenticated) {
           nonce = message.challenge;
-          socket.send(JSON.stringify({ protocol: PROTOCOL, machine: o.machine, proof: proof(o.key, o.machine, message.challenge).toString("hex") }));
+          socket.send(JSON.stringify({ protocol: PROTOCOL, machine: o.machine, addresses: Object.values(networkInterfaces()).flatMap(rows => rows?.filter(row => !row.internal).map(row => row.address) ?? []), proof: proof(o.key, o.machine, message.challenge).toString("hex") }));
         } else if (message.ready === true && !authenticated) {
           if (typeof message.proof !== "string" || !/^[a-f0-9]{64}$/.test(message.proof) || !timingSafeEqual(proof(o.key, o.machine, nonce, "server"), Buffer.from(message.proof, "hex"))) throw new Error("server did not prove the link key");
           authenticated = true;

@@ -9,7 +9,7 @@ import { osc52, SELECT_BG, rowsOf } from "../../src/surface/selection";
 import { surfaceBg } from "../../src/style";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../../src/app";
 import { REMOTE_CLIENT, type Seeded } from "../../src/showcase/seed";
@@ -837,8 +837,8 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(await app.act({ action: "artifact.open", args: { n: 3 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: file.url, launched: false });
     expect(await app.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: pinned.url, launched: false });
     const opened: string[][] = [], run = external.run;
-    const display = process.env.DISPLAY, ssh = process.env.SSH_CONNECTION, tty = process.env.SSH_TTY;
-    process.env.DISPLAY = ":fictional"; delete process.env.SSH_CONNECTION; delete process.env.SSH_TTY;
+    const display = process.env.DISPLAY, ssh = process.env.SSH_CONNECTION, sshClient = process.env.SSH_CLIENT, tty = process.env.SSH_TTY;
+    process.env.DISPLAY = ":fictional"; delete process.env.SSH_CONNECTION; delete process.env.SSH_CLIENT; delete process.env.SSH_TTY;
     external.run = cmd => { opened.push(cmd); };
     try {
       press({ kind: "enter" }); ch("]"); ch("]"); press({ kind: "enter" });
@@ -849,7 +849,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
       await until(() => opened.length === 2, "Click opened the live folder", 5000);
       expect(opened[1]!.at(-1)).toBe(live.url);
-    } finally { external.run = run; if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display; if (ssh === undefined) delete process.env.SSH_CONNECTION; else process.env.SSH_CONNECTION = ssh; if (tty === undefined) delete process.env.SSH_TTY; else process.env.SSH_TTY = tty; }
+    } finally { external.run = run; if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display; if (ssh === undefined) delete process.env.SSH_CONNECTION; else process.env.SSH_CONNECTION = ssh; if (sshClient === undefined) delete process.env.SSH_CLIENT; else process.env.SSH_CLIENT = sshClient; if (tty === undefined) delete process.env.SSH_TTY; else process.env.SSH_TTY = tty; }
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     const path = join(scratch.root, "gone-lamp.html");
     writeFileSync(path, "<h1>Last lamp</h1>");
@@ -922,13 +922,25 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       await until(() => linkStates(process.env.EP0CH_OUTLINES!).length === 1, "laptop link up");
       bytes.length = 0;
       await stage.dispatch.press("artifact.open", { n: 2 });
+      expect(received).toEqual([]);
+      expect(bytes.join("")).toContain(osc52(url));
+      expect((remoteApp as any).message).toContain(`\x1b]8;;${url}\x1b\\`);
+      pressing.hello.remoteAddress = "192.0.2.23";
+      bytes.length = 0;
+      await stage.dispatch.press("artifact.open", { n: 2 });
+      expect(received).toEqual([]);
+      expect(bytes.join("")).toContain(osc52(url));
+      expect((remoteApp as any).message).toContain(`\x1b]8;;${url}\x1b\\`);
+      pressing.hello.remoteAddress = Object.values(networkInterfaces()).flat().find(a => a && !a.internal)!.address;
+      bytes.length = 0;
+      await stage.dispatch.press("artifact.open", { n: 2 });
       expect(received).toEqual([url]);
       expect(opened).toEqual([]);
       expect(bytes.join("")).not.toContain(osc52(url));
       expect((remoteApp as any).message).toContain("on travel");
       expect(await remoteApp.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ url, launched: false });
       expect(received).toEqual([url]);
-      expect(await openLinked(process.env.EP0CH_OUTLINES!, "file:///tmp/fictional")).toMatchObject({ opened: false, error: expect.stringContaining("only HTTP or HTTPS") });
+      expect(await openLinked(process.env.EP0CH_OUTLINES!, "file:///tmp/fictional", pressing.hello.remoteAddress)).toMatchObject({ opened: false, error: expect.stringContaining("only HTTP or HTTPS") });
       expect(received).toEqual([url]);
       const otherOpens: string[] = [];
       spare = connectLink({ server: `http://127.0.0.1:${link.port}`, machine: "spare", key: "fictional-spare-key", host: scratch.sock, log() {}, open: async url => { otherOpens.push(url); } });
