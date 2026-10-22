@@ -6,6 +6,11 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
 import { hintKeys, declaredKeys } from "../../src/surface/actions";
 import { COMMENT_KEYS, EDIT_PREVIEW_KEYS } from "../../src/surface/attached-keys";
+import { ListPicker } from "../../src/surface/picker";
+import { LineInput } from "../../src/surface/line";
+import { modeHint } from "../../src/surface/modes";
+import { screenSpec, specData, readSpec, savedNodes } from "../../src/desk/screen-spec";
+import { boardSpec } from "../../src/desk/delivery";
 import { HomePane } from "../../src/home";
 import { WelcomeList } from "../../src/hub/welcome";
 import { completionOf } from "../../src/surface/completer";
@@ -127,8 +132,30 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     await until(() => !pane.surface.replyLinks, "Esc closes replies");
   });
 
+  test("PIE-1173: actual desk pickers draw only keys from their active bindings", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const check = () => {
+      screen();
+      const picker = (stage as any).overlays.top() as ListPicker<unknown, Desk>;
+      expect(picker).toBeTruthy();
+      try {
+        const captions = picker.hint().split(" · ").map(part => {
+          const label = picker.bindings.map(row => row.label).find(label => label && part.endsWith(` ${label}`));
+          return label ? part.slice(0, -label.length) + "bound" : part;
+        }).join(" · ");
+        for (const key of hintKeys(captions)) expect(picker.bindings.some(row => row.key === key), picker.hint()).toBe(true);
+      } finally { picker.key({ kind: "esc" }, stage); }
+    };
+    stage.screenPicker(); check();
+    stage.loadLayout(undefined, USER); check();
+    stage.key({ kind: "char", ch: "w", ctrl: true }, app); stage.key({ kind: "char", ch: "P" }, app); check();
+    await stage.dispatch.press("tile.menu", {}, "notes"); check();
+  });
+
   test("PIE-1171/1173: migrated surfaces never carry a prose key list", () => {
-    for (const path of ["home.ts", "drawer.ts", "note-trash.ts", "desk/desk.ts", "desk/lanes.ts", "desk/backlinks-pane.ts", "surface/picker.ts", "surface/note.ts"]) {
+    for (const path of ["home.ts", "drawer.ts", "note-trash.ts", "desk/desk.ts", "desk/lanes.ts", "desk/backlinks-pane.ts", "desk/tile-menu.ts", "surface/picker.ts", "surface/note.ts"]) {
       const source = readFileSync(new URL(`../../src/${path}`, import.meta.url), "utf8");
       expect(source, path).not.toMatch(/foot:.*(?:⏎|esc|Enter|↑↓|j k)/);
     }
@@ -136,11 +163,29 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
       const source = readFileSync(new URL(`../../src/${path}`, import.meta.url), "utf8");
       expect(source.match(/(?:hint:|hint\(\).*return|const \w*HINT =).*?(?:⏎|\|15|j k|alt\+↑)/g) ?? [], path).toEqual([]);
     }
+    // Every migrated picker uses ListPicker; cover its independent hint states, including custom rows.
+    for (const input of [undefined, new LineInput(), new LineInput("garden")]) {
+      for (const stays of [false, true]) for (const clickChooses of [undefined, false, true]) for (const escClears of [false, true]) {
+        const picker = new ListPicker({ name: "guard", input, stays, clickChooses, escClears, closers: "qs",
+          items: () => ["Garden"], row: it => [it], choose() {},
+          bindings: [{ key: "space", action: "garden.toggle", label: "toggle" }], dispatch() {} });
+        for (const key of hintKeys(picker.hint())) expect(picker.bindings.some(row => row.key === key), picker.hint()).toBe(true);
+      }
+    }
+    for (const spec of [screenSpec("home")!, screenSpec("welcome")!, boardSpec()]) {
+      const stored = readSpec(specData(spec));
+      for (const node of savedNodes(stored.layout.root).filter(node => node.t === "leaf")) {
+        const active = stored.keys?.filter(row => !row.unless?.includes(node.kind) && (!row.only || row.only.includes(node.kind))) ?? [];
+        for (const row of active) expect(row.label, `${spec.name}/${node.kind}/${row.key}`).toBeTruthy();
+        for (const key of hintKeys(modeHint(active, () => undefined))) expect(active.some(row => row.key === key), `${spec.name}/${node.kind}/${key}`).toBe(true);
+      }
+    }
     for (const tile of [new HomePane({ folder: "/fictional" }), new WelcomeList()]) {
       for (const key of hintKeys(tile.hint())) expect(tile.bindings.some(row => row.key === key), key).toBe(true);
     }
     for (const path of ["surface/note.ts", "screens.ts", "desk/lanes.ts"]) {
       const source = readFileSync(new URL(`../../src/${path}`, import.meta.url), "utf8");
+      expect(source, path).not.toMatch(/(?:finish.*first|open for editing|open for commenting|is open already).*?surface\.hint\(|finish.*first.*?this\.hint\(/);
       expect(source.match(/(?:finish.*first|open for editing|open for commenting|is open already).*?(?:ctrl\+s|close \(esc\))/g) ?? [], path).toEqual([]);
     }
     for (const path of ["desk/tree.ts", "river/column.ts", "screens.ts", "surface/note.ts"]) {

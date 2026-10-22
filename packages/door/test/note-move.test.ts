@@ -11,6 +11,8 @@ import type { TreePane } from "../src/desk/tree";
 import { MainMenu, MessageList } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
+import { TREE_MOVE_KEYS, COLUMN_MOVE_KEYS, LIST_MOVE_KEYS } from "../src/surface/attached-keys";
+import { modeHint } from "../src/surface/modes";
 import { visible } from "../src/style";
 import { outliner, Scratch, until as untilQuick } from "./scratch";
 
@@ -71,6 +73,7 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
 
   test("alt+↓ and alt+↑ reorder among siblings, I indents under the note above, O outdents after the parent, K and J are the Mac fallback for up and down, ctrl+z puts back", async () => {
     select(beans.id);
+    expect(tree().hint()).toContain(modeHint(TREE_MOVE_KEYS, () => undefined));
     alt("alt-down");
     await untilOrder(garden.id, "Peas,Beans,Squash");
     expect(await order(garden.id)).toEqual(["Peas", "Beans", "Squash"]);
@@ -163,6 +166,7 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     const opened = await app.act({ action: "tile.open", args: { kind: "river.column", source: `block:${garden.id}`, name: "col" }, as: "gardener" }) as { tile?: string };
     const col = opened.tile ?? "col";
     await waitFor(async () => !!D().pane(col)?.flat?.().length, "the column's cards", 20_000);
+    expect(D().pane(col).hint()).toContain(modeHint(COLUMN_MOVE_KEYS, () => undefined));
     const start = (await order(garden.id)).join();
     const first = (await board.children(garden.id))[0]!;
     // The person's: the selection follows the card, and undo puts it back.
@@ -218,6 +222,9 @@ describe.skipIf(!outliner)("moving a note (PIE-943)", () => {
     const list = new MessageList("Replies", () => board.children(parent.id), "", false);
     app.push(list);
     await until(() => list.listRows()?.length === 2, "reply rows");
+    const foot = list.render(list.ctx!).lines.map(visible).at(-1)!;
+    expect(foot).toContain(modeHint(LIST_MOVE_KEYS.filter(row => row.key !== "Z"), () => undefined));
+    expect(foot).toContain(modeHint(LIST_MOVE_KEYS.filter(row => row.key === "Z"), () => undefined));
     letter("J");
     await untilOrder(parent.id, "Beta reply,Alpha reply");
     expect(list.listRows()?.map(r => r.id)).toEqual([beta.id, alpha.id]);
