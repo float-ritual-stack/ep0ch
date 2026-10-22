@@ -174,10 +174,14 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     }
     for (const spec of [screenSpec("home")!, screenSpec("welcome")!, boardSpec()]) {
       const stored = readSpec(specData(spec));
-      for (const node of savedNodes(stored.layout.root).filter(node => node.t === "leaf")) {
-        const active = stored.keys?.filter(row => !row.unless?.includes(node.kind) && (!row.only || row.only.includes(node.kind))) ?? [];
-        for (const row of active) expect(row.label, `${spec.name}/${node.kind}/${row.key}`).toBeTruthy();
-        for (const key of hintKeys(modeHint(active, () => undefined))) expect(active.some(row => row.key === key), `${spec.name}/${node.kind}/${key}`).toBe(true);
+      const kinds = new Set<string>([
+        ...savedNodes(stored.layout.root).filter(node => node.t === "leaf").map(node => node.kind),
+        ...(stored.keys ?? []).flatMap(row => [...row.only ?? [], ...row.unless ?? []]),
+      ]);
+      for (const kind of kinds) {
+        const active = stored.keys?.filter(row => !row.unless?.includes(kind) && (!row.only || row.only.includes(kind))) ?? [];
+        for (const row of active) expect(row.label, `${spec.name}/${kind}/${row.key}`).toBeTruthy();
+        for (const key of hintKeys(modeHint(active, () => undefined))) expect(active.some(row => row.key === key), `${spec.name}/${kind}/${key}`).toBe(true);
       }
     }
     for (const tile of [new HomePane({ folder: "/fictional" }), new WelcomeList()]) {
