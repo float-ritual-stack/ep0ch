@@ -161,7 +161,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   test("while a header is dragged, the drop it would make is drawn and said; esc lets go", () => {
     const d = rect("draft"), m = rect("middle");
     mouse("down", d.col + 4, d.row); mouse("drag", d.col + 6, d.row); mouse("drag", m.col + 1, m.row + Math.floor(m.rows / 2)); render();
-    expect(D().describe().dragging).toMatchObject({ tile: "draft", drop: { kind: "split", target: "middle", dir: "left" } });
+    expect(D().describe().dragging).toMatchObject({ name: "draft", drop: { kind: "split", target: "middle", dir: "left" } });
     const drawn = D().render(D().ctx).lines.join("\n");
     expect(drawn).toContain("← split left");
     key({ kind: "esc" });
@@ -577,7 +577,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("layout.load", { name: "terminal-day" });
     const t = rect("claude");
     mouse("down", bare(t), t.row); mouse("drag", t.col + t.cols - 1, t.row); render();
-    expect(D().describe().dragging).toMatchObject({ tile: "claude" });
+    expect(D().describe().dragging).toMatchObject({ name: "claude" });
     key({ kind: "esc" }); mouse("up", t.col + t.cols - 1, t.row);
   });
 

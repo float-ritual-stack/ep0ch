@@ -1233,9 +1233,9 @@ export class AgentDrawer {
     const known = p ? this.knowledge.get(p) : null;
     return {
       open: this.open, shown: this.shown, entered: this.entered, share: Math.round(this.share * 100) / 100, host: this.mode,
-      rect: this.shown ? this.rect : null, state: this.state(), tile: shown ? { id: shown.name === DRAWER_TILE_ID ? DRAWER_TILE_ID : shown.id, name: shown.name === DRAWER_TILE_ID ? this.name : shown.name } : null,
+      rect: this.shown ? this.rect : null, state: this.state(), tile: shown ? { tile: shown.id, name: shown.name === DRAWER_TILE_ID ? this.name : shown.name } : null,
       runs: { cmd: this.prog.cmd, cwd: this.prog.cwd, why: { program: this.prog.programWhy, folder: this.prog.folderWhy } },
-      tiles: this.tabs(),
+      tiles: this.tabs().map(({ id, ...tab }) => ({ tile: id, ...tab })),
       sessions: this.sessions().map(s => sessionFacts(s)),
       knows: known?.knows ? { ...known.knows, pid: known.pid } : null, ...(this.restarting ? { restarting: true } : {}),
       ...(this.openedBy?.kind === "agent" ? { openedBy: this.openedBy.id } : {}),

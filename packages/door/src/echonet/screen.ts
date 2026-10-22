@@ -789,7 +789,7 @@ export function echoKinds(): TileKind[] {
       peek: p => ({ list: (p as EchoMessages).describe() }),
     },
     {
-      ...reader, kind: "echo.reader", word: "reader", about: "an EchoNet message: its header, the note, its FidoNet footer; } { step, r reply, q quote", noun: "the message reader", keys: undefined,
+      ...reader, kind: "echo.reader", openArgs: [], check: undefined, word: "reader", about: "an EchoNet message: its header, the note, its FidoNet footer; } { step, r reply, q quote", noun: "the message reader", keys: undefined,
       make: () => new EchoReader(), actions: ECHO_READER_ACTIONS, inherits: reader.actions ? [reader.actions] : undefined,
       start: (p, env) => { const net = joinNet(p as EchoReader, env.tile); if (net) net.reader = p as EchoReader; },
       // An agent's open (`ep0ch open <id>`): a message of the area listed is read there; another note is shown in the reader.

@@ -100,7 +100,7 @@ describe("an action's page", () => {
 // outline; the calls themselves go through the same dispatcher as a pasted example in the door.
 describe.skipIf(!outliner)("action-contract pages execute against an outline", () => {
   const h = useShowcaseScreen();
-  const pages = builtIns().filter(a => (["tile", "reader", "pane", "tree", "activity"].includes(a.scope)) || (a.scope === "desk" && a.name === "open"));
+  const pages = builtIns().filter(a => (["tile", "reader", "pane", "tree", "activity", "hint", "tune", "query", "library", "new"].includes(a.scope)) || (a.scope === "desk" && a.name === "open"));
   for (const page of pages) for (const example of page.examples ?? []) test(example.act, async () => {
     const note = await h.board.createBlock(null, `Seed swap [page::garden]${page.name === "tree.depth" ? " [type::virtual-branch] [query::page=garden]" : ""}\nseed swap: bring beans and peas.\n` + "Water the beds.\n".repeat(45));
     if (page.name === "tree.depth") await h.board.move(note.id, null, USER, 1);
@@ -125,6 +125,26 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
       const act = (action: string, args: Record<string, unknown> = {}, tile?: string) => h.app.dispatch.act({ action, args, tile }, USER);
       if (page.name === "screen.mount") await until(() => { d.render(h.app); return d.layoutGet().tiles.some(t => t.kind === "query"); }, "the example board");
       else await until(() => d.tileInfo("reader").showing?.id === note.id, "the example reader");
+      if (page.scope === "library") {
+        await act("tile.open", { kind: "library", name: "library" }, "reader");
+        await act("library.component", { name: "callout" }, "library");
+        await act("library.part", { part: "space" }, "library");
+        d.render(h.app);
+      }
+      if (page.scope === "tune") {
+        await act("tile.open", { kind: "tune", name: "tune", source: "tile:reader" }, "reader");
+        d.render(h.app);
+        if (page.name === "tune.resetlevel") {
+          await act("tune.level", { level: "screen" }, "tune");
+          await act("tune.set", { row: "measure", value: "72" }, "tune");
+        }
+      }
+      if (page.scope === "query") {
+        await h.board.createBlock(note.id, "Second seed #garden");
+        await h.board.createBlock(note.id, "Third seed #garden");
+        await act("tile.open", { kind: "query", name: "query", query: "page=garden OR #garden" }, "reader");
+        await until(() => (d.pane("query") as import("../src/desk/query").QueryPane).describe().count! >= 3, "the example query");
+      }
       if (page.name === "tree.depth") await act("tree.fold", { id: note.id, open: true }, "tree");
       if (page.name === "tile.collapse" && example.act.includes("dir=h")) await act("layout.move", { to: "reader", where: "down" }, "replies");
       if (page.name === "float.place") await act("tile.float", { on: true }, "activity");

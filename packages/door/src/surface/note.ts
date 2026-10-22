@@ -6704,7 +6704,7 @@ export class NoteSurface {
       if (!a.sources[i]) throw new ActionRefused(`this note has ${a.sources.length} generated region${a.sources.length === 1 ? "" : "s"}`);
       P.open = i; P.sel = i; P.item = 0; P.note = "";
       host.redraw();
-      return { open: i + 1, name: a.sources[i]!.name };
+      return { open: i + 1, source: a.sources[i]!.name };
     }
     const s = a.sources[P.open]!, items = itemsOf(s, P.folds), at = n !== undefined ? n - 1 : P.item;
     const it = items[at];

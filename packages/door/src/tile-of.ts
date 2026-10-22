@@ -12,22 +12,22 @@ export interface TileOfDeps {
   /** The processes holding a TCP socket with this local port. */
   portOwners(port: number): number[];
 }
-export interface TileOfAnswer { tile: string | null; id: string | null; by: "pid" | "port" | null }
+export interface TileOfAnswer { tile: string | null; name: string | null; by: "pid" | "port" | null }
 
 /** The tile whose program is, or is the ancestor of, the process `pid` (or the owner of local TCP port `port`); null when none. */
 export function tileOf(tiles: readonly TileProc[], q: { pid?: number; port?: number }, deps: TileOfDeps): TileOfAnswer {
   const find = (pid: number) => tiles.find(t => t.pid === pid || deps.ancestors(pid).includes(t.pid));
   if (q.pid !== undefined) {
     const t = find(q.pid);
-    if (t) return { tile: t.name, id: t.id, by: "pid" };
+    if (t) return { tile: t.id, name: t.name, by: "pid" };
   }
   if (q.port !== undefined) {
     for (const owner of deps.portOwners(q.port)) {
       const t = find(owner);
-      if (t) return { tile: t.name, id: t.id, by: "port" };
+      if (t) return { tile: t.id, name: t.name, by: "port" };
     }
   }
-  return { tile: null, id: null, by: null };
+  return { tile: null, name: null, by: null };
 }
 
 /** Linux: /proc/net/tcp{,6} rows with this local port, then the processes holding their socket inodes. */

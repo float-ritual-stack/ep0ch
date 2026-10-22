@@ -96,10 +96,22 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       const answer = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", note: s.testing.id, label: "Seeds" } }, USER) as { tile: string };
       expect((s.d.pane(answer.tile) as ReaderPane).label).toBe("Seeds");
       for (const request of [
+        { action: "tile.open", args: { kind: "brief", note: s.testing.id } },
+        { action: "tile.open", args: { kind: "echo.reader", note: s.testing.id } },
         { action: "tile.open", args: { kind: "reader", machine: "garden-host" } },
         { action: "tile.open", args: { kind: "preview", source: "file:/tmp/seeds.md", file: "/tmp/beans.md" } },
         { action: "reader.mode", tile: "other", args: { mode: "held", page: "garden" } },
       ]) await expect(app.dispatch.act(request, USER)).rejects.toThrow();
+    } finally { s.done(); }
+  });
+
+  test("a pinned tile opens its page without a reader mode argument", async () => {
+    const s = await twoReaders();
+    try {
+      const page = await board.createBlock(null, "Seeds [page::garden-pinned]");
+      const answer = await app.dispatch.act({ action: "tile.open", args: { kind: "pinned", page: "garden-pinned" } }, USER) as { tile: string };
+      await until(() => (s.d.pane(answer.tile) as ReaderPane).msg?.id === page.id, "the pinned example page");
+      expect(s.d.tileInfo(answer.tile).showing?.id).toBe(page.id);
     } finally { s.done(); }
   });
 

@@ -890,3 +890,7 @@ Tile actions and desk opens return `tile` as the stable tile id and `name` as it
 back to any `tile=` argument, including after moving the tile into a group or the drawer. An open's `id`
 is the note id; `reader` is no longer the destination key. Layout and tile actions reach the layout host
 while a message log covers it. These control-socket answers are not the outline service's PROTOCOL wire.
+
+When Sources opens a generated region, `sources.enter` and `sources.item` return its `source` name; `tile` and `name` identify the tile containing the inspector.
+
+`tile.float` returns the floated tile under `tile` (including a copy floated from the board preview), with its `name`; the former `now` field is gone. `host.tileOf` returns `{ tile, name, by }`, with nulls when no tile matches. Peek drawer rows, details, floats and agent limits use the same `tile`/`name` pair. `ep0ch where` consumes these records while retaining its context-binding shape.

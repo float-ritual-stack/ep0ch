@@ -34,7 +34,7 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     const pane = stage.pane("notes") as ReaderPane;
     const act = (action: string, args = {}) => stage.dispatch.press(action, args, "notes");
     for (const focused of [true, false]) {
-      await act("sources.open");
+      const listed = await act("sources.open") as { sources: { name: string }[] };
       await act("sources.place", { place: "inline" });
       await act("sources.focus", { on: focused });
       const drawn = screen();
@@ -45,7 +45,7 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
       expect(declaredKeys(stage.dispatch.defOf("sources.close")!.keys).has("esc")).toBe(true);
       expect(declaredKeys(stage.dispatch.defOf("sources.back")!.keys).has("esc")).toBe(false);
       if (focused) {
-        await act("sources.enter", { n: 1 });
+        expect(await act("sources.enter", { n: 1 })).toMatchObject({ source: listed.sources[0]!.name, name: "notes" });
         for (const key of hintKeys(mode.hint())) expect(mode.keys!.some(row => row.key === key)).toBe(true);
         pane.key({ kind: "left" }, stage);
         await until(() => (mode.describe() as { view: string }).view === "list", "Left returns to the source list");

@@ -51,7 +51,7 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
     await app.dispatch.act({ action: "tile.link", tile: "notes", args: { to: "source", role: "target" } }, USER);
     // The pointer moving over the screen presses text.hover on every move (Evan, Oct 21: a recording full of them slowed the door).
     for (let x = 0; x < 40; x++) await app.dispatch.press("text.hover", { x, y: 2 });
-    const sourceTile = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top.dispatch.tile("source").tile;
+    const sourceTile = S().stage(SECTIONS.findIndex(s => s.key === "scripts")).top.dispatch.tile("source").id;
     const stopping = app.dispatch.act({ action: "macro.stop" }, USER);
     await expect(app.dispatch.act({ action: "macro.record" }, USER)).rejects.toThrow("saving");
     const saved = await stopping as { block: string };

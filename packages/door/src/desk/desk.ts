@@ -3104,16 +3104,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // Where the keys are, as a place: a columns container by its key (the board's lanes), else the tile.
       focus: this.focusPlace(),
       // The tiles opened into the container the screen's opens land in (the board's details), and the one they land in now.
-      ...(this.opensIntoKey() ? { details: this.openedTiles(this.opensIntoKey()!).filter(id => !this.isFloat(id)).map(id => ({ ...brief(this.showing(this.panes.get(id)!)), reader: this.nameOf(id), opensHere: id === this.activeIn(this.opensIntoKey()!) })) } : {}),
+      ...(this.opensIntoKey() ? { details: this.openedTiles(this.opensIntoKey()!).filter(id => !this.isFloat(id)).map(id => ({ ...brief(this.showing(this.panes.get(id)!)), ...this.tileAnswer(id), opensHere: id === this.activeIn(this.opensIntoKey()!) })) } : {}),
       // What an agent may do to the screen's tiles (PIE-639): the screen's default, and each tile it limits, so it reads its limits before acting.
       ...(this.layout.policy.agents ? { agentsDefault: this.layout.policy.agents } : {}),
-      ...(order.some(id => this.agentOf(id).level !== "free") ? { agentLimits: order.filter(id => this.agentOf(id).level !== "free").map(id => ({ tile: this.nameOf(id), id: this.tileId(id), level: this.agentOf(id).level, by: this.agentOf(id).by })) } : {}),
+      ...(order.some(id => this.agentOf(id).level !== "free") ? { agentLimits: order.filter(id => this.agentOf(id).level !== "free").map(id => ({ ...this.tileAnswer(id), level: this.agentOf(id).level, by: this.agentOf(id).by })) } : {}),
       layoutName: this.layoutName, rule: this.rule, focusName: this.nameOf(this.focus), inTerminal: this.rawKeys() ? this.nameOf(this.focus) : null,
       linking: this.linking ? this.linking.desk.nameOf(this.linking.from) : null,
-      dragging: this.dragging ? { tile: this.nameOf(this.dragging.src), drop: this.dragging.drop ? dropView(this.dragging.drop, id => this.nameOf(id)) : null } : null,
+      dragging: this.dragging ? { ...this.tileAnswer(this.dragging.src), drop: this.dragging.drop ? dropView(this.dragging.drop, id => this.nameOf(id)) : null } : null,
       layout: describeLayout(this.layout, id => String(order.indexOf(id) + 1), id => this.tileId(id)),
       tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)),
-      floats: this.floats.map(f => { const p = this.panes.get(f.id)!; return { ...brief(this.showing(p)), tile: this.nameOf(f.id), rect: this.floatRect(f), ...(madeFor(p) ? { newNote: true, writing: p instanceof ReaderPane && !!p.surface.drafting } : {}) }; }),
+      floats: this.floats.map(f => { const p = this.panes.get(f.id)!; return { ...brief(this.showing(p)), ...this.tileAnswer(f.id), rect: this.floatRect(f), ...(madeFor(p) ? { newNote: true, writing: p instanceof ReaderPane && !!p.surface.drafting } : {}) }; }),
       // Every reader holding a note, as its surface says it, and whether it's folded (with comments since).
       collapsedReaders: this.namedReaders().filter(r => this.collapsed.has(r.id)).map(r => r.name),
       readers: this.namedReaders().filter(r => r.pane.msg).map(r => { const c = this.collapsed.get(r.id); return { name: r.name, focused: r.id === this.focus, ...r.pane.describe(), ...(c ? { collapsed: true, ...(c.by ? { collapsedBy: c.by } : {}), newComments: r.pane.newComments() } : { collapsed: false }) }; }),
@@ -6018,7 +6018,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   floatTile(sel: string | undefined, actor: Actor, on?: boolean): TileDone {
     const t = this.tile(sel), p = this.panes.get(t.id)!;
     // on=true|false (PIE-957): the state asked for, so a script that floats every tile never puts back one already floating.
-    if (on !== undefined && on === this.isFloat(t.id)) return { ...this.tileAnswer(t.id), pane: t.name, floated: on, now: t.name } as TileDone;
+    if (on !== undefined && on === this.isFloat(t.id)) return { ...this.tileAnswer(t.id), floated: on } as TileDone;
     if (this.ctx?.hostLayer?.isDrawer(this)) throw new ActionRefused(`${t.name} is in the drawer: it doesn't float there · ^W a puts it on the screen, where it floats`);
     const key = this.openedInto(t.id), c = key !== undefined ? node(this.root, key) : null;
     // A float opened into a container (the board's readers row) goes back into it, as its last tile there; a full one
@@ -6033,7 +6033,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
       if (this.dispatch.standing(actor)) this.focusTile(t.name, actor);
       this.save(); this.redraw();
-      return { ...this.tileAnswer(t.id), pane: t.name, floated: false, now: t.name };
+      return { ...this.tileAnswer(t.id), floated: false };
     }
     // A reader that follows something (the board's preview) stays where it follows: a copy of what it shows floats,
     // opened as the screen's opens are (its readers row's next detail).
@@ -6045,11 +6045,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!landed) throw new ActionRefused("not floated");
       const fid = landed.id;
       this.save(); this.redraw();
-      return { ...this.tileAnswer(t.id), pane: t.name, floated: true, now: this.nameOf(fid) };
+      return { ...this.tileAnswer(fid), floated: true };
     }
     const r = this.apply({ op: "float", tile: t.id }, actor);
     this.save(); this.redraw();
-    return { ...this.tileAnswer(t.id), pane: t.name, floated: !!r.answer.floated, now: t.name };
+    return { ...this.tileAnswer(t.id), floated: !!r.answer.floated };
   }
 
   /**

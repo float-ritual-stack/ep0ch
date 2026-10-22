@@ -657,7 +657,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect((d.desk.layoutGet() as any).floats).toEqual([]);
       expect((d.desk.layoutGet() as any).tiles.find((t: any) => t.name === "replies").dock).toBeTruthy();
       await d.desk.dispatch.act({ action: "tile.float", args: {}, tile: "replies" }, USER);
-      expect((d.desk.layoutGet() as any).floats.map((f: any) => f.tile)).toEqual(["replies"]);
+      expect((d.desk.layoutGet() as any).floats.map((f: any) => f.name)).toEqual(["replies"]);
     } finally { d.app.quit(); }
   });
 

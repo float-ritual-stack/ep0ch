@@ -104,7 +104,7 @@ const deskPeek = (o: { pid?: number; focus: string; typing?: string | null; tile
     screen: o.screen ?? "Desk", stack: ["Main menu", "Desk"], ...(o.pid ? { pid: o.pid } : {}), outline: "garden", workspace: "/ws",
     state: o.screen && o.screen !== "Desk" ? { kind: "menu" } : {
       kind: "desk", focusName: o.focus, inTerminal: o.typing ?? null,
-      panes: o.tiles.map((t, i) => ({ n: i + 1, name: t.name, ...(t.id ? { id: t.id } : {}), kind: "pty", focused: t.name === o.focus, shown: true,
+      panes: o.tiles.map((t, i) => ({ n: i + 1, name: t.name, ...(t.id ? { tile: t.id } : {}), kind: "pty", focused: t.name === o.focus, shown: true,
         terminal: { pid: t.pid ?? 5000 + i }, ...(t.herdr ? { herdr: { pane: t.herdr } } : {}), ...(t.agents ? { agents: t.agents, agentsBy: "tile" } : {}) })),
       ...(o.limits ?? {}),
     },
@@ -127,7 +127,7 @@ function deps(env: Record<string, string>, o: { peek?: any; panes?: any[] | null
 describe("ep0ch where", () => {
   test("the facts the Claude mod's binding card reads: this machine and folder, the door's outline and its machine, the Herdr pane", async () => {
     const env = { EP0CH_NEST: "ssh:pts/5 › door:30/daily/drawer.agent:claude › herdr:door-claude", EP0CH_CONTROL: "/s/agent-door-claude.sock", EP0CH_TILE: "claude" };
-    const peek = { screen: { screen: "Daily", pid: 30, outline: "orchard", host: "far-box", machine: "far", drawer: { tile: { id: "drawer.agent", name: "claude" }, shown: true, herdr: { pane: "door-claude" } }, state: { kind: "daily" } } };
+    const peek = { screen: { screen: "Daily", pid: 30, outline: "orchard", host: "far-box", machine: "far", drawer: { tile: { tile: "drawer.agent", name: "claude" }, shown: true, herdr: { pane: "door-claude" } }, state: { kind: "daily" } } };
     const persona = { name: "testbot", source: "file" as const, file: "/work/notes/.ep0ch" };
     const d = { ...deps(env, { alive: [30], ttys: ["pts/5"], panes: [{ pane_id: "w4:p1", label: "door-claude" }], peek }), hostname: () => "near-box", cwd: () => "/work/notes", persona: () => persona };
     const w = await where(d);
@@ -188,7 +188,7 @@ describe("ep0ch where", () => {
 
   test("what an agent may do (PIE-639): the screen's default and each limited tile, and this tile's own", async () => {
     const env = { EP0CH_NEST: "ssh:pts/5 › door:1388380/desk/t1:claude", EP0CH_CONTROL: "/c/door.sock", EP0CH_TILE: "claude", EP0CH_TILE_ID: "t1" };
-    const limits = { agentsDefault: "edit", agentLimits: [{ tile: "claude", id: "t1", level: "off", by: "tile" }, { tile: "middle", id: "t2", level: "edit", by: "screen" }] };
+    const limits = { agentsDefault: "edit", agentLimits: [{ tile: "t1", name: "claude", level: "off", by: "tile" }, { tile: "t2", name: "middle", level: "edit", by: "screen" }] };
     const w = await where(deps(env, { alive: [1388380], ttys: ["pts/5"], ancestors: [1388380],
       peek: deskPeek({ pid: 1388380, focus: "middle", tiles: [{ id: "t1", name: "claude", agents: "off" }, { id: "t2", name: "middle" }], limits }) }));
     expect(w.door?.tile?.agents).toEqual({ level: "off", by: "tile" });
@@ -267,7 +267,7 @@ describe("ep0ch where", () => {
 
   test("a terminal moved into the drawer: found by its pid there, though its old EP0CH_TILE_ID names a screen tile now", async () => {
     const peek = deskPeek({ pid: 10, focus: "middle", tiles: [{ id: "t1", name: "middle", pid: 5100 }] });
-    (peek.screen as any).drawer = { tile: { id: "drawer.agent", name: "shell" }, shown: true, entered: true, tiles: [{ name: "drawer.agent", id: "drawer.agent", shown: false }, { name: "kettle", id: "k2", shown: true, focused: true, pid: 6200 }] };
+    (peek.screen as any).drawer = { tile: { tile: "drawer.agent", name: "shell" }, shown: true, entered: true, tiles: [{ name: "drawer.agent", tile: "drawer.agent", shown: false }, { name: "kettle", tile: "k2", shown: true, focused: true, pid: 6200 }] };
     const w = await where(deps({ EP0CH_NEST: "door:10/desk/t1:kettle", EP0CH_CONTROL: "/c/door.sock", EP0CH_TILE_ID: "t1", EP0CH_TILE: "kettle" }, { alive: [10], ancestors: [6200, 10], peek }));
     expect(w.door?.tile).toMatchObject({ id: "k2", name: "kettle", drawer: true });
   });
@@ -320,7 +320,7 @@ describe("ep0ch where: a Claude that does not descend from a tile still reaches 
   const job = { HERDR_PANE_ID: "w1:p2P", HERDR_WORKSPACE_ID: "w1" };
   const folder: DoorResolution = { rule: "folder", path: "/s/sessions/local/pie/door.sock", outline: "pie",
     text: "reached pie's door session by folder (the outline this folder names); you are not in a tile of it, so your keys are not the person's" };
-  const peek = { screen: { screen: "Desk", pid: 77, outline: "pie", state: { kind: "desk", focusName: "notes", inTerminal: null, panes: [{ name: "notes", id: "t1", kind: "pty", focused: true, shown: true, terminal: { pid: 5000 } }] } } };
+  const peek = { screen: { screen: "Desk", pid: 77, outline: "pie", state: { kind: "desk", focusName: "notes", inTerminal: null, panes: [{ name: "notes", tile: "t1", kind: "pty", focused: true, shown: true, terminal: { pid: 5000 } }] } } };
 
   test("the stale pane and the missing EP0CH_CONTROL fall through to the folder's door, and it says which rule matched", async () => {
     const w = await where({ ...deps(job, { peek, panes: [] }), peek: async p => (p === folder.path ? peek : null), resolve: async () => folder });

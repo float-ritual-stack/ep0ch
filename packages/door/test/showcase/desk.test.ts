@@ -769,7 +769,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const recipe = seeded.notes.recipe.id;
     // Peek says the limits before an agent acts.
     const seen = JSON.stringify(stage().describe());
-    expect(seen).toContain('"agentLimits":[{"tile":"edit"');
+    expect(stage().describe().agentLimits).toContainEqual(expect.objectContaining({ name: "edit", level: "edit" }));
     expect(seen).toContain('"level":"off"');
     // Saved with the layout: the edit tile's own level in its spec.
     expect(JSON.stringify(stage().layoutSpec())).toContain('"agents":"edit"');

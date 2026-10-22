@@ -293,7 +293,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     const d = details()[0];
     key(char("o"));
     expect(row()).toEqual(["preview", "detail2"]);
-    expect(B().describe().floats).toEqual([expect.objectContaining({ tile: "detail1" })]);
+    expect(B().describe().floats).toEqual([expect.objectContaining({ name: "detail1" })]);
     expect(focus()).toBe("detail1");
     // Its title moves it, as H J K L do (float.place, the desk's).
     const f = B().describe().floats[0].rect;
@@ -382,9 +382,9 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     const f = await act("tile.float", {}, "preview") as any;
     expect(B().describe().floats).toHaveLength(1);
     expect(focus()).toBe("detail2");
-    await act("tile.close", {}, f.now);
+    await act("tile.close", {}, f.tile);
     expect(B().describe().floats).toHaveLength(0);
-    expect(message()).toContain(`an agent (${AS}) closed ${f.now}`);
+    expect(message()).toContain(`an agent (${AS}) closed ${f.name}`);
   });
 
   test("an agent's swap keeps the replaced note as a spine and leaves another reader's edit and keys alone", async () => {
@@ -580,10 +580,10 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     const fl = await act("tile.float", {}, "1") as any;
     expect(fl).toMatchObject({ floated: true });
     expect(D().layoutGet().floats).toEqual([expect.objectContaining({ tile: fl.tile })]);
-    expect(saved().floats).toEqual([expect.objectContaining({ tile: expect.objectContaining({ name: fl.now }) })]);
-    await act("float.place", { dx: 3, cols: 50 }, fl.now);
+    expect(saved().floats).toEqual([expect.objectContaining({ tile: expect.objectContaining({ name: fl.name }) })]);
+    await act("float.place", { dx: 3, cols: 50 }, fl.tile);
     expect(D().layoutGet().floats[0].rect.cols).toBe(50);
-    expect(await act("tile.float", {}, fl.now)).toMatchObject({ floated: false });
+    expect(await act("tile.float", {}, fl.tile)).toMatchObject({ floated: false });
     expect(D().layoutGet().floats).toEqual([]);
     // Any tile slides over as a dock now (PIE-413).
     const docked = await act("tile.dock", { on: true }, "1") as any;
