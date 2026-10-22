@@ -186,6 +186,8 @@ describe.skipIf(!outliner)("going elsewhere from an edit, against a scratch outl
     expect(D().isIn(rd)).toBe(true);
     type(" now");
     expect(d.text).toBe("Plant the leeks today now\nin the far bed");
+    // Give the frame room for its preview control after the earlier busy-reader open.
+    await D().dispatch.press("tile.resize", { by: 2 }, name);
     // Away again, then back by a click on the frame's [preview]: the control runs, and the cursor is still kept.
     clickElsewhere();
     const pv = at("[preview]");
