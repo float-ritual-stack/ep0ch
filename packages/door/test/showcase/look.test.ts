@@ -837,8 +837,8 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(await app.act({ action: "artifact.open", args: { n: 3 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: file.url, launched: false });
     expect(await app.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: pinned.url, launched: false });
     const opened: string[][] = [], run = external.run;
-    const display = process.env.DISPLAY;
-    process.env.DISPLAY = ":fictional";
+    const display = process.env.DISPLAY, ssh = process.env.SSH_CONNECTION, tty = process.env.SSH_TTY;
+    process.env.DISPLAY = ":fictional"; delete process.env.SSH_CONNECTION; delete process.env.SSH_TTY;
     external.run = cmd => { opened.push(cmd); };
     try {
       press({ kind: "enter" }); ch("]"); ch("]"); press({ kind: "enter" });
@@ -849,7 +849,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
       await until(() => opened.length === 2, "Click opened the live folder", 5000);
       expect(opened[1]!.at(-1)).toBe(live.url);
-    } finally { external.run = run; if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display; }
+    } finally { external.run = run; if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display; if (ssh === undefined) delete process.env.SSH_CONNECTION; else process.env.SSH_CONNECTION = ssh; if (tty === undefined) delete process.env.SSH_TTY; else process.env.SSH_TTY = tty; }
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     const path = join(scratch.root, "gone-lamp.html");
     writeFileSync(path, "<h1>Last lamp</h1>");
