@@ -103,9 +103,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       } };
     };
 
-    // turns green with slice 1 (one-desk-address)
-    const standingTest = placement === "drawer" ? test.failing : test;
-    standingTest(`1 standing: a pressed script folds the focused reader (${placement})`, async () => {
+    test(`1 standing: a pressed script folds the focused reader (${placement})`, async () => {
       const s = await placed();
       try {
         const answer = await pressed(`await act('tile.collapse', { tile: '${placement === "drawer" ? "@drawer/nest/briefing" : s.tile}', on: true }); return 'folded';`);
@@ -115,7 +113,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       } finally { await s.cleanup(); }
     }, 30_000);
 
-    standingTest(`standing: a press follows, aims and wires a reader's links (${placement})`, async () => {
+    test(`standing: a press follows, aims and wires a reader's links (${placement})`, async () => {
       const s = await placed();
       try {
         const tile = placement === "drawer" ? "@drawer/nest/briefing" : s.tile;
@@ -133,7 +131,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       } finally { await s.cleanup(); }
     }, 30_000);
 
-    standingTest(`standing: an agent's button has no invitation (${placement})`, async () => {
+    test(`standing: an agent's button has no invitation (${placement})`, async () => {
       const s = await placed();
       try {
         const answer = await pressed(`await act('tile.collapse', { tile: '${placement === "drawer" ? "@drawer/nest/briefing" : s.tile}', on: true }); return 'folded';`, { kind: "agent", id: "garden-helper" });
@@ -143,7 +141,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     }, 30_000);
 
     for (const via of ["rule", "ask", "ask-source", "mcp"] as const) {
-      standingTest(`standing: ${via} has no press invitation (${placement})`, async () => {
+      test(`standing: ${via} has no press invitation (${placement})`, async () => {
         const s = await placed();
         try {
           const tile = placement === "drawer" ? "@drawer/nest/briefing" : s.tile;
@@ -154,7 +152,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     }
 
     if (placement !== "drawer") for (const via of ["button", "rule", "ask", "ask-source", "mcp"] as const) {
-      standingTest(`standing: ${via} cannot move focus while the person types (${placement})`, async () => {
+      test(`standing: ${via} cannot move focus while the person types (${placement})`, async () => {
         const s = await placed();
         try {
           await s.owner.dispatch.act({ action: "edit", tile: s.tile }, USER);
@@ -173,7 +171,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       }, 30_000);
     }
 
-    standingTest(`standing: a press moves focus out of the person's typing tile (${placement})`, async () => {
+    test(`standing: a press moves focus out of the person's typing tile (${placement})`, async () => {
       const s = await placed();
       try {
         await s.owner.dispatch.act({ action: "edit", tile: s.tile }, USER);
