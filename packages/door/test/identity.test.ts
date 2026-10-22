@@ -97,8 +97,8 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     const right = splitOfTiles(g.tree, ["draft", "side"]);
     expect(right.path).toBe("2");
     expect(right.id).toMatch(/^s\d+$/);
-    expect(right.kids[0].id).toMatch(/^t\d+$/);
-    for (const t of g.tiles) expect(t.id).toMatch(/^t\d+$/);
+    expect(right.kids[0].id).toMatch(/^t-/);
+    for (const t of g.tiles) expect(t.id).toMatch(/^t-/);
     expect(new Set(g.tiles.map((t: any) => t.id)).size).toBe(g.tiles.length);
     // The live feed's shape names them the same way.
     expect(D().layoutShape().tree.id).toBe(g.tree.id);
@@ -161,6 +161,20 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     // An open answers with the tile's name, not its place.
     const o = await act("open", { id: notes.shed.id }, "middle") as any;
     expect(o.reader).toBe("middle");
+  });
+
+  test("opening a saved arrangement twice gives its new tiles fresh ids and keeps their wires local", async () => {
+    const before = desk.layoutGet();
+    const copy = new Desk(desk.spec, { saved: desk.savedState() });
+    app.push(copy);
+    try {
+      const after = copy.layoutGet();
+      const oldIds = new Set(before.tiles.map(t => t.id));
+      expect(after.tiles.some(t => oldIds.has(t.id))).toBe(false);
+      const tree = after.tiles.find(t => t.name === "tree") as any;
+      const middle = after.tiles.find(t => t.name === "middle")!;
+      expect(tree.wires).toContainEqual({ verb: "open", to: middle.id });
+    } finally { app.pop(); copy.dispose(); }
   });
 
   test("F18: a tile id stays with its tile through a move; a closed tile's id isn't given to the next one", async () => {
@@ -240,8 +254,6 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     const again = new Desk();
     const ids = (again as any).layoutGet().tiles.map((t: any) => t.id);
     expect(ids).not.toContain(gone);
-    // The next tile made gets a number past every one given before.
-    expect((again as any).nextId).toBeGreaterThan(Math.max(Number(gone.slice(1)), Number(side.id.slice(1))));
     again.dispose();
     await daily();
   });

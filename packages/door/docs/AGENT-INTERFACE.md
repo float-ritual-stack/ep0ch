@@ -166,9 +166,25 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 
 ## Reads
 
+Tile addresses are door-wide ids (`t-<uuid>`). `tile=` and tile arguments resolve an
+id first, then an unambiguous name, then a path: `<mount>/<tile>`, `../<tile>`,
+`@drawer/<tile>` or `@<screen>/<tile>`. Ambiguous names report candidates and ids.
+Names and paths are input and display; saved wires and tile sources keep ids, so
+renaming or moving a tile between groups and the drawer keeps its connections.
+Closing a target drops its wire and says so. Saved name-path wires are resolved
+and rewritten as ids when the desks open; missing targets are reported and dropped.
+
+`layout.get.tiles` includes the screen, drawer and every mount. Each row has its
+`id`, `name`, `address` (the id), and display `path`. `layers` groups those rows by
+desk, with `screen`, `drawer`, `focus` and `zoom` (tile ids), and its local `tree`.
+Top-level layout metadata still describes the addressed desk. `peek` includes this
+same report as top-level `layout`. `Whereabouts.address` names the tile under the
+person's keys, descending into mounts and the drawer; omitted `tile=` uses that
+focused tile. A group's frame and menu address the group itself.
+
 | Action | Gives |
 |---|---|
-| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each dock with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<dock's>.0`), each flow with its `id` (`f<n>`), `wide` (its wide column) and `held` (the columns held full), each container's `policy`, each tile with its `id` (`t<n>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `dock` (`open`, `shut`) with its `edge` and `container`, `cover` in a flow (`full`, `peek`, `spine`), the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
+| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each dock with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<dock's>.0`), each flow with its `id` (`f<n>`), `wide` (its wide column) and `held` (the columns held full), each container's `policy`, each tile with its door-wide `id` (`t-<uuid>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `dock` (`open`, `shut`) with its `edge` and `container`, `cover` in a flow (`full`, `peek`, `spine`), the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
 | `layout.policy tile=<tile>` (nothing to set) | each policy layer over the tile (the screen's, each container's, its kind's default), what applies (`effective`, with `by` naming the layer that said each field), and the containers' ids |
 | `view.get` (`tile=<tile>` for one) | `focus`, and each tile's `viewport` and `cursor` as the feed gives them. For one terminal tile, also its `screen` text |
 | `tile.info tile=<tile>` | one tile as `layout.get` gives it |

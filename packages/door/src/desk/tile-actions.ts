@@ -118,7 +118,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "the layout as data: its revision (rev), the tile tree (each split with its id, path and shares, each tab set with its id and the tab shown) and each tile's id, kind, name, source, note, link, dock state and rect",
     touches: "nothing", replay: "safe",
     args: {},
-    run(_, { d }) { return d.layoutGet(); },
+    run(_, { d }) { return d.layoutAll(); },
   }),
   "layout.list": def({
     summary: "the layouts this screen can be laid out as: the built-ins and the screens people made (screen notes)",
@@ -294,7 +294,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     ],
     run({ dir }, { d, reader }, actor) {
       if (dir !== undefined && !isDir(dir)) throw new ActionRefused(`tile.focus: dir is left, right, up or down, not ${dir}`);
-      return d.focusTile(dir ? d.neighbourOf(reader, dir) : reader, actor);
+      return d.focusTile(dir ? d.neighbourOf(reader, dir) : reader, actor, true);
     },
   }),
   "tile.dock": def({
