@@ -1,3 +1,5 @@
+import { standsAsPerson } from "../surface/dispatch";
+import { NOBODY } from "../whereabouts";
 import { TREE_MOVE_KEYS } from "../surface/attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "../surface/modes";
 import { shortId } from "../refs";
@@ -248,24 +250,24 @@ export class TreePane implements Pane {
   }
 
   /** The selection moved to row `sel`: the row's note becomes the current one (a link row's is read first). */
-  private pick(desk: DeskApi) {
+  private pick(desk: DeskApi, actor: Actor = USER) {
     if (this.timer) clearTimeout(this.timer);
     const r = this.rows[this.sel];
     const id = r?.kind === "block" ? null : rowBlock(r);
     // While the rows are due to be read again (a change just came), the row's copy may be older than the outline: the
     // note is read itself, so the reader never shows what was there before a save.
     if (r?.kind === "block") this.timer = setTimeout(() => {
-      if (!this.reload && !this.due && !this.rereading) return desk.setCurrent(r.m, { from: this });
-      void desk.ctx.board.get(r.m.id).catch(() => null).then(m => { if (this.rows[this.sel]?.key === r.key) desk.setCurrent(m ?? r.m, { from: this }); });
+      if (!this.reload && !this.due && !this.rereading) return desk.setCurrent(r.m, { from: this, by: actor });
+      void desk.ctx.board.get(r.m.id).catch(() => null).then(m => { if (this.rows[this.sel]?.key === r.key) desk.setCurrent(m ?? r.m, { from: this, by: actor }); });
     }, 90);
-    else if (id) this.timer = setTimeout(() => void this.target(id, desk).then(m => { if (m && rowBlock(this.rows[this.sel]) === id) desk.setCurrent(m, { from: this }); }, () => {}), 90);
+    else if (id) this.timer = setTimeout(() => void this.target(id, desk).then(m => { if (m && rowBlock(this.rows[this.sel]) === id) desk.setCurrent(m, { from: this, by: actor }); }, () => {}), 90);
     // A resource shows what is stored for it (a ticket's block, a file's content) where the tree's selection goes (a
     // preview following it), read only: nothing registers, and the current note stays (an open meanwhile isn't undone).
     else if (r?.kind === "resource") {
       const key = r.key;
       this.timer = setTimeout(() => void linkNote(r, desk.ctx.board, "show").then(({ note }) => {
         this.shownResource = { key, note };
-        if (this.rows[this.sel]?.key === key) desk.showFrom?.(this, note);
+        if (this.rows[this.sel]?.key === key) desk.showFrom?.(this, note, actor);
       }, () => {}), 90);
     }
     desk.redraw();
@@ -491,11 +493,11 @@ export class TreePane implements Pane {
    * Open row `i` as ⏎ does, as `actor`: a group folds or opens; a note opens where the tree's opens go (the keys
    * follow the person's own there, never an agent's); a resource is registered if it has to be and shown.
    */
-  async openRow(i: number, desk: DeskApi, actor: Actor = USER, fresh = false): Promise<Record<string, unknown>> {
+  async openRow(i: number, desk: DeskApi, actor: Actor = USER, fresh = false, standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile")): Promise<Record<string, unknown>> {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     const r = this.rows[i];
     if (!r) throw new ActionRefused(this.roots ? `no row ${i + 1}; the tree has ${this.rows.length}` : "the outline is still being read");
-    const agent = actor.kind === "agent";
+    const agent = !standing;
     if (r.kind === "group" || r.kind === "kind") {
       if (agent && (r.kind === "group" ? r.open : r.expanded)) this.refuseAgentFold(r.key, i);
       this.foldGroup(r); desk.redraw();
@@ -505,12 +507,12 @@ export class TreePane implements Pane {
     if (r.kind === "branch-note") {
       const b = this.branches.get(r.view);
       if (r.role === "more" && b) { await this.loadBranch(b.def, desk, "more"); return { row: i + 1, view: r.view, matches: b.items.length }; }
-      return { row: i + 1, ...this.setDepth(i, undefined, desk, actor.kind === "agent") };
+      return { row: i + 1, ...this.setDepth(i, undefined, desk, !standing) };
     }
     const land = (m: Msg) => {
       const routed = desk.routes?.(this);
       desk.setCurrent(m, { from: this, link: true, fresh, by: actor });
-      if (!routed && !agent && !fresh) desk.focusKind("reader");
+      if (!routed && !agent && !fresh) desk.focusKind("reader", actor);
     };
     if (r.kind === "block") { land(r.m); return { row: i + 1, id: r.m.id }; }
     // A link: its note, a ticket's block, or a Resource registered if it must be and shown (the shared model's open).
@@ -524,10 +526,10 @@ export class TreePane implements Pane {
   }
 
   /** The person moved the selection to row `i` (a key, a click, `tree.pick`); `show`: its note becomes the current one. */
-  selectRow(i: number, desk: DeskApi, show = true) {
+  selectRow(i: number, desk: DeskApi, show = true, actor: Actor = USER) {
     this.picks++;
     this.sel = Math.max(0, Math.min(this.rows.length - 1, i));
-    if (show) this.pick(desk); else desk.redraw();
+    if (show) this.pick(desk, actor); else desk.redraw();
   }
 
   /** An agent picked row `i`: its note shows where the tree's selection goes; the person's selection stays. */
@@ -555,7 +557,7 @@ export class TreePane implements Pane {
       if (r.kind !== "block") throw new ActionRefused(`row ${at + 1} is ${r.kind === "resource" ? "a resource" : r.kind === "branch-note" ? "a line of a view's results" : "a link or a group"}: only a note moves`);
     }
     const pickedAtStart = this.picks;
-    const id = r?.kind === "block" ? r.m.id : String(at), board = desk.ctx.board as WriteBoard, agent = actor.kind === "agent";
+    const id = r?.kind === "block" ? r.m.id : String(at), board = desk.ctx.board as WriteBoard, agent = !standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile");
     const finish = async (done: MoveDone) => {
       this.due = new Set([...(this.due instanceof Set ? this.due : []), done.previousParent, done.parent]);
       await this.reread(desk);
@@ -760,7 +762,7 @@ export class TreePane implements Pane {
 }
 
 /** A tree's actions: which row is picked (and opened), and the links shown under a row. */
-export interface TreeOn { pane: TreePane; desk: DeskApi }
+export interface TreeOn { pane: TreePane; desk: DeskApi; standing: boolean }
 
 /** Row `n` (from 1), or the first row that stands for block `id` (or its start), or the selected row. */
 function rowOf(pane: TreePane, n: number | undefined, id: string | undefined): number {
@@ -787,9 +789,9 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       { act: "tree.fold tile=tree n=3 open=true", does: "opens row 3 of the outline tree, showing its children" },
       { act: "tree.fold tile=tree id=7d9a1f40 open=false", does: "folds the row for that note, hiding its children" },
     ],
-    run({ n, id, open }, { pane, desk }, actor) {
+    run({ n, id, open }, { pane, desk, standing }, actor) {
       const i = rowOf(pane, n, id);
-      return pane.foldRow(i, open, desk, actor.kind === "agent");
+      return pane.foldRow(i, open, desk, !standing);
     },
   }),
   "tree.depth": def({
@@ -805,10 +807,10 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       { act: "tree.depth tile=tree n=2 depth=1", does: "shows one level of children under each match of the view on row 2" },
       { act: "tree.depth tile=tree n=2 depth=authored", does: "goes back to the depth the view itself sets (its child-depth)" },
     ],
-    run({ n, id, depth }, { pane, desk }, actor) {
+    run({ n, id, depth }, { pane, desk, standing }, actor) {
       const d = depth === undefined || depth === "" ? undefined : depth === "authored" ? "authored" as const : Number(depth);
       if (typeof d === "number" && Number.isNaN(d)) throw new ActionRefused("depth is 0 to 8, or authored");
-      return pane.setDepth(rowOf(pane, n, id), d, desk, actor.kind === "agent");
+      return pane.setDepth(rowOf(pane, n, id), d, desk, !standing);
     },
   }),
   "tree.links": def({
@@ -823,9 +825,9 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
     examples: [
       { act: "tree.links tile=tree n=4 show=true", does: "lists the links, resources and backlinks under row 4" },
     ],
-    run({ n, id, show }, { pane, desk }, actor) {
+    run({ n, id, show }, { pane, desk, standing }, actor) {
       const i = rowOf(pane, n, id);
-      return { row: i + 1, shown: pane.toggleLinks(i, desk, show, actor.kind === "agent") };
+      return { row: i + 1, shown: pane.toggleLinks(i, desk, show, !standing) };
     },
   }),
   "tree.move": def({
@@ -854,7 +856,7 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       { act: "tree.move tile=tree id=7d9a1f40 step=up", does: "moves that note one place up among its siblings" },
       { act: "tree.move tile=tree n=5 to=inbox", does: "moves the note on row 5 under the inbox, first among its children" },
     ],
-    run({ n, id, undo, ...where }, { pane, desk }, actor) {
+    run({ n, id, undo, ...where }, { pane, desk, standing }, actor) {
       const i = n === undefined && id !== undefined ? pane.list().findIndex(r => rowBlock(r)?.startsWith(id)) : rowOf(pane, n, id);
       return pane.moveRow(i >= 0 ? i : id!, { ...where, ...(undo ? { undo } : {}) }, desk, actor);
     },
@@ -875,13 +877,13 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
       { act: "tree.pick tile=tree id=7d9a1f40 open=true", does: "opens that note where the tree's opens go" },
       { act: "tree.pick tile=tree n=2 fresh=true", does: "opens row 2's note in a new reader, as alt-click does" },
     ],
-    async run({ n, id, open, fresh }, { pane, desk }, actor) {
+    async run({ n, id, open, fresh }, { pane, desk, standing }, actor) {
       const i = rowOf(pane, n, id);
       if (!pane.list()[i]) throw new ActionRefused(`no row ${i + 1}; the tree has ${pane.list().length}`);
       // The person's pick moves their selection; an agent's is its own: the row's note shown where the tree's selection goes.
-      const agent = actor.kind === "agent";
-      if (!agent) pane.selectRow(i, desk, !open && !fresh);
-      return open || fresh ? pane.openRow(i, desk, actor, fresh) : agent ? pane.showRow(i, desk, actor) : { row: i + 1, id: rowBlock(pane.list()[i]) ?? undefined };
+      const agent = !standing;
+      if (!agent) pane.selectRow(i, desk, !open && !fresh, actor);
+      return open || fresh ? pane.openRow(i, desk, actor, fresh, standing) : agent ? pane.showRow(i, desk, actor) : { row: i + 1, id: rowBlock(pane.list()[i]) ?? undefined };
     },
   }),
 });

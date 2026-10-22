@@ -16,7 +16,7 @@ const wide = (cols: number): Rect => ({ col: 0, row: 0, cols, rows: 40 });
 let AREA = wide(220);
 let holding = new Set<number>();
 const facts = (id: number): TileFacts => ({ kind: "reader", notes: true, ...(holding.has(id) ? { holds: true } : {}) });
-const ctxOf = (actor: Actor, person: Partial<Person>): Ctx => ({ actor, area: AREA, tile: facts, person: { focus: 1, typingIn: null, busy: false, ...person } });
+const ctxOf = (actor: Actor, person: Partial<Person>): Ctx => ({ actor, standing: actor.kind === "user" || !!person.yolo, protectTyping: actor.kind === "agent", area: AREA, tile: facts, person: { focus: 1, typingIn: null, busy: false, ...person } });
 
 /** A flow of `n` reader columns (tiles 1..n, "c1".."cn"), the wide one `anchor`. */
 function river(n: number, anchor = n): LayoutState {

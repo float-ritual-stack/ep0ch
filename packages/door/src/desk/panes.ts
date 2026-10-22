@@ -44,7 +44,7 @@ export interface DeskApi {
   current: Msg | null;
   /** `link`, `fresh`, `agent`: how a reader opened it (OpenHow, PIE-441), for where it goes. */
   setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane } & OpenHow): void;
-  focusKind(kind: TileKindName): void;
+  focusKind(kind: TileKindName, actor?: Actor): void;
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */
   keepLayout?(): void;
@@ -92,8 +92,8 @@ export interface DeskApi {
    */
   leave?(): void;
   /** A `#tag` opened in reader `r` (PIE-800): the notes carrying it, in a query tile whose home is `r`. */
-  openTag?(r: Pane, tag: string, actor: Actor): Promise<TagList>;
-  openQuery?(r: Pane, query: string, actor: Actor): Promise<TagList>;
+  openTag?(r: Pane, tag: string, actor: Actor, standing?: boolean): Promise<TagList>;
+  openQuery?(r: Pane, query: string, actor: Actor, standing?: boolean): Promise<TagList>;
   /** Reader `p`'s note in the outline: its cursor moves there (its dock opening); nothing else moves (PIE-794). */
   revealInOutline?(p: Pane): Promise<{ revealed: string; outline: string }>;
   /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): the tree's ⏎ doesn't take the keys to a reader then. */
@@ -154,13 +154,13 @@ export interface DeskApi {
    * The person's backlinks (`b`): tile `p` lists the backlinks of `m` (else of the note the reader they read through
    * shows), following the reader that shows it; its dock slides open and their keys go to it.
    */
-  aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null): Promise<void>;
+  aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null, given?: ReaderPane, actor?: Actor): Promise<void>;
   /**
    * The links of reader `r`'s note (`b`, the note action `links`): the screen's links tile aims at it, or, on a
    * screen without one, a links tile opens below the reader with a preview following it. The person's keys go to
    * the list; an agent's leaves them where they are.
    */
-  openLinks?(r: Pane, actor: Actor): Promise<Record<string, unknown>>;
+  openLinks?(r: Pane, actor: Actor, standing: boolean): Promise<Record<string, unknown>>;
   /** A new tile of `t.kind` in tile `tile`'s place, which goes (the blank tile's rows, PIE-565). */
   replaceTile?(tile: string | undefined, t: { kind: string; view?: string; cmd?: string; name?: string }, actor: Actor): Promise<Record<string, unknown>>;
   /** The person picks what a new tile of `kind` lacks from its kind's `choices` (a query lane's view); `then` opens it. */
@@ -276,7 +276,7 @@ export interface Pane {
  * A refusal is said, not thrown.
  */
 export function runOwn(set: ActionSet<any, any>, name: string, args: Record<string, unknown>, on: { pane: Pane; desk: DeskApi }) {
-  void (on.desk.press ? on.desk.press(on.pane, set, name, args) : Dispatcher.of(set, on, () => on.desk.ctx).press(name, args));
+  void (on.desk.press ? on.desk.press(on.pane, set, name, args) : Dispatcher.of(set, { ...on, standing: true }, () => on.desk.ctx).press(name, args));
 }
 
 /** Row `n` (from 1) of `count`, or why not. */
@@ -488,8 +488,8 @@ export class ReaderPane implements Pane {
       navigate: (m, how) => { m.address ??= this.noteAddress; desk.setCurrent(m, { reveal: true, from: this, ...how }); },
       summaryKeys: m => desk.summaryKeys?.(m),
       // A #tag opened in it: the notes carrying it, in a list beside it (PIE-800).
-      ...(desk.openQuery ? { query: (q: string, how?: OpenHow) => desk.openQuery!(this, q, how?.by ?? USER) } : {}),
-      ...(desk.openTag ? { tag: (t: string, how?: OpenHow) => desk.openTag!(this, t, how?.by ?? USER) } : {}),
+      ...(desk.openQuery ? { query: (q: string, how?: OpenHow) => desk.openQuery!(this, q, how?.by ?? USER, how?.standing) } : {}),
+      ...(desk.openTag ? { tag: (t: string, how?: OpenHow) => desk.openTag!(this, t, how?.by ?? USER, how?.standing) } : {}),
       // A click on the crumbs shows the note in the outline (reader.reveal, PIE-794): readers of a screen with one.
       ...(desk.revealInOutline ? { revealInOutline: () => runOwn(READER_ACTIONS, "reader.reveal", {}, { pane: this, desk }) } : {}),
       // A row picked in a list drawn in the note shows where this reader's selection goes (PIE-794).
@@ -507,7 +507,7 @@ export class ReaderPane implements Pane {
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
       ...(desk.press ? { press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given) } : {}),
       // `b`: this note's links in the screen's links tile (one opened beside it where there's none).
-      ...(desk.openLinks ? { links: (actor: Actor) => desk.openLinks!(this, actor) } : {}),
+      ...(desk.openLinks ? { links: (actor: Actor, standing: boolean) => desk.openLinks!(this, actor, standing) } : {}),
       ...(desk.noteGone ? { gone: (id: string) => desk.noteGone!(this, id) } : {}),
       // A reader that follows another tile takes `p` (hold) before the surface does.
       ...(this.follows ? { ownKeys: "p" } : {}),
@@ -852,7 +852,7 @@ export class ArtPane implements Pane {
 // ── the list tiles' own actions (PIE-506): what their keys and clicks do, by name, for `act` too ──
 
 
-export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi }>()("activity", {
+export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi; standing: boolean }>()("activity", {
   "activity.pick": def({
     summary: "pick a row of the activity tile (last callers, live): n from 1, else the selected one; open=true makes its note the current one, as ⏎ does. An agent's pick answers the row and moves nothing of the person's",
     keys: "j k ↑ ↓ click wheel, ⏎ (open)",
@@ -862,11 +862,11 @@ export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi }>
       { act: "activity.pick tile=activity n=1", does: "answers the newest caller's row: who, which note, when" },
       { act: "activity.pick tile=activity n=2 open=true", does: "makes the note on row 2 the current one, as enter does" },
     ],
-    run({ n, open }, { pane, desk }, actor) {
+    run({ n, open }, { pane, desk, standing }, actor) {
       const rows = pane.list(), i = rowN(n, pane.selected, rows.length, "activity");
       const r = rows[i]!;
       // An agent's pick is its own (the answer); the person's moves their selection.
-      if (actor.kind !== "agent") pane.pickRow(i, desk);
+      if (standing) pane.pickRow(i, desk);
       if (open) desk.setCurrent(r.block, { reveal: true, from: pane, by: actor });
       return { row: i + 1, id: r.block.id, title: subject(r.block), actor: r.actor, at: r.at, opened: !!open };
     },

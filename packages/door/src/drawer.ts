@@ -1,3 +1,4 @@
+import { INVITES } from "./surface/invite";
 import type { Reveal } from "./reveal";
 // The host layer and its drawer (PIE-513; PIE-498): what stays with the person on every screen, above the screen layer
 // that is swapped per screen. It is a layout on the one layout engine (`hostLayer` in src/desk/screen-layout.ts): a
@@ -66,8 +67,8 @@ import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, placeHost, type
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, agentLabel, type ActRequest } from "./surface/actions";
-import { actorRule, type TileRef } from "./surface/dispatch";
-import { HOST_AGENT, type Whereabouts } from "./whereabouts";
+import { standsAsPerson, actorRule, type TileRef } from "./surface/dispatch";
+import { HOST_AGENT, NOBODY, type Whereabouts } from "./whereabouts";
 import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
 import type { Key } from "./term";
 import type { Placement } from "./kitty";
@@ -290,7 +291,7 @@ export class AgentDrawer {
     }
     if (this.p instanceof DrawerTile) this.p.retarget(this.prog);
     await this.restart();
-    if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tile.focus", {}, DRAWER_TILE_ID); }
+    if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(DRAWER_TILE_ID, actor); }
     const duplicates = this.sessions().filter(s => s.shown.in === "drawer" && s.pane !== this.p).map(s => s.pane.tileId);
     const env = this.prog.from === "env" ? ` · EP0CH_DAILY_AGENT (${process.env.EP0CH_DAILY_AGENT}) still overrides it in this door` : "";
     this.host.flash(`${this.prog.name} started in the drawer${env}${duplicates.length ? ` · other agent tabs: ${duplicates.join(", ")} · close unwanted ones with ^W x` : ""}`, 8000);
@@ -356,9 +357,9 @@ export class AgentDrawer {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready");
     // Pulled up for a shell: the picker isn't offered over it (alt+g is the way to it).
-    if (actor.kind !== "agent" && !this.open) { this.offered = true; this.set(true, actor); }
+    if (this.ctx(actor).standing && !this.open) { this.offered = true; this.set(true, actor); }
     const done = await d.openTile({ kind: "pty", cmd: shellQuote(process.env.SHELL || "sh"), cwd: this.prog.cwd }, this.tabBase(), "tabs", actor);
-    if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, done.tile); this.intoShown(); }
+    if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
     this.host.redraw();
     return done;
   }
@@ -371,9 +372,9 @@ export class AgentDrawer {
   async waiting(actor: Actor): Promise<{ tile: string; waiting: number }> {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready");
-    if (actor.kind !== "agent" && !this.open) { this.offered = true; this.set(true, actor); }
+    if (this.ctx(actor).standing && !this.open) { this.offered = true; this.set(true, actor); }
     const tile = this.tabs().find(t => t.kind === WAITING_YOU_KIND_NAME)?.name ?? (await d.openTile({ kind: WAITING_YOU_KIND_NAME }, this.tabBase(), "tabs", actor)).tile;
-    if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown(); }
+    if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(tile, actor); this.intoShown(); }
     this.host.redraw();
     return { tile, waiting: waitingOnYou(this).length + (this.host.ctx?.()?.heldAsks?.count() ?? 0) + (this.host.ctx?.()?.waitingAsks?.count() ?? 0) };
   }
@@ -385,9 +386,9 @@ export class AgentDrawer {
   async accessMatrix(actor: Actor): Promise<{ tile: string }> {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready");
-    if (actor.kind !== "agent" && !this.open) { this.offered = true; this.set(true, actor); }
+    if (this.ctx(actor).standing && !this.open) { this.offered = true; this.set(true, actor); }
     const tile = this.tabs().find(t => t.kind === ACCESS_MATRIX_KIND_NAME)?.name ?? (await d.openTile({ kind: ACCESS_MATRIX_KIND_NAME }, this.tabBase(), "tabs", actor)).tile;
-    if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown(); }
+    if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(tile, actor); this.intoShown(); }
     this.host.redraw();
     return { tile };
   }
@@ -403,7 +404,7 @@ export class AgentDrawer {
     if (!d) throw new ActionRefused("the drawer isn't ready");
     const store = this.host.ctx?.()?.whatChanged;
     if (!store) throw new ActionRefused("there is no outline here to have changed");
-    const person = actor.kind !== "agent";
+    const person = this.ctx(actor).standing;
     // Looking marks what is held seen: only once the changes since the kept position are in.
     await store.settled();
     if (person && !this.open) { this.offered = true; this.set(true, actor); }
@@ -411,11 +412,11 @@ export class AgentDrawer {
     const changed = store.count();
     if (person) {
       (d.pane(tile) as unknown as WhatChangedPane | undefined)?.keepFresh(store.unseenIds());
-      store.markSeen();
-      this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown();
+      if (actor.kind === "user") store.markSeen();
+      this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(tile, actor); this.intoShown();
     }
     this.host.redraw();
-    return { tile, changed, seen: person };
+    return { tile, changed, seen: person && actor.kind === "user" };
   }
 
   /** The door this drawer is in (its outline, board and machine), or none. */
@@ -451,7 +452,7 @@ export class AgentDrawer {
     if (d && inDrawer) {
       if (!this.open) { this.offered = true; this.set(true, actor); }
       this.do({ op: "focus", tile: HOST_TILES }, actor);
-      d.run("tab.select", {}, inDrawer);
+      d.focusTile(inDrawer, actor);
       this.intoShown();
       p.focused?.(d, actor);
       if (o.zoom) d.zoomTile(inDrawer, true, actor);
@@ -463,7 +464,9 @@ export class AgentDrawer {
     if (!screen || !name) {
       const ctx = this.host.ctx?.(), under = ctx ? [...(ctx.screens?.() ?? []), ...(ctx.kept?.() ?? [])].find(s => s !== this.host.screen?.() && !!tilesOf(s)?.nameOfPane(p)) : undefined;
       if (!under || !ctx?.raise) throw new ActionRefused(`${what} isn't on this screen or in your drawer: it's on a screen under this one (q goes back to it)`);
-      if (actor.kind === "agent") throw new ActionRefused(`${what} is on the ${under.title}, under this screen: an agent doesn't move the person's screen to it (screen.open names a screen, as the person's idle allows)`);
+      if (!this.ctx(actor).standing) throw new ActionRefused(`${what} is on the ${under.title}, under this screen: an agent doesn't move the person's screen to it (screen.open names a screen, as the person's idle allows)`);
+      const held = actorRule({ touches: "screen", host: true }, actor, this.host.person?.() ?? NOBODY, {});
+      if (held) throw new ActionRefused(held);
       ctx.raise(under);
       raised = under.title;
       screen = tilesOf(under); name = screen!.nameOfPane(p);
@@ -554,7 +557,7 @@ export class AgentDrawer {
     if (!dir) throw new ActionRefused(`no folder ${folder} · in=<a folder that exists> (~ is your home)`);
     const program = agentOf([hit.program]) ?? basename(hit.program);
     const persona = o.persona?.trim() || hit.persona;
-    const person = actor.kind !== "agent";
+    const person = this.ctx(actor).standing;
     if (!o.fresh) {
       const had = this.sessions().find(s => s.program === program && s.folder === folder);
       if (had) {
@@ -572,7 +575,7 @@ export class AgentDrawer {
     p.run.cmd = cmd;
     p.run.session = { program, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}) };
     p.startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
-    if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, done.tile); this.intoShown(); }
+    if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
     this.host.redraw();
     return { attached: false, started: true, program, folder, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}), cmd, resumed, tile: done.tile, id: done.id ?? null };
   }
@@ -652,9 +655,9 @@ export class AgentDrawer {
   async agentsPanel(actor: Actor): Promise<{ tile: string; sessions: number }> {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready");
-    if (actor.kind !== "agent" && !this.open) { this.offered = true; this.set(true, actor); }
+    if (this.ctx(actor).standing && !this.open) { this.offered = true; this.set(true, actor); }
     const tile = this.tabs().find(t => t.kind === AGENTS_KIND_NAME)?.name ?? (await d.openTile({ kind: AGENTS_KIND_NAME }, this.tabBase(), "tabs", actor)).tile;
-    if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown(); }
+    if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(tile, actor); this.intoShown(); }
     this.host.redraw();
     return { tile, sessions: this.sessions().length };
   }
@@ -755,7 +758,7 @@ export class AgentDrawer {
   /** Who acts, and where the person is (the shell's one answer): in the agent, or busy on the screen. */
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
     return {
-      actor, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
+      actor, standing: standsAsPerson(actor, this.host.person?.() ?? NOBODY, "shape"), protectTyping: actor.kind === "agent" && !INVITES.covers(actor.invitation, "shape", actor.run), area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
       person: { focus: this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || !!this.host.person?.().busy, ...(this.host.person ? { held: actorRule({ touches: "screen", host: true }, actor, this.host.person(), {}) } : {}) },
     };
   }
@@ -983,10 +986,10 @@ export class AgentDrawer {
    */
   set(open: boolean, actor: Actor) {
     // An agent's pull of a drawer that's up already changes nothing; the person's goes into it.
-    if (open && this.open && actor.kind === "agent") return;
+    if (open && this.open && !this.ctx(actor).standing) return;
     if (open) this.pane();
     this.do({ op: "slide", tile: HOST_TILES, open }, actor);
-    if (open && actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
+    if (open && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
     if (open) this.openedBy = actor.kind === "agent" ? (this.entered ? null : actor) : null;
     else { this.openedBy = null; this.capture = null; this.dragging = false; }
     this.d?.shownAs(this.shown);
@@ -1048,9 +1051,9 @@ export class AgentDrawer {
     if (into) throw new ActionRefused(`the drawer doesn't take ${name}: ${into}`);
     const moved = from.takeOut(name, actor);
     const done = this.bring(d, moved, undefined, "tabs", actor, a => from.bringIn(moved, undefined, undefined, a));
-    if (actor.kind !== "agent") {
+    if (this.ctx(actor).standing) {
       // Shown on its tab, the drawer up; the keys come along only when they were in it.
-      d.run("tab.select", {}, done.tile);
+      d.focusTile(done.tile, actor);
       if (!this.open && this.mode !== "none") this.do({ op: "slide", tile: HOST_TILES, open: true }, actor);
       if ((moved.typing || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
       this.save();
@@ -1063,7 +1066,7 @@ export class AgentDrawer {
   collapse(name: string, on: boolean | undefined, actor: Actor): TileDone {
     const collapsed = on ?? (this.open && this.shownTab() === name);
     this.set(!collapsed, actor);
-    if (!collapsed) this.desk!.selectTab(name, undefined, actor);
+    if (!collapsed) this.desk!.focusTile(name, actor);
     this.host.redraw();
     return { tile: name, collapsed };
   }
@@ -1108,9 +1111,9 @@ export class AgentDrawer {
     } else moved = d.takeOut(name, actor);
     const done = this.bring(screen, moved, to, where, actor, undo ?? (a => d.bringIn(moved, undefined, "tabs", a)));
     // The person's keys were in it in the drawer: they go with it, back on the screen.
-    if (wasIn && actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_SCREEN }, actor); screen.focusTile(done.tile, actor); }
+    if (wasIn && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_SCREEN }, actor); screen.focusTile(done.tile, actor); }
     // The person took the drawer's own program out: the drawer goes away, and its new one starts when it comes up again.
-    if (old && actor.kind !== "agent" && this.open) this.set(false, actor);
+    if (old && this.ctx(actor).standing && this.open) this.set(false, actor);
     this.host.redraw();
     return { ...done, inDrawer: false, into: screen.title, ...(old ? { fresh: true } : {}) };
   }
@@ -1179,8 +1182,8 @@ export class AgentDrawer {
     holder.pane.dispose?.();
     this.p = own; this.left = null; this.out = null;
     this.save();
-    if (actor.kind !== "agent") {
-      d.run("tab.select", {}, DRAWER_TILE_ID);
+    if (this.ctx(actor).standing) {
+      d.focusTile(DRAWER_TILE_ID, actor);
       if (!this.open && this.mode !== "none") this.do({ op: "slide", tile: HOST_TILES, open: true }, actor);
       if ((moved.typing || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
     }

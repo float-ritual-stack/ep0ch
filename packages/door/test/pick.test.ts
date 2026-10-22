@@ -175,7 +175,7 @@ describe("ctrl+t and [insert] in a reader's edit (draft.pick)", () => {
       s.show(saved, h);
       const d = s.startDraft(saved, h).draft;
       d.place(1, Infinity);
-      await withEnv({ EP0CH_PICKER: "echo" }, () => NOTE_ACTIONS.run("draft.pick", { channel: "((b2))" }, { surface: s, host: h }, USER));
+      await withEnv({ EP0CH_PICKER: "echo" }, () => NOTE_ACTIONS.run("draft.pick", { channel: "((b2))" }, { surface: s, host: h, standing: true }, USER));
       expect(d.text).toBe("Shed list\nOil the chain. ((b2))");
     } finally { board.close(); await scratch.dispose(); }
   });
@@ -188,7 +188,7 @@ describe("ctrl+t and [insert] in a reader's edit (draft.pick)", () => {
     const was = pickRunner.run;
     pickRunner.run = async () => { ran.push("picker"); return 0; };
     try {
-      const d = Dispatcher.of(NOTE_ACTIONS, { surface: s, host: h }, () => h.ctx as any);
+      const d = Dispatcher.of(NOTE_ACTIONS, { surface: s, host: h, standing: false }, () => h.ctx as any);
       await expect(d.act({ action: "draft.pick", args: {} }, { kind: "agent", id: "helper-3" })).rejects.toThrow(/an agent doesn't hand the person's terminal to a picker/);
       // The board's new card says the same, through the same rule.
       expect(BOARD_ACTIONS.def("composer.pick")!.person).toContain("an agent doesn't hand the person's terminal to a picker");

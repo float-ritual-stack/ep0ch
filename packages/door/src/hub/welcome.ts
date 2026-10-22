@@ -1,3 +1,5 @@
+import { standsAsPerson } from "../surface/dispatch";
+import { NOBODY } from "../whereabouts";
 import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { clipText } from "../overflow";
 // Welcome: the notes with a block-scoped `welcome` property (any value: it only marks a note), one at a time, in the
@@ -323,10 +325,10 @@ export class WelcomeList implements Pane {
     // Another note read by the person: what the preview showed came from the one before (its link, its backlink),
     // so it empties rather than show something the detail no longer points at. An agent's leaves what the person
     // may be reading there. Either way the preview never repeats the note read.
-    const other = d.msg?.id !== m.id, pv = this.preview(desk);
+    const other = d.msg?.id !== m.id, pv = this.preview(desk), standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile");
     if (other) d.surface.track(() => d.hold(m, desk));
-    if (pv && (pv.msg?.id === m.id || (other && actor.kind !== "agent"))) pv.show(null, desk);
-    if (focus && actor.kind !== "agent" && !desk.holdsKeys?.()) desk.focusPane?.(d, actor);
+    if (pv && (pv.msg?.id === m.id || (other && standing))) pv.show(null, desk);
+    if (focus && standing && !desk.holdsKeys?.()) desk.focusPane?.(d, actor);
     const items = this.items ?? [], i = items.findIndex(x => x.id === m.id);
     const s: Shown = { id: m.id, title: subject(m), welcome: prop(m, WELCOME_KEY) ?? null, n: i >= 0 ? i + 1 : null, of: items.length };
     desk.redraw();

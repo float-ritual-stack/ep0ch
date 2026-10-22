@@ -1,3 +1,5 @@
+import { standsAsPerson } from "../surface/dispatch";
+import { NOBODY } from "../whereabouts";
 import { outlineBoards, readNote } from "./outline-boards";
 // The links tile (kind `backlinks`, PIE-432, PIE-442): the links of a note, its *subject*, in the shared links model
 // (src/links.ts): its Outlinks, its Resources, its Backlinks and its
@@ -388,11 +390,11 @@ export class BacklinksPane implements Pane {
    * or opened (a Resource registered if it must be, as the Tree's ⏎). As `actor`: an agent's never moves the
    * person's keys (the desk's rule for every open).
    */
-  async pick(i: number, how: PickHow, desk: DeskApi, actor: Actor = USER): Promise<{ row: number; id?: string; group?: string; resource?: string; registered?: boolean }> {
+  async pick(i: number, how: PickHow, desk: DeskApi, actor: Actor = USER, standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile")): Promise<{ row: number; id?: string; group?: string; resource?: string; registered?: boolean }> {
     const rows = this.rows();
     const r = rows[i];
     if (!r) throw new ActionRefused(this.data ? `pick a row from 1 to ${rows.length}` : "the links are still being read");
-    const agent = actor.kind === "agent";
+    const agent = !standing;
     // An agent's pick is its own: the person's selection stays where it is.
     if (!agent) { this.sel = i; this.headerPicked = !isLinkEntry(r); }
     if (r.kind === "group" || r.kind === "kind") {
@@ -550,7 +552,7 @@ export class BacklinksPane implements Pane {
 }
 
 /** A backlinks tile's actions: which row is picked (and where it opens), and the view's options. */
-export interface BacklinksOn { pane: BacklinksPane; desk: DeskApi }
+export interface BacklinksOn { pane: BacklinksPane; desk: DeskApi; standing: boolean }
 export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
   "backlinks": def({
     summary: "a backlinks tile's view as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (b, as=you) aims the list: it lists the links of id (else of the note in the reader they read through; in the list itself, its home's), and that reader becomes its home, its dock sliding open, and sets their options; its rows and controls are backlinks.pick, backlinks.view and backlinks.fold",
@@ -570,20 +572,20 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       { act: "backlinks tile=replies filter=seed", does: "answers the replies tile's rows that match seed, changing nothing of the person's" },
       { act: "backlinks id=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 stage=open", does: "answers that note's backlinks still open, grouped as Detail does" },
     ],
-    async run(args, { pane: L, desk }, actor) {
+    async run(args, { pane: L, desk, standing }, actor) {
       const { id, ...want } = args;
       const open = (desk.shownNow?.(L) ?? true) && !!L.target;
       const same = !id || (open && (L.target!.id === id || (id.length >= 8 && L.target!.id.startsWith(id))));
       const viewing = Object.values(want).some(v => v !== undefined);
       const kindsOf = (data: BacklinkCollection | null, o: BacklinkViewOptions, links: Load<AuthoredLinksSnapshot>) => linkAcross({ links, backlinks: data ? { kind: "ready", value: data } : { kind: "loading" } }, { ...o, kind: null }).kinds;
       const parse = (base: BacklinkViewOptions, data: BacklinkCollection | null, links: Load<AuthoredLinksSnapshot> = L.authored) => { try { return backlinkOptionsFrom(base, want, kindsOf(data, base, links)); } catch (e) { throw new ActionRefused((e as Error).message); } };
-      if (actor.kind !== "agent") {
+      if (standing) {
         // The person's b (or one naming a note): the list aims at it; their view options alone keep the list where it is.
         if (id || !viewing || !open) {
           const m = id ? await desk.ctx.board.get(id) : null;
           if (id && !m) throw new ActionRefused(`no block ${id}`);
           if (!desk.aimBacklinks) throw new ActionRefused("backlinks aim at a reader's note on a screen with readers");
-          await desk.aimBacklinks(L, m);
+          await desk.aimBacklinks(L, m, undefined, actor);
         } else if (!L.data && L.target) await L.load(L.target, desk, true);
         if (!viewing) return { backlinks: L.describe() };
         const next = parse(L.options, L.data);
@@ -647,14 +649,14 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       { act: "backlinks.pick tile=replies n=2", does: "selects row 2; it shows where the tile's selection goes" },
       { act: "backlinks.pick tile=replies by=1", does: "moves to the next row, as j does" },
     ],
-    async run({ n, id, by, open, fresh }, { pane, desk }, actor) {
+    async run({ n, id, by, open, fresh }, { pane, desk, standing }, actor) {
       if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("backlinks.pick takes one of n, id or by");
       const rows = pane.rows();
       const idOf = (r: LinkRow) => linkBlock(r) ?? (r.kind === "resource" ? r.link.recordBlockId ?? r.link.resourceId ?? (r.link.resolution.kind === "ready" ? r.link.resolution.target.resourceId : null) : null);
       const i = id !== undefined ? rows.findIndex(r => idOf(r)?.startsWith(id)) : by !== undefined ? pane.sel + Math.trunc(by) : n! - 1;
       if (by !== undefined && (i < 0 || i >= rows.length)) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} row ${pane.sel + 1}`);
       if (id !== undefined && i < 0) throw new ActionRefused(`no link to or from ${id} here`);
-      return pane.pick(i, fresh ? "fresh" : open ? "open" : "show", desk, actor);
+      return pane.pick(i, fresh ? "fresh" : open ? "open" : "show", desk, actor, standing);
     },
   }),
   "backlinks.open": def({
@@ -670,14 +672,14 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       { act: "backlinks.open tile=replies n=1", does: "opens the first linked note in the tile its opens land in" },
       { act: "backlinks.open tile=replies n=1 where=new", does: "opens it in a new detail beside the tile's home" },
     ],
-    async run({ n, id, where }, { pane, desk }, actor) {
+    async run({ n, id, where }, { pane, desk, standing }, actor) {
       if (where !== undefined && where !== "home" && where !== "new") throw new ActionRefused(`backlinks.open: where is home or new, not ${where}`);
       if (n !== undefined && id !== undefined) throw new ActionRefused("backlinks.open takes one of n or id");
       const rows = pane.rows();
       const idOf = (r: LinkRow) => linkBlock(r) ?? (r.kind === "resource" ? r.link.recordBlockId ?? r.link.resourceId ?? (r.link.resolution.kind === "ready" ? r.link.resolution.target.resourceId : null) : null);
       const i = id !== undefined ? rows.findIndex(r => idOf(r)?.startsWith(id)) : (n ?? pane.sel + 1) - 1;
       if (id !== undefined && i < 0) throw new ActionRefused(`no link to or from ${id} here`);
-      return pane.pick(i, where === "new" ? "fresh" : "open", desk, actor);
+      return pane.pick(i, where === "new" ? "fresh" : "open", desk, actor, standing);
     },
   }),
   "backlinks.groups": def({
@@ -694,10 +696,10 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       { act: "backlinks.groups tile=replies show=outlinks,backlinks", does: "lists only the outlinks and backlinks groups" },
       { act: "backlinks.groups tile=replies toggle=resources", does: "switches the resources group on or off" },
     ],
-    run({ show, toggle, choose }, { pane, desk }, actor) {
+    run({ show, toggle, choose }, { pane, desk, standing }, actor) {
       if ([show, toggle, choose].filter(x => x !== undefined && x !== false).length !== 1) throw new ActionRefused("backlinks.groups takes one of show, toggle or choose");
       if (choose) {
-        if (actor.kind === "agent") throw new ActionRefused("the groups' list is the person's; an agent passes show= or toggle=");
+        if (!standing) throw new ActionRefused("the groups' list is the person's; an agent passes show= or toggle=");
         pane.chooseGroups(desk);
         return { choosing: true, groups: undefined };
       }
@@ -731,10 +733,10 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       { act: "backlinks.view tile=replies filter=seed sort=updated-desc", does: "lists the links matching seed, newest first" },
       { act: "backlinks.view tile=replies step=stage", does: "steps the Stage control to its next value" },
     ],
-    run({ step, ...args }, { pane, desk }, actor) {
+    run({ step, ...args }, { pane, desk, standing }, actor) {
       if (step !== undefined) {
         if (!(["kind", "stage", "resolved", "related", "sort", "filter"] as string[]).includes(step)) throw new ActionRefused(`step is filter, kind, stage, resolved, related or sort, not ${step}`);
-        if (step === "filter" && actor.kind === "agent") throw new ActionRefused("typing a filter is the person's; an agent passes filter=<text>");
+        if (step === "filter" && !standing) throw new ActionRefused("typing a filter is the person's; an agent passes filter=<text>");
         const said = pane.control(step as BacklinkControl);
         if (said) desk.ctx.flash(said);
         desk.redraw();
