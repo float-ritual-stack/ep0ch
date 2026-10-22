@@ -129,7 +129,8 @@ if [ $target = float-box ]; then
   # tests need float-box's logged-in claude.
   home_line="mkdir -p $dir/home; export HOME=$dir/home; "
   for p in "${pkgs[@]}"; do [ "$p" = claude-mod ] && home_line=""; done
-  run="${home_line}for v in \$(compgen -e | grep '^EP0CH_'); do unset \$v; done"
+  # with-secrets groups: an empty folder of the run's, even when HOME stays (claude-mod), so no test host reads a real key.
+  run="${home_line}mkdir -p $dir/secrets; export WITH_SECRETS_DIR=$dir/secrets; for v in \$(compgen -e | grep '^EP0CH_'); do unset \$v; done"
   run+="; cd $dir/ep0ch && git checkout -q --detach $sha && nice -n 10 bun install --frozen-lockfile >/dev/null 2>&1 || { echo 'bun install failed'; exit 2; }; code=0"
   for p in "${pkgs[@]}"; do
     # The door's files run $jobs at once (bun test --parallel, each file in a worker of its own, as test:each would):

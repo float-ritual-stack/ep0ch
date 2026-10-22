@@ -79,7 +79,10 @@ settings=(EP0CH_STATE="$dir/state" EP0CH_CONTROL="$dir/control.sock" EP0CH_OUTLI
   # person's is theirs. None of them is the real one here.
   XDG_CONFIG_HOME="$dir/xdg/config" XDG_DATA_HOME="$dir/xdg/data" XDG_STATE_HOME="$dir/xdg/state" XDG_CACHE_HOME="$dir/xdg/cache"
   # AWS tools read ~/.aws whatever XDG says: point them at empty files here.
-  AWS_SHARED_CREDENTIALS_FILE="$dir/xdg/config/aws-credentials" AWS_CONFIG_FILE="$dir/xdg/config/aws-config")
+  AWS_SHARED_CREDENTIALS_FILE="$dir/xdg/config/aws-credentials" AWS_CONFIG_FILE="$dir/xdg/config/aws-config"
+  # with-secrets groups (~/.config/secrets): an empty folder of its own, so a scratch host never reads a real key
+  # (ranked search reads typesafe's and would call the paid API).
+  WITH_SECRETS_DIR="$dir/secrets")
 
 if [ "$mode" = print ]; then
   for v in $(env | sed -n 's/^\(EP0CH_[A-Za-z0-9_]*\)=.*/\1/p'); do echo "unset $v"; done
