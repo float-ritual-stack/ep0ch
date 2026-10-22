@@ -149,16 +149,24 @@ function quoteViewPages(yaml: string): string {
   }).join("\n");
 }
 
+/** A figure's YAML as its props read it (`{{ }}` and view pages quoted first), or why it doesn't read. */
+export function figureYaml(src: FigureSource): { yaml: Props } | { error: string } {
+  let yaml: Props = {};
+  try { yaml = (Bun.YAML.parse(quoteViewPages(quoteBraces(src.yaml))) as Props) ?? {}; }
+  catch (e) { return { error: `bad YAML: ${(e as Error).message}` }; }
+  if (typeof yaml !== "object" || Array.isArray(yaml)) return { error: "the YAML between --- lines is a map of props (title: …)" };
+  return { yaml };
+}
+
 /**
  * A figure's props: its YAML over what its Markdown rows and (for a figure block, or `rows: children`) its note's child
  * bullets give. The YAML wins: a field it sets is never taken from the Markdown. `children`: the rows came from child
  * notes; `waiting`: they are still being asked for.
  */
 export function figureProps(kind: string, src: FigureSource, childRows?: ChildRows): { props: Props; children: boolean; waiting: boolean; warning?: string; args?: Record<string, string> } | { error: string } {
-  let yaml: Props = {};
-  try { yaml = (Bun.YAML.parse(quoteViewPages(quoteBraces(src.yaml))) as Props) ?? {}; }
-  catch (e) { return { error: `bad YAML: ${(e as Error).message}` }; }
-  if (typeof yaml !== "object" || Array.isArray(yaml)) return { error: "the YAML between --- lines is a map of props (title: …)" };
+  const read = figureYaml(src);
+  if ("error" in read) return read;
+  const yaml = read.yaml;
   const md: Markdown = parseFigureMarkdown(src.markdown ?? []);
   // The fields this kind's rows give that the YAML leaves open: only those can come from child bullets.
   // The first field a kind's rows give is its rows (events, items, marks, days…); the rest go with them (a calendar's
