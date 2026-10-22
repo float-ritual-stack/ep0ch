@@ -152,7 +152,27 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       }, 30_000);
     }
 
-    standingTest(`standing: a press leaves the person's typing and keys in place (${placement})`, async () => {
+    if (placement !== "drawer") for (const via of ["button", "rule", "ask", "ask-source", "mcp"] as const) {
+      standingTest(`standing: ${via} cannot move focus while the person types (${placement})`, async () => {
+        const s = await placed();
+        try {
+          await s.owner.dispatch.act({ action: "edit", tile: s.tile }, USER);
+          press({ kind: "char", ch: "e" });
+          press({ kind: "enter" });
+          await until(() => s.owner.dispatch.where().busy, "person typing in the editor");
+          const before = s.owner.dispatch.where().focus;
+          const other = placement === "group" ? "nest/other" : "other";
+          const answer = await pressed(`await act('tile.focus', { tile: '${other}' }); return 'moved';`, { kind: "agent", id: "garden-helper" }, via);
+          expect(answer).toMatch(/typing|edit/);
+          expect(s.owner.dispatch.where().focus).toBe(before);
+        } finally {
+          await s.owner.dispatch.act({ action: "edit.close", tile: s.tile, args: { discard: true } }, USER);
+          await s.cleanup();
+        }
+      }, 30_000);
+    }
+
+    standingTest(`standing: a press moves focus out of the person's typing tile (${placement})`, async () => {
       const s = await placed();
       try {
         await s.owner.dispatch.act({ action: "edit", tile: s.tile }, USER);
@@ -163,12 +183,13 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
         const before = s.owner.dispatch.where();
         expect(before.busy).toBe(true);
         const answer = await pressed(`await act('tile.focus', { tile: '${placement === "drawer" ? "@drawer/nest/other" : placement === "group" ? "nest/other" : "other"}' }); return 'moved';`);
-        expect(answer).toMatch(/typing|edit/);
-        expect(s.owner.dispatch.where().focus).toBe(before.focus);
+        expect(answer).toContain("\nmoved");
+        const focused = await s.owner.dispatch.act({ action: "tile.info", tile: placement === "screen" ? "other" : "nest/other" }, USER);
+        expect(JSON.stringify(focused)).toContain('"focused":true');
         const menu = await pressed(`await act('tile.menu', { tile: '${placement === "drawer" ? "@drawer/nest/other" : placement === "group" ? "nest/other" : "other"}' }); return 'opened';`);
-        expect(menu).toMatch(/typing|edit/);
+        expect(menu).toContain("opened");
         const close = await pressed(`await act('edit.close', { tile: '${placement === "drawer" ? "@drawer/nest/briefing" : s.tile}', discard: true }); return 'closed';`);
-        expect(close).toMatch(/typing/);
+        expect(close).toContain("closed");
       } finally {
         await s.owner.dispatch.act({ action: "edit.close", tile: s.tile, args: { discard: true } }, USER);
         if (placement === "drawer") app.drawer.leave(s.d, false);
@@ -177,16 +198,28 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     }, 30_000);
   }
 
-  test("standing: a press cannot clear or pick the person's power bar while it holds typing keys", async () => {
+  test("standing: a press opens the links group's choices and filter", async () => {
+    const s = await twoReaders();
+    try {
+      await app.dispatch.act({ action: "tile.open", args: { kind: "backlinks", name: "garden-links" } }, USER);
+      const answer = await pressed(`
+        const groups = await act('backlinks.groups', { tile: 'garden-links', choose: true });
+        await act('backlinks.view', { tile: 'garden-links', step: 'filter' });
+        return 'filter opened';
+      `);
+      expect(answer).toContain("\nfilter opened");
+      expect(s.d.dispatch.where().busy).toBe(true);
+    } finally { s.done(); }
+  }, 30_000);
+
+  test("standing: a press clears the person's power bar while it holds typing keys", async () => {
     const s = await twoReaders();
     try {
       await app.dispatch.act({ action: "bar.open", args: { query: "seedlings", scope: "notes" } }, USER);
       const edit = await pressed("await act('bar.edit', { op: 'clear' }); return 'cleared';");
-      expect(edit).toMatch(/typing|power bar/);
-      const pick = await pressed("await act('bar.pick', { n: 1 }); return 'picked';");
-      expect(pick).toMatch(/typing|power bar/);
+      expect(edit).toContain("cleared");
       const read = await app.dispatch.act({ action: "bar.edit", args: { op: "select", from: 0, to: 0 } }, USER) as { query: string };
-      expect(read.query).toBe("seedlings");
+      expect(read.query).toBe("");
     } finally {
       await app.dispatch.act({ action: "bar.close" }, USER);
       s.done();

@@ -6,9 +6,8 @@
 //
 // A press invites the run it starts (PIE-957, S7; design §4.8): the person's click on a button that runs a script mints
 // a one-run invitation, scoped to what the run may touch of the person's screen (tiles, shape and screen), and every action the run
-// asks of the door carries it. It lets the run move the person's tiles, including the one they are looking at, where
-// "the person is at the keys" would refuse an agent the moment after their click. A tile the person starts typing in during the run is still refused, including changes to its draft
-// (the dispatcher and the layout module keep that typing guard). Any actor gets one on
+// asks of the door carries it. A press acts fully as the person, including in a tile they are typing in.
+// Runs nobody pressed keep the agent rules. Any actor gets one on
 // the same terms (an MCP action the person confirmed carries one too): there is no script-only exception. It is spent
 // when the run ends (`scripts.ended`), or lapses after ten minutes.
 import { randomUUID } from "node:crypto";

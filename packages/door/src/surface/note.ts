@@ -6649,7 +6649,7 @@ export class NoteSurface {
       this.noteAgent(actor, `read the sources of this note`);
       return { ...this.sourcesRead(a), ...(i >= 0 ? { at: i + 1 } : {}), opened: false };
     }
-    if (actor.kind === "agent" && this.holdsKeys) throw new ActionRefused("the person is typing here; the Sources inspector does not take their keys");
+    if (actor.kind === "agent" && !INVITES.covers(actor.invitation, "tile", actor.run) && this.holdsKeys) throw new ActionRefused("the person is typing here; the Sources inspector does not take their keys");
     let mode = this.sourcesMode;
     if (!mode || mode.panel.block !== m.id) { mode = this.sourcesModeOf(newPanel(m.id, ""), host); this.modes.push(mode); }
     mode.reveal = true;
@@ -8013,7 +8013,7 @@ export class NoteSurface {
     this.use(host);
     // The property panel is the person's (only their `i` opens it); an agent doesn't start an edit or a
     // comment under it, where the panel would take the keys meant for the agent's session (the mode stack's own rule).
-    if (actor.kind === "agent" && this.sessionMode()?.name === "panel" && STARTS_SESSION.has(name))
+    if (actor.kind === "agent" && !INVITES.covers(actor.invitation, "tile", actor.run) && this.sessionMode()?.name === "panel" && STARTS_SESSION.has(name))
       return Promise.reject(new ActionRefused("the person has the property panel open on this note; try again once they close it"));
     const h: SurfaceHost = actor.kind === "agent" ? { ...host, ctx: asActor(host.ctx, actor), redraw: () => host.redraw(), navigate: (m, how) => host.navigate(m, { ...how, by: actor, standing }),
       ...(host.query ? { query: (q: string, how?: OpenHow) => host.query!(q, { ...how, by: actor, standing }) } : {}),
