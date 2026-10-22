@@ -184,7 +184,9 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.apple.id, "a click on the third tab");
     ch("9");
     await until(() => (app as any).message?.includes("pick 1 to 3"), "9: no ninth, said");
-    press({ kind: "tab", }); press({ kind: "backtab" }); press({ kind: "backtab" });
+    const tiles = top().layoutAll().tiles;
+    expect(tiles.some(t => t.collapsed && t.showing?.id === n.rules.id)).toBe(true);
+    for (let i = 0; i < tiles.length && focus() !== "welcome"; i++) press({ kind: "backtab" });
     expect(focus()).toBe("welcome");
     ch("k");
     await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.rules.id, "k in the list: the one above");
@@ -255,10 +257,13 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     tileOf<WelcomePreview>("preview").show(null, top());
     tileOf<BacklinksPane>("backlinks").sel = tileOf<BacklinksPane>("backlinks").rows().findIndex(r => r.kind === "backlink");
     const first = (tileOf<BacklinksPane>("backlinks").rows()[tileOf<BacklinksPane>("backlinks").sel] as any).source.blockId as string;
+    lines();
     const before = JSON.stringify((top().describe() as any).panes.map((p: any) => p.rect));
+    const spines = top().layoutAll().tiles.filter(t => t.collapsed).map(t => t.name);
     const order: string[] = [];
-    for (let i = 0; i < 4; i++) { press({ kind: "tab" }); order.push(focus()); }
-    expect(order).toEqual(["backlinks", "preview", "welcome", "detail"]);
+    for (let i = 0; i < 4 + spines.length; i++) { press({ kind: "tab" }); order.push(focus()); }
+    expect(order.filter(name => !spines.includes(name))).toEqual(["backlinks", "preview", "welcome", "detail"]);
+    expect(order.filter(name => spines.includes(name)).sort()).toEqual([...spines].sort());
     await until(() => tileOf<WelcomePreview>("preview").msg?.id === first, "the selected backlink shown on landing");
     // Giving a tile the keys never moves a tile.
     expect(JSON.stringify((top().describe() as any).panes.map((p: any) => p.rect))).toBe(before);

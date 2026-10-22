@@ -569,6 +569,8 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       return result;
     }
     const facts = ctx.tile(target);
+    // Following a wire into a preview leaves the invoking reader's keys where they are.
+    if (to === undefined && !fresh && facts.follower) result.giveNewKeys = false;
     if (facts.editing || facts.holds) {
       if (to !== undefined && !ctx.standing) {
         result.destination = { kind: "none", reason: `${s.names.get(target)} holds an edit or a comment` };

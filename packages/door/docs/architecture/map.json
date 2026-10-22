@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "2fe4e5c1", "outliner": "2fe4e5c1", "on": "2026-10-22" },
+  "verified": { "door": "29728026", "outliner": "29728026", "on": "2026-10-22" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -607,7 +607,7 @@
         { "r": "door", "p": "src/desk/pty.ts", "l": 193, "m": "get herdr(): { pane: string; name?: string } | null" },
         { "r": "door", "p": "src/drawer.ts", "l": 194, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/drawer.ts", "l": 1523, "m": "export const DRAWER_ACTIONS" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1834, "m": "export function hostLayer" }
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1836, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback. In a door session the tile outlives a detach, scrollback and all; a new door still attaches without it.", "finding": "B-F21", "route": "PIE-418" } ]
     },
@@ -619,7 +619,7 @@
         { "r": "door", "p": "src/drawer.ts", "l": 194, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 6284, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1116, "m": "private take(id: I, heir?" }
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1118, "m": "private take(id: I, heir?" }
       ]
     },
     {
