@@ -1072,6 +1072,13 @@ export class NoteSurface {
     return null;
   }
 
+  /** Refusals name the draft that holds the note, even while its preview has the keys. */
+  holdingHint(): string {
+    const d = this.draft;
+    return d ? editHint(d, { save: "save", follow: true, reload: d.conflict || d.changedElsewhere ? "reload" : null })
+      : this.modes.all().find(mode => mode.editing())?.hint() ?? "";
+  }
+
   /** The keys that work right now. `extra` goes before the reading keys (a host's own, like `p pin`). */
   hint(extra = ""): string {
     const mode = this.modes.top();
@@ -3122,7 +3129,7 @@ export class NoteSurface {
   }
 
   startReply(host: SurfaceHost, quote?: string): DraftSession {
-    if (this.editing) throw new ActionRefused(`finish the open draft first · ${this.hint()}`);
+    if (this.editing) throw new ActionRefused(`finish the open draft first · ${this.holdingHint()}`);
     const parent = this.requireNote();
     const target = noteReplyTarget(parent, host.ctx.board);
     const s: DraftSession = DraftSession.open(target, { text: `re:: ${subject(parent)}\n\n`, by: host.actor ?? USER }, {
@@ -7331,7 +7338,7 @@ export class NoteSurface {
     const stack = dir < 0 ? this.backs : this.aheads, to = stack.at(-1);
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
     const holding = this.modes.holding();
-    if (holding) return `finish ${holding} first · ${this.hint()}`;
+    if (holding) return `finish ${holding} first · ${this.holdingHint()}`;
     const fresh = await readNote(outlineBoards(host.ctx).home(), to.msg.id, to.msg.address).catch(() => null);
     if (stack.at(-1) !== to) return "the reader moved meanwhile";
     const here = this.place();

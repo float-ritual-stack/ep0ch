@@ -9,7 +9,7 @@ import type { Subprocess } from "bun";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { Draft, DRAFT_ACTIONS, DRAFT_DAYS, DRAFT_KEEP, pruneDrafts } from "../src/edit";
-import { MainMenu } from "../src/screens";
+import { MainMenu, MessageReader } from "../src/screens";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { ACTOR_ID, EditConflict, Refused, SocketBoard, USER } from "../src/socket";
 import { Term, type Key } from "../src/term";
@@ -208,17 +208,50 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     delete process.env.EP0CH_STATE;
   });
 
-  test("PIE-1173: refusing another draft names the two Esc presses that keep unsaved text", async () => {
+  test.each([false, true])("PIE-1173: refusing another draft names the owning draft keys (preview=%s)", async preview => {
     const b = await create("Draft refusal\nThe garden gate");
-    const { pane, d } = await openReader(b.id);
+    const previous = await create("Previous note\nThe orchard path");
+    const pane = new ReaderPane(), d = desk();
+    pane.show(await board.get(previous.id), d);
+    pane.surface.track(() => pane.show(b, d));
+    pane.key(char("e"), d);
+    await until(() => pane.editing, "the draft to open");
     type(pane, "kept words", d);
+    if (preview) {
+      pane.key(ctrl("p"), d);
+      expect(pane.draft!.preview).toBe(true);
+      expect(pane.surface.hint()).toContain("close preview");
+    }
     expect(() => pane.surface.startReply(pane.host(d))).toThrow("esc twice puts it aside");
+    expect(() => pane.surface.startReply(pane.host(d))).toThrow("ctrl+s save");
+    expect(await pane.surface.travel(-1, pane.host(d))).toContain("esc twice puts it aside");
+    expect(pane.msg?.id).toBe(b.id);
+    if (preview) pane.key({ kind: "esc" }, d);
     const text = pane.draft!.text;
     pane.key({ kind: "esc" }, d);
     expect(pane.draft!.text).toBe(text);
     pane.key({ kind: "esc" }, d);
     await until(() => !pane.draft, "second Esc keeps the draft aside");
     expect((await current(b.id)).text).toBe(b.text);
+  });
+
+  test.each([false, true])("PIE-1173: stepping messages refuses with the owning draft keys (preview=%s)", async preview => {
+    const notes = [await create("First message\nThe gate"), await create("Second message\nThe shed")];
+    const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    const app = new App(term, board, Date.now(), () => {});
+    const reader = new MessageReader(notes, 0);
+    app.push(reader);
+    reader.key(char("e"), app);
+    await until(() => !!reader.surface.draft, "message draft");
+    reader.key({ kind: "paste", text: "Keep these words." }, app);
+    if (preview) reader.key(ctrl("p"), app);
+    expect(() => reader.step(1, app)).toThrow("ctrl+s save");
+    expect(() => reader.step(1, app)).toThrow("esc twice puts it aside");
+    expect(reader.surface.msg?.id).toBe(notes[0]!.id);
+    expect(reader.surface.draft!.text).toContain("Keep these words.");
+    if (preview) reader.key({ kind: "esc" }, app);
+    reader.key({ kind: "esc" }, app); reader.key({ kind: "esc" }, app);
+    await until(() => !reader.surface.draft, "message draft put aside");
   });
 
   test("e, type, ctrl+s: the service has the new text at the next revision, attributed to the door", async () => {
