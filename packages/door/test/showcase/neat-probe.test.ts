@@ -362,6 +362,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       }
       await act("tile.focus", id);
       const rows = s.d.resolveTile(id)!.dispatch.menu(id, USER);
+      for (const row of rows) expect(row.tile).toBe(id);
       const fold = rows.find(r => r.action === "tile.collapse")!;
       expect(fold.tile).toBe(id);
       await app.dispatch.act(fold, USER);
