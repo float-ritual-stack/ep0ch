@@ -43,15 +43,18 @@ export function defigure(text: string): { text: string; figure: string } | null 
   return { text: out.join("\n"), figure: first.name };
 }
 
-/** The labelled set from an outline's notes: positives from its figures, the shaped notes unlabelled, hand labels over both. */
-export function evalSet(blocks: readonly { id: string; text: string }[], labels: Record<string, string> = {}): EvalItem[] {
+/**
+ * The labelled set from an outline's notes: positives from its figures, the shaped notes unlabelled, hand labels over
+ * both. A figure written whole in its YAML (no rows) isn't a positive: taken away, nothing of the note's shape is left.
+ */
+export function evalSet(blocks: readonly { id: string; text: string }[], labels: Record<string, string> = {}, schemas: readonly ComponentSchema[] = []): EvalItem[] {
   const items: EvalItem[] = [];
   for (const b of blocks) {
     const title = b.text.split("\n", 1)[0]!.slice(0, 120);
     const hand = labels[b.id];
     const taken = defigure(b.text);
-    if (taken && figureShape(taken.text) === "shaped") items.push({ id: b.id, title, text: taken.text, label: hand ?? taken.figure, source: hand ? "hand" : "figure" });
-    else if (figureShape(b.text) === "shaped") items.push({ id: b.id, title, text: b.text, label: hand ?? null, source: hand ? "hand" : "shaped" });
+    if (taken && figureShape(taken.text, schemas) === "shaped") items.push({ id: b.id, title, text: taken.text, label: hand ?? taken.figure, source: hand ? "hand" : "figure" });
+    else if (figureShape(b.text, schemas) === "shaped") items.push({ id: b.id, title, text: b.text, label: hand ?? null, source: hand ? "hand" : "shaped" });
     else if (hand) items.push({ id: b.id, title, text: b.text, label: hand, source: "hand" });
   }
   return items;
@@ -114,7 +117,7 @@ const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "â€
 const cell = (s: string) => JSON.stringify(s.replace(/\s+/g, " ").slice(0, 60));
 
 /** The report as a note an outline draws (its figures the eval's own subject), to paste or create where the work is tracked. */
-export function reportNote(score: EvalScore, sweep: ReturnType<typeof sweepThresholds>, meta: { outline: string; model: string; prompt: string; asked: number; cached: number; unavailable: number }): string {
+export function reportNote(score: EvalScore, sweep: ReturnType<typeof sweepThresholds>, meta: { outline: string; model: string; prompt: string; asked: number; cached: number; unavailable: number }, unseen: readonly string[] = []): string {
   const p = score.positives;
   const kinds = Object.entries(score.perKind).sort((a, b) => b[1].n - a[1].n);
   return [
@@ -147,6 +150,7 @@ export function reportNote(score: EvalScore, sweep: ReturnType<typeof sweepThres
     "---",
     "::",
     "",
+    ...(unseen.length ? [`No notes to score these on (label some with --labels): ${unseen.join(", ")}.`, ""] : []),
     ...(score.confusion.length ? ["Mixed up most:", ...score.confusion.slice(0, 8).map(c => `- ${c.label} read as ${c.choice}: ${c.n}`), ""] : []),
     ...(score.shaped.examples.length ? ["Shaped notes it would tell, most sure first (label the wrong ones `none` with --labels):", ...score.shaped.examples.slice(0, 15).map(e => `- ((${e.id}|${e.title.replace(/[|()\]]/g, " ").trim().slice(0, 60)})) â†’ ${e.component} (${e.confidence})`)] : []),
   ].join("\n");

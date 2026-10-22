@@ -652,9 +652,10 @@ test("a written figure is confirmed in components; a typo in its name or a key, 
   expect(broken.json.warnings[0]).toStartWith("the ::graph-stat on line 2 doesn't draw: bad YAML");
 });
 
-// PIE-721: a write whose note has a figure's shape and none of its own says which figure would draw it, when Jev is
-// sure; prose gets nothing. Jev is a fake here (OUTLINER_JEV_ENDPOINT), answering by the note it is sent.
-test("a written note shaped like a timeline answers with a suggestion; prose and a note with its own figure get none", async () => {
+// PIE-721: a create or an edit that gives a note a figure's shape, with none of its own, says which figure would draw
+// it, when Jev is sure; prose gets nothing, and a note is told once. Jev is a fake here (OUTLINER_JEV_ENDPOINT),
+// answering by the note it is sent.
+test("a written note shaped like a timeline answers with a suggestion, once; prose, a figure, a comment and a property set ask nothing", async () => {
   const asked: string[] = [];
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
@@ -670,7 +671,7 @@ test("a written note shaped like a timeline answers with a suggestion; prose and
     },
   });
   cleanups.push(async () => { fake.stop(true); });
-  const { agent } = await setup({ OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` });
+  const { store, agent } = await setup({ OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` });
 
   const season = ["Garden year", "- 2026-03: seeds sown", "- 2026-05: first flowers", "- 2026-08: open garden"].join("\n");
   const made = await agent("create", { parent: "root", text: season });
@@ -684,15 +685,35 @@ test("a written note shaped like a timeline answers with a suggestion; prose and
   expect(chosen.json.suggestion).toBeUndefined();
   // Only the shaped note without a figure was sent.
   expect(asked).toEqual([season]);
+
+  // Told once: a later edit, a property set or a comment on a shaped note asks nothing.
+  const year = store.require(made.json.id);
+  const grown = await agent("edit", { ref: year.id, expectedRevision: year.revision, text: `${season}\n- 2026-10: seed collecting` });
+  expect(grown.exitCode, grown.stderr).toBe(0);
+  expect(grown.json.suggestion).toBeUndefined();
+  const set = await agent("set-property", { ref: year.id, revision: store.require(year.id).revision, key: "status", value: "draft" });
+  expect(set.exitCode, set.stderr).toBe(0);
+  const commented = await agent("comment", { ref: year.id, whole: true, body: "- 2026-03: early\n- 2026-05: late\n- 2026-08: on time" });
+  expect(commented.exitCode, commented.stderr).toBe(0);
+  expect(commented.json.suggestion).toBeUndefined();
+  expect(asked).toHaveLength(1);
+
+  // Prose that an edit turns into dated lines is told.
+  const musing = store.require(prose.json.id);
+  const turned = await agent("edit", { ref: musing.id, expectedRevision: musing.revision, text: season.replace("Garden year", "Bed rotation") });
+  expect(turned.json.suggestion.component).toBe("graph-timeline");
+  expect(asked).toHaveLength(2);
 });
 
 // PIE-721: the tidy pass's figure check: the notes under a note that read as a figure get one margin thread each, by
-// the agent, never a rewrite; a second sweep finds the same thread and adds none.
-test("figure-fit sweeps a subtree: one figure-fit thread per shaped note, prose untouched, the same thread on a second sweep", async () => {
+// the agent, never a rewrite; comments are never swept, and a note already told is never asked about again.
+test("figure-fit sweeps a subtree: one figure-fit thread per shaped note, prose and comments untouched, a told note left be", async () => {
+  const asked: string[] = [];
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
     async fetch(request) {
       const body = await request.json() as { state: { text: string } };
+      asked.push(body.state.text);
       const dated = /^- \d{4}-\d{2}/m.test(body.state.text);
       return Response.json({ model: "jev-1.13.0", answers: {
         which: { type: "choice", choice: dated ? "graph-timeline" : "graph-check", confidence: dated ? 0.85 : 0.2, probabilities: {} },
@@ -706,9 +727,13 @@ test("figure-fit sweeps a subtree: one figure-fit thread per shaped note, prose 
   const season = ["Garden year", "- 2026-03: seeds sown", "- 2026-05: first flowers", "- 2026-08: open garden"].join("\n");
   const year = store.create(season, plans.id);
   const musing = store.create("Why the beds face south\n\nThe light lands there first.", plans.id);
+  const comment = "- 2026-03: too early\n- 2026-05: right\n- 2026-08: late";
+  expect((await agent("comment", { ref: musing.id, whole: true, body: comment })).exitCode).toBe(0);
 
   const first = await agent("figure-fit", { under: plans.id, comment: true }, "kitty");
   expect(first.exitCode, first.stderr).toBe(0);
+  expect(first.json).toMatchObject({ checked: 2, shaped: 1, told: 0 });
+  expect(asked).toEqual([season]);
   expect(first.json.suggested).toHaveLength(1);
   expect(first.json.suggested[0]).toMatchObject({ id: year.id, component: "graph-timeline" });
   const thread = first.json.suggested[0].thread as string;
@@ -716,11 +741,19 @@ test("figure-fit sweeps a subtree: one figure-fit thread per shaped note, prose 
   expect(store.require(year.id).text).toBe(season);
   expect(store.require(musing.id).text).toBe("Why the beds face south\n\nThe light lands there first.");
 
+  // The note edited since, or Jev of another mind: it was told, so it is left be and Jev isn't asked.
+  store.update(year.id, `${season}\n- 2026-10: seed collecting`, store.require(year.id).revision);
   const again = await agent("figure-fit", { under: plans.id, comment: true }, "kitty");
-  expect(again.json.suggested[0].thread).toBe(thread);
+  expect(again.exitCode, again.stderr).toBe(0);
+  expect(again.json).toMatchObject({ shaped: 1, told: 1, suggested: [] });
+  expect(again.json.failed).toBeUndefined();
+  expect(asked).toHaveLength(1);
+
   // Without comment it only lists, and needs no actor.
+  const chores = store.create(["Chores", "- 2026-04: mulch", "- 2026-06: prune", "- 2026-09: compost"].join("\n"), plans.id);
   const look = await agent("figure-fit", { under: plans.id }, "");
   expect(look.exitCode, look.stderr).toBe(0);
+  expect(look.json.suggested).toEqual([expect.objectContaining({ id: chores.id, component: "graph-timeline" })]);
   expect(look.json.suggested[0].thread).toBeUndefined();
 });
 

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 export const DEFAULT_AI_PROMPT_DIRECTORY = fileURLToPath(new URL("../prompts/", import.meta.url));
 const MAX_PROMPT_BYTES = 64 * 1024;
-const PROMPT_FILENAMES = ["goto-ranking.json", "figure-fit.json"];
+const PROMPT_FILENAMES = ["goto-ranking.json"];
 
 /** Evidence of the bytes used by a job, not an editable second prompt authority. */
 export interface PromptRevision {
@@ -105,8 +105,9 @@ export async function loadGotoPrompt(directory?: string): Promise<{ ranking: Que
 }
 
 /**
- * figure-fit.json (PIE-721): the choice's instructions and the two gate questions figure-fit.ts asks. A prompt folder
- * made before this file existed doesn't have it: then the shipped one is read, so an older workspace still asks.
+ * figure-fit.json (PIE-721): the choice's instructions and the two gate questions figure-fit.ts asks. The agent tools
+ * read it (OUTLINER_PROMPT_DIR, else the shipped one); it is never copied into an outline's folder, which they don't
+ * read. A prompt folder without it (one made for goto-ranking alone) reads the shipped one.
  */
 export async function loadFigureFitPrompt(directory?: string): Promise<{ instructions: string; structured: string; prose: string; revisions: PromptRevision[] }> {
   let revision: PromptRevision;

@@ -7,6 +7,7 @@
 // note and the eval's subject (scripts/evals/figure-fit.ts), so what the eval scores is what agents are told.
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
 import { componentGist, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
+import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { loadFigureFitPrompt, type PromptRevision } from "./ai-prompts";
 import { JEV_ENDPOINT, JEV_MODEL, jevKey } from "./search-ranking";
 
@@ -45,7 +46,7 @@ export interface FigureFitReading {
 
 export type FigureFitAnswer =
   | { fit: FigureFit; reading: FigureFitReading }
-  | { fit: null; why: "no-shape" | "has-figure" | "below-gate" | "unsure"; reading?: FigureFitReading }
+  | { fit: null; why: "no-shape" | "has-figure" | "below-gate" | "unsure" | "not-a-figure"; reading?: FigureFitReading }
   | { unavailable: string };
 
 /** The figures a suggestion can name: the outline's own (its `figures` group, extensions' included), each described by its schema. */
@@ -58,11 +59,13 @@ const figureWord = (s: ComponentSchema) => s.title.replace(/\s*\(.*$/, "").trim(
 
 /**
  * Whether the text has a shape a figure could draw, before anything is asked: at least three list items, table rows
- * or dated lines outside code and components, and no `::graph-` of its own (a note that has one chose already).
+ * or dated lines outside code and components, and no figure of its own (a note that has one chose already): a
+ * `::graph-`, or with `schemas` any of the outline's figures by the name it is written with (an extension's too).
  */
-export function figureShape(text: string): "shaped" | "no-shape" | "has-figure" {
+export function figureShape(text: string, schemas: readonly ComponentSchema[] = []): "shaped" | "no-shape" | "has-figure" {
   const lines = text.split("\n");
-  if (componentBlocks(lines).some(b => b.name.startsWith("graph-"))) return "has-figure";
+  const figures = new Set(schemas.filter(s => s.group === "figures").map(blockNameOf));
+  if (componentBlocks(lines).some(b => b.name.startsWith("graph-") || figures.has(b.name))) return "has-figure";
   const structure = noteStructure(lines);
   const rows = lines.filter((line, i) => structure[i] === -1 && /^\s*(?:[-*+]\s+\S|\d+[.)]\s+\S|\|.*\||(?:[-*+]\s*)?\d{4}-\d{2}(?:-\d{2})?\b)/.test(line)).length;
   return rows >= MIN_ROWS ? "shaped" : "no-shape";
@@ -100,7 +103,9 @@ export function readFigureFit(response: JevAnswers, options: Record<string, stri
 export function fitOf(reading: FigureFitReading, schemas: readonly ComponentSchema[], thresholds: FigureFitThresholds = FIGURE_FIT_THRESHOLDS): FigureFitAnswer {
   if (reading.gate < thresholds.gate) return { fit: null, why: "below-gate", reading };
   if (reading.confidence < thresholds.confidence) return { fit: null, why: "unsure", reading };
-  const schema = schemas.find(s => s.id === reading.choice)!;
+  // A reading kept from before the outline's figures changed (the eval's cache) can name one that's gone.
+  const schema = schemas.find(s => s.id === reading.choice);
+  if (!schema) return { fit: null, why: "not-a-figure", reading };
   const said = `this reads as a ${figureWord(schema).toLowerCase()}: ::${schema.id} would draw it (${componentGist(schema)}); outline_components ${schema.id} gives its properties and an example`;
   return { fit: { component: schema.id, said, gate: round(reading.gate), confidence: round(reading.confidence), probability: round(reading.probabilities[schema.id] ?? 0) }, reading };
 }
@@ -146,7 +151,7 @@ export async function askFigureFit(text: string, schemas: readonly ComponentSche
  * why) when Jev can't be asked. Never throws: a write never waits on it past `timeoutMs` or fails for it.
  */
 export async function suggestFigure(text: string, schemas: readonly ComponentSchema[], o: FigureFitOptions = {}): Promise<FigureFitAnswer> {
-  const shape = figureShape(text);
+  const shape = figureShape(text, schemas);
   if (shape !== "shaped") return { fit: null, why: shape };
   const reading = await askFigureFit(text, schemas, o);
   return "unavailable" in reading ? reading : fitOf(reading, schemas, o.thresholds);

@@ -51,6 +51,7 @@ import { refuseDroppedStructure, replaceSectionText, WorkToolRefusal, type WorkT
 import type {
   AnnotationBatchReceipt,
   AnnotationRecord,
+  AnnotationThread,
   Block,
   BlockAuthor,
   BlockEditActivityPage,
@@ -605,32 +606,43 @@ async function componentsRead(client: AgentToolsClient, text: string): Promise<C
 }
 
 /**
- * The figure the written text would read best as (figure-fit.ts, PIE-721), for a write's answer: asked only when the
- * text has a figure's shape and none of its own, and only said when Jev is sure enough. Null otherwise, and when Jev
- * can't be asked (no key, no answer in time) or OUTLINER_FIGURE_FIT is `off`; a write never fails or waits long for it.
+ * The figure the written text would read best as (figure-fit.ts, PIE-721), for the answer to a create, an edit or a
+ * patch: asked only when this write gave the note a figure's shape it didn't have (`before`, its text before the write;
+ * none for a create), so a note is told once and a property set or a comment never asks, and said only when Jev is
+ * sure enough. Off unless OUTLINER_FIGURE_FIT is `on`, until the eval (scripts/evals/figure-fit.ts) has set the
+ * thresholds. Null when Jev can't be asked; it never throws, since the write has landed.
  */
-async function figureSuggestion(client: AgentToolsClient, text: string): Promise<{ component: string; said: string } | null> {
-  if (process.env.OUTLINER_FIGURE_FIT === "off" || figureShape(text) !== "shaped") return null;
-  const schemas = await schemasOf(client);
-  if (!schemas) return null;
-  const answer = await suggestFigure(text, schemas, { timeoutMs: 2500 });
-  return "fit" in answer && answer.fit ? { component: answer.fit.component, said: answer.fit.said } : null;
+async function figureSuggestion(client: AgentToolsClient, text: string, before?: string): Promise<{ component: string; said: string } | null> {
+  if (process.env.OUTLINER_FIGURE_FIT !== "on" || figureShape(text) !== "shaped") return null;
+  try {
+    const schemas = await schemasOf(client);
+    if (!schemas || figureShape(text, schemas) !== "shaped" || (before !== undefined && figureShape(before, schemas) === "shaped")) return null;
+    const answer = await suggestFigure(text, schemas, { timeoutMs: 2500 });
+    return "fit" in answer && answer.fit ? { component: answer.fit.component, said: answer.fit.said } : null;
+  } catch {
+    return null;
+  }
 }
 
 /** What a figure-fit sweep found: each note it would tell, and the margin thread it left when asked to. */
 export interface FigureSweep {
   checked: number;
   shaped: number;
+  /** Shaped notes a figure-fit thread already told (Seen, Kept or resolved included): not asked again. */
+  told: number;
   suggested: { id: string; title: string; component: string; confidence: number; thread?: string }[];
+  /** Notes the sweep couldn't finish, and why; the rest are swept regardless. */
+  failed?: { id: string; error: string }[];
   /** Why Jev couldn't be asked, when it couldn't: the sweep stops there, with what it had. */
   unavailable?: string;
 }
 
 /**
  * The tidy pass's figure check (PIE-721): the notes under `under` that read as a figure and draw none, each with the
- * figure Jev is sure of. With `comment`, each gets one margin thread (`[kind::figure-fit]`, a whole-note comment by the
- * actor) saying so: a suggestion, never a rewrite. A note's thread is keyed by its id (`requestId`), so a note is told
- * once, ever: a later sweep finds the same thread, Seen or Kept (PIE-791) included, and leaves it be.
+ * figure Jev is sure of. Comments are never swept. With `comment`, each gets one margin thread (`[kind::figure-fit]`, a
+ * whole-note comment by the actor) saying so: a suggestion, never a rewrite. A note is told once, ever: a note with a
+ * figure-fit thread already, Seen or Kept (PIE-791) or resolved, isn't asked about again. A note that fails is listed
+ * in `failed` and the sweep goes on.
  */
 export async function sweepFigures(client: AgentToolsClient, input: { under: string; limit?: number; comment?: boolean }, actor?: AgentActor): Promise<FigureSweep> {
   if (typeof input.under !== "string" || !input.under.trim()) throw new WorkToolRefusal("Give under: the note whose subtree to sweep (a ref)");
@@ -638,24 +650,31 @@ export async function sweepFigures(client: AgentToolsClient, input: { under: str
   const schemas = await schemasOf(client);
   if (!schemas) throw new WorkToolRefusal("The outline's components can't be read (components.schemas); is the outline host up?");
   const limit = input.limit === undefined ? 50 : boundedInteger(input.limit, "limit", 1, 1, 500);
-  // Every note under it, newest first, as the views read a subtree (no filter: all of it, the root aside).
+  // Every note under it, newest first, as the views read a subtree, its comments left out (the root aside).
   const root = (await resolveRef(client, input.under)).id;
-  const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { subtreeRootId: root, sort: "updated desc", limit: limit + 1 } });
+  await client.requireCompatibleService();
+  const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { subtreeRootId: root, where: "NOT type=annotation", sort: "updated desc", limit: limit + 1 } });
   const rows = found.blocks.filter(b => b.id !== root).slice(0, limit);
-  const sweep: FigureSweep = { checked: rows.length, shaped: 0, suggested: [] };
-  for (const row of rows) {
-    const block = await client.request<Block | null>({ action: "get", blockId: row.id }).catch(() => null);
-    if (!block || figureShape(block.text) !== "shaped") continue;
+  const sweep: FigureSweep = { checked: rows.length, shaped: 0, told: 0, suggested: [] };
+  const failed: { id: string; error: string }[] = [];
+  for (const block of rows) {
+    if (figureShape(block.text, schemas) !== "shaped") continue;
     sweep.shaped++;
-    const answer = await suggestFigure(block.text, schemas, { timeoutMs: 5000 });
-    if ("unavailable" in answer) return { ...sweep, unavailable: answer.unavailable };
-    if (!answer.fit) continue;
-    const thread = input.comment
-      ? (await commentOn(client, { ref: block.id, whole: true, kind: "figure-fit", requestId: `figure-fit:${block.id}`, body: `${answer.fit.said}. A suggestion only, nothing was changed: mark it Seen to set it aside.` }, actor!)).thread
-      : undefined;
-    sweep.suggested.push({ id: block.id, title: blockDisplayTitle(block), component: answer.fit.component, confidence: answer.fit.confidence, ...(thread ? { thread } : {}) });
+    try {
+      const threads = await client.request<AnnotationThread[]>({ action: "annotations.list", query: { subject: { kind: "block", blockId: block.id }, includeResolved: true } });
+      if (threads.some(t => t.properties?.kind?.includes("figure-fit"))) { sweep.told++; continue; }
+      const answer = await suggestFigure(block.text, schemas, { timeoutMs: 5000 });
+      if ("unavailable" in answer) return { ...sweep, ...(failed.length ? { failed } : {}), unavailable: answer.unavailable };
+      if (!answer.fit) continue;
+      const thread = input.comment
+        ? (await commentOn(client, { ref: block.id, whole: true, kind: "figure-fit", requestId: `figure-fit:${block.id}:${block.revision}`, body: `${answer.fit.said}. A suggestion only, nothing was changed: mark it Seen to set it aside.` }, actor!)).thread
+        : undefined;
+      sweep.suggested.push({ id: block.id, title: blockDisplayTitle(block), component: answer.fit.component, confidence: answer.fit.confidence, ...(thread ? { thread } : {}) });
+    } catch (error) {
+      failed.push({ id: block.id, error: (error as Error).message });
+    }
   }
-  return sweep;
+  return { ...sweep, ...(failed.length ? { failed } : {}) };
 }
 
 /**
@@ -754,12 +773,13 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
     diff: shortDiff(block.text, updated.text),
     ...(section ? { section } : {}),
     ...(dropped.length ? { dropped } : {}),
-    ...(await warned(client, updated.text, updated.id)),
+    ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text })),
   };
 }
 
-async function warned(client: AgentToolsClient, text: string, near?: string, self = near): Promise<{ warnings?: string[]; components?: string[]; suggestion?: { component: string; said: string } }> {
-  const [{ warnings, components }, suggestion] = await Promise.all([writtenReading(client, text, near, self), figureSuggestion(client, text)]);
+/** What a write's answer says about the text it wrote; `suggest` (a create's or an edit's, with the text before) asks figure-fit too. */
+async function warned(client: AgentToolsClient, text: string, near?: string, self = near, suggest?: { before?: string }): Promise<{ warnings?: string[]; components?: string[]; suggestion?: { component: string; said: string } }> {
+  const [{ warnings, components }, suggestion] = await Promise.all([writtenReading(client, text, near, self), suggest ? figureSuggestion(client, text, suggest.before) : null]);
   return { ...(warnings.length ? { warnings } : {}), ...(components.length ? { components } : {}), ...(suggestion ? { suggestion } : {}) };
 }
 
@@ -780,7 +800,7 @@ export async function createBlock(
     await client.requireCompatibleService();
     block = await client.request<Block>({ action: "move", blockId: block.id, expectedRevision: block.revision, parentId, position, mutation: mutationOf(actor) });
   }
-  return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId, ...(await warned(client, block.text, block.id)) };
+  return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId, ...(await warned(client, block.text, block.id, block.id, {})) };
 }
 
 // ─── A view's hand-set order ────────────────────────────────────────────────
@@ -1160,6 +1180,8 @@ export async function patchDraft(
   client: AgentToolsClient,
   input: { ref: string; revision: number; patches: DraftPatchSpan[]; mark?: string; policy?: DraftPatchPolicyName; allowStructural?: boolean; propose?: DraftPatchInput["propose"] },
   actor: AgentActor,
+  /** `suggest: false`: a write that isn't the note's words (a property set) asks figure-fit nothing. */
+  o: { suggest?: boolean } = {},
 ): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; suggestion?: { component: string; said: string } }> {
   const revision = requireRevision(input.revision);
   const policy = input.policy ?? "edit";
@@ -1187,7 +1209,7 @@ export async function patchDraft(
   const after = await client.request<Block | null>({ action: "get", blockId: block.id }).catch(() => null);
   if (!after || after.text === block.text) return result;
   const before = new Set(await referenceWarningsFor(client, block.text, block.id));
-  const [now, suggestion] = await Promise.all([writtenReading(client, after.text, block.id), figureSuggestion(client, after.text)]);
+  const [now, suggestion] = await Promise.all([writtenReading(client, after.text, block.id), o.suggest === false ? null : figureSuggestion(client, after.text, block.text)]);
   const warnings = now.warnings.filter(w => !before.has(w));
   return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(suggestion ? { suggestion } : {}) };
 }
@@ -1227,7 +1249,7 @@ export async function setBlockProperty(
       const line = block.text.slice(header.offset, header.end);
       return { observed: line, replacement: `${line.trimEnd()} ${chipText({ key, value })}`, range: { start: header.offset, end: header.end } };
     })();
-  const result = await patchDraft(client, { ref: block.id, revision, patches: [span], policy: "edit", ...(input.propose ? { propose: input.propose } : {}) }, actor);
+  const result = await patchDraft(client, { ref: block.id, revision, patches: [span], policy: "edit", ...(input.propose ? { propose: input.propose } : {}) }, actor, { suggest: false });
   return { ...result, id: block.id, key: chip?.key ?? key, previous: chip?.value ?? null, value };
 }
 

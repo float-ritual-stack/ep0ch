@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { BUILTIN_COMPONENT_SCHEMAS, mergeComponentSchemas, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { loadFigureFitPrompt } from "../src/ai-prompts";
 import { figureFitRequest, figureOptions, figureShape, fitOf, readFigureFit, suggestFigure } from "../src/figure-fit";
+import { resetJevKey } from "../src/search-ranking";
 
 const SEASON = ["Garden year", "- 2026-03: seeds sown", "- 2026-05: first flowers", "- 2026-08: open garden", "- 2026-10: seed collecting"].join("\n");
 const MUSING = ["Why the beds face south", "", "The light lands there first, and the wall keeps the warmth into the evening. It is the one choice I would make again."].join("\n");
@@ -37,6 +38,14 @@ describe("a note's shape", () => {
 
   test("lines inside a code fence are the code's, not the note's", () => {
     expect(figureShape("How\n```\n- a\n- b\n- c\n```")).toBe("no-shape");
+  });
+
+  test("an extension's figure, by the name it is written with, is a figure the note chose", () => {
+    const rainfall: ComponentSchema = { ...BUILTIN_COMPONENT_SCHEMAS.find(s => s.id === "graph-spark")!, id: "ext-almanac-rainfall", title: "Rainfall (::rainfall)", source: { use: "::rainfall\n---\n{{props.yaml}}\n---\n::" }, origin: undefined };
+    const { schemas } = mergeComponentSchemas({ extensions: [{ id: "almanac", components: [rainfall] }] });
+    const drawn = `${SEASON}\n::rainfall\n---\n---\n- 2026-09: 40\n::`;
+    expect(figureShape(drawn, schemas)).toBe("has-figure");
+    expect(figureShape(drawn)).toBe("shaped");
   });
 });
 
@@ -79,6 +88,8 @@ describe("the request and its answer", () => {
     expect(fitOf({ ...reading, gate: 0.4 }, BUILTIN_COMPONENT_SCHEMAS)).toMatchObject({ fit: null, why: "below-gate" });
     expect(fitOf({ ...reading, confidence: 0.2 }, BUILTIN_COMPONENT_SCHEMAS)).toMatchObject({ fit: null, why: "unsure" });
     expect(fitOf({ ...reading, confidence: 0.2 }, BUILTIN_COMPONENT_SCHEMAS, { gate: 0.6, confidence: 0.1 })).toMatchObject({ fit: { component: "graph-timeline" } });
+    // A kept reading that names a figure the outline no longer has (the eval's cache) suggests nothing.
+    expect(fitOf({ ...reading, choice: "graph-retired" }, BUILTIN_COMPONENT_SCHEMAS)).toMatchObject({ fit: null, why: "not-a-figure" });
   });
 });
 
@@ -100,7 +111,10 @@ describe("suggestFigure", () => {
   });
 
   test("Jev that can't be asked says why and never throws: no key, an HTTP error, a timeout, an answer that doesn't read", async () => {
-    expect(await suggestFigure(SEASON, schemas, { env: { WITH_SECRETS_DIR: mkdtempSync(join(tmpdir(), "no-secrets-")) } })).toMatchObject({ unavailable: expect.stringContaining("Jev is not configured") });
+    // A key found earlier in this process is forgotten, and no request could leave it anyway.
+    resetJevKey();
+    const offline = async () => { throw new Error("no network in tests"); };
+    expect(await suggestFigure(SEASON, schemas, { env: { WITH_SECRETS_DIR: mkdtempSync(join(tmpdir(), "no-secrets-")) }, fetch: offline })).toMatchObject({ unavailable: expect.stringContaining("Jev is not configured") });
     expect(await suggestFigure(SEASON, schemas, { apiKey: "fake", fetch: jev(TIMELINE, 503).fetch })).toEqual({ unavailable: "Jev HTTP 503" });
     const slow = async (_u: string, init: RequestInit) => new Promise<Response>((_, reject) => init.signal?.addEventListener("abort", () => reject(Object.assign(new Error("timed out"), { name: "TimeoutError" }))));
     expect(await suggestFigure(SEASON, schemas, { apiKey: "fake", fetch: slow, timeoutMs: 20 })).toEqual({ unavailable: "Jev didn't answer in time" });

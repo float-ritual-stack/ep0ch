@@ -6,8 +6,10 @@
 // <copy.sqlite> is a copy of an outline (`ep0ch outline snapshot <name> --out <copy>`, or the gateway's outline_snapshot), opened
 // read-only; a file in the outlines folder (EP0CH_OUTLINES, else ~/outlines) is refused: an eval never touches a live
 // outline. --labels is a JSON map of block id → a figure's id or "none" (the notes a person pointed at). --shaped caps the
-// unlabelled shaped notes asked about (default 150). Jev's answers are cached per model, prompt and text under
-// $XDG_CACHE_HOME/ep0ch/figure-fit (else ~/.cache), so a second run, or a threshold changed, asks nothing again. --note prints
+// unlabelled shaped notes asked about (default 150). Comments are left out. Jev's answers are cached per request (the
+// model, the prompt, the figures offered and the text) under $XDG_CACHE_HOME/ep0ch/figure-fit (else ~/.cache), so a
+// second run, or a threshold changed, asks nothing again, and a figure added asks again. The figures offered are the
+// built-in ones: a copy holds no extensions, so an extension's figure is scored where its outline runs. --note prints
 // the report as a note the outline draws (its figures the eval's subject); otherwise a summary. The key is Jev's own
 // (TYPESAFE_API_KEY, else the `typesafe` with-secrets group). Exits 0 with a report, 1 when Jev couldn't be asked at all.
 import { Database } from "bun:sqlite";
@@ -18,7 +20,7 @@ import { basename, join, resolve } from "node:path";
 import { BUILTIN_COMPONENT_SCHEMAS } from "@ep0ch/outline-core/component-schema";
 import { outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { loadFigureFitPrompt } from "../../src/ai-prompts";
-import { askFigureFit, FIGURE_FIT_THRESHOLDS, type FigureFitReading } from "../../src/figure-fit";
+import { askFigureFit, FIGURE_FIT_THRESHOLDS, figureFitRequest, figureOptions, type FigureFitReading } from "../../src/figure-fit";
 import { evalSet, reportNote, scoreReadings, sweepThresholds, type EvalItem } from "../../src/figure-fit-eval";
 import { JEV_MODEL } from "../../src/search-ranking";
 
@@ -37,17 +39,22 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
   const thresholds = { gate: Number(value("--gate") ?? FIGURE_FIT_THRESHOLDS.gate), confidence: Number(value("--confidence") ?? FIGURE_FIT_THRESHOLDS.confidence) };
 
   const read = new Database(path, { readonly: true });
-  const blocks = read.query<{ id: string; text: string }, []>("SELECT id, text FROM blocks WHERE deleted_at IS NULL ORDER BY updated_at DESC").all();
+  // A comment (and the comments' root) is the margin's, not a note's.
+  const blocks = read.query<{ id: string; text: string }, []>(
+    "SELECT id, text FROM blocks b WHERE deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM block_properties p WHERE p.block_id = b.id AND p.key = 'type' AND p.value IN ('annotation', 'annotations-root')) ORDER BY updated_at DESC",
+  ).all();
   read.close();
-  const all = evalSet(blocks, labels);
+  const schemas = BUILTIN_COMPONENT_SCHEMAS;
+  const all = evalSet(blocks, labels, schemas);
   let shaped = 0;
   const items: (EvalItem & { reading?: FigureFitReading })[] = all.filter(i => i.label !== null || shaped++ < shapedCap);
 
-  const schemas = BUILTIN_COMPONENT_SCHEMAS;
   const prompt = await loadFigureFitPrompt();
+  const options = figureOptions(schemas);
   const cacheDir = join(env.XDG_CACHE_HOME || join(homedir(), ".cache"), "ep0ch", "figure-fit");
   mkdirSync(cacheDir, { recursive: true });
-  const keyOf = (text: string) => createHash("sha256").update(`${JEV_MODEL}\n${prompt.revisions[0]!.sha256}\n${text}`).digest("hex");
+  // The whole request is the key: a prompt, a figure's description or the text cut changed is a new question.
+  const keyOf = (text: string) => createHash("sha256").update(JSON.stringify(figureFitRequest(text, options, prompt))).digest("hex");
   let asked = 0, cached = 0, unavailable = 0, lastWhy = "";
   const queue = [...items];
   await Promise.all(Array.from({ length: 4 }, async () => {
@@ -64,15 +71,17 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
   if (unavailable && unavailable === asked && !cached) { err(`figure-fit eval: Jev couldn't be asked (${lastWhy})`); return 1; }
 
   const score = scoreReadings(items, schemas, thresholds);
+  const unseen = Object.keys(options).filter(id => !score.perKind[id]);
   const sweep = sweepThresholds(items, schemas);
   const meta = { outline: basename(path), model: JEV_MODEL, prompt: prompt.revisions[0]!.sha256, asked, cached, unavailable };
-  if (value("--out")) writeFileSync(resolve(value("--out")!), JSON.stringify({ meta, score, sweep }, null, 2));
-  if (argv.includes("--note")) out(reportNote(score, sweep, meta));
+  if (value("--out")) writeFileSync(resolve(value("--out")!), JSON.stringify({ meta, score, sweep, unseen }, null, 2));
+  if (argv.includes("--note")) out(reportNote(score, sweep, meta, unseen));
   else {
     const p = score.positives;
     out(`figure-fit eval on ${meta.outline}: ${p.n} positives, ${score.shaped.n} shaped, ${score.none.n} none (Jev asked ${asked}, cached ${cached}, unavailable ${unavailable})`);
     out(`  at gate ${thresholds.gate} / confidence ${thresholds.confidence}: right figure suggested ${p.correct}/${p.n}, first choice right ${p.top1}/${p.n}, shaped notes told ${score.shaped.suggested}/${score.shaped.n}, told when none ${score.none.suggested}/${score.none.n}`);
     for (const r of sweep) out(`  gate ${r.gate} confidence ${r.confidence}: recall ${r.recall ?? "—"} precision ${r.precision ?? "—"} shaped told ${r.shapedRate ?? "—"} none told ${r.noneRate ?? "—"}`);
+    if (unseen.length) out(`  no notes to score it on (label some with --labels): ${unseen.join(", ")}`);
   }
   return 0;
 }

@@ -2765,6 +2765,22 @@ agent from JSON input, as the Claude mod's `outline_comment` tools do. `edit-com
 comment's or reply's id), `body`, and `observed` (its words as read) or `revision`: a comment changed since
 is refused (PIE-763).
 
+**Which figure a note would read as** (PIE-721, `src/figure-fit.ts`). One Jev request names the figure a note
+would read best as. The choice is over the outline's own figures, each described by its schema. Two gates keep
+prose out. The request is made three ways:
+
+- `bun run cli agent figure-fit --json '{"under":"<ref>","comment":true}' --actor kitty` is the tidy pass. It asks
+  about the notes under `under` (its comments aside) that have a figure's shape and draw none. Each note Jev is sure
+  of gets one `[kind::figure-fit]` margin thread by the actor: a suggestion, never a rewrite. A note with a
+  figure-fit thread already (Seen, Kept or resolved) is never asked about again. Without `comment` it only lists.
+- With `OUTLINER_FIGURE_FIT=on` (off until the eval has set the thresholds), a create, an edit or a patch that gives
+  a note that shape answers with a `suggestion`. The MCP gateway lifts it beside `said`. A property set and a
+  comment never ask.
+- `bun scripts/evals/figure-fit.ts <copy.sqlite> --note` is the eval. It scores the suggestions on an outline's own
+  notes (a copy: `ep0ch outline snapshot <name> --out <copy>`) at every threshold.
+
+All three need Jev's key (`TYPESAFE_API_KEY`, or the `typesafe` with-secrets group). Tests never ask the real Jev.
+
 The public `createBlockComment` helper in `src/block-comments.ts` accepts request
 identity, a `BlockCommentInput`, author and provenance. Protocol80 adds the
 `block-comment` operation to the existing `annotations.batch` transaction and
