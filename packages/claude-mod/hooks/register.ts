@@ -951,7 +951,8 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
  */
 /**
  * The outline's guide (`ep0ch library --guide`, hooks/outline-guide.ts), read once for a folder and outline: null outside
- * a bound folder, or when `ep0ch` can't say it. prompt.context makes the context again when one lands after it.
+ * a bound folder, or when `ep0ch` can't say it (asked again at the next prompt). prompt.context makes the context again
+ * when one lands after it.
  */
 async function readGuide($: EngineInterface, option: PluginOptions): Promise<string | null> {
   try {
@@ -962,6 +963,8 @@ async function readGuide($: EngineInterface, option: PluginOptions): Promise<str
     if (guideLoad?.key !== key) {
       const load = $.process.run([...GUIDE_ARGV], { cwd: workspace.root, env: envFor(workspace), timeoutMs: GUIDE_TIMEOUT_MS })
         .then(ran => ran.exitCode === 0 ? guideText(ran.stdout) : null, () => null)
+        // No guide this time (no host yet, a timeout): the next prompt asks again, unless a newer read took its place.
+        .then(text => { if (text === null && guideLoad?.load === load) guideLoad = undefined; return text })
       guideLoad = { key, load }
     }
     return await guideLoad.load

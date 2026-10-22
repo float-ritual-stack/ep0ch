@@ -77,6 +77,20 @@ describe('the guide in the first prompt', () => {
     await s.clock.settle()
     expect(await guideOf($)).toBeUndefined()
   })
+
+  test('a guide that couldn\'t be read at the start (the host still coming up) is asked again at the next prompt', async ($, on) => {
+    const c: Case = {}
+    const s = sessionIn(on, c)
+    await $.session.start(START)
+    await s.clock.settle()
+    expect(await guideOf($)).toBeUndefined()
+    c.guide = result(0, `${GUIDE}\n`)
+    await s.clock.settle()
+    expect(await guideOf($)).toStartWith(GUIDE)
+    const reads = s.runs.filter(r => r.argv[1] === 'library').length
+    await guideOf($)
+    expect(s.runs.filter(r => r.argv[1] === 'library')).toHaveLength(reads)
+  })
 })
 
 describe('the core tools up front', () => {
