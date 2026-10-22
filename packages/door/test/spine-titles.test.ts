@@ -14,14 +14,33 @@ import { spineImage } from "../src/spine";
 import { outliner, Scratch, until } from "./scratch";
 import { view } from "./river-view";
 
-test("a placement a dock covers at the bottom is cut short; one covered elsewhere goes; one not covered stays", () => {
+test("a placement a dock covers at the bottom is cut short; one not covered stays", () => {
   const image = spineImage("A very long column title that runs down past the drawer's edge", 11);
   const p = { key: "spine:1", image, col: 10, row: 2, cols: 2, rows: 40, z: -1 };
-  expect(uncovered(p, { col: 30, row: 0, cols: 10, rows: 50 })).toBe(p);
-  const cut = uncovered(p, { col: 0, row: 30, cols: 100, rows: 20 })!;
-  expect(cut.rows).toBe(28);
-  expect(cut.crop).toEqual({ x: 0, y: 0, w: image.width, h: Math.floor((image.height * 28) / 40) });
-  expect(uncovered(p, { col: 11, row: 10, cols: 5, rows: 5 })).toBeNull();
+  expect(uncovered(p, { col: 30, row: 0, cols: 10, rows: 50 })).toEqual([p]);
+  const [cut] = uncovered(p, { col: 0, row: 30, cols: 100, rows: 20 });
+  expect(cut!.key).toBe("spine:1");
+  expect(cut!.rows).toBe(28);
+  expect(cut!.crop).toEqual({ x: 0, y: 0, w: image.width, h: Math.floor((image.height * 28) / 40) });
+});
+
+// PIE-1191: a card, popup or float over part of a picture (a header image under a hint card) took the whole picture
+// away; the parts still showing stay, each the same uploaded image placed with its crop.
+test("a picture partly covered keeps the parts still showing, cropped to them", () => {
+  const image = { width: 400, height: 200, data: new Uint8Array(400 * 200 * 4) };
+  const hero = { key: "hero", image, col: 0, row: 0, cols: 40, rows: 10 };
+  // A hint card over the top-right corner: the left band beside it and the band below it stay.
+  const corner = uncovered(hero, { col: 30, row: 0, cols: 20, rows: 4 });
+  expect(corner.map(p => [p.col, p.row, p.cols, p.rows])).toEqual([[0, 4, 40, 6], [0, 0, 30, 4]]);
+  expect(corner.map(p => p.crop)).toEqual([{ x: 0, y: 80, w: 400, h: 120 }, { x: 0, y: 0, w: 300, h: 80 }]);
+  // A popup in the middle leaves four bands, which tile the picture's uncovered pixels exactly.
+  const middle = uncovered(hero, { col: 10, row: 3, cols: 20, rows: 4 });
+  expect(middle).toHaveLength(4);
+  expect(new Set(middle.map(p => p.key)).size).toBe(4);
+  expect(middle.reduce((n, p) => n + p.crop!.w * p.crop!.h, 0)).toBe(400 * 200 - 200 * 80);
+  // A cover over all of it, or a sized title under any cover, still goes whole.
+  expect(uncovered(hero, { col: 0, row: 0, cols: 40, rows: 10 })).toEqual([]);
+  expect(uncovered({ ...hero, sized: {} as any }, { col: 30, row: 0, cols: 20, rows: 4 })).toEqual([]);
 });
 
 describe.skipIf(!outliner)("a river of many columns: every spine names its note, a long one under a dock too", () => {
