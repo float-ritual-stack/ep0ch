@@ -18,6 +18,7 @@ import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { figureShape, suggestFigure } from "./figure-fit";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
@@ -544,6 +545,8 @@ export interface EditResult {
   warnings?: string[];
   /** The components the saved text holds, by id (PIE-721): what the note now draws besides its prose. */
   components?: string[];
+  /** The figure the saved text would read best as, when Jev is sure (figure-fit.ts, PIE-721): said, never applied. */
+  suggestion?: { component: string; said: string };
 }
 
 /** A short line diff: the changed lines between the common head and tail, `-` then `+`, at most `max` lines. */
@@ -599,6 +602,60 @@ async function componentsRead(client: AgentToolsClient, text: string): Promise<C
   if (!componentBlocks(text.split("\n")).length) return { components: [], warnings: [] };
   const schemas = await schemasOf(client);
   return schemas ? componentReading(text, schemas) : { components: [], warnings: [] };
+}
+
+/**
+ * The figure the written text would read best as (figure-fit.ts, PIE-721), for a write's answer: asked only when the
+ * text has a figure's shape and none of its own, and only said when Jev is sure enough. Null otherwise, and when Jev
+ * can't be asked (no key, no answer in time) or OUTLINER_FIGURE_FIT is `off`; a write never fails or waits long for it.
+ */
+async function figureSuggestion(client: AgentToolsClient, text: string): Promise<{ component: string; said: string } | null> {
+  if (process.env.OUTLINER_FIGURE_FIT === "off" || figureShape(text) !== "shaped") return null;
+  const schemas = await schemasOf(client);
+  if (!schemas) return null;
+  const answer = await suggestFigure(text, schemas, { timeoutMs: 2500 });
+  return "fit" in answer && answer.fit ? { component: answer.fit.component, said: answer.fit.said } : null;
+}
+
+/** What a figure-fit sweep found: each note it would tell, and the margin thread it left when asked to. */
+export interface FigureSweep {
+  checked: number;
+  shaped: number;
+  suggested: { id: string; title: string; component: string; confidence: number; thread?: string }[];
+  /** Why Jev couldn't be asked, when it couldn't: the sweep stops there, with what it had. */
+  unavailable?: string;
+}
+
+/**
+ * The tidy pass's figure check (PIE-721): the notes under `under` that read as a figure and draw none, each with the
+ * figure Jev is sure of. With `comment`, each gets one margin thread (`[kind::figure-fit]`, a whole-note comment by the
+ * actor) saying so: a suggestion, never a rewrite. A note's thread is keyed by its id (`requestId`), so a note is told
+ * once, ever: a later sweep finds the same thread, Seen or Kept (PIE-791) included, and leaves it be.
+ */
+export async function sweepFigures(client: AgentToolsClient, input: { under: string; limit?: number; comment?: boolean }, actor?: AgentActor): Promise<FigureSweep> {
+  if (typeof input.under !== "string" || !input.under.trim()) throw new WorkToolRefusal("Give under: the note whose subtree to sweep (a ref)");
+  if (input.comment && !actor) throw new WorkToolRefusal("figure-fit with comment writes: pass --actor <agent id>");
+  const schemas = await schemasOf(client);
+  if (!schemas) throw new WorkToolRefusal("The outline's components can't be read (components.schemas); is the outline host up?");
+  const limit = input.limit === undefined ? 50 : boundedInteger(input.limit, "limit", 1, 1, 500);
+  // Every note under it, newest first, as the views read a subtree (no filter: all of it, the root aside).
+  const root = (await resolveRef(client, input.under)).id;
+  const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { subtreeRootId: root, sort: "updated desc", limit: limit + 1 } });
+  const rows = found.blocks.filter(b => b.id !== root).slice(0, limit);
+  const sweep: FigureSweep = { checked: rows.length, shaped: 0, suggested: [] };
+  for (const row of rows) {
+    const block = await client.request<Block | null>({ action: "get", blockId: row.id }).catch(() => null);
+    if (!block || figureShape(block.text) !== "shaped") continue;
+    sweep.shaped++;
+    const answer = await suggestFigure(block.text, schemas, { timeoutMs: 5000 });
+    if ("unavailable" in answer) return { ...sweep, unavailable: answer.unavailable };
+    if (!answer.fit) continue;
+    const thread = input.comment
+      ? (await commentOn(client, { ref: block.id, whole: true, kind: "figure-fit", requestId: `figure-fit:${block.id}`, body: `${answer.fit.said}. A suggestion only, nothing was changed: mark it Seen to set it aside.` }, actor!)).thread
+      : undefined;
+    sweep.suggested.push({ id: block.id, title: blockDisplayTitle(block), component: answer.fit.component, confidence: answer.fit.confidence, ...(thread ? { thread } : {}) });
+  }
+  return sweep;
 }
 
 /**
@@ -701,9 +758,9 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
   };
 }
 
-async function warned(client: AgentToolsClient, text: string, near?: string, self = near): Promise<{ warnings?: string[]; components?: string[] }> {
-  const { warnings, components } = await writtenReading(client, text, near, self);
-  return { ...(warnings.length ? { warnings } : {}), ...(components.length ? { components } : {}) };
+async function warned(client: AgentToolsClient, text: string, near?: string, self = near): Promise<{ warnings?: string[]; components?: string[]; suggestion?: { component: string; said: string } }> {
+  const [{ warnings, components }, suggestion] = await Promise.all([writtenReading(client, text, near, self), figureSuggestion(client, text)]);
+  return { ...(warnings.length ? { warnings } : {}), ...(components.length ? { components } : {}), ...(suggestion ? { suggestion } : {}) };
 }
 
 // ─── Create ────────────────────────────────────────────────────────────────
@@ -713,7 +770,7 @@ export async function createBlock(
   client: AgentToolsClient,
   input: { parent: string; text: string; position?: number },
   actor: AgentActor,
-): Promise<{ id: string; ref: string; revision: number; parentId: string | null; warnings?: string[]; components?: string[] }> {
+): Promise<{ id: string; ref: string; revision: number; parentId: string | null; warnings?: string[]; components?: string[]; suggestion?: { component: string; said: string } }> {
   const text = requireText(input.text, "The new block's text");
   if (typeof input.parent !== "string" || !input.parent.trim()) throw new WorkToolRefusal("Give the parent: a reference, or root");
   const parentId = input.parent.trim() === "root" ? null : (await writableBlock(client, input.parent)).id;
@@ -1103,7 +1160,7 @@ export async function patchDraft(
   client: AgentToolsClient,
   input: { ref: string; revision: number; patches: DraftPatchSpan[]; mark?: string; policy?: DraftPatchPolicyName; allowStructural?: boolean; propose?: DraftPatchInput["propose"] },
   actor: AgentActor,
-): Promise<DraftPatchResult & { warnings?: string[]; components?: string[] }> {
+): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; suggestion?: { component: string; said: string } }> {
   const revision = requireRevision(input.revision);
   const policy = input.policy ?? "edit";
   if (!DRAFT_PATCH_POLICIES.includes(policy)) throw new WorkToolRefusal(`policy is ${DRAFT_PATCH_POLICIES.join(" or ")}`);
@@ -1130,9 +1187,9 @@ export async function patchDraft(
   const after = await client.request<Block | null>({ action: "get", blockId: block.id }).catch(() => null);
   if (!after || after.text === block.text) return result;
   const before = new Set(await referenceWarningsFor(client, block.text, block.id));
-  const now = await writtenReading(client, after.text, block.id);
+  const [now, suggestion] = await Promise.all([writtenReading(client, after.text, block.id), figureSuggestion(client, after.text)]);
   const warnings = now.warnings.filter(w => !before.has(w));
-  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}) };
+  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(suggestion ? { suggestion } : {}) };
 }
 
 // ─── One header property ───────────────────────────────────────────────────
@@ -1285,7 +1342,7 @@ export async function settleProposal(client: AgentToolsClient, input: { ref: str
 
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-resolve", "proposal-apply", "proposal-dismiss", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file"] as const;
+export const AGENT_OPERATIONS = ["artifact-deploy", "proposal-resolve", "proposal-apply", "proposal-dismiss", "read", "find", "resolve", "site", "edit", "create", "comment", "reply", "edit-comment", "resolve-thread", "changes", "patch", "set-property", "assign-id", "move", "trash", "restore", "view-order", "touch-file", "figure-fit"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -1328,5 +1385,6 @@ export function runAgentOperation(
     case "restore": return restoreBlock(client, any, writer());
     case "view-order": return viewOrder(client, any, Array.isArray(any.ids) && any.ids.length ? writer() : actor);
     case "touch-file": return import("./file-touches").then(m => m.touchFile(client, any, writer()));
+    case "figure-fit": return sweepFigures(client, any, any.comment ? writer() : actor);
   }
 }

@@ -25,6 +25,8 @@ const EXTRA: Readonly<Record<string, Record<string, ToolSchema>>> = { "set-prope
 /** The checked operations, keyed as the CLI names them. */
 export const AGENT_OPERATION_SPECS: Readonly<Record<string, ToolArgsSpec>> = {
   ...Object.fromEntries(AGENT_TOOL_DEFINITIONS.map(d => [d.operation, spec(d.operation, { ...d.properties, ...EXTRA[d.operation] }, d.required, d.example, d.aliases)])),
+  // The tidy pass's figure check (PIE-721): the notes under `under` that read as a figure, told once each with comment.
+  "figure-fit": spec("figure-fit", { under: str, limit: { type: "integer", minimum: 1, maximum: 500 }, comment: { type: "boolean" } }, ["under"], { under: "[[Garden plans]]", comment: true }),
   // outline_reply is two operations: a reply in a thread here, and its `edit` the operation edit-comment below.
   reply: spec("reply", { thread: str, body: str, requestId: str }, ["thread", "body"], { thread: THREAD, body: "Yes, checked today." }),
   "edit-comment": spec("edit-comment", { mark: str, body: str, observed: str, revision }, ["mark", "body"], { mark: THREAD, observed: "Is this still true?", body: "Is this still true in May?" }),

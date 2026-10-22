@@ -3,7 +3,10 @@ import {readGroupSecret} from './extension-secrets';
 import type {BlockCollectionCompleteness,GotoSearchCollection} from './types';
 export interface SearchExcerpt {title:string;path:string;snippet:string;exact:boolean}
 export interface SearchCollection<T extends SearchExcerpt> {matches:T[];completeness:BlockCollectionCompleteness;semantic:GotoSearchCollection['semantic']}
-const MODEL='jev-1.13.0';
+/** The Jev model and endpoint every judgment in the service asks (search's ranking, figure-fit.ts). */
+export const JEV_MODEL = 'jev-1.13.0';
+export const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
+const MODEL = JEV_MODEL;
 
 /**
  * Jev's key: the environment's, else the `typesafe` with-secrets group's, as the service reads every other key
@@ -11,7 +14,7 @@ const MODEL='jev-1.13.0';
  * looked for again after a minute, so adding the key needs no restart.
  */
 let found: { key: string | undefined; at: number } | null = null;
-async function jevKey(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
+export async function jevKey(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
   if (env.TYPESAFE_API_KEY) return env.TYPESAFE_API_KEY;
   if (found && (found.key || Date.now() - found.at < 60_000)) return found.key;
   let key: string | undefined;
@@ -46,7 +49,7 @@ export async function rankSearchWithJev<T extends SearchExcerpt>(
       instructions: `${prompt.ranking.instructions}\nCandidate: ${JSON.stringify({title, path, text: snippet})}`,
       criteria: prompt.ranking.criteria,
     }]));
-    const response = await (options.fetch ?? fetch)(options.endpoint ?? "https://api.typesafe.ai/v1/systemone", {
+    const response = await (options.fetch ?? fetch)(options.endpoint ?? JEV_ENDPOINT, {
       method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       redirect: "error",
       body: JSON.stringify({ model: MODEL, state: { query, ...(options.note ? { note: options.note } : {}) }, questions }),

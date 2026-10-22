@@ -8,8 +8,8 @@
 //                   tool search; the rest wait there, found by the words the instructions use.
 //   prompts         the skills this checkout ships (the door's `skills/`, as `ep0ch --skill` lists them), each a prompt
 //   resources       and an `ep0ch://skills/<name>` resource: the same SKILL.md a Claude Code session reads.
-//   write answers   `warnings` and `components` (what the outliner's agent tools found in the text written) lifted
-//                   beside `said`, where an agent reads, instead of only inside `detail`.
+//   write answers   `warnings`, `components` and a figure `suggestion` (what the outliner's agent tools found in the
+//                   text written) lifted beside `said`, where an agent reads, instead of only inside `detail`.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { agentGuide } from "@ep0ch/outline-core/agent-guide";
@@ -68,12 +68,15 @@ export function skillResource(skills: readonly Skill[], uri: unknown): { content
  * What a write's `detail` says about the text it wrote (the agent tools' `warnings` and `components`), to sit beside
  * `said`, with a clause for `said` when there are warnings: nothing when it says nothing.
  */
-export function writeReading(detail: unknown): { fields: { components?: string[]; warnings?: string[] }; said: string } {
+export function writeReading(detail: unknown): { fields: { components?: string[]; warnings?: string[]; suggestion?: { component: string; said: string } }; said: string } {
   const d = detail && typeof detail === "object" ? detail as Record<string, unknown> : {};
   const list = (v: unknown) => (Array.isArray(v) && v.every(x => typeof x === "string") && v.length ? v as string[] : undefined);
   const components = list(d.components), warnings = list(d.warnings);
+  const s = d.suggestion && typeof d.suggestion === "object" ? d.suggestion as Record<string, unknown> : null;
+  const suggestion = s && typeof s.component === "string" && typeof s.said === "string" ? { component: s.component, said: s.said } : undefined;
   return {
-    fields: { ...(components ? { components } : {}), ...(warnings ? { warnings } : {}) },
-    said: warnings ? `; ${warnings.length} warning${warnings.length === 1 ? "" : "s"} about what was written (warnings): saved as written, fix ${warnings.length === 1 ? "it" : "them"} now` : "",
+    fields: { ...(components ? { components } : {}), ...(warnings ? { warnings } : {}), ...(suggestion ? { suggestion } : {}) },
+    said: (warnings ? `; ${warnings.length} warning${warnings.length === 1 ? "" : "s"} about what was written (warnings): saved as written, fix ${warnings.length === 1 ? "it" : "them"} now` : "")
+      + (suggestion ? `; ${suggestion.said} (suggestion)` : ""),
   };
 }
