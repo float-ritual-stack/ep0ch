@@ -259,7 +259,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     ],
     hintId: "link",
     hint: (a, { d }) => a.ask ? d.linkingHint() : null,
-    summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there. Select may have several targets. No to= removes that verb's wires; remove=true removes just the named target. ask=true picks on screen; ask=false dismisses the controls without changing wires.",
+    summary: "Set a wire from tile=<tile>: verb=select shows selections in to=<tile>, verb=open (default) sends Enter there, verb=alt sends alt-opens there. Each verb has one destination; setting it replaces the previous wire. A group cannot send a wire: name its inner tile. No to= removes that verb's wire; remove=true removes it only if it names that target. ask=true picks on screen; ask=false dismisses the controls without changing wires.",
     keys: "alt+l then s select; alt+l then o open; alt+l then a alt; click the tile, h j k l or 1-9 (the tile itself unlinks); ^W P then enter or space picks, x clears a wire; esc or q cancels",
     touches: "shape", touchesWith: a => a.ask !== undefined ? "screen" : "shape", replay: "safe", says: (r, a) => r.picking !== undefined ? null : a.to ? `${r.name ?? r.tile}: ${a.verb ?? "open"} → ${a.to}` : `unlinked ${r.name ?? r.tile}'s ${a.verb ?? "open"}`,
     args: {

@@ -486,7 +486,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
         s.d.render(app); app.drawer.render(200, 60, "Probe");
         const first = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.tile;
         const target = s.d.layoutAll().tiles.find(t => t.name === "other")!.tile;
-        for (const verb of ["select", "open", "alt"]) {
+        for (const verb of ["select", "open", "alt"] as const) {
           await act("tile.link", id, { to: first, verb });
           await act("tile.link", id, { to: target, verb });
           const tile = s.d.layoutAll().tiles.find(t => t.tile === id)!;
@@ -602,7 +602,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
     const leaf = await board.createBlock(null, "Seed catalogue\nPeas and beans.");
     const tool = await board.createBlock(null, "Tool cupboard\nA copper watering can.");
-    await board.update(s.briefing.id, `Garden briefing\n((${leaf.id}|Seed catalogue))\n((${tool.id}|Tool cupboard))`, s.briefing.revision);
+    await board.update(s.briefing.id, `Garden briefing\n((${leaf.id}|Seed catalogue))\n((${tool.id}|Tool cupboard))`, s.briefing.revision!);
     const off = await linksInDrawer(s);
     await act("tile.open", "@drawer/screen/backlinks", { kind: "preview", name: "preview", source: "tile:backlinks" });
     await act("tile.open", "@drawer/screen/backlinks", { kind: "reader", name: "companion", mode: "held", note: leaf.id });

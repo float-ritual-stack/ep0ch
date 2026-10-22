@@ -207,21 +207,24 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     expect(D().layoutGet().focus).toBe("links");
   }, 20_000);
 
-  test("select wires fan out independently of open, and survive saving and loading the layout", async () => {
+  test("a replacement select destination survives saving and loading independently of open", async () => {
     await setup();
     await act("tile.open", { kind: "detail", name: "side", where: "right" }, "reader");
+    const oldPreview = reader("peek").msg?.id;
     await act("tile.link", { to: "side", verb: "select" }, "links");
     await act("tile.link", { to: "reader", verb: "open" }, "links");
     await pickRow(hall.id);
-    await until(() => reader("side").msg?.id === hall.id && reader("peek").msg?.id === hall.id, "both select targets show the row");
+    await until(() => reader("side").msg?.id === hall.id, "the replacement select target shows the row");
+    expect(reader("peek").msg?.id).toBe(oldPreview);
     expect(reader("reader").msg?.id).toBe(lamp.id);
     const saved = D().saved();
     D().build(saved, true);
     await pickRow(porch.id);
-    await until(() => reader("side").msg?.id === porch.id && reader("peek").msg?.id === porch.id, "both select wires survive reload");
+    await until(() => reader("side").msg?.id === porch.id, "the replacement select wire survives reload");
+    const unlinkedPreview = reader("peek").msg?.id;
     await act("tile.link", { to: "side", verb: "select", remove: true }, "links");
     await pickRow(hall.id);
-    await until(() => reader("peek").msg?.id === hall.id, "the other select target stays connected");
+    expect(reader("peek").msg?.id).toBe(unlinkedPreview);
     expect(reader("side").msg?.id).toBe(porch.id);
     await act("backlinks.open", { id: hall.id }, "links");
     expect(reader("reader").msg?.id).toBe(hall.id);
