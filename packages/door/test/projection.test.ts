@@ -202,6 +202,8 @@ describe("a projection in a reader", () => {
   test("[ ] stop on the region, the ruler tints all of it, ⏎ and a click open the ticket's page, and the hint says so", async () => {
     const opened: string[][] = [];
     const run = external.run;
+    const display = process.env.DISPLAY, ssh = process.env.SSH_CONNECTION, tty = process.env.SSH_TTY;
+    process.env.DISPLAY = ":fictional"; delete process.env.SSH_CONNECTION; delete process.env.SSH_TTY;
     external.run = cmd => { opened.push(cmd); };
     try {
       const r = await shown(stub(() => readOf([{ ...READY, fetchedAt: minutesAgo(3) }])), note(TEXT));
@@ -225,7 +227,12 @@ describe("a projection in a reader", () => {
       await Bun.sleep(1);
       expect(opened).toHaveLength(2);
       expect(r.s.describe().elements!.current).toMatchObject({ kind: "resource" });
-    } finally { external.run = run; }
+    } finally {
+      external.run = run;
+      if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display;
+      if (ssh === undefined) delete process.env.SSH_CONNECTION; else process.env.SSH_CONNECTION = ssh;
+      if (tty === undefined) delete process.env.SSH_TTY; else process.env.SSH_TTY = tty;
+    }
   });
 
   test("with nothing to open (no key, not fetched, not registered), ⏎ says why and opens nothing", async () => {

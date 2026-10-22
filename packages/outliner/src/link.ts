@@ -173,7 +173,13 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
     saveState(path, { machine, since: savedState(path)?.since, pid: process.pid, up: false, reason: "waiting for connector" });
   }
   const heartbeat = setInterval(() => { for (const ws of peers.values()) if (Date.now() - ws.data.last > 25_000) { ws.data.reason = "heartbeat timed out"; ws.terminate(); } }, 10_000);
-  return { port: server.port!, async stop() { await opener.stop(true); io.remove(socket); updates.close(); clearInterval(heartbeat); for (const ws of peers.values()) { ws.data.reason = "link server stopped"; cleanup(ws); ws.terminate(); } await server.stop(true); } };
+  return { port: server.port!, async stop() {
+    // The CLI signal handler can exit before an awaited stop resumes: release its sockets first.
+    updates.close(); clearInterval(heartbeat);
+    for (const ws of peers.values()) { ws.data.reason = "link server stopped"; cleanup(ws); ws.terminate(); }
+    const closed = opener.stop(true); io.remove(socket);
+    await server.stop(true); await closed;
+  } };
 }
 
 export function connectLink(o: { server: string; machine: string; key: string; host: string; statusPath?: string; commit?: string; install?: (sha: string) => Promise<LinkInstallResult>; autoInstall?: () => boolean; onInstalled?: () => void; open?: (url: string) => Promise<void>; log: (line: string) => void }) {
