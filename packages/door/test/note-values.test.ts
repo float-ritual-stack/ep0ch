@@ -82,7 +82,7 @@ describe.skipIf(!outliner)("values in the door's reader (PIE-533 S2)", () => {
     }, "the resolved link");
     const y = lines.findIndex(l => l.includes("See"));
     surface.click(lines[y]!.indexOf("See ") + 5, y, host);
-    await Bun.sleep(100);
+    await until(() => opened.length > 0, "the linked page to open");
     expect(opened).toEqual([target.id]);
     const source = surface.describeElements().find(e => e.label === "¶");
     expect(source).toBeDefined();
