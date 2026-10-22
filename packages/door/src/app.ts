@@ -1,6 +1,6 @@
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { StatusBarNote, STATUS_BAR_ACTIONS, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
-import { OSC8_CLOSE } from "./hyperlink";
+import { OSC8, OSC8_CLOSE } from "./hyperlink";
 import { fullPlainText } from "./overflow";
 import { Overflow } from "./overflow";
 import { linkUpdateLabel } from "@ep0ch/outliner/link";
@@ -1609,8 +1609,9 @@ export function statusLine(left: string, middle: string, right: string, cols: nu
   const sep = " │ ";
   const room = Math.max(0, cols - width(right) - sep.length);
   const body = pad(middle && width(left + middle) > room ? middle : left + middle, room);
-  // pad() ends a cut with RESET, so the bar's colours are set again before the separator.
-  return bg(C.blue) + fg(C.lcyan) + body + bg(C.blue) + fg(C.lcyan) + sep + right + RESET;
+  // A cut can drop the message's link terminator; RESET restores colours but cannot end a hyperlink.
+  const endLink = OSC8.test(body) ? OSC8_CLOSE : "";
+  return bg(C.blue) + fg(C.lcyan) + body + endLink + bg(C.blue) + fg(C.lcyan) + sep + right + RESET;
 }
 
 /**
