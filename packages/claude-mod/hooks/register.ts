@@ -135,6 +135,7 @@ import {
   WORKBOARD_TIMEOUT_MS,
   workboardText,
 } from './workboard-now'
+import { DRAW_TIMEOUT_MS, drawArgv, drawnNoteOf, GUIDE_ARGV, GUIDE_BLOCK, GUIDE_TIMEOUT_MS, guideText, UPFRONT_TOOLS, withDrawing } from './outline-guide'
 
 type AbovePromptRender = RenderInput<'AbovePrompt'>
 /** The binding card's state: written here, in this file, as the engine lists what a module reads and writes. */
@@ -205,6 +206,13 @@ function reportStatus($: EngineInterface, r: StatusInput): void {
 let workboardLoad: Promise<string | null> | undefined
 let workboardGeneration = 0
 let workboardGiven: string | null | undefined
+
+/**
+ * The outline's guide (hooks/outline-guide.ts): the read for a folder and outline (another binding reads it again), and
+ * what the model's context carried (null: made without it, so one that lands later makes the context again).
+ */
+let guideLoad: { key: string; load: Promise<string | null> } | undefined
+let guideGiven: string | null | undefined
 
 /** A turn reads the binding again at most this often, so a door upgrade or reconnect shows within a turn or two. */
 const BINDING_REFRESH_MS = 30_000
@@ -442,6 +450,8 @@ export function register(on: On, options: PluginOptions): void {
     bindingGiven = undefined
     workboardGiven = undefined
     $.clock.after(0, () => void readWorkboard($, option))
+    guideGiven = undefined
+    $.clock.after(0, () => void readGuide($, option))
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     $.ui.status(statusLine(null))
     $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
@@ -455,7 +465,8 @@ export function register(on: On, options: PluginOptions): void {
       const door = (await $.env.get('EP0CH_CONTROL'))?.trim() || (await whereLoad)?.facts?.reach?.control
       const tools = [...WORK_TOOLS, ...OUTLINE_TOOLS, COMPONENTS_TOOL, BIND_TOOL, ...(door ? DOOR_TOOLS : [])]
       for (const tool of tools) {
-        await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })
+        // The core ones in the prompt's tool list, not behind tool search (PIE-721): what a session reads and writes notes with.
+        await $.tool.register({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema, ...(UPFRONT_TOOLS.includes(tool.name) ? { isDeferred: false } : {}) })
       }
     })().catch(() => {}))
     return result
@@ -471,13 +482,15 @@ export function register(on: On, options: PluginOptions): void {
       const load = (whereLoad ??= runWhere($).catch(() => ({ summary: null, facts: null })))
       const facts = (bindingLoad ?? readBinding($, option, false)).catch(() => null)
       const board = workboardLoad ?? readWorkboard($, option)
-      const [ran, bound, workboard] = await Promise.all([
+      const [ran, bound, workboard, guide] = await Promise.all([
         inDoorEnv(env) ? Promise.race([load, $.clock.sleep(WHERE_WAIT_MS).then(() => null)]) : null,
         Promise.race([facts, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
         // Not waited for longer than the binding: one that lands later makes the context again (readWorkboard).
         Promise.race([board, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
+        // The same for the guide (readGuide).
+        Promise.race([readGuide($, option), $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
       ])
-      const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK && b.name !== WORKBOARD_BLOCK)
+      const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK && b.name !== WORKBOARD_BLOCK && b.name !== GUIDE_BLOCK)
       if (inDoorEnv(env)) blocks.push({ name: WHERE_BLOCK, text: whereText(ran?.summary ?? envSummaryOf(env)) })
       else if (bound?.where?.reach?.control && bound.where.reach.rule !== 'control') blocks.push({ name: WHERE_BLOCK, text: reachText(bound.where.reach) })
       bindingGiven = bound ? bindingText(bound) : null
@@ -488,6 +501,8 @@ export function register(on: On, options: PluginOptions): void {
       })
       workboardGiven = workboard
       if (workboard) blocks.push({ name: WORKBOARD_BLOCK, text: workboard })
+      guideGiven = guide
+      if (guide) blocks.push({ name: GUIDE_BLOCK, text: guide })
       // A newer read (a compaction, a /clear) started while this one was awaited: when it lands, the context follows it.
       const newer = workboardLoad
       if (newer && newer !== board) void newer.then(text => { if (newer === workboardLoad && text !== workboardGiven) $.ui.invalidate('prompt.context') })
@@ -514,6 +529,7 @@ export function register(on: On, options: PluginOptions): void {
     void readBinding($, option, true).catch(() => {})
     workboardGiven = undefined
     void readWorkboard($, option)
+    guideGiven = undefined
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     return result
   })
@@ -561,7 +577,11 @@ export function register(on: On, options: PluginOptions): void {
       // outline_changes' `actor` filters by agent; every other tool's names who the write is attributed to.
       const actor = await actorFor($, tool.name === 'outline_changes' ? {} : input)
       try {
-        return { result: droppedNote(tool, checked.dropped) + await runOutlinerCli($, workspace, ['agent', command.operation, '--stdin', '--actor', actor], JSON.stringify(command.input)) }
+        const written = await runOutlinerCli($, workspace, ['agent', command.operation, '--stdin', '--actor', actor], JSON.stringify(command.input))
+        // A note that now holds a figure comes back drawn (PIE-721), so a figure that doesn't draw is seen in this turn.
+        const drawn = drawnNoteOf(tool.name, written)
+        const drawing = drawn ? await $.process.run(drawArgv(drawn), { cwd: workspace.root, env: envFor(workspace), timeoutMs: DRAW_TIMEOUT_MS }).then(r => r.exitCode === 0 ? r.stdout : '', () => '') : ''
+        return { result: droppedNote(tool, checked.dropped) + withDrawing(written, drawing) }
       } catch (error) {
         return { deny: error instanceof Error ? error.message : String(error) }
       }
@@ -927,6 +947,28 @@ function readBinding($: EngineInterface, option: PluginOptions, again: boolean):
  * time). Null: no outline, no workboard, or no answer within WORKBOARD_TIMEOUT_MS. Never throws. When it lands after
  * the context was made without it (or with an older read), the context is made again.
  */
+/**
+ * The outline's guide (`ep0ch library --guide`, hooks/outline-guide.ts), read once for a folder and outline: null outside
+ * a bound folder, or when `ep0ch` can't say it. One that lands after the context was made without it makes it again.
+ */
+async function readGuide($: EngineInterface, option: PluginOptions): Promise<string | null> {
+  try {
+    if (!references?.workspace) await loadReferences($, option)
+    const workspace = references?.workspace
+    if (!workspace) return null
+    const key = `${workspace.root}\n${workspace.outline ?? ''}\n${workspace.machine ?? ''}`
+    if (guideLoad?.key !== key) {
+      const load = $.process.run([...GUIDE_ARGV], { cwd: workspace.root, env: envFor(workspace), timeoutMs: GUIDE_TIMEOUT_MS })
+        .then(ran => ran.exitCode === 0 ? guideText(ran.stdout) : null, () => null)
+      guideLoad = { key, load }
+      void load.then(text => { if (text && guideGiven === null && guideLoad?.load === load) $.ui.invalidate('prompt.context') })
+    }
+    return await guideLoad.load
+  } catch {
+    return null
+  }
+}
+
 function readWorkboard($: EngineInterface, option: PluginOptions): Promise<string | null> {
   const generation = ++workboardGeneration
   // The outline's half: null when there is no outline, no workboard, or no answer.

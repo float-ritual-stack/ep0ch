@@ -740,3 +740,29 @@ export function componentBrief(schema: ComponentSchema): string {
 
 /** Several components' briefs, one block each. */
 export const componentBriefs = (schemas: readonly ComponentSchema[]): string => schemas.map(componentBrief).join("\n\n") + "\n";
+
+/**
+ * A component's purpose cut to an index line (agent-guide.ts): its first sentence, and past `max` characters the words
+ * before the last clause break (`:`, `;`, `,`, ` (` but not ` ((`) that keeps at least 40 of them, never one inside
+ * `code` or parentheses; with no such break, cut at a word, outside code, with an ellipsis.
+ */
+export function componentGist(schema: ComponentSchema, max = 100): string {
+  const purpose = purposeOf(schema);
+  if (purpose.length <= max) return purpose;
+  let code = false, depth = 0, clause = -1, word = -1;
+  for (let i = 0; i < max; i++) {
+    const c = purpose[i];
+    if (c === "`") { code = !code; if (code) word = i; continue; }
+    if (code) continue;
+    if (c === " ") word = i;
+    const opens = c === " " && purpose[i + 1] === "(" && purpose[i + 2] !== "(";
+    if (i >= 40 && depth === 0 && (c === ":" || c === ";" || c === "," || opens)) clause = i;
+    if (c === "(") depth++;
+    else if (c === ")") depth = Math.max(0, depth - 1);
+  }
+  if (clause > 0) return purpose.slice(0, clause).trimEnd();
+  return `${purpose.slice(0, word > 0 ? word : max - 1).replace(/[,:;\s]+$/, "")}…`;
+}
+
+/** Whether a component reads the outline as it's drawn: it takes a query (`query:`, `[query::]`, `where=`). */
+export const componentIsLive = (schema: ComponentSchema): boolean => schema.props.some(p => p.type === "query");

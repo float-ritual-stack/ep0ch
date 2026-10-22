@@ -625,6 +625,32 @@ test("agent operations take ref and its aliases; two aliases for different notes
   expect((await agent("view-order", { view: note.id })).stderr).not.toContain("is not an argument");
 });
 
+// PIE-721: a write says what its components will draw, and what in them won't draw as written, without refusing it.
+test("a written figure is confirmed in components; a typo in its name or a key, or YAML that doesn't read, is a warning", async () => {
+  const { store, agent } = await setup();
+  const good = ["Beds", "::graph-stat", "---", "title: the beds", "items: [{ value: \"4\", label: raised }]", "---", "::"].join("\n");
+  const created = await agent("create", { parent: "root", text: good });
+  expect(created.exitCode).toBe(0);
+  expect(created.json.components).toEqual(["graph-stat"]);
+  expect(created.json.warnings).toBeUndefined();
+
+  const note = store.create("Plot");
+  const typos = ["Plot", "::graph-stats", "---", "title: x", "---", "::", "::graph-stat", "---", "titel: the beds", "---", "::"].join("\n");
+  const edit = await agent("edit", { ref: note.id, expectedRevision: note.revision, text: typos });
+  expect(edit.exitCode).toBe(0);
+  expect(store.get(note.id)!.text).toBe(typos);
+  expect(edit.json.components).toEqual(["graph-stat"]);
+  expect(edit.json.warnings).toEqual([
+    "the ::graph-stats on line 2 isn't a component: did you mean ::graph-stat?",
+    "the ::graph-stat on line 7 doesn't take titel: did you mean title?",
+  ]);
+
+  const now = store.get(note.id)!;
+  const broken = await agent("edit", { ref: note.id, expectedRevision: now.revision, text: ["Plot", "::graph-stat", "---", "items: [{ value: 1", "---", "::"].join("\n") });
+  expect(broken.exitCode).toBe(0);
+  expect(broken.json.warnings[0]).toStartWith("the ::graph-stat on line 2 doesn't draw: bad YAML");
+});
+
 // PIE-761: what's written always lands. A broken `((id`, an anchor the note doesn't have and a `((` round words are
 // saved as written, by MCP's tools and the CLI alike; each is said afterwards as a warning with a did-you-mean.
 test("a bad or unresolved reference never blocks a save: edit, create, comment, reply, patch and the CLI save and warn", async () => {

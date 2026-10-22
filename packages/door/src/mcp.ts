@@ -16,6 +16,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
 import { checkToolArgs, type ToolSchema } from "@ep0ch/outline-core/tool-args";
 import { briefFor } from "./library/brief";
+import { gatewayInstructions, gatewaySkills, skillPrompt, skillPrompts, skillResource, skillResources, withLoadHint, writeReading } from "./mcp-guide";
 import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp-threads";
 import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
 import { listShares, readerLine, readerView, revokeShares, shareLine, startShare } from "./share-cli";
@@ -33,7 +34,8 @@ export const MCP_USAGE = `  ep0ch mcp usage [--since 24h] [--by tool|actor|outli
   ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    local stdio MCP server for ep0ch:// block resources, gated by the outline's \`ep0ch mcp access\` grant:
                                    tools list_outlines, outline_read, outline_threads, outline_find, outline_query, outline_links, outline_components; resources/read with envelope,
-                                   and the outline's components as resources (resources/list). At \`propose\` and \`full\` it offers the
+                                   and the outline's components and the skills as resources (resources/list), the skills as prompts,
+                                   and what an outline holds as its instructions (PIE-721). At \`propose\` and \`full\` it offers the
                                    same write tools as the gateway, as \`mcp:[<persona>/]<client>@<machine>\` (the client the MCP initialize names, on this machine);
                                    outline_new makes a scratch outline of its own on this machine, outline_archive puts it away
   ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default outline>]
@@ -674,6 +676,8 @@ async function componentResources(outlines: McpOutlines): Promise<unknown[]> {
 }
 
 async function resourceRead(outlines: McpOutlines, uriValue: unknown): Promise<unknown> {
+  const skill = skillResource(gatewaySkills(), uriValue);
+  if (skill) return skill;
   const component = typeof uriValue === "string" ? COMPONENT_URI.exec(uriValue.trim()) : null;
   if (component) {
     const served = await outlines.board({ outline: component[1]!, machine: component[2]! });
@@ -1134,7 +1138,8 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     }
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: ${done.outcome}${target.served.machine ? ` live on ${target.served.machine}` : ""}`);
     const waitingNote = earlier.length ? `; ${earlier.length} earlier write${earlier.length === 1 ? "" : "s"} of yours to this note ${earlier.length === 1 ? "is" : "are"} still queued for ${target.queuedFor} and apply when it pulls, each checked against the note's revision then (outline_write_status follows them)` : "";
-    return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), said: `${done.said}${waitingNote}`, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
+    const reading = writeReading(done.detail);
+    return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), ...(caller.call ? { call: { ...callShown(caller.call), ...(caller.freshCall ? { said: "This write was a call of its own: pass call with this id on your later requests so they are one call (they can be found with call:<id or handle>, and your recent-activity reads then leave them out)." } : {}) } } : {}), ...where, base, ...(target.served.machine ? { source: "live", machine: target.served.machine } : {}), ...(earlier.length ? { queuedEarlier: earlier.map(w => w.id) } : {}), ...reading.fields, said: `${done.said}${reading.said}${waitingNote}`, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
   } catch (e) {
     outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: refused: ${(e as Error).message}`);
     return toolError((e as Error).message);
@@ -1144,15 +1149,15 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
 function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, scope?: ResponseScope, transport: "stdio" | "http" = "stdio"): Promise<unknown> | unknown {
   switch (req.method) {
     case "initialize":
-      return { protocolVersion: protocolFor(objectFields(req.params)?.protocolVersion), capabilities: { tools: transport === "http" ? { listChanged: true } : {}, resources: {} }, serverInfo: { name: "ep0ch", version: "0.0.0" } };
+      return { protocolVersion: protocolFor(objectFields(req.params)?.protocolVersion), capabilities: { tools: transport === "http" ? { listChanged: true } : {}, resources: {}, prompts: {} }, serverInfo: { name: "ep0ch", version: "0.0.0" }, instructions: gatewayInstructions() };
     case "ping":
       return {};
     case "tools/list":
-      return offersWrites(outlines, caller).then(async w => ({ tools: toolList(outlines, w, caller, !!caller && !!outlines.admin && !(await lokiAccessRefusal(outlines, caller))) }));
+      return offersWrites(outlines, caller).then(async w => ({ tools: toolList(outlines, w, caller, !!caller && !!outlines.admin && !(await lokiAccessRefusal(outlines, caller))).map(withLoadHint) }));
     case "tools/call":
       return callTool(outlines, req.params, caller, scope);
     case "resources/list":
-      return componentResources(outlines).then(resources => ({ resources }));
+      return componentResources(outlines).then(resources => ({ resources: [...resources, ...skillResources(gatewaySkills())] }));
     case "resources/templates/list": {
       const outline = outlines.kind === "local" ? outlines.defaultOutline! : "{outline}";
       const machine = outlines.kind === "local" ? outlines.machine : "{machine}";
@@ -1164,7 +1169,13 @@ function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, s
       return resourceRead(outlines, params.uri);
     }
     case "prompts/list":
-      return { prompts: [] };
+      return { prompts: skillPrompts(gatewaySkills()) };
+    case "prompts/get": {
+      const name = objectFields(req.params)?.name;
+      const prompt = skillPrompt(gatewaySkills(), name);
+      if (!prompt) throw invalidParams(`No prompt ${JSON.stringify(name)}: the prompts are ${gatewaySkills().map(s => s.name).join(", ")}.`);
+      return prompt;
+    }
     default:
       throw new RpcError(-32601, `Method not found: ${req.method ?? ""}`);
   }

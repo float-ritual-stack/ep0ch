@@ -6,6 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { componentBriefs, componentPageMarkdown, type ComponentSchema, type Variation } from "@ep0ch/outline-core/component-schema";
+import { agentGuide } from "@ep0ch/outline-core/agent-guide";
 import { calloutsReady } from "../callouts";
 import { componentsReady } from "../component-schemas";
 import { headingStylesReady } from "../heading-styles";
@@ -15,13 +16,16 @@ import { drawVariation, variationReady } from "./draw";
 import { chooseComponents } from "./brief";
 import { WIDTHS } from "./library";
 
-export const LIBRARY_USAGE = `  ep0ch library [<component>…] [--brief | --json | --out <dir> [--width 40|80|160]] [--ws <name>] [--machine <ssh-name>]
+export const LIBRARY_USAGE = `  ep0ch library [<component>…] [--brief | --guide | --json | --out <dir> [--width 40|80|160]] [--ws <name>] [--machine <ssh-name>]
                                    the component library (PIE-618): every component's properties, as the outline
                                    has them (its own heading styles and callout types among the values, its
                                    extensions' components). With no flag, the components; --brief, what an agent
                                    reads: per component its purpose, where it goes, each property as
                                    key: values (default) — meaning, and a minimal example (the
-                                   outline_components tool says the same); --json, their schemas
+                                   outline_components tool says the same); --guide, what an agent should know
+                                   the outline can hold: the house lines and every component in a line, grouped
+                                   (the MCP gateway's instructions and the Claude mod's context say the same,
+                                   PIE-721); --json, their schemas
                                    (what completion reads); --out <dir>, a Markdown page each (<id>.md, and
                                    README.md listing them), every variation drawn as the door draws it above its
                                    source: attach one to a note with [file::<dir>/<id>.md] [publish::true] and the
@@ -34,10 +38,10 @@ export async function libraryCommand(argsIn: string[], io: Out = { out: console.
   const takes = ["--ws", "--machine", "--out", "--width"];
   for (const f of takes) if (args.includes(f) && (value(args, f) === undefined || value(args, f)!.startsWith("--"))) { io.err(`ep0ch: ${f} takes a value\n${LIBRARY_USAGE}`); return 2; }
   const names = args.filter((a, i) => !a.startsWith("--") && !takes.includes(args[i - 1] ?? ""));
-  const unknown = args.find(a => a.startsWith("--") && !takes.includes(a) && a !== "--json" && a !== "--brief" && a !== "--here");
+  const unknown = args.find(a => a.startsWith("--") && !takes.includes(a) && a !== "--json" && a !== "--brief" && a !== "--guide" && a !== "--here");
   if (unknown) { io.err(`ep0ch: library doesn't take ${unknown}\n${LIBRARY_USAGE}`); return 2; }
   const out = value(args, "--out"), width = Number(value(args, "--width") ?? 80);
-  if ([args.includes("--json"), args.includes("--brief"), !!out].filter(Boolean).length > 1) { io.err(`ep0ch: library prints --brief, prints --json or writes --out, one of them\n${LIBRARY_USAGE}`); return 2; }
+  if ([args.includes("--json"), args.includes("--brief"), args.includes("--guide"), !!out].filter(Boolean).length > 1) { io.err(`ep0ch: library prints --brief, --guide or --json, or writes --out, one of them\n${LIBRARY_USAGE}`); return 2; }
   if (!(WIDTHS as readonly number[]).includes(width)) { io.err(`ep0ch: --width is ${WIDTHS.join(", ")}`); return 2; }
   const board = await boardFor(args);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
@@ -48,6 +52,7 @@ export async function libraryCommand(argsIn: string[], io: Out = { out: console.
     if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 1; }
     const chosen: readonly ComponentSchema[] = picked.chosen;
     if (args.includes("--brief")) { io.out(componentBriefs(chosen).trimEnd()); return 0; }
+    if (args.includes("--guide")) { io.out(agentGuide(chosen, { scope: `as ${board.address.outline} has them` })); return 0; }
     if (args.includes("--json")) { io.out(JSON.stringify(chosen, null, 2)); return 0; }
     if (!out) {
       for (const s of chosen) io.out(`${s.id.padEnd(16)} ${s.title} · ${s.props.length} properties${s.origin && s.origin !== "built-in" ? ` · ${s.origin}` : ""}`);

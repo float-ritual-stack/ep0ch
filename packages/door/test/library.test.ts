@@ -208,8 +208,16 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
       expect([mood.code, mood.err]).toEqual([0, ""]);
       expect(mood.out).toContain("## mood (ext:moods)\n");
       expect(JSON.parse((await run("--json")).out).map((c: any) => c.id)).toContain("mood");
+      // The guide (PIE-721): the house lines and a line per component, the extension's marked, the outline named.
+      const guide = await run("--guide");
+      expect([guide.code, guide.err]).toEqual([0, ""]);
+      expect(guide.out).toStartWith("# What an ep0ch outline can hold\n");
+      expect(guide.out).toContain(`## Components (${BUILTIN_COMPONENT_SCHEMAS.length + 1} components, 1 from extensions; as `);
+      expect(guide.out).toMatch(/\n- mood: [^\n]*\(ext:moods\)\n?/);
+      expect(guide.out).toMatch(/\n- graph-tabs: [^\n]* · live\n/);
       const both = await run("--brief", "--json");
       expect(both.code).toBe(2);
+      expect((await run("--guide", "--brief")).code).toBe(2);
       const dir = mkdtempSync(join(tmpdir(), "ep0ch-library-"));
       try {
         const wrote = await run("--out", dir);

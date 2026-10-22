@@ -157,6 +157,8 @@ declare module 'claude-code' {
       toolRowOpen: StateFamily<boolean>
       /** Block titles the tool rows name, by block id. */
       toolTitles: StateFamily<string>
+      /** The outline each of those blocks is in, by block id, when the resolve names it (a reply's links say it). */
+      toolOutlines: StateFamily<string>
     }
   }
 }

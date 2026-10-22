@@ -369,7 +369,10 @@ Above the floor, use whatever makes this note clearer. The examples are one way 
 (a purpose callout, a before-it-posts checklist, the message in one quote, folded sources), a session plan (now, open
 questions, steps as live queries), a decision record (the question, options as a compare figure, the call, what would
 change it). Reach past them: ask `outline_components` (or `ep0ch library --brief`) for what exists and pick what
-fits. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
+fits; `ep0ch library --guide` (the Claude mod's context, the MCP gateway's instructions) lists them all in a line each.
+A write answers with the `components` the note now holds and its `warnings` (a figure's name or key with a typo, YAML
+that doesn't read, a reference that leads nowhere): the text is saved as written, so fix them in the same turn. In
+the Claude mod a note that holds a figure comes back drawn; read the drawing before calling it done. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
 the content.
 
 A worked outbox draft (fictional). The note is made first, then `outline_assign_id` stamps `[work-id::…]` on its first line (no `[page::…]`: the id is the page address). The properties are on the first line; the message is the one quote, so its ⧉
