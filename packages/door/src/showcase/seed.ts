@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { outputRegionText } from "@ep0ch/outline-core/output-region";
 import { titleLine, type Msg } from "../board";
 import { USER, hostRequest, type Actor, SocketBoard } from "../socket";
+import { prop } from "../props";
 import { resourceNote } from "../authored";
 import { WELCOME_VIEW_TEXT } from "../hub/welcome";
 import { CARD_EXAMPLES, DEMO_EXAMPLES, FORM_EXAMPLES, installExamples, PROGRAM_EXAMPLES, RULE_EXAMPLES, VIEW_EXAMPLES } from "./tickets/install";
@@ -290,9 +291,10 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   const pasted = new Map<string, Msg>();
   for (const example of scriptExamples()) {
     for (const note of example.notes) {
-      pasted.set(note.label, await make(note.parent ? pasted.get(note.parent)!.id : notes.scriptExamples.id, note.text));
-      // A rule or a script is read once the service has loaded it; the note it acts on comes after.
-      if (/\[(?:script|rule-name)::/.test(note.text.split("\n")[0]!)) await Bun.sleep(150);
+      const saved = await make(note.parent ? pasted.get(note.parent)!.id : notes.scriptExamples.id, note.text);
+      pasted.set(note.label, saved);
+      // A match written before its script loads becomes its baseline and never fires.
+      if (prop(saved, "script") || prop(saved, "rule-name")) await board.listExtensions(true);
     }
   }
   notes.exampleOrder = pasted.get("ex2-order")!;
