@@ -538,7 +538,7 @@ class Step<I> {
   constructor(private readonly d: Draft<I>, private readonly ctx: Ctx<I>) {}
   private get agent() { return !this.ctx.standing; }
   /** An agent in yolo: the person handed it the door, so their locks don't hold it either. */
-  private get yolo() { return !!this.ctx.person.yolo; }
+  private get yolo() { return this.ctx.actor.kind === "agent" && !!this.ctx.person.yolo; }
   private name(id: I) { return this.d.names.get(id) ?? String(id); }
   private facts(id: I): TileFacts { return this.ctx.tile(id); }
   private isFloat(id: I) { return this.d.floats.some(f => f.id === id); }
