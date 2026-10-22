@@ -3,7 +3,7 @@
 //   bun scripts/evals/figure-fit.ts <copy.sqlite> [--labels <file.json>] [--shaped <n>] [--gate <g>] [--confidence <c>]
 //                                                 [--out <report.json>] [--note]
 //
-// <copy.sqlite> is a copy of an outline (the MCP gateway's outline_snapshot, or `sqlite3 <db> ".backup <copy>"`), opened
+// <copy.sqlite> is a copy of an outline (`ep0ch outline snapshot <name> --out <copy>`, or the gateway's outline_snapshot), opened
 // read-only; a file in the outlines folder (EP0CH_OUTLINES, else ~/outlines) is refused: an eval never touches a live
 // outline. --labels is a JSON map of block id → a figure's id or "none" (the notes a person pointed at). --shaped caps the
 // unlabelled shaped notes asked about (default 150). Jev's answers are cached per model, prompt and text under
@@ -30,7 +30,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env,
   if (!db) { err(USAGE); return 2; }
   const path = resolve(db);
   const outlines = resolve(outlinesFolder({ EP0CH_OUTLINES: env.EP0CH_OUTLINES }, homedir()));
-  if (path.startsWith(`${outlines}/`)) { err(`figure-fit eval: ${path} is in the outlines folder; take a copy first (outline_snapshot, or sqlite3 <db> ".backup <copy>") and pass that`); return 2; }
+  if (path.startsWith(`${outlines}/`)) { err(`figure-fit eval: ${path} is in the outlines folder; take a copy first (ep0ch outline snapshot <name> --out <copy>) and pass that`); return 2; }
   if (!existsSync(path)) { err(`figure-fit eval: no file ${path}`); return 2; }
   const labels = value("--labels") ? JSON.parse(readFileSync(resolve(value("--labels")!), "utf8")) as Record<string, string> : {};
   const shapedCap = Number(value("--shaped") ?? 150);
