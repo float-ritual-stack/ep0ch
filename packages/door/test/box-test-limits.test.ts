@@ -4,7 +4,7 @@
 // leaves the run's process group), so nothing of the real suites runs and nothing of float-box is touched.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir, userInfo } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codexPreToolUse } from "../../../.claude/skills/ep0ch-repo/hooks/whole-suite";
 
@@ -185,21 +185,35 @@ describe("scripts/box-test limits", () => {
   }, 360_000);
 
   test("a sweep kills orphans of runs whose dir is gone, and says how many", async () => {
-    const gone = `/tmp/ep0ch-box-${userInfo().username}-ZZZZZZZZ`;
-    const pidFile = join(out, "orphan.pid");
-    Bun.spawnSync(["sh", "-c", `(BOX_TEST_RUN_DIR=${gone} setsid sh -c 'echo $$ > ${pidFile}; exec sleep 600' </dev/null >/dev/null 2>&1 &) ; sleep 0.5`]);
+    // A private prefix keeps other full-suite guards from sweeping this fixture before its own guard sees it.
+    const run = join(root, "orphan-run-AAAAAAAA"), gone = join(root, "orphan-run-BBBBBBBB");
+    const pidFile = join(out, "orphan.pid"), plant = join(root, "plant-orphan.sh");
+    mkdirSync(run);
+    writeFileSync(join(run, "run.sh"), "exit 0\n");
+    writeFileSync(plant, 'setsid sleep 600 </dev/null >/dev/null 2>&1 &\necho $! > "$1"\n');
+    const parent = Bun.spawn(["bash", plant, pidFile], { env: { ...process.env, BOX_TEST_RUN_DIR: gone } });
+    expect(await parent.exited).toBe(0);
     const [orphan] = pids(pidFile);
-    expect(alive(orphan!)).toBe(true);
-    const ppid = Number(readFileSync(`/proc/${orphan}/stat`, "utf8").replace(/^.*\) /, "").split(" ")[1]);
-    const r = box(worktree("wt-d"), "d1");
-    await until("the run to start", r.started);
-    r.go();
-    expect(await r.p.exited).toBe(0);
-    // Orphans are those reparented to init or a systemd; under another subreaper there is nothing to sweep.
-    if (ppid === 1 || readFileSync(`/proc/${ppid}/comm`, "utf8").trim() === "systemd") {
-      expect(r.text.err).toMatch(/sweep: killed [1-9]\d* orphan/);
+    try {
+      await until("the orphan to have execed sleep with its run directory", () => {
+        if (readFileSync(`/proc/${orphan}/comm`, "utf8").trim() !== "sleep" || runDirOf(orphan!) !== gone) return false;
+        const ppid = Number(readFileSync(`/proc/${orphan}/stat`, "utf8").replace(/^.*\) /, "").split(" ")[1]);
+        return ppid === 1 || readFileSync(`/proc/${ppid}/comm`, "utf8").trim() === "systemd";
+      });
+      expect(alive(orphan!)).toBe(true);
+      expect(runDirOf(orphan!)).toBe(gone);
+      const guard = Bun.spawn(["bash", join(real, "box-test-guard")], {
+        env: { ...process.env, BOX_DIR: run, BOX_WT: "orphan", BOX_SLOTS: "1", BOX_LOCKS: locks },
+        stdout: "pipe", stderr: "pipe",
+      });
+      runs.push(guard);
+      const err = new Response(guard.stderr).text();
+      expect(await guard.exited, await err).toBe(0);
+      expect(await err).toContain("sweep: killed 1 orphan process(es)");
       await until("the orphan to die", () => !alive(orphan!), 5000);
-    } else process.kill(orphan!, "SIGKILL");
+    } finally {
+      if (alive(orphan!)) process.kill(orphan!, "SIGKILL");
+    }
   }, 360_000);
 });
 
