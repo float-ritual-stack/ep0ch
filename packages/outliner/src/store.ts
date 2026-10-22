@@ -3545,8 +3545,15 @@ export class OutlinerStore {
     }).deferred();
   }
 
-  private valueReferences = new Map<string, { answer: ReturnType<typeof answerSite>; revisions: (number | undefined)[]; sequence: number; minute: number }>();
+  private valueReferences = new Map<string, { answer: ReturnType<typeof answerSite>; versions: string[]; sequence: number; minute: number }>();
   private valueReferenceIds: Set<string> | undefined;
+  private refreshingValueReferences = new Set<string>();
+
+  private valueReferenceVersion(id: string): string {
+    const block = this.get(id);
+    // Moves preserve edit revisions; a structural read also depends on place and ordered membership.
+    return JSON.stringify([block?.revision, block?.parentId, block?.position, block?.effectiveDeletedRootId, this.children(id).map(child => child.id)]);
+  }
 
   private refreshValueReferences(): void {
     this.valueReferenceIds ??= new Set((this.database.query("SELECT id, text FROM blocks WHERE text LIKE '%{{%'").all() as { id: string; text: string }[]).filter(row => valueLinkOccurrences(row.text, []).length).map(row => row.id));
@@ -3554,10 +3561,16 @@ export class OutlinerStore {
       const block = this.get(id);
       if (!block) { this.valueReferences.delete(id); this.valueReferenceIds.delete(id); continue; }
       const cached = this.valueReferences.get(id);
-      if (cached && cached.answer.deps.every((dep, i) => this.get(dep)?.revision === cached.revisions[i]) && (!cached.answer.anyChange || cached.sequence === this.sequence) && (!cached.answer.clock || cached.minute === Math.floor(Date.now() / 60_000))) continue;
-      const answer = answerSite(this, { blockId: id });
-      replaceReferenceIndex(this.database, id, block.text, answer.values);
-      this.valueReferences.set(id, { answer, revisions: answer.deps.map(dep => this.get(dep)?.revision), sequence: this.sequence, minute: Math.floor(Date.now() / 60_000) });
+      if (cached && cached.answer.deps.every((dep, i) => this.valueReferenceVersion(dep) === cached.versions[i]) && (!cached.answer.anyChange || cached.sequence === this.sequence) && (!cached.answer.clock || cached.minute === Math.floor(Date.now() / 60_000))) continue;
+      if (this.refreshingValueReferences.has(id)) throw new Error("value link cycle: this address reads its own backlinks");
+      this.refreshingValueReferences.add(id);
+      try {
+        const answer = answerSite(this, { blockId: id });
+        replaceReferenceIndex(this.database, id, block.text, answer.values);
+        this.valueReferences.set(id, { answer, versions: answer.deps.map(dep => this.valueReferenceVersion(dep)), sequence: this.sequence, minute: Math.floor(Date.now() / 60_000) });
+      } finally {
+        this.refreshingValueReferences.delete(id);
+      }
     }
   }
 

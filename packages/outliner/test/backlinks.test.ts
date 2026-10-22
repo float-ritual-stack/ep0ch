@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test, spyOn } from "bun:test";
 import { OutlinerStore } from "../src/store";
 import { readAuthoredLinks } from "../src/authored-links";
 
@@ -21,6 +21,81 @@ function store(): OutlinerStore {
 }
 
 describe("semantic backlink relation", () => {
+  test("value-built links that read backlinks report a cycle instead of crashing", () => {
+    const workspace = store();
+    const source = workspace.create("Loop\n[[{{this.children | links:this .count}}]]");
+    workspace.create("Child", source.id);
+    const values = workspace.referenceValues(source.id);
+    expect(values[0]?.problem?.message).toContain("cycle");
+    expect(values[0]?.values).toBeUndefined();
+    expect(workspace.referenceValues(source.id)[0]?.problem?.message).toContain("cycle");
+  });
+
+  test("value-built date and week links roll their backlinks over with the clock", () => {
+    const workspace = store();
+    const previous = workspace.create("Previous [page::2030-01-06]");
+    const next = workspace.create("Next [page::2030-01-07]");
+    const previousWeek = workspace.create("Previous week [page::2030-W01]");
+    const nextWeek = workspace.create("Next week [page::2030-W02]");
+    const source = workspace.create("Today\n[[{{now.date}}]] and [[{{now.week}}]]");
+    const clock = spyOn(Date, "now").mockReturnValue(new Date(2030, 0, 6, 12).getTime());
+    const sources = (id: string) => workspace.queryBacklinks({ targetBlockId: id, limit: 10 }).sources.map(s => s.blockId);
+    try {
+      expect(sources(previous.id)).toContain(source.id);
+      expect(sources(previousWeek.id)).toContain(source.id);
+      clock.mockReturnValue(new Date(2030, 0, 7, 12).getTime());
+      expect(sources(previous.id)).not.toContain(source.id);
+      expect(sources(next.id)).toContain(source.id);
+      expect(sources(previousWeek.id)).not.toContain(source.id);
+      expect(sources(nextWeek.id)).toContain(source.id);
+    } finally { clock.mockRestore(); }
+  });
+
+  test("value-built addresses with empty parts never link to a partial address", () => {
+    const workspace = store();
+    const target = workspace.create("Archive [page::Archive]");
+    const source = workspace.create("Plan\n[[Archive{{this.children.title}}]]");
+    expect(workspace.queryBacklinks({ targetBlockId: target.id, limit: 10 }).sources.map(s => s.blockId)).not.toContain(source.id);
+    const links = readAuthoredLinks(workspace, source.id);
+    expect(links.kind).toBe("ready");
+    if (links.kind === "ready") expect(links.outlinks.entries).toHaveLength(0);
+  });
+
+  test("value-built backlinks follow parent moves and children membership without text edits", () => {
+    const workspace = store();
+    const first = workspace.create("First [page::First]");
+    const second = workspace.create("Second [page::Second]");
+    const firstParent = workspace.create("Settings [destination::First]");
+    const secondParent = workspace.create("Settings [destination::Second]");
+    const source = workspace.create("Plan\n[[{{parent.destination}}]]", firstParent.id);
+    const sources = (id: string) => workspace.queryBacklinks({ targetBlockId: id, limit: 10 }).sources.map(s => s.blockId);
+    expect(sources(first.id)).toContain(source.id);
+    workspace.move(source.id, secondParent.id);
+    expect(sources(first.id)).not.toContain(source.id);
+    expect(sources(second.id)).toContain(source.id);
+    expect(workspace.get(source.id)!.revision).toBe(source.revision);
+  });
+
+  test("value-built backlinks follow child additions, moves, and ordering", () => {
+    const workspace = store();
+    const first = workspace.create("First [page::First]");
+    const second = workspace.create("Second [page::Second]");
+    const source = workspace.create("Plan\n[[{{this.children[0].title || First}}]]");
+    const sources = (id: string) => workspace.queryBacklinks({ targetBlockId: id, limit: 10 }).sources.map(s => s.blockId);
+    expect(sources(first.id)).toContain(source.id);
+    const child = workspace.create("Second", source.id);
+    expect(sources(first.id)).not.toContain(source.id);
+    expect(sources(second.id)).toContain(source.id);
+    const other = workspace.create("First", source.id);
+    workspace.move(other.id, source.id, 0);
+    expect(sources(first.id)).toContain(source.id);
+    expect(sources(second.id)).not.toContain(source.id);
+    workspace.move(other.id, null);
+    expect(sources(second.id)).toContain(source.id);
+    workspace.move(child.id, null);
+    expect(sources(first.id)).toContain(source.id);
+  });
+
   test("a value-built page link moves its backlink when the value changes", () => {
     const workspace = store();
     const first = workspace.create("First ticket [page::PC-1245]");

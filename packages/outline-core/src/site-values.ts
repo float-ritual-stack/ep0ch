@@ -107,7 +107,11 @@ export function valueLinkOccurrences(text: string, values: readonly SiteValue[],
   const envelopes = [...pageLinkSpans(masked), ...blockReferenceEnvelopeRanges(masked).map(r => ({ ...r, start: text[r.start - 1] === "!" ? r.start - 1 : r.start }))];
   const ranges = codeRangesOf(text, code);
   return envelopes.filter(r => !codeHides(r, ranges)).flatMap(r => {
-    const inside = pairs.filter(p => p.start >= r.start && p.end <= r.end);
+    const inside = pairs.filter(p => p.start >= r.start && p.end <= r.end).map(p => {
+      if (!hasWords(p.value) || p.value!.values!.some(v => v.trim().length > 0)) return p;
+      const { values: _values, ...value } = p.value!;
+      return { ...p, value: { ...value, problem: { message: "this address has an empty part; supply a destination or an explicit default", didYouMean: [`${p.expression} || destination`] } } };
+    });
     if (!inside.length) return [];
     let filled = "", at = r.start;
     for (const p of inside) {

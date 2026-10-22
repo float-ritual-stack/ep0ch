@@ -626,12 +626,12 @@ describe("review findings: shapes that differ, budgets, dependencies the answer 
     expect(values(store, note.id, "this.tasks")).toEqual(["Ask the neighbour", "Plain one"]);
   });
 
-  test("time of day is a minute-clock answer, and a watch of it is told when the minute turns", async () => {
+  test("clock reads are refreshed on the minute, and a watch is told when it turns", async () => {
     const { store } = scratch();
     const note = store.create("Clock");
     const at = answerSite(store, { blockId: note.id, paths: ["now.time"] });
     expect(at.clock).toBe("minute");
-    expect(answerSite(store, { blockId: note.id, paths: ["now.date"] }).clock).toBeUndefined();
+    expect(answerSite(store, { blockId: note.id, paths: ["now.date"] }).clock).toBe("minute");
     expect(answerSite(store, { blockId: note.id, paths: ["now.date-2h"] }).clock).toBe("minute");
     const { QueryWatches } = await import("../src/query-watches");
     let minute = 0;

@@ -70,6 +70,7 @@ class StoreWorld implements PathWorld {
   textOf(id: string): string | undefined { return this.records.get(id)?.text; }
 
   children(id: string): BlockRecord[] {
+    this.deps.add(id);
     // One past the most a path reads, so the resolver can say there are more.
     const kids = this.store.children(id).slice(0, 1001);
     const shown = kids.filter(child => !this.hidden.has(child.id));
@@ -131,7 +132,7 @@ export interface Bound {
   blockId: string;
   revision: number;
   text: string;
-  /** A value a producer's question read changes within the day by the clock alone (`{{now.time}}` in a query). */
+  /** A value a producer's question read depends on the clock alone (`{{now.time}}` in a query). */
   clock?: true;
   /** The unsaved text of the note read, when a draft was given. */
   draft?: { id: string; text: string };
