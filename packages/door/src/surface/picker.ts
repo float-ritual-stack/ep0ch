@@ -50,6 +50,8 @@ export interface PickerSpec<T, H> {
   input?: LineInput;
   /** Esc clears what's typed first, and puts the picker away only with nothing typed (a filter, not a name). */
   escClears?: boolean;
+  /** Typing narrows the choices, including when Esc closes without clearing. */
+  filters?: boolean;
   typed?(host: H): void;
   /** A list taller than its room scrolls (PIE-1036): the wheel moves the view and the cursor goes to a row in it, and a thumb on the box's right edge shows how far down it is. Arrows still move the cursor. */
   scrolls?: boolean;
@@ -93,8 +95,10 @@ export class ListPicker<T, H> implements Mode<H> {
   }
 
   get bindings(): readonly ModeKey[] {
-    const input = this.spec.input;
+    const input = this.spec.input, chooses = this.spec.clickChooses ?? this.spec.stays;
     return [
+      { key: "click", action: chooses ? "picker.choose" : "picker.select", label: chooses ? "picks" : "selects" },
+      ...(!chooses ? [{ key: "double-click", action: "picker.choose", label: "opens" }] : []),
       { key: "esc", action: "picker.close", label: this.spec.escClears && input?.text ? "clear filter" : "close" },
       ...(!input ? [...this.spec.closers ?? ""].map(key => ({ key, action: "picker.close", label: "close", args: { letter: true } })) : []),
       ...this.spec.bindings ?? [],
@@ -107,7 +111,16 @@ export class ListPicker<T, H> implements Mode<H> {
   }
 
   hint(): string {
-    return modeHint(this.bindings.filter(row => this.spec.bindings?.includes(row) || !["shift+enter", "ctrl+enter", "shift+tab", "tab", "k", "j", "pgup", "pgdn", "home", "end"].includes(row.key)), () => undefined);
+    const rows = this.bindings;
+    const pointer = rows.filter(row => ["click", "double-click"].includes(row.key));
+    const keys = rows.filter(row => !pointer.includes(row) && (this.spec.bindings?.includes(row)
+      || !["shift+enter", "ctrl+enter", "shift+tab", "tab", "k", "j", "pgup", "pgdn", "home", "end"].includes(row.key)));
+    return [
+      this.spec.input && (this.spec.filters || this.spec.escClears) ? "type to filter" : "",
+      modeHint(keys.filter(row => row.action === "picker.close"), () => undefined),
+      ...pointer.map(row => `${row.key} ${row.label}`),
+      modeHint(keys.filter(row => row.action !== "picker.close"), () => undefined),
+    ].filter(Boolean).join(" · ");
   }
 
   key(k: Key, host: H): boolean {
@@ -147,7 +160,7 @@ export class ListPicker<T, H> implements Mode<H> {
     if (!r) return;                                          // never drawn (the reader's status choice): not its click
     // A panel that stays open (the policy rows, the steps) has controls for rows: a click on one is its change.
     if (hit && this.spec.clickedItem?.(this.items[hit.i]!, x - r.col - 1, host)) return;
-    if (hit) { const g = (this.spec.clickChooses ?? this.spec.stays) ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
+    if (hit) { const g = this.bindings.find(row => row.key === "click")!.action === "picker.choose" ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
     else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.close(host, "click");
   }
 
@@ -194,7 +207,7 @@ export class ListPicker<T, H> implements Mode<H> {
   draw(canvas: Canvas, area: Rect, values?: StyleValues) {
     const f = this.spec.frame!(area, this.items.length), r = (this.box = f.rect), w = r.cols - 2, head = f.head ?? [], tail = f.tail ?? [];
     values = this.spec.look?.(r.cols) ?? values;
-    canvas.float(r, f.title, fg(C.dark) + (f.foot ? f.foot + " · " : "") + (this.spec.input && this.spec.escClears ? "type to filter · " : "") + this.hint(), () => {
+    canvas.float(r, f.title, fg(C.dark) + (f.foot ? f.foot + " · " : "") + this.hint(), () => {
     head.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
     const room = Math.max(0, r.rows - 2 - head.length - tail.length), y0 = r.row + 1 + head.length;
     const drawn = listPreview(this, w, room, f.preview, y0, r.cols);

@@ -427,7 +427,7 @@ function addPicker(pane: HomePane, desk: DeskApi) {
   const names = sshConfigNames().filter(n => !pane.machines.has(n));
   const input = new LineInput("", false, { complete: false });   // an ssh config name: not outline text
   desk.overlay?.(new ListPicker<string, unknown>({
-    name: "home-add", input,
+    name: "home-add", input, filters: true,
     items: () => {
       const t = input.text.trim(), list = names.filter(n => n.toLowerCase().includes(t.toLowerCase()));
       return t && isMachineName(t) && !list.includes(t) && !pane.machines.has(t) ? [...list, t] : list;

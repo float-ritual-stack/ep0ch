@@ -25,6 +25,20 @@ function picker(n: number, more: Partial<ConstructorParameters<typeof ListPicker
 }
 
 describe("a list picker", () => {
+  test.each([false, true])("its hint explains the pointer that chooses (clickChooses=%s)", clickChooses => {
+    const { p, draw, said } = picker(3, { clickChooses });
+    draw();
+    expect(p.hint()).toContain(clickChooses ? "click picks" : "click selects");
+    if (!clickChooses) expect(p.hint()).toContain("double-click opens");
+    p.key(click(5, 4), null);
+    expect(said.length).toBe(clickChooses ? 1 : 0);
+  });
+
+  test("a filtering input says so even when Esc closes it immediately", () => {
+    const { p } = picker(3, { input: new LineInput(), filters: true });
+    expect(p.hint()).toContain("type to filter");
+  });
+
   test("its drawn foot follows the input and Esc clears before closing", () => {
     const input = new LineInput("garden");
     const { p, draw } = picker(3, { input, escClears: true });
