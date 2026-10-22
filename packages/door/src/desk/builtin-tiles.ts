@@ -62,7 +62,7 @@ const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "
 const linkGroupsOf = (spec: string | undefined) => { try { return linkGroupsFrom(spec); } catch { return null; } };
 const groupsProblem = (spec: string | undefined): string | null => { try { linkGroupsFrom(spec); return null; } catch (e) { return (e as Error).message; } };
 /** The tile a links tile lists the links of: its `tile:<name>` source, else the reader. */
-const sourceTile = (spec: string | undefined) => { const src = spec && sourceOf(spec); return src && "tile" in src ? src.tile : "reader"; };
+const sourceTile = (spec: string | undefined) => { if (spec === "") return ""; const src = spec && sourceOf(spec); return src && "tile" in src ? src.tile : "reader"; };
 const showing = (p: Pane | undefined): Msg | null => (p ? kindOf(p)?.shows?.(p) ?? null : null);
 
 /** The entries, made when they're registered (so a module cycle never meets them half-built). */

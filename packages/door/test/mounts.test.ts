@@ -97,7 +97,8 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     expect(await act("view.get", {}, "kanban/preview")).toBeDefined();
     await act("tile.close", {}, "second-898");
     const local = await act("tile.open", { kind: "reader", name: "preview" }, focus);
-    expect(await act("view.get", {}, "preview")).toEqual(await act("view.get", {}, local.id));
+    await expect(act("view.get", {}, "preview")).rejects.toThrow(/several tiles named preview/);
+    expect(await act("view.get", {}, local.id)).toBeDefined();
     await act("tile.close", {}, local.id);
     await act("tile.group", { on: false }, g.tile);
   });
@@ -125,8 +126,8 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     desk = previous;
   });
 
-  test("its layout is its own, saved with the desk's: a fold inside it comes back after a restart, under the same mount id", async () => {
-    expect(await act("tile.collapse", { on: true }, "kanban/preview")).toMatchObject({ tile: "kanban/preview", collapsed: true });
+  test("its saved arrangement restores a fold inside a second mount, with a distinct tile id", async () => {
+    expect(await act("tile.collapse", { on: true }, "kanban/preview")).toMatchObject({ tile: "preview", collapsed: true });
     const id = tile("kanban").id;
     D().save();
     const saved = JSON.parse(readFileSync(join(state(), "desk.json"), "utf8"));
@@ -136,7 +137,8 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     app.push(again);
     again.render(again.ctx);
     const t = () => again.layoutGet().tiles.find((x: any) => x.name === "kanban");
-    expect(t()).toMatchObject({ id, kind: "screen", mount: { screen: "board" } });
+    expect(t()).toMatchObject({ kind: "screen", mount: { screen: "board" } });
+    expect(t().id).not.toBe(id);
     expect(t().mount.layout.tiles.find((x: any) => x.name === "preview").collapsed).toBe(true);
     app.pop();
     await act("tile.expand", {}, "kanban/preview");
@@ -147,7 +149,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     expect(r.tile).toBe("rows");
     await until(() => { render(); const ts = tile("rows")?.mount?.layout?.tiles ?? []; return ts.length === 4 && ts.every((t: any) => t.kind === "query"); }, "the lanes alone, filled", 8000);
     expect(tile("rows").mount).toMatchObject({ part: "lanes" });
-    const lane = tile("rows").mount.layout.tiles[0].name;
+    const lane = tile("rows").mount.layout.tiles[0].id;
     const card = seeded.cards[0]!;
     const out = await act("open", { id: card.id, from: lane }, "rows/");
     expect(out.reader).toBeTruthy();
@@ -167,14 +169,14 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     desk = top;
     expect(tile(r.tile)).toMatchObject({ mount: { screen: "board", args: { hub: seeded.notes.hub.id } } });
     // A locked desk refuses it before the full screen goes: the person stays on the board.
-    await D().dispatch.act({ action: "layout.lock", args: { on: true } }, { kind: "user" });
+    await D().dispatch.act({ action: "layout.lock", tile: r.tile, args: { on: true } }, { kind: "user" });
     const locked = openScreen("board", { hub: seeded.notes.hub.id }) as any;
     app.push(locked);
     locked.render(locked.ctx);
     expect(await locked.dispatch.press("screen.mount", {})).toBeUndefined();
     expect((app as any).stack.at(-1)).toBe(locked);
     app.pop();
-    await D().dispatch.act({ action: "layout.lock", args: { on: false } }, { kind: "user" });
+    await D().dispatch.act({ action: "layout.lock", tile: r.tile, args: { on: false } }, { kind: "user" });
     // The tile menu offers the part around a tile (the lanes around a lane): screen.part.
     const back = openScreen("board", { hub: seeded.notes.hub.id }) as any;
     app.push(back);
@@ -187,7 +189,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     desk = (app as any).stack.at(-1);
     expect(tile(p.tile).mount).toMatchObject({ part: "lanes" });
     // On the desk itself it says how to mount one instead.
-    await expect(D().dispatch.act({ action: "screen.mount", args: {} }, { kind: "user" })).rejects.toThrow(/this is the desk/);
+    await expect(D().dispatch.act({ action: "screen.mount", tile: "kanban", args: {} }, { kind: "user" })).rejects.toThrow(/this is the desk/);
   }, 30_000);
 
   test("a group: a terminal and a reader gathered into one tile come back out whole, the program still running; an agent never gathers the person's tile", async () => {
@@ -205,7 +207,7 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     render();
     expect(tile(g.tile)).toMatchObject({ kind: "screen", mount: { group: true, layout: { tree: { split: "col" } } } });
     expect(tile("shell")).toBeUndefined();
-    expect(await act("tile.type", { text: "true" }, `${g.tile}/shell`)).toMatchObject({ tile: `${g.tile}/shell` });
+    expect(await act("tile.type", { text: "true" }, `${g.tile}/shell`)).toMatchObject({ tile: "shell" });
     // The person's open naming no tile, their keys on the group (/ and the power bar there): its reader takes it, never
     // "the screen has no reader tile" for the desk around it.
     await mine("tile.focus", {}, g.tile);

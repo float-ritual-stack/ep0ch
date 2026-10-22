@@ -14,7 +14,7 @@
 // starts as its full screen was last left (read, never written). One action pops a mount out to its full screen (the
 // screen switch, `mount.out`), and `q` comes back; `screen.mount` on a full screen puts it (or a part) on the desk.
 //
-// Keys: the mounted screen's own keys work in it (the board's h l j k); 1-9, Tab, alt and ^W stay the screen holding it.
+// Keys: the mounted screen's own keys work in it (the board's h l j k); 1-9 and Tab stay the holder; alt and ^W act on the focused tile inside.
 // `^W e` (`mount.enter`) goes in: every key is the mounted screen's, its ^W and Tab too, until ctrl+] or an Esc with
 // nothing left to close in it. A q with nothing left to leave in it is the holding screen's q: it leaves that screen, as on
 // any desk (PIE-727), or, from inside, comes out. What the mounted screen selects (the board's card) is the tile's selection: a preview
@@ -119,7 +119,7 @@ export class ScreenTile implements Pane {
   spine() { return { title: this.title().replace(/ · in$/, "") }; }
   hint() {
     if (this.inside) return "every key is the mounted screen's · ctrl+] or esc (nothing left to close in it) comes out";
-    return `its own keys · 1-9 tab alt and ^W stay this screen's · ^W e goes in${this.screen ? " · ^W u full screen" : " · ^W G spills it"}`;
+    return `alt and ^W act inside · 1-9 tab stay this screen's · frame/menu act on the group${this.screen ? " · menu: full screen" : " · menu: spill tiles"}`;
   }
 
   init(desk: DeskApi) {
@@ -158,7 +158,7 @@ export class ScreenTile implements Pane {
   private left(desk: DeskApi) {
     if (this.inside) return this.goIn(false);
     if (desk.leave) return desk.leave();
-    refused(desk.ctx, `the ${this.screen ?? "group"} is a tile · ^W x closes it, ^W z zooms it`);
+    refused(desk.ctx, `the ${this.screen ?? "group"} is a tile · its frame/menu closes or zooms it`);
   }
 
   /** An open its screen has no reader for (a mounted part: the lanes alone): where this tile's opens land, on the screen holding it. */
@@ -173,7 +173,7 @@ export class ScreenTile implements Pane {
   goIn(on: boolean) {
     if (on && !this.framed) throw new ActionRefused(this.problem ?? "nothing is mounted in it yet");
     this.inside = on;
-    this.desk?.ctx.flash(on ? `in the ${this.screen ?? "group"} · its keys, ^W and Tab too · ctrl+] or esc comes out` : `out of the ${this.screen ?? "group"} · 1-9 tab alt and ^W are this screen's again`);
+    this.desk?.ctx.flash(on ? `in the ${this.screen ?? "group"} · its keys, ^W and Tab too · ctrl+] or esc comes out` : `out of the ${this.screen ?? "group"} · 1-9 and tab are this screen's again · alt and ^W act inside`);
     this.desk?.redraw();
   }
 

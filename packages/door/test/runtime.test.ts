@@ -441,7 +441,7 @@ describe("where am I, from a tile (ep0ch where)", () => {
       expect(opened.code).toBe(0);
       await until(() => existsSync(join(dir, "a.json")) && readFileSync(join(dir, "a.json"), "utf8").trim().endsWith("}"), "the first where", 20_000);
       const a = JSON.parse(readFileSync(join(dir, "a.json"), "utf8"));
-      expect(a.nest).toMatch(new RegExp(`^ssh:pts/nonexistent-77 › herdr:w9:p9 › door:${door.proc.pid}/desk/t\\d+:probe$`));
+      expect(a.nest).toMatch(new RegExp(`^ssh:pts/nonexistent-77 › herdr:w9:p9 › door:${door.proc.pid}/desk/t-[0-9a-f-]+:probe$`));
       expect(a.layers.map((l: any) => [l.kind, l.live])).toEqual([["ssh", false], ["herdr", true], ["door", true], ["tile", true]]);
       expect(a.door).toMatchObject({ pid: door.proc.pid, answers: true, moved: false, tile: { name: "probe", found: true, descends: true } });
       // An agent's tile.open never took the keys.

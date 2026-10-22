@@ -172,7 +172,7 @@ export class BacklinksPane implements Pane {
   get titleNote() { return this.target; }
   title() {
     const word = this.childrenOnly ? "children" : this.every ? "links" : `links (${this.groups.join(", ")})`;
-    if (!this.target) return `${word} · of ${this.source}`;
+    if (!this.target) return `${word} · of ${this.sourceLabel()}`;
     if (this.childrenOnly) {
       const c = this.children;
       return `${word} · ${subject(this.target)} · ${c.kind === "ready" ? `${c.value.length} repl${c.value.length === 1 ? "y" : "ies"}` : "…"}`;
@@ -184,8 +184,8 @@ export class BacklinksPane implements Pane {
     return [{ text: this.data ? `${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : "… sources", sgr: fg(C.lcyan),
       chip: true as const, press: () => this.run(desk, "backlinks.groups", { choose: true }) }];
   }
-  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview · ⏎ open in ${this.source} · alt+⏎ new detail · b ${this.follows ? "aim" : "re-aim"} at ${this.source}'s note · . fold · s K w h n view · v groups`; }
-  spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const, ...(this.options.stages?.length ? { stages: this.options.stages.join(",") } : {}) }; }
+  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview · ⏎ open in ${this.sourceLabel()} · alt+⏎ new detail · b ${this.follows ? "aim" : "re-aim"} at ${this.sourceLabel()}'s note · . fold · s K w h n view · v groups`; }
+  spec() { return { source: this.source ? `tile:${this.source}` : "", ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const, ...(this.options.stages?.length ? { stages: this.options.stages.join(",") } : {}) }; }
 
   /**
    * List these groups (at least one), in the model's order; the selection stays on its row where it still shows.
@@ -216,7 +216,13 @@ export class BacklinksPane implements Pane {
     }));
   }
 
-  init(desk: DeskApi) { this.sync(desk); }
+  private desk: DeskApi | null = null;
+  private sourceLabel() {
+    if (!this.source) return "no source";
+    const pane = this.desk?.pane?.(this.source);
+    return pane ? this.desk?.pathTo?.(pane) || this.desk?.nameOfPane?.(pane) || this.source : this.source;
+  }
+  init(desk: DeskApi) { this.desk = desk; this.sync(desk); }
 
   /**
    * Its home shows another note: a list whose subject follows it lists that one's links; one holding its subject keeps

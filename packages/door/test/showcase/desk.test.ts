@@ -101,7 +101,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     try {
       await until(() => restored.layoutGet().tiles.find(t => t.name === tile)?.showing?.id === seeded.notes.notebook.id, "the restored notebook");
       expect(restored.layoutGet().tiles.find(t => t.name === tile)!.label).toBe(subject(seeded.notes.notebook));
-      await restored.dispatch.press("tile.title.mode", {}, tile);
+      await restored.dispatch.press("tile.title.mode", {}, restored.layoutGet().tiles.find(t => t.name === tile)!.id);
       expect(restored.layoutGet().tiles.find(t => t.name === tile)!.label).toBe(writtenTitle);
     } finally { restored.dispose(); }
 
@@ -328,7 +328,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     await stage().dispatch.press("tile.focus", {}, "board");
-    press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "z" });
+    await stage().dispatch.press("tile.zoom", {}, "board"); // the group frame/menu targets the group itself
     expect(stage().zoom).not.toBeNull();
     for (let i = 0; i < 6 && stage().zoom !== null; i++) press({ kind: "esc" });   // the board's own things first, if any
     expect(stage().zoom).toBeNull();

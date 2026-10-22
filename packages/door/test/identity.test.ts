@@ -12,6 +12,8 @@ import { App } from "../src/app";
 import { startControl } from "../src/control";
 import { Desk } from "../src/desk/desk";
 import { attachTitle } from "../src/desk/herdr-agent";
+import { registerScreen, savedNodes, type ScreenSpec } from "../src/desk/screen-spec";
+import { readState, writeState, outlineState } from "../src/state";
 import { builtin } from "../src/desk/tiles";
 import { leaf, splitOf, revive, serialize, type LNode } from "../src/desk/layout";
 import { Mirror } from "../src/mirror";
@@ -97,8 +99,8 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     const right = splitOfTiles(g.tree, ["draft", "side"]);
     expect(right.path).toBe("2");
     expect(right.id).toMatch(/^s\d+$/);
-    expect(right.kids[0].id).toMatch(/^t\d+$/);
-    for (const t of g.tiles) expect(t.id).toMatch(/^t\d+$/);
+    expect(right.kids[0].id).toMatch(/^t-/);
+    for (const t of g.tiles) expect(t.id).toMatch(/^t-/);
     expect(new Set(g.tiles.map((t: any) => t.id)).size).toBe(g.tiles.length);
     // The live feed's shape names them the same way.
     expect(D().layoutShape().tree.id).toBe(g.tree.id);
@@ -161,6 +163,85 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     // An open answers with the tile's name, not its place.
     const o = await act("open", { id: notes.shed.id }, "middle") as any;
     expect(o.reader).toBe("middle");
+  });
+
+  test("restoring a drawer group drops ambiguous and missing legacy wires once", async () => {
+    const group = (name: string) => ({ t: "leaf" as const, kind: "screen", name, inner: { root: { t: "leaf", kind: "reader", name: "kettle" } } });
+    const target = new Desk({ name: "legacy-targets", title: "Targets", layout: { root: { t: "split", dir: "row", kids: [group("west"), group("east")], weights: [1, 1] } } });
+    app.push(target);
+    const drawer = app.drawer.desk!;
+    try {
+      (drawer as any).build({ root: { t: "leaf", kind: "screen", name: "legacy-group", inner: { root: { t: "leaf", kind: "backlinks", name: "legacy-links", wires: [
+        { verb: "open", to: "@desk/screen2/detail5" }, { verb: "alt", to: "kettle" },
+      ] } } } }, false);
+      drawer.render((drawer as any).ctx);
+      await Bun.sleep(0);
+      const messages = () => app.describe().messages.filter(m => m.message.includes("legacy-links") && m.message.includes("wire dropped"));
+      expect(messages()).toHaveLength(2);
+      const kept = JSON.stringify(drawer.savedState());
+      expect(kept).not.toContain("@desk/screen2/detail5");
+      expect(kept).not.toContain('"to":"kettle"');
+      drawer.render((drawer as any).ctx);
+      await Bun.sleep(0);
+      expect(messages()).toHaveLength(2);
+    } finally {
+      (drawer as any).build({ root: { t: "tabs", tabs: [], active: 0 } }, false);
+      app.pop(); target.dispose();
+    }
+  });
+
+  test("restoring keeps wires and sources on a saved screen until it opens", async () => {
+    const spec: ScreenSpec = { name: "sleeping-garden", title: "Garden", saves: "sleeping-garden.json", layouts: true,
+      layout: { root: { t: "leaf", kind: "reader", name: "kettle", id: "t-sleeping-kettle" } } };
+    registerScreen(spec.name, () => spec);
+    writeState(spec.saves!, { ...spec.layout, focus: "t-sleeping-kettle" }, outlineState());
+    const drawer = app.drawer.desk!;
+    (drawer as any).build({ root: { t: "split", dir: "row", weights: [1, 1, 1], kids: [
+      { t: "leaf", kind: "reader", name: "waiting-wire", link: "@sleeping-garden/kettle" },
+      { t: "leaf", kind: "backlinks", name: "waiting-links", source: "tile:t-sleeping-kettle" },
+      { t: "leaf", kind: "preview", name: "waiting-preview", source: "tile:t-sleeping-kettle" },
+    ] } }, false);
+    await Bun.sleep(0);
+    // Entering another screen triggers the same reconciliation as startup.
+    const front = new Desk({ name: "front-garden", title: "Front", layout: { root: { t: "leaf", kind: "reader", name: "front" } } });
+    app.push(front);
+    let garden: Desk | undefined;
+    try {
+      await Bun.sleep(0);
+      const kept = savedNodes(drawer.savedState().root);
+      expect(kept.find(t => t.name === "waiting-wire").link).toBe("t-sleeping-kettle");
+      expect(kept.find(t => t.name === "waiting-links").source).toBe("tile:t-sleeping-kettle");
+      expect(kept.find(t => t.name === "waiting-preview").source).toBe("tile:t-sleeping-kettle");
+      const persisted = savedNodes(readState<{ root: unknown }>("drawer-tiles.json", outlineState())!.root);
+      expect(persisted.find(t => t.name === "waiting-wire").link).toBe("t-sleeping-kettle");
+      garden = new Desk(spec);
+      app.push(garden);
+      await Bun.sleep(0);
+      const user = { kind: "user" as const };
+      await app.dispatch.act({ action: "open", tile: "waiting-wire", args: { id: notes.shed.id, from: "waiting-wire" } }, user);
+      expect((garden.layoutGet().tiles.find(t => t.name === "kettle") as any).showing.id).toBe(notes.shed.id);
+      await app.dispatch.act({ action: "tile.close", tile: "t-sleeping-kettle" }, user);
+      expect(JSON.stringify(drawer.savedState())).not.toContain("t-sleeping-kettle");
+      expect(JSON.stringify(readState(spec.saves!, outlineState()))).not.toContain("t-sleeping-kettle");
+    } finally {
+      if (garden) { app.pop(); garden.dispose(); }
+      app.pop(); front.dispose();
+      (drawer as any).build({ root: { t: "tabs", tabs: [], active: 0 } }, false);
+    }
+  });
+
+  test("opening a saved arrangement twice gives its new tiles fresh ids and keeps their wires local", async () => {
+    const before = desk.layoutGet();
+    const copy = new Desk(desk.spec, { saved: desk.savedState() });
+    app.push(copy);
+    try {
+      const after = copy.layoutGet();
+      const oldIds = new Set(before.tiles.map(t => t.id));
+      expect(after.tiles.some(t => oldIds.has(t.id))).toBe(false);
+      const tree = after.tiles.find(t => t.name === "tree") as any;
+      const middle = after.tiles.find(t => t.name === "middle")!;
+      expect(tree.wires).toContainEqual({ verb: "open", to: middle.id });
+    } finally { app.pop(); copy.dispose(); }
   });
 
   test("F18: a tile id stays with its tile through a move; a closed tile's id isn't given to the next one", async () => {
@@ -240,8 +321,6 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     const again = new Desk();
     const ids = (again as any).layoutGet().tiles.map((t: any) => t.id);
     expect(ids).not.toContain(gone);
-    // The next tile made gets a number past every one given before.
-    expect((again as any).nextId).toBeGreaterThan(Math.max(Number(gone.slice(1)), Number(side.id.slice(1))));
     again.dispose();
     await daily();
   });

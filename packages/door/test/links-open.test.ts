@@ -192,7 +192,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await act("tile.open", { kind: "detail", name: "side", where: "right" }, "reader");
     await act("tile.focus", {}, "links");
     await act("tile.link", { to: "side" }, "links");
-    expect(tile("links")).toMatchObject({ wires: expect.arrayContaining([{ verb: "open", to: "side" }]) });
+    expect(tile("links")).toMatchObject({ wires: expect.arrayContaining([{ verb: "open", to: tile("side").id }]) });
     await pickRow(porch.id);
     await until(() => (desk.pane("peek") as ReaderPane).msg?.id === porch.id, "the preview follows");
     expect(reader("side").msg).toBeFalsy();
@@ -243,7 +243,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await act("tile.focus", {}, "links");
     await act("backlinks.open", { id: hall.id }, "links");
     await until(() => reader("reader").msg?.id === hall.id, "the saved preview-role link also takes opens");
-    expect(tile("links").wires).toEqual(expect.arrayContaining([{ verb: "select", to: "peek" }, { verb: "select", to: "reader" }, { verb: "open", to: "reader" }]));
+    expect(tile("links").wires).toEqual(expect.arrayContaining([{ verb: "select", to: tile("peek").id }, { verb: "select", to: tile("reader").id }, { verb: "open", to: tile("reader").id }]));
   }, 20_000);
 
   test("an agent's open from the list lands in its home and never takes the person's keys; a group row opens or folds", async () => {

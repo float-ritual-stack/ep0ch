@@ -320,7 +320,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     expect(tile("lanes").title).toMatch(/^board · .* · lanes$/);
     expect(await app.act({ action: "tile.expand", tile: "lanes", args: {}, as: "test-agent" })).toMatchObject({ collapsed: false });
     // A tile inside the mount by its path: the board's own preview folds there, and nothing out here moves.
-    expect(await app.act({ action: "tile.collapse", tile: "board/preview", args: { on: true }, as: "test-agent" })).toMatchObject({ tile: "board/preview", collapsed: true });
+    expect(await app.act({ action: "tile.collapse", tile: "board/preview", args: { on: true }, as: "test-agent" })).toMatchObject({ tile: "preview", collapsed: true });
     expect((await get()).tiles.find((t: any) => t.name === "board").mount.layout.tiles.find((t: any) => t.name === "preview").collapsed).toBe(true);
     await app.act({ action: "tile.expand", tile: "board/preview", args: {}, as: "test-agent" });
     // A tab holding a split: the reader and the thread gathered into a group in the reader's tab.
@@ -347,13 +347,13 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     click(at().col + tile("board").rect.col + 2, at().row + tile("board").rect.row); sc.render(app);
     expect(tile("board").collapsed).toBeUndefined();
     expect(tile("board").rect).toEqual(before);
-    // By keys, with the keys on it (the spine's click gave them): alt+h folds and opens it; ^W e goes in, ctrl+] comes out.
+    // The group frame/menu acts on the holder; keys belong to its focused tile.
     expect(tiles().find(x => x.focused).name).toBe("board");
-    press({ kind: "alt", ch: "h" });
+    await stage().dispatch.press("tile.collapse", {}, "board");
     expect(tile("board").collapsed).toBe(true);
-    press({ kind: "alt", ch: "h" });
+    await stage().dispatch.press("tile.collapse", {}, "board");
     expect(tile("board").collapsed).toBeUndefined();
-    press({ kind: "char", ch: "w", ctrl: true }); ch("e");
+    await stage().dispatch.press("mount.enter", {}, "board");
     expect(tile("board").title).toMatch(/· in$/);
     press({ kind: "char", ch: "]", ctrl: true });
     expect(tile("board").title).not.toMatch(/· in$/);
@@ -368,7 +368,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const stage = () => S().stages.get(S().sel).top;
     const at = () => S().stageRect;
     const get = async () => (await app.act({ action: "layout.get", args: {}, as: "test-agent" })) as any;
-    const tile = async (name: string) => (await get()).tiles.find((t: any) => t.name === name);
+    const tile = async (name: string) => stage().layoutGet().tiles.find((t: any) => t.name === name);
     const groups = async () => (await get()).tiles.filter((t: any) => t.mount?.group).map((t: any) => t.name) as string[];
     const mouse = (action: "down" | "drag" | "up", x: number, y: number, mods?: number) => { press({ kind: "mouse", action, button: 0, x, y, ...(mods ? { mods } : {}) }); sc.render(app); };
     const drag = (a: [number, number], b: [number, number]) => { mouse("down", ...a); mouse("drag", a[0] + 1, a[1]); mouse("drag", ...b); mouse("up", ...b); };
@@ -406,7 +406,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     expect(await tile("reader")).toBeDefined();
     // ^W G in a split asks: this tile or the whole split.
     await stage().dispatch.press("tile.focus", {}, "board");
-    press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "G" }); sc.render(app);
+    await stage().dispatch.press("tile.group", { ask: true }, "board"); sc.render(app);
     const ask = stage().overlays.top() as { name: string; items: { label: string }[] } | null;
     expect(ask).toMatchObject({ name: "gather" });
     expect(ask!.items[0]!.label).toMatch(/^this tile · board/);
@@ -431,7 +431,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const source = () => group("a").layoutGet().tiles.find((t: any) => t.name === "source");
     const act = (action: string, args = {}, tile?: string) => d.dispatch.act({ action, args, tile }, { kind: "user" });
     const click = (x: number, y: number) => press({ kind: "mouse", action: "down", button: 0, x, y });
-    expect(source().wires).toContainEqual({ verb: "open", to: "../b/detail" });
+    expect(source().wires).toContainEqual({ verb: "open", to: group("b").layoutGet().tiles.find((t: any) => t.name === "detail").id });
     expect(screen()).toContain("◄ ../b/detail");
     await act("tile.link", {}, "a/source");
     await act("tile.link", { ask: true }, "a/source");
@@ -439,7 +439,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const at = S().stageRect, b = d.layoutGet().tiles.find((t: any) => t.name === "b").rect;
     const detail = group("b").layoutGet().tiles.find((t: any) => t.name === "detail").rect;
     click(at.col + b.col + 1 + detail.col + 3, at.row + b.row + 1 + detail.row + detail.rows - 3);
-    expect(source().wires).toContainEqual({ verb: "open", to: "../b/detail" });
+    expect(source().wires).toContainEqual({ verb: "open", to: group("b").layoutGet().tiles.find((t: any) => t.name === "detail").id });
     await group("a").dispatch.act({ action: "open", args: { id: seeded.notes.hub.id, from: "source" } }, { kind: "agent", id: "test-agent" });
     expect(group("b").pane("detail").msg.id).toBe(seeded.notes.hub.id);
     expect(await group("a").dispatch.act({ action: "tile.preview", tile: "source" }, { kind: "user" })).toMatchObject({ existing: true, tile: "../b/detail" });
@@ -459,7 +459,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     screen();
     const outside = d.layoutGet().tiles.find((t: any) => t.name === "outside").rect;
     click(at.col + outside.col + 3, at.row + outside.row + outside.rows - 3);
-    expect(source().wires).toContainEqual({ verb: "open", to: "../outside" });
+    expect(source().wires).toContainEqual({ verb: "open", to: d.resolveTile("outside")!.tile.id });
     await act("tile.drawer", { on: true }, "outside");
     await app.dispatch.press("host.toggle", { open: true });
     await app.drawer.desk!.dispatch.press("tab.select", {}, "outside");
@@ -468,7 +468,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     (app as any).paint();
     const drawer = app.drawer.desk!.layoutGet().tiles.find(t => t.name === "outside")!.rect!;
     click(drawer.col + 3, app.drawer.rect!.row + 1 + drawer.row + drawer.rows - 3);
-    expect(source().wires).toContainEqual({ verb: "open", to: "@drawer/outside" });
+    expect(source().wires).toContainEqual({ verb: "open", to: d.resolveTile("@drawer/outside")!.tile.id });
     await app.dispatch.press("host.toggle", { open: false });
   }, 30_000);
 

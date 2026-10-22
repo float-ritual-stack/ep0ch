@@ -96,7 +96,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "preview")).top; };
     await until(() => stage().layoutGet().tiles.find((t: any) => t.name === "reader")?.showing?.id === seeded.notes.notebook.id, "the notebook in the reader", 5000);
     const r = await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" }) as any;
-    expect(r).toMatchObject({ tile: "reader-preview", kind: "reader", from: "reader" });
+    expect(r).toMatchObject({ tile: "reader-preview", kind: "reader", from: stage().layoutGet().tiles.find((t: any) => t.name === "reader").id, fromName: "reader" });
     const tiles = () => stage().layoutGet().tiles as any[];
     expect(tiles().find(t => t.name === "reader").link).toBe("reader-preview");
     // A link followed in the reader lands in the preview; the reader still shows the notebook.
@@ -129,7 +129,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     expect(await app.act({ action: "reader.mode", tile: "now", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ tile: "now", mode: "follows" });
     // What it follows (PIE-814): the detail follows the tree by a link, and its chip says so; none lets go.
     expect(await app.act({ action: "reader.follow", tile: "detail", args: { source: "tree" }, as: "test-agent" })).toMatchObject({ tile: "detail", source: "tree" });
-    expect(tile("tree").wires).toContainEqual({ verb: "select", to: "detail" });
+    expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("detail").id });
     const detail = [...stage().panes.entries()].find(([id]: any) => stage().nameOf(id) === "detail")![1] as any;
     expect(detail.headControls(40, stage())[0].text).toBe("stays put");
     await app.act({ action: "reader.follow", tile: "detail", args: { source: "none" }, as: "test-agent" });
