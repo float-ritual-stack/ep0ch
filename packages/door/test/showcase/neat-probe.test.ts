@@ -109,8 +109,8 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       await app.dispatch.act({ action: "margin", tile: "briefing", args: { mode: "off" } }, USER);
       await app.dispatch.act({ action: "edit", tile: "briefing" }, USER);
       await app.dispatch.act({ action: "tile.link", tile: "other", args: { to: "briefing", verb: "open" } }, USER);
-      const opened = await app.dispatch.act({ action: "open", args: { from: "other", id: s.testing.id } }, USER) as { reader: string };
-      const destination = s.d.pane(opened.reader) as ReaderPane;
+      const opened = await app.dispatch.act({ action: "open", args: { from: "other", id: s.testing.id } }, USER) as { tile: string };
+      const destination = s.d.pane(opened.tile) as ReaderPane;
       expect(destination.surface.marginMode).toBe("off");
     } finally { s.done(); }
   });
@@ -213,13 +213,13 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
         const other = placement === "screen" ? "other" : "nest/other";
         await s.owner.dispatch.act({ action: "edit", tile: s.tile }, USER);
         await s.owner.dispatch.act({ action: "draft.paste", tile: s.tile, args: { text: "Keep this draft" } }, USER);
-        const opened = await s.owner.dispatch.act({ action: "open", tile: s.tile, args: { id: s.testing.id } }, USER) as { reader: string };
-        await s.owner.dispatch.act({ action: "tile.focus", tile: opened.reader }, USER);
+        const opened = await s.owner.dispatch.act({ action: "open", tile: s.tile, args: { id: s.testing.id } }, USER) as { tile: string };
+        await s.owner.dispatch.act({ action: "tile.focus", tile: opened.tile }, USER);
         const before = s.owner.layoutAll();
         const note = await board.createBlock(null, "Uninvited seed order\nLeave the neighbours alone.");
         await expect(s.owner.dispatch.act({ action: "open", tile: s.tile, args: { id: note.id } }, { kind: "agent", id: "garden-helper" })).rejects.toThrow(/holds.*edit|holds.*draft/);
         expect(s.owner.layoutAll().tiles.map(t => ({ id: t.id, showing: t.showing }))).toEqual(before.tiles.map(t => ({ id: t.id, showing: t.showing })));
-        expect(JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: opened.reader }, USER))).not.toContain(note.id);
+        expect(JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: opened.tile }, USER))).not.toContain(note.id);
       } finally {
         await s.owner.dispatch.act({ action: "edit.close", tile: s.tile, args: { discard: true } }, USER);
         await s.cleanup();
@@ -377,13 +377,43 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     } finally { s.done(); }
   }, 30_000);
 
-  test.failing("3 open: tile.open note= opens that note (no mode= needed)", async () => {
+  test("3 open: tile.open note= opens that note (no mode= needed)", async () => {
     const s = await twoReaders();
     try {
       await app.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "reader", note: s.briefing.id, name: "third" } }, USER);
+      await until(() => shows(s.d, "third") === s.briefing.id, "the held reader reads its note");
       expect(shows(s.d, "third")).toBe(s.briefing.id);
     } finally { s.done(); }
   }, 30_000);
+
+  test("contract: wrong arguments explain the call without changing the desk", async () => {
+    const s = await twoReaders();
+    try {
+      for (const [action, args, reason] of [
+        ["layout.move", { where: "rigth" }, "right"],
+        ["layout.move", { beside: "briefing" }, "into="],
+        ["tile.link", { ask: false, to: "briefing" }, "conflicts"],
+        ["open", { file: "/tmp/unused.md", from: "other" }, "conflicts"],
+        ["open", { file: "/tmp/unused.md", fresh: true }, "conflicts"],
+        ["tile.open", { kind: "tree", note: s.testing.id }, "kind=tree"],
+      ] as const) {
+        await expect(app.dispatch.act({ action, tile: "other", args }, USER)).rejects.toThrow(reason);
+      }
+      expect(shows(s.d, "briefing")).toBe(s.briefing.id);
+      expect(shows(s.d, "other")).toBe(s.testing.id);
+    } finally { s.done(); }
+  });
+
+  test("contract: layout.get still answers under the message log", async () => {
+    const s = await twoReaders();
+    try {
+      await app.dispatch.act({ action: "status.log" }, USER);
+      try {
+        const layout = await app.dispatch.act({ action: "layout.get" }, USER) as ReturnType<Desk["layoutAll"]>;
+        expect(layout.tiles.some(t => t.name === "briefing")).toBe(true);
+      } finally { app.pop(); }
+    } finally { s.done(); }
+  });
 
   /** The briefing's links tile, moved into the drawer the way Evan has it. */
   const linksInDrawer = async (s: Awaited<ReturnType<typeof twoReaders>>) => {
@@ -473,8 +503,8 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     try {
       if (place !== "screen") {
         await act("tile.open", id, { kind: "reader", name: "companion" });
-        const made = await act("tile.group", id, { name: "garden", with: "companion" }) as { id: string };
-        group = made.id;
+        const made = await act("tile.group", id, { name: "garden", with: "companion" }) as { tile: string };
+        group = made.tile;
         if (place === "drawer group") { await act("tile.drawer", group); app.drawer.enter(); }
       }
       await act("tile.focus", id);

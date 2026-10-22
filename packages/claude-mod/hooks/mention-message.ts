@@ -248,3 +248,11 @@ export function mentionMessageOf(
     text: e.answer,
   }
 }
+
+/** The door's destination is an address; its name is only what the confirmation shows. */
+export function openedTileOf(stdout: string): { tile: string; name: string } | null {
+  try {
+    const value = JSON.parse(stdout)
+    return typeof value.tile === 'string' && typeof value.name === 'string' ? { tile: value.tile, name: value.name } : null
+  } catch { return null }
+}

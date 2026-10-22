@@ -47,7 +47,7 @@ type Run = { argv: readonly string[]; init?: ProcessRunInit }
 
 /** The CLI's `resolve <uri>` and `door-open` (a door that lands it in middle), as a click or `show` runs them. */
 function resolveAnswer(run: Run): ProcessRunResult | undefined {
-  if (run.argv.includes('door-open')) return result(0, `{"reader":"middle","id":"${NOTE}"}\n`)
+  if (run.argv.includes('door-open')) return result(0, `{"tile":"t-fixture","name":"middle","id":"${NOTE}"}\n`)
   if (run.argv[3] === 'resolve') return result(0, `{"id":"${NOTE}","title":"Seed swap plan"}\n`)
   return undefined
 }

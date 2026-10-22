@@ -197,7 +197,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
 
   test("an agent's open of a brief steps to it, or opens beside while the person types", async () => {
     (app as any).lastInput = 0;
-    expect(await app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).toMatchObject({ id: notes.a.id, reader: "brief" });
+    expect(await app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).toMatchObject({ id: notes.a.id, name: "brief" });
     expect(brief().shown?.id).toBe(notes.a.id);
     expect(await app.act({ action: "brief.show", args: { id: notes.b.id }, as: "test-agent" })).toMatchObject({ id: notes.b.id, tile: "brief" });
     ch("e");
@@ -208,8 +208,8 @@ describe.skipIf(!outliner)("the brief screen", () => {
     press({ kind: "esc" });                                                         // nothing typed: one esc closes it
     await until(() => !brief().draft, "the edit closed");
     (app as any).lastInput = 0;
-    const r = await app.act({ action: "open", args: { id: notes.kettle.id }, as: "test-agent" }) as { reader: string };
-    expect(r.reader).not.toBe("brief");
+    const r = await app.act({ action: "open", args: { id: notes.kettle.id }, as: "test-agent" }) as { name: string };
+    expect(r.name).not.toBe("brief");
     expect(brief().shown?.id).toBe(notes.b.id);
   });
 

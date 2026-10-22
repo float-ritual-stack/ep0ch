@@ -265,23 +265,23 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     // The person on the tree, whose opens land in middle: the agent's tile-less open shows the note there (the
     // designed "show the person" path), their keys stay on the tree, and it's said on the status bar.
     await mine("tile.focus", "tree");
-    const r = await act("open", { id: notes.shed.id }) as { reader: string | null; id: string };
-    expect(r).toMatchObject({ reader: "middle", id: notes.shed.id });
+    const r = await act("open", { id: notes.shed.id }) as { name: string | null; id: string };
+    expect(r).toMatchObject({ name: "middle", id: notes.shed.id });
     await until(() => mid().msg?.id === notes.shed.id, "the note in middle");
     expect(person().focus).toBe("tree");
     expect(said.at(-1)).toMatch(/an agent \(watcher-7\) opened in .*middle/);
     // The person reading middle themselves: it lands where opens land from there (a reader that follows), keys unmoved.
     await mine("tile.focus", "middle");
-    const r2 = await act("open", { id: notes.long.id }) as { reader: string | null };
-    expect(r2.reader).toBeTruthy();
+    const r2 = await act("open", { id: notes.long.id }) as { name: string | null };
+    expect(r2.name).toBeTruthy();
     expect(person().focus).toBe("middle");
     // Typing in middle: the open never lands in that reader; their edit and its note stay.
     await desk.dispatch.act({ action: "edit", args: {}, tile: "middle" }, USER);
     key(char("e"));
     await until(() => person().typingIn === "middle", "the person typing in middle");
     const typing = mid().msg?.id;
-    const landed = await act("open", { id: notes.shed.id }) as { reader: string | null };
-    expect(landed.reader).not.toBe("middle");
+    const landed = await act("open", { id: notes.shed.id }) as { name: string | null };
+    expect(landed.name).not.toBe("middle");
     expect(mid().msg?.id).toBe(typing);
     expect(person().typingIn).toBe("middle");
     await desk.dispatch.act({ action: "edit.close", args: { discard: true }, tile: "middle" }, USER).catch(() => {});

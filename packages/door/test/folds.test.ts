@@ -505,7 +505,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     await until(() => d.msg.text.includes("broad beans"), "the live refresh");
     expect(d.surface.describe().folds.folded).toEqual(["## Beds", "## Water"]);
     // An agent unfolds through the registry, in that reader; the frame says so.
-    expect(await act("unfold", { text: "Beds" }, "detail")).toMatchObject({ reader: "detail1", folded: false, foldedNow: ["## Water"] });
+    expect(await act("unfold", { text: "Beds" }, "detail")).toMatchObject({ name: "detail1", folded: false, foldedNow: ["## Water"] });
     expect(frame().join("\n")).toContain("broad beans");
     expect(frame().join("\n")).toContain("an agent (test-agent-410) unfolded ## Beds");
     // Another note in that reader: nothing folded there.

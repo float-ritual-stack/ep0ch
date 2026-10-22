@@ -368,7 +368,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const was = BV.where(b);
     // The preview the person reads the lanes through is theirs (round 3, C3): an agent opens beside it.
     await expect(act("open", { id: cards.beans.id }, "preview")).rejects.toThrow(/preview has the person's keys; opening a note there would move what they're reading/);
-    const { reader } = await act("open", { id: cards.beans.id }, "new-detail") as { reader: string };
+    const { name: reader } = await act("open", { id: cards.beans.id }, "new-detail") as { name: string };
     const P = () => B().details.find((d: ReaderPane) => d.msg?.id === cards.beans.id) as ReaderPane;
     expect(P()).toBeTruthy();
     expect(BV.where(b)).toBe(was);                                  // naming the reader never moves the person's keys (PIE-514)
@@ -390,7 +390,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   });
 
   test("a save that changes properties is shown to the agent first, like the second ctrl+s", async () => {
-    const { reader } = await act("open", { id: cards.peas.id }, "new-detail") as any;
+    const { name: reader } = await act("open", { id: cards.peas.id }, "new-detail") as any;
     const text = (await current(cards.peas.id)).text.replace("[stage::queued]", "stage queued");
     await act("edit.text", { text }, reader);
     const first: any = await act("edit.save", {}, reader);
@@ -403,7 +403,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   });
 
   test("an agent never replaces the person's draft: edit.text is refused in their edit, which stays theirs (round 3, C2)", async () => {
-    const { reader } = await act("open", { id: cards.mine.id }, "detail") as { reader: string };
+    const { name: reader } = await act("open", { id: cards.mine.id }, "detail") as { name: string };
     const pane = b.pane(reader) as ReaderPane;
     await until(() => pane.msg?.id === cards.mine.id && !pane.msg?.partial, "the note");
     await mine("tile.focus", {}, reader);
@@ -428,7 +428,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   /** Open a fresh note in a detail and give that detail the keys, as a person would have it. */
   const openFresh = async (text: string) => {
     const m = await create(null, text);
-    const { reader } = await act("open", { id: m.id }, "detail") as { reader: string };
+    const { name: reader } = await act("open", { id: m.id }, "detail") as { name: string };
     const pane = b.pane(reader) as ReaderPane;
     await until(() => pane.msg?.id === m.id && !pane.msg?.partial, "the note");
     await mine("tile.focus", {}, reader);
@@ -489,7 +489,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   test("a save is recorded as who wrote it, not who pressed save", async () => {
     // The agent wrote it, the person saved it: the agent's.
     const a = await openFresh("Mulch the roses\nIn autumn.");
-    await act("edit.text", { text: "Mulch the roses\nIn autumn, after the first frost." }, a.reader);
+    await act("edit.text", { text: "Mulch the roses\nIn autumn, after the first frost." }, a.name);
     expect(a.pane.render(120, 20, true, b).lines.join("\n")).toContain("an agent (test-agent-7) typed this · it saves as the agent's");
     // An agent's edit takes the person's keys only once they enter it (PIE-411).
     key(ctrl("s"));
@@ -503,13 +503,13 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const u = await openFresh("Net the currants\nBefore June.");
     key(char("e")); await until(() => !!u.pane.draft, "the draft");
     key({ kind: "end" }); type(" (birds)");
-    await expect(act("edit.save", {}, u.reader)).rejects.toThrow("the person is in this edit");
-    expect(await mine("edit.save", {}, u.reader)).toMatchObject({ saved: true, recordedAs: { author: "user", actorId: ACTOR_ID } });
+    await expect(act("edit.save", {}, u.name)).rejects.toThrow("the person is in this edit");
+    expect(await mine("edit.save", {}, u.name)).toMatchObject({ saved: true, recordedAs: { author: "user", actorId: ACTOR_ID } });
     expect(await lastBy(u.id, "user")).toEqual(["user", ACTOR_ID]);
 
     // Both wrote it: the saver's, and the actor id names both. The frame said so before the save.
     const m = await openFresh("Prune the apple\nIn winter.");
-    await act("edit.text", { text: "Prune the apple\nIn winter, on a dry day." }, m.reader);
+    await act("edit.text", { text: "Prune the apple\nIn winter, on a dry day." }, m.name);
     key(char("e"));
     key({ kind: "end" }); type(" (me)");
     expect(m.pane.render(120, 20, true, b).lines.join("\n")).toContain("an agent (test-agent-7) and you typed this · saved as whoever saves it, naming both");
@@ -520,7 +520,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
 
     // A comment the agent wrote and the person sent is the agent's; one they both wrote names both.
     const commentOn = async (id: string, quote: string, body: string, more = "") => {
-      const { reader } = await act("open", { id }, "detail") as { reader: string };
+      const { name: reader } = await act("open", { id }, "detail") as { name: string };
       await act("passage.select", { quote }, reader);
       await act("comment.write", { body }, reader);
       await mine("tile.focus", {}, reader);
@@ -538,7 +538,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   });
 
   test("comment, reply, resolve: the same session the keys drive, authored by the agent", async () => {
-    const { reader } = await act("open", { id: cards.beans.id }, "detail") as { reader: string };
+    const { name: reader } = await act("open", { id: cards.beans.id }, "detail") as { name: string };
     await expect(act("passage.select", { quote: "Tie them tightly" }, reader)).rejects.toThrow("isn't in the note's current text");
     const pane = B().details[B().active] as ReaderPane;
     expect(pane.session?.mode).toBe("select");                                   // the person sees what the agent tried
@@ -589,7 +589,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
 
   test("an agent's card.select and card.move leave the person's keys where they are", async () => {
     await settled();
-    const { reader } = await openFresh("Label the seed trays\nBefore sowing.");
+    const { name: reader } = await openFresh("Label the seed trays\nBefore sowing.");
     const region = BV.where(b);
     expect(region).toStartWith("detail");
     // The person's lane cursor and preview, before the agent picks a card of its own.
@@ -639,7 +639,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
       expect(listed.result.tiles).toContain("preview");
       await act("open", { id: cards.gate.id }, "preview");
       const r2 = await ask({ cmd: "act", action: "edit.text", tile: "preview", args: { text: "Fix the gate latch [stage::doing]\nIt swings open. New spring ordered." }, as: "socket-agent" });
-      expect(r2).toMatchObject({ ok: true, result: { reader: "preview", dirty: true } });
+      expect(r2).toMatchObject({ ok: true, result: { name: "preview", dirty: true } });
       expect(await ask({ cmd: "act", action: "edit.save", tile: "preview", as: "socket-agent" })).toMatchObject({ ok: true, result: { saved: true } });
       expect(await lastBy(cards.gate.id)).toEqual(["agent", "socket-agent"]);
       expect(await ask({ cmd: "act", action: "edit.save", tile: "preview", as: "bad id!" })).toMatchObject({ ok: false, error: expect.stringContaining("an actor id") });
@@ -652,7 +652,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     try {
       expect(await act("open", { id: cards.mine.id })).toMatchObject({ id: cards.mine.id });
       const out: any = await act("edit.text", { text: "Turn the compost [stage::queued]\nEvery two weeks, with a fork." });
-      expect(out.reader).toBe("reader");                               // the tile's name, not its place (PIE-491)
+      expect(out.name).toBe("reader");                               // the tile's name, not its place (PIE-491)
       expect(await act("edit.save")).toMatchObject({ saved: true });
       expect(await lastBy(cards.mine.id)).toEqual(["agent", AS]);
       expect((app.describe() as any).state.panes.find((p: any) => p.showing?.id === cards.mine.id).agent.id).toBe(AS);

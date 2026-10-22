@@ -69,7 +69,8 @@ export interface TileKind {
   /** What it needs to be built again, beyond its kind, name and link (default: the tile's own `spec()`). */
   save?(p: Pane): Record<string, unknown>;
   /** Why tile.open's fields won't do (a preview's source that isn't tile: or file:), or null. */
-  check?(spec: Partial<TileSpec>): string | null;
+  readonly openArgs?: readonly string[];
+  check?(spec: Partial<TileSpec>, opening?: object): string | null;
   /**
    * What the person picks from when a new tile of it lacks what it needs (a query tile's view: the outline's saved
    * views), each choice the fields it opens with; ^W o and the blank tile's rows ask it instead of refusing.
@@ -175,7 +176,14 @@ const gone = new Map<TileKindName, string>();
 export function registerTileKind(k: TileKind): void {
   if (!/^[A-Za-z][\w.-]{0,39}$/.test(k.kind)) throw new Error(`a tile kind's name is a letter, then letters, digits, . - _ (not ${JSON.stringify(k.kind)})`);
   if (registry.has(k.kind)) throw new Error(`tile kind ${k.kind} is registered already`);
-  registry.set(k.kind, k);
+  const check = k.check;
+  registry.set(k.kind, { ...k, check(spec, opening) {
+    if (opening) {
+      const unused = Object.entries(opening).filter(([key, value]) => value !== undefined && !["kind", "name", ...(k.openArgs ?? [])].includes(key)).map(([key]) => key);
+      if (unused.length) return `kind=${k.kind} does not read ${unused.map(key => `${key}=`).join(", ")}; try: ep0ch act tile.open kind=${k.kind}${Object.entries(opening).filter(([key, value]) => value !== undefined && !unused.includes(key) && key !== "kind").map(([key, value]) => ` ${key}=${JSON.stringify(value)}`).join("")}`;
+    }
+    return check?.(spec) ?? null;
+  } });
   gone.delete(k.kind);
   wentAway.delete(k.kind);
 }
@@ -476,3 +484,5 @@ export function serviceKind(o: { kind: TileKindName; about: string; noun?: strin
     describe: (p, full) => ({ ...(p instanceof PtyPane && pty?.describe ? pty.describe(p, full) : {}), ...(p instanceof ProgramTile || p instanceof UnavailableTile ? { args: p.state } : {}), ...(p instanceof UnavailableTile ? { unavailable: true } : {}) }),
   };
 }
+
+export const FOLLOW_MODES = ["follows", "held", "pinned"] as const;

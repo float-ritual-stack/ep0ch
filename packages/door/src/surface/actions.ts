@@ -9,7 +9,7 @@ export { ActionRefused, actRequestOf, lineWords, type ActRequest } from "@ep0ch/
 // did, and what it writes is recorded as `author: agent` with its actor id.
 import type { Actor } from "../socket";
 import { actorName, parseActor } from "@ep0ch/outline-core/attribution";
-import { checkToolArgs, REF_ALIASES } from "@ep0ch/outline-core/tool-args";
+import { checkToolArgs, closest, REF_ALIASES } from "@ep0ch/outline-core/tool-args";
 import { visible, width } from "../style";
 import type { Key } from "../term";
 
@@ -44,6 +44,10 @@ export interface ArgSpec {
   type: ArgType; optional?: boolean; about: string;
   kind?: ArgKind;
   choices?: readonly string[];
+  /** At least one combination must hold; null means the argument is present. */
+  implies?: readonly Readonly<Record<string, string | number | boolean | null>>[];
+  /** These arguments cannot accompany this one, even when false. */
+  conflicts?: readonly string[];
   /** `kind: "value"`: the argument naming the property whose values it takes. */
   of?: string;
   /** What a left-out optional one means, when it means one thing (`focused`, `1`): its page's default column. */
@@ -138,6 +142,7 @@ export interface ActionDef<A, H> {
   places?: readonly string[];
   args: { [K in keyof A]-?: ArgSpec };
   /** One or two real calls and what each does (ActionExample): its page's examples. An action with arguments has them (test/action-pages.test.ts). */
+  answer?: Readonly<Record<string, { type: string; about: string; kind?: ArgKind }>>;
   examples?: readonly ActionExample[];
   /** Its rows in a tile's menu (`tile.menu`, PIE-492): absent, it isn't in one. */
   menu?: MenuEntry<A, H> | readonly MenuEntry<A, H>[];
@@ -184,7 +189,7 @@ export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: 
  * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
  * of the person's, whether a restarted door may run it again, the person's only).
  */
-export interface ActionInfo { name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
+export interface ActionInfo { answer?: ActionDef<unknown, unknown>["answer"]; name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; touches: Touches; replay: Replay; person?: true; /** Its touches depend on its arguments (`touchesWith`): `touches` is the most it reaches. */ varies?: true; /** Its examples (ActionExample), when it has them. */ examples?: readonly ActionExample[] }
 
 /**
  * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
@@ -223,7 +228,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   list(): ActionInfo[] {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
-      return { name, summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.examples?.length ? { examples: d.examples } : {}) };
+      return { name, ...(d.answer ? { answer: d.answer } : {}), summary: d.summary, keys: d.keys, args: d.args as Record<string, ArgSpec>, scope: this.scope, touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}), ...(d.touchesWith ? { varies: true as const } : {}), ...(d.examples?.length ? { examples: d.examples } : {}) };
     });
   }
 
@@ -504,6 +509,25 @@ export function coerceActionArgs(action: string, spec: Record<string, ArgSpec>, 
       const b = typeof v === "boolean" ? v : v === "true" || v === "1" || v === "yes" ? true : v === "false" || v === "0" || v === "no" ? false : null;
       if (b === null) throw new ActionRefused(`${action}: ${k} is true or false, not ${JSON.stringify(v)}`);
       out[k] = b;
+    }
+  }
+  for (const [k, s] of Object.entries(spec)) {
+    if (out[k] === undefined) continue;
+    const call = (args: Record<string, unknown>) => `ep0ch act ${shownLine(action, args)}`;
+    if (s.choices && !s.kind && !s.choices.includes(String(out[k]))) {
+      const near = closest(String(out[k]), s.choices);
+      throw new ActionRefused(`${action}: ${k} is ${s.choices.join(", ")}, not ${out[k]}.${near ? ` Did you mean ${k}=${near}?` : ""} Try: ${call({ ...out, [k]: near ?? s.choices[0] })}`);
+    }
+    const conflict = s.conflicts?.find(other => out[other] !== undefined);
+    if (conflict) {
+      const corrected = { ...out }; delete corrected[k];
+      throw new ActionRefused(`${action}: ${k}= conflicts with ${conflict}=. Try: ${call(corrected)}`);
+    }
+    if (s.implies && !s.implies.some(combo => Object.entries(combo).every(([key, value]) => value === null ? out[key] !== undefined : out[key] === value))) {
+      const needed = s.implies.map(combo => Object.entries(combo).map(([key, value]) => `${key}=${value === null ? `<${spec[key]?.kind ?? key}>` : value}`).join(" ")).join(" or ");
+      const combo = s.implies[0]!;
+      const corrected = { ...out, ...Object.fromEntries(Object.entries(combo).map(([key, value]) => [key, value ?? out[key] ?? placeholder(key, spec[key]!)])) };
+      throw new ActionRefused(`${action}: ${k}= needs ${needed}. Try: ${call(corrected)}`);
     }
   }
   return out;

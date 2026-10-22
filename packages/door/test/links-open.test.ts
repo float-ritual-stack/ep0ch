@@ -202,7 +202,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     expect(reader("reader").msg?.id).toBe(lamp.id);
     // The same open by the action an agent calls.
     const out = await act("open", { id: hall.id, from: "links" }, undefined, "walker-1");
-    expect(out.reader).toBe("side");
+    expect(out.name).toBe("side");
     await until(() => reader("side").msg?.id === hall.id, "open from= lands in the target");
     expect(D().layoutGet().focus).toBe("links");
   }, 20_000);

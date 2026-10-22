@@ -159,7 +159,7 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     await act("reader.mode", { mode: "held" }, "keeps");
     await mine("tile.focus", {}, "tree");
     const out = await act("open", { id: notes.plan.id }) as any;
-    expect(out.reader).not.toBe("now");
+    expect(out.name).not.toBe("now");
     expect(tile("now")).toMatchObject({ mode: "pinned", page: "garden-now" });
     expect(pane("now").msg?.id).toBe(notes.now.id);
   });

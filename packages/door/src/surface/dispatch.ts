@@ -348,7 +348,8 @@ export class Dispatcher {
       for (const a of infos) {
         if (seen.has(a.name)) continue;
         const keys = modeActionKeys([this.host.bindings?.() ?? []], a.name);
-        out.push(keys ? { ...a, keys: [...new Set([a.keys, keys].filter(Boolean))].join("; ") } : a);
+        const answer = this.defOf(a.name)?.answer;
+        out.push({ ...a, ...(answer ? { answer } : {}), ...(keys ? { keys: [...new Set([a.keys, keys].filter(Boolean))].join("; ") } : {}) });
         seen.add(a.name);
       }
     }
@@ -676,7 +677,7 @@ export class Dispatcher {
   private tileArgs(spec: Record<string, ArgSpec>, raw: Record<string, unknown>, tiles: TileRef[]): Record<string, unknown> {
     const out = { ...raw };
     for (const [k, s] of Object.entries(spec)) {
-      if (s.kind !== "tile" || typeof out[k] !== "string" || !tiles.length) continue;
+      if (s.kind !== "tile" || typeof out[k] !== "string" || s.choices?.includes(out[k] as string) || !tiles.length) continue;
       const resolved = this.host.resolveTile?.(String(out[k]));
       if (resolved) { out[k] = resolved.tile.id ?? resolved.tile.name; continue; }
       if (isTilePath(String(out[k]))) continue;

@@ -152,8 +152,8 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     const lane = tile("rows").mount.layout.tiles[0].id;
     const card = seeded.cards[0]!;
     const out = await act("open", { id: card.id, from: lane }, "rows/");
-    expect(out.reader).toBeTruthy();
-    expect(get().tiles.find((t: any) => t.name === out.reader)?.showing?.id).toBe(card.id);
+    expect(out.name).toBeTruthy();
+    expect(get().tiles.find((t: any) => t.name === out.name)?.showing?.id).toBe(card.id);
   }, 20_000);
 
   test("screen.mount on the full board puts it on the desk with its arrangement; a part by the tile menu's container", async () => {
@@ -212,7 +212,8 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     // "the screen has no reader tile" for the desk around it.
     await mine("tile.focus", {}, g.tile);
     const o = await mine("open", { id: seeded.cards[1]!.id });
-    expect(o.reader).toStartWith(`${g.tile}/`);
+    expect(o.tile).toMatch(/^t-/);
+    expect((await act("tile.info", {}, o.tile)).showing.id).toBe(seeded.cards[1]!.id);
     await mine("tile.focus", {}, focus);                         // the keys back where they were: an agent never spills the person's tile
     // What its layout says of a tile in it comes back out with it (an agent's limit, tightened by an agent).
     await act("tile.agent", { policy: "edit" }, `${g.tile}/${others[0]}`);

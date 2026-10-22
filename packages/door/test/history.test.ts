@@ -367,7 +367,7 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
     await expect(act("back", {}, "detail1", AS)).rejects.toThrow("has the person's keys");
     expect(d.msg!.id).toBe(n.beans.id);
     BV.at(b, "lanes");                                                    // the person moves to the lanes
-    expect(await act("back", {}, "detail1", AS)).toMatchObject({ reader: "detail1", went: "back", showing: { id: n.jobs.id } });
+    expect(await act("back", {}, "detail1", AS)).toMatchObject({ name: "detail1", went: "back", showing: { id: n.jobs.id } });
     await whole(d, n.jobs.id);
     expect(BV.where(b)).toBe("lanes");
   }, 30_000);

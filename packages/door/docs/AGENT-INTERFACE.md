@@ -62,7 +62,7 @@ itself).
 | `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()`, with the door's `pid` and `nest` (the layers it runs in) and `person`: where the person is (`focus`, `typingIn`, `busy`, `why`, `keys`, `idle` ms, `away`), the answer every agent rule reads; `messages` holds the last 500 status messages with time, kind, action, tile and note when known (stacks remain in the session file) | `ep0ch peek` |
 | `{"cmd":"snap","path":"x.png"}` | a PNG of exactly what the terminal was sent, written under the door's state (`path` relative to it, or inside it; default `screen.png`); anywhere else is refused | `ep0ch snap` |
 | `{"cmd":"snap","data":true}` | the same PNG, base64, for the client to write | `ep0ch snap x.png` (the command writes `x.png`, into a folder that must exist) |
-| `{"cmd":"actions"}` | every action the current screen takes, with its arguments, keys and examples (`examples`: act lines and what each does); an argument says the kind of thing it names (`kind`: `tile`, `note`, `page`, `screen`, `view`, `key`, `value` of the argument `of` names, `tile-kind`) and its `choices` when they're a fixed list (PIE-1031) | `ep0ch actions`; one action's page: `ep0ch actions --doc <name>` |
+| `{"cmd":"actions"}` | every action the current screen takes, with its arguments, keys, answer schema (`answer`, when declared) and examples (`examples`: act lines and what each does); an argument says the kind of thing it names (`kind`: `tile`, `note`, `page`, `screen`, `view`, `key`, `value` of the argument `of` names, `tile-kind`) and its `choices` when they're a fixed list (PIE-1031) | `ep0ch actions`; one action's page: `ep0ch actions --doc <name>` |
 | `{"cmd":"act","action":"…","args":{…},"tile":"<tile>","as":"<actor id>"}` | the action's result | `ep0ch act <action> k=v … tile=<tile> [--as id]` (`--tile` works too) |
 | `{"cmd":"act","action":"open","args":{"id":"<block>","from":"<tile>"},"as":"<actor id>"}` | puts a block in front of the person (the `open` action: there is one way) | `ep0ch open <id> [from=<tile>] [--as id]` (`act open id=<id>`) |
 | `{"cmd":"act","action":"open","args":{"file":"<absolute path>","diff":true},"as":"<actor id>"}` | a file on this machine where an agent's open lands (PIE-602): Markdown drawn as the preview draws a file, any other file through the file Resource reader, `diff=true` its changes (git's diff against its last commit, else against `against=<copy>`) | `ep0ch open file:<path> [diff=true] [against=<copy>] [--as id]` |
@@ -878,3 +878,15 @@ keys and pressable choices (`act`, `key`, and any refusal), read from the same
 The `door_peek` tool accepts `xray: true` for the same result. `hint.show` accepts
 `text=` and `for=<tile>`; the card names the agent and leaves the person's keys
 where they are. `hint.get`, `hint.pin`, and `hint.dismiss` inspect or manage it.
+
+### Action arguments and tile answers
+
+The action registry checks allowed values with a did-you-mean and checks `implies` (one of the declared
+argument combinations) and `conflicts` before running a typed action. A kind's `openArgs` and `check` own
+what `tile.open` reads: `tile.open kind=reader note=<id>` holds that note without needing `mode=held`.
+An argument for a different kind is refused with a corrected call.
+
+Tile actions and desk opens return `tile` as the stable tile id and `name` as its display name. Pass `tile`
+back to any `tile=` argument, including after moving the tile into a group or the drawer. An open's `id`
+is the note id; `reader` is no longer the destination key. Layout and tile actions reach the layout host
+while a message log covers it. These control-socket answers are not the outline service's PROTOCOL wire.

@@ -119,6 +119,7 @@ export const COMMENT_TILE: TileKind = {
   kind: COMMENT_TILE_KIND, noun: "a comment tile",
   about: "the comment being written in a reader (source=tile:<name>), or its thread list, in a tile of its own in the reader's place beside it (PIE-846): left, right, above or below (comment.place side=), sized by its border; the tiles round them never move, and closing it gives the reader its room back. Opened by comment.place place=tile (ctrl+o), closed when the comment is sent or put back",
   make: s => new AttachedTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "reader"),
+  openArgs: ["source"],
   check: s => (s.source && !/^tile:./.test(s.source) ? "a comment tile's source is tile:<name>, the reader writing it" : null),
   // Typing in it is typing in the reader's comment: the desk's keys don't take it, but ^W and a window key do (the way out).
   takesKeys: () => true, windowKeys: true,
@@ -129,6 +130,7 @@ export const SOURCES_TILE: TileKind = {
   kind: "sources", noun: "a sources tile",
   about: "a reader's Sources inspector in its own resizable tile beside the note",
   make: s => new AttachedTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "reader", "sources"),
+  openArgs: ["source"],
   check: COMMENT_TILE.check,
   takesKeys: () => true, windowKeys: true,
   describe: COMMENT_TILE.describe,
@@ -138,6 +140,7 @@ export const LIST_PREVIEW_TILE: TileKind = {
   kind: "list-preview", noun: "a list children preview",
   about: "the selected list item's children, owned by its reader",
   make: s => new AttachedTilePane(s.source?.startsWith("tile:") ? s.source.slice(5) : "reader", "list-preview"),
+  openArgs: ["source"],
   check: COMMENT_TILE.check,
   describe: COMMENT_TILE.describe,
 };
@@ -146,6 +149,7 @@ export const EDIT_PREVIEW_TILE: TileKind = {
   kind: "edit-preview", noun: "an edit preview tile",
   about: "the unsaved draft's live preview, owned by its reader",
   make: s => new AttachedTilePane(s.source?.slice(5) ?? "reader", "edit-preview"),
+  openArgs: ["source"],
   check: COMMENT_TILE.check,
   takesKeys: () => true, windowKeys: true,
   describe: COMMENT_TILE.describe,

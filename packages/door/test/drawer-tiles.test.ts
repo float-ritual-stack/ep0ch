@@ -143,7 +143,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       restored.key(char("x"), d.app);
       expect(restored.focusName()).toBe("kettle2");
       const floated = await restored.openPlace(note.id, "float", USER);
-      expect(restored.layoutGet().tiles.find(t => t.name === floated.reader)!.arrival).toBeDefined();
+      expect(restored.layoutGet().tiles.find(t => t.id === floated.tile)!.arrival).toBeDefined();
       const made = await restored.saveScreen("Letters to keep", USER);
       await d.app.dispatch.act({ action: "screen.open", args: { name: String(made.screen) } }, USER);
       expect((d.app.screens().at(-1) as Desk).pane("kettle2")).toBeDefined();

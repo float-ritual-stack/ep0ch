@@ -135,8 +135,8 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     // An agent's open lands beside the page (its kind's open rule): the page stays pinned.
     (app as any).lastInput = 0;
     const jar = await board.createBlock(null, "Spare jar\nOn the top shelf.");
-    const r = await app.act({ action: "open", args: { id: jar.id }, as: "test-agent" }) as { reader: string };
-    expect(r.reader).not.toBe("pinned");
+    const r = await app.act({ action: "open", args: { id: jar.id }, as: "test-agent" }) as { name: string };
+    expect(r.name).not.toBe("pinned");
     await until(() => screen().includes("On the top shelf."), "the note beside the page");
     expect((top().pane("pinned") as PinnedReader).msg?.id).toBe(page.id);
     ch("q");

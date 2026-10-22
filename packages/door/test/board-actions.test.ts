@@ -98,12 +98,12 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     const tiles = (await act("layout.get") as any).tiles as any[];
     // A lane's opens land in the readers row (the screen's opensInto), as its ⏎ does: from= a lane, a detail there.
     const lane = tiles.find(t => t.kind === "query")!;
-    expect(await act("open", { id: card.id, from: lane.name })).toMatchObject({ reader: expect.stringMatching(/^detail/), id: card.id });
+    expect(await act("open", { id: card.id, from: lane.name })).toMatchObject({ name: expect.stringMatching(/^detail/), id: card.id });
     // An unlinked tile (the outline dock's tree): where the board's own open puts a note, its detail.
     expect(tiles.find(t => t.name === "tree").link ?? null).toBeNull();
     const unlinked = await act("open", { id: card.id, from: "tree" }) as any;
     expect(unlinked.id).toBe(card.id);
-    expect(unlinked.reader).toMatch(/^detail/);
+    expect(unlinked.name).toMatch(/^detail/);
     expect(message()).toContain(`an agent (${AS})`);
   });
 
@@ -113,7 +113,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     const focus = BV.where(b);
     const r = await act("open", { id: card.id }) as any;
     expect(r.id).toBe(card.id);
-    expect(r.reader).toMatch(/^detail/);
+    expect(r.name).toMatch(/^detail/);
     expect(BV.where(b)).toBe(focus);
     expect(message()).toContain(`an agent (${AS})`);
   });

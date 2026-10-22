@@ -107,7 +107,7 @@ export interface HostLayer {
    */
   goTo(p: Pane, actor: Actor, o?: { zoom?: boolean }): { tile: string; in: "drawer" | "screen"; raised?: string };
   /** Open block `id` on the screen shown, where its opens land (a detail; `fresh`: a new one), for a tile in the drawer, which has none of its own; `from`: that tile, whose link to a tile of the screen (alt+l) takes it first. */
-  openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: import("./reveal").Reveal): Promise<{ reader: string | null; id: string }>;
+  openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: import("./reveal").Reveal): Promise<{ tile: string | null; name?: string; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
   /** Fold a drawer tab by putting the drawer away; unfold it by showing that tab. */
@@ -1128,6 +1128,7 @@ export class App implements Ctx {
     { set: RUNBOOK_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXTENSION_INSTALL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
+    { claims: req => req.action.startsWith("layout.") || req.action.startsWith("tile."), delegate: () => (this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d)) ?? this.hostLayer.desks()[0])?.dispatch },
     { delegate: () => this.stack.at(-1)?.dispatch },
     { set: POINTER_ACTIONS, takes: "screen", on: at => ({ dispatcher: this.dispatch, at }) },
   ]);

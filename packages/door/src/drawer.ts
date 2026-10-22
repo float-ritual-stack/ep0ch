@@ -430,14 +430,14 @@ export class AgentDrawer {
   }
 
   /** Open block `id` on the screen shown, as its details open (a new detail when `fresh`), or where an open naming no tile lands. */
-  async openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: Reveal): Promise<{ reader: string | null; id: string }> {
+  async openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: Reveal): Promise<{ tile: string | null; name?: string; id: string }> {
     // The tile it comes from has a link to a tile of the screen (alt+l): that tile takes it, whatever has the keys (PIE-700).
     const linked = from && !fresh && this.d ? await this.d.openOnLink(id, from, actor) : null;
-    if (linked) return { reader: linked, id };
+    if (linked) return { tile: linked, id };
     const screen = tilesOf(this.host.screen?.());
     if (!screen) throw new ActionRefused("this screen has no tiles to open it in · q goes back to one");
     const opened = screen.hasPlaces() ? await screen.openPlace(id, fresh ? "new-detail" : "detail", actor) : fresh ? await screen.openFresh(id, actor) : await screen.openLanding(id, actor);
-    if (reveal) screen.revealIn(opened.reader, reveal, actor);
+    if (reveal) screen.revealIn(opened.tile, reveal, actor);
     return opened;
   }
 
@@ -577,7 +577,7 @@ export class AgentDrawer {
     p.startNow(this.cols - 2, Math.max(5, Math.round(this.rows * this.share) - 3));
     if (person) { this.do({ op: "focus", tile: HOST_TILES }, actor); d.focusTile(done.tile, actor); this.intoShown(); }
     this.host.redraw();
-    return { attached: false, started: true, program, folder, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}), cmd, resumed, tile: done.tile, id: done.id ?? null };
+    return { attached: false, started: true, program, folder, ...(persona ? { persona } : {}), ...(hit.config ? { config: hit.name } : {}), cmd, resumed, tile: done.tile, name: done.name };
   }
 
   /** Jump to session `sel`: where it's shown, the keys in it (the person's only). */
@@ -706,7 +706,7 @@ export class AgentDrawer {
   isDrawer(d: unknown): boolean { return !!d && d === this.d; }
   /** The drawer's desk (once made) and the screen shown's tiles (a desk, or a desk inside it: the showcase's section). */
   desks(): Desk[] {
-    const screen = tilesOf(this.host.screen?.());
+    const screen = [...(this.host.ctx?.()?.screens?.() ?? [])].reverse().map(tilesOf).find(Boolean) ?? tilesOf(this.host.screen?.());
     return [...(this.d ? [this.d] : []), ...(screen && screen !== this.d ? [screen] : [])];
   }
   /** The terminal tile a process is drawn in, on the drawer or the screen shown (`host.tileOf`, PIE-1043). */

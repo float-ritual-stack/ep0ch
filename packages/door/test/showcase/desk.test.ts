@@ -780,7 +780,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect(stage().pane("edit").msg.title ?? stage().pane("edit").title()).not.toContain("Lentil");
     // An open that names no tile lands in a free tile, never the limited ones.
     const landed = await app.act({ action: "open", args: { id: recipe }, as: "test-agent" }) as any;
-    expect(landed.reader).toBe("free");
+    expect(landed.name).toBe("free");
     expect(stage().pane("edit").msg.id).toBe(seeded.notes.errand.id);
     expect(stage().pane("off").msg.id).toBe(seeded.notes.shed.id);
     // The edit tile's note can be edited by an agent (its draft closed again at once); the hands-off tile's cannot.

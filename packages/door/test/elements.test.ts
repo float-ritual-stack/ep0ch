@@ -395,7 +395,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     const before = { cur: current(p), scroll: p.surface.scroll, focus: BV.where(b), selection: p.surface.describe().selection };
     expect(before.selection).toMatchObject({ text: "First" });
     const out = await act("block.tint", { quote: "edge it with boards" }, "preview", AS) as any;
-    expect(out).toMatchObject({ reader: "preview", marked: "\"edge it with boards\"", by: AS });
+    expect(out).toMatchObject({ name: "preview", marked: "\"edge it with boards\"", by: AS });
     const lines = frame().slice(r.row, r.row + r.rows);
     expect(lines.map(plain).some(l => l.includes(`focus · an agent (${AS}) marked "edge it with boards"`))).toBe(true);
     const ruled = lines.flatMap(l => (l.includes(RULER_BG) ? [plain(l).slice(r.col + 1, r.col + r.cols - 1).trim()] : []));

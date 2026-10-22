@@ -178,7 +178,6 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
       { act: "bar.form op=open line=\"layout.move to=notes\"", does: "an agent's: answers layout.move's fields, to= already notes; nothing opens" },
     ],
     async run({ op, action, line, field, value }, { on }, actor: Actor) {
-      if (!(FORM_OPS as readonly string[]).includes(op)) throw new ActionRefused(`op is ${FORM_OPS.join(", ")}`);
       if (op === "open") {
         const req = formRequest(action, line);
         if (actor.kind === "agent") return formFor(on.host(), req);

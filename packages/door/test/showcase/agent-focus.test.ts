@@ -38,10 +38,10 @@ describe.skipIf(!outliner)("explicit agent focus in the showcase", () => {
     expect(await act("tile.open", { kind: "reader", name: "landing" })).toMatchObject({ beside: "person" });
     await act("tile.close", {}, "landing");
     await act("agent.focus", { note }, "person");
-    expect(await act("button.press", { label: "New game" })).toMatchObject({ reader: "person", note });
+    expect(await act("button.press", { label: "New game" })).toMatchObject({ name: "person", note });
     await act("agent.focus", { line: 3 }, "game");
     const button = await act("button.press", { label: "New game" });
-    expect(button).toMatchObject({ reader: "game" });
+    expect(button).toMatchObject({ name: "game" });
     expect(await focus()).toBe(initial);
     const original = (await h.board.get(note))!.text;
     const changed = original.replace("In prose", "In plain prose");
@@ -53,13 +53,13 @@ describe.skipIf(!outliner)("explicit agent focus in the showcase", () => {
     await act("edit.close");
     h.screen();
     // A block-id target used to choose the first equal reader. The pointer wins only for its agent.
-    expect(await act("elements", {}, note, "moss")).toMatchObject({ reader: "copy" });
+    expect(await act("elements", {}, note, "moss")).toMatchObject({ name: "copy" });
     await act("agent.focus", { clear: true }, undefined, "moss");
-    expect(await act("elements", {}, note, "moss")).toMatchObject({ reader: "game" });
+    expect(await act("elements", {}, note, "moss")).toMatchObject({ name: "game" });
     // No pointer: the existing default follows the person's focus.
     await person("tile.focus", {}, "copy");
     h.screen();
-    expect(await act("elements", {}, undefined, "visitor")).toMatchObject({ reader: "copy" });
+    expect(await act("elements", {}, undefined, "visitor")).toMatchObject({ name: "copy" });
     await person("tile.focus", {}, "person");
     // The footer is visible even when the source line has scrolled out of view.
     const rows = h.screen().split("\n"), y = rows.findIndex(row => row.includes("@fern:3"));
@@ -74,7 +74,7 @@ describe.skipIf(!outliner)("explicit agent focus in the showcase", () => {
     await act("tile.close");
     expect(h.app.describe().pointers).toEqual([]);
     h.screen();
-    expect(await act("elements")).toMatchObject({ reader: "person" });
+    expect(await act("elements")).toMatchObject({ name: "person" });
     await act("agent.focus", {}, "copy");
     expect(h.app.describe().pointers).toHaveLength(1);
     h.app.pop();
@@ -94,7 +94,7 @@ describe.skipIf(!outliner)("explicit agent focus in the showcase", () => {
     expect(h.app.person().focus).toBe("right");
     await h.app.act({ action: "folds", tile: "right", as: "visitor" });
     d.render(h.app);
-    expect(await h.app.act({ action: "elements", as: "visitor" })).toMatchObject({ reader: "right" });
+    expect(await h.app.act({ action: "elements", as: "visitor" })).toMatchObject({ name: "right" });
     h.ch("e"); h.press({ kind: "enter" });
     await until(() => h.app.person().typingIn === "right", "the person typing in the right reader");
     await expect(h.app.act({ action: "tile.focus", tile: "left", as: "visitor" })).rejects.toThrow("typing");
@@ -104,7 +104,7 @@ describe.skipIf(!outliner)("explicit agent focus in the showcase", () => {
     await h.app.dispatch.act({ action: "open", tile: "nested/detail", args: { id: h.seeded.notes.press.id } }, USER);
     d.render(h.app);
     await h.app.act({ action: "agent.focus", tile: "nested/detail", as: "visitor" });
-    expect(await h.app.act({ action: "button.press", args: { label: "New game" }, as: "visitor" })).toMatchObject({ reader: "detail" });
+    expect(await h.app.act({ action: "button.press", args: { label: "New game" }, as: "visitor" })).toMatchObject({ name: "detail" });
     expect(h.app.person().focus).toBe("right");
     await h.app.act({ action: "tile.close", tile: "nested", as: "visitor" });
     expect(h.app.describe().pointers).toEqual([]);

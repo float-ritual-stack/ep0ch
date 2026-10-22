@@ -162,7 +162,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     expect((await act("tile.info", {}, first.id) as any).name).toBe(first.name);
     // An open answers with the tile's name, not its place.
     const o = await act("open", { id: notes.shed.id }, "middle") as any;
-    expect(o.reader).toBe("middle");
+    expect(o.name).toBe("middle");
   });
 
   test("restoring a drawer group drops ambiguous and missing legacy wires once", async () => {
@@ -281,10 +281,10 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     const g = await get();
     expect(g.tiles.find((t: any) => t.name === "now").link).toBe("middle");
     const o = await act("open", { id: notes.shed.id, from: "now" }) as any;
-    expect(o).toMatchObject({ reader: "middle", id: notes.shed.id });
+    expect(o).toMatchObject({ name: "middle", id: notes.shed.id });
     // Linked elsewhere, the open follows the link: the caller never named middle.
     await act("tile.link", { to: "side" }, "now");
-    expect((await act("open", { id: notes.shed.id, from: "now" }) as any).reader).toBe("side");
+    expect((await act("open", { id: notes.shed.id, from: "now" }) as any).name).toBe("side");
     // The host layer's agent (EP0CH_TILE=claude) has no tile here: its open lands where `ep0ch open` puts one.
     expect((await act("open", { id: notes.shed.id, from: "claude" }) as any).id).toBe(notes.shed.id);
     await expect(act("open", { id: notes.shed.id, from: "nowhere" })).rejects.toThrow(/no tile nowhere/);
@@ -336,7 +336,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
       // The person moves middle while the agent's open waits for the service: #n is another tile now.
       await mine("layout.move", { where: "edge-left" }, "middle");
       expect((await get()).tiles.find((t: any) => t.n === n).name).not.toBe("middle");
-      expect((await opening as any).reader).toBe("middle");
+      expect((await opening as any).name).toBe("middle");
     } finally { (board as any).get = slow; }
     await daily();
   });

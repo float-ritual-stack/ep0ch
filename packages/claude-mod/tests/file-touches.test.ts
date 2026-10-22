@@ -102,7 +102,7 @@ function sessionIn(on: On, env: Record<string, string> = {}, globs: string[] = [
     const argv = e.argv
     if (argv[0] === 'herdr') return { value: result(0, JSON.stringify({ result: { plugins: [{ plugin_id: 'float.pi-outliner', enabled: true, plugin_root: '/opt/outliner' }] } })) }
     if (argv[0] === 'git') return { value: argv.includes('/work/garden/beds') ? result(0, '/work/garden\n') : result(128, '', 'fatal: not a git repository') }
-    if (argv[0] === 'ep0ch' && argv[1] === 'open') return { value: result(0, '{"opened":true,"reader":"middle"}\n') }
+    if (argv[0] === 'ep0ch' && argv[1] === 'open') return { value: result(0, '{"opened":true,"tile":"t-fixture","name":"middle"}\n') }
     if (argv[0] === 'ep0ch') return { value: result(1, '', 'no ep0ch') }
     if (argv.includes('bound-folder')) return { value: result(0, `{"bound":true,"folder":"${WORKSPACE}","outline":"garden"}\n`) }
     if (argv.includes('work-id-status')) return { value: result(0, '{"prefix":"PIE"}') }

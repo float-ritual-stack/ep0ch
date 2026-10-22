@@ -76,19 +76,22 @@ const builtins = (): TileKind[] => [
     peek: (p, desk) => { const open = desk.shownNow?.(p) ?? true; return { outline: { open, pinned: !desk.inDock?.(p), side: desk.sideOf?.(p) ?? "left", ...(open ? { rows: (p as TreePane).describe() } : {}) } }; },
   },
   {
-    kind: "reader", about: "a reader of notes: it follows the current note, is held on one (a detail), or is pinned to a page (mode=follows|held|pinned; note=<id> for a held one, page=<name> for a pinned one)",
+    kind: "reader", openArgs: ["mode", "note", "page", "outline", "machine", "label"], about: "a reader of notes: it follows the current note, is held on one (a detail), or is pinned to a page (mode=follows|held|pinned; note=<id> for a held one, page=<name> for a pinned one)",
     keys: [{ key: "r", label: "reader" }, { key: "d", label: "detail", spec: () => ({ mode: "held" }) }],
     make: s => {
       const r = new ReaderPane(true);
       if (s.outline) r.noteAddress = { outline: s.outline, ...(s.machine ? { machine: s.machine } : {}) };
       if (s.mode === "pinned" && s.page) r.pinTo(s.page);
-      else if (s.mode === "held" || s.mode === "pinned") { r.holdOn(); if (s.note) r.want = s.note; }
+      else if (s.note || s.mode === "held" || s.mode === "pinned") { r.holdOn(); if (s.note) r.want = s.note; }
       if (s.label) r.label = s.label;
       if (s.nav) r.wantNav = s.nav;
       r.takeMargin(s.margin);
       return r;
     },
     ...reading, actions: READER_ACTIONS,
+    check: s => s.mode === "pinned" && !s.page ? "a pinned reader names its page: ep0ch act tile.open kind=reader mode=pinned page=<name>"
+      : s.page && s.mode !== "pinned" ? "page= needs mode=pinned: ep0ch act tile.open kind=reader mode=pinned page=<name>"
+      : s.note && (s.mode === "pinned" || s.mode === "follows") ? "note= keeps a note: ep0ch act tile.open kind=reader note=<id>; pinned uses page=" : null,
     // layout.get and peek say how it shows notes (PIE-705): follows, held, or pinned to a page.
     describe: (p, full) => { const r = p as ReaderPane; return { ...reading.describe!(p, full), ...(r.follows ? { mode: r.followMode, ...(r.pinPage ? { page: r.pinPage } : {}) } : {}) }; },
     // The note it showed when the layout was saved (a restart, a handover) is shown again, with its history (PIE-643), unless something is already there.
@@ -115,7 +118,7 @@ const builtins = (): TileKind[] => [
     },
   },
   {
-    kind: "preview", about: "a reader following a tile's selection or a file (source=tile:<name> or file:<path>)",
+    kind: "preview", openArgs: ["source", "selectFrom", "file"], about: "a reader following a tile's selection or a file (source=tile:<name> or file:<path>)",
     keys: [{ key: "p", label: "preview", spec: at => ({ source: `tile:${at.name}` }) }],
     make: s => { const p = new PreviewPane((s.source && sourceOf(s.source)) || (s.file ? { file: s.file } : { tile: "" })); if (s.label) p.label = s.label; p.takeMargin(s.margin); return p; },
     ...reading,
@@ -138,7 +141,7 @@ const builtins = (): TileKind[] => [
     describe: (p, full) => { const source = (p as PreviewPane).source; return { ...reading.describe!(p, full), ...("file" in source ? { source: sourceName(source) } : {}) }; },
   },
   {
-    kind: "pty", about: "a program in a terminal (cmd=\"nvim draft.md\", file=<path it edits>, cwd=<folder>)", noun: "a terminal tile",
+    kind: "pty", openArgs: ["cmd", "cwd", "file"], about: "a program in a terminal (cmd=\"nvim draft.md\", file=<path it edits>, cwd=<folder>)", noun: "a terminal tile",
     keys: [
       { key: "e", label: "editor", spec: () => { const f = dailyDraft(); return { cmd: [...words(editor()), f], file: f, name: "editor" }; } },
       { key: "s", label: "shell" },
@@ -181,14 +184,14 @@ const builtins = (): TileKind[] => [
     },
   },
   // The thread tile is the links tile with Children alone (PIE-693): a layout saved with one gets that, and saves it so.
-  { kind: "thread", previews: true, about: "a links tile listing the children (replies) of what the reader shows: kind backlinks, linkGroups=children", make: s => new BacklinksPane(sourceTile(s.source), false, ["children"], s.subject !== "held"), actions: BACKLINKS_ACTIONS },
+  { kind: "thread", openArgs: ["source"], previews: true, about: "a links tile listing the children (replies) of what the reader shows: kind backlinks, linkGroups=children", make: s => new BacklinksPane(sourceTile(s.source), false, ["children"], s.subject !== "held"), actions: BACKLINKS_ACTIONS },
   { kind: "activity", about: "recent edits by people and agents", keys: [{ key: "a", label: "activity" }], make: () => new ActivityPane(), actions: ACTIVITY_ACTIONS },
   { kind: "who", about: "who's attached to the outline", keys: [{ key: "w", label: "who" }], make: () => new WhoPane(), actions: WHO_ACTIONS },
   { kind: "art", about: "ANSI art from the packs", keys: [{ key: "b", label: "art" }], make: () => new ArtPane(), actions: ART_ACTIONS },
   // A screen mounted in a tile (PIE-651): any screen, a part of one, a group; the board and river by their older kinds.
   ...mountKinds(),
   {
-    kind: "query", previews: true, about: "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"#garden\", source=tile:<its home reader>: a #tag opened in a reader, PIE-800); a board lane is one",
+    kind: "query", openArgs: ["view", "query", "source"], previews: true, about: "the cards a saved view lists (view=<the virtual branch's block id>), or a query in the views' grammar (query=\"#garden\", source=tile:<its home reader>: a #tag opened in a reader, PIE-800); a board lane is one",
     // ^W o q on a tile showing a saved view (the outline's row on a lane's block): a tile of its cards.
     keys: [{ key: "q", label: "query", spec: at => { const m = showing(at.pane); return m && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch" ? { view: m.id, name: laneTileName(subject(m)) } : {}; } }],
     make: s => { const src = s.source && sourceOf(s.source); return new QueryPane(s.view ?? "", s.query ?? null, src && "tile" in src ? src.tile : null, s.mode === "held"); }, actions: QUERY_ACTIONS,
@@ -209,7 +212,7 @@ const builtins = (): TileKind[] => [
     describe: p => (p as QueryPane).describe(),
   },
   {
-    kind: "tune", about: "the tune inspector on another tile (source=tile:<name>): its look's spacing, list, surface and frame values, where each comes from, nudged, taken back and saved (PIE-673, PIE-675)",
+    kind: "tune", openArgs: ["source"], about: "the tune inspector on another tile (source=tile:<name>): its look's spacing, list, surface and frame values, where each comes from, nudged, taken back and saved (PIE-673, PIE-675)",
     keys: [{ key: "y", label: "tune", spec: at => ({ source: `tile:${at.name}` }) }],
     make: s => { const src = s.source && sourceOf(s.source); return new TunePane(src && "tile" in src ? src.tile : "reader"); },
     actions: TUNE_ACTIONS,
@@ -220,7 +223,7 @@ const builtins = (): TileKind[] => [
     peek: (p, desk) => ({ tune: (p as TunePane).describe(desk) }),
   },
   {
-    kind: "backlinks", about: "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
+    kind: "backlinks", openArgs: ["source"], about: "the links of a note, its subject, beside its home reader (source=tile:<name>): its outlinks, resources, backlinks and children (linkGroups= names some); subject=held (the default) keeps the subject until b aims it again, subject=follows lists what its home shows as it changes; stages=next,doing,waiting names the stage values its headers and Stage control use, in that order (others are said as other, never hidden)",
     aim: p => p as BacklinksPane, companion: "preview", previews: true,
     // A selection previews (a preview tile follows it), ⏎ opens: in its home, the reader it belongs to, or the tile linked to it as a target (PIE-646, PIE-794).
     home: p => (p as BacklinksPane).home,
