@@ -155,7 +155,7 @@ export class BacklinksPane implements Pane {
    * would hide the only links); Detail's default, folded, otherwise. `follows`: its subject follows what its home shows
    * (`subject=follows`); otherwise it keeps its subject until `b`.
    */
-  constructor(public source: string, readonly openGroups = false, groups: readonly LinkGroupName[] | null = null, readonly follows = false) {
+  constructor(public source: string, readonly openGroups = false, groups: readonly LinkGroupName[] | null = null, public follows = false) {
     if (groups?.length) this.groups = ALL_LINK_GROUPS.filter(g => groups.includes(g));
   }
   /** Its home (PIE-794): the reader it belongs to, where ⏎ lands unless a link says otherwise. */
@@ -184,7 +184,7 @@ export class BacklinksPane implements Pane {
     return [{ text: this.data ? `${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : "… sources", sgr: fg(C.lcyan),
       chip: true as const, press: () => this.run(desk, "backlinks.groups", { choose: true }) }];
   }
-  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview · ⏎ open in ${this.sourceLabel()} · alt+⏎ new detail · b ${this.follows ? "aim" : "re-aim"} at ${this.sourceLabel()}'s note · . fold · s K w h n view · v groups`; }
+  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview · ⏎ open in ${this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), "open")} · alt+⏎ ${this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), "alt")} · b ${this.follows ? "aim" : "re-aim"} at ${this.sourceLabel()}'s note · . fold · s K w h n view · v groups`; }
   spec() { return { source: this.source ? `tile:${this.source}` : "", ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const, ...(this.options.stages?.length ? { stages: this.options.stages.join(",") } : {}) }; }
 
   /**
@@ -246,6 +246,7 @@ export class BacklinksPane implements Pane {
 
   /** List `m`'s backlinks now, asked of the service again (a note named outright, or the source's), whatever the source tile shows. */
   show(m: Msg, desk: DeskApi): Promise<void> {
+    this.follows = false;
     const shown = desk.tileShowing?.(this.source) ?? null;
     this.named = { m, over: shown && isOutlineNote(shown) ? shown.id : null };
     // Asked again each time it's opened on a note, as Detail's panel is (the note's options stay while it's the same).
@@ -433,7 +434,7 @@ export class BacklinksPane implements Pane {
     if (how === "show" && desk.showFrom) desk.showFrom(this, m, actor);
     else {
       // The person's open moves their selection there too: the preview following this tile shows it as well.
-      if (!agent && desk.showFrom) desk.showFrom(this, m);
+      if (!agent && how === "open" && desk.showFrom) desk.showFrom(this, m);
       // Opened in its home, it's a row of this list, never its subject (PIE-794).
       if (how === "open") this.landed = m.id;
       desk.setCurrent(m, { from: this, ...(how !== "show" ? { link: true } : {}), ...(how === "fresh" ? { fresh: true } : {}), by: actor });
@@ -552,7 +553,7 @@ export class BacklinksPane implements Pane {
     const header = row.kind === "group" || row.kind === "kind";
     if (header && gesture !== "focus" && x <= row.depth * 2 + 1) { this.run(desk, "backlinks.open", { n: i + 1 }); return true; }
     if (gesture === "open" || gesture === "fresh") this.run(desk, "backlinks.open", { n: i + 1, where: gesture === "fresh" && !header ? "new" : "home" });
-    else if (i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 });
+    else if (gesture === "select" || i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 });
     return true;
   }
 }

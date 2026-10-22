@@ -207,27 +207,30 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     expect(D().layoutGet().focus).toBe("links");
   }, 20_000);
 
-  test("select wires fan out independently of open, and survive saving and loading the layout", async () => {
+  test("a replacement select destination survives saving and loading independently of open", async () => {
     await setup();
     await act("tile.open", { kind: "detail", name: "side", where: "right" }, "reader");
+    const oldPreview = reader("peek").msg?.id;
     await act("tile.link", { to: "side", verb: "select" }, "links");
     await act("tile.link", { to: "reader", verb: "open" }, "links");
     await pickRow(hall.id);
-    await until(() => reader("side").msg?.id === hall.id && reader("peek").msg?.id === hall.id, "both select targets show the row");
+    await until(() => reader("side").msg?.id === hall.id, "the replacement select target shows the row");
+    expect(reader("peek").msg?.id).toBe(oldPreview);
     expect(reader("reader").msg?.id).toBe(lamp.id);
     const saved = D().saved();
     D().build(saved, true);
     await pickRow(porch.id);
-    await until(() => reader("side").msg?.id === porch.id && reader("peek").msg?.id === porch.id, "both select wires survive reload");
+    await until(() => reader("side").msg?.id === porch.id, "the replacement select wire survives reload");
+    const unlinkedPreview = reader("peek").msg?.id;
     await act("tile.link", { to: "side", verb: "select", remove: true }, "links");
     await pickRow(hall.id);
-    await until(() => reader("peek").msg?.id === hall.id, "the other select target stays connected");
+    expect(reader("peek").msg?.id).toBe(unlinkedPreview);
     expect(reader("side").msg?.id).toBe(porch.id);
     await act("backlinks.open", { id: hall.id }, "links");
     expect(reader("reader").msg?.id).toBe(hall.id);
   }, 20_000);
 
-  test("saved preview-role links keep selections and opens, and preview sources keep selections on load", async () => {
+  test("a saved explicit select wire replaces an implicit preview source on load", async () => {
     await setup();
     const saved = D().saved();
     const walk = (n: any) => {
@@ -239,12 +242,13 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     walk(saved.root);
     D().build(saved, true);
     await pickRow(porch.id);
-    await until(() => reader("peek").msg?.id === porch.id, "the old source becomes a select wire");
+    await until(() => reader("reader").msg?.id === porch.id, "the explicit select destination wins on load");
+    expect(reader("peek").msg?.id).not.toBe(porch.id);
     expect(reader("reader").msg?.id).toBe(porch.id);
     await act("tile.focus", {}, "links");
     await act("backlinks.open", { id: hall.id }, "links");
     await until(() => reader("reader").msg?.id === hall.id, "the saved preview-role link also takes opens");
-    expect(tile("links").wires).toEqual(expect.arrayContaining([{ verb: "select", to: tile("peek").tile }, { verb: "select", to: tile("reader").tile }, { verb: "open", to: tile("reader").tile }]));
+    expect(tile("links").wires).toEqual(expect.arrayContaining([{ verb: "select", to: tile("reader").tile }, { verb: "open", to: tile("reader").tile }]));
   }, 20_000);
 
   test("an agent's open from the list lands in its home and never takes the person's keys; a group row opens or folds", async () => {
@@ -255,6 +259,19 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     expect(D().layoutGet().focus).toBe("links");
     await expect(act("backlinks.open", { where: "sideways" }, "links")).rejects.toThrow(/home or new/);
   }, 20_000);
+
+  test("PIE-1206: a plain click after alt-click previews the same row", async () => {
+    await setup();
+    render();
+    const r = tile("links").rect;
+    const x = r.col + 6, y = r.row + 1 + (links() as any).head + rowOf(hall.id) - (links() as any).view.top;
+    await pickRow(porch.id);
+    mouse("down", x, y, 8); mouse("up", x, y, 8);
+    await until(() => reader("reader").msg?.id === hall.id, "alt-click opens the hall");
+    expect(reader("peek").msg?.id).toBe(porch.id);
+    mouse("down", x, y); mouse("up", x, y);
+    await until(() => reader("peek").msg?.id === hall.id, "the plain click previews the hall", 1000);
+  });
 
   test("by mouse: a click selects and previews, a double click opens in its home, an alt+click in a new detail", async () => {
     await setup();

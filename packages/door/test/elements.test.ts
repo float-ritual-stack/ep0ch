@@ -256,8 +256,8 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(frame().map(plain).some(l => l.includes("link Stake the beans · ⏎ follow"))).toBe(true);   // the reader's footer (the comment's margin card is an element too)
     key({ kind: "enter" });
     await whole(d, n.beans.id);
-    expect(B().details.length).toBe(2);
-    expect(B().details.find((p: ReaderPane) => p !== d)?.msg?.id).toBe(n.jobs.id);
+    expect(B().details.length).toBe(1);
+    expect(d.surface.describe().history.back).toEqual([{ id: n.jobs.id, title: "Weekend jobs" }]);
     d = await detail();
     stepTo(d, "## Beds");
     key({ kind: "enter" });

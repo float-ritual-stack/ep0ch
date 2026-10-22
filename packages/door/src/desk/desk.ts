@@ -961,14 +961,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const wires: TileWire[] = [];
     this.selectSeeds.clear();
     const across: import("./screen-layout").AcrossWire<number>[] = [];
+    const sourceWires: typeof wantWires = [];
     for (const [to, savedSource] of wantSources) {
       const source = references.get(savedSource) ?? savedSource;
       const src = [...names].find(([id, n]) => this.tileId(id) === source || n === source)?.[0];
       const container = node(tree, source);
       if (container || src === undefined) this.selectSeeds.set(to, source);
-      for (const from of src !== undefined ? [src] : container ? leaves(container) : []) wires.push({ from, verb: "select", to });
+      for (const from of src !== undefined ? [src] : container ? leaves(container) : []) sourceWires.push({ from, verb: "select", to: this.tileId(to) });
     }
-    for (const { from, verb, to: savedTo, rule } of wantWires) {
+    for (const { from, verb, to: savedTo, rule } of [...sourceWires, ...wantWires]) {
+      if (this.panes.get(from) instanceof ScreenTile) continue;
+      for (let i = wires.length - 1; i >= 0; i--) if (wires[i]!.from === from && wires[i]!.verb === verb) wires.splice(i, 1);
+      for (let i = across.length - 1; i >= 0; i--) if (across[i]!.from === from && across[i]!.verb === verb) across.splice(i, 1);
       const to = references.get(savedTo) ?? savedTo;
       if (to.includes("/")) { across.push({ from, to, verb, rule }); continue; }
       const target = [...names].find(([id, n]) => this.tileId(id) === to || n === to)?.[0];
@@ -1783,10 +1787,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.panes.get(id), name = this.nameOf(id);
     const change = { label: "change: link it to another tile", short: "change", run: () => this.askLink(id) };
     const unlink = { label: "unlink: its opens go by the screen's rule", run: () => this.run("tile.link", {}, name) };
-    const ext = this.extTarget(id);
-    if (ext) return { short: this.plainPath(this.pathTo(ext.pane)), says: `${this.plainPath(this.pathTo(ext.pane))} (its link, across the drawer)`, change, unlink };
     const to = this.placeFrom(id).route;
-    if (to && "across" in to) return { short: to.across, says: `${to.across}, its reader (opens replace here; back returns)`, change };
+    if (to && "across" in to) {
+      const target = this.storedPane(to.across), name = target ? this.plainPath(this.pathTo(target)) : to.across;
+      return { short: name, says: `${name} (its placement across the drawer or group)`, change, unlink };
+    }
     if (to && "to" in to) {
       const via = this.linkVia(id), target = this.nameOf(to.to);
       if (via === "link") return { short: target, says: `${target} (its link: only what ⏎ opens)`, change, unlink };
@@ -1843,7 +1848,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const target = this.resolveTile(dest.target);
       if (!target) return null;
       const d = target.desk, id = d.idNamed(target.tile.id!)!;
-      return d.placeNote(m, { from: id, ...(dest.source ? { default: true } : { to: id, rule: dest.rule }), fresh: request.fresh, note: m.id, keys: false }, by);
+      return d.placeNote(m, { from: id, ...(dest.source ? { default: true } : { to: id, rule: dest.rule, keep: dest.rule === "tile" ? false : undefined }), fresh: request.fresh, note: m.id, keys: false }, by);
     }
     if (dest.kind === "into") return null;
     const id = this.nextId;
@@ -1962,7 +1967,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return x && path ? { link: path, linkAcross: "true" } : {};
   }
   /** What layout.get says of tile `id`'s link beyond where it goes (PIE-646): its verb, and where it comes from when it isn't a link of its own. */
-  private linkView(id: number): Record<string, unknown> {
+  private linkView(id: number) {
     return { ...(this.linkVia(id) ? { linkFrom: this.linkVia(id) } : {}), wires: [...this.layout.wires.filter(w => w.from === id).map(w => ({ verb: w.verb, to: this.tileId(w.to), ...(w.rule ? { rule: w.rule } : {}) })), ...(this.extSpec(id).wires ?? [])] };
   }
 
@@ -3127,8 +3132,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return c?.key ?? this.nameOf(this.focus);
   }
 
-  private tileView(id: number, n = this.numberOf(id)) {
-    const p = this.panes.get(id)!; const r = this.placed.rects.get(id) ?? this.hits.find(([x]) => x === id)?.[1];
+  private tileView(id: number, n = this.numberOf(id), rects?: ReadonlyMap<number, Rect>) {
+    const p = this.panes.get(id)!; const r = rects ? rects.get(id) : this.placed.rects.get(id) ?? this.hits.find(([x]) => x === id)?.[1];
     const set = tabsOf(this.root, id);
     const link = wireTarget(this.layout, id), into = this.linkOf(id);
     const m = this.showing(p);
@@ -4633,15 +4638,19 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private wireWords(id: number, verb: WireVerb): string {
     if (verb === "open") return this.opensOf(id).short;
-    const targets = this.layout.wires.filter(w => w.from === id && w.verb === verb);
-    const said = (target: string, rule?: AltRule) => rule === "first-unheld" ? "first unheld reader" : rule === "tab" ? `tab of ${target}` : rule === "beside" ? `beside ${target}` : target;
-    const external = (this.ext.get(id) ?? []).filter(w => w.verb === verb).map(w => {
-      const t = this.extTarget(id, verb, w);
-      return said(t ? this.plainPath(this.pathTo(t.pane)) : w.path ?? "", w.rule);
-    });
-    if (targets.length || external.length) return [...targets.map(w => said(this.nameOf(w.to), w.rule)), ...external].join(", ");
-    if (verb === "select") return kindOf(this.panes.get(id))?.previews ? "current note" : "nowhere";
+    if (verb === "select") {
+      const targets = this.layout.wires.filter(w => w.from === id && w.verb === verb).map(w => this.nameOf(w.to));
+      const external = (this.ext.get(id) ?? []).filter(w => w.verb === verb).map(w => {
+        const t = this.extTarget(id, verb, w);
+        return t ? this.plainPath(this.pathTo(t.pane)) : w.path ?? "";
+      });
+      return [...targets, ...external].join(", ") || (kindOf(this.panes.get(id))?.previews ? "current note" : "nowhere");
+    }
     const to = this.placeFrom(id, verb === "alt").route;
+    if (to && "across" in to) {
+      const p = this.storedPane(to.across), target = p ? this.plainPath(this.pathTo(p)) : to.across;
+      return to.rule === "beside" ? `beside ${target}` : to.rule === "tab" ? `tab of ${target}` : to.rule === "first-unheld" ? "first unheld reader" : target;
+    }
     if (to && "to" in to) return this.nameOf(to.to);
     if (to && "beside" in to) return `beside ${this.nameOf(to.beside)}`;
     if (to && "tab" in to) return `tab of ${this.nameOf(to.tab)}`;
@@ -4787,7 +4796,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * Where each tile is right now, placed from the tree as it is (not as last painted: paints are coalesced, and
    * a key that follows a change within a frame must see the change).
    */
-  private rectsNow(): Map<number, Rect> { return rectsOf(this.layout, this.area, this.holds); }
+  private rectsNow(): Map<number, Rect> {
+    const rects = rectsOf(this.layout, this.area, this.holds);
+    for (const f of this.floats) if (rects.has(f.id)) rects.set(f.id, this.floatRect(f));
+    return rects;
+  }
 
   // ── policy (PIE-505): what each container allows; the screen-layout module checks it in every operation ──
 
@@ -4864,7 +4877,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!k || !isTileKind(t.kind)) throw new ActionRefused(`tile.open: kind is ${tileKindNames().join(", ")}, not ${t.kind}`);
     const bad = t.name !== undefined ? tileNameProblem(t.name) : null;
     if (bad) throw new ActionRefused(`tile.open: ${bad}`);
-    if (t.name && this.idNamed(t.name) !== undefined) throw new ActionRefused(`there's already a tile named ${t.name}`);
+    const existing = t.name ? this.idNamed(t.name) : undefined;
+    if (existing !== undefined) {
+      const pane = this.panes.get(existing)!;
+      if (pane.kind !== t.kind) throw new ActionRefused(`${t.name} is kind=${pane.kind}, not ${t.kind} · use ep0ch act tile.open kind=${pane.kind} name=${t.name}, or ep0ch act tile.close tile=${t.name} first`);
+      const wrong = k.check?.({ ...t, cmd: t.cmd ? lineWords(t.cmd) : undefined });
+      if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
+      if (t.note) {
+        const m = await readNote(this.ctx, t.note);
+        if (!m) throw new ActionRefused(`no block ${t.note}`);
+        const landed = this.placeNote(m, { from: this.focus, to: existing, note: m.id, keep: false, keys: false }, actor);
+        if (landed) return { ...landed.desk.tileAnswer(landed.id), kind: t.kind };
+      }
+      return { ...this.tileAnswer(existing), kind: t.kind };
+    }
     // From a float (a new note's, PIE-591) naming no tile: beside the tile under it, where esc in it goes back to.
     const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
     const empty = !this.all().length;
@@ -5231,8 +5257,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (k !== undefined && !this.isFloat(this.focus)) this.openedIn(k).active = this.focus;
   }
 
+  private linkSource(sel: string | undefined, verb: WireVerb) {
+    const src = this.tile(sel), pane = this.panes.get(src.id);
+    if (pane instanceof ScreenTile) {
+      const inner = pane.inner?.keys().address;
+      throw new ActionRefused(`${src.name} holds tiles; wire its inner tile: tile.link tile=${inner ?? `${src.name}/<tile>`} verb=${verb} to=<destination>`);
+    }
+    return src;
+  }
+
   startLink(sel: string | undefined, verb: WireVerb, ask: boolean): TileDone {
-    const src = this.tile(sel);
+    const src = this.linkSource(sel, verb);
     this.overlays.drop("policy");
     this.linking = ask ? { desk: this, from: src.id, verb } : null;
     this.redraw();
@@ -5240,7 +5275,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   linkTile(sel: string | undefined, to: string | undefined, actor: Actor, verb: WireVerb = "open", remove = false, rule?: AltRule): TileDone {
-    const src = this.tile(sel);
+    const src = this.linkSource(sel, verb);
     this.linking = null;
     const across = to && (to.includes("/") || this.idNamed(to) === undefined && !!this.paneAtPath(to));
     if (across && remove) {
@@ -5665,13 +5700,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   layouts() { return { current: this.layoutName, layouts: layoutNames() }; }
   layoutAll() {
     const root = this.ctx?.hostLayer?.desks().find(d => !this.ctx.hostLayer!.isDrawer(d)) ?? this.top();
-    const layers = root.relatives().map(d => ({ screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()),
+    const layers = root.relatives().map(d => { const rects = d.rectsNow(); return { screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()),
       tree: describeLayout(d.layout, id => d.nameOf(id), id => d.tileId(id)),
-      tiles: d.all().map(id => ({ ...d.tileView(id), path: root.pathTo(d.panes.get(id)!) })) }));
+      tiles: d.all().map(id => ({ ...d.tileView(id, undefined, rects), path: root.pathTo(d.panes.get(id)!) })) }; });
     return { ...root.layoutGet(), layers, tiles: layers.flatMap(l => l.tiles) };
   }
   layoutGet() {
-    return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ ...this.tileAnswer(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id)) };
+    const rects = this.rectsNow();
+    return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ ...this.tileAnswer(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id, undefined, rects)) };
   }
 
   /**

@@ -226,6 +226,54 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       } };
     };
 
+    test(`PIE-1206 round 2: saved reader wires keep select independent of open (${placement})`, async () => {
+      const s = await placed();
+      const inner = s.owner.resolveTile(s.tile)!.desk;
+      try {
+        await inner.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "reader", name: "preview" } }, USER);
+        await inner.dispatch.act({ action: "tile.link", tile: "briefing", args: { to: "preview", verb: "select" } }, USER);
+        await inner.dispatch.act({ action: "tile.link", tile: "briefing", args: { to: "other", verb: "open" } }, USER);
+        const saved = join(h.scratch.root, `reader-wires-${placement}.json`);
+        writeFileSync(saved, JSON.stringify(inner.savedState()));
+        (inner as any).build(JSON.parse(readFileSync(saved, "utf8")), true);
+        const tiles = inner.layoutAll().tiles;
+        const source = tiles.find(t => t.name === "briefing")!;
+        expect(source.wires.find(w => w.verb === "select")?.to).toBe(tiles.find(t => t.name === "preview")!.tile);
+        expect(source.wires.find(w => w.verb === "open")?.to).toBe(tiles.find(t => t.name === "other")!.tile);
+      } finally { await s.cleanup(); }
+    });
+
+    test(`PIE-1206 round 2: wired opens replace held notes and Back restores them (${placement})`, async () => {
+      const s = await placed();
+      try {
+        const inner = s.owner.resolveTile(s.tile)!.desk;
+        const other = "other";
+        await inner.dispatch.act({ action: "tile.link", tile: "briefing", args: { to: other, verb: "open" } }, USER);
+        await inner.dispatch.act({ action: "tile.link", tile: "briefing", args: { to: other, verb: "alt" } }, USER);
+        const before = s.owner.layoutAll().tiles.map(t => t.tile);
+        for (const fresh of [false, true]) {
+          await inner.dispatch.act({ action: "open", args: { from: "briefing", id: s.briefing.id, fresh } }, USER);
+          expect(s.owner.layoutAll().tiles.map(t => t.tile)).toEqual(before);
+          await inner.dispatch.act({ action: "back", tile: other }, USER);
+          await until(() => shows(inner, "other") === s.testing.id, "Back restores the replaced held note", 1000);
+        }
+      } finally { await s.cleanup(); }
+    });
+
+    test(`PIE-1206 round 2: tile.open delivers to an existing name of the same kind (${placement})`, async () => {
+      const s = await placed();
+      const inner = s.owner.resolveTile(s.tile)!.desk;
+      try {
+        const before = s.owner.layoutAll().tiles.map(t => t.tile);
+        const original = inner.layoutAll().tiles.find(t => t.name === "other")!;
+        const result = await inner.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "other", mode: "held", note: s.briefing.id } }, USER) as { tile: string };
+        expect(result.tile).toBe(original.tile);
+        expect(s.owner.layoutAll().tiles.map(t => t.tile)).toEqual(before);
+        await until(() => shows(inner, "other") === s.briefing.id, "the named house takes its note");
+        await expect(inner.dispatch.act({ action: "tile.open", args: { kind: "tree", name: "other" } }, USER)).rejects.toThrow(/tile.open.*kind=reader|tile.close.*other/);
+      } finally { await s.cleanup(); }
+    });
+
     test(`placement: an unpressed open changes only its named reader (${placement})`, async () => {
       const s = await placed();
       try {
@@ -470,6 +518,208 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     await app.dispatch.act({ action: "tile.drawer", tile: "screen" }, USER);
     return () => app.drawer.desk?.dispatch.act({ action: "tile.close", tile: "screen" }, USER);
   };
+
+  for (const place of ["screen", "group", "drawer group"] as const) {
+    test(`PIE-1206: each verb replaces its destination in the ${place}`, async () => {
+      const s = await twoReaders();
+      const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+      let group: string | undefined;
+      try {
+        const made = await act("tile.open", "other", { kind: "backlinks", name: "links" }) as { tile: string };
+        const id = made.tile;
+        if (place !== "screen") {
+          group = (await act("tile.group", id, { name: "parcel" }) as { tile: string }).tile;
+          if (place === "drawer group") await act("tile.drawer", group);
+        }
+        s.d.render(app); app.drawer.render(200, 60, "Probe");
+        const first = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.tile;
+        const target = s.d.layoutAll().tiles.find(t => t.name === "other")!.tile;
+        for (const verb of ["select", "open", "alt"] as const) {
+          await act("tile.link", id, { to: first, verb });
+          await act("tile.link", id, { to: target, verb });
+          const tile = s.d.layoutAll().tiles.find(t => t.tile === id)!;
+          expect(tile.wires.filter(w => w.verb === verb)).toEqual([{ verb, to: target }]);
+        }
+      } finally {
+        if (group && app.drawer.made?.resolveTile(group)) await act("tile.close", group);
+        s.done();
+      }
+    }, 30_000);
+
+    test(`PIE-1206: a group refuses wires and names its inner tile in the ${place}`, async () => {
+      const s = await twoReaders();
+      const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+      let outer: string | undefined;
+      try {
+        const inner = s.d.layoutAll().tiles.find(t => t.name === "other")!.tile;
+        const group = (await act("tile.group", inner, { name: "parcel" }) as { tile: string }).tile;
+        if (place !== "screen") {
+          outer = (await act("tile.group", group, { name: "yard", on: true }) as { tile: string }).tile;
+          if (place === "drawer group") await act("tile.drawer", outer);
+        }
+        s.d.render(app); app.drawer.render(200, 60, "Probe");
+        const target = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.tile;
+        await expect(act("tile.link", group, { to: target, verb: "select" })).rejects.toThrow(/tile.link tile=.*other|tile.link tile=t-/);
+        expect(s.d.layoutAll().tiles.find(t => t.tile === group)!.wires).toEqual([]);
+      } finally {
+        if (outer && app.drawer.made?.resolveTile(outer)) await act("tile.close", outer);
+        s.done();
+      }
+    }, 30_000);
+  }
+
+  test("PIE-1206: saved duplicate destinations and group wires are repaired on load", async () => {
+    const d = new Desk({ name: "wire-load", title: "Wire load", layout: { root: { t: "split", dir: "row", kids: [
+      { t: "leaf", kind: "reader", name: "first" },
+      { t: "leaf", kind: "reader", name: "last" },
+      { t: "leaf", kind: "backlinks", name: "links", wires: [{ verb: "select", to: "first" }, { verb: "select", to: "last" }] },
+      { t: "leaf", kind: "backlinks", name: "followed" },
+      { t: "leaf", kind: "preview", name: "preview1", source: "tile:followed" },
+      { t: "leaf", kind: "preview", name: "preview2", source: "tile:followed" },
+      { t: "leaf", kind: "screen", name: "parcel", wires: [{ verb: "select", to: "first" }], inner: { root: { t: "leaf", kind: "reader", name: "inside" } } },
+    ], weights: [1, 1, 1, 1] } } });
+    app.push(d);
+    try {
+      const tiles = d.layoutAll().tiles;
+      expect(tiles.find(t => t.name === "links")!.wires).toEqual([{ verb: "select", to: tiles.find(t => t.name === "last")!.tile }]);
+      expect(tiles.find(t => t.name === "parcel")!.wires).toEqual([]);
+      expect(tiles.find(t => t.name === "followed")!.wires).toEqual([{ verb: "select", to: tiles.find(t => t.name === "preview2")!.tile }]);
+    } finally { app.pop(); d.dispose(); }
+  });
+
+  test("PIE-1206: links pins a following list until b re-aims it", async () => {
+    const s = await twoReaders();
+    const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+    const d = new Desk({ name: "pin-links", title: "Pin links", layout: { root: { t: "split", dir: "row", kids: [
+      { t: "leaf", kind: "reader", name: "brief", mode: "held", note: s.briefing.id },
+      { t: "leaf", kind: "backlinks", name: "links", source: "tile:brief", subject: "follows" },
+    ], weights: [1, 1] } } });
+    app.push(d);
+    try {
+      await until(() => shows(d, "brief") === s.briefing.id, "brief loaded");
+      const shown = await act("links", "brief") as { tile: string };
+      const list = d.pane(shown.tile) as BacklinksPane;
+      await act("open", "brief", { id: s.testing.id });
+      d.render(app);
+      expect(list.target?.id).toBe(s.briefing.id);
+      await act("tile.focus", shown.tile);
+      press({ kind: "char", ch: "b" });
+      await until(() => list.target?.id === s.testing.id, "b re-aims the pinned list");
+    } finally { app.pop(); d.dispose(); s.done(); }
+  });
+
+  test("PIE-1206: the links hint names the destinations that open and alt use", async () => {
+    const s = await twoReaders(); const off = await linksInDrawer(s);
+    try {
+      s.d.render(app); app.drawer.render(200, 60, "Probe");
+      const shown = await app.dispatch.act({ action: "links", tile: "briefing" }, USER) as { tile: string };
+      const tiles = s.d.layoutAll().tiles;
+      const a = tiles.find(t => t.name === "briefing")!.tile, b = tiles.find(t => t.name === "other")!.tile;
+      await app.dispatch.act({ action: "tile.link", tile: shown.tile, args: { to: b, verb: "open" } }, USER);
+      await app.dispatch.act({ action: "tile.link", tile: shown.tile, args: { to: a, verb: "alt" } }, USER);
+      const owner = s.d.resolveTile(shown.tile)!.desk, list = owner.pane(shown.tile) as BacklinksPane;
+      expect(list.hint()).toContain("open in other");
+      expect(list.hint()).toContain("alt+⏎ briefing");
+      await app.dispatch.act({ action: "open", args: { from: shown.tile, id: s.briefing.id } }, USER);
+      expect(shows(s.d, "other")).toBe(s.briefing.id);
+      await app.dispatch.act({ action: "open", args: { from: shown.tile, id: s.testing.id, fresh: true } }, USER);
+      expect(shows(s.d, "briefing")).toBe(s.testing.id);
+      app.drawer.render(200, 60, "Probe");
+      expect(list.target?.id).toBe(s.briefing.id);
+    } finally { await off(); s.done(); }
+  });
+
+  test("PIE-1206: layout.get reports saved spines and the painted widths", async () => {
+    const d = new Desk({ name: "spines", title: "Spines", layout: { root: { t: "split", dir: "row", kids: [
+      ...Array.from({ length: 5 }, (_, i) => ({ t: "leaf" as const, kind: "reader", name: `spine${i}` })),
+      { t: "leaf", kind: "reader", name: "brief" }, { t: "leaf", kind: "reader", name: "terrible" },
+    ], weights: Array(7).fill(1) } } });
+    app.push(d);
+    try {
+      d.render(app);
+      for (let i = 0; i < 5; i++) await app.dispatch.act({ action: "tile.collapse", tile: `spine${i}`, args: { on: true } }, USER);
+      const layout = await app.dispatch.act({ action: "layout.get" }, USER) as ReturnType<Desk["layoutAll"]>;
+      for (const tile of layout.tiles.filter(t => t.name.startsWith("spine"))) {
+        expect(tile.collapsed).toBe(true);
+        expect(tile.rect?.cols).toBeLessThanOrEqual(3);
+      }
+      const a = layout.tiles.find(t => t.name === "brief")!, b = layout.tiles.find(t => t.name === "terrible")!;
+      expect(Math.abs(a.rect!.cols - b.rect!.cols)).toBeLessThanOrEqual(1);
+      expect(a.rect!.cols).toBeGreaterThan(70);
+    } finally { app.pop(); d.dispose(); }
+  });
+
+  test("PIE-1206: neat twice keeps two equal readers, spines and one destination per verb", async () => {
+    const s = await twoReaders();
+    const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+    const leaf = await board.createBlock(null, "Seed catalogue\nPeas and beans.");
+    const tool = await board.createBlock(null, "Tool cupboard\nA copper watering can.");
+    await board.update(s.briefing.id, `Garden briefing\n((${leaf.id}|Seed catalogue))\n((${tool.id}|Tool cupboard))`, s.briefing.revision!);
+    const off = await linksInDrawer(s);
+    await act("tile.open", "@drawer/screen/backlinks", { kind: "preview", name: "preview", source: "tile:backlinks" });
+    await act("tile.open", "@drawer/screen/backlinks", { kind: "reader", name: "companion", mode: "held", note: leaf.id });
+    try {
+      for (let i = 0; i < 5; i++) await act("tile.open", "other", { kind: "reader", name: `spine${i}`, mode: "held", note: leaf.id });
+      s.d.render(app); app.drawer.render(200, 60, "Probe");
+      const script = `const BRIEF = ${JSON.stringify(s.briefing.id)};
+const TERRIBLE = ${JSON.stringify(s.testing.id)};
+const failed = [];
+const step = async (name, args) => { try { return await act(name, args); } catch (e) { failed.push(\`\${name}: \${String(e).slice(0, 140)}\`); return null; } };
+const tiles = async () => (await act('layout.get')).tiles;
+
+// A reader holding a note: one showing it already, else a new held one.
+async function readerFor(id, name) {
+  const t = (await tiles()).find(x => x.kind === 'reader' && x.showing?.id === id);
+  if (t) return t.name;
+  const r = await step('tile.open', { kind: 'reader', mode: 'held', note: id, name });
+  return r?.tile ?? name;
+}
+const A = await readerFor(BRIEF, 'brief');
+const B = await readerFor(TERRIBLE, 'terrible');
+await step('reader.follow', { tile: A, source: 'none' });
+await step('reader.follow', { tile: B, source: 'none' });
+
+// side by side, 50/50; every other tile a spine
+await step('tile.collapse', { tile: A, on: false });
+await step('tile.collapse', { tile: B, on: false });
+await step('layout.move', { tile: B, to: A, where: 'right' });
+for (const t of await tiles()) if (t.name !== A && t.name !== B && !t.collapsed && t.shown !== false) await step('tile.collapse', { tile: t.name, on: true });
+await step('layout.even', {});
+
+// the briefing's links in the drawer, wired: select and open → B, alt → A
+const shown = await step('links', { tile: A });
+const L = shown?.tile;
+if (L) {
+  await step('tile.link', { tile: L, to: B, verb: 'select' });
+  await step('tile.link', { tile: L, to: B, verb: 'open' });
+  await step('tile.link', { tile: L, to: A, verb: 'alt' });
+}
+return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(' · ')}\` : \`neat: \${A} | \${B}, links wired\`;
+`;
+      for (let i = 0; i < 2; i++) {
+        const answer = await pressed(script);
+        expect(answer).toContain("neat: briefing | other, links wired");
+        expect(answer).not.toContain("steps failed");
+      }
+      const layout = s.d.layoutAll(), a = layout.tiles.find(t => t.name === "briefing")!, b = layout.tiles.find(t => t.name === "other")!;
+      expect(Math.abs(a.rect!.cols - b.rect!.cols)).toBeLessThanOrEqual(1);
+      for (const tile of layout.tiles.filter(t => t.name.startsWith("spine"))) { expect(tile.collapsed).toBe(true); expect(tile.rect!.cols).toBeLessThanOrEqual(3); }
+      const links = layout.tiles.find(t => t.name === "backlinks")!;
+      expect(links.wires).toEqual(expect.arrayContaining([{ verb: "select", to: b.tile }, { verb: "open", to: b.tile }, { verb: "alt", to: a.tile }]));
+      expect(links.wires).toHaveLength(3);
+      expect(layout.tiles.find(t => t.name === "screen")!.wires).toEqual([]);
+      for (const how of [{}, { open: true }, { fresh: true }]) {
+        await act("backlinks.pick", links.tile, { id: how.fresh ? tool.id : leaf.id, ...how });
+        expect(shows(s.d, "other")).toBe(leaf.id);
+        expect(shows(s.d, "briefing")).toBe(how.fresh ? tool.id : s.briefing.id);
+      }
+      app.drawer.render(200, 60, "Probe");
+      const list = s.d.resolveTile(links.tile)!.desk.pane(links.tile) as BacklinksPane;
+      expect(list.target?.id).toBe(s.briefing.id);
+      expect(list.hint()).toContain("open in other");
+      expect(list.hint()).toContain("alt+⏎ briefing");
+    } finally { await off(); s.done(); }
+  }, 30_000);
 
   test("4 address: tile= takes the drawer path that links itself answers", async () => {
     const s = await twoReaders(); const off = await linksInDrawer(s);

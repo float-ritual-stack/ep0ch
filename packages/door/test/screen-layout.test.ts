@@ -61,7 +61,7 @@ describe("one operation, one transaction", () => {
     expect(leaves(reopened.tree)).toEqual([9]);
   });
 
-  test("select targets survive setting open and alt wires, and closing a target removes only its wires", () => {
+  test("the replacement select target survives open and alt changes, and closing a target removes only its wires", () => {
     extra = { 3: { notes: true }, 4: { notes: true } };
     let s = ok(fresh(), { op: "link", tile: 1, to: 3, verb: "select" }).state;
     s = ok(s, { op: "link", tile: 1, to: 4, verb: "select" }).state;
@@ -69,7 +69,7 @@ describe("one operation, one transaction", () => {
     s = ok(s, { op: "link", tile: 1, to: 3, verb: "alt" }).state;
     expect(placement(s, { from: 1, fresh: false, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 2 });
     expect(placement(s, { from: 1, fresh: true, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 3 });
-    expect(s.wires.filter(w => w.verb === "select").map(w => w.to)).toEqual([3, 4]);
+    expect(s.wires.filter(w => w.verb === "select").map(w => w.to)).toEqual([4]);
     s = ok(s, { op: "close", tile: 3 }).state;
     expect(s.wires).toEqual([{ from: 1, verb: "select", to: 4 }, { from: 1, verb: "open", to: 2 }]);
     extra = {};
