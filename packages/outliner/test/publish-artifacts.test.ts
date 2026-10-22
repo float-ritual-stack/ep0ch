@@ -688,6 +688,13 @@ test("artifact file lines enter the store, follow edits and retain the last snap
   expect((await show(source)).version).toBe(2);
   const other = write("other/Lantern.jsx", 'export default () => <p>Other lantern</p>');
   expect((await show(other)).name).toBe("lantern-3");
+  // Imported aliases and spelling the same path with ./ must keep following one file.
+  write("artifacts/Pulse.html", "First pulse");
+  await client.request({ action: "artifacts.import" });
+  const pulse = await show("artifacts/Pulse.html");
+  expect((await show("./artifacts/Pulse.html")).name).toBe(pulse.name);
+  write("artifacts/Pulse.html", "Second pulse");
+  expect(await serve(await show("artifacts/Pulse.html")).text()).toBe("Second pulse");
   rmSync(source);
   const gone = await show(source);
   expect(gone.url).toBe(second.url);
@@ -698,7 +705,15 @@ test("artifact file lines enter the store, follow edits and retain the last snap
   // A fresh store instance reads the durable path index, rather than minting another name.
   const reopened = new ArtifactStore(root);
   expect(await reopened.request({ action: "artifacts.show", name: refs[1]! }, workspace)).toEqual(gone);
-  await reopened.close();
+  const a = write("parallel-a.html", "A"), b = write("parallel-b.html", "B");
+  const peer = new ArtifactStore(root);
+  const [one, two] = await Promise.all([
+    reopened.request({ action: "artifacts.show", name: a }, workspace) as Promise<ArtifactInfo>,
+    peer.request({ action: "artifacts.show", name: b }, workspace) as Promise<ArtifactInfo>,
+  ]);
+  expect((await show(a)).name).toBe(one.name);
+  expect((await show(b)).name).toBe(two.name);
+  await reopened.close(); await peer.close();
 }, COMPILE_TIMEOUT);
 
 

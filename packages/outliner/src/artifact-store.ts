@@ -47,6 +47,8 @@ function artifactHash(folder: string, files: string[]): string {
 }
 
 export class ArtifactStore {
+  // Outline servers on the same host share this path index, including while a compile awaits.
+  private static pathReads = new Map<string, Promise<void>>();
   readonly root: string;
   readonly live: string;
   readonly compiler: ArtifactCompiler;
@@ -216,11 +218,14 @@ export class ArtifactStore {
   private async resolveFile(ref: string, workspace: string): Promise<ArtifactInfo> {
     const path = resolve(workspace, ref.startsWith("~/") ? join(homedir(), ref.slice(2)) : ref);
     const indexFile = join(this.root, "paths.json");
-    const paths: Record<string, { name: string; hash?: string; version?: number; gone?: string }> = existsSync(indexFile) ? JSON.parse(readFileSync(indexFile, "utf8")) : {};
+    const paths: Record<string, { name: string; hash: string; version: number; gone?: string }> = existsSync(indexFile) ? JSON.parse(readFileSync(indexFile, "utf8")) : {};
     let entry = paths[path];
+    const aliasesFile = join(this.root, "aliases", basename(workspace));
+    const aliases: Record<string, string> = existsSync(aliasesFile) ? JSON.parse(readFileSync(aliasesFile, "utf8")) : {};
+    const imported = Object.hasOwn(aliases, path) ? aliases[path] : undefined;
     const stem = artifactSlug(basename(path, extname(path))) || "artifact";
-    let name = entry?.name ?? stem;
-    for (let suffix = 2; !entry && (existsSync(join(this.live, name)) || existsSync(join(this.root, "snapshots", name)) || Object.values(paths).some(row => row.name === name)); suffix++) name = `${stem}-${suffix}`;
+    let name = entry?.name ?? imported ?? stem;
+    for (let suffix = 2; !entry && !imported && (existsSync(join(this.live, name)) || existsSync(join(this.root, "snapshots", name)) || Object.values(paths).some(row => row.name === name)); suffix++) name = `${stem}-${suffix}`;
     const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
     const machine = localMachineName(dirname(this.root));
     const put = `ep0ch artifact put ${quote(path)} --name ${name} --machine ${machine}`;
@@ -307,10 +312,13 @@ export class ArtifactStore {
         const map = aliases && existsSync(aliases) ? JSON.parse(readFileSync(aliases, "utf8")) : {};
         const name = Object.hasOwn(map, request.name) ? map[request.name] : request.name;
         const parsed = artifactReference(name);
-        if (parsed && (parsed.version || existsSync(join(this.live, parsed.name)))) return this.info(name);
-        if (name.includes("/") || extname(name)) {
-          const result = this.pending.then(() => this.resolveFile(name, workspace ?? dirname(this.root)));
-          this.pending = result.then(() => {}, () => {});
+        if (parsed && (parsed.version || existsSync(join(this.live, parsed.name))) && (name === request.name || !artifactKind(request.name))) return this.info(name);
+        if (request.name.includes("/") || extname(request.name)) {
+          const before = ArtifactStore.pathReads.get(this.root) ?? this.pending;
+          const result = before.then(() => this.resolveFile(request.name, workspace ?? dirname(this.root)));
+          const settled = this.pending = result.then(() => {}, () => {});
+          ArtifactStore.pathReads.set(this.root, settled);
+          void settled.then(() => { if (ArtifactStore.pathReads.get(this.root) === settled) ArtifactStore.pathReads.delete(this.root); });
           return result;
         }
         return this.info(name);

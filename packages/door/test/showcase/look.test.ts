@@ -845,6 +845,17 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       await until(() => opened.length === 2, "Click opened the live folder", 5000);
       expect(opened[1]!.at(-1)).toBe(live.url);
     } finally { external.run = run; }
+    const path = join(scratch.root, "gone-lamp.html");
+    writeFileSync(path, "<h1>Last lamp</h1>");
+    const text = `A lamp file\n- [artifact::${path}]`;
+    const note = await board.createBlock(null, text);
+    await app.act({ action: "open", tile: "reader", args: { id: note.id }, as: "test-agent" });
+    await until(() => screen().includes("gone-lamp") && !screen().includes("reading…"), "the file card ready", 8000);
+    const last = await board.request<{ url: string }>("artifacts.show", { name: path });
+    rmSync(path);
+    await until(() => screen().includes("file gone since"), "the deleted file's warning on its card", 10_000);
+    expect(await app.act({ action: "artifact.open", args: { n: 1 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: last.url, launched: false });
+    expect((await board.get(note.id))!.text).toBe(text);
   }, 30_000);
 
 });
