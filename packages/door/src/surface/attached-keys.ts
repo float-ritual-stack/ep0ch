@@ -26,13 +26,23 @@ export const SOURCE_FIELD_KEYS: readonly ModeKey[] = [
 ];
 export const REPLIES_CONTROLS = ["note.thread.full", "note.thread.groups", "note.thread.close"] as const;
 
+export const REORDER_KEYS: readonly ModeKey[] = [
+  row("K", "note.move", "up", { step: "up" }), row("alt+up", "note.move", "up", { step: "up" }),
+  row("J", "note.move", "down", { step: "down" }), row("alt+down", "note.move", "down", { step: "down" }),
+  row("I", "note.move", "in", { step: "in" }), row("O", "note.move", "out", { step: "out" }), row("Z", "note.move", "move to"),
+  row("ctrl+z", "note.move.undo", "undo move"),
+];
+export const TREE_MOVE_KEYS = REORDER_KEYS.map(binding => ({ ...binding, action: "tree.move", ...(binding.action === "note.move.undo" ? { args: { undo: true } } : {}) }));
+export const COLUMN_MOVE_KEYS = TREE_MOVE_KEYS.map(binding => ({ ...binding, action: "column.move" }));
+export const LIST_MOVE_KEYS = TREE_MOVE_KEYS.map(binding => ({ ...binding, action: "note.move" }));
+export const READER_MOVE_KEYS = REORDER_KEYS.filter(binding => binding.action === "note.move" && binding.args?.step !== "in" && binding.args?.step !== "out");
+
 export const REPLIES_KEYS: readonly ModeKey[] = [
   row("esc", "note.thread.close", "close replies"), row("q", "note.thread.close", "close replies"), row("t", "note.thread.close", "close replies"),
   row("j", "note.thread.pick", "select", { by: 1 }), row("down", "note.thread.pick", "select", { by: 1 }), row("k", "note.thread.pick", "select", { by: -1 }), row("up", "note.thread.pick", "select", { by: -1 }),
   ...["enter", "shift+enter", "ctrl+enter"].map(key => row(key, "note.thread.open", "open")), row("alt+enter", "note.thread.open", "open beside", { fresh: true }),
   row("b", "note.thread.groups", "links"), row("T", "note.thread.full", "full list"),
-  row("K", "note.move", "up", { step: "up" }), row("alt+up", "note.move", "up", { step: "up" }), row("J", "note.move", "down", { step: "down" }), row("alt+down", "note.move", "down", { step: "down" }),
-  row("I", "note.move", "in", { step: "in" }), row("O", "note.move", "out", { step: "out" }), row("Z", "note.move", "move"), row("ctrl+z", "note.move.undo", "undo move"),
+  ...REORDER_KEYS,
   ...[...REPLIES_CONTROLS, "note.thread.pick", "note.thread.open", "note.thread.unfold"].map(action => row("click", action, "")),
   row("wheel", "note.thread.pick", ""),
 ];

@@ -21,7 +21,7 @@ import { outlinerLinkUri } from "./outliner-links";
 import { filterPropertyInspectorEntries, findPropertyInspectorEntry } from "./property-inspector";
 import { blockDisplayTitle } from "./references";
 import { resourceAddressLabel } from "./resources";
-import { DEFAULT_OUTLINER_ACTION_KEYMAP, outlinerActionLink } from "./outliner-actions";
+import { DEFAULT_OUTLINER_ACTION_KEYMAP, displayActionChord, type OutlinerActionKeymap, outlinerActionLink } from "./outliner-actions";
 import {
   detailBlockTarget,
   detailResourceDescription,
@@ -300,7 +300,16 @@ function appendCompletion(
   output.push(...renderReferenceCompletion(completion,width,Math.min(8,Math.max(0,height-output.length-2)),"completion.choose",help ?? DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("detail",["completion"])));
 }
 
+export function propertyInspectorHint(state: Readonly<DetailState>, keymap: OutlinerActionKeymap): string {
+  return [
+    "detail.preview.focus.next", "detail.property.edit.begin", "detail.property.value.copy",
+    "detail.property.target.open", "detail.property.filter", "detail.property.group",
+    state.propertyInspector.presentation === "dedicated" ? "detail.property.close" : "detail.property.toggle",
+  ].map(id => `${displayActionChord(keymap.primaryBinding(id))} ${keymap.action(id).label}`).join(" · ");
+}
+
 export interface DetailRenderOptions {
+  actionKeymap?: OutlinerActionKeymap;
   header?: DetailHeaderOptions;
   /** Generated hint row for compact chrome. */
   hints?: {entries: readonly OutlinerActionHint[]; menuKey: string; prefix?: string};
@@ -373,7 +382,7 @@ export function renderDetailLines(
     }
     output.push(fitDynamicText(inspector.filterDraft !== null
       ? `Filter: ${inspector.filterDraft}▏ · Enter applies · Esc cancels`
-      : "Tab selects · y copies · o opens · Enter edits · / filters · p closes", width));
+      : propertyInspectorHint(state, options.actionKeymap ?? DEFAULT_OUTLINER_ACTION_KEYMAP), width));
   } else if (state.mode === "annotation") {
     for (const line of buildDetailAnnotationView(state, width).slice(
       state.previewOffset,

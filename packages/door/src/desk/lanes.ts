@@ -37,7 +37,7 @@ import type { TileSpec } from "./tiles";
 import { ReaderPane, type Pane } from "./panes";
 import type { ColumnsHost, SourceModel, TileSource } from "./tile-kinds";
 import { CHECKLIST_STATUSES, isChecklistStatus, stepClosed, stepDone } from "@ep0ch/outline-core/checklist-marks";
-import { STEP_BOXES, statusWord, stepTitle } from "../steps";
+import { STEP_CHOICES, STEP_BOXES, statusWord, stepTitle } from "../steps";
 
 /** A lane: a query tile of the board's hub (its view, cards, cursor and read). */
 type Lane = QueryPane;
@@ -230,9 +230,9 @@ export class Lanes implements SourceModel {
         : `|12 can't drop into ${over.name}: ${p.reason}`;
       return paint(say);
     }
-    if (this.mover) return paint("|08 |15j k|08 pick a lane · |15enter|08 move the card there · |15esc|08 closes · the second line says what would be patched");
-    if (this.composer) return fg(C.dark) + " " + editHint(this.composer.session.draft, { save: "save", close: "back" }).replace("ctrl+s save", "ctrl+s create") + RESET;
-    if (this.steps) return paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15+|08 approve · |15-|08 reject · |15w|08 waiting · |15!|08 problem · |15esc|08 closes · each change is checked against the step as it was read");
+    if (this.mover) return "move a card · the picker shows what would be patched";
+    if (this.composer) return fg(C.dark) + " " + editHint(this.composer.session.draft, { save: "create", close: "back" }) + RESET;
+    if (this.steps) return "steps · each change is checked against the step as it was read";
     return null;
   }
 
@@ -555,7 +555,7 @@ export class Lanes implements SourceModel {
       // q with no board shown yet leaves the screen, as q does everywhere; esc or a click away only puts the picker away.
       closed: (_h, how) => void this.run("board.hub", { close: true, ...(how === "letter" && !this.hub ? { leave: true } : {}) }),
       clicked: () => true,                                     // a click beside it isn't a choice, nor a way out
-      frame: (a, n) => ({ rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.15), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, n + 4) }, title: `pick a board · ${this.host.ctx.workspace}`, foot: "⏎ open · esc closes" }),
+      frame: (a, n) => ({ rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.15), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, n + 4) }, title: `pick a board · ${this.host.ctx.workspace}` }),
     });
   }
 
@@ -667,10 +667,10 @@ export class Lanes implements SourceModel {
     // An open draft of this card keeps it where it is: the draft's base revision would go stale under
     // it. Saving or closing the edit first lets the revision checks decide in order.
     const r = openDraftOf(this.host.ctx.board, card.id);
-    if (r) return `it's open for editing${r.dirty ? " with unsaved changes" : ""} · save (ctrl+s) or close (esc) the edit first`;
+    if (r) return `it's open for editing${r.dirty ? " with unsaved changes" : ""} · ${editHint(r.draft, { save: "save" })}`;
     // A comment names the revision its passage was read at; a write under it would make the send fail.
     const c = this.readers().find(p => p.session?.blockId === card.id);
-    if (c) return `it's open for commenting${c.session!.dirty ? " with an unsent comment" : ""} · send (ctrl+s) or close (esc) the comment first`;
+    if (c) return `it's open for commenting${c.session!.dirty ? " with an unsent comment" : ""} · ${c.session!.hint()}`;
     return null;
   }
 
@@ -752,7 +752,7 @@ export class Lanes implements SourceModel {
         if (this.card()?.id !== card.id || this.lane !== from) return this.host.ctx.flash("the selection changed · not moved");
         if (i !== from) void this.run("card.move", { lane: this.lanes[i]!.name, card: card.id });
       },
-      frame: a => ({ rect: { col: Math.round(a.cols * 0.15), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.7), rows: Math.min(a.rows - 4, this.lanes.length * 2 + 3) }, title: `move · ${drawEllipsized(subject(card), Math.round(a.cols * 0.7) - 20)}`, foot: "enter move · esc closes" }),
+      frame: a => ({ rect: { col: Math.round(a.cols * 0.15), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.7), rows: Math.min(a.rows - 4, this.lanes.length * 2 + 3) }, title: `move · ${drawEllipsized(subject(card), Math.round(a.cols * 0.7) - 20)}` }),
     }), { card, from, plans: null as MovePlan[] | null });
     M.sel = from;
     this.mover = M;
@@ -833,7 +833,7 @@ export class Lanes implements SourceModel {
     if (name !== undefined) this.lane = this.lanes.indexOf(this.laneFor(name));
     const lane = this.lanes[this.lane];
     if (!lane) throw new ActionRefused("no lane here to write a card in");
-    if (this.composer) throw new ActionRefused(`a new ${this.composer.kind === "card" ? "card" : "note"} is open already · ctrl+s creates it, esc closes it`);
+    if (this.composer) throw new ActionRefused(`a new ${this.composer.kind === "card" ? "card" : "note"} is open already · ${editHint(this.composer.session.draft, { save: "create", close: "back" })}`);
     this.openCardComposer();
     return { lane: lane.name, composing: !!this.composer };
   }
@@ -1082,12 +1082,16 @@ export class Lanes implements SourceModel {
       name: "steps", items: () => S.read?.items ?? [], closers: "qs", stays: true,
       row: (it, _i, on, w) => [...pickRows(` ${"  ".repeat(it.depth)}${STEP_BOXES[it.status]} ${stepText(it.text)}`, on, w, COLOR[it.status])],
       choose: () => set(),
-      keys: k => { const c = ch(k), to = ({ " ": undefined, x: "done", w: "waiting", "!": "problem", "+": "approved", "-": "rejected" } as Record<string, StepStatus | undefined>)[c]; if (!(c in { " ": 1, x: 1, w: 1, "!": 1, "+": 1, "-": 1 })) return false; set(to); return true; },
+      bindings: [
+        { key: "space", action: "step.set", label: "done/to do" },
+        ...STEP_CHOICES.filter(choice => !["o", "y", "a"].includes(choice.key)).map(choice => ({ key: choice.key, action: "step.set", label: choice.label, args: { status: choice.id } })),
+      ],
+      dispatch: binding => set(binding.args?.status as StepStatus | undefined),
       frame: (a, n) => {
         const done = S.read?.items.filter(i => stepDone(i.status)).length ?? 0;
         return {
           rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, Math.max(6, n + 4)) },
-          title: `steps · ${drawEllipsized(titleOf(S.card), 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`, foot: "space done · esc closes",
+          title: `steps · ${drawEllipsized(titleOf(S.card), 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`,
           head: S.read ? [] : [fg(C.dark) + " reading the steps…" + RESET],
           tail: S.read ? [fg(S.busy ? C.grey : C.dark) + ` ${S.busy ? "saving…" : S.note || "each step is changed by the service, checked against how it was read"}` + RESET] : [],
         };
@@ -1331,7 +1335,7 @@ export class Lanes implements SourceModel {
     const r: Rect = { col: Math.round(W * 0.18), row: Math.round(H * 0.1), cols: Math.round(W * 0.64), rows: Math.max(10, Math.round(H * 0.6)) };
     canvas.clear(r, bg(C.black));
     const title = C0.kind === "card" ? `new card · ${C0.lane.name}` : `new note under · ${drawEllipsized(titleOf(C0.parent), 40)}`;
-    canvas.box(r, fg(C.yellow), fg(C.yellow) + title, fg(C.dark) + "ctrl+s create · esc closes");
+    canvas.box(r, fg(C.yellow), fg(C.yellow) + title, "");
     const w = r.cols - 2;
     const line = (s: string, color: number) => fg(color) + pad(s, w) + RESET;
     const status = C0.kind === "card" && C0.planning ? [

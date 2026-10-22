@@ -1,3 +1,5 @@
+import { LIST_MOVE_KEYS } from "./surface/attached-keys";
+import { modeBinding, modeHint, modeActionKeys } from "./surface/modes";
 import { clipText } from "./overflow";
 import { errorDetails } from "./status-log";
 import { matchesSearchText } from "@ep0ch/outline-core/search-match";
@@ -1081,7 +1083,7 @@ const rowAt = (list: BbsList, n: number) => {
 export const LIST_ACTIONS = actionSet<ListOn>()("list", {
   "note.move": def({
     summary: "move the selected message, or id=, using the service's revision-checked move",
-    keys: "K J, alt+up alt+down, I O, Z, drag a row",
+    keys: modeActionKeys([LIST_MOVE_KEYS], "note.move"),
     touches: "nothing", replay: "ask",
     args: {
       id: { type: "string", optional: true, about: "the note to move; default selected" },
@@ -1422,16 +1424,16 @@ export class MessageList extends BbsList {
       lines.push(n === this.sel ? selectedRow(text, w) : fg(C.grey) + pad(text, w) + RESET);
     }
     while (lines.length < h - 1) lines.push("");
-    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · K/J reorder · I/O in/out · ", ["|15Z|08 move to…", char("Z")], " · ", ["|15Q|08 back", char("q")]]));
+    lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · " + modeHint(LIST_MOVE_KEYS.filter(row => row.key !== "Z"), action => LIST_ACTIONS.def(action)) + " · ", [modeHint(LIST_MOVE_KEYS.filter(row => row.key === "Z"), action => LIST_ACTIONS.def(action)), char("Z")], " · ", ["|15Q|08 back", char("q")]]));
     return { lines };
   }
   protected override page(ctx: Ctx) { return ctx.t.rows - 10; }
   /** T: the lit row's replies (list.thread); an empty list takes every other key quietly. */
   protected override ownKey(k: Key) {
-    if (k.kind === "char" && k.ctrl && k.ch === "z" && this.lastMoved) { this.press("note.move", { id: this.lastMoved, undo: true }); return true; }
+    const move = modeBinding(LIST_MOVE_KEYS, k);
+    if (move?.args?.undo && this.lastMoved) { this.press("note.move", { id: this.lastMoved, ...move.args }); return true; }
     if (!this.items?.length) return true;
-    const c = ch(k), step = k.kind === "alt-up" || c === "K" ? "up" : k.kind === "alt-down" || c === "J" ? "down" : c === "I" ? "in" : c === "O" ? "out" : undefined;
-    if (step || c === "Z") { this.press("note.move", step ? { step } : {}); return true; }
+    if (move && !move.args?.undo) { this.press("note.move", move.args ?? {}); return true; }
     if (k.kind !== "char" || k.ctrl || k.ch.toLowerCase() !== "t") return false;
     this.press("list.thread", {});
     return true;
@@ -1566,7 +1568,7 @@ export class MessageReader implements Screen {
     if (to < 0 || to >= this.list.length) throw new ActionRefused(dir > 0 ? "end of messages" : "this is the first message");
     const was = this.index;
     this.index = to;
-    if (!this.open(ctx)) { this.index = was; throw new ActionRefused(`finish ${this.personIn()} first · ctrl+s saves · esc closes`); }
+    if (!this.open(ctx)) { this.index = was; throw new ActionRefused(`finish ${this.personIn()} first · ${this.surface.holdingHint()}`); }
     return { index: to + 1, of: this.list.length, id: this.msg.id };
   }
 

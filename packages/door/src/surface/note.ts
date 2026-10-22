@@ -1,4 +1,4 @@
-import { SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
+import { READER_MOVE_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "./modes";
 import { hintSetting } from "./hints";
 import { fullPlainText, selectFullText } from "../overflow";
@@ -1072,8 +1072,15 @@ export class NoteSurface {
     return null;
   }
 
-  /** The keys that work right now. `extra` goes before the reading keys (a host's own, like `p pin`). */
-  hint(extra = ""): string {
+  /** Refusals name the draft that holds the note, even while its preview has the keys. */
+  holdingHint(): string {
+    const d = this.draft;
+    return d ? editHint(d, { save: "save", follow: true, reload: d.conflict || d.changedElsewhere ? "reload" : null })
+      : this.modes.all().find(mode => mode.editing())?.hint() ?? "";
+  }
+
+  /** A selected element or active mode owns the hint before a host offers its reading shortcuts. */
+  contextualHint(): string | null {
     const mode = this.modes.top();
     if (mode) return mode.hint();
     const attached = this.modes.all().find(m => m.name === "sources");
@@ -1095,6 +1102,13 @@ export class NoteSurface {
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
+    return null;
+  }
+
+  /** The keys that work right now. `extra` goes before the reading keys (a host's own, like `p pin`). */
+  hint(extra = ""): string {
+    const context = this.contextualHint();
+    if (context !== null) return context;
     const back = this.peek(-1) ? "alt← back · " : "";
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
     const proposal = this.msg && isOpenProposal(this.msg) ? this.proposalKeys(this.msg.id) : "";
@@ -3122,7 +3136,7 @@ export class NoteSurface {
   }
 
   startReply(host: SurfaceHost, quote?: string): DraftSession {
-    if (this.editing) throw new ActionRefused("finish the open draft first · ctrl+s saves · Esc closes");
+    if (this.editing) throw new ActionRefused(`finish the open draft first · ${this.holdingHint()}`);
     const parent = this.requireNote();
     const target = noteReplyTarget(parent, host.ctx.board);
     const s: DraftSession = DraftSession.open(target, { text: `re:: ${subject(parent)}\n\n`, by: host.actor ?? USER }, {
@@ -4278,12 +4292,10 @@ export class NoteSurface {
     if (c === "f" && this.msg && !this.msg.partial) { void this.runKey("fold.toggle", {}, host); return true; }
     if (c === "F" && this.msg && !this.msg.partial) { void this.runKey(this.folded.size === 0 ? "fold" : "unfold", { all: true }, host); return true; }
     if (c === "u" && this.msg?.parentId) { void this.runKey("up", {}, host, true); return true; }
-    // Z: move this note under another (PIE-943; > is the board's tile-widening and the power bar's actions scope): asked in the power bar, its parents and the places changed lately first.
-    if (c === "Z" && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", {}, host); return true; }
+    const move = modeBinding(READER_MOVE_KEYS, k);
+    if (move && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", move.args ?? {}, host); return true; }
     // alt+z: route this note by the outline's routing rules (PIE-1010); alt+Z says what would move, moving nothing.
     if (k.kind === "alt" && (k.ch === "z" || k.ch === "Z") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.route", k.ch === "Z" ? { dry: true } : {}, host); return true; }
-    // alt+↑ alt+↓: this note up or down among its siblings, as they do in the outline tile, the board's lanes and the Welcome list.
-    if ((k.kind === "alt-up" || k.kind === "alt-down" || c === "K" || c === "J") && this.msg && !this.msg.partial && isOutlineNote(this.msg)) { void this.runKey("note.move", { step: k.kind === "alt-up" || c === "K" ? "up" : "down" }, host); return true; }
     // b: this note's links (Outlinks, Resources, Backlinks) in the screen's links tile.
     if (c === "b" && this.msg && !this.msg.partial) { void this.runKey("links", {}, host, true); return true; }
     // The margin's cards (ADR 0004 contract 6): a row each, whole, or off.
@@ -6530,7 +6542,7 @@ export class NoteSurface {
         const col = Math.max(0, Math.min(chip.col - this.menuOffset.col, area.cols - cols));
         const y = chip.row - this.menuOffset.row;
         const row = Math.max(0, Math.min(y + 1 + rows <= area.rows ? y + 1 : y - rows, area.rows - rows));
-        return { tail: ["[beside] [below]"], rect: { col, row, cols, rows }, title: "Placement", foot: "Enter choose · Esc close" };
+        return { tail: ["[beside] [below]"], rect: { col, row, cols, rows }, title: "Placement" };
       },
     });
     list.sel = list.items.indexOf(place);
@@ -7333,7 +7345,7 @@ export class NoteSurface {
     const stack = dir < 0 ? this.backs : this.aheads, to = stack.at(-1);
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
     const holding = this.modes.holding();
-    if (holding) return `finish ${holding} first · ctrl+s saves · esc closes`;
+    if (holding) return `finish ${holding} first · ${this.holdingHint()}`;
     const fresh = await readNote(outlineBoards(host.ctx).home(), to.msg.id, to.msg.address).catch(() => null);
     if (stack.at(-1) !== to) return "the reader moved meanwhile";
     const here = this.place();

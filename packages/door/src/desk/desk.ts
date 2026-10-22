@@ -1,3 +1,4 @@
+import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
 import { Draft, keepCopy } from "../edit";
 import { errorDetails } from "../status-log";
@@ -83,7 +84,7 @@ import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
 import { DRAWER_NAME, DRAWER_TILE_ID } from "./agent-env";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
-import { wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
+import { W_KEYS, wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 import { prop } from "../props";
 
@@ -133,6 +134,7 @@ const RESIZE_ALIAS: Record<string, string> = { h: "<", l: ">", k: "-", j: "+" };
 const RESIZE_IDLE_MS = 4000;
 /** Bare keys that fold and unfold the focused tile (PIE-699), when nothing takes them: `-` folds it; `+` and `=` (the same key unshifted) open it. */
 const FOLD_KEYS = new Set(["-", "+", "="]);
+const DAILY_LAYOUT_KEYS: readonly ModeKey[] = [{ key: "alt+d", action: "layout.load", args: { name: "daily" }, label: "daily" }];
 
 type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab" | "resize";
 /** How many ms of laying tiles out again a frame spends while a resize goes on (Desk.pickReflows). */
@@ -2530,7 +2532,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ctx: () => d.ctx,
       get where() { return d.whereNow ? () => d.whereNow!() : undefined; },
       keys: () => d.keys(),
-      bindings: () => d.spec.keys ?? [],
+      bindings: () => [
+        ...DAILY_LAYOUT_KEYS,
+        ...W_KEYS.map(row => ({ ...row, key: `ctrl+w ${row.key === " " ? "space" : row.key}` })),
+        ...d.spec.keys ?? [],
+        ...[...d.panes.values()].flatMap(p => p.bindings ?? []),
+        ...d.overlays.top()?.bindings ?? [],
+      ],
       tiles: () => d.tiles(),
       revision: (expected: unknown) => revisionRefusal(d.layout, expected),
       draftOf: (t: TileRef) => {
@@ -2820,6 +2828,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   exitedSay(sel: string, label = sel, back?: string): string {
     const id = this.idNamed(sel), drawer = !!this.ctx?.hostLayer?.isDrawer(this);
     return `${label} exited · ⏎ runs it again${id !== undefined && this.closesByMouse(id) ? " · ^W x closes" : ""} · ${drawer ? "Esc or " : ""}${ESCAPE_CHORD} back to ${back ?? (drawer ? "the screen" : "the door")}`;
+  }
+  canClose(p: Pane): boolean {
+    const id = this.idOf(p);
+    return id !== undefined && this.closesByMouse(id);
   }
   /** Tile `id` may close by its × (and ^W x): the layout lets it, and no container keeps it or shuts a dock instead. */
   private closesByMouse(id: number): boolean {
@@ -3456,12 +3468,28 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private boundKey(k: Key): boolean {
     const keys = this.spec.keys;
     if (!keys?.length || k.kind === "mouse" || this.holdsKeys() || this.linking) return false;
-    const name = keyName(k), kind = this.focusedKind();
-    const b = name === null ? undefined : keys.find(x => x.key === name && !(kind && x.unless?.includes(kind)) && (!x.only || (!!kind && x.only.includes(kind))));
+    const name = keyName(k);
+    const b = name === null ? undefined : this.screenKeys().find(x => x.key === name);
     if (!b) return false;
     const tile = b.tile === undefined ? undefined : this.specTile(b.tile);
     void this.dispatch.pressBinding(tile === undefined ? b : { ...b, tile: this.tileId(tile) });
     return true;
+  }
+
+  private screenKeys() {
+    const kind = this.focusedKind();
+    return (this.spec.keys ?? []).filter(x => !(kind && x.unless?.includes(kind)) && (!x.only || (!!kind && x.only.includes(kind))));
+  }
+
+  private screenKeyHint(): string {
+    const pane = this.panes.get(this.focus);
+    if (this.holdsKeys() || (pane instanceof ReaderPane && pane.surface.contextualHint() !== null)) return "";
+    return modeHint(this.screenKeys().flatMap(row => {
+      const def = this.dispatch.defOf(row.action);
+      const menu = def?.menu ? (Array.isArray(def.menu) ? def.menu[0] : def.menu) : undefined;
+      const label = row.label ?? menu?.label;
+      return label === undefined ? [] : [{ ...row, label }];
+    }), action => this.dispatch.defOf(action));
   }
 
   /** The band across the top (the spec's `band`: a tile whose kind draws it), if the screen has one. */
@@ -3571,7 +3599,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // whose controls sit on its header, doesn't repeat them along its frame.
     const said = this.headCtl.has(id) || (typeof this.spec.hint === "object" && this.spec.hint[pane.kind] !== undefined && !float && !held);
     const recovery = pane instanceof ReaderPane ? this.failedEdits.get(pane) : undefined;
-    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `${recovery.why} · tile menu: recover typed text` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : pane.hint()) : "");
+    const hint = recovery && pane instanceof ReaderPane && recovery.of === pane.msg?.id ? `${recovery.why} · tile menu: recover typed text` : no ? refusalHint(no) : own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : [this.spec.hint === undefined && focused ? this.screenKeyHint() : "", pane.hint()].filter(Boolean).join(" · ")) : "");
     // The focused tile's frame is double-lined (╔═╗, in the VGA font too) in whatever colour its state gives it, so which
     // tile the keys go to shows by its shape, apart from the colours of linking, marks, a drag or an edit.
     // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame
@@ -3582,7 +3610,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const frameInk = (cover === "peek" && !focused && !arrival ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
     const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
-    const foot = armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint;
+    const foot = fitHint(armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, Math.max(0, r.cols - 4)).text;
     canvas.box(r, float && !arrival ? fgRgb(floatTheme(lv).border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
     if (arrival) canvas.text(r.col + 2, r.row, fg(bright) + BOLD + "*" + RESET, 1);
     let markerX = r.col + 3;
@@ -4000,15 +4028,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private specHint(): string | null {
     const h = this.spec.hint;
-    if (h === undefined) return null;
     if (typeof h === "string") return h;
     const f = this.panes.get(this.focus);
-    if (!f) return h["*"] ?? null;
-    if (f.typing?.()) return `|08 ${f.hint()}`;
+    if (!f) return h?.["*"] ?? null;
     if (this.collapsed.has(this.focus)) {
       const holds = f instanceof ReaderPane && f.holdsKeys ? ` · keeps ${sessionName(f)}` : "";
-      return `|14 ${(f instanceof ReaderPane ? f.detailLabel() : null) ?? this.nameOf(this.focus)} · collapsed${holds}|08 · ${h.spine ?? ""}`;
+      return `|14 ${(f instanceof ReaderPane ? f.detailLabel() : null) ?? this.nameOf(this.focus)} · collapsed${holds}|08 · ${h?.spine ?? this.screenKeyHint()}`;
     }
+    if (h === undefined) return null;
+    if (f.typing?.()) return `|08 ${f.hint()}`;
     if (this.isFloat(this.focus) && h.float !== undefined) return h.float;
     const k = h[f.kind] ?? h["*"] ?? null;
     // A tile that doesn't close (closable off, or kept by its source) isn't offered x: its kind's hint says it for the rest.
@@ -4090,7 +4118,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
-        : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? "|15alt+d|08 daily · " : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.currentNow()!)}` : ""}`;
+        : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? `|15${keyCaption(DAILY_LAYOUT_KEYS[0]!.key)}|08 ${DAILY_LAYOUT_KEYS[0]!.label} · ` : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.currentNow()!)}` : ""}`;
     return line(paint(s));
   }
 
@@ -4156,7 +4184,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         items: () => [{ label: "copy typed text", op: "copy" }, { label: "open edit with typed text", op: "open" }],
         row: (it, _i, on, w) => pickRows(` ${it.label}`, on, w),
         choose: (it, _i, d) => d.run("edit.recover", { op: it.op }, t.name),
-        frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 4), n + 3), title: "recover typed text", head: [kept.why], foot: "up/down choose · Enter or click · Esc" }),
+        frame: (a, n) => ({ rect: centred(a, Math.min(64, a.cols - 4), n + 3), title: "recover typed text", head: [kept.why] }),
       }));
       return { text: kept.text, copy: kept.copy };
     }
@@ -4374,7 +4402,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.ch === "l") return this.run("tile.link", { ask: true }, this.nameOf(this.focus));
       // alt+r shows the focused reader's note in the outline (PIE-794), as the Tree's r does.
       if (k.ch === "r" && this.panes.get(this.focus) instanceof ReaderPane) return this.run("reader.reveal", {}, this.nameOf(this.focus));
-      if (k.ch === "d") return this.run("layout.load", { name: "daily" });
+      const layout = modeBinding(DAILY_LAYOUT_KEYS, k);
+      if (layout) return this.run(layout.action, layout.args ?? {});
       if (k.ch === "n" || k.ch === "p") return this.run("tab.select", { by: k.ch === "n" ? 1 : -1 }, this.nameOf(this.focus));
       if (k.ch === "m") return this.run("marks.next");
       if (k.ch === "x") return this.run("block.unmark", {}, this.nameOf(this.focus));
@@ -6353,7 +6382,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       name: "gather", hint: GATHER_HINT, items: () => rows, clickChooses: true,
       row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
       choose: (it, _i, d) => void d.run("tile.group", it.args, t.name),
-      frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group", foot: "↑↓ pick · ⏎ or a click gathers · esc" }),
+      frame: (a, n) => ({ rect: centred(a, Math.min(72, a.cols - 4), n + 2), title: "gather into a group" }),
     }));
     return { tile: t.name, asked: true };
   }
@@ -6372,7 +6401,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       name: "into a group", items: () => groups, clickChooses: true,
       row: (g, _i, on, w) => [...pickRows(` ${g}`, on, w)],
       choose: (g, _i, d) => void d.run("layout.move", { into: g }, t.name),
-      frame: (a, n) => ({ rect: centred(a, Math.min(50, a.cols - 4), n + 2), title: `move ${t.name} into`, foot: "↑↓ pick · ⏎ or a click moves it · esc" }),
+      frame: (a, n) => ({ rect: centred(a, Math.min(50, a.cols - 4), n + 2), title: `move ${t.name} into` }),
     }));
     return { tile: t.name, asked: true };
   }
@@ -7056,7 +7085,7 @@ function layoutPicker(items: { name: string; title: string; saved: boolean; buil
     name: "layouts", items: () => items,
     row: (it, _i, on, w) => [...pickRows(` ${it.title}${it.saved ? (it.builtin ? " · a screen you made, over the built-in" : " · a screen you made") : " · built-in"}`, on, w)],
     choose: (it, _i, d) => d.run("layout.load", { name: it.name }),
-    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "lay this screen out as", foot: "↑↓ pick · ⏎ load · esc" }),
+    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "lay this screen out as" }),
   });
 }
 
@@ -7086,13 +7115,9 @@ function screenPicker(): DeskPicker {
     row: (it, _i, on, w) => [...pickRows(` ${it.title} · ${it.made ? "a screen you made" : "built-in"}`, on, w)],
     // screen.open is the App's (the shell's), as the menu's letters run it.
     choose: (it, _i, d) => void d.ctx.press?.("screen.open", { name: it.name }),
-    keys: (k, d) => {
-      const it = items()[p.sel];
-      if (ch(k) !== "x" || !it?.made) return false;
-      d.run("screen.delete", { name: it.name });
-      return true;
-    },
-    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "open a screen", foot: items().some(i => i.made) ? "↑↓ pick · ⏎ open · x x deletes one you made · esc" : "↑↓ pick · ⏎ open · esc · ^W w saves one you make" }),
+    bindings: [{ key: "x", action: "screen.delete", label: "delete made screen" }],
+    dispatch: (_, d) => { const it = items()[p.sel]; if (it?.made) d.run("screen.delete", { name: it.name }); },
+    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "open a screen" }),
   });
   return p;
 }
@@ -7103,7 +7128,7 @@ function choicePicker(title: string, items: { label: string; spec: Partial<TileS
     name: "choices", items: () => items,
     row: (it, _i, on, w) => [...pickRows(` ${it.label}`, on, w)],
     choose: it => then(it),
-    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, Math.max(n, 1) + 2)), title, foot: items.length ? "↑↓ pick · ⏎ open · esc" : "none yet · esc" }),
+    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, Math.max(n, 1) + 2)), title }),
   });
 }
 
@@ -7129,13 +7154,19 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
     },
     clickedItem: (r, x) => { if (!r.clear || x < wireWidth - 4) return false; r.clear(); return true; },
     choose: r => r.run?.(),
-    keys: k => {
-      const c = ch(k);
-      if (k.kind === "left" || c === "h" || k.kind === "right" || c === "l") { node = Math.max(0, Math.min(nodes().length - 1, node + (k.kind === "left" || c === "h" ? -1 : 1))); p.sel = first(); return true; }
-      if (c === " ") { rows()[p.sel]?.run?.(); return true; }
-      if (c === "x" && rows()[p.sel]?.clear) { rows()[p.sel]!.clear!(); return true; }
-      if (c === "+" || c === "-") { rows()[p.sel]?.adjust?.(c === "+" ? 1 : -1); return true; }
-      return false;
+    bindings: [
+      ...["left", "h", "right", "l"].map(key => ({ key, action: "policy.container", label: "container", args: { by: ["left", "h"].includes(key) ? -1 : 1 } })),
+      { key: "space", action: "policy.change", label: "change" },
+      { key: "x", action: "policy.clear", label: "clear wire" },
+      ...["+", "-"].map(key => ({ key, action: "policy.size", label: "size", args: { by: key === "+" ? 1 : -1 } })),
+    ],
+    dispatch: binding => {
+      switch (binding.action) {
+        case "policy.container": node = Math.max(0, Math.min(nodes().length - 1, node + (binding.args!.by as number))); p.sel = first(); break;
+        case "policy.change": rows()[p.sel]?.run?.(); break;
+        case "policy.clear": rows()[p.sel]?.clear?.(); break;
+        case "policy.size": rows()[p.sel]?.adjust?.(binding.args!.by as number); break;
+      }
     },
     clicked: (x, y) => { const n = crumbs.find(h => h.y === y && x >= h.from && x < h.to); if (n) { node = n.i; p.sel = first(); } return !!n; },
     frame: (a, n) => {
@@ -7147,7 +7178,7 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
         crumbs.push({ from: x, to: x + c.label.length, y: rect.row + 1, i });
         line += (i === node ? selected() : fg(C.grey)) + c.label + RESET; x += c.label.length;
       });
-      return { rect, title: "policy", foot: "j k pick · ⏎ / click changes · x clears wire · h l container · + - size · esc", head: [line, ""] };
+      return { rect, title: "policy", head: [line, ""] };
     },
   });
   return p;

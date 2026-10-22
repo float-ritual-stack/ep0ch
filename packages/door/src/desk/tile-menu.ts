@@ -104,8 +104,7 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
       // Below the anchor, else above it; on the screen either way (a terminal made smaller since).
       const row = Math.max(0, Math.min(o.at.row + h <= a.rows ? o.at.row : o.at.row - h + 1, a.rows - h));
       const rect: Rect = { col, row, cols: w, rows: h };
-      const foot = !all.length ? "nothing to do here · esc" : !rows.length ? "no row matches · backspace · esc clears" : input.text ? "⏎ or a click runs · esc clears" : "type to filter · ⏎ or a click runs · esc";
-      return { rect, title: o.title, foot, head: [" " + input.show(w - 4)], tail: why };
+      return { rect, title: o.title, foot: !all.length ? "nothing to do here" : !rows.length ? "no row matches" : undefined, head: [" " + input.show(w - 4)], tail: why };
     },
   });
   return p;

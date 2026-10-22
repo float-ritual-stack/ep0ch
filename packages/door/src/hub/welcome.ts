@@ -1,3 +1,4 @@
+import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { clipText } from "../overflow";
 // Welcome: the notes with a block-scoped `welcome` property (any value: it only marks a note), one at a time, in the
 // hand-set order of the Welcome view (a saved view `[query::welcome]`, #190's order: alt+↑ alt+↓ or a drag in the list,
@@ -148,7 +149,19 @@ type TabHit = { y0: number; y1: number; from: number; to: number } & ({ i: numbe
  * screen's model too: which notes are welcome notes (read again as the outline changes), the fallback page while
  * there are none, the logo, and the band its kind draws.
  */
+const WELCOME_LIST_KEYS: readonly ModeKey[] = [
+  { key: "click", action: "welcome.select", label: "pick" },
+  { key: "wheel", action: "welcome.select", label: "pick" },
+  { key: "drag", action: "welcome.move", label: "reorder" },
+  ...["j", "down", "k", "up"].map(key => ({ key, action: "welcome.select", label: "pick", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
+  { key: "home", action: "welcome.select", label: "first", args: { n: 1 } },
+  { key: "end", action: "welcome.select", label: "last", args: { last: true } },
+  { key: "enter", action: "welcome.select", label: "read", args: { read: true } },
+  ...["alt+up", "alt+down"].map(key => ({ key, action: "welcome.move", label: "reorder", args: { by: key === "alt+up" ? -1 : 1 } })),
+];
+
 export class WelcomeList implements Pane {
+  readonly bindings = WELCOME_LIST_KEYS;
   readonly kind = "welcome.list";
   /** The welcome notes, in order; null until read. */
   items: Msg[] | null = null;
@@ -176,7 +189,7 @@ export class WelcomeList implements Pane {
     const items = this.items;
     return !items ? "asking the outline…" : items.length ? `${items.length} note${items.length === 1 ? "" : "s"}` : "none tagged yet";
   }
-  hint() { return "j k pick · ⏎ read · alt+↑ alt+↓ or a drag reorders"; }
+  hint() { return modeHint(WELCOME_LIST_KEYS, action => WELCOME_ACTIONS.def(action)); }
 
   render(w: number, h: number, focused: boolean): PaneView {
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
@@ -212,14 +225,12 @@ export class WelcomeList implements Pane {
   key(k: Key, desk: DeskApi): boolean {
     const n = this.items?.length ?? 0;
     if (!n) return false;
-    const at = Math.max(0, this.at);
-    if (isDown(k)) { if (at + 1 < n) this.run(desk, at + 2); return true; }
-    if (isUp(k)) { if (at > 0) this.run(desk, at); return true; }
-    if (k.kind === "home") { this.run(desk, 1); return true; }
-    if (k.kind === "end") { this.run(desk, n); return true; }
-    if (k.kind === "enter") { this.run(desk, at + 1, true); return true; }
-    if (k.kind === "alt-up" || k.kind === "alt-down") { void desk.press?.(this, WELCOME_ACTIONS, "welcome.move", { by: k.kind === "alt-up" ? -1 : 1 }); return true; }
-    return false;
+    const at = Math.max(0, this.at), binding = modeBinding(WELCOME_LIST_KEYS, k);
+    if (!binding) return false;
+    if (binding.action === "welcome.move") { void desk.press?.(this, WELCOME_ACTIONS, binding.action, binding.args); return true; }
+    const to = binding.args?.last ? n : binding.args?.n as number | undefined ?? at + 1 + ((binding.args?.by as number | undefined) ?? 0);
+    if (to > 0 && to <= n) this.run(desk, to, !!binding.args?.read);
+    return true;
   }
 
   /**
@@ -538,7 +549,7 @@ export class WelcomePreview extends PreviewPane {
 export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
   "welcome.select": def({
     summary: "read a welcome note in the detail: n (its place from 1, as the tabs number them: 1-9, then 10 is the 0 key) or id; read=true also gives the detail the person's keys (never an agent's). Refused to an agent while the person is typing here",
-    keys: "1-9 0, a click on a tab, j k ⏎, a click or the wheel in the list",
+    keys: modeActionKeys([WELCOME_LIST_KEYS], "welcome.select"),
     touches: "screen", replay: "safe", says: r => `put ${r.title} in the detail${r.n ? ` (welcome ${tabKey(r.n - 1) ?? r.n})` : ""}`,
     args: {
       n: { type: "number", optional: true, about: "its place, from 1" },
@@ -573,7 +584,7 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
   }),
   "welcome.move": def({
     summary: "put a welcome note elsewhere in the Welcome view's hand-set order, which is the screen's order (the first is read when it opens): the one in the detail, or id=; by=<±places> (negative: up) or to=<place from 1>. With no Welcome view yet ([query::welcome]), it's made first, holding today's order. Recorded as who asked; `ep0ch view order` and a board lane on the view change the same order",
-    keys: "alt+↑ alt+↓ in the list, drag a note up or down the list",
+    keys: modeActionKeys([WELCOME_LIST_KEYS], "welcome.move"),
     touches: "nothing", replay: "ask", confirms: true,
     says: r => `moved ${String(r.title)} to welcome ${r.n} of ${r.of}${r.made ? " (made the Welcome view to hold the order)" : ""}`,
     args: {
@@ -650,11 +661,10 @@ export function welcomeKinds(): TileKind[] {
  * backlinks about a third of the height: as policy, so a person's arrangement inside it is theirs.
  */
 export function welcomeSpec(): ScreenSpec {
-  const digits = [..."1234567890"].map((d, i) => ({ key: d, action: "welcome.select", args: { n: i + 1, read: true } }));
+  const digits = [..."1234567890"].map((d, i) => ({ key: d, label: "read", action: "welcome.select", args: { n: i + 1, read: true } }));
   return {
     name: "welcome", title: "welcome", frame: "dotted", digits: false, band: "welcome", lands: "preview", fresh: "welcome.read",
-    keys: [...digits, { key: "L", action: "welcome.logo", unless: ["tree"] }],
-    hint: "|15 1-9 0|08 notes · |15⏎|08 → preview · |15alt+⏎|08 read here · |15alt+←|08 back · |15Tab|08 tiles · |15^N|08 new · |15L|08 logo · |15q|08 menu",
+    keys: [...digits, { key: "L", label: "logo", action: "welcome.logo", unless: ["tree"] }],
     layout: {
       focus: "detail",
       root: {

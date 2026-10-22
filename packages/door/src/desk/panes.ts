@@ -1,3 +1,4 @@
+import type { ModeKey } from "../surface/modes";
 import { outlineBoards, type NoteAddress } from "./outline-boards";
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
 import { headedTitle } from "../board";
@@ -47,6 +48,8 @@ export interface DeskApi {
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */
   keepLayout?(): void;
+  /** The layout permits closing this tile, including the container that keeps it. */
+  canClose?(p: Pane): boolean;
   holdReader?(pane: ReaderPane, actor: Actor): void;
   /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it is newer. */
   layoutUndoSeq?(): number | undefined;
@@ -169,6 +172,7 @@ export interface DeskApi {
 }
 
 export interface Pane {
+  readonly bindings?: readonly ModeKey[];
   /** Whether its host currently draws the tile (also reaches nested screens). */
   shownAs?(on: boolean): void;
   unsaved?(): boolean;

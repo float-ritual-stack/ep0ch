@@ -210,7 +210,7 @@ export class BacklinksPane implements Pane {
         return [...pickRows(` [${this.groups.includes(g) ? "x" : " "}] ${glyph} ${g}${c ? ` (${c.matching})` : ""}`, on, w)];
       },
       choose: g => void desk.press?.(this, BACKLINKS_ACTIONS, "backlinks.groups", { toggle: g }),
-      frame: a => ({ rect: centred(a, Math.min(44, a.cols - 4), ALL_LINK_GROUPS.length + 4), title: "groups this tile lists", foot: "⏎ or a click switches one · esc closes" }),
+      frame: a => ({ rect: centred(a, Math.min(44, a.cols - 4), ALL_LINK_GROUPS.length + 4), title: "groups this tile lists" }),
     }));
   }
 

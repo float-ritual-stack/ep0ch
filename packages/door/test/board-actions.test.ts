@@ -3,8 +3,11 @@
 // dock, floats and the backlinks rows have theirs. Scratch services and fictional notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { visible } from "../src/style";
 import { App } from "../src/app";
 import { boardScreen } from "./board-view";
+import { ReaderPane } from "../src/desk/panes";
+import { USER } from "../src/socket";
 import type { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -50,6 +53,30 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     board?.close();
     await scratch.dispose();
     delete process.env.EP0CH_STATE;
+  });
+
+  test("PIE-1173: the reader hint offers float and never offers t outline", async () => {
+    BV.at(b, "preview");
+    const drawn = b.render(B().ctx!).lines.map(visible).join("\n");
+    expect(drawn).not.toContain("t outline");
+    expect(drawn).not.toContain("pop out");
+    expect(drawn).toContain("o float");
+  });
+
+  test("PIE-1173: comment and composer refusals name their owning draft keys", async () => {
+    const card = B().lanes[0].items[0];
+    const pane = b.pane("preview") as ReaderPane;
+    pane.show(await board.get(card.id), b);
+    await b.dispatch.press("comment.note", {}, "preview");
+    pane.key({ kind: "paste", text: "Keep this comment." }, b);
+    await expect(b.dispatch.act({ action: "card.move", args: { card: card.id, lane: B().lanes[1].name } }, USER)).rejects.toThrow("esc twice puts it aside");
+    await b.dispatch.press("comment.close", { discard: true }, "preview");
+    await b.dispatch.act({ action: "card.new", args: {} }, USER);
+    key({ kind: "paste", text: "An unsaved card" });
+    await expect(b.dispatch.act({ action: "card.new", args: {} }, USER)).rejects.toThrow("esc twice puts it aside");
+    key({ kind: "esc" }); key({ kind: "esc" });
+    await until(() => !B().composer, "composer put aside");
+    (app as any).lastInput = 0;
   });
 
   test("an agent's board.hub lists the boards without opening the picker; with id it shows that board, said on screen", async () => {

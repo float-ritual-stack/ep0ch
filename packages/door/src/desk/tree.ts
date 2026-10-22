@@ -1,3 +1,5 @@
+import { TREE_MOVE_KEYS } from "../surface/attached-keys";
+import { modeBinding, modeHint, modeActionKeys } from "../surface/modes";
 import { shortId } from "../refs";
 import { currentRowLimit, rowLines } from "../text";
 // The outline tree (a desk tile, the board's outline dock), with the authored links the outliner's Tree
@@ -85,6 +87,7 @@ export function rowWords(r: TreeRow, panelOpen: boolean): { mark: string; text: 
 }
 
 export class TreePane implements Pane {
+  readonly bindings = TREE_MOVE_KEYS;
   readonly kind = "tree";
   private roots: Msg[] | null = null;
   private readonly fold = new Fold();
@@ -117,7 +120,7 @@ export class TreePane implements Pane {
     const r = this.rows[this.sel];
     if (r?.kind === "branch-note") return r.role === "more" ? "⏎ read more matches · D depth" : "⏎ D change the depth · h back";
     if (r && r.kind !== "block") return r.kind === "resource" ? "⏎ show the resource · h back" : r.kind === "group" || r.kind === "kind" ? "⏎ space fold · h back" : "⏎ open · l its links · h back";
-    return r?.kind === "block" && (isBranch(r.m) || r.via) ? "←→ fold · ⏎ read · L links · D depth" : "←→ fold · ⏎ read · L links · alt+↑↓ or K J move · I in · O out · Z move to";
+    return r?.kind === "block" && (isBranch(r.m) || r.via) ? "←→ fold · ⏎ read · L links · D depth" : "←→ fold · ⏎ read · L links · " + modeHint(TREE_MOVE_KEYS, action => TREE_ACTIONS.def(action));
   }
   /** The row it has selected: a preview tile following the tree starts there. */
   selected(): Msg | null {
@@ -676,10 +679,11 @@ export class TreePane implements Pane {
     // too, for a terminal that doesn't send Option+arrows (a Mac's); I moves it in under the note above, O out after its parent.
     // alt+← alt+→ are never move keys: a reader reads them as back and forward. Tab is the tiles', Cmd the terminal's.
     const c = ch(k);
-    const step = k.kind === "alt-up" || c === "K" ? "up" : k.kind === "alt-down" || c === "J" ? "down" : c === "I" ? "in" : c === "O" ? "out" : undefined;
-    if (step) { if (row.kind === "block") this.run(desk, "tree.move", { n: this.sel + 1, step }); return true; }
-    if (ch(k) === "Z" && row.kind === "block") { this.run(desk, "tree.move", { n: this.sel + 1 }); return true; }
-    if (k.kind === "char" && k.ctrl && k.ch === "z" && row.kind === "block" && this.undoable(row.m.id, desk)) { this.run(desk, "tree.move", { n: this.sel + 1, undo: true }); return true; }
+    const move = modeBinding(TREE_MOVE_KEYS, k);
+    if (move && row.kind === "block" && (!move.args?.undo || this.undoable(row.m.id, desk))) {
+      this.run(desk, "tree.move", { n: this.sel + 1, ...move.args }); return true;
+    }
+    if (move && move.args?.step) return true;
     if (ch(k) === "L") { this.run(desk, "tree.links", { n: this.sel + 1 }); return true; }
     const right = k.kind === "right" || ch(k) === "l", left = k.kind === "left" || ch(k) === "h", space = ch(k) === " ";
     const linkRow = row.kind !== "block" && row.kind !== "group" && row.kind !== "kind";
@@ -826,7 +830,7 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
   }),
   "tree.move": def({
     summary: "move the note of a row of the outline tree (tile=<its name>): n (from 1) or id, else the selected row; step=up or down (one place among its siblings), in (last under the note above it) or out (right after its parent), or to= (inbox, root, an id, ((ref)), [[page]] or Work ID; position= its place among the children, from 1, default first), before= or after= a sibling, or undo=true (puts its last move back). With none of them the person is asked in the power bar (\"Move to…\"). The shared note move (note.move): the service's move, revision= checked when given, recorded as who asks; the lists it left and joined are read again, a note moved into one in sight opens it, and the person's selection follows it (an agent's never moves it)",
-    keys: "alt+up alt+down or K J (up, down), I (in), O (out), Z (move to…), ctrl+z (undo), a drag onto a row (under it; onto its ▸ mark: above or below it)",
+    keys: modeActionKeys([TREE_MOVE_KEYS], "tree.move"),
     touches: "nothing", replay: "ask", says: r => String((r as { said?: string }).said ?? "moved a note"),
     menu: [
       { label: "move up", group: "Outline", key: "K", args: { step: "up" }, now: (host, _t) => host.pane.selected() ? undefined : { hide: true } },

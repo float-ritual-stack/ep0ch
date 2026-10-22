@@ -84,7 +84,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     ch("d");
-    await until(() => screen().includes("trash “Compost heap”?") && screen().includes("trash it and the 2 notes under it"), "the choice, with the notes under it");
+    await until(() => screen().includes('trash "Compost heap"?') && screen().includes("trash it and the 2 notes under it"), "the choice, with the notes under it");
     ch("d");
     await until(() => String((app as any).message).includes("trashed “Compost heap” and the 2 notes under it"), "trashed, said");
     expect(await deleted(heap.id)).toBe(true);

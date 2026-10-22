@@ -1,3 +1,4 @@
+import { modeActionKeys } from "./modes";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { messageContext, type MessageDetails } from "../status-log";
 import type { Hint } from "./hint-card";
@@ -323,7 +324,9 @@ export class Dispatcher {
   defOf(name: string): ActionDef<any, any> | undefined {
     const req = { action: name };
     const r = this.owner(req);
-    return r ? "set" in r ? r.set.def(name) : r.delegate(req)?.defOf(name) : undefined;
+    const def = r ? "set" in r ? r.set.def(name) : r.delegate(req)?.defOf(name) : undefined;
+    const keys = modeActionKeys([this.host.bindings?.() ?? []], name);
+    return def && keys ? { ...def, keys: [...new Set([def.keys, keys].filter(Boolean))].join("; ") } : def;
   }
 
   unknownAction(name: string): string {
@@ -338,7 +341,8 @@ export class Dispatcher {
       const infos = "set" in r ? r.set.list() : r.listed === false ? [] : r.delegate()?.list().actions ?? [];
       for (const a of infos) {
         if (seen.has(a.name)) continue;
-        out.push(a);
+        const keys = modeActionKeys([this.host.bindings?.() ?? []], a.name);
+        out.push(keys ? { ...a, keys: [...new Set([a.keys, keys].filter(Boolean))].join("; ") } : a);
         seen.add(a.name);
       }
     }

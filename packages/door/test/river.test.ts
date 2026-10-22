@@ -536,12 +536,17 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await expect(act("tile.close", {}, lib())).rejects.toThrow(/library stays: its place \(g\d+\) keeps it · .*\^W P there turns closable on/);
     await expect(mine("tile.close", {}, lib())).rejects.toThrow(/turns closable on/);
     // The hint row offers x only where it closes something: in the note column, not in the Library.
-    const hintRow = () => screen().split("\n").find(l => l.includes("h l columns")) ?? "";
+    const hintRow = (name: string) => {
+      const rows = screen().split("\n"), r = river.rectOf(paneOf(name))!;
+      return rows[r.row + r.rows - 1]!.slice(r.col, r.col + r.cols);
+    };
     await mine("tile.focus", {}, o.reader);
-    expect(hintRow()).toContain("x close");
+    await mine("tile.widen", {}, o.reader);
+    expect(hintRow(o.reader)).toContain("x close");
     await mine("tile.focus", {}, lib());
-    expect(hintRow()).toContain("h l columns");
-    expect(hintRow()).not.toContain("x close");
+    await mine("tile.widen", {}, lib());
+    expect(hintRow(lib())).toContain("columns");
+    expect(hintRow(lib())).not.toContain("x close");
     expect(await act("layout.policy", {}, lib())).toMatchObject({ effective: { closable: false } });   // the spec says it, as policy
     (river as any).save();
     // The river opened again, as a restarted door does: its saved columns come back.

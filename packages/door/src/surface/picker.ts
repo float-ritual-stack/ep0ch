@@ -11,12 +11,12 @@ import { listPreview, type PickerPreview } from "../bar/list-preview";
 import type { Canvas, Rect } from "../canvas";
 import { RowView, wheelRows } from "../scroll";
 import { bg, C, fg, pad, RESET, floatSelectedRow } from "../style";
-import { ch, isDown, isUp, type Key } from "../term";
+import { type Key } from "../term";
 import { LineInput } from "./line";
-import type { Mode } from "./modes";
+import { modeBinding, modeHint, type Mode, type ModeKey } from "./modes";
 
 /** Its box, title and foot, lines above and below the list, and a preview drawn beside or below the list. */
-export interface PickerFrame { rect: Rect; title: string; foot: string; head?: string[]; tail?: string[]; preview?: PickerPreview; previewPlaced?(rect: Rect | null): void }
+export interface PickerFrame { rect: Rect; title: string; foot?: string; head?: string[]; tail?: string[]; preview?: PickerPreview; previewPlaced?(rect: Rect | null): void }
 
 /** How a picker was put away: esc, one of its closing letters (q), or a click outside it. */
 export type PickerClose = "esc" | "letter" | "click";
@@ -39,6 +39,8 @@ export interface PickerSpec<T, H> {
   closed?(host: H, how: PickerClose): void;
   /** Keys and clicks of its own before the list's (the steps' x w !, the policy's h l + - and containers). */
   keys?(k: Key, host: H): boolean;
+  bindings?: readonly ModeKey[];
+  dispatch?(binding: ModeKey, host: H): void;
   clicked?(x: number, y: number, host: H): boolean;
   clickedItem?(it: T, x: number, host: H): boolean;
   /** Letters that put it away besides esc; `wraps`: ↑ at the top goes round to the bottom. */
@@ -48,6 +50,8 @@ export interface PickerSpec<T, H> {
   input?: LineInput;
   /** Esc clears what's typed first, and puts the picker away only with nothing typed (a filter, not a name). */
   escClears?: boolean;
+  /** Typing narrows the choices, including when Esc closes without clearing. */
+  filters?: boolean;
   typed?(host: H): void;
   /** A list taller than its room scrolls (PIE-1036): the wheel moves the view and the cursor goes to a row in it, and a thumb on the box's right edge shows how far down it is. Arrows still move the cursor. */
   scrolls?: boolean;
@@ -90,28 +94,58 @@ export class ListPicker<T, H> implements Mode<H> {
     this.spec.choose(it, i, host);
   }
 
+  get bindings(): readonly ModeKey[] {
+    const input = this.spec.input, chooses = this.spec.clickChooses ?? this.spec.stays;
+    return [
+      { key: "click", action: chooses ? "picker.choose" : "picker.select", label: chooses ? "picks" : "selects" },
+      ...(!chooses ? [{ key: "double-click", action: "picker.choose", label: "opens" }] : []),
+      { key: "esc", action: "picker.close", label: this.spec.escClears && input?.text ? "clear filter" : "close" },
+      ...(!input ? [...this.spec.closers ?? ""].map(key => ({ key, action: "picker.close", label: "close", args: { letter: true } })) : []),
+      ...this.spec.bindings ?? [],
+      ...["enter", "shift+enter", "ctrl+enter"].map(key => ({ key, action: "picker.choose", label: this.spec.stays ? "change" : "choose" })),
+      ...["up", "shift+tab", ...(!input ? ["k"] : [])].map(key => ({ key, action: "picker.move", label: "pick", args: { by: -1 } })),
+      ...["down", "tab", ...(!input ? ["j"] : [])].map(key => ({ key, action: "picker.move", label: "pick", args: { by: 1 } })),
+      ...["pgup", "pgdn"].map(key => ({ key, action: "picker.page", label: "page", args: { by: key === "pgup" ? -1 : 1 } })),
+      ...["home", "end"].map(key => ({ key, action: "picker.edge", label: "first/last", args: { last: key === "end" } })),
+    ].filter((row, i, rows) => rows.findIndex(other => other.key === row.key) === i);
+  }
+
+  hint(): string {
+    const rows = this.bindings;
+    const pointer = rows.filter(row => ["click", "double-click"].includes(row.key));
+    const keys = rows.filter(row => !pointer.includes(row) && (this.spec.bindings?.includes(row)
+      || !["shift+enter", "ctrl+enter", "shift+tab", "tab", "k", "j", "pgup", "pgdn", "home", "end"].includes(row.key)));
+    return [
+      this.spec.input && (this.spec.filters || this.spec.escClears) ? "type to filter" : "",
+      modeHint(keys.filter(row => row.action !== "picker.close"), () => undefined),
+      ...pointer.map(row => `${row.key} ${row.label}`),
+      modeHint(keys.filter(row => row.action === "picker.close"), () => undefined),
+    ].filter(Boolean).join(" · ");
+  }
+
   key(k: Key, host: H): boolean {
     if (k.kind === "mouse") {
       if (k.action === "wheel-up" || k.action === "wheel-down") { if (this.spec.scrolls) this.view.scroll(wheelRows(k.action === "wheel-down" ? 1 : -1)); else this.move(k.action === "wheel-down" ? 1 : -1); }
       else if (k.action === "down") this.clickAt(k, host);
       return true;
     }
-    const c = ch(k), input = this.spec.input;
-    if (k.kind === "esc") {
-      if (this.spec.escClears && input?.text) { input.text = ""; input.cursor = 0; this.sel = 0; this.spec.typed?.(host); return true; }
-      this.close(host);
+    const input = this.spec.input, binding = modeBinding(this.bindings, k);
+    if (binding?.action === "picker.close") {
+      if (!binding.args?.letter && this.spec.escClears && input?.text) { input.text = ""; input.cursor = 0; this.sel = 0; this.spec.typed?.(host); }
+      else this.close(host, binding.args?.letter ? "letter" : "esc");
       return true;
     }
-    if (!input && c && this.spec.closers?.includes(c)) { this.close(host, "letter"); return true; }
+    if (binding && this.spec.bindings?.includes(binding)) { this.spec.dispatch!(binding, host); return true; }
     if (this.spec.keys?.(k, host)) return true;
     const was = input?.text;
     if (input?.key(k)) { if (input.text !== was) this.spec.typed?.(host); return true; }
     const page = Math.max(1, Math.floor((this.view.room - 1) / this.per));
-    if (k.kind === "up" || k.kind === "backtab" || (!input && isUp(k))) this.move(-1);
-    else if (k.kind === "down" || k.kind === "tab" || (!input && isDown(k))) this.move(1);
-    else if (k.kind === "pgup" || k.kind === "pgdn") this.move(k.kind === "pgdn" ? page : -page);
-    else if (k.kind === "home" || k.kind === "end") this.sel = k.kind === "home" ? 0 : Math.max(0, this.items.length - 1);
-    else if (k.kind === "enter") this.pick(this.sel, host);
+    switch (binding?.action) {
+      case "picker.move": this.move(binding.args!.by as number); break;
+      case "picker.page": this.move((binding.args!.by as number) * page); break;
+      case "picker.edge": this.sel = binding.args!.last ? Math.max(0, this.items.length - 1) : 0; break;
+      case "picker.choose": this.pick(this.sel, host); break;
+    }
     return true;
   }
 
@@ -126,7 +160,7 @@ export class ListPicker<T, H> implements Mode<H> {
     if (!r) return;                                          // never drawn (the reader's status choice): not its click
     // A panel that stays open (the policy rows, the steps) has controls for rows: a click on one is its change.
     if (hit && this.spec.clickedItem?.(this.items[hit.i]!, x - r.col - 1, host)) return;
-    if (hit) { const g = (this.spec.clickChooses ?? this.spec.stays) ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
+    if (hit) { const g = this.bindings.find(row => row.key === "click")!.action === "picker.choose" ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
     else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.close(host, "click");
   }
 
@@ -173,7 +207,7 @@ export class ListPicker<T, H> implements Mode<H> {
   draw(canvas: Canvas, area: Rect, values?: StyleValues) {
     const f = this.spec.frame!(area, this.items.length), r = (this.box = f.rect), w = r.cols - 2, head = f.head ?? [], tail = f.tail ?? [];
     values = this.spec.look?.(r.cols) ?? values;
-    canvas.float(r, f.title, fg(C.dark) + f.foot, () => {
+    canvas.float(r, f.title, fg(C.dark) + (f.foot ? f.foot + " · " : "") + this.hint(), () => {
     head.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
     const room = Math.max(0, r.rows - 2 - head.length - tail.length), y0 = r.row + 1 + head.length;
     const drawn = listPreview(this, w, room, f.preview, y0, r.cols);
@@ -202,7 +236,7 @@ export function linePrompt<H>(o: { name: string; title: string; text: string; pr
     frame: a => { const w = Math.min(o.w ?? 70, a.cols - 4), head = o.head ?? [], h = o.hint?.(input.text.trim());
       // The hint under the input: dim, or in the warning colour when what's typed can't be used (⏎ then does nothing, so the prompt stays).
       const hintLine = h ? [fg(h.warn ? C.yellow : C.dark) + " " + h.text + RESET] : [];
-      return { rect: centred(a, w, 4 + head.length + hintLine.length), title: o.title, foot: "⏎ or a click · esc closes", head: [" " + input.show(w - 4), ...hintLine, ...head] }; },
+      return { rect: centred(a, w, 4 + head.length + hintLine.length), title: o.title, head: [" " + input.show(w - 4), ...hintLine, ...head] }; },
   });
 }
 

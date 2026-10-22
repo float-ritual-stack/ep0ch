@@ -203,7 +203,7 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
 }
 
 /** The keys line for a draft, the same words everywhere: `ctrl+s save · esc done · ctrl+x ctrl+e $EDITOR · …`. */
-export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string | null; close?: "done" | "back"; place?: string; move?: boolean; follow?: boolean }): string {
+export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload?: string | null; close?: "done" | "back"; place?: string; move?: boolean; follow?: boolean }): string {
   if (completionOf(d)) return `${COMPLETION_HINT} · ctrl+s ${o.save}`;
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
   const last = d.undos.at(-1);

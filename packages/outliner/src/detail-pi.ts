@@ -1735,6 +1735,7 @@ function scheduleInputFlush(): void {
 }
 
 const customFrame = new DetailPiComponent({
+  actionKeymap,
   state: controller.state,
   height: () => terminal.rows,
   header: () => {
@@ -1758,7 +1759,7 @@ const preview = new DetailPiPreviewLayout(
   hyperlinksEnabled,
   () => tui.requestRender(),
   {
-    calloutTheme,
+    actionKeymap, calloutTheme,
     chrome: () => uiConfig.chrome("detail"),
     bar: () => paneBarButtons(uiConfig.bar("detail"), actionKeymap),
     hints: () => ({entries: actionKeymap.hints("detail", activeDetailActionScopes()), menuKey: displayActionChord(actionKeymap.primaryBinding("detail.menu.open")), ...(composed ? {prefix: "F6 Tree"} : {})}),
@@ -1778,7 +1779,7 @@ const preview = new DetailPiPreviewLayout(
 );
 const draftSplit = new DetailPiDraftSplitLayout(customFrame, preview);
 const inspectionLayout = new DetailPiPreviewLayout(inspection.state, getMarkdownTheme(), hyperlinksEnabled, () => tui.requestRender(), {
-  calloutTheme,
+  actionKeymap, calloutTheme,
   chrome: () => uiConfig.chrome("detail"),
   bar: () => paneBarButtons(uiConfig.bar("detail"), actionKeymap),
   hints: () => ({entries: actionKeymap.hints("detail", detailActionScopes(inspection.state)), menuKey: displayActionChord(actionKeymap.primaryBinding("detail.menu.open"))}),
