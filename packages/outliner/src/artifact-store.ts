@@ -230,25 +230,25 @@ export class ArtifactStore {
     for (let suffix = 2; !entry && !imported && (existsSync(join(this.live, name)) || existsSync(join(this.root, "snapshots", name)) || Object.values(paths).some(row => row.name === name)); suffix++) name = `${stem}-${suffix}`;
     const quote = (value: string) => "'" + value.replace(/'/g, "'\\''") + "'";
     const machine = localMachineName(dirname(this.root));
-    const put = `ep0ch artifact put ${quote(path)} --name ${name} --machine ${machine}`;
+    let canonical = path;
+    const put = () => `ep0ch artifact put ${quote(canonical)} --name ${name} --machine ${machine}`;
     const save = () => {
       const temporary = `${indexFile}.tmp`;
       writeFileSync(temporary, JSON.stringify(paths));
       renameSync(temporary, indexFile);
     };
     let content: Buffer | undefined;
-    let canonical = path;
     let hash: string;
     let fingerprint: { dev: number; ino: number; size: number; mtime: number };
     try {
       canonical = realpathSync(path);
-      if (canonical.split("/").some(part => part.startsWith("."))) throw new Error(`The target ${canonical} isn't an artifact for automatic import: hidden path; copy it somewhere visible or run ${put}.`);
+      if (canonical.split("/").some(part => part.startsWith("."))) throw new Error(`The target ${canonical} isn't an artifact for automatic import: hidden path; copy it somewhere visible or run ${put()}.`);
       const fd = openSync(canonical, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const stat = fstatSync(fd);
         if (stat.isDirectory()) throw new Error(`${path} is a folder; name its entry file, for example [artifact::${join(path, "index.html")}].`);
-        if (!artifactKind(canonical)) throw new Error(`The target ${canonical} isn't an artifact (.jsx, .tsx, .html, .svg or .mermaid); to store it explicitly, run ${put}.`);
-        if (!stat.isFile()) throw new Error(`${path} isn't a regular file on ${machine}; run ${put} with a regular file.`);
+        if (!artifactKind(canonical)) throw new Error(`The target ${canonical} isn't an artifact (.jsx, .tsx, .html, .svg or .mermaid); to store it explicitly, run ${put()}.`);
+        if (!stat.isFile()) throw new Error(`${path} isn't a regular file on ${machine}; run ${put()} with a regular file.`);
         checkArtifactSize(1, stat.size);
         fingerprint = { dev: stat.dev, ino: stat.ino, size: stat.size, mtime: stat.mtimeMs };
         const cached = this.fileHashes.get(canonical);
@@ -266,7 +266,7 @@ export class ArtifactStore {
         if (!entry.gone) { entry.gone = new Date().toISOString(); save(); }
         return { ...this.info(`${entry.name}@${entry.version}`), warning: `file gone since ${entry.gone}: ${path}` };
       }
-      if (code) throw new Error(`Can't read ${path} on ${machine} (${code}); from the machine with the file, run ${put}.`);
+      if (code) throw new Error(`Can't read ${path} on ${machine} (${code}); from the machine with the file, run ${put()}.`);
       throw error;
     }
     if (entry?.hash !== hash || !existsSync(join(this.root, "snapshots", name, String(entry.version), "files"))) {

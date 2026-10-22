@@ -832,6 +832,7 @@ test("artifact paths refuse canonical hidden segments and explain the visible co
     const link = join(workspace, "visible.html"); symlinkSync(target, link);
     for (const name of [target, link]) {
       await expect(client.request({ action: "artifacts.show", name })).rejects.toThrow(/hidden.*copy.*visible.*ep0ch artifact put/i);
+      await expect(client.request({ action: "artifacts.show", name })).rejects.toThrow(`ep0ch artifact put '${target}' --name `);
     }
     rmSync(link);
   }
