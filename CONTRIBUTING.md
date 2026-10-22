@@ -191,6 +191,16 @@ how to check it (automated when possible), so it can be retired once a test or t
   name, a pane label, a title) where it means one exact thing or a role? Store ids or roles; refuse an ambiguous
   name with the candidates. *Seen: #172 (moved previews, drawer/screen name shadowing, `where` after a move, the
   `door-claude` pane label). Check: by hand.*
+- **A hydra: one question decided in a new place.** Does the change add a place that decides who acts, which
+  tile, where an open lands, or what an action takes and returns? Then the PR lists every existing place that
+  decides it and shows each one calls the owner (the invitation's standing predicate beside `actorRule`, the
+  dispatcher's `tile=`, `placement()`, the action registry); a grep count isn't an audit, each site gets a stance.
+  A fix to one trigger (a click, and not its key or its `act`) is incomplete until the others are checked, each
+  three ways: a tile on the screen, in a group, in a group in the drawer. The owner carries a "the one place that
+  decides X" comment and a test that fails when a new caller goes around it. *Seen: groups and wiring fixed seven
+  times (#330 to #803) and the agent check copied ~225 times, both found by the `neat` probe (pie b567bc2a);
+  floatty's navigation consolidated three times and still leaking. Check: parity sweeps, and the owner's caller
+  test.*
 - **A contract changed under another package.** Does the change alter output another package reads (the `ep0ch`
   CLI's argv and output, stderr wording, outline-core grammar, socket shapes)? Run the consumer's tests against
   the real producer. *Seen: #174 broke the Claude mod's `help` probe (#179); `FORCE_COLOR` in refusals (#184).
@@ -200,7 +210,9 @@ how to check it (automated when possible), so it can be retired once a test or t
   (showcase reset), the river column (open). Check: a real-host test that changes the data from another client.*
 - **Silent success.** Can a step that didn't happen still report success? A skipped or blocked step says ✗ with
   the reason and the command. *Seen: `ep0ch install` reporting success with the checkout's fast-forward blocked;
-  litestream's folder mode failing quietly for an hour. Check: a test for the failure path's output.*
+  litestream's folder mode failing quietly for an hour; again Oct 22 (install on float-box left behind by an
+  unrelated local change, PIE-1193); a fallback nobody sees (Jev ranking off for ~19 days, said only in an answer's
+  field, PIE-1195). Check: a test for the failure path's output; a fallback shows where the person looks (PIE-1196).*
 - **Real config or real outlines reached from a test.** Does a test or scratch host read `~/.config`, `~/outlines`
   or the person's door? *Seen: a scratch host ran the real Inbox agent. Check: `test-door-env.sh`, scratch
   `XDG_CONFIG_HOME`.*
