@@ -315,7 +315,7 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
     stepTo(d, "Paint the shed");
     key({ kind: "enter" });
     await whole(d, n.shed.id);
-    expect(B().details).toHaveLength(2);                                   // destination and kept spine
+    expect(B().details).toHaveLength(1);
     expect(frame().map(plain).join("\n")).toContain("← back · Weekend jobs");
     key({ kind: "alt-left" });
     await whole(d, n.jobs.id);
