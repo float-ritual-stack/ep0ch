@@ -845,6 +845,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       await until(() => opened.length === 2, "Click opened the live folder", 5000);
       expect(opened[1]!.at(-1)).toBe(live.url);
     } finally { external.run = run; }
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     const path = join(scratch.root, "gone-lamp.html");
     writeFileSync(path, "<h1>Last lamp</h1>");
     const text = `A lamp file\n- [artifact::${path}]`;

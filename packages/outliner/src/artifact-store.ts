@@ -313,7 +313,7 @@ export class ArtifactStore {
         const name = Object.hasOwn(map, request.name) ? map[request.name] : request.name;
         const parsed = artifactReference(name);
         if (parsed && (parsed.version || existsSync(join(this.live, parsed.name))) && (name === request.name || !artifactKind(request.name))) return this.info(name);
-        if (request.name.includes("/") || extname(request.name)) {
+        if (request.name.includes("/") || extname(request.name) || (workspace && existsSync(resolve(workspace, request.name)))) {
           const before = ArtifactStore.pathReads.get(this.root) ?? this.pending;
           const result = before.then(() => this.resolveFile(request.name, workspace ?? dirname(this.root)));
           const settled = this.pending = result.then(() => {}, () => {});
