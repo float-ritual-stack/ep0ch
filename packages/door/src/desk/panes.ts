@@ -910,11 +910,11 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       if (source === undefined) {
         if (actor.kind === "agent" || !desk.askFollow) throw new ActionRefused("name it: source=current, source=none or source=<tile>");
         desk.askFollow(pane);
-        return { tile: desk.nameOfPane?.(pane), asked: true };
+        return { asked: true };
       }
       if (source === "current" || source === "none") {
         await pane.setMode(source === "current" ? "follows" : "held", desk);
-        return { tile: desk.nameOfPane?.(pane), source };
+        return { source };
       }
       if (!desk.followFrom) throw new ActionRefused("this screen has no tiles to follow");
       if (pane.editing) throw new ActionRefused("the reader holds an edit; it stays on its note until that closes");
@@ -923,7 +923,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       if (why) throw new ActionRefused(why);
       if (pane.followMode !== "held") await pane.setMode("held", desk);
       desk.followFrom(pane, source, actor);
-      return { tile: desk.nameOfPane?.(pane), source };
+      return { source };
     },
   }),
   "reader.mode": def({
@@ -933,7 +933,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     menu: { label: "stays put on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : pane.followMode !== "follows" ? { label: "shows the current note" } : null) },
     args: {
       mode: { type: "string", optional: true, choices: FOLLOW_MODES, about: "follows, held or pinned; left out, the other of follows and held" },
-      page: { type: "string", optional: true, about: "mode=pinned: the page's name (`[[name]]`); left out, the shown note's own page" },
+      page: { type: "string", optional: true, implies: [{ mode: "pinned" }], about: "mode=pinned: the page's name (`[[name]]`); left out, the shown note's own page" },
     },
     examples: [
       { act: "reader.mode tile=replies mode=held", does: "keeps the replies tile on its note when the current note moves" },

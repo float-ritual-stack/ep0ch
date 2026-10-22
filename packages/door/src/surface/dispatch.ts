@@ -346,10 +346,9 @@ export class Dispatcher {
     for (const r of this.regs) {
       const infos = "set" in r ? r.set.list() : r.listed === false ? [] : r.delegate()?.list().actions ?? [];
       for (const a of infos) {
-        if (seen.has(a.name)) continue;
+        if (seen.has(a.name) || (r.claims && !r.claims({ action: a.name }))) continue;
         const keys = modeActionKeys([this.host.bindings?.() ?? []], a.name);
-        const answer = this.defOf(a.name)?.answer;
-        out.push({ ...a, ...(answer ? { answer } : {}), ...(keys ? { keys: [...new Set([a.keys, keys].filter(Boolean))].join("; ") } : {}) });
+        out.push({ ...a, ...(keys ? { keys: [...new Set([a.keys, keys].filter(Boolean))].join("; ") } : {}) });
         seen.add(a.name);
       }
     }

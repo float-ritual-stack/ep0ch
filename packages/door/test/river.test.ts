@@ -262,7 +262,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await until(() => !!paneOf(peas.name).root, "the peas column");
     expect(paneOf(peas.name).surface.draft).toBeNull();
     expect(await act("edit.close", { discard: true }, beansR)).toMatchObject({ closed: true });
-    expect(await act("tile.close", {}, peas.name)).toMatchObject({ tile: peas.name });
+    expect(await act("tile.close", {}, peas.name)).toMatchObject({ tile: peas.tile });
     expect(readerOf(notes.peas.id)).toBeUndefined();
   });
 
@@ -285,7 +285,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(focused()).toBe(was);
     await act("column.select", { id: notes.beans.id }, lib());
     const sp: any = await act("column.split", {}, lib());
-    expect(V().stack(1).map(c => V().name(c))).toEqual([lib(), sp.tile]);
+    expect(V().stack(1).map(c => V().name(c))).toEqual([lib(), sp.name]);
     expect(focused()).toBe(was);
     await act("tile.close", {}, sp.tile);
     expect(V().stack(1)).toHaveLength(1);
@@ -414,9 +414,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(await act("column.filter", { query: "hands-width" }, own.name)).toMatchObject({ listed: 1 });
     expect(await act("column.filter", { query: "-seedlngs" }, own.name)).toMatchObject({ listed: 1 });
     // A property clause is the service's query (query.matches), a word or author: the column's own.
-    const lib2 = (await act("tile.open", { kind: "river.column", source: "roots", where: "next" }, own.name)) as { tile: string };
-    await until(() => (paneOf(lib2.tile).items?.length ?? 0) >= 3, "a second Library");
-    const listed = () => paneOf(lib2.tile).flat().map((r: any) => r.m.id);
+    const lib2 = (await act("tile.open", { kind: "river.column", source: "roots", where: "next" }, own.name)) as { tile: string; name: string };
+    await until(() => (paneOf(lib2.name).items?.length ?? 0) >= 3, "a second Library");
+    const listed = () => paneOf(lib2.name).flat().map((r: any) => r.m.id);
     expect(await act("column.filter", { query: "stage:queued" }, lib2.tile)).toMatchObject({ listed: 2 });
     expect(listed().sort()).toEqual([notes.beans.id, notes.squash.id].sort());
     expect(await act("column.filter", { query: "-stage:queued beans" }, lib2.tile)).toMatchObject({ listed: 0 });
@@ -442,9 +442,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await expect(act("column.select", { id: other }, lib())).rejects.toThrow(/has the person's keys; an agent doesn't move their cursor there/);
     expect(lib0.sel).toBe(before);
     // tag: a #queued column (the stage named, since the Library's selection is the person's), beside the Library; the person stays on it.
-    const tag = (await act("column.tag", { key: "stage", value: "queued" }, lib())) as { tile: string; value: string };
+    const tag = (await act("column.tag", { key: "stage", value: "queued" }, lib())) as { tile: string; name: string; value: string };
     expect(tag.value).toBe("queued");
-    expect(paneOf(tag.tile).titleOf()).toBe("#queued");
+    expect(paneOf(tag.name).titleOf()).toBe("#queued");
     expect(focused()).toBe(was);
     await act("tile.close", {}, tag.tile);
     // back is the person's: an agent's is refused, with its way (open beside) named.

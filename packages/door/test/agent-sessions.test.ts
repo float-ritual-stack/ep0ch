@@ -79,7 +79,7 @@ describe("the model, without a door", () => {
   test("a session's id is program:folder, a second of the same #<its own number>; session= finds it by id, by program:folder, by tile, by n", () => {
     const home = process.env.HOME ?? "/home/someone";
     const a = { tileId: "k2" }, b = { tileId: "t4" }, other = { tileId: "k9" };
-    const row = (pane: object, tile: string) => ({ program: "claude", folder: `${home}/garden-shed`, shown: { in: "drawer", tile, own: false }, pane });
+    const row = (pane: object, tile: string) => ({ program: "claude", folder: `${home}/garden-shed`, shown: { in: "drawer", tile, name: tile, own: false }, pane });
     const rows = withIds([row(a, "claude"), row(b, "claude2"), { ...row(other, "pi"), program: "pi" }] as any[]);
     const [ida, idb] = rows.map(r => r.id);
     expect(ida).toMatch(/^claude:~\/garden-shed#\d+$/);
@@ -189,7 +189,7 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
       // The panel's rows (agents.list): its program, folder, persona, how, and where it's shown.
       const rows = await d.list();
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ n: 1, program: "fern-agent", folder: join(work, "garden-shed"), persona: "fern", config: "fern", how: "started", shown: { in: "drawer", tile: out.tile }, where: `in your drawer (${out.tile})` });
+      expect(rows[0]).toMatchObject({ n: 1, program: "fern-agent", folder: join(work, "garden-shed"), persona: "fern", config: "fern", how: "started", shown: { in: "drawer", tile: out.tile }, where: `in your drawer (${out.name})` });
       // The same program in the same folder: attached, not started twice.
       const again = await d.app.act({ action: "agent.start", args: { program: "fern" }, as: AS }) as any;
       expect(again).toMatchObject({ attached: true, started: false, id: rows[0].id });
@@ -252,7 +252,7 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
       expect(await d.list()).toEqual([]);
       await d.app.act({ action: "tile.type", tile: "bench", args: { text: `${join(work, "claude")}\\n` }, as: AS });
       await until(() => d.app.drawer.sessions().length === 1, "found running", 8000);
-      expect((await d.list())[0]).toMatchObject({ program: "claude", folder: join(work, "potting-bench"), how: "found", shown: { in: "screen", tile: "bench", here: true } });
+      expect((await d.list())[0]).toMatchObject({ program: "claude", folder: join(work, "potting-bench"), how: "found", shown: { in: "screen", name: "bench", here: true } });
       // Pulled into the drawer and back, as any session.
       const pid = bench.pid;
       await d.app.act({ action: "agents.drawer", args: { session: "bench" }, as: AS });
@@ -272,7 +272,7 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
       await d.app.act({ action: "agent.start", args: { program: "fern" }, as: AS });
       await d.app.act({ action: "agent.start", args: { program: "moss", in: join(work, "potting-bench") }, as: AS });
       const opened = await d.app.act({ action: "agents.open", args: {}, as: AS }) as any;
-      expect(opened).toMatchObject({ tile: "agents", sessions: 2 });
+      expect(opened).toMatchObject({ name: "agents", sessions: 2 });
       expect(d.app.drawer.open).toBe(false);
       // The person's alt+g: the drawer up on the panel.
       d.key({ kind: "alt", ch: "g" });

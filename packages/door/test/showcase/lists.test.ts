@@ -274,7 +274,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     // The list saves with the screen as written: its query and its home.
     expect(JSON.stringify(stage().saved())).toContain(`"query":"#compost","source":"tile:detail"`);
     // Held (PIE-855: p, its ○, the menu), it keeps #compost and the next tag opens a list of its own; ⏎ still lands in the detail.
-    expect(await person("tile.hold", {}, L)).toMatchObject({ tile: L, held: true });
+    expect(await person("tile.hold", {}, L)).toMatchObject({ name: L, held: true });
     expect(list().held).toBe(true);
     await person("element.open", { n: tagElem("frost-jobs").n });
     const lists = () => tiles().filter(t => t.kind === "query");

@@ -81,6 +81,28 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
   };
   const shows = (d: Desk, name: string) => ((d as any).layoutGet().tiles.find((t: any) => t.name === name)?.showing?.id) as string | undefined;
 
+  test("opening a query still lets the person pick its view", async () => {
+    const s = await twoReaders();
+    try {
+      const answer = await app.dispatch.act({ action: "tile.open", args: { kind: "query" } }, USER);
+      expect(answer).toMatchObject({ picking: "query" });
+      expect(s.d.overlaid()).toBe(true);
+    } finally { s.done(); }
+  });
+
+  test("a reader keeps its requested label and refuses unused fields", async () => {
+    const s = await twoReaders();
+    try {
+      const answer = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", note: s.testing.id, label: "Seeds" } }, USER) as { tile: string };
+      expect((s.d.pane(answer.tile) as ReaderPane).label).toBe("Seeds");
+      for (const request of [
+        { action: "tile.open", args: { kind: "reader", machine: "garden-host" } },
+        { action: "tile.open", args: { kind: "preview", source: "file:/tmp/seeds.md", file: "/tmp/beans.md" } },
+        { action: "reader.mode", tile: "other", args: { mode: "held", page: "garden" } },
+      ]) await expect(app.dispatch.act(request, USER)).rejects.toThrow();
+    } finally { s.done(); }
+  });
+
   test("placement: a kind refusal says why and one undo restores the layout", async () => {
     class SeedReader extends ReaderPane { readonly kind = "seed-reader"; }
     const reader = tileKind("reader")!;
@@ -98,7 +120,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       await app.dispatch.act({ action: "layout.undo" }, USER);
       const after = s.d.layoutAll();
       expect(after.tree).toMatchObject({ ...before.tree, id: after.tree.id });
-      const contents = (layout: typeof before) => layout.tiles.map(({ id, showing, collapsed }) => ({ id, showing, collapsed }));
+      const contents = (layout: typeof before) => layout.tiles.map(({ tile, showing, collapsed }) => ({ tile, showing, collapsed }));
       expect(contents(after)).toEqual(contents(before));
     } finally { s.done(); unregisterTileKind("seed-reader"); }
   });
@@ -154,8 +176,8 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       const note = await board.createBlock(null, "New seed order\nPlant in spring.");
       await app.dispatch.act({ action: "open", tile: "other", args: { id: note.id } }, USER);
       const after = s.d.layoutAll();
-      expect(after.tiles.map(t => t.id)).toEqual(before.tiles.map(t => t.id));
-      expect(after.tiles.find(t => t.id === original.id)?.showing?.id).toBe(note.id);
+      expect(after.tiles.map(t => t.tile)).toEqual(before.tiles.map(t => t.tile));
+      expect(after.tiles.find(t => t.tile === original.tile)?.showing?.id).toBe(note.id);
       expect((s.d as any).layoutGet().floats).toEqual(floats);
       await app.dispatch.act({ action: "back", tile: "other" }, USER);
       await until(() => shows(s.d, "other") === s.testing.id, "back restores the replaced note");
@@ -218,7 +240,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
         const before = s.owner.layoutAll();
         const note = await board.createBlock(null, "Uninvited seed order\nLeave the neighbours alone.");
         await expect(s.owner.dispatch.act({ action: "open", tile: s.tile, args: { id: note.id } }, { kind: "agent", id: "garden-helper" })).rejects.toThrow(/holds.*edit|holds.*draft/);
-        expect(s.owner.layoutAll().tiles.map(t => ({ id: t.id, showing: t.showing }))).toEqual(before.tiles.map(t => ({ id: t.id, showing: t.showing })));
+        expect(s.owner.layoutAll().tiles.map(t => ({ id: t.tile, showing: t.showing }))).toEqual(before.tiles.map(t => ({ id: t.tile, showing: t.showing })));
         expect(JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: opened.tile }, USER))).not.toContain(note.id);
       } finally {
         await s.owner.dispatch.act({ action: "edit.close", tile: s.tile, args: { discard: true } }, USER);
@@ -236,10 +258,10 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
           const note = await board.createBlock(null, `Seed tray ${i}\nReady to plant.`);
           await s.owner.dispatch.act({ action: "open", tile: other, args: { id: note.id } }, USER);
           const tiles = s.owner.layoutAll().tiles;
-          const destination = tiles.find(t => t.id === initial.id)!;
+          const destination = tiles.find(t => t.tile === initial.tile)!;
           expect(destination.name).toBe("other");
           expect(JSON.stringify(destination)).toContain(note.id);
-          const kept = tiles.find(t => t.id !== initial.id && t.kind === "reader" && t.collapsed && JSON.stringify(t.showing ?? null).includes(old));
+          const kept = tiles.find(t => t.tile !== initial.tile && t.kind === "reader" && t.collapsed && JSON.stringify(t.showing ?? null).includes(old));
           expect(kept).toBeDefined();
           expect(kept!.collapsed).toBeTruthy();
           old = note.id;
@@ -466,20 +488,20 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
   test("a wire keeps the target id through the drawer and grouping, then ends when the target closes", async () => {
     const s = await twoReaders();
     const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
-    const target = s.d.layoutAll().tiles.find(t => t.name === "other")!.id as string;
-    const source = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.id as string;
-    const wire = () => s.d.layoutAll().tiles.find(t => t.id === source) as any;
+    const target = s.d.layoutAll().tiles.find(t => t.name === "other")!.tile as string;
+    const source = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.tile as string;
+    const wire = () => s.d.layoutAll().tiles.find(t => t.tile === source) as any;
     try {
       await act("tile.drawer", target);
       await act("tile.link", source, { to: target, verb: "open" });
       expect(wire().wires).toContainEqual({ verb: "open", to: target });
       await app.dispatch.act({ action: "open", args: { from: source, id: s.briefing.id, fresh: true } }, USER);
-      expect(s.d.layoutAll().tiles.find(t => t.id === target)?.showing?.id).toBe(s.briefing.id);
+      expect(s.d.layoutAll().tiles.find(t => t.tile === target)?.showing?.id).toBe(s.briefing.id);
       await act("back", target);
-      expect(s.d.layoutAll().tiles.find(t => t.id === target)?.showing?.id).toBe(s.testing.id);
+      expect(s.d.layoutAll().tiles.find(t => t.tile === target)?.showing?.id).toBe(s.testing.id);
       await act("tile.title", target, { text: "Potting bench" });
       await act("tile.group", target, { name: "garden" });
-      expect(s.d.layoutAll().tiles.find(t => t.id === target)?.name).toBe("other");
+      expect(s.d.layoutAll().tiles.find(t => t.tile === target)?.name).toBe("other");
       expect(wire().wires).toContainEqual({ verb: "open", to: target });
       await act("tile.group", "@drawer/garden", { on: false });
       await act("tile.drawer", target, { on: false });
@@ -498,7 +520,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
   for (const place of ["screen", "group", "drawer group"]) test(`keys and default actions use the reader in the ${place}`, async () => {
     const s = await twoReaders();
     const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
-    const id = s.d.layoutAll().tiles.find(t => t.name === "other")!.id as string;
+    const id = s.d.layoutAll().tiles.find(t => t.name === "other")!.tile as string;
     let group: string | undefined;
     try {
       if (place !== "screen") {
@@ -508,7 +530,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
         if (place === "drawer group") { await act("tile.drawer", group); app.drawer.enter(); }
       }
       await act("tile.focus", id);
-      const tile = () => s.d.layoutAll().tiles.find(t => t.id === id)!;
+      const tile = () => s.d.layoutAll().tiles.find(t => t.tile === id)!;
       expect(app.person().address).toBe(id);
       press({ kind: "char", ctrl: true, ch: "w" }); press({ kind: "char", ch: "c" });
       expect(tile().collapsed).toBe(true);
@@ -518,20 +540,20 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       expect(tile().collapsed).toBe(true);
       await act("tile.collapse", id, { on: false });
       press({ kind: "char", ctrl: true, ch: "w" }); press({ kind: "char", ch: "z" });
-      expect(s.d.layoutAll().layers.find(l => l.tiles.some(t => t.id === id))?.zoom).toBe(id);
+      expect(s.d.layoutAll().layers.find(l => l.tiles.some(t => t.tile === id))?.zoom).toBe(id);
       await act("tile.zoom", id, { on: false });
       press({ kind: "char", ctrl: true, ch: "w" }); press({ kind: "char", ch: " " });
       expect((tile() as any).picked).toBe(true);
       await act("tile.select", id, { on: false });
       press({ kind: "char", ch: "b" });
-      await until(() => s.d.layoutAll().tiles.some(t => t.kind === "backlinks" && (s.d.resolveTile(t.id!)!.desk.pane(t.id!) as BacklinksPane).target?.id === s.testing.id), "b lists the focused reader's links");
+      await until(() => s.d.layoutAll().tiles.some(t => t.kind === "backlinks" && (s.d.resolveTile(t.tile!)!.desk.pane(t.tile!) as BacklinksPane).target?.id === s.testing.id), "b lists the focused reader's links");
       await act("tile.focus", id);
-      const target = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.id;
+      const target = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.tile;
       for (const [key, verb] of [["s", "select"], ["o", "open"], ["a", "alt"]] as const) {
         await act("tile.focus", id);
         press({ kind: "alt", ch: "l" }); press({ kind: "char", ch: key });
         app.flush();
-        const r = s.d.layoutAll().tiles.find(t => t.id === target)!.rect!;
+        const r = s.d.layoutAll().tiles.find(t => t.tile === target)!.rect!;
         press({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 2 });
         press({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 2 });
         expect((tile() as any).wires).toContainEqual({ verb, to: target });
@@ -550,7 +572,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       press({ kind: "hyper", ch: "=" });
       expect(tile().collapsed).toBeFalsy();
       press({ kind: "hyper", ch: "z" });
-      expect(s.d.layoutAll().layers.find(l => l.tiles.some(t => t.id === id))?.zoom).toBe(id);
+      expect(s.d.layoutAll().layers.find(l => l.tiles.some(t => t.tile === id))?.zoom).toBe(id);
       await act("tile.zoom", id, { on: false });
       await act("hyper.set", undefined, { on: false });
       const status = await act("status.bar.pin", undefined, { line: '::button{label="Fold here" act="tile.collapse on=true"}' }) as { note: string };
@@ -572,17 +594,17 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     const s = await twoReaders();
     try {
       for (const name of ["west", "east"]) {
-        const tile = await app.dispatch.act({ action: "tile.open", tile: "briefing", args: { kind: "reader", name: "kettle" } }, USER) as { id: string };
-        await app.dispatch.act({ action: "tile.group", tile: tile.id, args: { name } }, USER);
+        const tile = await app.dispatch.act({ action: "tile.open", tile: "briefing", args: { kind: "reader", name: "kettle" } }, USER) as { tile: string };
+        await app.dispatch.act({ action: "tile.group", tile: tile.tile, args: { name } }, USER);
       }
       await expect(app.dispatch.act({ action: "tile.info", tile: "kettle" }, USER)).rejects.toThrow(/several tiles named kettle/);
-      const west = await app.dispatch.act({ action: "tile.info", tile: "west/kettle" }, USER) as { id: string };
-      const east = await app.dispatch.act({ action: "tile.info", tile: "east/kettle" }, USER) as { id: string };
-      expect(west.id).not.toBe(east.id);
-      await app.dispatch.act({ action: "tile.title", tile: west.id, args: { text: "Copper kettle" } }, USER);
+      const west = await app.dispatch.act({ action: "tile.info", tile: "west/kettle" }, USER) as { tile: string };
+      const east = await app.dispatch.act({ action: "tile.info", tile: "east/kettle" }, USER) as { tile: string };
+      expect(west.tile).not.toBe(east.tile);
+      await app.dispatch.act({ action: "tile.title", tile: west.tile, args: { text: "Copper kettle" } }, USER);
       const tiles = s.d.layoutAll().tiles;
-      expect(tiles.find(t => t.id === west.id)?.title).toBe("Copper kettle");
-      expect(tiles.find(t => t.id === east.id)?.collapsed).toBeFalsy();
+      expect(tiles.find(t => t.tile === west.tile)?.title).toBe("Copper kettle");
+      expect(tiles.find(t => t.tile === east.tile)?.collapsed).toBeFalsy();
     } finally { s.done(); }
   }, 30_000);
 

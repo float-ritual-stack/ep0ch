@@ -126,7 +126,7 @@ const builtins = (): TileKind[] => [
     // It follows the note sent to it, as it follows its source; back returns to what it showed (PIE-453).
     take: (p, m, desk) => { const pv = p as PreviewPane; if (pv.msg?.id !== m.id) pv.follow(m, desk); return null; },
     save: p => { const pv = p as PreviewPane; return { ...pv.spec?.(), ...(pv.label ? { label: pv.label } : {}) }; },
-    check: s => (s.source && !/^(tile|file):./.test(s.source) ? "a preview's source is tile:<name> or file:<path>" : null),
+    check: s => s.file && (s.source || s.selectFrom) ? "file= conflicts with source=: ep0ch act tile.open kind=preview file=<path>" : (s.source && !/^(tile|file):./.test(s.source) ? "a preview's source is tile:<name> or file:<path>" : null),
     defaults: (s, at) => ((s.source || s.selectFrom) ? {} : s.file ? { source: `file:${s.file}` } : { source: `tile:${at.name}` }),
 
     start: (p, env) => {

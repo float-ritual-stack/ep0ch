@@ -181,6 +181,8 @@ export function registerTileKind(k: TileKind): void {
     if (opening) {
       const unused = Object.entries(opening).filter(([key, value]) => value !== undefined && !["kind", "name", ...(k.openArgs ?? [])].includes(key)).map(([key]) => key);
       if (unused.length) return `kind=${k.kind} does not read ${unused.map(key => `${key}=`).join(", ")}; try: ep0ch act tile.open kind=${k.kind}${Object.entries(opening).filter(([key, value]) => value !== undefined && !unused.includes(key) && key !== "kind").map(([key, value]) => ` ${key}=${JSON.stringify(value)}`).join("")}`;
+      // Missing kind fields still reach the desk, which offers the person the kind's picker.
+      return null;
     }
     return check?.(spec) ?? null;
   } });
@@ -454,6 +456,7 @@ export function serviceKind(o: { kind: TileKindName; about: string; noun?: strin
   const blockArg = Object.entries(prog.args).find(([, a]) => a.type === "block")?.[0];
   return {
     ...base,
+    openArgs: blockArg ? ["note"] : [],
     make: s => {
       const state = { ...stateOf(s), ...(blockArg && s.note && !stateOf(s)[blockArg] ? { [blockArg]: s.note } : {}) };
       if (prog.unavailable) return new UnavailableTile(o.kind, prog.unavailable, state);

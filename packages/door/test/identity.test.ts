@@ -100,8 +100,8 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     expect(right.path).toBe("2");
     expect(right.id).toMatch(/^s\d+$/);
     expect(right.kids[0].id).toMatch(/^t-/);
-    for (const t of g.tiles) expect(t.id).toMatch(/^t-/);
-    expect(new Set(g.tiles.map((t: any) => t.id)).size).toBe(g.tiles.length);
+    for (const t of g.tiles) expect(t.tile).toMatch(/^t-/);
+    expect(new Set(g.tiles.map((t: any) => t.tile)).size).toBe(g.tiles.length);
     // The live feed's shape names them the same way.
     expect(D().layoutShape().tree.id).toBe(g.tree.id);
     expect(D().layoutShape().rev).toBe(g.rev);
@@ -159,7 +159,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     const first = g.tiles[0];
     expect((await act("tile.info", {}, "#1") as any).name).toBe(first.name);
     expect((await act("tile.info", {}, "1") as any).name).toBe(first.name);   // a bare number still works: no name is one
-    expect((await act("tile.info", {}, first.id) as any).name).toBe(first.name);
+    expect((await act("tile.info", {}, first.tile) as any).name).toBe(first.name);
     // An open answers with the tile's name, not its place.
     const o = await act("open", { id: notes.shed.id }, "middle") as any;
     expect(o.name).toBe("middle");
@@ -236,11 +236,11 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     app.push(copy);
     try {
       const after = copy.layoutGet();
-      const oldIds = new Set(before.tiles.map(t => t.id));
-      expect(after.tiles.some(t => oldIds.has(t.id))).toBe(false);
+      const oldIds = new Set(before.tiles.map(t => t.tile));
+      expect(after.tiles.some(t => oldIds.has(t.tile))).toBe(false);
       const tree = after.tiles.find(t => t.name === "tree") as any;
       const middle = after.tiles.find(t => t.name === "middle")!;
-      expect(tree.wires).toContainEqual({ verb: "open", to: middle.id });
+      expect(tree.wires).toContainEqual({ verb: "open", to: middle.tile });
     } finally { app.pop(); copy.dispose(); }
   });
 
@@ -248,11 +248,11 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     const g = await get();
     const side = g.tiles.find((t: any) => t.name === "side");
     await mine("layout.move", { to: "tree", where: "left" }, "side");
-    expect((await get()).tiles.find((t: any) => t.name === "side").id).toBe(side.id);
+    expect((await get()).tiles.find((t: any) => t.name === "side").tile).toBe(side.tile);
     await mine("tile.close", {}, "side");
     const added = await act("tile.open", { kind: "reader", name: "extra" }, "middle") as any;
-    expect(added.id).not.toBe(side.id);
-    await expect(act("tile.info", {}, side.id)).rejects.toThrow(new RegExp(`no tile ${side.id}`));
+    expect(added.tile).not.toBe(side.tile);
+    await expect(act("tile.info", {}, side.tile)).rejects.toThrow(new RegExp(`no tile ${side.tile}`));
     await daily();
   });
 
@@ -268,7 +268,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     expect(D().leaveWarning()).toContain(pane.title());
     // The wrapper says so over the control socket, as the tile it runs in.
     const r = await act("tile.herdr", { pane: "door-claude" }, "claude") as any;
-    expect(r).toMatchObject({ tile: "claude", herdr: { pane: "door-claude" } });
+    expect(r).toMatchObject({ name: "claude", herdr: { pane: "door-claude" } });
     expect((await act("tile.info", {}, "claude") as any).herdr).toEqual({ pane: "door-claude" });
     expect(D().leaveWarning() ?? "").not.toContain(pane.title());
     await expect(act("tile.herdr", { pane: "door-claude" }, "tree")).rejects.toThrow(/tree is an outline tile: tile.herdr is for a terminal tile/);
@@ -285,8 +285,9 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     // Linked elsewhere, the open follows the link: the caller never named middle.
     await act("tile.link", { to: "side" }, "now");
     expect((await act("open", { id: notes.shed.id, from: "now" }) as any).name).toBe("side");
-    // The host layer's agent (EP0CH_TILE=claude) has no tile here: its open lands where `ep0ch open` puts one.
-    expect((await act("open", { id: notes.shed.id, from: "claude" }) as any).id).toBe(notes.shed.id);
+    // The host agent names its drawer tile, using the same address grammar.
+    await app.drawer.desk!.openTile({ kind: "reader", name: "drawer-caller" }, undefined, "right", { kind: "user" });
+    expect((await act("open", { id: notes.shed.id, from: "drawer-caller" }) as any).id).toBe(notes.shed.id);
     await expect(act("open", { id: notes.shed.id, from: "nowhere" })).rejects.toThrow(/no tile nowhere/);
     await daily();
   });
@@ -314,12 +315,12 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     // Saved with side's id in it; loaded after side closed, the side it makes is another tile.
     await mine("layout.load", { name: "keep491" });
     const back = (await get()).tiles.find((t: any) => t.name === "side");
-    expect(back.id).not.toBe(side.id);
+    expect(back.tile).not.toBe(side.tile);
     // Restarted: the ids go on from the saved ones.
     await mine("tile.close", {}, "side");
-    const gone = back.id;
+    const gone = back.tile;
     const again = new Desk();
-    const ids = (again as any).layoutGet().tiles.map((t: any) => t.id);
+    const ids = (again as any).layoutGet().tiles.map((t: any) => t.tile);
     expect(ids).not.toContain(gone);
     again.dispose();
     await daily();

@@ -157,7 +157,7 @@ describe.skipIf(!outliner)("a chain of linked readers", () => {
       expect(JSON.stringify(g.tree)).toContain("what-changed");
       expect(g.tree.split ?? g.tree.kids).toBeDefined();
       const done = await dact("tile.link", { to: "@chain/reader9" }, "what-changed");
-      expect(done).toMatchObject({ tile: "what-changed", link: "@chain/reader9" });
+      expect(done).toMatchObject({ name: "what-changed", link: "@chain/reader9" });
       const t = (drawerDesk() as any).layoutGet().tiles.find((x: any) => x.name === "what-changed");
       expect(t).toMatchObject({ link: "@chain/reader9", linkAcross: "true" });
       expect(tile("reader9")).toMatchObject({ link: "reader10" });

@@ -1,3 +1,4 @@
+import { canonSpec } from "./tiles";
 import { FRAME_GLYPHS } from "./frame-controls";
 import { GATHER_HINT } from "../surface/hint-card";
 import { ALT_RULES, type AltRule } from "./layout";
@@ -9,14 +10,14 @@ import { ALT_RULES, type AltRule } from "./layout";
 // person is typing in (an edit, a terminal) is never closed, moved into, or typed into by an agent.
 import { TXN } from "../surface/txn";
 import { USER, type Actor } from "../socket";
-import { ActionRefused, actionSet, asActor, def, type ArgsOf } from "../surface/actions";
+import { ActionRefused, actionSet, asActor, def, lineWords, type ArgsOf } from "../surface/actions";
 import { AGENT_WORDS, isAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { EDGE_WORD, isDir, WIRE_VERBS, type Axis, type Dir, type WireVerb, type Policy } from "./screen-layout";
 import type { Desk } from "./desk";
 import { lastTrashed, trashConfirm, trashNote, trashPlan, untrashNote } from "../note-trash";
 import { subject } from "../board";
 import { renamedPagesNote } from "@ep0ch/outline-core/protocol";
-import { FOLLOW_MODES, tileNoun, type TileKindName } from "./tile-kinds";
+import { FOLLOW_MODES, tileKind, tileNoun, type TileKindName } from "./tile-kinds";
 
 export type Where = Dir | "tabs" | "next" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
 export const WHERE: readonly Where[] = ["left", "right", "up", "down", "tabs", "next", "edge-left", "edge-right", "edge-up", "edge-down"];
@@ -166,7 +167,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       source: { type: "string", optional: true, about: "preview: tile:<name> or file:<path>" },
       mode: { type: "string", optional: true, choices: FOLLOW_MODES, about: "reader: held (it keeps note=, the current note never moves it) or pinned (to page=); left out it follows the current note. kind=detail is kind=reader mode=held" },
       outline: { type: "string", optional: true, kind: "outline", about: "the outline the reader reads and saves in (default: this door)" },
-      machine: { type: "string", optional: true, about: "the outline host machine (default: this door's host)" },
+      machine: { type: "string", optional: true, implies: [{ outline: null }], about: "the outline host machine (default: this door's host)" },
       note: { type: "string", optional: true, kind: "note", about: "reader, held: the note it keeps" },
       id: { type: "string", optional: true, kind: "note", about: "reader, held: the same as note=" },
       page: { type: "string", optional: true, kind: "page", about: "reader, pinned: the page it's pinned to, as in [[name]]" },
@@ -186,7 +187,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     ],
     async run({ kind, to, where, mode, id, ...t }, { d, reader }, actor) {
       if (id !== undefined && t.note === undefined) t.note = id;
-      return await d.openTile({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "follows" | "held" | "pinned" } : {}), ...t }, to ?? reader, whereOf(where, "tile.open", "right"), actor);
+      const opening = canonSpec({ kind: kind as TileKindName, ...(mode !== undefined ? { mode: mode as "follows" | "held" | "pinned" } : {}), ...t });
+      const wrong = tileKind(opening.kind)?.check?.({ ...opening, cmd: opening.cmd === undefined ? undefined : lineWords(opening.cmd) }, opening);
+      if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
+      return await d.openTile(opening, to ?? reader, whereOf(where, "tile.open", "right"), actor);
     },
   }),
   "tile.close": def({
@@ -475,7 +479,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     keys: "O in a reader; ^W v beside, ^W V below",
     // Said to the person too (confirms): ^W v on a tile already linked shows the one there, which looked like nothing happening.
     touches: "shape", replay: "safe", confirms: true,
-    says: r => (r.existing ? r.verb === "open" ? `${r.fromName} already opens into ${r.name ?? r.tile}: showed it · alt+l then click ${r.name ?? r.tile} to unlink` : `${r.fromName} already selects into ${r.name ?? r.tile}: showed it` : `opened ${tileNoun(String(r.kind), r.tile)} ${r.verb === "open" ? `where ${r.fromName}'s opens land` : `for ${r.fromName}'s selections`}`),
+    says: r => (r.existing ? r.verb === "open" ? `${r.fromName} already opens into ${r.name ?? r.tile}: showed it · alt+l then click ${r.name ?? r.tile} to unlink` : `${r.fromName} already selects into ${r.name ?? r.tile}: showed it` : `opened ${tileNoun(String(r.kind), r.name)} ${r.verb === "open" ? `where ${r.fromName}'s opens land` : `for ${r.fromName}'s selections`}`),
     // Beside it and below it: where its opens land (a flow's column opens the next column instead).
     menu: [
       { label: "preview beside", group: TILE, key: "ctrl+w v", args: { where: "right" }, now: ({ d, reader }, _t, actor) => (d.tileNow(reader, actor).flow || d.tileNow(reader, actor).inDrawer ? { hide: true } : null) },

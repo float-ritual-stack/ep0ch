@@ -61,7 +61,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     await until(() => !!D().pane("reader")?.msg, "the reader shows a note");
     await mine("tile.focus", {}, "activity");
     const out = await act("tile.menu", {}, "reader") as { tile: string; rows: MenuRow[] };
-    expect(out.tile).toBe("reader");
+    expect(out.tile).toBe(D().tileInfo("reader").tile);
     const groups = [...new Set(out.rows.map(r => r.group))];
     expect(groups.slice(0, 1)).toEqual(["Tile"]);
     expect(groups).toContain("Note");

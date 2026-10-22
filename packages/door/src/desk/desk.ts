@@ -82,7 +82,7 @@ import { tileMenu } from "./tile-menu";
 import { filtered } from "../bar/filter";
 import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
-import { DRAWER_NAME, DRAWER_TILE_ID } from "./agent-env";
+import { DRAWER_TILE_ID } from "./agent-env";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { W_KEYS, wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
@@ -2179,7 +2179,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // The person's list stays as it is (its tag, its selection): an agent reads the notes carrying the tag instead.
     if (!opened && !standing) {
       const r = await this.ctx.board.queryNotes(query, 200);
-      return { tile: this.nameOf(id!), query, notes: r.notes.map(m => ({ id: m.id, title: subject(m) })) };
+      return { ...this.tileAnswer(id!), query, notes: r.notes.map(m => ({ id: m.id, title: subject(m) })) };
     }
     if (id === undefined) {
       const list = await this.openTile({ kind: "query", query, source: `tile:${home}` }, home, "down", actor);
@@ -2355,8 +2355,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   async openFrom(id: string, from: string, actor: Actor, fresh = false): Promise<{ tile: string | null; name?: string; id: string }> {
     const t = this.resolveTile(from);
-    if (!t && from !== DRAWER_NAME) throw new ActionRefused(`no tile ${from}`);
-    const d = t?.desk ?? this, source = t ? d.idNamed(t.tile.id!)! : this.focus;
+    if (!t) throw new ActionRefused(`no tile ${from}`);
+    const d = t.desk, source = d.idNamed(t.tile.id!)!;
     const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     const landed = d.placeNote(m, { from: source, fresh, note: m.id }, actor);
@@ -2380,13 +2380,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * fragment and marks it, as a followed link does (PIE-425); an agent's never scrolls the reader the person is in.
    */
   revealIn(reader: string | null, target: string | Reveal, actor: Actor): void {
-    const r = this.namedReaders().find(x => x.name === reader);
-    if (!r) return;
-    const host = r.pane.host(this);
+    if (!reader) return;
+    const at = this.resolveTile(reader), pane = at?.desk.pane(at.tile.id ?? at.tile.name);
+    if (!(pane instanceof ReaderPane) || !at) return;
+    const host = pane.host(at.desk);
     if (!this.dispatch.standing(actor) && host.focused !== false) return;
     const reveal = typeof target === "string" ? { fragment: target } : target;
-    if (reveal.fragment) void r.pane.surface.revealFragment(reveal.fragment, host, actor);
-    else if (reveal.at !== undefined) void r.pane.surface.revealAt(reveal.at, host, actor, reveal.label, reveal.says);
+    if (reveal.fragment) void pane.surface.revealFragment(reveal.fragment, host, actor);
+    else if (reveal.at !== undefined) void pane.surface.revealAt(reveal.at, host, actor, reveal.label, reveal.says);
   }
 
   /** A note that is no block (a file, its diff: `open file=`) where an agent's open lands. */
@@ -2545,7 +2546,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private registrations(): (Registration | Delegation)[] {
     const pane = (t: TileRef | undefined) => (t ? this.pane(t.name) : undefined);
     const reader = (t: TileRef | undefined) => { const p = pane(t); if (!(p instanceof ReaderPane)) throw new ActionRefused(`${t?.name ?? "that tile"} isn't a reader`); return p; };
-    const answerIn = (out: unknown, at: { tile?: TileRef }) => ({ tile: at.tile!.id, name: at.tile!.name, ...(out && typeof out === "object" ? out : { result: out }) });
+    const answerIn = (out: unknown, at: { tile?: TileRef }) => {
+      const answer = out && typeof out === "object" ? out : { result: out };
+      const target = "tile" in answer && typeof answer.tile === "string" ? this.resolveTile(answer.tile)?.tile : at.tile;
+      return { ...answer, tile: target!.id, name: target!.name };
+    };
     // Each tile kind's own actions (the tree's tree.*, a terminal's tile.type), in a tile of that kind.
     const kindSets = (): Registration[] => allKindActions().map(set => ({
       set, takes: "tile", pick: "only",
@@ -3128,7 +3133,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const link = wireTarget(this.layout, id), into = this.linkOf(id);
     const m = this.showing(p);
     return {
-      n, name: this.nameOf(id), id: this.tileId(id), kind: p.kind, ...(this.unregistered.has(id) ? { unregistered: this.unregistered.get(id)!.kind } : {}), focused: id === this.focus, rect: r, shown: visible(this.root).includes(id) || this.isFloat(id),
+      n, ...this.tileAnswer(id), kind: p.kind, ...(this.unregistered.has(id) ? { unregistered: this.unregistered.get(id)!.kind } : {}), focused: id === this.focus, rect: r, shown: visible(this.root).includes(id) || this.isFloat(id),
       ...(this.isFloat(id) ? { float: true } : {}), ...(this.collapsed.has(id) ? { collapsed: true, ...(this.collapsed.get(id)!.dir === "h" ? { collapsedDir: "h" } : {}), ...(this.collapsed.get(id)!.by ? { collapsedBy: this.collapsed.get(id)!.by } : {}) } : {}),
       ...(this.cover(id) ? { cover: this.cover(id) } : {}),
       ...(this.arriving(id) ? { arrival: { by: this.arrivals.get(id)!.by } } : {}),
@@ -4864,13 +4869,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
     const empty = !this.all().length;
     const base = empty ? { id: this.focus, name: "home" } : this.tile(under !== undefined ? this.nameOf(under) : at);
-    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...this.mountFields(t) };
+    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...this.mountFields(t) };
     // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
-    const wrong = k.check?.(spec, t);
+    const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
     if (wrong && k.choices && actor.kind !== "agent") {
       await this.askChoices(t.kind, more => this.run("tile.open", { ...t, ...more, to: base.name, where }, base.name));
-      return { tile: base.name, picking: t.kind };
+      return { ...this.tileAnswer(base.id), picking: t.kind };
     }
     if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
     spec = canonSpec({ ...spec, ...(!empty ? k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) ?? {} : {}) });
@@ -5076,7 +5081,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const name = from.desk.nameOfPane?.(from.tile);
       ctx.pop();
       if (name && this.dispatch.standing(actor)) { await from.desk.perform?.("tile.expand", {}, actor, from.tile)?.catch(() => {}); from.desk.focusPane?.(from.tile, actor); }
-      return { tile: name ?? null, back: true, screen: this.spec.name };
+      return { tile: name ? tileIds.get(from.tile)! : null, name, back: true, screen: this.spec.name };
     }
     const stack = ctx.screens?.() ?? [];
     const under = stack.at(-2);
@@ -5330,7 +5335,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(sel);
     const r = this.apply({ op: "slide", tile: t.id, ...(open !== undefined ? { open } : {}), ...(container ? { container } : {}) }, actor);
     this.save(); this.redraw();
-    return { ...this.tileAnswer(t.id), ...r.answer };
+    return { ...r.answer, ...this.tileAnswer(t.id) };
   }
 
   /** `layout.lock`: lock or unlock the whole screen (its own policy); default toggles. An agent undoes only its own. */
@@ -5352,7 +5357,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = this.apply({ op: "agents", tile: t.id, level: want }, actor);
     if (r.changed) this.save();
     this.redraw();
-    return { ...this.tileAnswer(t.id), ...r.answer, ...(r.changed ? { was } : {}) } as TileDone;
+    return { ...r.answer, ...this.tileAnswer(t.id), ...(r.changed ? { was } : {}) } as TileDone;
   }
 
   /**
@@ -5488,8 +5493,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** `tile.info`: the tile as `layout.get` lists it, with what it follows and where its opens land in plain words (PIE-855, ^W P's rows). */
-  tileInfo(sel: string | undefined): unknown {
-    const t = this.tile(sel), { id: _id, ...view } = this.tileView(t.id);
+  tileInfo(sel: string | undefined) {
+    const t = this.tile(sel), view = this.tileView(t.id);
     return { ...view, ...this.tileAnswer(t.id), follows: this.followsOf(t.id).says, opens: this.opensOf(t.id).says };
   }
 
@@ -5622,7 +5627,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!k || !isTileKind(t.kind)) throw new ActionRefused(`kind is ${tileKindNames().join(", ")}, not ${t.kind}`);
     const base = this.tile(sel);
     let spec: TileSpec = { t: "leaf", kind: t.kind, ...(t.name ? { name: t.name } : t.mode ? { name: this.autoName(this.wordFor(t)) } : {}), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.view ? { view: t.view } : {}) };
-    const wrong = k.check?.(spec, t);
+    const wrong = k.check?.(spec);
     if (wrong) throw new ActionRefused(wrong);
     spec = canonSpec({ ...spec, ...(k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) ?? {}) });
     const id = this.nextId;
@@ -5662,11 +5667,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const root = this.ctx?.hostLayer?.desks().find(d => !this.ctx.hostLayer!.isDrawer(d)) ?? this.top();
     const layers = root.relatives().map(d => ({ screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()),
       tree: describeLayout(d.layout, id => d.nameOf(id), id => d.tileId(id)),
-      tiles: d.all().map(id => ({ ...d.tileView(id), address: d.tileId(id), path: root.pathTo(d.panes.get(id)!) })) }));
+      tiles: d.all().map(id => ({ ...d.tileView(id), path: root.pathTo(d.panes.get(id)!) })) }));
     return { ...root.layoutGet(), layers, tiles: layers.flatMap(l => l.tiles) };
   }
   layoutGet() {
-    return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ tile: this.nameOf(f.id), id: this.tileId(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id)) };
+    return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ ...this.tileAnswer(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id)) };
   }
 
   /**
@@ -5789,14 +5794,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return {
       focus: { tile: this.nameOf(this.focus), block: this.showing(f)?.id ?? null, ...(f instanceof PtyPane ? { file: f.file ?? null, typing: this.rawKeys() } : {}) },
       layout: this.layoutShape(),
-      tiles: this.all().map(id => ({ tile: this.nameOf(id), ...this.viewOf(id) })),
+      tiles: this.all().map(id => ({ ...this.tileAnswer(id), ...this.viewOf(id) })),
       marks: this.markList(),
     };
   }
 
   viewGet(sel: string | undefined): unknown {
     if (sel) { const t = this.tile(sel); return { ...this.tileAnswer(t.id), ...this.viewOf(t.id), ...(this.panes.get(t.id) instanceof PtyPane ? { screen: (this.panes.get(t.id) as PtyPane).text() } : {}) }; }
-    return { focus: this.viewState().focus, tiles: this.all().map(id => ({ tile: this.nameOf(id), ...this.viewOf(id) })) };
+    return { focus: this.viewState().focus, tiles: this.all().map(id => ({ ...this.tileAnswer(id), ...this.viewOf(id) })) };
   }
 
   scrollTo(sel: string | undefined, at: { line?: number; text?: string; block?: string }, actor: Actor): TileDone {
@@ -5986,7 +5991,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = this.placed.rects.get(at.id) ?? { col: 0, row: 0, cols: 80, rows: 24 };
     const where: Where = (dir ?? splitAxis(r)) === "col" ? "down" : "right";
     const t = await this.openTile({ kind: (kind ?? "reader") as TileKindName }, at.name, where, actor);
-    return { pane: String(t.n), kind: t.kind, beside: at.n, tile: t.tile };
+    return { pane: String(t.n), kind: t.kind, beside: at.n, tile: t.tile, name: t.name };
   }
 
   /** `tile.resize`: the border of the innermost container along `axis` over the tile, moved by steps. `pane` is its number (the older answer). */
@@ -6166,7 +6171,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.ctx.flash(`${(p instanceof ReaderPane ? p.detailLabel() : null) ?? t.name} collapsed${p.holdsKeys ? `, keeping ${sessionName(p)}` : ""} · ⏎ or a click opens it`);
     }
     this.redraw();
-    return { ...this.tileAnswer(t.id), ...r.answer } as TileDone;
+    return { ...r.answer, ...this.tileAnswer(t.id) } as TileDone;
   }
 
   /** `tile.widen`: the tile's flow column takes the wide place (the column read before stays full); the keys stay. */
@@ -6432,9 +6437,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // The last tile: the group spills where it was, and the tile is placed from there (if that place refuses, it stays where the group was).
       const spilled = this.ungroupTile(g, actor);
       const only = (spilled.spilled as string[])[0]!;
-      if (beside === undefined && where === "right") return { ...spilled, tile: only, out: true };
+      if (beside === undefined && where === "right") return { ...spilled, ...this.tileAnswer(this.tile(only).id), out: true };
       try { return { ...this.moveTile(only, at === g ? undefined : at, where, undefined, actor), out: true }; }
-      catch (e) { return { ...spilled, tile: only, out: true, stayed: e instanceof Error ? e.message : String(e) }; }
+      catch (e) { return { ...spilled, ...this.tileAnswer(this.tile(only).id), out: true, stayed: e instanceof Error ? e.message : String(e) }; }
     }
     const out = inner.takeRefusal(name, actor);
     if (out) throw new ActionRefused(out);

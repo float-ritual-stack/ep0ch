@@ -75,7 +75,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     await until(() => !!list(), "the registry list", 5000);
     const before = list().picked;
     const r = await app.act({ action: "registry.pick", args: { n: 3 }, as: "test-agent" }) as any;
-    expect(r).toMatchObject({ tile: "registry", n: 3, ran: false });
+    expect(r).toMatchObject({ name: "registry", n: 3, ran: false });
     expect(typeof r.action).toBe("string");
     expect(list().picked).toBe(before);
     // The person's wheel over the list moves their selection, through the same action.
@@ -96,7 +96,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "preview")).top; };
     await until(() => stage().layoutGet().tiles.find((t: any) => t.name === "reader")?.showing?.id === seeded.notes.notebook.id, "the notebook in the reader", 5000);
     const r = await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" }) as any;
-    expect(r).toMatchObject({ tile: "reader-preview", kind: "reader", from: stage().layoutGet().tiles.find((t: any) => t.name === "reader").id, fromName: "reader" });
+    expect(r).toMatchObject({ name: "reader-preview", kind: "reader", from: stage().layoutGet().tiles.find((t: any) => t.name === "reader").id, fromName: "reader" });
     const tiles = () => stage().layoutGet().tiles as any[];
     expect(tiles().find(t => t.name === "reader").link).toBe("reader-preview");
     // A link followed in the reader lands in the preview; the reader still shows the notebook.
@@ -105,7 +105,7 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     await until(() => tiles().find(t => t.name === "reader-preview")?.showing?.id === f.opened, "the link in the preview", 5000);
     expect(tiles().find(t => t.name === "reader").showing.id).toBe(seeded.notes.notebook.id);
     // Again: that preview, not a second one.
-    expect(await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" })).toMatchObject({ tile: "reader-preview", existing: true });
+    expect(await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" })).toMatchObject({ name: "reader-preview", existing: true });
     expect(tiles().filter(t => t.name.startsWith("reader-preview")).length).toBe(1);
     expect(S().focus).toBe("index");
   }, 20_000);
@@ -122,13 +122,13 @@ describe.skipIf(!outliner)("the showcase screen: echonet, modes, files, links an
     expect(tile("detail")).toMatchObject({ kind: "reader", mode: "held" });
     expect(tile("now")).toMatchObject({ kind: "reader", mode: "pinned", page: prop(seeded.notes.notebook, "page") });
     // The held one lets go and follows the outline's selection; held again, it keeps what it shows.
-    expect(await app.act({ action: "reader.mode", tile: "detail", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ tile: "detail", mode: "follows", held: false });
+    expect(await app.act({ action: "reader.mode", tile: "detail", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ name: "detail", mode: "follows", held: false });
     expect((app as any).message).toContain("test-agent");
     expect(tile("detail").mode).toBe("follows");
-    expect(await app.act({ action: "reader.mode", tile: "reader", args: { mode: "held" }, as: "test-agent" })).toMatchObject({ tile: "reader", mode: "held", held: true });
-    expect(await app.act({ action: "reader.mode", tile: "now", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ tile: "now", mode: "follows" });
+    expect(await app.act({ action: "reader.mode", tile: "reader", args: { mode: "held" }, as: "test-agent" })).toMatchObject({ name: "reader", mode: "held", held: true });
+    expect(await app.act({ action: "reader.mode", tile: "now", args: { mode: "follows" }, as: "test-agent" })).toMatchObject({ name: "now", mode: "follows" });
     // What it follows (PIE-814): the detail follows the tree by a link, and its chip says so; none lets go.
-    expect(await app.act({ action: "reader.follow", tile: "detail", args: { source: "tree" }, as: "test-agent" })).toMatchObject({ tile: "detail", source: "tree" });
+    expect(await app.act({ action: "reader.follow", tile: "detail", args: { source: "tree" }, as: "test-agent" })).toMatchObject({ name: "detail", source: tile("tree").id });
     expect(tile("tree").wires).toContainEqual({ verb: "select", to: tile("detail").id });
     const detail = [...stage().panes.entries()].find(([id]: any) => stage().nameOf(id) === "detail")![1] as any;
     expect(detail.headControls(40, stage())[0].text).toBe("stays put");

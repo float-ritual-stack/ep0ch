@@ -306,7 +306,7 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
   test("an agent collapses and reopens readers through act, attributed, never the one the person has", async () => {
     const d = await withDetail();
     expect(BV.where(b)).toBe("lanes");
-    expect(await act("tile.collapse", { on: true }, "detail1")).toMatchObject({ tile: "detail1", collapsed: true });
+    expect(await act("tile.collapse", { on: true }, "detail1")).toMatchObject({ name: "detail1", collapsed: true });
     expect(folded(d)).toMatchObject({ by: AS });
     expect(message()).toContain(AS);
     expect(message()).toContain("folded detail1");
@@ -316,11 +316,11 @@ describe.skipIf(!outliner)("board readers collapse to spines, against a scratch 
     expect(peek.readers.find((r: any) => r.name === "detail1")).toMatchObject({ collapsed: true, collapsedBy: AS });
     // A note action there would change what the person can't see.
     await expect(act("edit", {}, "detail1")).rejects.toThrow(/collapsed.*tile.collapse on=false tile=detail1/);
-    expect(await act("tile.collapse", { on: false }, "detail1")).toMatchObject({ tile: "detail1", collapsed: false });
+    expect(await act("tile.collapse", { on: false }, "detail1")).toMatchObject({ name: "detail1", collapsed: false });
     expect(BV.where(b)).toBe("lanes");
     // No tile named, the person on the lanes: the preview following them, as the board's c takes it (not a lane).
-    expect(await act("tile.collapse", { on: true })).toMatchObject({ tile: "preview", collapsed: true });
-    expect(await act("tile.collapse", { on: false })).toMatchObject({ tile: "preview", collapsed: false });
+    expect(await act("tile.collapse", { on: true })).toMatchObject({ name: "preview", collapsed: true });
+    expect(await act("tile.collapse", { on: false })).toMatchObject({ name: "preview", collapsed: false });
     expect(BV.where(b)).toBe("lanes");
     // The reader the person has (here, in its property panel) isn't the agent's to collapse.
     key({ kind: "tab" });

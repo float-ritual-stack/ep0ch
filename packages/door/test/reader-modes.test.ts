@@ -120,15 +120,15 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
 
   test("reader.mode works on every reader, a former detail too, and the 'for readers' refusal is gone", async () => {
     const held = await act("reader.mode", { mode: "held" }, "follower") as any;
-    expect(held).toMatchObject({ tile: "follower", mode: "held", held: true });
+    expect(held).toMatchObject({ name: "follower", mode: "held", held: true });
     expect(message()).toContain("stays put");
     const back = await act("reader.mode", { mode: "follows" }, "keeps") as any;
-    expect(back).toMatchObject({ tile: "keeps", mode: "follows", held: false });
+    expect(back).toMatchObject({ name: "keeps", mode: "follows", held: false });
     expect(message()).toContain("shows the current note");
     // Left out, it is p's toggle.
     expect(await act("reader.mode", {}, "keeps")).toMatchObject({ mode: "held" });
     expect(await act("reader.mode", {}, "keeps")).toMatchObject({ mode: "follows" });
-    await expect(act("reader.mode", { mode: "stuck" }, "keeps")).rejects.toThrow(/mode is follows, held or pinned, not stuck/);
+    await expect(act("reader.mode", { mode: "stuck" }, "keeps")).rejects.toThrow(/mode is follows, held, pinned, not stuck/);
     await expect(act("reader.hold", { on: true }, "keeps")).rejects.toThrow(/reader\.hold is now reader\.mode .*act reader\.mode tile=<reader> mode=held/);
     await expect(act("reader.mode", {}, "tree")).rejects.not.toThrow(/readers only|is for readers/);
     await act("reader.mode", { mode: "held" }, "keeps");

@@ -101,7 +101,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     try {
       await until(() => restored.layoutGet().tiles.find(t => t.name === tile)?.showing?.id === seeded.notes.notebook.id, "the restored notebook");
       expect(restored.layoutGet().tiles.find(t => t.name === tile)!.label).toBe(subject(seeded.notes.notebook));
-      await restored.dispatch.press("tile.title.mode", {}, restored.layoutGet().tiles.find(t => t.name === tile)!.id);
+      await restored.dispatch.press("tile.title.mode", {}, restored.layoutGet().tiles.find(t => t.name === tile)!.tile);
       expect(restored.layoutGet().tiles.find(t => t.name === tile)!.label).toBe(writtenTitle);
     } finally { restored.dispose(); }
 
@@ -414,7 +414,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await until(() => kettle()?.running === true, "the kettle runs");
     const pid = kettle().pid;
     const out = await app.act({ action: "tile.drawer", args: {}, tile: "kettle", as: "test-agent" }) as any;
-    expect(out).toMatchObject({ tile: "kettle", inDrawer: true });
+    expect(out).toMatchObject({ name: "kettle", inDrawer: true });
     expect(stage().pane("kettle")).toBeUndefined();
     expect((app as any).message).toContain("an agent (test-agent) put kettle in your drawer");
     // Another section: a screen switch. The drawer still has it, the same program.
@@ -439,7 +439,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     press({ kind: "char", ch: "]", ctrl: true });
     (app as any).lastInput = 0;
     const back = await app.act({ action: "tile.drawer", args: { on: false, to: "tree", where: "right" }, tile: "kettle", as: "test-agent" }) as any;
-    expect(back).toMatchObject({ tile: "kettle", inDrawer: false });
+    expect(back).toMatchObject({ name: "kettle", inDrawer: false });
     expect(stage().pane("kettle").pid).toBe(pid);
     expect(stage().pane("kettle").running).toBe(true);
     // The drawer's own first tab comes out too: an ordinary terminal tile in this section, its program running on; a
@@ -587,7 +587,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const of = (who: string) => rows().find(s => s.persona === who)!;
     await until(() => rows().length === 2, "both sessions", 8000);
     expect(of("fern").shown).toMatchObject({ in: "drawer" });
-    expect(of("moss").shown).toMatchObject({ in: "screen", tile: "moss", here: true });
+    expect(of("moss").shown).toMatchObject({ in: "screen", name: "moss", here: true });
     expect(of("moss").folder).toEndWith("potting-bench");
     expect(of("fern").folder).toEndWith("garden-shed");
     const listed = (await app.act({ action: "agents.list", args: {}, as: "test-agent" }) as any).sessions;

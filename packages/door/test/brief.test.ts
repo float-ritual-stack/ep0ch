@@ -199,7 +199,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).toMatchObject({ id: notes.a.id, name: "brief" });
     expect(brief().shown?.id).toBe(notes.a.id);
-    expect(await app.act({ action: "brief.show", args: { id: notes.b.id }, as: "test-agent" })).toMatchObject({ id: notes.b.id, tile: "brief" });
+    expect(await app.act({ action: "brief.show", args: { id: notes.b.id }, as: "test-agent" })).toMatchObject({ id: notes.b.id, name: "brief" });
     ch("e");
     await until(() => !!brief().draft, "the person's edit");
     await app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" });

@@ -268,7 +268,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key(char("j")); key(char("k"));
     await until(() => tile("preview").showing?.id === notes.beans.id, "the preview following the tree");
     const r = await act("tile.preview", {}, "draft") as any;
-    expect(r.tile).toBe("draft-preview");
+    expect(r.name).toBe("draft-preview");
     expect(tile("draft-preview").source).toBe(`file:${draft()}`);
     await until(() => tile("draft-preview").showing?.title.includes("scratch"), "the draft in its preview");
     writeFileSync(draft(), `# Pea notes\n\nSee ((${notes.plan.id})).\n`);
@@ -283,7 +283,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     const focus0 = get().focus, before = shape();
     await act("tile.open", { kind: "detail", note: notes.plan.id, name: "plan", where: "down" }, "middle");
     await until(() => tile("plan").showing?.id === notes.plan.id, "the plan in its detail");
-    await expect(act("tile.preview", { where: "tabs" }, "plan")).rejects.toThrow(/where is right, down, left or up/);
+    await expect(act("tile.preview", { where: "tabs" }, "plan")).rejects.toThrow(/where is right, down, left, up/);
     // On a locked screen nothing opens and nothing is linked.
     await mine("layout.lock", { on: true });
     await expect(act("tile.preview", {}, "plan")).rejects.toThrow(/the screen is locked/);
@@ -291,7 +291,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     await mine("layout.lock", { on: false });
     const at = rect("plan"), r = await act("tile.preview", {}, "plan") as any;
     // A reader's preview is a detail (it keeps what's opened into it), beside or below by the layout's one rule.
-    expect(r).toMatchObject({ tile: "plan-preview", kind: "reader", from: tile("plan").id, where: splitAxis(at) === "row" ? "right" : "down" });
+    expect(r).toMatchObject({ name: "plan-preview", kind: "reader", from: tile("plan").id, where: splitAxis(at) === "row" ? "right" : "down" });
     expect(tile("plan").link).toBe("plan-preview");
     expect(get().focus).toBe(focus0);                               // an agent's never takes the keys
     expect(message()).toContain("an agent (tile-agent-413) opened a reader tile (plan-preview) where plan's opens land");
@@ -304,11 +304,11 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     if (r.where === "down") await mine("layout.move", { to: "plan", where: "right" }, "plan-preview");
     await mine("tile.collapse", { on: true }, "plan-preview");
     expect(tile("plan-preview").collapsed).toBe(true);
-    expect(await act("tile.preview", {}, "plan")).toMatchObject({ tile: "plan-preview", existing: true });
+    expect(await act("tile.preview", {}, "plan")).toMatchObject({ name: "plan-preview", existing: true });
     expect(tile("plan-preview").collapsed).toBeUndefined();
     expect(get().tiles.length).toBe(count);
     expect(get().focus).toBe(focus0);
-    expect(await mine("tile.preview", {}, "plan")).toMatchObject({ tile: "plan-preview", existing: true });
+    expect(await mine("tile.preview", {}, "plan")).toMatchObject({ name: "plan-preview", existing: true });
     expect(get().focus).toBe("plan-preview");
     // By keys: ^W V on the preview opens one below it (a detail's opens land there); O in it shows that one again.
     key(ctrl("w")); key(char("V"));

@@ -375,9 +375,9 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     const t = await act("tile.open", { kind: "pty", name: "shell", cmd: "sh" }, "side");
     await until(() => D.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the shell running");
     const n = String(D.layoutGet().tiles.findIndex((x: any) => x.name === "shell") + 1);
-    for (const sel of ["shell", t.id, n, `#${n}`]) expect(await act("tile.type", { text: "true\\n" }, sel)).toMatchObject({ tile: "shell" });
+    for (const sel of ["shell", t.tile, n, `#${n}`]) expect(await act("tile.type", { text: "true\\n" }, sel)).toMatchObject({ name: "shell" });
     // The terminal is the only one: none named reaches it; named by a reader's name, refused in the kind's words.
-    expect(await act("tile.type", { text: "true\\n" })).toMatchObject({ tile: "shell" });
+    expect(await act("tile.type", { text: "true\\n" })).toMatchObject({ name: "shell" });
     await expect(act("tile.type", { text: "x" }, "middle")).rejects.toThrow("middle is a reader tile: tile.type is for a terminal tile; here: shell");
     // The person typing in it: an agent's is refused there (the actor rule), said on the status bar.
     D.focus = D.idNamed("shell"); D.ptyIn = D.panes.get(D.focus);
@@ -399,7 +399,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     // column.*, are the inner screen's tiles' kind's: the desk's kind check refuses them on the outer tile.)
     const q = await act("tile.open", { kind: "river", name: "quay" }, "side");
     const qn = String(D.layoutGet().tiles.findIndex((x: any) => x.name === "quay") + 1);
-    for (const sel of ["quay", q.id, qn, `#${qn}`]) expect(await act("tile.info", {}, sel)).toMatchObject({ name: "quay", kind: "river" });
+    for (const sel of ["quay", q.tile, qn, `#${qn}`]) expect(await act("tile.info", {}, sel)).toMatchObject({ name: "quay", kind: "river" });
     await act("tile.close", {}, "quay");
     // Its program ended (an agent doesn't end one by closing it): left running, leaving would carry it into the drawer.
     await act("tile.type", { text: "exit\\n" }, "shell");
@@ -428,7 +428,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     await expect(act("tile.type", { text: "x" })).rejects.toThrow("no terminal tile on the board");
     const t = await act("tile.open", { kind: "pty", name: "shell", cmd: "sh", where: "edge-right" });
     await until(() => B.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the board's shell");
-    for (const sel of ["shell", t.id]) expect(await act("tile.type", { text: "true\\n" }, sel)).toMatchObject({ tile: "shell" });
+    for (const sel of ["shell", t.tile]) expect(await act("tile.type", { text: "true\\n" }, sel)).toMatchObject({ name: "shell" });
     await expect(act("tile.type", { text: "x" }, "preview")).rejects.toThrow("preview is a preview tile: tile.type is for a terminal tile; here: shell");
     await act("tile.type", { text: "exit\\n" }, "shell");
     await until(() => !B.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the board's shell ended");
@@ -454,7 +454,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     expect(await act("folds", {}, id)).toMatchObject({ name: b.name });
     const focus = V().focused;
     const sp = await act("column.split", {}, lib);                                          // the Library's selected card, stacked
-    expect(V().stack(1).map(c => V().name(c))).toEqual([lib, sp.tile]);
+    expect(V().stack(1).map(c => V().name(c))).toEqual([lib, sp.name]);
     expect(V().focused).toBe(focus);                                                   // an agent's never moves the keys
     await expect(act("tile.type", { text: "x" })).rejects.toThrow(/no terminal tile/);
     await expect(act("open", { id: notes.beans.id }, "nope")).rejects.toThrow("no tile nope");

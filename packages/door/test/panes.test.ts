@@ -197,7 +197,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     // The board's readers row reads as before: the same row, names and labels, in mode held.
     expect(row()).toEqual(["preview", "detail1", "detail2"]);
     // An agent switches one by name; the person's keys stay on the lanes.
-    expect(await act("reader.mode", { mode: "follows" }, "detail2")).toMatchObject({ tile: "detail2", mode: "follows", held: false });
+    expect(await act("reader.mode", { mode: "follows" }, "detail2")).toMatchObject({ name: "detail2", mode: "follows", held: false });
     expect(t("detail2").mode).toBe("follows");
     expect(focus()).toBe("lanes");
     expect(await act("reader.mode", { mode: "held" }, "detail2")).toMatchObject({ mode: "held" });
@@ -407,7 +407,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     const at = x();
     expect(at).toBeDefined();
     mouse("down", at.from, at.row); mouse("up", at.from, at.row);
-    await until(() => !b.layoutGet().tiles.some(t => t.id === kept.id), "the spine closed by its x");
+    await until(() => !b.layoutGet().tiles.some(t => t.tile === kept.tile), "the spine closed by its x");
   });
 
   test("interchangeable, subject to policy: a lane leaves the columns only once they let it; a desk tile goes beside them, not in", async () => {
@@ -417,7 +417,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     // Only query tiles join the columns; another kind goes beside them.
     await expect(act("tile.open", { kind: "activity", to: "Doing", where: "right" })).rejects.toThrow(/takes only query/);
     const opened = await act("tile.open", { kind: "activity", name: "recent", where: "edge-right" }) as any;
-    expect(opened).toMatchObject({ tile: "recent" });
+    expect(opened).toMatchObject({ name: "recent" });
     await act("tile.close", {}, "recent");
     // Let them go, and the lane moves beside the preview: still a lane of the board, refilled where it is.
     const cid = lanesNode().id ?? b.containerId("lanes");
@@ -511,7 +511,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
   test("review: tile.collapse folds only a tile side by side with others, where policy lets it, never the person's tile for an agent", async () => {
     await withDetails();
     await expect(act("tile.collapse", {}, "lanes")).rejects.toThrow(/has the person's keys/);
-    expect(await act("tile.collapse", {}, "detail2")).toMatchObject({ tile: "detail2", collapsed: true });
+    expect(await act("tile.collapse", {}, "detail2")).toMatchObject({ name: "detail2", collapsed: true });
     await act("tile.collapse", { on: false }, "detail2");
     await expect(act("tile.collapse", {}, "tree")).rejects.toThrow(/stays open: s\d+ doesn.t fold/);
     const cid = b.containerId("lanes");
@@ -598,7 +598,7 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     const a = await board.request<any>("create", { parentId: null, text: "Oil the mower [shed::open]", author: "agent" });
     await board.request<any>("create", { parentId: null, text: "Sharpen the shears [shed::open]", author: "agent" });
     const t = await act("tile.open", { kind: "query", view: view.id, name: "shed", where: "right" }) as any;
-    expect(t).toMatchObject({ tile: "shed", kind: "query" });
+    expect(t).toMatchObject({ name: "shed", kind: "query" });
     await until(() => D().describe().panes.find((p: any) => p.name === "shed")?.count === 2, "the view's cards");
     expect(D().describe().panes.find((p: any) => p.name === "shed")).toMatchObject({ lane: "Open", view: view.id });
     await act("tile.open", { kind: "preview", source: "tile:shed", name: "shed-card" }, "shed");

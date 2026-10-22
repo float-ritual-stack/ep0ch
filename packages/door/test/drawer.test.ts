@@ -334,7 +334,7 @@ describe("the drawer", () => {
       expect(d.app.drawer.state(Date.now() + 5000)).toBe("idle");
       // The launcher says it lives in Herdr: the door asks Herdr (read-only) for its state.
       const r: any = await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
-      expect(r).toEqual({ tile: DRAWER_TILE_ID, herdr: { pane: "door-claude" } });
+      expect(r).toMatchObject({ tile: DRAWER_TILE_ID, herdr: { pane: "door-claude" } });
       d.app.drawer.state();
       await wait(() => d.app.drawer.state() === "blocked");
       expect(d.app.drawer.chipText()).toBe("▼ claude (from EP0CH_DAILY_AGENT) · needs you");
@@ -517,7 +517,7 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
       await expect(d.app.act({ action: "tile.type", tile: "claude", args: { text: "seed list" }, as: "claude-7" })).rejects.toThrow(/no tile claude|claude/);
       d.key(CTRL_RB);                                            // out of it: an agent may type there again
       const r: any = await d.app.act({ action: "agent.type", args: { text: "seed list" }, as: "claude-7" });
-      expect(r).toMatchObject({ tile: "claude" });
+      expect(r).toMatchObject({ name: "claude" });
       await wait(() => d.app.drawer.tile!.text().some(l => l.includes("seed list")));
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   }, 30_000);

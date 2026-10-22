@@ -41,8 +41,8 @@ export interface AgentProcess { pid: number; program: string; argv: string[]; cw
 
 /** Where a session is shown now. */
 export type Shown =
-  | { in: "drawer"; tile: string; own: boolean; herdr?: string }
-  | { in: "screen"; screen: string; tile: string; here: boolean }
+  | { in: "drawer"; tile: string; name: string; own: boolean; herdr?: string }
+  | { in: "screen"; screen: string; tile: string; name: string; here: boolean }
   | { in: "nowhere" };
 
 /** What a session is doing: what its program said (OSC 7501), else whether it wrote anything lately. */
@@ -188,15 +188,15 @@ export function pickSession<T extends AgentSession>(rows: readonly T[], sel: str
   // `#n` is that terminal's own number: it still names it when it's the only one left (its id is plain then).
   if (seq) return rows.find(r => r.id.replace(/#\d+$/, "") === tiled && seqOf(r.pane) === Number(seq[1])) ?? null;
   return rows.find(r => r.id === s || r.id === tiled)
-    ?? rows.find(r => r.shown.in !== "nowhere" && r.shown.tile === s)
+    ?? rows.find(r => r.shown.in !== "nowhere" && (r.shown.tile === s || r.shown.name === s))
     ?? rows.find(r => r.pane.tileId === s)
     ?? null;
 }
 
 /** Where it's shown, in words. */
 export function shownWords(s: Shown): string {
-  if (s.in === "drawer") return `in your drawer${s.own ? " (its own tab)" : ` (${s.tile})`}${s.herdr ? ` · Herdr pane ${s.herdr}` : ""}`;
-  if (s.in === "screen") return s.here ? `here (${s.tile})` : `on the ${s.screen} (${s.tile})`;
+  if (s.in === "drawer") return `in your drawer${s.own ? " (its own tab)" : ` (${s.name})`}${s.herdr ? ` · Herdr pane ${s.herdr}` : ""}`;
+  if (s.in === "screen") return s.here ? `here (${s.name})` : `on the ${s.screen} (${s.name})`;
   return "not shown";
 }
 

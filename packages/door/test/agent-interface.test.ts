@@ -203,7 +203,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
       await until(() => !!reader(), "the labelled reference opened");
       expect(await controlClient(["open", notes.shed.id, "--as", "opener-510"])).toBe(0);
       expect(await controlClient(["open", `((${anchored.id}^late|late sowing))`, "--as", "opener-510"])).toBe(0);
-      await until(() => !!reader() && (desk.pane(reader()!) as ReaderPane).surface.describe().focus?.marked === "^late", "the fragment marked");
+      await until(() => desk.layoutGet().tiles.some(t => t.showing?.id === anchored.id && (desk.pane(t.name) as ReaderPane).surface?.describe().focus?.marked === "^late"), "the fragment marked");
       expect(await controlClient(["open", "((not-a-block))"])).toBe(1);
       // Only the service writes as an extension.
       expect(await controlClient(["open", notes.shed.id, "--as", "ext:tidy"])).toBe(1);

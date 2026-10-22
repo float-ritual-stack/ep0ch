@@ -175,7 +175,7 @@ Closing a target drops its wire and says so. Saved name-path wires are resolved
 and rewritten as ids when the desks open; missing targets are reported and dropped.
 
 `layout.get.tiles` includes the screen, drawer and every mount. Each row has its
-`id`, `name`, `address` (the id), and display `path`. `layers` groups those rows by
+`tile` (the stable id), `name`, and display `path`. `layers` groups those rows by
 desk, with `screen`, `drawer`, `focus` and `zoom` (tile ids), and its local `tree`.
 Top-level layout metadata describes the screen, regardless of the focused layer. `peek` includes this
 same report as top-level `layout`. `Whereabouts.address` names the tile under the
@@ -184,7 +184,7 @@ focused tile. A group's frame and menu address the group itself.
 
 | Action | Gives |
 |---|---|
-| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each dock with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<dock's>.0`), each flow with its `id` (`f<n>`), `wide` (its wide column) and `held` (the columns held full), each container's `policy`, each tile with its door-wide `id` (`t-<uuid>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `dock` (`open`, `shut`) with its `edge` and `container`, `cover` in a flow (`full`, `peek`, `spine`), the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
+| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each dock with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<dock's>.0`), each flow with its `id` (`f<n>`), `wide` (its wide column) and `held` (the columns held full), each container's `policy`, each tile with its door-wide `id` (`t-<uuid>`); and each tile's `tile`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `dock` (`open`, `shut`) with its `edge` and `container`, `cover` in a flow (`full`, `peek`, `spine`), the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
 | `layout.policy tile=<tile>` (nothing to set) | each policy layer over the tile (the screen's, each container's, its kind's default), what applies (`effective`, with `by` naming the layer that said each field), and the containers' ids |
 | `view.get` (`tile=<tile>` for one) | `focus`, and each tile's `viewport` and `cursor` as the feed gives them. For one terminal tile, also its `screen` text |
 | `tile.info tile=<tile>` | one tile as `layout.get` gives it |
@@ -288,7 +288,7 @@ only the person's own reader note falls back to the Inbox. It is written as the 
 (`author: agent` and its id), opens nothing, and is said on the status bar ("an agent (<id>) · made a new note
 “…” in the Inbox"). The answer has the note's `id`, `parentId`, `rule` (`near` or `inbox`) and `said`. With
 `opens=float` (or `tab`) it is also shown to the person there (PIE-591), in a tile of its own that never takes their
-keys; the answer's `reader` names it. The person's own `ctrl+n` floats by default (`note.opens`, the screen spec's
+keys; the answer's `tile` addresses it and `name` labels it. The person's own `ctrl+n` floats by default (`note.opens`, the screen spec's
 `newNote`); `peek`'s `floats` mark those with `newNote: true` and `writing` while their edit is open. On the board's
 lanes the person's `ctrl+n` is `card.new` (the lane's composer); an agent writes a card with `card.create`.
 
@@ -598,7 +598,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 
 Example: bring the person's attention to a decision, from an agent running in a tile.
 
-    ep0ch act open id=<block> from=$EP0CH_TILE --as claude-7         # answers reader=middle (the tile's link)
+    ep0ch act open id=<block> from=$EP0CH_TILE --as claude-7         # answers tile=<id>, name=middle (the tile's link)
     ep0ch act view.scrollTo text="needs a decision" tile=middle --as claude-7
     ep0ch act block.mark reason="needs your call" tile=middle --as claude-7
 

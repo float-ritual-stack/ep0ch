@@ -386,7 +386,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     await until(() => tiles().find(t => t.kind === "tarot.reading")?.terminal?.running !== false, "its program");
     // Its actions are its kind's: an agent keeps the reading under the tile's block.
     const kept = await app.act({ action: "ext.tarot.keep", args: {}, tile: tarot.name, as: AS }) as any;
-    expect(kept.tile).toBe(tarot.name);
+    expect(kept.tile).toBe(tarot.id);
     const reading = (await board.children(spot.id)).find(m => m.author === "ext:tarot");
     expect(reading).toBeDefined();
     const drew = await app.act({ action: "ext.tarot.draw", args: {}, tile: tarot.name, as: AS }) as any;

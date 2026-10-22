@@ -374,12 +374,12 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(BV.where(b)).toBe(was);                                  // naming the reader never moves the person's keys (PIE-514)
     await until(() => !P().msg!.partial, "the whole note");
     const text = (await current(cards.beans.id)).text.replace("Canes along the fence.", "Canes along the fence, two per plant.");
-    expect(await act("edit.text", { text }, reader)).toMatchObject({ reader, dirty: true });
+    expect(await act("edit.text", { text }, reader)).toMatchObject({ name: reader, dirty: true });
     expect(P().draft!.text).toBe(text);
     const shown = P().render(90, 20, true, b).lines.join("\n");
     expect(shown).toContain("an agent (test-agent-7) typed this");
     const r: any = await act("edit.save", {}, reader);
-    expect(r).toMatchObject({ reader, saved: true });
+    expect(r).toMatchObject({ name: reader, saved: true });
     const now = await current(cards.beans.id);
     expect(now.text).toBe(text);
     expect(await lastBy(cards.beans.id)).toEqual(["agent", AS]);
@@ -489,7 +489,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   test("a save is recorded as who wrote it, not who pressed save", async () => {
     // The agent wrote it, the person saved it: the agent's.
     const a = await openFresh("Mulch the roses\nIn autumn.");
-    await act("edit.text", { text: "Mulch the roses\nIn autumn, after the first frost." }, a.name);
+    await act("edit.text", { text: "Mulch the roses\nIn autumn, after the first frost." }, a.reader);
     expect(a.pane.render(120, 20, true, b).lines.join("\n")).toContain("an agent (test-agent-7) typed this · it saves as the agent's");
     // An agent's edit takes the person's keys only once they enter it (PIE-411).
     key(ctrl("s"));
@@ -503,13 +503,13 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const u = await openFresh("Net the currants\nBefore June.");
     key(char("e")); await until(() => !!u.pane.draft, "the draft");
     key({ kind: "end" }); type(" (birds)");
-    await expect(act("edit.save", {}, u.name)).rejects.toThrow("the person is in this edit");
-    expect(await mine("edit.save", {}, u.name)).toMatchObject({ saved: true, recordedAs: { author: "user", actorId: ACTOR_ID } });
+    await expect(act("edit.save", {}, u.reader)).rejects.toThrow("the person is in this edit");
+    expect(await mine("edit.save", {}, u.reader)).toMatchObject({ saved: true, recordedAs: { author: "user", actorId: ACTOR_ID } });
     expect(await lastBy(u.id, "user")).toEqual(["user", ACTOR_ID]);
 
     // Both wrote it: the saver's, and the actor id names both. The frame said so before the save.
     const m = await openFresh("Prune the apple\nIn winter.");
-    await act("edit.text", { text: "Prune the apple\nIn winter, on a dry day." }, m.name);
+    await act("edit.text", { text: "Prune the apple\nIn winter, on a dry day." }, m.reader);
     key(char("e"));
     key({ kind: "end" }); type(" (me)");
     expect(m.pane.render(120, 20, true, b).lines.join("\n")).toContain("an agent (test-agent-7) and you typed this · saved as whoever saves it, naming both");
@@ -554,8 +554,8 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await mine("tile.focus", {}, reader);
     await expect(act("resolve", { thread: id }, reader)).rejects.toThrow(/has the person's keys; the thread list would cover what they're reading/);
     BV.at(b, "lanes");
-    expect(await act("resolve", { thread: id }, reader)).toEqual({ reader, lifecycle: "resolved" });
-    expect(await act("resolve", { thread: id }, reader)).toEqual({ reader, already: "resolved" });
+    expect(await act("resolve", { thread: id }, reader)).toMatchObject({ name: reader, lifecycle: "resolved" });
+    expect(await act("resolve", { thread: id }, reader)).toMatchObject({ name: reader, already: "resolved" });
     list = await threads(cards.beans.id);
     expect(list[0].lifecycle).toBe("resolved");
     expect([list[0].replies[0].block.author, list[0].replies[0].block.actorId]).toEqual(["agent", AS]);
@@ -589,7 +589,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
 
   test("an agent's card.select and card.move leave the person's keys where they are", async () => {
     await settled();
-    const { name: reader } = await openFresh("Label the seed trays\nBefore sowing.");
+    const { reader } = await openFresh("Label the seed trays\nBefore sowing.");
     const region = BV.where(b);
     expect(region).toStartWith("detail");
     // The person's lane cursor and preview, before the agent picks a card of its own.
@@ -612,7 +612,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     // Giving the keys away is only ever an explicit action, once the person is idle, and it says so.
     idle();
     const lane = B().lanes[B().lane].name;
-    expect(await act("tile.focus", {}, "lanes")).toEqual({ tile: lane });
+    expect(await act("tile.focus", {}, "lanes")).toMatchObject({ name: lane });
     expect(message()).toContain(`an agent (test-agent-7) gave the keys to ${lane}`);
     await b.dispatch.act({ action: "tile.focus", tile: reader }, { kind: "user" });
     await settled();

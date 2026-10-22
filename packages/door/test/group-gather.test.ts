@@ -24,7 +24,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
   const me = (action: string, args: Record<string, unknown> = {}, tile?: string) => D().dispatch.act({ action, args, tile }, { kind: "user" }) as Promise<any>;
   const render = () => desk.render(D().ctx);
   const get = () => D().layoutGet() as { tree: any; focus: string; tiles: any[]; rev: number };
-  const tile = (name: string) => get().tiles.find((t: any) => t.name === name);
+  const tile = (name: string) => get().tiles.find((t: any) => (t.name === name || t.id === name));
   const names = () => get().tiles.map((t: any) => t.name);
 
   beforeAll(async () => {
@@ -43,7 +43,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
   afterAll(async () => { D().dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
 
   const showing = (name: string) => tile(name)?.showing?.id ?? null;
-  const inner = (g: string, name: string) => tile(g).mount.layout.tiles.find((t: any) => t.name === name);
+  const inner = (g: string, name: string) => tile(g).mount.layout.tiles.find((t: any) => (t.name === name || t.id === name));
 
   test("a tile goes into a group and back out whole: the program keeps running, its policy and spine travel with it", async () => {
     await act("tile.open", { kind: "pty", cmd: "sh", name: "shell" }, "activity");
@@ -55,7 +55,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     render();
     // Into the group: beside its activity tile, to the right.
     const r = await me("layout.move", { into: g.tile, beside: "activity", where: "right" }, "shell");
-    expect(r).toMatchObject({ tile: "shell", into: g.tile });
+    expect(r).toMatchObject({ name: "shell", into: g.name });
     render();
     expect(tile("shell")).toBeUndefined();
     expect(inner(g.tile, "shell")).toMatchObject({ kind: "pty", agents: "edit" });
@@ -72,7 +72,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     // Refusals say what to do.
     await expect(me("layout.move", { into: "tree" }, "shell")).rejects.toThrow(/isn't a group/);
     await expect(me("layout.move", { out: true }, "shell")).rejects.toThrow(/isn't inside a group/);
-    await expect(me("layout.move", { into: g.tile, out: true }, "shell")).rejects.toThrow(/not both/);
+    await expect(me("layout.move", { into: g.tile, out: true }, "shell")).rejects.toThrow(/conflicts/);
     // The last tile out spills the group.
     await me("layout.move", { into: g.tile, beside: "activity" }, "shell");
     await me("layout.move", { out: true }, `${g.tile}/shell`);
@@ -90,7 +90,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
   const innerAt = (g: string, name: string) => { const o = tile(g).rect, r = inner(g, name).rect; return { col: o.col + 1 + r.col, row: o.row + 1 + r.row, cols: r.cols, rows: r.rows }; };
 
   test("by mouse: a tile's title dragged onto a group goes in where the drop zone says, one dragged out of it onto the screen goes back out; esc cancels", async () => {
-    const g = (await act("tile.group", { with: "replies", where: "down" }, "activity")).tile;
+    const g = (await act("tile.group", { with: "replies", where: "down" }, "activity")).name;
     render();
     const reader = tile("reader").rect, grp = tile(g).rect;
     // Esc mid-drag: nothing moves.
@@ -136,7 +136,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     const preview = get().tiles.find(t => t.kind === "preview")!.name;
     await me("tile.select", {}, links);
     await me("tile.select", {}, preview);
-    const g = (await me("tile.group", { selected: true }, links)).tile;
+    const g = (await me("tile.group", { selected: true }, links)).name;
     render();
     await mine("tile.focus", {}, "detail");
     press({ kind: "char", ch: "b" });
@@ -162,7 +162,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await me("open", { id: seeded.notes.hub.id }, "reader");
     await me("tile.open", { kind: "detail", name: "outside", note: seeded.notes.root.id }, "tree");
     await until(() => showing("outside") === seeded.notes.root.id, "the screen detail loaded");
-    const g = (await me("tile.group", { with: "activity" }, "reader")).tile;
+    const g = (await me("tile.group", { with: "activity" }, "reader")).name;
     render();
     await me("tile.link", { to: tile("outside").id }, `${g}/reader`);
     await me("tile.drawer", {}, g);
@@ -267,7 +267,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("^W i moves the tile into the only group, or asks which; in a group it takes the tile back out; a group's last tile spills it", async () => {
     await fresh();
-    const g = (await act("tile.group", { with: "replies", where: "down" }, "activity")).tile;
+    const g = (await act("tile.group", { with: "replies", where: "down" }, "activity")).name;
     render();
     await mine("tile.focus", {}, "tree");
     chord("i");
@@ -278,7 +278,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     render();
     expect(tile("tree")).toBeDefined();
     // Two groups: the person picks, an agent names one.
-    const g2 = (await me("tile.group", {}, "reader")).tile;
+    const g2 = (await me("tile.group", {}, "reader")).name;
     render();
     expect(g2).not.toBe(g);
     await mine("tile.focus", {}, "tree");
@@ -293,7 +293,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await spill(g2);
     await spill(g);
     // The last tile of a group out: the group is gone.
-    const one = (await act("tile.group", {}, "activity")).tile;
+    const one = (await act("tile.group", {}, "activity")).name;
     render();
     // A place that isn't there is refused before anything is spilled.
     await expect(me("layout.move", { out: true, beside: "nope" }, `${one}/activity`)).rejects.toThrow(/no tile nope/);
@@ -319,7 +319,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("locked screens refuse cross-group link creation, replacement, wire changes and removal without changing saved links", async () => {
     await fresh();
-    const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
+    const g = (await me("tile.group", { with: "replies" }, "reader")).name;
     await me("tile.open", { kind: "detail", name: "peer" }, `${g}/reader`);
     await me("tile.link", {}, "tree");
     for (const linked of [false, true]) {
@@ -344,7 +344,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("a refused spill keeps the group's picked tiles and pending wire", async () => {
     await fresh();
-    const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
+    const g = (await me("tile.group", { with: "replies" }, "reader")).name;
     await me("tile.select", { on: true }, `${g}/reader`);
     await me("tile.focus", {}, `${g}/reader`);
     press({ kind: "alt", ch: "l" });
@@ -365,7 +365,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("spilling a locked group keeps its policy on the tiles that come out", async () => {
     await fresh();
-    const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
+    const g = (await me("tile.group", { with: "replies" }, "reader")).name;
     await me("layout.lock", { on: true }, `${g}/reader`);
     await spill(g);
     await expect(me("tile.close", {}, "replies")).rejects.toThrow(/locked/);
@@ -378,7 +378,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("a locked group refuses links to its outside and preserves their verb and target", async () => {
     await fresh();
-    const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
+    const g = (await me("tile.group", { with: "replies" }, "reader")).name;
     await me("tile.open", { kind: "detail", name: "outside" }, "tree");
     await me("tile.link", { to: tile("outside").id }, `${g}/replies`);
     await me("layout.lock", { on: true }, `${g}/replies`);
@@ -411,7 +411,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(tile("tree")).toMatchObject({ link: "reader" });
     await act("tile.open", { kind: "preview", source: "tile:tree", name: "pv" }, "replies");
     // Gather the reader (with the activity: a tile whose opens have no origin of their own, unlike the replies list): the tree's link goes through the path.
-    const g = (await act("tile.group", { with: "activity", where: "down" }, "reader")).tile;
+    const g = (await act("tile.group", { with: "activity", where: "down" }, "reader")).name;
     render();
     expect(tile("tree")).toMatchObject({ link: `${g}/reader`, linkAcross: "true" });
     expect(inner(g, "reader")).toBeDefined();
@@ -462,8 +462,8 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("link mode crosses sibling groups (PIE-1073): a click wires the source and its open lands there", async () => {
     await fresh();
-    const a = (await me("tile.group", { with: "activity", where: "down" }, "tree")).tile;
-    const b = (await me("tile.group", { with: "replies", where: "down" }, "reader")).tile;
+    const a = (await me("tile.group", { with: "activity", where: "down" }, "tree")).name;
+    const b = (await me("tile.group", { with: "replies", where: "down" }, "reader")).name;
     render();
     await me("mount.enter", { on: true }, a);
     await me("tile.focus", {}, `${a}/tree`);
@@ -495,7 +495,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("alt+l targets across a group both ways also take preview requests without another tile (PIE-1120)", async () => {
     await fresh();
-    const g = (await me("tile.group", { with: "activity" }, "reader")).tile;
+    const g = (await me("tile.group", { with: "activity" }, "reader")).name;
     render();
     await mine("tile.focus", {}, "tree");
     press({ kind: "alt", ch: "l" }, { kind: "char", ch: "s" });
@@ -504,7 +504,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     D().showFrom(D().pane("tree"), await board.get(seeded.notes.hub.id));
     render();
     expect(inner(g, "reader").showing.id).toBe(seeded.notes.hub.id);
-    expect(await me("tile.preview", {}, "tree")).toMatchObject({ existing: true, tile: `${g}/reader`, verb: "select" });
+    expect(await me("tile.preview", {}, "tree")).toMatchObject({ existing: true, tile: inner(g, "reader").id, verb: "select" });
     expect(names()).not.toContain("tree-preview");
 
     await me("mount.enter", { on: true }, g);
@@ -518,7 +518,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(inner(g, "reader").wires).toContainEqual({ verb: "open", to: tile("outside").id });
     await D().pane(g).inner.dispatch.act({ action: "open", args: { id: seeded.notes.root.id, from: "reader" } }, { kind: "user" });
     expect(showing("outside")).toBe(seeded.notes.root.id);
-    expect(await D().pane(g).inner.dispatch.act({ action: "tile.preview", tile: "reader" }, { kind: "user" })).toMatchObject({ existing: true, tile: "../outside", verb: "open" });
+    expect(await D().pane(g).inner.dispatch.act({ action: "tile.preview", tile: "reader" }, { kind: "user" })).toMatchObject({ existing: true, tile: tile("outside").id, verb: "open" });
     expect(inner(g, "reader-preview")).toBeUndefined();
     await me("mount.enter", { on: false }, g);
     await spill(g);
@@ -531,7 +531,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     const g = await act("tile.group", { with: "replies", where: "down" }, "activity");
     render();
     expect(D().history.newest().seq).toBeGreaterThan(seq);
-    expect(names()).toContain(g.tile);
+    expect(names()).toContain(g.name);
     await me("layout.undo", {}, g.tile);
     render();
     expect(names().slice().sort()).toEqual(before);
@@ -540,13 +540,13 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     for (const rule of ["tab", "beside", "first-unheld"]) {
       await fresh();
       await me("tile.link", { verb: "alt", to: "reader", rule }, "tree");
-      const g = (await me("tile.group", { with: "activity" }, "reader")).tile;
+      const g = (await me("tile.group", { with: "activity" }, "reader")).name;
       expect(tile("tree").wires).toContainEqual({ verb: "alt", to: inner(g, "reader").id, rule });
       await spill(g);
-      const h = (await me("tile.group", { with: "activity" }, "tree")).tile;
+      const h = (await me("tile.group", { with: "activity" }, "tree")).name;
       expect(inner(h, "tree").wires).toContainEqual({ verb: "alt", to: tile("reader").id, rule });
       await spill(h);
-      const k = (await me("tile.group", { with: "activity" }, "replies")).tile;
+      const k = (await me("tile.group", { with: "activity" }, "replies")).name;
       await me("layout.move", { into: k, beside: "activity" }, "tree");
       expect(inner(k, "tree").wires).toContainEqual({ verb: "alt", to: tile("reader").id, rule });
       await me("layout.move", { out: true }, `${k}/tree`);
@@ -558,7 +558,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
 
   test("opening and replacing a preview accepts container and cross-group sources (wave 7)", async () => {
     await fresh();
-    const g = (await me("tile.group", { with: "activity" }, "reader")).tile;
+    const g = (await me("tile.group", { with: "activity" }, "reader")).name;
     render();
     await me("tile.open", { kind: "preview", source: "tile:../tree", name: "far" }, `${g}/reader`);
     D().showFrom(D().pane("tree"), await board.get(seeded.notes.hub.id));
