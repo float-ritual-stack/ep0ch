@@ -5840,7 +5840,7 @@ export class NoteSurface {
       return { outside: where, url, launched: false };
     }
     if (opensRemotely()) {
-      if (where === "viewer") throw new ActionRefused(`the file is on this machine: ${url}; use a web URL to open it on your own machine`);
+      if (where === "viewer") throw new ActionRefused(`the file is on the machine running the door: ${url}; use a web URL to open it on your own machine`);
       return openRemote(url, host.ctx).then(launched => ({ outside: where, url, launched }));
     }
     external.run(where === "browser" ? externalOpenCommand(url) : fileOpenCommand(url));

@@ -156,8 +156,9 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
   io.remove(socket);
   const opener = Bun.serve({ unix: socket, async fetch(req) {
     const { url } = await req.json() as { url: string };
-    const ws = [...peers.values()].find(ws => ws.data.authenticated && ws.data.streams && !ws.data.closed);
+    const [ws, ...others] = [...peers.values()].filter(ws => ws.data.authenticated && ws.data.streams && !ws.data.closed);
     if (!ws) return Response.json({ opened: false });
+    if (others.length) return Response.json({ opened: false, error: "multiple machine links are up; click the copied URL" });
     const id = ++openId;
     const result = await new Promise<OpenResult>(resolve => {
       const timer = setTimeout(() => finish({ opened: false, error: "laptop link did not answer; run ep0ch link status" }), 5000);

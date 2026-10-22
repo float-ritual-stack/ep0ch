@@ -877,7 +877,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     const display = process.env.DISPLAY, wayland = process.env.WAYLAND_DISPLAY;
     process.env.DISPLAY = ":fictional";
     process.env.EP0CH_OUTLINES = join(scratch.root, "linked");
-    let link: ReturnType<typeof serveLink> | undefined, connector: ReturnType<typeof connectLink> | undefined;
+    let link: ReturnType<typeof serveLink> | undefined, connector: ReturnType<typeof connectLink> | undefined, spare: ReturnType<typeof connectLink> | undefined;
     try {
       remoteApp.push(showcase);
       await until(() => !!(showcase as any).notes, "remote showcase");
@@ -917,7 +917,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       }
       const received: string[] = [];
       let openError: "throw" | "detach" | null = null;
-      link = serveLink({ outlines: process.env.EP0CH_OUTLINES!, port: 0, keys: { travel: "fictional-key" }, log() {} });
+      link = serveLink({ outlines: process.env.EP0CH_OUTLINES!, port: 0, keys: { travel: "fictional-key", spare: "fictional-spare-key" }, log() {} });
       connector = connectLink({ server: `http://127.0.0.1:${link.port}`, machine: "travel", key: "fictional-key", host: scratch.sock, log() {}, open: async url => { if (openError) { if (openError === "detach") session.detach(pressing); throw new Error("Browser unavailable; click the copied URL\nprivate connector detail"); } received.push(url); } });
       await until(() => linkStates(process.env.EP0CH_OUTLINES!).length === 1, "laptop link up");
       bytes.length = 0;
@@ -930,6 +930,17 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       expect(received).toEqual([url]);
       expect(await openLinked(process.env.EP0CH_OUTLINES!, "file:///tmp/fictional")).toMatchObject({ opened: false, error: expect.stringContaining("only HTTP or HTTPS") });
       expect(received).toEqual([url]);
+      const otherOpens: string[] = [];
+      spare = connectLink({ server: `http://127.0.0.1:${link.port}`, machine: "spare", key: "fictional-spare-key", host: scratch.sock, log() {}, open: async url => { otherOpens.push(url); } });
+      await until(() => linkStates(process.env.EP0CH_OUTLINES!).length === 2, "two machine links up");
+      bytes.length = 0;
+      await stage.dispatch.press("artifact.open", { n: 2 });
+      expect(received).toEqual([url]);
+      expect(otherOpens).toEqual([]);
+      expect(bytes.join("")).toContain(osc52(url));
+      expect((remoteApp as any).message).toContain("multiple machine links");
+      spare.stop(); spare = undefined;
+      await until(() => linkStates(process.env.EP0CH_OUTLINES!).length === 1, "one machine link left");
       openError = "throw";
       await stage.dispatch.press("artifact.open", { n: 2 });
       expect((remoteApp as any).message).toContain("Browser unavailable; click the copied URL");
@@ -943,7 +954,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       expect(bytes.join("").includes(osc52(url))).toBe(false);
       expect(otherBytes.join("").includes(osc52(url))).toBe(false);
     } finally {
-      connector?.stop(); await link?.stop();
+      spare?.stop(); connector?.stop(); await link?.stop();
       if (outlines === undefined) delete process.env.EP0CH_OUTLINES; else process.env.EP0CH_OUTLINES = outlines;
       if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display;
       if (wayland === undefined) delete process.env.WAYLAND_DISPLAY; else process.env.WAYLAND_DISPLAY = wayland;
