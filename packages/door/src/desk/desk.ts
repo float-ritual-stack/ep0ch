@@ -1507,7 +1507,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const c = this.columnsIn().find(x => x.id === container);
     return c ? [...new Set(leaves(c).flatMap(id => this.followers(id)))] : [];
   }
-  nameOfPane(p: Pane): string { const id = this.idOf(p); return id === undefined ? "" : this.nameOf(id); }
+  nameOfPane(p: Pane): string { const id = this.idOf(p); return id === undefined ? this.pathTo(p) ?? "" : this.nameOf(id); }
   enterSession(p: ReaderPane) { this.entered.enter(p); this.ctx.flash(`in ${sessionName(p)}`); this.redraw(); }
   leave() { this.shell("screen.back"); }
   /** The tiles a columns container's source supplied, in its order (wherever they are now). */

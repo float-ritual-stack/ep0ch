@@ -345,7 +345,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       expect(s.d.layoutAll().layers.find(l => l.tiles.some(t => t.id === id))?.zoom).toBe(id);
       await act("tile.zoom", id, { on: false });
       press({ kind: "char", ctrl: true, ch: "w" }); press({ kind: "char", ch: " " });
-      expect(tile().picked).toBe(true);
+      expect((tile() as any).picked).toBe(true);
       await act("tile.select", id, { on: false });
       press({ kind: "char", ch: "b" });
       await until(() => s.d.layoutAll().tiles.some(t => t.kind === "backlinks" && (s.d.resolveTile(t.id!)!.desk.pane(t.id!) as BacklinksPane).target?.id === s.testing.id), "b lists the focused reader's links");

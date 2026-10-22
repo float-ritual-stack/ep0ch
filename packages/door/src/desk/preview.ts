@@ -56,7 +56,9 @@ export class PreviewPane extends ReaderPane {
   headName() { return this.quote ? `"${this.quote}"` : undefined; }
   override title() {
     const f = this.fileNow();
-    const what = this.quote ? `"${this.quote}"` : this.label ?? ("tile" in this.source && !this.source.tile && !f ? "preview" : `preview · ${"tile" in this.source ? this.source.tile + (f ? ` · ${basename(f)}` : "") : basename(this.source.file)}`);
+    const tile = "tile" in this.source ? this.on?.pane?.(this.source.tile) : undefined;
+    const name = tile ? this.on?.nameOfPane?.(tile) : undefined;
+    const what = this.quote ? `"${this.quote}"` : this.label ?? ("tile" in this.source && !this.source.tile && !f ? "preview" : `preview · ${"tile" in this.source ? (name || this.source.tile) + (f ? ` · ${basename(f)}` : "") : basename(this.source.file)}`);
     return [what, this.surface.state()].filter(Boolean).join(" · ");
   }
   override hint() { return this.fileNow() ? "follows the file as it's saved · links open where this tile's go" : super.hint(); }

@@ -251,7 +251,7 @@ describe("the control socket (F2, F3)", () => {
     await Bun.sleep(1500);
     expect(existsSync(join(open, "door.sock"))).toBe(false);
     loose.kill("SIGTERM"); await loose.ended();
-    expect(loose.out, open).toContain(open);
+    expect(loose.out.includes(open)).toBe(true);
   }, 40_000);
 
   test("snap writes under the state dir; a path elsewhere is written by the command, never by the door", async () => {
