@@ -357,7 +357,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       expect(floats().every(f => f.writing)).toBe(true);
       expect(await board.get(b.id)).toBeTruthy();
       // Written, its × (tile.close) saves it and closes it; the empty one's trashes it.
-      desk.focusOn(b.tile);                                             // its edit kept open: the keys are in it again (PIE-812)
+      desk.focusOn(b.name);                                             // its edit kept open: the keys are in it again (PIE-812)
       await until(() => desk.newNoteWhileTyping(), "in b's edit", 5000);
       for (const c of "Netting up") key(char(c));
       await desk.dispatch.press("tile.close", {}, b.tile);

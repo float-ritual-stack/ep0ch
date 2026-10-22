@@ -10752,7 +10752,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       value: { type: "string", optional: true, about: "its new value; left out, the person is asked in the power bar" },
     },
     examples: [
-      { act: "settings.set key=group value=status", does: "sets the group field of a configurable note to status" },
+      { act: "settings.set key=direction value=asc", does: "sets a view to ascending order" },
       { act: "settings.set key=limit value=20", does: "sets the limit field to 20, refused if the value does not fit its type" },
     ],
     async run({ key, value }, { surface, host }, actor) {
