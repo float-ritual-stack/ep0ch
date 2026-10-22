@@ -341,6 +341,9 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       await act("tile.drawer", target);
       await act("tile.link", source, { to: target, verb: "open" });
       expect(wire().wires).toContainEqual({ verb: "open", to: target });
+      await app.dispatch.act({ action: "open", args: { from: source, id: s.briefing.id, fresh: true } }, USER);
+      expect(s.d.layoutAll().tiles.find(t => t.id === target)?.showing?.id).toBe(s.briefing.id);
+      expect(app.drawer.desk!.layoutAll().tiles.some(t => t.collapsed && t.showing?.id === s.testing.id)).toBe(true);
       await act("tile.title", target, { text: "Potting bench" });
       await act("tile.group", target, { name: "garden" });
       expect(s.d.layoutAll().tiles.find(t => t.id === target)?.name).toBe("other");

@@ -1827,7 +1827,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const target = this.resolveTile(dest.target);
       if (!target) throw new ActionRefused(`no tile ${dest.target} takes this open`);
       const d = target.desk, id = d.idNamed(target.tile.id!)!;
-      return d.placeNote(m, { from: id, to: id, rule: dest.rule, note: m.id, keys: request.keys }, by);
+      return d.placeNote(m, { from: id, to: id, rule: dest.rule, fresh: request.fresh, note: m.id, keys: request.keys }, by);
     }
     if (dest.kind === "into") return null;
     const id = this.nextId;
@@ -1836,15 +1836,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const prior = target ? this.showing(target) : null;
     const source = dest.kind === "new" && dest.at.kind === "next" ? this.panes.get(dest.at.from) : undefined;
     const spec = source ? kindOf(source)?.opensNext?.(source, m) : undefined;
-    const r = this.ask({ op: "open", tile: id, name: this.autoName("detail"), kind: spec?.kind, placement: request }, by);
+    const container = request.container ?? (dest.kind === "new" && dest.at.kind === "in" ? dest.at.key : plan.keep ? this.openedInto(plan.keep.tile) : undefined);
+    const rec = container ? this.openedIn(container) : undefined;
+    const number = rec ? rec.count + 1 : undefined;
+    const name = number !== undefined ? `detail${number}` : this.autoName("detail");
+    const r = this.ask({ op: "open", tile: id, name, kind: spec?.kind, placement: request }, by);
     if (!r.ok) throw new ActionRefused(r.refused);
     let made: ReaderPane | undefined;
     if (dest.kind === "new" || plan.keep) {
-      made = makeTile(spec ?? { kind: "reader", mode: "held" }) as ReaderPane;
+      made = makeTile(spec ?? { kind: "reader", mode: "held", ...(number !== undefined ? { label: `detail ${number}` } : {}) }) as ReaderPane;
       this.put(made);
     }
     this.commit(r);
     if (made) {
+      if (rec) { rec.count = number!; rec.ids.push(id); }
       this.startTile(id);
       made.hold(dest.kind === "new" ? m : prior!, this);
       if (dest.kind === "new" && this.facts(request.to ?? request.from).editing) this.besides.set(request.to ?? request.from, id);
@@ -1859,9 +1864,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (dest.kind === "new" && dest.at.kind === "in") {
       const rec = this.openedIn(dest.at.key);
-      rec.ids.push(id); rec.active = id;
+      rec.active = id;
     }
-    if (plan.current) this.moveCurrent(m, { by }, by);
+    if (plan.current) this.moveCurrent(m, { by, reveal: true }, by);
     this.arrived(landed, by, false, plan.keep ? `${subject(prior!)} kept as a spine` : undefined);
     this.save(); this.redraw();
     return { desk: this, id: landed };
@@ -2332,7 +2337,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** `open fresh=true` naming no tile (the power bar's alt+⏎): a new detail beside the focused tile, as alt+⏎ on a link opens one; the keys go there only for the person. */
   async openFresh(id: string, actor: Actor): Promise<{ reader: string | null; id: string }> {
-    const m = await readNote(this.ctx, id);
+    const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     const landed = this.placeNote(m, { from: this.focus, fresh: true, note: m.id }, actor);
     this.redraw();
@@ -2348,7 +2353,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.tile(from);
     const plan = this.placeFrom(t.id, false, actor, id);
     if (plan.destination.kind !== "across") return null;
-    const m = await readNote(this.ctx, id);
+    const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     const landed = this.placeNote(m, { from: t.id, note: m.id }, actor);
     return landed ? this.pathTo(landed.desk.panes.get(landed.id)!) ?? landed.desk.nameOf(landed.id) : null;
@@ -2362,7 +2367,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const t = this.resolveTile(from);
     if (!t && from !== DRAWER_NAME) throw new ActionRefused(`no tile ${from}`);
     const d = t?.desk ?? this, source = t ? d.idNamed(t.tile.id!)! : this.focus;
-    const m = await readNote(this.ctx, id);
+    const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     const landed = d.placeNote(m, { from: source, fresh, note: m.id }, actor);
     if (!landed) return d.land(m, actor);
@@ -2871,7 +2876,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     const landed = this.placeNote(m, { from: from ?? this.focus, note: m.id,
-      ...(place === "float" ? { at: { kind: "float" as const, near: this.focus } } : { container: key, fresh: place === "new-detail" }) }, actor);
+      container: key,
+      ...(place === "float" ? { at: { kind: "float" as const, near: this.focus } } : place === "new-detail" ? { at: { kind: "in" as const, key } } : {}) }, actor);
     if (!landed) throw new ActionRefused(`no reader in ${key} takes this open`);
     this.openedIn(key).active = landed.id;
     this.redraw();

@@ -69,9 +69,9 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     key({ kind: "enter" });
     await until(() => reader("reader").msg?.id === porch.id, "⏎: the home detail holds the pick");
     expect(get().tiles.find((t: any) => t.name === "reader").showing.id).toBe(porch.id);
-    // Held means local: the current note didn't move. The list stays on the lamp, its selection on the row.
+    // The person moved the current note; the list keeps its own subject.
     render();
-    expect(D().current?.id).not.toBe(porch.id);
+    expect(D().current?.id).toBe(porch.id);
     expect(links().target?.id).toBe(lamp.id);
     await pickRow(hall.id);
     key({ kind: "enter" });
@@ -155,28 +155,29 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     expect(linkTargetOf(row)).toMatchObject({ block: log.id, role: "row", at: expect.any(Number) });
   }, 30_000);
 
-  test("alt+⏎ opens it in a new detail beside the origin: the origin keeps its note, the list keeps the keys", async () => {
+  test("alt+⏎ swaps the home and keeps its old note as a spine; the list keeps the keys", async () => {
     await setup();
     const before = get().tiles.length;
     await pickRow(hall.id);
     key({ kind: "alt-enter" });
     await until(() => get().tiles.length === before + 1, "a new detail");
     const made = get().tiles.find((t: any) => t.kind === "reader" && t.mode === "held" && t.name !== "reader");
-    expect(made.showing.id).toBe(hall.id);
-    expect(reader("reader").msg?.id).toBe(lamp.id);
+    expect(made.showing.id).toBe(lamp.id);
+    expect(made.collapsed).toBe(true);
+    expect(reader("reader").msg?.id).toBe(hall.id);
     expect(D().layoutGet().focus).toBe("links");
     expect(links().target?.id).toBe(lamp.id);
   }, 20_000);
 
-  test("a home that follows the current note: ⏎ moves the current note and the reader stays following; alt+⏎ is a new detail beside it", async () => {
+  test("a home that follows the current note: ⏎ moves the current note and the reader stays following; alt+⏎ keeps its old note beside it", async () => {
     await setup("reader");
     await until(() => reader("reader").msg?.id === lamp.id, "the reader on the lamp");
     const before = get().tiles.length;
     await pickRow(porch.id);
     key({ kind: "alt-enter" });
     await until(() => get().tiles.length === before + 1, "a new detail");
-    expect(get().tiles.find((t: any) => t.kind === "reader" && t.mode === "held")?.showing.id).toBe(porch.id);
-    expect(reader("reader").msg?.id).toBe(lamp.id);
+    expect(get().tiles.find((t: any) => t.kind === "reader" && t.mode === "held" && t.collapsed)?.showing.id).toBe(lamp.id);
+    expect(reader("reader").msg?.id).toBe(porch.id);
     expect(tile("links").linkFrom).toBe("home");
     key({ kind: "enter" });
     await until(() => reader("reader").msg?.id === porch.id, "⏎: the current note, which the reader follows");
@@ -268,8 +269,8 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     const before = get().tiles.length;
     const h = at(hall.id);
     mouse("down", h.x, h.y, 8); mouse("up", h.x, h.y, 8);     // alt
-    await until(() => get().tiles.length === before + 1, "alt+click: a new detail");
-    expect(reader("reader").msg?.id).toBe(lamp.id);
+    await until(() => get().tiles.length === before + 1, "alt+click: a kept spine");
+    expect(reader("reader").msg?.id).toBe(hall.id);
     const q = at(porch.id);
     mouse("down", q.x, q.y); mouse("up", q.x, q.y); mouse("down", q.x, q.y); mouse("up", q.x, q.y);
     await until(() => reader("reader").msg?.id === porch.id, "a double click opens in its home");

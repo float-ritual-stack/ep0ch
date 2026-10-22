@@ -516,7 +516,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       return result;
     }
     const active = ctx.opened?.get(route.into)?.active;
-    const target = active !== null && active !== undefined && leaves(container).includes(active) ? active : leaves(container).find(id => ctx.tile(id).notes);
+    const target = active !== null && active !== undefined && leaves(container).includes(active) ? active : leaves(container).find(id => ctx.tile(id).notes && !ctx.tile(id).follower);
     if (target !== undefined && !ctx.tile(target).editing && !ctx.tile(target).holds && ctx.tile(target).available !== false)
       return { ...placement(s, { ...request, container: undefined, default: false, to: target, keep: fresh }, ctx), route };
     result.destination = { kind: "new", at: { kind: "in", key: route.into } };
