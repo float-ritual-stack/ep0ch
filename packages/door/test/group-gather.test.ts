@@ -342,6 +342,40 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await spill(g);
   }, 30_000);
 
+  test("a refused spill keeps the group's picked tiles and pending wire", async () => {
+    await fresh();
+    const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
+    await me("tile.select", { on: true }, `${g}/reader`);
+    await me("tile.focus", {}, `${g}/reader`);
+    press({ kind: "alt", ch: "l" });
+    const before = inner(g, "reader");
+    expect(before.picked).toBe(true);
+    expect(desk.linkingFrom()).toBeDefined();
+    await me("layout.lock", { on: true }, "tree");
+    try {
+      await expect(spill(g)).rejects.toThrow(/locked/);
+      expect(inner(g, "reader").picked).toBe(true);
+      expect(desk.linkingFrom()).toBeDefined();
+    } finally {
+      press({ kind: "esc" });
+      await me("layout.lock", { on: false }, "tree");
+      await spill(g);
+    }
+  }, 30_000);
+
+  test("spilling a locked group keeps its policy on the tiles that come out", async () => {
+    await fresh();
+    const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
+    await me("layout.lock", { on: true }, `${g}/reader`);
+    await spill(g);
+    await expect(me("tile.close", {}, "replies")).rejects.toThrow(/locked/);
+    // The group's policy must not lock unrelated tiles on the containing screen.
+    await me("tile.open", { kind: "reader", name: "outside-lock" }, "tree");
+    await me("tile.close", {}, "outside-lock");
+    const policy = await me("layout.policy", {}, "replies");
+    await me("layout.policy", { node: policy.effective.by.locked, locked: false }, "replies");
+  }, 30_000);
+
   test("a locked group refuses links to its outside and preserves their verb and target", async () => {
     await fresh();
     const g = (await me("tile.group", { with: "replies" }, "reader")).tile;
