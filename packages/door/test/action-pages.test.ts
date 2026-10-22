@@ -18,6 +18,7 @@ import { actionPage, exampleSafe } from "../src/surface/action-page";
 import { draftPreview } from "../src/surface/note";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+const NVIM = process.env.EP0CH_TEST_NVIM || Bun.which("nvim");
 
 /** Every built-in action once, by its set's scope and name. */
 function builtIns(): ActionInfo[] {
@@ -101,7 +102,10 @@ describe("an action's page", () => {
 describe.skipIf(!outliner)("action-contract pages execute against an outline", () => {
   const h = useShowcaseScreen();
   const pages = builtIns().filter(a => (["tile", "reader", "pane", "tree", "activity", "hint", "tune", "query", "library", "new"].includes(a.scope)) || (a.scope === "desk" && a.name === "open"));
-  for (const page of pages) for (const example of page.examples ?? []) test(example.act, async () => {
+  for (const page of pages) for (const example of page.examples ?? []) {
+    const needsNvim = page.name === "block.mark" && example.act.includes("line=");
+    if (needsNvim && !NVIM) console.warn(`Skipping example (nvim is not on PATH): ${example.act}`);
+    test.skipIf(needsNvim && !NVIM)(example.act, async () => {
     const note = await h.board.createBlock(null, `Seed swap [page::garden]${page.name === "tree.depth" ? " [type::virtual-branch] [query::page=garden]" : ""}\nseed swap: bring beans and peas.\n` + "Water the beds.\n".repeat(45));
     if (page.name === "tree.depth") await h.board.move(note.id, null, USER, 1);
     const file = join(h.scratch.root, "garden-plan.md");
@@ -115,8 +119,8 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
           { t: "split", dir: "col", weights: [2, 1], kids: [
             { t: "split", dir: "row", weights: [1, 1, 1], kids: [reader("reader"), reader("replies"), { t: "leaf", kind: "activity", name: "activity" }] },
             { t: "leaf", kind: "preview", name: "preview", source: "tile:tree" },
-          ] }, page.name === "block.mark" && example.act.includes("line=")
-            ? { t: "leaf", kind: "pty", name: "shed-notes", cmd: ["nvim", "--clean", file], file } : reader("shed-notes"),
+          ] }, needsNvim
+            ? { t: "leaf", kind: "pty", name: "shed-notes", cmd: [NVIM!, "--clean", file], file } : reader("shed-notes"),
         ] } } });
     h.app.push(d);
     const cwd = process.cwd();
@@ -156,7 +160,7 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
         await act("block.mark", { id: h.seeded.notes.hub.id, reason: "first mark" });
         await act("block.mark", { id: note.id, reason: "second mark" });
       }
-      if (page.name === "block.mark" && example.act.includes("line=")) await until(() => !!(d.pane("shed-notes") as import("../src/desk/pty").PtyPane).nvim, "the example nvim socket");
+      if (needsNvim) await until(() => !!(d.pane("shed-notes") as import("../src/desk/pty").PtyPane).nvim, "the example nvim socket");
       if (page.name === "note.untrash") await act("note.trash", { ref: note.id, confirm: note.id });
       if (page.name === "screen.delete" || page.name === "layout.load") await act("screen.save", { name: "garden planning" });
       let line = example.act.replaceAll("7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", note.id).replaceAll("7d9a1f40", note.id.slice(0, 8))
@@ -180,4 +184,5 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
       if (page.name !== "note.trash") await h.board.trash(note.id);
     }
   });
+  }
 });

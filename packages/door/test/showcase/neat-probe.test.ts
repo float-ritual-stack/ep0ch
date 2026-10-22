@@ -8,6 +8,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
 import { BacklinksPane } from "../../src/desk/backlinks-pane";
 import { ReaderPane } from "../../src/desk/panes";
+import { QueryPane } from "../../src/desk/query";
 import { registerTileKind, tileKind, unregisterTileKind } from "../../src/desk/tile-kinds";
 import { Desk } from "../../src/desk/desk";
 import { USER, type Actor } from "../../src/socket";
@@ -90,11 +91,14 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     } finally { s.done(); }
   });
 
-  test("a reader keeps its requested label and refuses unused fields", async () => {
+  test("tile kinds keep their requested options and refuse unused fields", async () => {
     const s = await twoReaders();
     try {
       const answer = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", note: s.testing.id, label: "Seeds" } }, USER) as { tile: string };
       expect((s.d.pane(answer.tile) as ReaderPane).label).toBe("Seeds");
+      const query = await app.dispatch.act({ action: "tile.open", args: { kind: "query", query: "#seeds", source: "tile:other", mode: "held" } }, USER) as { tile: string };
+      expect((s.d.pane(query.tile) as QueryPane).held).toBe(true);
+      expect((s.d.pane(query.tile) as QueryPane).home).toBe("other");
       for (const request of [
         { action: "tile.open", args: { kind: "brief", note: s.testing.id } },
         { action: "tile.open", args: { kind: "echo.reader", note: s.testing.id } },
