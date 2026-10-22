@@ -2400,6 +2400,20 @@ Exact references use stable block IDs:
 Depends on ((516e1754-7741-4c9e-83a6-7b703a8f0798|the approved boundary))
 ```
 
+A link address can read a value. For example:
+
+```text
+Follow-up [ticket::PC-1245]
+Read [[{{this.ticket}}]].
+```
+
+This opens `PC-1245` and contributes a page-link backlink. Changing `ticket` to
+`PC-1246` moves that backlink; values read from a parent or another note follow
+changes to that dependency too. `(({{this.destination}}))` and
+`!(({{this.destination}}))` work when `destination` holds a block id. Each
+placeholder in an address needs one value. An unresolved value stays a warning,
+with the nearest key when available; saving keeps the source as written.
+
 Exact references accept `((block-id))`, `((block-id|label))`, `((block-id^fragment-id))`, and `((block-id^fragment-id|label))`. The optional authored label controls only presentation: following and backlinks retain the canonical block ID and optional fragment. Read views resolve untitled references to current target titles and titled references to their labels; edit views, exports, and storage retain the exact raw syntax. A label cannot be empty, whitespace-only, multiline, or contain the closing `))` delimiter. Symbolic links use `[[address]]`, brackets counted: an address may hold page links of its own (`[[[[2026-10-06]] - editor thoughts]]` links the page "[[2026-10-06]] - editor thoughts" and, nested, 2026-10-06), and a `]` that closes nothing it holds makes no link; a block registers an address through `[page::address]`, and existing Work IDs participate in the same unique normalized registry. Accepting completion for a Work-ID inserts `[[WORK-ID|title]]`, or `[[WORK-ID]]` if the title contains nested reference delimiters; ordinary pages and aliases retain `[[address]]`. Parsing or saving a dangling link never creates content. Only explicit follow creates a root stub, transactionally; unresolved Work-ID-shaped addresses fail instead of squatting the stable Work-ID namespace. Rename a page by editing its `[page::address]` text, from any client (Detail, Tree, `outliner update`, an agent): the new address becomes the page and the old one stays as an alias, so existing `[[old]]` links keep resolving, and renaming back to a former address promotes that alias. A save that names an address another live note already owns (as its page, alias or Work ID) is refused with `[[address]] is already the page of block <id>; pick another name`, and nothing is saved. A note in Trash holds no page name or alias a live note asks for (PIE-312): the live note takes it and `[[address]]` links follow it; restoring the note from Trash then rewrites its `[page::address]` to the next free `address-2`, `address-3`…, and the restore says so (`trash.restore`'s reply carries `renamedPages`). Work IDs stay with their note in Trash. Deleting the `[page::address]` token unregisters that primary address, so another note can take it; the note UUID and its aliases remain. `pages.rename` and `pages.remove` do the same through one call, and `pages.remove` also unregisters an alias. Work IDs remain immutable. Deleted targets remain resolvable until a live note takes their address, and purged targets become dangling.
 
 Detail preview removes the authored `((…))` and `[[…]]` delimiters from valid links and applies one semantic link treatment to only the resolved title or label. Missing titled block targets render as an unlinked `label · Missing target`; invalid syntax stays raw. Keyboard follow, click navigation, edit mode, storage, and export continue to use the canonical authored target.

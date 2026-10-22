@@ -1,3 +1,5 @@
+import { pageLinkSpans, blockReferenceEnvelopeRanges, codeRangesOf, linkOccurrences, type LinkOccurrence, type CodeScope } from "./link-syntax";
+import { codeHides } from "./code-ranges";
 // How a `{{ }}` of a note reads in a drawing (PIE-533 S2). The service answers (`site.answer`); every reader draws that
 // answer with these words and finds the placeholders in the text it draws with the same scan, so the door, Detail, the
 // publisher and an agent's read agree on what a value says and what an unresolved one says. Pure: no I/O.
@@ -94,4 +96,24 @@ export function substituteValues(
     at = pair.end;
   }
   return out + text.slice(at);
+}
+
+/** Re-scan value-built envelopes, retaining authored offsets for clicks, comments and backlinks. */
+export function valueLinkOccurrences(text: string, values: readonly SiteValue[], code?: CodeScope): { start: number; end: number; link?: LinkOccurrence; values: SiteValue[] }[] {
+  const pairs = pairValues(text, values);
+  const envelopes = [...pageLinkSpans(text), ...blockReferenceEnvelopeRanges(text).map(r => ({ ...r, start: text[r.start - 1] === "!" ? r.start - 1 : r.start }))];
+  const ranges = codeRangesOf(text, code);
+  return envelopes.filter(r => !codeHides(r, ranges)).flatMap(r => {
+    const inside = pairs.filter(p => p.start >= r.start && p.end <= r.end);
+    if (!inside.length) return [];
+    let filled = "", at = r.start;
+    for (const p of inside) {
+      filled += text.slice(at, p.start) + (p.value?.values?.[0] ?? "");
+      at = p.end;
+    }
+    filled += text.slice(at, r.end);
+    const ready = inside.every(p => hasWords(p.value) && p.value!.values!.length === 1);
+    const link = ready ? linkOccurrences(filled, []).find(l => l.start === 0 && l.end === filled.length) : undefined;
+    return [{ ...r, ...(link ? { link: { ...link, start: r.start, end: r.end } } : {}), values: inside.flatMap(p => p.value ? [p.value] : []) }];
+  });
 }

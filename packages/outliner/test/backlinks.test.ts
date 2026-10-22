@@ -21,6 +21,32 @@ function store(): OutlinerStore {
 }
 
 describe("semantic backlink relation", () => {
+  test("a value-built page link moves its backlink when the value changes", () => {
+    const workspace = store();
+    const first = workspace.create("First ticket [page::PC-1245]");
+    const second = workspace.create("Second ticket [page::PC-1246]");
+    const source = workspace.create("Plan [ticket::PC-1245]\nSee [[{{this.ticket}}]].");
+    const sources = (id: string) => workspace.queryBacklinks({ targetBlockId: id, limit: 10 }).sources.filter(s => s.occurrences.some(o => o.kind === "page")).map(s => s.blockId);
+    expect(sources(first.id)).toContain(source.id);
+    workspace.update(source.id, "Plan [ticket::PC-1246]\nSee [[{{this.ticket}}]].", source.revision);
+    expect(sources(first.id)).not.toContain(source.id);
+    expect(sources(second.id)).toContain(source.id);
+  });
+
+  test("a parent's value moves page, reference and embed backlinks without editing their source", () => {
+    const workspace = store();
+    const first = workspace.create("First page [page::PC-1245]");
+    const second = workspace.create("Second page [page::PC-1246]");
+    const parent = workspace.create(`Settings [ticket::PC-1245] [destination::${first.id}]`);
+    const source = workspace.create("Plan\n[[{{parent.ticket}}]] and (({{parent.destination}}))\n!(({{parent.destination}}))", parent.id);
+    const links = (id: string) => workspace.queryBacklinks({ targetBlockId: id, limit: 10 }).sources.find(s => s.blockId === source.id);
+    expect(links(first.id)?.occurrenceCount).toBe(3);
+    workspace.update(parent.id, `Settings [ticket::PC-1246] [destination::${second.id}]`, parent.revision);
+    expect(links(first.id)).toBeUndefined();
+    expect(links(second.id)?.occurrenceCount).toBe(3);
+    expect(workspace.get(source.id)!.revision).toBe(source.revision);
+  });
+
   test("groups exact, page, and Work-ID references while excluding protected and unresolved text", () => {
     const workspace = store();
     let target = workspace.create("Target decision [page::Target Page]");

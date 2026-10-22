@@ -1,3 +1,4 @@
+import type { SiteValue } from "@ep0ch/outline-core/site";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { createHash } from "node:crypto";
 import { isFragmentId, resolveFragment } from "./fragments";
@@ -159,6 +160,7 @@ export interface AuthoredLinksDataSource {
   /** This outline's resource providers (a store's); default the process-wide table. */
   readonly resourceProviders?: readonly ResourceDirectiveProvider[];
   get(blockId: string, outline?: string): Block | null;
+  referenceValues?(blockId: string): readonly SiteValue[];
   addressOf?(blockId: string): { outline?: string; machine?: string } | undefined;
   resolvePageAddress(address: string): PageAddressResolution;
   workIdAllocatorStatus(): WorkIdAllocatorStatus;
@@ -546,7 +548,7 @@ export function readAuthoredLinks(
   }
 
   const candidates: AuthoredCandidate[] = [
-    ...outlinerReferenceOccurrences(owner.text, source.workIdAllocatorStatus()),
+    ...outlinerReferenceOccurrences(owner.text, source.workIdAllocatorStatus(), undefined, source.referenceValues?.(owner.id)),
     ...resourceReferenceCandidates(owner.text, source.resourceProviders),
   ].sort((left, right) => left.start - right.start || left.end - right.end);
   const candidateLimited = candidates.length > AUTHORED_LINKS_MAX_CANDIDATES;

@@ -109,6 +109,7 @@ export class OutlineLinks {
         }
       }
       return { result: readAuthoredLinks({
+        referenceValues: id => local.referenceValues(id),
         resourceProviders: local.resourceProviders,
         resources: local.resources,
         extensionRecords: filter => local.extensionRecords(filter),
