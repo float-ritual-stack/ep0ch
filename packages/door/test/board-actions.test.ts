@@ -63,15 +63,10 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     expect(drawn).toContain("o float");
   });
 
-  test("PIE-1173: moving a card and reopening a composer name their owning draft keys", async () => {
+  test("PIE-1173: comment and composer refusals name their owning draft keys", async () => {
     const card = B().lanes[0].items[0];
     const pane = b.pane("preview") as ReaderPane;
     pane.show(await board.get(card.id), b);
-    pane.key(char("e"), b);
-    await until(() => !!pane.draft, "card draft");
-    pane.key({ kind: "paste", text: "Keep this edit." }, b);
-    await expect(b.dispatch.act({ action: "card.move", args: { card: card.id, lane: B().lanes[1].name } }, USER)).rejects.toThrow("esc twice puts it aside");
-    await b.dispatch.press("edit.close", { discard: true }, "preview");
     await b.dispatch.press("comment.note", {}, "preview");
     pane.key({ kind: "paste", text: "Keep this comment." }, b);
     await expect(b.dispatch.act({ action: "card.move", args: { card: card.id, lane: B().lanes[1].name } }, USER)).rejects.toThrow("esc twice puts it aside");

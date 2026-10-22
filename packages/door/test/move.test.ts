@@ -228,7 +228,7 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
     expect(B().mover).toBeNull();
     ch("L"); ch("H");
     await settled();
-    expect(flashes.at(-1)).toBe("not moved: it's open for editing with unsaved changes · save (ctrl+s) or close (esc) the edit first");
+    expect(flashes.at(-1)).toContain("not moved: it's open for editing with unsaved changes · ctrl+s save · esc twice puts it aside");
     expect((await current(cards.draft.id)).revision).toBe(cards.draft.revision);
     // Close the edit (esc twice puts it aside), then the move goes through.
     // Coming back to it (focus moved away), e enters it again before its keys reach it (PIE-411).

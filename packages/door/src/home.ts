@@ -77,6 +77,7 @@ const idOf = (r: Pick) => `${r.t}:${r.t === "offer" ? r.act : ""}:${"name" in r 
 const HOME_CHOICES = { outline: "home.open", new: "home.new", import: "home.import", machine: "home.connect", add: "home.add", cancel: "home.cancel" } as const;
 const HOME_CHOICE_KEYS: readonly ModeKey[] = Object.values(HOME_CHOICES).flatMap(action => ["enter", "click"].map(key => ({ key, action, label: "open" })));
 const HOME_KEYS: readonly ModeKey[] = [
+  ...["click", "wheel"].map(key => ({ key, action: "home.pick", label: "pick" })),
   ...["j", "down", "k", "up"].map(key => ({ key, action: "home.pick", label: "pick", args: { by: ["j", "down"].includes(key) ? 1 : -1 } })),
   { key: "n", action: "home.new", label: "new" }, { key: "i", action: "home.import", label: "import" },
   { key: "a", action: "home.add", label: "add machine" }, { key: "r", action: "home.reload", label: "reload" },
@@ -106,7 +107,7 @@ export class HomePane implements Pane {
     const machine = here && "machine" in here ? here.machine : undefined;
     return [
       ...HOME_KEYS,
-      ...(here ? [{ key: "enter", ...this.choice(here), label: "open" }] : []),
+      ...(here ? ["enter", "click"].map(key => ({ key, ...this.choice(here), label: "open" })) : []),
       ...(here?.t === "machine" ? [{ key: "x", action: "home.forget", label: "forget", args: { machine: here.machine } }] : []),
     ].map(row => row.key === "n" ? { ...row, args: machine ? { machine } : {} } : row);
   }

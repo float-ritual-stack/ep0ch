@@ -531,7 +531,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     const why = "the person has “Level the shelf” open in a draft with unsaved changes; an agent doesn't write it underneath";
     await expect(act("card.trash", { card: cards.shelf.id, confirm: cards.shelf.id })).rejects.toThrow(why);
     await expect(act("step.set", { card: cards.shelf.id, step: "2" })).rejects.toThrow(why);
-    const theirs = "it's open for editing with unsaved changes · save (ctrl+s) or close (esc) the edit first";
+    const theirs = "it's open for editing with unsaved changes · ctrl+s save · esc twice puts it aside";
     await expect(B().dispatch.act({ action: "step.set", args: { card: cards.shelf.id, step: "2" } }, { kind: "user" })).rejects.toThrow(theirs);
     BV.at(b, `detail${B().details.findIndex((d: any) => d.editing)}`);
     press({ kind: "char", ch: "e" });                                     // back in the edit (the keys went away from it)

@@ -1,4 +1,4 @@
-import { modeHint } from "../surface/modes";
+import { modeBinding, modeHint, type ModeKey } from "../surface/modes";
 import { declaredHints, hintSetting, setHint, resetHints, type HintSetting } from "../surface/hints";
 import { Draft, keepCopy } from "../edit";
 import { errorDetails } from "../status-log";
@@ -134,6 +134,7 @@ const RESIZE_ALIAS: Record<string, string> = { h: "<", l: ">", k: "-", j: "+" };
 const RESIZE_IDLE_MS = 4000;
 /** Bare keys that fold and unfold the focused tile (PIE-699), when nothing takes them: `-` folds it; `+` and `=` (the same key unshifted) open it. */
 const FOLD_KEYS = new Set(["-", "+", "="]);
+const DAILY_LAYOUT_KEYS: readonly ModeKey[] = [{ key: "alt+d", action: "layout.load", args: { name: "daily" }, label: "daily" }];
 
 type Prefix = "" | "wm" | "add" | "addtab" | "move" | "tab" | "resize";
 /** How many ms of laying tiles out again a frame spends while a resize goes on (Desk.pickReflows). */
@@ -2532,6 +2533,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       get where() { return d.whereNow ? () => d.whereNow!() : undefined; },
       keys: () => d.keys(),
       bindings: () => [
+        ...DAILY_LAYOUT_KEYS,
         ...W_KEYS.map(row => ({ ...row, key: `ctrl+w ${row.key === " " ? "space" : row.key}` })),
         ...d.spec.keys ?? [],
         ...[...d.panes.values()].flatMap(p => p.bindings ?? []),
@@ -4111,7 +4113,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ? leaving + "|14^W |08… · |15?|08 all keys · |07esc |08cancel"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
-        : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? "|15alt+d|08 daily · " : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.currentNow()!)}` : ""}`;
+        : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? `|15${keyCaption(DAILY_LAYOUT_KEYS[0]!.key)}|08 ${DAILY_LAYOUT_KEYS[0]!.label} · ` : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${screenTitle(this.layoutName)}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${subject(this.currentNow()!)}` : ""}`;
     return line(paint(s));
   }
 
@@ -4395,7 +4397,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.ch === "l") return this.run("tile.link", { ask: true }, this.nameOf(this.focus));
       // alt+r shows the focused reader's note in the outline (PIE-794), as the Tree's r does.
       if (k.ch === "r" && this.panes.get(this.focus) instanceof ReaderPane) return this.run("reader.reveal", {}, this.nameOf(this.focus));
-      if (k.ch === "d") return this.run("layout.load", { name: "daily" });
+      const layout = modeBinding(DAILY_LAYOUT_KEYS, k);
+      if (layout) return this.run(layout.action, layout.args ?? {});
       if (k.ch === "n" || k.ch === "p") return this.run("tab.select", { by: k.ch === "n" ? 1 : -1 }, this.nameOf(this.focus));
       if (k.ch === "m") return this.run("marks.next");
       if (k.ch === "x") return this.run("block.unmark", {}, this.nameOf(this.focus));

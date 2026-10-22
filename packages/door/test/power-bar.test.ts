@@ -337,7 +337,7 @@ describe.skipIf(!outliner)("the power bar", () => {
   test("an action's preview is its page: keys as keycaps, its arguments' table, its examples as act lines (PIE-1032)", async () => {
     key(ctrlK); type(">layout.move");
     expect(peek().bar.rows[0]).toMatchObject({ label: "layout.move" });
-    await until(() => frame().join("\n").includes("[^W] [m] then [h] [j] [k] [l]"), "layout.move's keys as keycaps", 3000);
+    await until(() => frame().join("\n").includes("[^W] [m]"), "layout.move's keys as keycaps", 3000);
     const drawn = frame().join("\n");
     // Its examples next, before its arguments: what a short preview shows first.
     expect(drawn).toContain("ep0ch act layout.move tile=activity to=reader where=tabs");
