@@ -337,7 +337,7 @@ examples lean on:
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
 | `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4344` |
 | `viaYolo` | `packages/outliner/src/server.ts:4374` |
-| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:437` |
+| `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:440` |
 
 ## Lifecycle
 

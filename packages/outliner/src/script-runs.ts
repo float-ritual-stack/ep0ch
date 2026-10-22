@@ -373,16 +373,19 @@ export class ScriptRuns {
             try {
               if (controller.signal.aborted) throw controller.signal.reason;
               sequenceAct = item.kind === "act";
+              const args: Record<string, string> = {};
               if (item.kind === "script") {
                 const entries = scriptsAt(this.store, this.registry.list().extensions, { blockId: request.blockId, line: request.line });
                 const call = actRequestOf(lineWords(item.source));
+                Object.assign(args, call.args);
+                if (call.tile !== undefined) args.tile = call.tile;
+                if (call.as !== undefined) args.as = call.as;
                 const ref = call.action;
                 const entry = entries.find(e => e.script && (e.name === ref || e.script.blockId === ref || e.id === ref));
                 if (!entry) throw new Error(`No script ${ref} here; ext ls lists the scripts`);
                 if (entry.state === "failed") throw new Error(entry.error);
                 source = this.registry.extension(entry.id)!.script!;
               } else source = { ...extension.script!, code: item.source, format: "actions" };
-              const args = item.kind === "script" ? Object.fromEntries(slotPairs(item.source).map(p => [p.key, p.value])) : {};
               const props = Object.fromEntries(Object.entries(args).map(([k, v]) => [k, [v]]));
               site = this.bind(source, { blockId: request.blockId, line: request.line, props });
               site.globals.input = value;

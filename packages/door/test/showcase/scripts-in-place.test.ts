@@ -199,7 +199,7 @@ return 'wrote';
     } finally { await app.dispatch.act({ action: "section", args: { name: "scripts-in-place" } }, USER); }
   });
 
-  test("an actions fence receives its sequence step's arguments", async () => {
+  test.each(["links", "'links'"])("an actions fence receives its sequence step's arguments: %s", async (slot) => {
     await app.dispatch.act({ action: "section", args: { name: "button-sequences" } }, USER);
     await app.dispatch.act({ action: "tile.collapse", tile: "links", args: { on: false } }, USER);
     const note = await board.createBlock(null, `Step arguments
@@ -207,7 +207,7 @@ return 'wrote';
 tile.collapse on=true tile={{props.tile}}
 \`\`\`
 ::button{label=Slots}
-((fold tile=links))
+((fold tile=${slot}))
 ::`);
     try {
       await app.loadExtensions(true);
