@@ -2829,6 +2829,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = this.idNamed(sel), drawer = !!this.ctx?.hostLayer?.isDrawer(this);
     return `${label} exited · ⏎ runs it again${id !== undefined && this.closesByMouse(id) ? " · ^W x closes" : ""} · ${drawer ? "Esc or " : ""}${ESCAPE_CHORD} back to ${back ?? (drawer ? "the screen" : "the door")}`;
   }
+  canClose(p: Pane): boolean {
+    const id = this.idOf(p);
+    return id !== undefined && this.closesByMouse(id);
+  }
   /** Tile `id` may close by its × (and ^W x): the layout lets it, and no container keeps it or shuts a dock instead. */
   private closesByMouse(id: number): boolean {
     return !chainOf(this.root, id).some(c => c.policy?.shuts) && !refusal(this.layout, { op: "close", tile: id }, this.layoutCtx(USER));
@@ -3478,7 +3482,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private screenKeyHint(): string {
-    if (this.holdsKeys()) return "";
+    const pane = this.panes.get(this.focus);
+    if (this.holdsKeys() || (pane instanceof ReaderPane && pane.surface.contextualHint() !== null)) return "";
     return modeHint(this.screenKeys().flatMap(row => {
       const def = this.dispatch.defOf(row.action)!;
       const menu = def.menu ? (Array.isArray(def.menu) ? def.menu[0] : def.menu) : undefined;
@@ -4023,15 +4028,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private specHint(): string | null {
     const h = this.spec.hint;
-    if (h === undefined) return null;
     if (typeof h === "string") return h;
     const f = this.panes.get(this.focus);
-    if (!f) return h["*"] ?? null;
-    if (f.typing?.()) return `|08 ${f.hint()}`;
+    if (!f) return h?.["*"] ?? null;
     if (this.collapsed.has(this.focus)) {
       const holds = f instanceof ReaderPane && f.holdsKeys ? ` · keeps ${sessionName(f)}` : "";
-      return `|14 ${(f instanceof ReaderPane ? f.detailLabel() : null) ?? this.nameOf(this.focus)} · collapsed${holds}|08 · ${h.spine ?? ""}`;
+      return `|14 ${(f instanceof ReaderPane ? f.detailLabel() : null) ?? this.nameOf(this.focus)} · collapsed${holds}|08 · ${h?.spine ?? this.screenKeyHint()}`;
     }
+    if (h === undefined) return null;
+    if (f.typing?.()) return `|08 ${f.hint()}`;
     if (this.isFloat(this.focus) && h.float !== undefined) return h.float;
     const k = h[f.kind] ?? h["*"] ?? null;
     // A tile that doesn't close (closable off, or kept by its source) isn't offered x: its kind's hint says it for the rest.

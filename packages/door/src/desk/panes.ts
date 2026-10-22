@@ -48,6 +48,8 @@ export interface DeskApi {
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */
   keepLayout?(): void;
+  /** The layout permits closing this tile, including the container that keeps it. */
+  canClose?(p: Pane): boolean;
   holdReader?(pane: ReaderPane, actor: Actor): void;
   /** The place in the door's undo order of this screen's newest layout change, or undefined: a reader's ctrl+z yields to it when it is newer. */
   layoutUndoSeq?(): number | undefined;

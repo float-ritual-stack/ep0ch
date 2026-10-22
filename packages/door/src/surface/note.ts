@@ -1079,8 +1079,8 @@ export class NoteSurface {
       : this.modes.all().find(mode => mode.editing())?.hint() ?? "";
   }
 
-  /** The keys that work right now. `extra` goes before the reading keys (a host's own, like `p pin`). */
-  hint(extra = ""): string {
+  /** A selected element or active mode owns the hint before a host offers its reading shortcuts. */
+  contextualHint(): string | null {
     const mode = this.modes.top();
     if (mode) return mode.hint();
     const attached = this.modes.all().find(m => m.name === "sources");
@@ -1102,6 +1102,13 @@ export class NoteSurface {
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src))} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
+    return null;
+  }
+
+  /** The keys that work right now. `extra` goes before the reading keys (a host's own, like `p pin`). */
+  hint(extra = ""): string {
+    const context = this.contextualHint();
+    if (context !== null) return context;
     const back = this.peek(-1) ? "alt← back · " : "";
     // A proposal an agent's patch left (PIE-501): A applies it anyway (unless it can't be applied), X dismisses it.
     const proposal = this.msg && isOpenProposal(this.msg) ? this.proposalKeys(this.msg.id) : "";

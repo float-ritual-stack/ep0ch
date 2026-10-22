@@ -1,5 +1,5 @@
 import { COLUMN_MOVE_KEYS } from "../surface/attached-keys";
-import { modeBinding, modeHint, modeActionKeys } from "../surface/modes";
+import { modeBinding, modeHint, modeActionKeys, type ModeKey } from "../surface/modes";
 import { errorDetails } from "../status-log";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 // The River (Quay) as a screen spec on the desk (PIE-515): its columns are tiles of one kind, `river.column`, in a
@@ -143,7 +143,7 @@ const filterInput = (text = "") => new LineInput(text, false, { complete: { gram
 // ── a column ─────────────────────────────────────────────────────────────────
 
 export class RiverColumn extends ReaderPane {
-  readonly bindings = COLUMN_MOVE_KEYS;
+  readonly bindings = [...COLUMN_MOVE_KEYS, ...FLOW_KEYS];
   override readonly kind: TileKindName = "river.column";
   /** A block column's note, as read; the Library's and a #tag's list. */
   root: Msg | null = null;
@@ -233,7 +233,7 @@ export class RiverColumn extends ReaderPane {
     if (this.mode === "filter") return completionOf(this.input)?.items.length ? paint(`|08${COMPLETION_HINT}`) : paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
     if (this.mode === "tags") return paint(this.tagChoices.length ? `|14same property|08 · ${this.tagChoices.map(([k, v], i) => `|15${i + 1}|08 ${k}:: |11${v}`).join("|08 · ")}|08 · |15esc|08 cancel` : "|14same property|08 · this note has no properties to follow · |15esc|08 back");
     if (this.surface.editing || this.linked()) return this.surface.hint();
-    return modeHint(COLUMN_MOVE_KEYS, action => COLUMN_ACTIONS.def(action)) + " · j k notes · ⏎ open · space replies · / filter · v select";
+    return modeHint(FLOW_KEYS.filter(row => row.action !== "tile.close" || this.desk?.canClose?.(this)), () => undefined) + " · " + modeHint(COLUMN_MOVE_KEYS, action => COLUMN_ACTIONS.def(action)) + " · j k notes · ⏎ open · space replies · / filter · v select";
   }
   override spine() {
     const hold = this.surface.draft ? "✎" : this.surface.session ? "¶" : "";
@@ -1045,11 +1045,16 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
  * column beside, w widen, p hold (keep full), x close, g search. Back and forward (alt+← backspace alt+→) are its surface's history,
  * which goes along the flow's trail (`host`).
  */
-const FLOW_KEYS: Record<string, { action: string; args?: Record<string, unknown> }> = {
-  h: { action: "tile.focus", args: { dir: "left" } }, left: { action: "tile.focus", args: { dir: "left" } },
-  l: { action: "tile.focus", args: { dir: "right" } }, right: { action: "tile.focus", args: { dir: "right" } },
-  w: { action: "tile.widen" }, p: { action: "tile.hold" }, x: { action: "tile.close" }, g: { action: "search" },
-};
+const FLOW_KEYS: readonly ModeKey[] = [
+  { key: "x", action: "tile.close", label: "close" },
+  { key: "h", action: "tile.focus", args: { dir: "left" }, label: "columns" },
+  { key: "left", action: "tile.focus", args: { dir: "left" }, label: "columns" },
+  { key: "l", action: "tile.focus", args: { dir: "right" }, label: "columns" },
+  { key: "right", action: "tile.focus", args: { dir: "right" }, label: "columns" },
+  { key: "w", action: "tile.widen", label: "widen" },
+  { key: "p", action: "tile.hold", label: "hold" },
+  { key: "g", action: "search", label: "search" },
+];
 
 /** The river column as a tile kind: a reader of the river's own view, opening a column of its own kind next. */
 export function riverColumnKind(): TileKind {
@@ -1060,9 +1065,9 @@ export function riverColumnKind(): TileKind {
     save: p => (p as RiverColumn).spec(),
     start: (p, env) => (p as RiverColumn).load(env.desk),
     actions: COLUMN_ACTIONS,
-    press: (_p, k) => FLOW_KEYS[keyName(k) ?? ""] ?? null,
+    press: (_p, k) => modeBinding(FLOW_KEYS, k) ?? null,
     // A swipe sideways steps to the column beside, as h and l do.
-    sideways: (_p, dir) => FLOW_KEYS[dir < 0 ? "left" : "right"] ?? null,
+    sideways: (_p, dir) => modeBinding(FLOW_KEYS, { kind: dir < 0 ? "left" : "right" }) ?? null,
     accepts: { notes: true },
     take: (p, m, desk) => { const c = p as RiverColumn; if (c.holdsKeys || c.editing) return "holds an edit or a comment"; c.hold(m, desk); return null; },
     holdsWork: p => (p as RiverColumn).unsaved() || (p as RiverColumn).editing,
