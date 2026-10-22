@@ -3476,10 +3476,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private screenKeyHint(): string {
-    return modeHint(this.screenKeys().map(row => {
+    if (this.holdsKeys()) return "";
+    return modeHint(this.screenKeys().flatMap(row => {
       const def = this.dispatch.defOf(row.action)!;
       const menu = def.menu ? (Array.isArray(def.menu) ? def.menu[0] : def.menu) : undefined;
-      return { ...row, label: menu?.label ?? def.summary };
+      const label = row.label ?? menu?.label;
+      return label === undefined ? [] : [{ ...row, label }];
     }), action => this.dispatch.defOf(action));
   }
 
@@ -3601,7 +3603,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const frameInk = (cover === "peek" && !focused && !arrival ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
     const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
-    const foot = armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint;
+    const foot = fitHint(armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, Math.max(0, r.cols - 4)).text;
     canvas.box(r, float && !arrival ? fgRgb(floatTheme(lv).border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
     if (arrival) canvas.text(r.col + 2, r.row, fg(bright) + BOLD + "*" + RESET, 1);
     let markerX = r.col + 3;

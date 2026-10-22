@@ -23,6 +23,7 @@ import { isKeyName } from "../surface/actions";
 export interface KeyBinding {
   key: string;
   action: string;
+  label?: string;
   args?: Record<string, unknown>;
   /** The tile it runs in (by name); left out, the action's own default (the focused tile, or the one tile of its kind). */
   tile?: string;
@@ -122,6 +123,7 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
     if (typeof b.action !== "string" || !b.action) throw new Error(`screen ${name}: key ${b.key} names no action`);
     return {
       key: b.key, action: b.action,
+      ...(typeof b.label === "string" ? { label: b.label } : {}),
       ...(b.args && typeof b.args === "object" && !Array.isArray(b.args) ? { args: { ...b.args } } : {}),
       ...(typeof b.tile === "string" ? { tile: b.tile } : {}),
       ...(kinds(b.unless) ? { unless: kinds(b.unless)! } : {}),

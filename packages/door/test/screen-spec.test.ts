@@ -32,6 +32,12 @@ describe("a screen is a spec", () => {
     }
   });
 
+  test("a screen note keeps a binding's argument-specific hint label", () => {
+    const spec: ScreenSpec = { name: "garden", title: "garden", layout: { root: { t: "leaf", kind: "reader", name: "reader" } },
+      keys: [{ key: "S", action: "tile.dock", args: { edge: "other" }, label: "dock to the other edge" }] };
+    expect(readSpec(specData(spec)).keys?.[0]?.label).toBe("dock to the other edge");
+  });
+
   test("bad data is refused with what's wrong", () => {
     const ok: ScreenSpec = { name: "x", title: "x", layout: { root: { t: "leaf", kind: "reader", name: "reader" } } };
     expect(() => readSpec(null)).toThrow(/is an object/);

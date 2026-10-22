@@ -658,10 +658,10 @@ export function welcomeKinds(): TileKind[] {
  * backlinks about a third of the height: as policy, so a person's arrangement inside it is theirs.
  */
 export function welcomeSpec(): ScreenSpec {
-  const digits = [..."1234567890"].map((d, i) => ({ key: d, action: "welcome.select", args: { n: i + 1, read: true } }));
+  const digits = [..."1234567890"].map((d, i) => ({ key: d, label: "read", action: "welcome.select", args: { n: i + 1, read: true } }));
   return {
     name: "welcome", title: "welcome", frame: "dotted", digits: false, band: "welcome", lands: "preview", fresh: "welcome.read",
-    keys: [...digits, { key: "L", action: "welcome.logo", unless: ["tree"] }],
+    keys: [...digits, { key: "L", label: "logo", action: "welcome.logo", unless: ["tree"] }],
     layout: {
       focus: "detail",
       root: {
