@@ -1273,7 +1273,11 @@ host's home folder. The host must be able to read the file. Supported kinds are
 stem, adding a number when another artifact has that name; the same absolute
 path keeps its name across reads and host restarts. Nothing rewrites the note.
 On the next read, changed content creates a new numbered snapshot. An unchanged
-file keeps its snapshot. A deleted file keeps serving its last snapshot and the
+file keeps its snapshot without rereading or hashing its source; the store checks
+its device, inode, size and modification time, and concurrent resolves share work.
+Symlinks use the target's kind. Paths with any hidden segment in the canonical
+target are refused: copy the file somewhere visible or use `ep0ch artifact put
+<file> --name <n>` explicitly. A deleted file keeps serving its last snapshot and the
 door's card says `file gone since <time>`. A file that cannot be read names the
 host and the concrete `ep0ch artifact put` command; a folder asks for its entry
 file. The web note frames the stored URL and the door opens it through the same

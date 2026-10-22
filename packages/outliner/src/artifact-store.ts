@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { artifactKind } from "@ep0ch/outline-core/media-line";
 import { localMachineName } from "./machine-name";
 import { deployedArtifacts } from "./artifact-deploy";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, writeSync, rmSync, statSync, lstatSync, existsSync, cpSync, watch, type FSWatcher } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, writeSync, rmSync, fstatSync, realpathSync, constants, lstatSync, existsSync, cpSync, watch, type FSWatcher } from "node:fs";
 import { join, dirname, extname, basename, resolve } from "node:path";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { artifactReference, type ArtifactInfo, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
@@ -49,6 +49,8 @@ function artifactHash(folder: string, files: string[]): string {
 export class ArtifactStore {
   // Outline servers on the same host share this path index, including while a compile awaits.
   private static pathReads = new Map<string, Promise<void>>();
+  private static resolving = new Map<string, Promise<ArtifactInfo>>();
+  private fileHashes = new Map<string, { dev: number; ino: number; size: number; mtime: number; hash: string }>();
   readonly root: string;
   readonly live: string;
   readonly compiler: ArtifactCompiler;
@@ -234,14 +236,30 @@ export class ArtifactStore {
       writeFileSync(temporary, JSON.stringify(paths));
       renameSync(temporary, indexFile);
     };
-    let content: Buffer;
+    let content: Buffer | undefined;
+    let canonical = path;
+    let hash: string;
+    let fingerprint: { dev: number; ino: number; size: number; mtime: number };
     try {
-      const stat = statSync(path);
-      if (stat.isDirectory()) throw new Error(`${path} is a folder; name its entry file, for example [artifact::${join(path, "index.html")}].`);
-      if (!artifactKind(path)) throw new Error(`${path} isn't an artifact (.jsx, .tsx, .html, .svg or .mermaid); to store it explicitly, run ${put}.`);
-      if (!stat.isFile()) throw new Error(`${path} isn't a regular file on ${machine}; run ${put} with a regular file.`);
-      checkArtifactSize(1, stat.size);
-      content = readFileSync(path);
+      canonical = realpathSync(path);
+      if (canonical.split("/").some(part => part.startsWith("."))) throw new Error(`The target ${canonical} isn't an artifact for automatic import: hidden path; copy it somewhere visible or run ${put}.`);
+      const fd = openSync(canonical, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const stat = fstatSync(fd);
+        if (stat.isDirectory()) throw new Error(`${path} is a folder; name its entry file, for example [artifact::${join(path, "index.html")}].`);
+        if (!artifactKind(canonical)) throw new Error(`The target ${canonical} isn't an artifact (.jsx, .tsx, .html, .svg or .mermaid); to store it explicitly, run ${put}.`);
+        if (!stat.isFile()) throw new Error(`${path} isn't a regular file on ${machine}; run ${put} with a regular file.`);
+        checkArtifactSize(1, stat.size);
+        fingerprint = { dev: stat.dev, ino: stat.ino, size: stat.size, mtime: stat.mtimeMs };
+        const cached = this.fileHashes.get(canonical);
+        if (cached && cached.dev === stat.dev && cached.ino === stat.ino && cached.size === stat.size && cached.mtime === stat.mtimeMs) hash = cached.hash;
+        else {
+          content = readFileSync(fd);
+          hash = new Bun.CryptoHasher("sha256").update(content).digest("hex");
+        }
+        // A removed snapshot needs the source again even when its fingerprint is unchanged.
+        if (!content && (entry?.hash !== hash || !existsSync(join(this.root, "snapshots", name, String(entry.version), "files")))) content = readFileSync(fd);
+      } finally { closeSync(fd); }
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT" && entry?.version) {
@@ -251,13 +269,13 @@ export class ArtifactStore {
       if (code) throw new Error(`Can't read ${path} on ${machine} (${code}); from the machine with the file, run ${put}.`);
       throw error;
     }
-    const hash = new Bun.CryptoHasher("sha256").update(content).digest("hex");
     if (entry?.hash !== hash || !existsSync(join(this.root, "snapshots", name, String(entry.version), "files"))) {
-      await this.put(name, { [basename(path)]: content });
+      await this.put(name, { [basename(canonical)]: content! });
       const snapshot = await this.snapshot(name);
       entry = paths[path] = { name, hash, version: snapshot.version };
       save();
     } else if (entry.gone) { delete entry.gone; save(); }
+    this.fileHashes.set(canonical, { ...fingerprint!, hash: hash! });
     return this.info(`${name}@${entry!.version}`);
   }
 
@@ -314,8 +332,15 @@ export class ArtifactStore {
         const parsed = artifactReference(name);
         if (parsed && (parsed.version || existsSync(join(this.live, parsed.name))) && (name === request.name || !artifactKind(request.name))) return this.info(name);
         if (request.name.includes("/") || extname(request.name) || (workspace && existsSync(resolve(workspace, request.name)))) {
-          const result = Promise.all([ArtifactStore.pathReads.get(this.root), this.pending])
-            .then(() => this.resolveFile(request.name, workspace ?? dirname(this.root)));
+          const path = resolve(workspace ?? dirname(this.root), request.name.startsWith("~/") ? join(homedir(), request.name.slice(2)) : request.name);
+          const key = `${this.root}\0${path}`;
+          const shared = ArtifactStore.resolving.get(key);
+          const result = shared
+            ? Promise.all([shared, this.pending]).then(([info]) => info)
+            : Promise.all([ArtifactStore.pathReads.get(this.root), this.pending]).then(() => this.resolveFile(path, workspace ?? dirname(this.root)));
+          ArtifactStore.resolving.set(key, result);
+          const clear = () => { if (ArtifactStore.resolving.get(key) === result) ArtifactStore.resolving.delete(key); };
+          void result.then(clear, clear);
           const settled = this.pending = result.then(() => {}, () => {});
           ArtifactStore.pathReads.set(this.root, settled);
           void settled.then(() => { if (ArtifactStore.pathReads.get(this.root) === settled) ArtifactStore.pathReads.delete(this.root); });

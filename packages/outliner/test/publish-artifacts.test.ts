@@ -1,7 +1,8 @@
 import { artifactResponse } from "../src/artifact-server";
 import { ArtifactStore } from "../src/artifact-store";
 import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test, spyOn } from "bun:test";
+import * as fs from "node:fs";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync, symlinkSync, chmodSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -785,3 +786,68 @@ test("closing a store after overlapping path reads still waits for its inbox pic
     finally { await watched.close(); await peer.close(); }
   }
 }, COMPILE_TIMEOUT);
+
+
+test("artifact symlinks use the target kind and read the checked open file", async () => {
+  const { client, write, workspace, root } = await setup();
+  const target = write("drawing.svg", "<svg>Lantern</svg>");
+  const link = join(workspace, "drawing.html"); symlinkSync(target, link);
+  const original = fs.fstatSync;
+  let replaced = false;
+  const probe = spyOn(fs, "fstatSync").mockImplementation(((...args: Parameters<typeof fs.fstatSync>) => {
+    const result = original(...args);
+    if (!replaced && result.ino === fs.statSync(target).ino) {
+      replaced = true;
+      fs.renameSync(target, `${target}.previous`);
+      writeFileSync(target, "<svg>Replacement</svg>");
+    }
+    return result;
+  }) as typeof fs.fstatSync);
+  let info: ArtifactInfo;
+  try { info = await client.request<ArtifactInfo>({ action: "artifacts.show", name: link }); }
+  finally { probe.mockRestore(); }
+  expect(replaced).toBe(true);
+  expect(readFileSync(join(root, ".artifacts/snapshots", info.name, String(info.version), "files/drawing.svg"), "utf8")).toBe("<svg>Lantern</svg>");
+  rmSync(link); symlinkSync(write("credentials.txt", "fictional key"), link);
+  await expect(client.request({ action: "artifacts.show", name: link })).rejects.toThrow(/target.*isn't an artifact/i);
+  rmSync(link); symlinkSync(write(".env", "FICTIONAL=value"), link);
+  await expect(client.request({ action: "artifacts.show", name: link })).rejects.toThrow(/target.*isn't an artifact/i);
+});
+
+test("artifact paths refuse canonical hidden segments and explain the visible copy or explicit put", async () => {
+  const { client, write, workspace } = await setup();
+  for (const relative of [".secret.html", ".config/panel.html", ".ssh/panel.html"]) {
+    const target = write(relative, "<p>Fictional private panel</p>");
+    const link = join(workspace, "visible.html"); symlinkSync(target, link);
+    for (const name of [target, link]) {
+      await expect(client.request({ action: "artifacts.show", name })).rejects.toThrow(/hidden.*copy.*visible.*ep0ch artifact put/i);
+    }
+    rmSync(link);
+  }
+});
+
+test("unchanged artifact paths do no source reads and concurrent resolves share one read", async () => {
+  const { client, write } = await setup();
+  const source = write("cached.html", "<p>First lantern</p>");
+  const identity = fs.statSync(source);
+  const original = fs.readFileSync;
+  let reads = 0;
+  const probe = spyOn(fs, "readFileSync").mockImplementation(((...args: Parameters<typeof fs.readFileSync>) => {
+    const file = args[0];
+    if (file === source || (typeof file === "number" && fs.fstatSync(file).ino === identity.ino && fs.fstatSync(file).dev === identity.dev)) reads++;
+    return original(...args);
+  }) as typeof fs.readFileSync);
+  try {
+    const show = () => client.request<ArtifactInfo>({ action: "artifacts.show", name: source });
+    const first = await show();
+    expect(reads).toBe(1);
+    reads = 0;
+    expect(await show()).toEqual(first);
+    expect(reads).toBe(0);
+    writeFileSync(source, "<p>Changed lantern</p>");
+    const [second, concurrent] = await Promise.all([show(), show()]);
+    expect(second.version).toBe(2);
+    expect(concurrent).toEqual(second);
+    expect(reads).toBe(1);
+  } finally { probe.mockRestore(); }
+});
