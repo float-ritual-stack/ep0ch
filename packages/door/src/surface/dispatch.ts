@@ -326,7 +326,7 @@ export class Dispatcher {
     const r = this.owner(req);
     const def = r ? "set" in r ? r.set.def(name) : r.delegate(req)?.defOf(name) : undefined;
     const keys = modeActionKeys([this.host.bindings?.() ?? []], name);
-    return def && keys ? { ...def, keys } : def;
+    return def && keys ? { ...def, keys: [...new Set([def.keys, keys].filter(Boolean))].join("; ") } : def;
   }
 
   unknownAction(name: string): string {
@@ -342,7 +342,7 @@ export class Dispatcher {
       for (const a of infos) {
         if (seen.has(a.name)) continue;
         const keys = modeActionKeys([this.host.bindings?.() ?? []], a.name);
-        out.push(keys ? { ...a, keys } : a);
+        out.push(keys ? { ...a, keys: [...new Set([a.keys, keys].filter(Boolean))].join("; ") } : a);
         seen.add(a.name);
       }
     }

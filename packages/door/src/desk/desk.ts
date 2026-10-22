@@ -3485,8 +3485,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pane = this.panes.get(this.focus);
     if (this.holdsKeys() || (pane instanceof ReaderPane && pane.surface.contextualHint() !== null)) return "";
     return modeHint(this.screenKeys().flatMap(row => {
-      const def = this.dispatch.defOf(row.action)!;
-      const menu = def.menu ? (Array.isArray(def.menu) ? def.menu[0] : def.menu) : undefined;
+      const def = this.dispatch.defOf(row.action);
+      const menu = def?.menu ? (Array.isArray(def.menu) ? def.menu[0] : def.menu) : undefined;
       const label = row.label ?? menu?.label;
       return label === undefined ? [] : [{ ...row, label }];
     }), action => this.dispatch.defOf(action));

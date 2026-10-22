@@ -117,9 +117,9 @@ export class ListPicker<T, H> implements Mode<H> {
       || !["shift+enter", "ctrl+enter", "shift+tab", "tab", "k", "j", "pgup", "pgdn", "home", "end"].includes(row.key)));
     return [
       this.spec.input && (this.spec.filters || this.spec.escClears) ? "type to filter" : "",
-      modeHint(keys.filter(row => row.action === "picker.close"), () => undefined),
-      ...pointer.map(row => `${row.key} ${row.label}`),
       modeHint(keys.filter(row => row.action !== "picker.close"), () => undefined),
+      ...pointer.map(row => `${row.key} ${row.label}`),
+      modeHint(keys.filter(row => row.action === "picker.close"), () => undefined),
     ].filter(Boolean).join(" · ");
   }
 

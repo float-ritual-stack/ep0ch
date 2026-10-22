@@ -6,6 +6,8 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { outliner, until } from "../scratch";
 import { hintKeys, declaredKeys } from "../../src/surface/actions";
 import { COMMENT_KEYS, EDIT_PREVIEW_KEYS } from "../../src/surface/attached-keys";
+import { Canvas } from "../../src/canvas";
+import { BacklinksPane } from "../../src/desk/backlinks-pane";
 import { ListPicker } from "../../src/surface/picker";
 import { LineInput } from "../../src/surface/line";
 import { modeHint } from "../../src/surface/modes";
@@ -132,26 +134,81 @@ describe.skipIf(!outliner)("the showcase screen: regions in prose", () => {
     await until(() => !pane.surface.replyLinks, "Esc closes replies");
   });
 
-  test("PIE-1173: actual desk pickers draw only keys from their active bindings", async () => {
+  test("PIE-1173: action help keeps keys from the tile and host, including move directions", async () => {
     await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
     screen();
     const stage = h.S().stages.get(h.S().sel).top as Desk;
-    const check = () => {
-      screen();
-      const picker = (stage as any).overlays.top() as ListPicker<unknown, Desk>;
-      expect(picker).toBeTruthy();
-      try {
-        const captions = picker.hint().split(" · ").map(part => {
-          const label = picker.bindings.map(row => row.label).find(label => label && part.endsWith(` ${label}`));
-          return label ? part.slice(0, -label.length) + "bound" : part;
-        }).join(" · ");
-        for (const key of hintKeys(captions)) expect(picker.bindings.some(row => row.key === key), picker.hint()).toBe(true);
-      } finally { picker.key({ kind: "esc" }, stage); }
+    for (const actions of [stage.dispatch, app.dispatch]) {
+      for (const help of [actions.defOf("tile.focus"), actions.list().actions.find(a => a.name === "tile.focus")]) {
+        for (const key of ["Tab", "shift+tab", "1-9", "hyper", "^W"]) expect(help?.keys).toContain(key);
+      }
+      for (const help of [actions.defOf("layout.move"), actions.list().actions.find(a => a.name === "layout.move")]) {
+        expect(help?.keys).toContain("^W m then h j k l beside");
+        expect(help?.keys).toContain("^W t then h j k l into tabs");
+      }
+    }
+  });
+
+  test("PIE-1173: a screen's unknown action draws its label and refuses when pressed", async () => {
+    const stage = new Desk({ name: "garden-keys", title: "Garden keys",
+      layout: { root: { t: "leaf", kind: "reader", name: "reader" } },
+      keys: [{ key: "X", action: "garden.missing", label: "visit garden" }, { key: "Y", action: "garden.absent" }] });
+    app.push(stage);
+    try {
+      expect(stage.render(app).lines.join("\n")).toContain("visit garden");
+      stage.key({ kind: "char", ch: "X" }, app);
+      await until(() => app.messages.rows.some(r => r.message.includes("nothing here answers to garden.missing")), "unknown binding refuses");
+    } finally { app.pop(); }
+  });
+
+  test("PIE-1173: picker footers expose working actions at their real widths", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "output-regions" } }, USER);
+    screen();
+    const stage = h.S().stages.get(h.S().sel).top as Desk;
+    const picker = () => (stage as any).overlays.top() as ListPicker<{ name: string }, Desk>;
+    const footer = (cols: number) => {
+      const p = picker();
+      const canvas = new Canvas(100, 30);
+      p.draw(canvas, { col: 0, row: 0, cols: 100, rows: 30 });
+      const line = canvas.lines().map(line => line.replace(/\x1b\[[\d;]*m/g, "")).find(line => line.includes("└"))!;
+      expect(line.trim().length).toBe(cols);
+      return line;
     };
-    stage.screenPicker(); check();
-    stage.loadLayout(undefined, USER); check();
-    stage.key({ kind: "char", ch: "w", ctrl: true }, app); stage.key({ kind: "char", ch: "P" }, app); check();
-    await stage.dispatch.press("tile.menu", {}, "notes"); check();
+    await stage.dispatch.press("screen.save", { name: "Garden picker test" });
+    stage.screenPicker();
+    expect(footer(60)).toContain("x delete made screen");
+    expect(footer(60)).toContain("⏎ choose");
+    expect(footer(60)).toContain("↑/↓ pick");
+    stage.key({ kind: "down" }, app);
+    expect(picker().sel).toBe(1);
+    stage.key({ kind: "up" }, app);
+    expect(picker().sel).toBe(0);
+    const saved = picker().items.findIndex(it => it.name === "garden-picker-test");
+    expect(saved).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < saved; i++) stage.key({ kind: "down" }, app);
+    stage.key({ kind: "char", ch: "x" }, app);
+    await until(() => app.messages.rows.some(r => r.message.includes("again") && r.message.includes("garden-picker-test")), "delete asks for its second press");
+    stage.key({ kind: "char", ch: "x" }, app);
+    await until(() => !picker().items.some(it => it.name === "garden-picker-test"), "x deletes the made screen");
+    stage.key({ kind: "esc" }, app);
+    expect(picker()).toBeNull();
+    await stage.openTile({ kind: "backlinks", source: "tile:notes", name: "picker-links" }, "notes", "right", USER);
+    const links = stage.layoutGet().tiles.find(t => t.kind === "backlinks")!;
+    await stage.dispatch.press("backlinks.groups", { choose: true }, links.name);
+    expect(footer(44)).toContain("⏎ change");
+    expect(footer(44)).toContain("↑/↓ pick");
+    stage.key({ kind: "down" }, app);
+    expect(picker().sel).toBe(1);
+    const pane = stage.pane(links.name) as BacklinksPane;
+    const group = picker().items[1];
+    const before = [...pane.groups];
+    stage.key({ kind: "enter" }, app);
+    await until(() => pane.groups.length === before.length - 1, "Enter toggles the selected group");
+    expect(pane.groups).not.toContain(group);
+    stage.key({ kind: "enter" }, app);
+    await until(() => pane.groups.length === before.length, "Enter restores the group");
+    stage.key({ kind: "esc" }, app);
+    expect(picker()).toBeNull();
   });
 
   test("PIE-1171/1173: migrated surfaces never carry a prose key list", () => {
