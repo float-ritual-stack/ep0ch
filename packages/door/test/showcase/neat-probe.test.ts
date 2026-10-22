@@ -115,12 +115,30 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     } finally { s.done(); }
   });
 
-  for (const shape of ["float", "tabs", "dock"] as const) test(`placement: ${shape} swaps without a spine and back returns the replaced note`, async () => {
+  test("placement: an explicit river-column open keeps the replaced note for Back", async () => {
+    const s = await twoReaders();
+    try {
+      await app.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "river.column", name: "river", source: `block:${s.testing.id}` } }, USER);
+      const river = s.d.pane("river") as ReaderPane;
+      await until(() => river.surface.msg?.id === s.testing.id, "river reads the old note");
+      await app.dispatch.act({ action: "tile.focus", tile: "briefing" }, USER);
+      await app.dispatch.act({ action: "open", tile: "river", args: { id: s.briefing.id } }, { kind: "agent", id: "garden-helper" });
+      await until(() => river.surface.msg?.id === s.briefing.id, "river reads the replacement");
+      await app.dispatch.act({ action: "back", tile: "river" }, USER);
+      await until(() => river.surface.msg?.id === s.testing.id, "Back restores the river's replaced note", 1000);
+      expect(shows(s.d, "river")).toBe(s.testing.id);
+      await app.dispatch.act({ action: "forward", tile: "river" }, USER);
+      await until(() => shows(s.d, "river") === s.briefing.id, "Forward restores the river's replacement");
+    } finally { s.done(); }
+  });
+
+  for (const shape of ["float", "tabs", "dock", "locked", "no-drop"] as const) test(`placement: ${shape} swaps without a spine and back returns the replaced note`, async () => {
     const s = await twoReaders();
     try {
       if (shape === "float") await app.dispatch.act({ action: "tile.float", tile: "other" }, USER);
       else if (shape === "dock") await app.dispatch.act({ action: "tile.dock", tile: "other", args: { edge: "right" } }, USER);
-      else await app.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "reader", name: "tabmate", where: "tabs" } }, USER);
+      else if (shape === "tabs") await app.dispatch.act({ action: "tile.open", tile: "other", args: { kind: "reader", name: "tabmate", where: "tabs" } }, USER);
+      else await app.dispatch.act({ action: "layout.policy", args: shape === "locked" ? { locked: true } : { droppable: false } }, USER);
       const floats = (s.d as any).layoutGet().floats;
       const before = s.d.layoutAll();
       const original = before.tiles.find(t => t.name === "other")!;
@@ -179,6 +197,25 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
         expect(JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: other }, USER))).toContain(scripted.id);
       } finally { await s.cleanup(); }
     }, 30_000);
+
+    test(`placement: a named busy reader never redirects an agent into its neighbour (${placement})`, async () => {
+      const s = await placed();
+      try {
+        const other = placement === "screen" ? "other" : "nest/other";
+        await s.owner.dispatch.act({ action: "edit", tile: s.tile }, USER);
+        await s.owner.dispatch.act({ action: "draft.paste", tile: s.tile, args: { text: "Keep this draft" } }, USER);
+        const opened = await s.owner.dispatch.act({ action: "open", tile: s.tile, args: { id: s.testing.id } }, USER) as { reader: string };
+        await s.owner.dispatch.act({ action: "tile.focus", tile: opened.reader }, USER);
+        const before = s.owner.layoutAll();
+        const note = await board.createBlock(null, "Uninvited seed order\nLeave the neighbours alone.");
+        await expect(s.owner.dispatch.act({ action: "open", tile: s.tile, args: { id: note.id } }, { kind: "agent", id: "garden-helper" })).rejects.toThrow(/holds.*edit|holds.*draft/);
+        expect(s.owner.layoutAll().tiles.map(t => ({ id: t.id, showing: t.showing }))).toEqual(before.tiles.map(t => ({ id: t.id, showing: t.showing })));
+        expect(JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: opened.reader }, USER))).not.toContain(note.id);
+      } finally {
+        await s.owner.dispatch.act({ action: "edit.close", tile: s.tile, args: { discard: true } }, USER);
+        await s.cleanup();
+      }
+    });
 
     test(`placement: ten opens keep the destination and accumulate inner spines (${placement})`, async () => {
       const s = await placed();

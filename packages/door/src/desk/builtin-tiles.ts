@@ -45,8 +45,8 @@ const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "
     if (r.holdsKeys || r.editing) return `holds ${sessionName(r)}`;
     // An explicit open wins over a saved-history read still in flight.
     if (r.wantNote() !== m.id) r.dropWant();
-    if (r.follows && !r.holding) { r.surface.track(() => r.show(m, desk)); return null; }
-    r.surface.track(() => r.hold(m, desk));
+    if (r.follows && !r.holding) { r.show(m, desk); return null; }
+    r.hold(m, desk);
     return null;
   },
   holdsWork: p => (p as ReaderPane).unsaved() || (p as ReaderPane).editing,
@@ -121,7 +121,7 @@ const builtins = (): TileKind[] => [
     ...reading,
     follower: true,
     // It follows the note sent to it, as it follows its source; back returns to what it showed (PIE-453).
-    take: (p, m, desk) => { const pv = p as PreviewPane; if (pv.msg?.id !== m.id) pv.surface.track(() => pv.follow(m, desk)); return null; },
+    take: (p, m, desk) => { const pv = p as PreviewPane; if (pv.msg?.id !== m.id) pv.follow(m, desk); return null; },
     save: p => { const pv = p as PreviewPane; return { ...pv.spec?.(), ...(pv.label ? { label: pv.label } : {}) }; },
     check: s => (s.source && !/^(tile|file):./.test(s.source) ? "a preview's source is tile:<name> or file:<path>" : null),
     defaults: (s, at) => ((s.source || s.selectFrom) ? {} : s.file ? { source: `file:${s.file}` } : { source: `tile:${at.name}` }),

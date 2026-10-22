@@ -463,12 +463,14 @@ export interface PlacementRequest<I = number> {
   note: string;
   at?: At<I>;
   container?: string;
+  newNote?: "tab" | "float";
   default?: boolean;
   keys?: false;
 }
 export type NotePlacement<I = number> = {
   destination: { kind: "swap"; tile: I } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true } | { kind: "none"; reason: string };
   keep?: { tile: I; at: At<I> };
+  why?: string;
   current: boolean;
   route: ReturnType<typeof landing<I>>;
   keys?: I;
@@ -478,13 +480,15 @@ export type NotePlacement<I = number> = {
 };
 
 /**
- * The one place that decides where an open lands. An explicit destination wins; otherwise the wire, nearest
- * container, home and flow rule are read in that order. An unlinked reader takes its own open. A busy reader
- * keeps its edit and gets a reader beside it. A held note is kept as a spine toward the invoking tile.
- * Floats, tabs and docks swap with reader history only: a spine cannot sit beside their destination.
+ * The one place that decides where an open lands. A new-note place, explicit container/place or named tile wins;
+ * otherwise the wire, nearest container, home and flow rule are read in that order. A missing container falls
+ * back to a visible reader only for the person. An unlinked reader takes its own open. A busy named destination
+ * refuses an agent; the person's open keeps the edit and uses a reader beside it. A held note is kept as a spine
+ * toward the invoking tile. New-note tabs that cannot fit float instead.
+ * Floats, tabs, docks and shapes that cannot take a spine swap with reader history only.
  * Only the person's standing moves the current note or keys; an invitation is already resolved by the dispatcher.
  */
-export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across" | "collapsed">, request: PlacementRequest<I>, ctx: Ctx<I>): NotePlacement<I> {
+export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across" | "collapsed" | "floats">, request: PlacementRequest<I>, ctx: Ctx<I>): NotePlacement<I> {
   const { from, to, fresh, note } = request;
   const verb = fresh ? "alt" : "open";
   const wire = s.across.find(w => w.from === from && w.verb === verb);
@@ -503,6 +507,25 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     if (target !== undefined) route = { to: target };
   }
   const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: ctx.standing && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
+  if (request.newNote) {
+    const policy = policyAt(s, from, ctx.tile(from));
+    const tabs = ctx.tile(from).tabs;
+    const tab = request.newNote === "tab" && !isFloat(s, from) && visible(s.tree).includes(from)
+      && (!policy.locked || ctx.person.yolo) && policy.droppable && (!policy.accepts || policy.accepts.includes("reader")) && (!tabs || tabs.includes("reader"));
+    result.destination = { kind: "new", at: tab ? { kind: "tabs", target: from } : { kind: "float" } };
+    result.giveNewKeys = ctx.standing;
+    if (request.newNote === "tab" && !tab) result.why = "not a tab here: it floats instead";
+    return result;
+  }
+  if (request.container && !node(s.tree, request.container)) {
+    const why = `the ${request.container} row is gone (its tiles were moved out of it): opening a detail needs it · the screen comes back whole when it's opened again`;
+    const target = ctx.standing ? visible(s.tree).find(id => {
+      const f = ctx.tile(id);
+      return f.notes && !f.editing && !f.holds && f.available !== false;
+    }) : undefined;
+    if (target === undefined) return { ...result, destination: { kind: "none", reason: why } };
+    return { ...placement(s, { ...request, container: undefined, at: undefined, to: target }, ctx), why };
+  }
   if (request.at) { result.destination = { kind: "new", at: request.at }; result.giveNewKeys = ctx.standing && request.keys !== false; return result; }
   if (route && "across" in route) result.destination = { kind: "across", target: route.across, rule: route.rule };
   else if (route && "into" in route) {
@@ -547,6 +570,10 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     }
     const facts = ctx.tile(target);
     if (facts.editing || facts.holds) {
+      if (to !== undefined && !ctx.standing) {
+        result.destination = { kind: "none", reason: `${s.names.get(target)} holds an edit or a comment` };
+        return result;
+      }
       const beside = fresh ? undefined : ctx.beside?.get(target);
       if (beside !== undefined && s.names.has(beside) && !ctx.tile(beside).editing && !ctx.tile(beside).holds && ctx.tile(beside).available !== false)
         return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: beside }, ctx), route };
@@ -555,7 +582,9 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     else {
       result.destination = { kind: "swap", tile: target };
       if (result.giveNewKeys) result.keys = target;
-      if ((facts.held || request.keep) && facts.showing && facts.showing !== note && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
+      const chain = chainOf(s.tree, target);
+      const space = effective([{ by: "screen", policy: s.policy }, ...chain.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
+      if ((!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held || request.keep) && facts.showing && facts.showing !== note && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
         const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
         result.keep = { tile: target, at: { kind: "split", target, dir: before ? "left" : "right" } };
       }

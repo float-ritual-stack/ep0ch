@@ -43,7 +43,7 @@ export interface DeskApi {
   mountChain?(): string[];
   current: Msg | null;
   /** `link`, `fresh`, `agent`: how a reader opened it (OpenHow, PIE-441), for where it goes. */
-  setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane } & OpenHow): void;
+  setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false } & OpenHow): void;
   focusKind(kind: TileKindName, actor?: Actor): void;
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */

@@ -404,7 +404,7 @@ export class RiverColumn extends ReaderPane {
       // Its title, summary, byline and crumbs are the sticky header above the scroll (render).
       const m = root, host = this.host(desk);
       // Where back and forward go (its flow's trail), under the title where it's always in reach.
-      const hr = historyRow(w, desk.travelPeek?.(this, -1) ?? null, desk.travelPeek?.(this, 1) ?? null);
+      const hr = historyRow(w, this.surface.peek(-1), this.surface.peek(1));
       if (hr) all.push({ text: hr.line, card: -1, replies: false, history: hr.hits });
       for (const l of this.banner(m, w)) push(l);
       // The note's body through the shared surface's renderer (its digest): links as Detail reads them, transclusions,
@@ -494,7 +494,13 @@ export class RiverColumn extends ReaderPane {
 
   /** The surface's host: this desk's, and a redraw it asks for means its digest may draw differently now. */
   override host(desk: DeskApi) {
-    const h = super.host(desk), redraw = h.redraw;
+    const h = super.host(desk), redraw = h.redraw, keptChanged = h.keptChanged;
+    h.keptChanged = () => {
+      // A replacement's Back restores the note, so the column's replies must follow it too.
+      const m = this.surface.msg;
+      if (m && this.source.kind === "block" && this.source.id !== m.id) this.hold(m, desk);
+      keptChanged?.();
+    };
     h.redraw = () => { this.gen++; redraw(); };
     // `b` (the note action links): this column's own links, under its replies, rather than a links tile beside it.
     h.links = async (actor, standing) => {
@@ -552,7 +558,7 @@ export class RiverColumn extends ReaderPane {
     if (this.holdsKeys) return super.key(k, desk);
     if (this.selectKey(k, desk)) return true;
     // The mouse's back and forward buttons: back and forward in the flow, as alt+← and alt+→.
-    if (k.kind === "back" || k.kind === "forward") { void desk.perform?.("tile.travel", { dir: k.kind }, USER, this); return true; }
+    if (k.kind === "back" || k.kind === "forward") { void desk.perform?.(k.kind, {}, USER, this); return true; }
     const c = ch(k);
     const held = this.surface.editing;
     const current = !held && this.surface.msg?.id === this.noteOf()?.id ? this.surface.currentKind() : null;
@@ -704,7 +710,7 @@ export class RiverColumn extends ReaderPane {
     const row = y >= this.headRows ? this.rows[y - this.headRows] : this.sticky[y - (this.headRows - this.sticky.length)];
     if (row?.linksHead) { this.run(desk, "column.links"); return true; }
     const back = row?.history?.find(h => x >= h.from && x < h.to);
-    if (back) { void desk.perform?.("tile.travel", { dir: back.dir < 0 ? "back" : "forward" }, USER, this); return true; }
+    if (back) { void desk.perform?.(back.dir < 0 ? "back" : "forward", {}, USER, this); return true; }
     const copy = row?.copy?.find(c => x >= c.from && x < c.to);
     if (copy) { this.run(desk, "column.block", { n: copy.n + 1 }); return true; }
     const link = row?.links?.find(l => x >= l.from && x < l.to);

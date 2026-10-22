@@ -7330,21 +7330,20 @@ export class NoteSurface {
 
   /** The title back (-1) or forward (1) would show, or null. */
   peek(dir: -1 | 1): string | null {
-    if (this.kept) return this.kept.peek(dir);
     const p = (dir < 0 ? this.backs : this.aheads).at(-1);
-    return p ? subject(p.msg) : null;
+    return p ? subject(p.msg) : this.kept?.peek(dir) ?? null;
   }
 
   /**
    * Back (-1) or forward (1): this reader shows the note it showed there, re-read, scrolled and with its `[ ]`
    * position, folds and expanded threads as they were, so ⏎ and alt+⏎ act on the same element at once. Only
    * this reader moves (in place, not through the host's navigate: nothing else follows it). Where the view
-   * keeps the history (SurfaceHost.history), the view goes. Null when it went, else why not.
+   * keeps a trail (SurfaceHost.history), that trail takes over after local replacements. Null when it went, else why not.
    */
   async travel(dir: -1 | 1, host: SurfaceHost, actor: Actor = USER): Promise<string | null> {
     this.use(host);
-    if (host.history) return host.history.go(dir, actor);
     const stack = dir < 0 ? this.backs : this.aheads, to = stack.at(-1);
+    if (!to && host.history) return host.history.go(dir, actor);
     if (!to) return dir < 0 ? "nothing to go back to: this reader hasn't followed a link here" : "nothing ahead: go back first";
     const holding = this.modes.holding();
     if (holding) return `finish ${holding} first · ${this.holdingHint()}`;
@@ -7367,11 +7366,11 @@ export class NoteSurface {
 
   /**
    * The reader's place and its back and forward stacks, as a layout saves them (PIE-643): a handover or a restart
-   * gives the reader back where it was. Null when the view keeps the history (a river column's trail is the flow's,
-   * saved with the layout), or there is nothing to keep.
+   * gives the reader back where it was. A view-owned trail is kept by the layout; local replacements still save
+   * their own Back and Forward steps.
    */
   saveNav(): SavedNav | null {
-    if (this.kept) return null;
+    if (this.kept && !this.backs.length && !this.aheads.length) return null;
     const here = this.place();
     const out: SavedNav = { v: NAV_VERSION, ...(here ? { here: savedPlace(here) } : {}), backs: this.backs.map(savedPlace), aheads: this.aheads.map(savedPlace) };
     return here || out.backs.length || out.aheads.length ? out : null;
@@ -7396,7 +7395,7 @@ export class NoteSurface {
 
   /** The history as `peek` shows it: the titles back and forward go to, nearest first. */
   describeHistory() {
-    if (this.kept) return { back: [this.kept.peek(-1)].filter(Boolean), forward: [this.kept.peek(1)].filter(Boolean), keptBy: "view" };
+    if (this.kept && !this.backs.length && !this.aheads.length) return { back: [this.kept.peek(-1)].filter(Boolean), forward: [this.kept.peek(1)].filter(Boolean), keptBy: "view" };
     const titles = (ps: Place[]) => ps.map(p => ({ ...(p.msg.address ? { address: p.msg.address } : {}), id: p.msg.id, title: subject(p.msg) })).reverse();
     return { back: titles(this.backs), forward: titles(this.aheads) };
   }

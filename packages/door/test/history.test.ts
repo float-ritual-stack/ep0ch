@@ -324,6 +324,9 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
     key({ kind: "alt-enter" });                                            // no ] needed first
     await whole(d, n.shed.id);
     await b.dispatch.act({ action: "tile.focus", tile: "detail1" }, { kind: "user" });
+    key({ kind: "alt-left" });
+    await whole(d, n.jobs.id);
+    expect(d.surface.msg?.id).toBe(n.jobs.id);
     key({ kind: "alt-right" });
     await whole(d, n.shed.id);
     expect(d.surface.describe().history).toMatchObject({ back: [{ id: n.jobs.id }], forward: [] });

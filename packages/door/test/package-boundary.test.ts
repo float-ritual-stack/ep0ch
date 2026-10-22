@@ -49,17 +49,35 @@ describe("package boundary", () => {
   });
 });
 
-test("only placement calls the layout landing rule", () => {
+test("only placement applies note opens", () => {
   const bypasses: string[] = [];
-  for (const file of files(join(root, "src"))) {
-    const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  const paths = files(join(root, "src"));
+  const program = ts.createProgram(paths, { target: ts.ScriptTarget.Latest, module: ts.ModuleKind.Preserve, moduleResolution: ts.ModuleResolutionKind.Bundler, skipLibCheck: true });
+  const checker = program.getTypeChecker();
+  for (const file of paths) {
+    const source = program.getSourceFile(file)!;
     const visit = (node: ts.Node) => {
-      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "landing") {
+      if (ts.isCallExpression(node)) {
         let owner: ts.Node | undefined = node.parent;
-        while (owner && !ts.isFunctionDeclaration(owner) && !ts.isMethodDeclaration(owner)) owner = owner.parent;
+        while (owner && !ts.isFunctionDeclaration(owner) && !ts.isMethodDeclaration(owner) && !ts.isPropertyAssignment(owner)) owner = owner.parent;
         const name = owner && "name" in owner ? owner.name?.getText(source) : undefined;
-        if (file !== join(root, "src/desk/screen-layout.ts") || (name !== "placement" && name !== "landing"))
-          bypasses.push(`${file.slice(root.length + 1)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
+        const declaration = checker.getResolvedSignature(node)?.declaration;
+        const declaredIn = declaration?.getSourceFile().fileName ?? "";
+        const method = declaration && "name" in declaration ? (declaration.name as ts.Node | undefined)?.getText() : undefined;
+        const landing = ts.isIdentifier(node.expression) && node.expression.text === "landing";
+        const legacy = ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "openNewIn";
+        const hold = method === "hold" && /\/(?:desk\/panes|river\/column)\.ts$/.test(declaredIn);
+        const take = method === "take" && declaredIn.endsWith("/desk/tile-kinds.ts");
+        // Kind effects, startup restoration and selection previews are not new opens.
+        const effect = file.endsWith("/desk/builtin-tiles.ts") && (name === "take" || name === "start")
+          || file.endsWith("/river/column.ts") && (name === "take" || name === "host")
+          || file.endsWith("/desk/desk.ts") && name === "previewIntoPane"
+          || file.endsWith("/showcase/showcase.ts") && name === "stage"
+          || file.endsWith("/hub/welcome.ts") && name === "load";
+        const allowed = landing ? file.endsWith("/desk/screen-layout.ts") && (name === "placement" || name === "landing")
+          : file.endsWith("/desk/desk.ts") && name === "applyPlacement" || effect;
+        if ((landing || legacy || hold || take) && !allowed)
+          bypasses.push(`${file.slice(root.length + 1)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1} ${method ?? node.expression.getText(source)}`);
       }
       ts.forEachChild(node, visit);
     };

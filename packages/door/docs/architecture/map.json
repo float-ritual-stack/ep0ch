@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "0cfb00de", "outliner": "0cfb00de", "on": "2026-10-22" },
+  "verified": { "door": "74c2226c", "outliner": "74c2226c", "on": "2026-10-22" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -314,7 +314,7 @@
         { "r": "door", "p": "src/surface/modes.ts", "l": 138, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 54, "m": "export const PRECEDENCE" },
         { "r": "door", "p": "src/surface/note.ts", "l": 159, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 8956, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 8955, "m": "export const NOTE_ACTIONS" },
         { "r": "door", "p": "src/surface/note.ts", "l": 1129, "m": "staleOn(e: OutlineEvent): boolean" },
         { "r": "door", "p": "src/surface/note.ts", "l": 1146, "m": "reread(host: SurfaceHost)" }
       ]
@@ -407,7 +407,7 @@
         { "r": "door", "p": "src/app.ts", "l": 771, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 482, "m": "private asPerson(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 7003, "m": "export function refusalHint" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6997, "m": "export function refusalHint" }
       ]
     },
     {
@@ -470,7 +470,7 @@
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 60, "m": "export interface LayoutState" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 179, "m": "export type Op<" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 296, "m": "export function init" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 487, "m": "export function placement" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 491, "m": "export function placement" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 141, "m": "export type LNode" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 127, "m": "export type Dock" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 119, "m": "export type Columns" },
@@ -502,7 +502,7 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 660, "m": "private layoutCtx" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 2742, "m": "  run(name: string, args" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1477, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6019, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6014, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 116, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 398, "m": "\"tile.widen\": def({" }
       ],
@@ -534,7 +534,7 @@
         { "r": "door", "p": "src/desk/tiles.ts", "l": 112, "m": "export interface LayoutSpec" },
         { "r": "door", "p": "src/desk/tiles.ts", "l": 213, "m": "export function layoutNamed" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 113, "m": "interface SavedDesk" },
-        { "r": "door", "p": "src/river/column.ts", "l": 1086, "m": "saves: \"river.json\"" }
+        { "r": "door", "p": "src/river/column.ts", "l": 1092, "m": "saves: \"river.json\"" }
       ],
       "questions": [ { "text": "One LayoutSpec shape for river.json too, and presets as screen notes in the outline.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -607,7 +607,7 @@
         { "r": "door", "p": "src/desk/pty.ts", "l": 193, "m": "get herdr(): { pane: string; name?: string } | null" },
         { "r": "door", "p": "src/drawer.ts", "l": 194, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/drawer.ts", "l": 1523, "m": "export const DRAWER_ACTIONS" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1805, "m": "export function hostLayer" }
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1834, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback. In a door session the tile outlives a detach, scrollback and all; a new door still attaches without it.", "finding": "B-F21", "route": "PIE-418" } ]
     },
@@ -618,8 +618,8 @@
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 194, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6290, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1087, "m": "private take(id: I, heir?" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6284, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1116, "m": "private take(id: I, heir?" }
       ]
     },
     {
@@ -729,9 +729,9 @@
       "built": "A screen spec on the desk (PIE-515): its columns are river.column tiles (a reader of the note surface with the river's own view: the Library, a note and its replies, a #value branch) in a flow container, the layout engine's squeeze, focus, widen, hold, travel and close; saved to river.json as the desk's layout. Reply counts from one shared index per service.",
       "refs": [
         { "r": "door", "p": "src/river/column.ts", "l": 147, "m": "export class RiverColumn extends ReaderPane" },
-        { "r": "door", "p": "src/river/column.ts", "l": 1084, "m": "export function riverSpec" },
+        { "r": "door", "p": "src/river/column.ts", "l": 1090, "m": "export function riverSpec" },
         { "r": "door", "p": "src/river/column.ts", "l": 113, "m": "class OutlineIndex" },
-        { "r": "door", "p": "src/river/column.ts", "l": 865, "m": "export const COLUMN_ACTIONS" }
+        { "r": "door", "p": "src/river/column.ts", "l": 871, "m": "export const COLUMN_ACTIONS" }
       ],
       "questions": [
         { "text": "A river screen as a note in the outline (gap 4): its spec is plain data (riverSpec).", "finding": "A-F5", "route": "PIE-412" }
