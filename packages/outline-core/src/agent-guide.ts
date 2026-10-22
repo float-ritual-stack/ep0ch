@@ -14,6 +14,7 @@ import { componentGist, componentIsLive, type ComponentSchema } from "./componen
 export const GUIDE_NAMES = ["graph-stat", "graph-tabs", "graph-table", "graph-decision", "graph-compare", "graph-timeline", "graph-check", "callout", "rule", "view", "links"] as const;
 
 const HOUSE = [
+  "Who reads it: one person, often mid-task, in a terminal, on a phone or between other work. Lead with the conclusion; one fact per line, a bold lead on each; a section is one component plus at most three short lines; no paragraph past three sentences. A wall of text is a bug.",
   "Notes are Blockdown: Markdown-adjacent text plus the outline's own forms. Reach for those forms instead of prose:",
   "- A count, a status or a list that will change goes in a live figure or view with `query:` (the saved views' grammar), so it stays true: graph-stat (each tile counts its own `query:`), graph-tabs, graph-table, a `view` note or `::links` with a query. Never paste numbers a query can count.",
   "- A decision, a comparison, a plan or a history, a checklist: graph-decision, graph-compare, graph-timeline, graph-check, not paragraphs.",
