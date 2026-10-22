@@ -135,7 +135,7 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
     await act("facets.query", { text: "#yomama" });
     const note = (tile().notes as any[]).find(n => /Retro/.test(n.title));
     expect(await act("facets.open", { id: note.id })).toMatchObject({ id: note.id });
-    expect(D().current?.id).toBe(note.id);
+    expect(D().layoutGet().tiles.some((t: any) => t.showing?.id === note.id)).toBe(true);
     await board.request<any>("create", { parentId: null, text: "Compost audit [job::task] #yomama", author: "agent" });
     await until(() => tile().notes.length === 4, "the new note under #yomama");
     await act("facets.clear");

@@ -126,12 +126,12 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await app.act({ action: "backlinks.pick", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
     await until(() => shows("preview") === first.id, "the preview following the pick", 5000);
     expect(shows("detail")).toBe(seeded.notes.shed.id);
-    // alt+⏎ is a new detail beside the first, which keeps its note.
+    // Alt+Enter swaps the destination and keeps its former note as a spine.
     const before = tiles().length;
     await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n, where: "new" }, as: "test-agent" });
     await until(() => tiles().length === before + 1, "a new detail", 5000);
-    expect(tiles().find(t => t.kind === "reader" && t.mode === "held" && t.name !== "detail")?.showing?.id).toBe(first.id);
-    expect(shows("detail")).toBe(seeded.notes.shed.id);
+    expect(tiles().find(t => t.collapsed)?.showing?.id).toBe(seeded.notes.shed.id);
+    expect(shows("detail")).toBe(first.id);
     // ⏎ opens it in the list's home, the detail; the list keeps the shed's links (PIE-794).
     await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
     await until(() => shows("detail") === first.id, "⏎: the detail holds it", 5000);
@@ -181,12 +181,12 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await person("links.pick", { n });
     await until(() => shows("preview") === row.id, "the preview following the row", 5000);
     expect(shows("detail")).toBe(seeded.notes.shed.id);
-    // ⏎ (a double click) replaces the held detail's note, kept in its history; the outline and the current note stay.
+    // The person's open swaps the held detail and moves current, revealing it in the outline.
     await person("links.open", { n });
     await until(() => shows("detail") === row.id, "the detail holds the row's note", 5000);
     expect(tiles().find(t => t.name === "detail").mode).toBe("held");
-    expect(tree().selected()?.id ?? null).toBe(treeWas);
-    expect(stage().current?.id ?? null).not.toBe(row.id);
+    expect(stage().current?.id ?? null).toBe(row.id);
+    await until(() => tree().selected()?.id === row.id, "the person's open reveals the note in the outline");
     // alt+r, or a click on the crumbs: the outline's cursor goes to it. An agent's is refused: the cursor is the person's.
     await expect(app.act({ action: "reader.reveal", tile: "detail", as: "test-agent" })).rejects.toThrow(/person/);
     await person("reader.reveal");
@@ -199,16 +199,16 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await until(() => rows().length > 0, "the shed's rows again", 5000);
     await person("links.open", { n, where: "new" });
     await until(() => tiles().length === before + 1, "a new detail beside", 5000);
-    expect(tiles().find(t => t.kind === "reader" && t.mode === "held" && t.name !== "detail")?.showing?.id).toBe(row.id);
-    expect(shows("detail")).toBe(seeded.notes.shed.id);
-    // Growth by room: another detail beside the new one, and another; past a readable width the earlier ones (never the
-    // first) fold to spines, said; nothing closes.
+    expect(tiles().some(t => t.collapsed && t.showing?.id === seeded.notes.shed.id)).toBe(true);
+    expect(shows("detail")).toBe(row.id);
     const made = () => tiles().filter(t => t.kind === "reader" && t.mode === "held").map(t => t.name as string);
-    for (let i = 0; i < 2; i++) {
-      const last = made().at(-1)!;
-      stage().setCurrent(seeded.notes.notebook, { from: stage().pane(last), link: true, fresh: true });
+    for (const note of [seeded.notes.notebook, seeded.notes.shed]) {
+      const previous = shows("detail"), count = tiles().length;
+      stage().setCurrent(note, { from: stage().pane("detail"), link: true, fresh: true });
+      expect(shows("detail")).toBe(note.id);
+      expect(tiles().length).toBe(count + 1);
+      expect(tiles().some(t => t.collapsed && t.showing?.id === previous)).toBe(true);
     }
-    await until(() => made().length === 4, "four details", 5000);
     const spines = () => tiles().filter(t => t.collapsed).map(t => t.name as string);
     expect(spines().length).toBeGreaterThan(0);
     expect(spines()).not.toContain("detail");
@@ -248,10 +248,13 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await pick({ n: job, open: true });
     await until(() => shows("detail") === lag, "⏎: the detail holds it", 5000);
     expect(tiles().find(t => t.name === "detail").mode).toBe("held");
-    // alt+⏎: a new detail beside the home, which keeps its note.
+    // Start elsewhere so a fresh open that does nothing cannot pass.
+    await person("back");
+    await until(() => shows("detail") === seeded.notes.frost.id, "frost before the fresh open");
     const before = tiles().length;
     await pick({ n: job, fresh: true });
-    await until(() => tiles().length === before + 1, "a new detail", 5000);
+    expect(tiles().length).toBe(before + 1);
+    expect(tiles().some(t => t.collapsed && t.showing?.id === seeded.notes.frost.id)).toBe(true);
     expect(shows("detail")).toBe(lag);
     // Back on the frost note, #compost asks the same list for the other tag.
     await person("back");

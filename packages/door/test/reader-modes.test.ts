@@ -219,7 +219,7 @@ describe.skipIf(!outliner)("one reader kind with three modes, against a scratch 
     key(ctrl("w")); key(char("o")); key(char("d"));
     const made = () => get().tiles.find((t: any) => !before.has(t.name));
     await until(() => !!made(), "the detail ^W o d opened");
-    expect(made()).toMatchObject({ kind: "reader", mode: "held", name: "detail" });
+    expect(made()).toMatchObject({ kind: "reader", mode: "held" });
     const name = made().name;
     before.add(name);
     key(ctrl("w")); key(char("o")); key(char("r"));

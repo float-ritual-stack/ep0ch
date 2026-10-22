@@ -171,8 +171,8 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
 
 
   // PIE-873: marks only is found where the comments are counted, and kept: a click on the byline's count cycles the margin
-  // (as M), off reads "marks only (M)" there, and the mode goes with the tile's spec and to a reader opened from it.
-  test("marks only (PIE-873): a click on the comment count cycles the margin to marks only, said there; kept in the tile's spec and taken by a reader opened from it", async () => {
+  // (as M), off reads "marks only (M)" there, and the mode goes with the tile's spec.
+  test("marks only (PIE-873): a click on the comment count cycles the margin to marks only, said there; kept in the tile's spec", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "marginalia" }, as: "test-agent" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "marginalia")).top as any; };
@@ -196,12 +196,6 @@ describe.skipIf(!outliner)("the showcase screen: the margin: marginalia, attenti
     const spec = stage().specOf(planId);
     expect(spec.margin).toBe("off");
     expect((makeTile({ ...spec }) as ReaderPane).surface.marginMode).toBe("off");
-    // A reader opened from it (alt+⏎, a ctrl-click) starts marks only too.
-    const before = new Set(stage().panes.keys());
-    expect(stage().openReader(plan().msg, { kind: "split", target: planId, dir: "right" }, USER)).toBe(true);
-    const opened = [...stage().panes.keys()].find((id: number) => !before.has(id)) as number;
-    expect((stage().panes.get(opened) as ReaderPane).surface.marginMode).toBe("off");
-    await stage().dispatch.press("tile.close", {}, stage().nameOf(opened));
     // As it was, for the tests after.
     click(/■ \d+( comments?)? · marks \(M\)/);
     await until(() => plan().surface.marginMode === "trim", "a row each again");

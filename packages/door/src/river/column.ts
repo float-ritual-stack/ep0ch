@@ -204,7 +204,7 @@ export class RiverColumn extends ReaderPane {
   constructor(public source: Source, public filter: Clause[] = []) { super(false); }
 
   /** What the tile needs to be built again: its source and its filter. */
-  spec(): Record<string, unknown> { return { source: sourceText(this.source), ...(this.filter.length ? { filter: filterText(this.filter) } : {}) }; }
+  spec(): Record<string, unknown> { return { ...super.spec(), source: sourceText(this.source), ...(this.filter.length ? { filter: filterText(this.filter) } : {}) }; }
 
   /** The note the column's note actions act on: a block column's own; in the Library and a #tag, the selected one. */
   noteOf(): Msg | undefined {
@@ -255,7 +255,7 @@ export class RiverColumn extends ReaderPane {
     this.desk = desk;
     this.source = { kind: "block", id: m.id };
     this.root = m; this.items = null; this.sel = 0; this.top = 0; this.matched = null; this.asked++; this.fold.clear();
-    this.surface.show(m, this.host(desk));
+    this.show(m, desk);
     this.load(desk);
   }
 
@@ -281,7 +281,7 @@ export class RiverColumn extends ReaderPane {
     else {
       const id = this.source.id;
       // The column's surface gets the new text too; an open draft is only marked "changed elsewhere".
-      b.get(id).then(m => { this.root = m; if (m) this.surface.refresh(m); desk.redraw(); }, () => {});
+      b.get(id).then(m => { if (this.loads !== ask) return; this.root = m; if (m) this.surface.refresh(m); this.showSelected(desk); desk.redraw(); }, () => {});
       b.children(id).then(done, fail);
     }
   }
@@ -290,7 +290,7 @@ export class RiverColumn extends ReaderPane {
   private showSelected(desk: DeskApi) {
     if (this.surface.editing) return;
     const m = this.source.kind === "block" ? this.rootOf() : this.flat()[this.sel]?.m;
-    if (m && this.surface.msg?.id !== m.id) this.surface.show(m, this.host(desk));
+    if (m && this.surface.msg?.id !== m.id) this.show(m, desk);
   }
 
   /** The rows the column lists: its notes (the filter applied), with replies shown in place under theirs. */
@@ -404,12 +404,12 @@ export class RiverColumn extends ReaderPane {
       // Its title, summary, byline and crumbs are the sticky header above the scroll (render).
       const m = root, host = this.host(desk);
       // Where back and forward go (its flow's trail), under the title where it's always in reach.
-      const hr = historyRow(w, desk.travelPeek?.(this, -1) ?? null, desk.travelPeek?.(this, 1) ?? null);
+      const hr = historyRow(w, this.surface.peek(-1), this.surface.peek(1));
       if (hr) all.push({ text: hr.line, card: -1, replies: false, history: hr.hits });
       for (const l of this.banner(m, w)) push(l);
       // The note's body through the shared surface's renderer (its digest): links as Detail reads them, transclusions,
       // step controls; a click on a link opens it in the next column; `[ ]` walks its elements; the column scrolls.
-      if (this.surface.msg?.id !== m.id) this.surface.show(m, host);
+      if (this.surface.msg?.id !== m.id) this.show(m, desk);
       const dg = this.digest(m, w - 1, Math.max(4, Math.round(rows * 0.8))), at = all.length;
       this.digestAt = at;
       this.digestRows = dg.lines.length;
@@ -494,7 +494,13 @@ export class RiverColumn extends ReaderPane {
 
   /** The surface's host: this desk's, and a redraw it asks for means its digest may draw differently now. */
   override host(desk: DeskApi) {
-    const h = super.host(desk), redraw = h.redraw;
+    const h = super.host(desk), redraw = h.redraw, keptChanged = h.keptChanged;
+    h.keptChanged = () => {
+      // A replacement's Back restores the note, so the column's replies must follow it too.
+      const m = this.surface.msg;
+      if (m && this.source.kind === "block" && this.source.id !== m.id) this.hold(m, desk);
+      keptChanged?.();
+    };
     h.redraw = () => { this.gen++; redraw(); };
     // `b` (the note action links): this column's own links, under its replies, rather than a links tile beside it.
     h.links = async (actor, standing) => {
@@ -552,7 +558,7 @@ export class RiverColumn extends ReaderPane {
     if (this.holdsKeys) return super.key(k, desk);
     if (this.selectKey(k, desk)) return true;
     // The mouse's back and forward buttons: back and forward in the flow, as alt+← and alt+→.
-    if (k.kind === "back" || k.kind === "forward") { void desk.perform?.("tile.travel", { dir: k.kind }, USER, this); return true; }
+    if (k.kind === "back" || k.kind === "forward") { void desk.perform?.(k.kind, {}, USER, this); return true; }
     const c = ch(k);
     const held = this.surface.editing;
     const current = !held && this.surface.msg?.id === this.noteOf()?.id ? this.surface.currentKind() : null;
@@ -704,7 +710,7 @@ export class RiverColumn extends ReaderPane {
     const row = y >= this.headRows ? this.rows[y - this.headRows] : this.sticky[y - (this.headRows - this.sticky.length)];
     if (row?.linksHead) { this.run(desk, "column.links"); return true; }
     const back = row?.history?.find(h => x >= h.from && x < h.to);
-    if (back) { void desk.perform?.("tile.travel", { dir: back.dir < 0 ? "back" : "forward" }, USER, this); return true; }
+    if (back) { void desk.perform?.(back.dir < 0 ? "back" : "forward", {}, USER, this); return true; }
     const copy = row?.copy?.find(c => x >= c.from && x < c.to);
     if (copy) { this.run(desk, "column.block", { n: copy.n + 1 }); return true; }
     const link = row?.links?.find(l => x >= l.from && x < l.to);
@@ -1063,7 +1069,11 @@ export function riverColumnKind(): TileKind {
   return {
     kind: "river.column", previews: true, word: "column", noun: "a river column",
     about: "a river column (Quay): the Library (source=roots), a note with its replies (source=block:<id>), or every note with a property (source=tag:<key>=<value>); filter=<clauses>",
-    make: s => new RiverColumn(parseSource(s.source), parseFilter(s.filter ?? "")),
+    make: s => {
+      const column = new RiverColumn(parseSource(s.source), parseFilter(s.filter ?? ""));
+      column.wantNav = s.nav;
+      return column;
+    },
     save: p => (p as RiverColumn).spec(),
     start: (p, env) => (p as RiverColumn).load(env.desk),
     actions: COLUMN_ACTIONS,

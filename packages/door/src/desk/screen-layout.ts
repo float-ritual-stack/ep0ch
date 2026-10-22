@@ -66,6 +66,7 @@ export interface LayoutState<I = number> {
   /** The tile filling the screen, if one does. */
   readonly zoom: I | null;
   readonly wires: readonly Wire<I>[];
+  readonly across: readonly AcrossWire<I>[];
   readonly altReaders: ReadonlySet<I>;
   /** Each tile's name: what links, previews, `act tile=` and `peek` call it. */
   readonly names: ReadonlyMap<I, string>;
@@ -85,6 +86,7 @@ export interface LayoutState<I = number> {
   readonly shapeKey: string;
 }
 
+export type AcrossWire<I = number> = { from: I; to: string; verb: WireVerb; rule?: AltRule };
 export type WireVerb = "select" | "open" | "alt";
 export type Wire<I = number> = { from: I; verb: WireVerb; to: I; rule?: AltRule };
 export const WIRE_VERBS: readonly WireVerb[] = ["select", "open", "alt"];
@@ -94,6 +96,11 @@ export const selectTargets = <I>(s: Pick<LayoutState<I>, "wires">, from: I): I[]
 /** What a tile is, as the layout's rules need it: the desk's tile instances answer it. */
 export interface TileFacts {
   kind: string;
+  showing?: string;
+  following?: boolean;
+  lists?: boolean;
+  pinned?: boolean;
+  available?: boolean;
   /** Its kind's default policy (the innermost layer). */
   policy?: Policy;
   /** The kinds it takes as tabs, when its kind is picky. */
@@ -157,6 +164,9 @@ export interface Ctx<I = number> {
   screenHost?: HostMode;
   /** Names held by tiles in the other layer. */
   otherNames?: readonly string[];
+  beside?: ReadonlyMap<I, I>;
+  outward?: string;
+  opened?: ReadonlyMap<string, { ids: I[]; active: I | null }>;
 }
 
 /** Where a new or moved tile goes. A drag's places, plus: into a named line (`in`), the next column of a flow, a float. */
@@ -167,6 +177,7 @@ export type At<I = number> = Place<I>
 
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
 export type Op<I = number> =
+  | { op: "open"; placement: PlacementRequest<I>; tile: I; name?: string; kind?: string }
   | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[] }
   | { op: "close"; tile: I; gone?: boolean }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
@@ -198,7 +209,7 @@ export type Op<I = number> =
   /** What an agent may do to tile `tile` (PIE-639): its own level, or (`level` null) the containers' and the screen's again. */
   | { op: "agents"; tile: I; level: AgentLevel | null }
   | { op: "policy"; tile?: I; node?: string; set: Policy; clear: string[] }
-  | { op: "link"; tile: I; to?: I; verb?: WireVerb; remove?: boolean; rule?: AltRule }
+  | { op: "link"; tile: I; to?: I; verb?: WireVerb; remove?: boolean; rule?: AltRule; across?: string }
   | { op: "focus"; tile: I; quiet?: boolean }
   | { op: "reveal"; tile: I }
   | { op: "tab"; tile: I; by?: number }
@@ -227,12 +238,12 @@ const refuse = (why: string | null | undefined): void => { if (why) throw new Re
 // ── the state as an operation changes it (a private copy: a refused operation leaves the caller's as it was) ──
 
 interface Draft<I> {
-  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; wires: Wire<I>[]; altReaders: Set<I>; names: Map<I, string>; agents: Map<I, AgentLevel>;
+  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; wires: Wire<I>[]; across: AcrossWire<I>[]; altReaders: Set<I>; names: Map<I, string>; agents: Map<I, AgentLevel>;
   policy: Policy; locks: Set<string>; remembered: Map<string, Policy | undefined>; focus: I; changed: boolean; answer: Record<string, unknown>;
 }
 const draftOf = <I>(s: LayoutState<I>, focus: I): Draft<I> => ({
   tree: clone(s.tree), floats: s.floats.map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map([...s.collapsed].map(([k, v]) => [k, { ...v }])), zoom: s.zoom,
-  wires: s.wires.map(w => ({ ...w })), altReaders: new Set(s.altReaders), names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
+  across: s.across.map(w => ({ ...w })), wires: s.wires.map(w => ({ ...w })), altReaders: new Set(s.altReaders), names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
 });
 
 /** The leaf node of tile `id` where it stands alone (not a tab): what a group's tree replaces. */
@@ -272,7 +283,7 @@ function stamp<I>(tree: LNode<I>, policy: Policy, floats: readonly Float<I>[], p
 function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: string }): LayoutState<I> {
   const s = stamp(d.tree, d.policy, d.floats, prev);
   return freeze({
-    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, wires: d.wires, altReaders: d.altReaders, names: d.names, agents: d.agents, policy: d.policy,
+    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, wires: d.wires, across: d.across, altReaders: d.altReaders, names: d.names, agents: d.agents, policy: d.policy,
     locks: [...d.locks], remembered: d.remembered, rev: s.rev, nextNode: s.nextNode, shapeKey: s.shapeKey,
   });
 }
@@ -282,14 +293,14 @@ function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: s
  * blank, its containers given ids. `prev` goes on from an earlier state (its revision and ids, its agents' locks
  * and the docks' remembered policy), or from a saved revision and next id.
  */
-export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; floats?: readonly Float<I>[]; collapsed?: ReadonlyMap<I, Fold>; wires?: readonly Wire<I>[]; altReaders?: ReadonlySet<I>; agents?: ReadonlyMap<I, AgentLevel>; policy?: Policy },
+export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; floats?: readonly Float<I>[]; collapsed?: ReadonlyMap<I, Fold>; wires?: readonly Wire<I>[]; across?: readonly AcrossWire<I>[]; altReaders?: ReadonlySet<I>; agents?: ReadonlyMap<I, AgentLevel>; policy?: Policy },
   prev?: LayoutState<I> | { rev: number; nextNode: number }, opts: { freshIds?: boolean } = {}): LayoutState<I> {
   const given = clone(parts.tree);
   // A layout loaded from elsewhere (not this screen's own save coming back) never hands out an id given here before.
   if (opts.freshIds) forgetIds(given, num => num < (prev?.nextNode ?? 1));
   const tree = normalise(given);
   const d: Draft<I> = {
-    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, wires: (parts.wires ?? []).map(w => ({ ...w })), altReaders: new Set(parts.altReaders), names: new Map(parts.names), agents: new Map(parts.agents ?? []),
+    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, across: (parts.across ?? []).map(w => ({ ...w })), wires: (parts.wires ?? []).map(w => ({ ...w })), altReaders: new Set(parts.altReaders), names: new Map(parts.names), agents: new Map(parts.agents ?? []),
     policy: policyOf(parts.policy), locks: new Set(prev && "locks" in prev ? prev.locks : []), remembered: new Map(prev && "remembered" in prev ? prev.remembered : []),
     focus: leaves(tree)[0]!, changed: true, answer: {},
   };
@@ -407,10 +418,10 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string, othe
  * reader), else the open rule: the next column of its flow (`next`), or none (a reader is its own home: the note
  * replaces its own; anything else moves the current note).
  */
-export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts, tile?: (id: I) => TileFacts): { to: I } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
+function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names">, id: I, verb: "open" | "alt", facts?: TileFacts, tile?: (id: I) => TileFacts): { to: I } | { into: string } | { next: true } | { beside: I } | { tab: I } | { across: string; rule: AltRule } | null {
   const wire = s.wires.find(w => w.from === id && w.verb === verb && s.names.has(w.to));
   if (verb === "alt") {
-    const open = landing(s, id, "open", facts);
+    const open = landing(s, id, "open", facts, tile);
     const policy = policyAt(s, id, facts);
     const altOpens = policy.altOpens;
     const rule = wire?.rule ?? (wire ? "tile" : altOpens ?? "beside");
@@ -435,8 +446,154 @@ export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" |
   const home = facts?.home !== undefined ? named(s, facts.home) : undefined;
   if (home !== undefined && home !== id) return { to: home };
   if (facts?.home?.includes("/")) return { across: facts.home, rule: "tile" };
+  if (e.opens === "beside") {
+    const existing = leaves(s.tree).find(t => t !== id && tile?.(t).following && !tile?.(t).held);
+    return existing !== undefined ? { to: existing } : { beside: id };
+  }
   if (e.opens === "next" && flowHolding(s.tree, id)) return { next: true };
   return null;
+}
+
+export interface PlacementRequest<I = number> {
+  from: I;
+  to?: I;
+  fresh?: boolean;
+  rule?: AltRule;
+  keep?: boolean;
+  note: string;
+  at?: At<I>;
+  container?: string;
+  newNote?: "tab" | "float";
+  /** An unnamed open, optionally aimed at the screen's default tile. */
+  default?: boolean;
+  keys?: false;
+}
+export type NotePlacement<I = number> = {
+  destination: { kind: "swap"; tile: I } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true } | { kind: "none"; reason: string };
+  keep?: { tile: I; at: At<I> };
+  why?: string;
+  current: boolean;
+  route: ReturnType<typeof landing<I>>;
+  keys?: I;
+  nextFrom?: I;
+  giveNewKeys: boolean;
+  follow?: true;
+};
+
+/**
+ * The one place that decides where an open lands. A new-note place, explicit container/place or named tile wins;
+ * otherwise the wire, nearest container, home and flow rule are read in that order. A missing container falls
+ * back to a visible reader only for the person. An unlinked reader takes its own open. A busy named destination
+ * refuses an agent; the person's open keeps the edit and uses a reader beside it. A held note is kept as a spine
+ * toward the invoking tile. New-note tabs that cannot fit float instead.
+ * Floats, tabs, docks and shapes that cannot take a spine swap with reader history only.
+ * Only the person's standing moves the current note or keys; an invitation is already resolved by the dispatcher.
+ */
+export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires" | "names" | "across" | "collapsed" | "floats">, request: PlacementRequest<I>, ctx: Ctx<I>): NotePlacement<I> {
+  const { from, to, fresh, note } = request;
+  const verb = fresh ? "alt" : "open";
+  const wire = s.across.find(w => w.from === from && w.verb === verb);
+  const openWire = fresh && !s.wires.some(w => w.from === from && w.verb === "alt") ? s.across.find(w => w.from === from && w.verb === "open") : undefined;
+  let route = to !== undefined ? { to } : wire ? { across: wire.to, rule: wire.rule ?? "tile" as const }
+    : openWire ? { across: openWire.to, rule: "beside" as const }
+    : landing(s, from, verb, ctx.tile(from), ctx.tile);
+  if (to !== undefined && request.rule && request.rule !== "tile") {
+    const available = request.rule === "first-unheld" ? leaves(s.tree).find(id => { const f = ctx.tile(id); return f.notes && !f.held && !f.editing && !f.holds && !f.follower; }) : undefined;
+    route = available !== undefined ? { to: available } : request.rule === "tab" ? { tab: to } : { beside: to };
+  }
+  if (request.container) route = { into: request.container };
+  if (request.default && to === undefined && (!route || ctx.tile(from).notes)) {
+    const readers = leaves(s.tree).filter(id => { const f = ctx.tile(id); return !s.collapsed.has(id) && f.notes && !f.follower && !f.editing && !f.holds && !f.pinned && f.available !== false; });
+    const target = readers.find(id => ctx.tile(id).following) ?? readers[0];
+    if (target !== undefined) route = { to: target };
+  }
+  const result: NotePlacement<I> = { destination: { kind: "none", reason: "no reader takes this open" }, current: ctx.standing, route, giveNewKeys: ctx.standing && request.keys !== false && !ctx.person.busy && (to !== undefined || !ctx.tile(from).lists || !!route && ("into" in route || "next" in route)) };
+  if (request.newNote) {
+    const policy = policyAt(s, from, ctx.tile(from));
+    const tabs = ctx.tile(from).tabs;
+    const tab = request.newNote === "tab" && !isFloat(s, from) && visible(s.tree).includes(from)
+      && (!policy.locked || ctx.person.yolo) && policy.droppable && (!policy.accepts || policy.accepts.includes("reader")) && (!tabs || tabs.includes("reader"));
+    result.destination = { kind: "new", at: tab ? { kind: "tabs", target: from } : { kind: "float" } };
+    result.giveNewKeys = ctx.standing;
+    if (request.newNote === "tab" && !tab) result.why = "not a tab here: it floats instead";
+    return result;
+  }
+  if (request.container && !node(s.tree, request.container)) {
+    const why = `the ${request.container} row is gone (its tiles were moved out of it): opening a detail needs it · the screen comes back whole when it's opened again`;
+    const target = ctx.standing ? visible(s.tree).find(id => {
+      const f = ctx.tile(id);
+      return f.notes && !f.editing && !f.holds && f.available !== false;
+    }) : undefined;
+    if (target === undefined) return { ...result, destination: { kind: "none", reason: why } };
+    return { ...placement(s, { ...request, container: undefined, at: undefined, to: target }, ctx), why };
+  }
+  if (request.at) { result.destination = { kind: "new", at: request.at }; result.giveNewKeys = ctx.standing && request.keys !== false; return result; }
+  if (route && "across" in route) result.destination = { kind: "across", target: route.across, rule: route.rule };
+  else if (route && "into" in route) {
+    const container = node(s.tree, route.into);
+    if (!container) { result.destination = { kind: "none", reason: `no container ${route.into} takes this open` }; return result; }
+    if (container.t === "flow") {
+      const ids = leaves(container), source = ids.includes(from) ? from : ids.at(-1);
+      if (source !== undefined) {
+        const existing = !fresh ? ids.find(id => id !== source && ctx.tile(id).showing === note && !ctx.tile(id).editing && !ctx.tile(id).lists) : undefined;
+        result.destination = existing !== undefined ? { kind: "swap", tile: existing } : { kind: "new", at: { kind: "next", from: source } };
+        result.nextFrom = source;
+        if (existing !== undefined && result.giveNewKeys) result.keys = existing;
+      }
+      return result;
+    }
+    const active = ctx.opened?.get(route.into)?.active;
+    const target = ctx.tile(from).notes && !ctx.tile(from).follower && (leaves(container).includes(from) || !!ctx.opened?.get(route.into)?.ids.includes(from)) ? from : active !== null && active !== undefined && leaves(container).includes(active) ? active : leaves(container).find(id => ctx.tile(id).notes && !ctx.tile(id).follower);
+    if (target !== undefined && !ctx.tile(target).editing && !ctx.tile(target).holds && ctx.tile(target).available !== false)
+      return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, container: undefined, default: false, to: target, keep: fresh }, ctx), route };
+    result.destination = { kind: "new", at: { kind: "in", key: route.into } };
+  }
+  else if (route && "next" in route) {
+    const flow = flowHolding(s.tree, from);
+    result.nextFrom = from;
+    const existing = !fresh && flow ? leaves(flow.flow).find(id => id !== from && ctx.tile(id).showing === note && !ctx.tile(id).editing && !ctx.tile(id).lists) : undefined;
+    result.destination = existing !== undefined ? { kind: "swap", tile: existing } : { kind: "new", at: { kind: "next", from } };
+    if (existing !== undefined && ctx.standing && request.keys !== false && !ctx.person.busy) result.keys = existing;
+  }
+  else if (route && "tab" in route) result.destination = { kind: "new", at: { kind: "tabs", target: route.tab } };
+  else if (route && "beside" in route) {
+    if (fresh && ctx.tile(route.beside).notes && !ctx.tile(route.beside).editing && !ctx.tile(route.beside).holds)
+      return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, rule: undefined, to: route.beside, keep: true }, ctx), route };
+    result.destination = { kind: "new", at: { kind: "split", target: route.beside, dir: "right" } };
+    if (!fresh) { result.follow = true; result.giveNewKeys = false; }
+  }
+  else {
+    const target = route && "to" in route ? route.to : ctx.tile(from).notes ? from :
+      leaves(s.tree).find(id => { const f = ctx.tile(id); return f.following && !f.follower && f.available !== false; });
+    if (target === undefined) {
+      if (ctx.outward) result.destination = { kind: "across", target: ctx.outward, rule: "tile", source: true };
+      return result;
+    }
+    const facts = ctx.tile(target);
+    // Following a wire into a preview leaves the invoking reader's keys where they are.
+    if (to === undefined && !fresh && facts.follower) result.giveNewKeys = false;
+    if (facts.editing || facts.holds) {
+      if (to !== undefined && !request.default && !ctx.standing) {
+        result.destination = { kind: "none", reason: `${s.names.get(target)} holds an edit or a comment` };
+        return result;
+      }
+      const beside = fresh ? undefined : ctx.beside?.get(target);
+      if (beside !== undefined && s.names.has(beside) && !ctx.tile(beside).editing && !ctx.tile(beside).holds && ctx.tile(beside).available !== false)
+        return { ...placement(s, { ...request, keys: result.giveNewKeys ? request.keys : false, default: false, to: beside }, ctx), route };
+      result.destination = { kind: "new", at: { kind: "split", target, dir: "right" } };
+    }
+    else {
+      result.destination = { kind: "swap", tile: target };
+      if (result.giveNewKeys) result.keys = target;
+      const chain = chainOf(s.tree, target);
+      const space = effective([{ by: "screen", policy: s.policy }, ...chain.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
+      if ((!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held || request.keep) && facts.showing && facts.showing !== note && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
+        const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
+        result.keep = { tile: target, at: { kind: "split", target, dir: before ? "left" : "right" } };
+      }
+    }
+  }
+  return result;
 }
 
 /** The flow tile `id` is a column of (the nearest one over it), and its column there. */
@@ -701,7 +858,11 @@ class Step<I> {
       case "lock": return this.lock(op.on);
       case "agents": return this.setAgents(op.tile, op.level);
       case "policy": return this.setPolicy(op);
-      case "link": return this.link(op.tile, op.to, op.verb, op.remove, op.rule);
+      case "link": if (op.across !== undefined) {
+        this.d.across = this.d.across.filter(w => w.from !== op.tile || w.verb !== (op.verb ?? "open") || ((op.remove || op.verb === "select") && w.to !== op.across));
+        if (!op.remove) this.d.across.push({ from: op.tile, to: op.across, verb: op.verb ?? "open", ...(op.rule ? { rule: op.rule } : {}) });
+        return;
+      } return this.link(op.tile, op.to, op.verb, op.remove, op.rule);
       case "focus": return this.focus(op.tile, !!op.quiet);
       case "reveal": return this.reveal(op.tile);
       case "tab": return this.tab(op.tile, op.by);
@@ -759,7 +920,7 @@ class Step<I> {
       case "zoom": return no(op.tile, "zooming it");
       case "flow.widen": case "flow.travel": case "flow.hold": return no(op.tile, "widening, holding or travelling it");
       case "load": return each(this.all(), `laying the screen out as ${op.name} (it replaces the tiles)`);
-      case "open": if (op.at.kind === "tabs") no(op.at.target, "opening a tile into its tabs"); return;
+      case "open": if ("placement" in op) return; if (op.at.kind === "tabs") no(op.at.target, "opening a tile into its tabs"); return;
       case "agents": {
         // An agent may tighten a tile's level (free to edit, edit to off), never loosen it: the person's command frees it.
         const was = agentLevel(this.d, op.tile, this.facts(op.tile)), want = op.level ?? policyAt(this.d, op.tile, this.facts(op.tile)).agents;
@@ -812,6 +973,35 @@ class Step<I> {
   }
 
   private open(op: Extract<Op<I>, { op: "open" }>) {
+    if ("placement" in op) {
+      const plan = placement(this.d, op.placement, this.ctx);
+      const dest = plan.destination;
+      if (dest.kind === "none") refuse(dest.reason);
+      if (plan.keep) {
+        const before = rects({ ...this.d, zoom: null }, this.ctx.area);
+        this.open({ op: "open", tile: op.tile, name: op.name, kind: "reader", at: plan.keep.at, keys: false });
+        this.d.collapsed.set(op.tile, byOf(this.ctx.actor));
+        const parent = parentOf(this.d.tree, plan.keep.tile)?.parent;
+        if (parent && isLine(parent) && parent.t !== "flow") {
+          parent.weights = parent.kids.map(k => {
+            if (leaves(k).includes(op.tile)) return SPINE;
+            const boxes = leaves(k).flatMap(t => before.has(t) ? [before.get(t)!] : []);
+            const width = boxes.length ? Math.max(...boxes.map(r => r.col + r.cols)) - Math.min(...boxes.map(r => r.col)) : 1;
+            return Math.max(1, width - (leaves(k).includes(plan.keep!.tile) ? SPINE : 0));
+          });
+        }
+      }
+      if (dest.kind === "new") this.open({ op: "open", tile: op.tile, name: op.name, kind: op.kind ?? "reader", at: dest.at, ...(!plan.giveNewKeys ? { keys: false as const } : {}) });
+      if (dest.kind === "swap") {
+        this.present(dest.tile);
+        this.guard(dest.tile, "open into");
+        if (plan.nextFrom !== undefined) this.reach(dest.tile, plan.nextFrom, plan.keys !== undefined);
+        else this.reveal(dest.tile);
+        if (plan.keys !== undefined) this.give(plan.keys);
+      }
+      this.d.answer = { placement: plan };
+      return;
+    }
     if (this.all().includes(op.tile)) {
       // Opened into the next column, onto a tile already there: the person goes to it (back returns where they came from).
       if (op.at.kind === "next") return this.reach(op.tile, op.at.from);
@@ -849,13 +1039,13 @@ class Step<I> {
     this.d.answer = { tile: this.d.names.get(op.tile), ...(op.link !== undefined ? { link: this.name(op.link) } : {}) };
   }
   /** The person's open found the column already open: back from there returns to where they opened it from. */
-  private reach(id: I, from: I) {
+  private reach(id: I, from: I, keys = true) {
     const f = flowHolding(this.d.tree, id);
     if (!f) refuse(`${this.name(id)} isn't in a flow`);
     if (this.agent) { this.d.changed = false; return; }
     const fromCol = columnOf(f!.flow, from);
     if (fromCol >= 0 && fromCol !== f!.ci) setFrom(f!.flow, f!.ci, from);
-    this.give(id);
+    if (keys) this.give(id);
     arrive(f!.flow, f!.ci, fromCol, coversOf(this.d, f!.flow, this.ctx.area, x => !!this.facts(x).holds));
   }
   /** The person's keys go to tile `id`; in a flow, the column they leave is the one they were reading. */
@@ -1036,6 +1226,7 @@ class Step<I> {
   }
   /** A tile gone: its float, its spine, its name, its links and those to it. */
   private forget(id: I) {
+    this.d.across = this.d.across.filter(w => w.from !== id);
     this.d.floats = this.d.floats.filter(f => f.id !== id);
     this.d.collapsed.delete(id); this.d.agents.delete(id);
     this.d.names.delete(id);
@@ -1308,96 +1499,13 @@ class Step<I> {
     this.d.answer = { collapsed: true, dir: fold.dir === "h" ? "h" : "v" };
   }
 
-  /**
-   * Growth by room (PIE-794): tile `id` was just opened beside others. While it would be narrower than its `readable`
-   * cells in the screen's area, the leftmost other tile in its row that reads notes folds to a spine: never the row's
-   * first, never a preview (it follows another tile), never one holding an edit, a comment or a draft, never `id`, never the tile the person types in, and for an agent never the person's or a limited one.
-   * One policy for every screen: the desk's splits, the board's readers row; a flow squeezes its own columns by it.
-   * A fold gives its room to the new reader and sits just after it, so untouched tiles never grow.
-   * The answer names what folded.
-   */
-  private room(id: I, prior?: ReadonlyMap<I, Rect>, alt = false) {
+  /** Ordinary splits keep their shape. Only a flow compresses its columns around an arrival. */
+  private room(id: I, _prior?: ReadonlyMap<I, Rect>, _alt = false) {
     this.present(id);
-    this.d.changed = false;
-    const folded: string[] = [];
-    this.d.answer = { folded };
-    const p = parentOf(this.d.tree, id), want = this.policyAt(id).readable;
-    if (!p || p.parent.t !== "split" || p.parent.dir !== "row" || want <= 0) return;
-    const width = () => rects({ ...this.d, zoom: null }, this.ctx.area).get(id)?.cols ?? 0;
-    // The row's tiles that read notes, left to right (a tab set by the tab it shows).
-    const readers = p.parent.kids.map(k => (k.t === "leaf" ? k.id : k.t === "tabs" ? k.ids[k.active] : undefined)).filter((t): t is I => t !== undefined && !!this.facts(t).notes);
-    // Readers opened before it, wherever they are in the row (a new one opens right beside the one it came from), but a
-    // preview, which follows another tile: it isn't one of the readers that grew.
-    const may = (t: I) => t !== id && (alt ? this.foldSet(t).every(x => this.d.altReaders.has(x)) : t !== readers[0]) && !this.facts(t).follower && (!alt || !this.facts(t).held) && !this.facts(t).editing && !this.facts(t).holds && !this.d.collapsed.has(t) && t !== this.ctx.person.typingIn && this.policyAt(t).collapsible && !this.policyAt(t).locked
-      && !(this.agent && (t === this.d.focus || agentLevel(this.d, t, this.facts(t)).level !== "free"));
-    const giveRoom = (row: Line<I>, sizes: number[], to: number, from = -1) => {
-      const donors = row.kids.map((k, i) => ({ k, i, tiles: leaves(k) })).reverse();
-      const reader = (d: typeof donors[number]) => d.tiles.some(t => this.facts(t).notes);
-      const ordered = [...donors.filter(reader), ...donors.filter(d => !reader(d))];
-      if (alt) ordered.sort((a, b) => Number(b.i === to - 1) - Number(a.i === to - 1));
-      for (const { k, i, tiles } of ordered) {
-        if (sizes[to]! >= want) break;
-        if (i === from || i === to || tiles.some(t => this.d.collapsed.has(t) || this.facts(t).holds || this.facts(t).editing || t === this.ctx.person.typingIn
-          || this.policyAt(t).locked || !this.policyAt(t).resizable || (this.agent && (t === this.d.focus || agentLevel(this.d, t, this.facts(t)).level !== "free")))) continue;
-        const give = Math.min(want - sizes[to]!, Math.max(0, sizes[i]! - (k.t === "leaf" ? MIN_COLS : k.policy?.min ?? MIN_COLS)));
-        sizes[i]! -= give; sizes[to]! += give;
-      }
-    };
-    const by = byOf(this.ctx.actor);
-    while (width() < want) {
-      const t = (alt ? [...readers].reverse() : readers).find(may);
-      if (t === undefined) break;
-      const row: Line<I> = p.parent;
-      const before = rects({ ...this.d, zoom: null }, this.ctx.area);
-      const sizes = row.kids.map(k => {
-        const rs = leaves(k).flatMap(t => before.has(t) ? [before.get(t)!] : []);
-        return rs.length ? Math.max(...rs.map(r => r.col + r.cols)) - Math.min(...rs.map(r => r.col)) : 0;
-      });
-      const from = parentOf(this.d.tree, t)!.i, to = row.kids.findIndex(k => leaves(k).includes(id));
-      // A fold pays its freed cells to the new reader, not to unrelated tiles in the row.
-      sizes[to]! += sizes[from]! - SPINE;
-      // Splitting an edit already borrowed its width. Return spare room once the new reader is readable.
-      for (const [i, k] of row.kids.entries()) {
-        const held = leaves(k).find(t => (alt && !this.d.altReaders.has(t)) || this.facts(t).editing || this.facts(t).holds || t === this.ctx.person.typingIn || (this.agent && t === this.d.focus));
-        const was = held === undefined ? undefined : prior?.get(held);
-        if (was && i !== to && i !== from) {
-          const give = Math.min(Math.max(0, was.cols - sizes[i]!), Math.max(0, sizes[to]! - want));
-          sizes[i]! += give; sizes[to]! -= give;
-        }
-      }
-      giveRoom(row, sizes, to, from);
-      row.weights = sizes;
-      for (const f of this.foldSet(t)) this.d.collapsed.set(f, { ...by });
-      const [kid] = row.kids.splice(from, 1), [weight] = row.weights.splice(from, 1);
-      const beside = row.kids.findIndex(k => leaves(k).includes(id)) + 1;
-      row.kids.splice(beside, 0, kid!); row.weights.splice(beside, 0, weight!);
-      folded.push(this.name(t));
-      this.d.changed = true;
-    }
-    if (alt) {
-      const row = p.parent;
-      if (width() < want) {
-        const before = rects({ ...this.d, zoom: null }, this.ctx.area);
-        const sizes = row.kids.map(k => before.get(leaves(k)[0]!)?.cols ?? 0);
-        giveRoom(row, sizes, row.kids.findIndex(k => leaves(k).includes(id)));
-        row.weights = sizes;
-        this.d.changed = true;
-      }
-      const spines = row.kids.filter(k => leaves(k).every(t => this.d.altReaders.has(t) && this.d.collapsed.has(t)));
-      if (spines.length > 3) {
-        const old = spines.slice(2), ids = old.flatMap(k => leaves(k));
-        const before = rects({ ...this.d, zoom: null }, this.ctx.area);
-        const sizes = row.kids.map(k => before.get(leaves(k)[0]!)?.cols ?? 0);
-        const at = row.kids.indexOf(old[0]!);
-        const freed = old.reduce((n, k) => n + sizes[row.kids.indexOf(k)]!, 0) - SPINE;
-        sizes[row.kids.findIndex(k => leaves(k).includes(id))]! += freed;
-        for (const k of old.slice(1).reverse()) { const i = row.kids.indexOf(k); row.kids.splice(i, 1); sizes.splice(i, 1); }
-        row.kids[at] = { t: "tabs", ids, active: 0 };
-        sizes[at] = SPINE;
-        row.weights = sizes;
-        this.d.changed = true;
-      }
-    }
+    const f = flowHolding(this.d.tree, id);
+    this.d.changed = !!f;
+    this.d.answer = { folded: [] };
+    if (f) widenFlow(f.flow, f.ci);
   }
 
   private resizeBorder(op: Extract<Op<I>, { op: "resize" }>) {

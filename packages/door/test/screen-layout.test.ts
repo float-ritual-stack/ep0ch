@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import type { Rect } from "../src/canvas";
 import type { Actor } from "../src/socket";
 import {
-  apply, describe as describeLayout, dockOf, hostDock, hostLayer, HOST_SCREEN, init, landing, leaf, leaves, place, placeHost, policyAt, refusal, reviveTree, serialize, splitOf, tabsOf, visible,
+  apply, describe as describeLayout, dockOf, hostDock, hostLayer, HOST_SCREEN, init, placement, leaf, leaves, place, placeHost, policyAt, refusal, reviveTree, serialize, splitOf, tabsOf, visible,
   type Ctx, type LayoutState, type LNode, type Op, type Person, type TileFacts,
 } from "../src/desk/screen-layout";
 
@@ -67,8 +67,8 @@ describe("one operation, one transaction", () => {
     s = ok(s, { op: "link", tile: 1, to: 4, verb: "select" }).state;
     s = ok(s, { op: "link", tile: 1, to: 2, verb: "open" }).state;
     s = ok(s, { op: "link", tile: 1, to: 3, verb: "alt" }).state;
-    expect(landing(s, 1, "open", facts(1))).toEqual({ to: 2 });
-    expect(landing(s, 1, "alt", facts(1))).toEqual({ to: 3 });
+    expect(placement(s, { from: 1, fresh: false, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 2 });
+    expect(placement(s, { from: 1, fresh: true, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 3 });
     expect(s.wires.filter(w => w.verb === "select").map(w => w.to)).toEqual([3, 4]);
     s = ok(s, { op: "close", tile: 3 }).state;
     expect(s.wires).toEqual([{ from: 1, verb: "select", to: 4 }, { from: 1, verb: "open", to: 2 }]);
@@ -76,15 +76,15 @@ describe("one operation, one transaction", () => {
   });
   test("alt rules resolve through landing, with a screen default and a first unheld reader", () => {
     let s = ok(fresh(), { op: "link", tile: 1, to: 2 }).state;
-    expect(landing(s, 1, "alt", facts(1), facts)).toEqual({ beside: 2 });
+    expect(placement(s, { from: 1, fresh: true, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ beside: 2 });
     for (const rule of ["tab", "beside", "tile"] as const) {
       s = ok(s, { op: "link", tile: 1, to: 2, verb: "alt", rule }).state;
-      expect(landing(s, 1, "alt", facts(1), facts)).toEqual(rule === "tile" ? { to: 2 } : rule === "tab" ? { tab: 2 } : { beside: 2 });
+      expect(placement(s, { from: 1, fresh: true, note: "arrival" }, ctxOf(PERSON)).route).toEqual(rule === "tile" ? { to: 2 } : rule === "tab" ? { tab: 2 } : { beside: 2 });
     }
     s = ok(s, { op: "link", tile: 1, verb: "alt" }).state;
     s = ok(s, { op: "policy", set: { altOpens: "first-unheld" }, clear: [] }).state;
     extra = { 2: { held: true }, 3: { notes: true } };
-    try { expect(landing(s, 1, "alt", facts(1), facts)).toEqual({ to: 3 }); }
+    try { expect(placement(s, { from: 1, fresh: true, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 3 }); }
     finally { extra = {}; }
   });
   test("a refused operation changes nothing and says why; a done one answers a new state, the old one left as it was", () => {
@@ -435,9 +435,9 @@ describe("the rest of the layout's operations", () => {
     no(fresh(), { op: "link", tile: 1, to: 3 }, /thread is a thread tile: opens land in a tile that takes notes \(reader\)/);
     no(fresh(), { op: "link", tile: 2, to: 2 }, /reader can't open into itself/);
     const s = ok(fresh(), { op: "link", tile: 1, to: 2 }).state;
-    expect(landing(s, 1, "open", facts(1))).toEqual({ to: 2 });
+    expect(placement(s, { from: 1, fresh: false, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 2 });
     const into = ok(fresh(), { op: "policy", tile: 3, set: { opensInto: "reader" }, clear: [] }).state;
-    expect(landing(into, 4, "open", facts(4))).toEqual({ to: 2 });
+    expect(placement(into, { from: 4, fresh: false, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 2 });
     no(fresh(), { op: "policy", tile: 3, set: { opensInto: "thread" }, clear: [] }, /thread is a thread tile: opens land in a tile that takes notes/);
     // Closing the tile a link names takes the link away.
     expect(ok(s, { op: "close", tile: 2 }, PERSON, { focus: 1 }).state.wires.length).toBe(0);
@@ -449,7 +449,7 @@ describe("the rest of the layout's operations", () => {
     expect(r.state.wires.find(w => w.from === 1 && w.verb === "open")?.to).toBe(7);
     expect(r.answer).toMatchObject({ tile: "tree-preview", link: "tree" });
     expect(r.focus).toBe(2);
-    expect(landing(r.state, 1, "open", facts(1))).toEqual({ to: 7 });
+    expect(placement(r.state, { from: 1, fresh: false, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ to: 7 });
     // A kind that takes no notes isn't linked, and isn't opened either; on a locked screen neither happens.
     no(fresh(), { op: "open", tile: 7, kind: "thread", at: { kind: "split", target: 1, dir: "down" }, link: 1 }, /a thread tile: opens land in a tile that takes notes/);
     no(ok(fresh(), { op: "lock", on: true }).state, { op: "open", tile: 7, kind: "reader", at: { kind: "split", target: 1, dir: "down" }, link: 1 }, /the screen is locked/);
@@ -688,128 +688,15 @@ describe("replace: a new tile in another's place (PIE-565, the blank tile's rows
   });
 });
 
-describe("growth by room: readers opened beside fold the earlier ones, never the first (PIE-794)", () => {
-  /** tree | reader | detail, then more details opened right of the last, each followed by `room` as the desk does. */
-  const grow = (s: LayoutState, id: number, after: number, actor: Actor = PERSON, person: Partial<Person> = {}) => {
-    NAMES.set(id, `detail${id}`);
-    const o = ok(s, { op: "open", tile: id, kind: "reader", name: `detail${id}`, loose: true, at: { kind: "split", target: after, dir: "right" }, keys: false }, actor, person).state;
-    return ok(o, { op: "room", tile: id }, actor, person);
-  };
-  const folded = (s: LayoutState) => names(s, [...s.collapsed.keys()]);
-
-  test("successive desk opens spend the newest reader's room on newest-first spines, without growing the terminal (PIE-1021)", () => {
-    extra = { 1: { kind: "pty", notes: false } };
-    let s = fresh(splitOf("row", [leaf(1), leaf(2), leaf(5)], [53, 32, 75]), new Map([[1, "terminal"], [2, "detail a"], [5, "detail5"]]));
-    let previous = 5;
-    try {
-      for (let id = 6; id <= 25; id++) {
-        const before = place(s, AREA).rects;
-        s = grow(s, id, previous).state;
-        const after = place(s, AREA).rects;
-        const squeeze = Math.max(0, 48 - (before.get(previous)!.cols - 3));
-        const fromA = Math.min(squeeze, before.get(2)!.cols - 6);
-        expect(after.get(1)!.cols).toBe(before.get(1)!.cols - (squeeze - fromA));
-        expect(after.get(2)!.cols).toBe(before.get(2)!.cols - fromA);
-        expect(after.get(id)!.cols).toBe(Math.max(48, before.get(previous)!.cols - 3));
-        for (const reader of [2, ...Array.from({ length: id - 4 }, (_, i) => i + 5)]) {
-          expect(after.get(id)!.cols).toBeGreaterThanOrEqual(after.get(reader)!.cols);
-        }
-        expect(leaves(s.tree)).toEqual([1, 2, id, ...Array.from({ length: id - 5 }, (_, i) => id - i - 1)]);
-        previous = id;
-      }
-    } finally {
-      extra = {};
-      for (let id = 6; id <= 25; id++) NAMES.delete(id);
-    }
-  });
-
-  test("five alt opens preserve the working pair and stack back-one nearest; holding removes a reader from the pile", () => {
-    extra = { 1: { kind: "pty", notes: false } };
-    let s = fresh(splitOf("row", [leaf(1), leaf(2)], [53, 107]));
-    const open = (id: number) => {
-      const before = place(s, AREA).rects;
-      s = ok(s, { op: "open", tile: id, kind: "reader", at: { kind: "split", target: 2, dir: "right" }, keys: false, alt: true }).state;
-      s = ok(s, { op: "room", tile: id, before, alt: true }).state;
-      expect(place(s, AREA).rects.get(1)!.cols).toBe(53);
-    };
-    try {
-      for (let id = 5; id <= 9; id++) open(id);
-      expect(leaves(s.tree)).toEqual([1, 2, 9, 8, 7, 6, 5]);
-      expect(s.collapsed.has(8)).toBe(true);
-      s = ok(s, { op: "collapse", tile: 8, on: false }).state;
-      expect(place(s, AREA).rects.get(8)!.cols).toBeGreaterThanOrEqual(48);
-      s = ok(s, { op: "alt.hold", tile: 9 }).state;
-      open(10);
-      expect(s.collapsed.has(9)).toBe(false);
-    } finally { extra = {}; }
-  });
-
-  test("alt opens leave placed readers alone while the pile keeps the terminal's width", () => {
-    extra = { 1: { kind: "pty", notes: false } };
-    let s = fresh(splitOf("row", [leaf(1), leaf(2), leaf(5)], [53, 32, 75]), new Map([[1, "terminal"], [2, "detail a"], [5, "placed reader"]]));
-    try {
-      for (let id = 6; id <= 8; id++) {
-        const before = place(s, AREA).rects;
-        s = ok(s, { op: "open", tile: id, kind: "reader", at: { kind: "split", target: 2, dir: "right" }, keys: false, alt: true }).state;
-        s = ok(s, { op: "room", tile: id, before, alt: true }).state;
-        expect(s.collapsed.has(5)).toBe(false);
-        expect(place(s, AREA).rects.get(1)!.cols).toBeLessThanOrEqual(before.get(1)!.cols);
-      }
-      expect(s.collapsed.has(6)).toBe(true);
-    } finally { extra = {}; }
-  });
-
-  test("while a new one gets its readable width nothing folds; past it the earliest reader after the first does, then the next", () => {
-    extra = {};
-    const s0 = fresh(splitOf("row", [leaf(1), leaf(2)], [0.25, 0.75]));
-    const a = grow(s0, 5, 2);
-    expect(folded(a.state)).toEqual([]);
-    expect(a.answer.folded).toEqual([]);
-    const b = grow(a.state, 6, 5);
-    expect(folded(b.state)).toEqual(["detail5"]);
-    const c = grow(b.state, 7, 6);
-    expect(folded(c.state)).toEqual(["detail5", "detail6"]);
-    // Never the first reader (nor the tree, which reads no notes).
-    expect(c.state.collapsed.has(2)).toBe(false);
-    expect(c.state.collapsed.has(1)).toBe(false);
-    for (const id of [5, 6, 7]) NAMES.delete(id);
-  });
-
-  test("each opened beside the same reader (a row's alt+clicks): the ones opened before fold, wherever they sit", () => {
-    extra = {};
-    const s0 = fresh(splitOf("row", [leaf(1), leaf(2)], [0.25, 0.75]));
-    const b = grow(grow(s0, 5, 2).state, 6, 2);
-    expect(treeNames(b.state)).toEqual(["tree", "reader", "detail6", "detail5"]);
-    expect(folded(b.state)).toEqual(["detail5"]);
-    expect(b.answer.folded).toEqual(["detail5"]);
-    for (const id of [5, 6]) NAMES.delete(id);
-  });
-
-  test("readable=0 never folds; an agent's never folds the tile the person has or types in", () => {
-    extra = {};
-    const s0 = fresh(splitOf("row", [leaf(1), leaf(2)], [0.25, 0.75]));
-    const never = ok(s0, { op: "policy", set: { readable: 0 }, clear: [] }).state;
-    const n = grow(grow(never, 5, 2).state, 6, 5);
-    expect(folded(n.state)).toEqual([]);
-    const a = grow(s0, 5, 2);
-    const b = grow(a.state, 6, 5, AGENT, { focus: 5 });
-    expect(folded(b.state)).toEqual([]);
-    const c = grow(a.state, 6, 5, PERSON, { focus: 2, typingIn: 5 });
-    expect(folded(c.state)).toEqual([]);
-    for (const id of [5, 6]) NAMES.delete(id);
-  });
-});
-
-
-test("ordinary opens fold earlier held details when room runs out (wave 6)", () => {
+test("room never folds ordinary readers to make another reader fit", () => {
   extra = { 2: { held: true }, 5: { held: true }, 6: { held: true } };
   try {
     let s = fresh(splitOf("row", [leaf(2), leaf(5)], [80, 80]), new Map([[2, "first"], [5, "earlier"]]));
     s = ok(s, { op: "open", tile: 6, kind: "reader", name: "newest", at: { kind: "split", target: 5, dir: "right" } }).state;
+    const before = place(s, AREA).rects;
     s = ok(s, { op: "room", tile: 6 }).state;
-    expect(s.collapsed.has(5)).toBe(true);
-    expect(s.collapsed.has(2)).toBe(false);
-    expect(place(s, AREA).rects.get(6)!.cols).toBeGreaterThan(48);
+    expect([...s.collapsed]).toEqual([]);
+    expect(place(s, AREA).rects).toEqual(before);
   } finally { extra = {}; }
 });
 
@@ -818,5 +705,27 @@ test("alt opens use the nearest container policy before the screen default (wave
   const group = splitOf("row", [leaf(1), leaf(2)]);
   group.policy = { altOpens: "tab" };
   const s = init({ tree: group, names: NAMES, policy: { altOpens: "beside" }, wires: [{ from: 1, verb: "open", to: 2 }] });
-  expect(landing(s, 1, "alt", facts(1), facts)).toEqual({ tab: 2 });
+  expect(placement(s, { from: 1, fresh: true, note: "arrival" }, ctxOf(PERSON)).route).toEqual({ tab: 2 });
+});
+
+for (const cols of [160, 250]) for (const target of [1, 2]) test(`placement keeps the working pair at ${cols} columns, destination ${target}`, () => {
+  const area = { ...AREA, cols };
+  let s = fresh(splitOf("row", [leaf(1), leaf(2)], [1, 1]), new Map([[1, "left"], [2, "right"]]));
+  const other = target === 1 ? 2 : 1;
+  extra = { 1: { notes: true }, 2: { notes: true } };
+  const fixed = place(s, area).rects.get(other)!;
+  try {
+    for (let i = 0; i < 10; i++) {
+      extra[target] = { notes: true, held: true, showing: `old-${i}` };
+      const r = apply(s, { op: "open", tile: 10 + i, placement: { from: target, to: target, note: `new-${i}` } }, ctxOf(PERSON, { focus: target }, area));
+      if (!r.ok) throw new Error(r.refused);
+      s = r.state;
+      const kept = Array.from({ length: i + 1 }, (_, n) => 10 + n);
+      expect(leaves(s.tree)).toEqual(target === 1 ? [1, ...kept.reverse(), 2] : [1, ...kept, 2]);
+      expect([...s.collapsed.keys()]).toEqual(Array.from({ length: i + 1 }, (_, n) => 10 + n));
+      expect(place(s, area).rects.get(other)).toEqual(fixed);
+      expect(s.names.get(target)).toBe(target === 1 ? "left" : "right");
+      expect(r.focus).toBe(target);
+    }
+  } finally { extra = {}; }
 });

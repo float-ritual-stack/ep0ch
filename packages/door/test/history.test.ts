@@ -315,15 +315,18 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
     stepTo(d, "Paint the shed");
     key({ kind: "enter" });
     await whole(d, n.shed.id);
-    expect(B().details).toHaveLength(1);                                   // in place
+    expect(B().details).toHaveLength(2);                                   // destination and kept spine
     expect(frame().map(plain).join("\n")).toContain("← back · Weekend jobs");
     key({ kind: "alt-left" });
     await whole(d, n.jobs.id);
     frame();
     expect(current(d)).toMatchObject({ kind: "link", label: "Paint the shed" });
     key({ kind: "alt-enter" });                                            // no ] needed first
-    await until(() => B().details.length === 2 && B().details[1].msg?.id === n.shed.id, "a second detail on the shed");
-    BV.at(b, "detail0");
+    await whole(d, n.shed.id);
+    await b.dispatch.act({ action: "tile.focus", tile: "detail1" }, { kind: "user" });
+    key({ kind: "alt-left" });
+    await whole(d, n.jobs.id);
+    expect(d.surface.msg?.id).toBe(n.jobs.id);
     key({ kind: "alt-right" });
     await whole(d, n.shed.id);
     expect(d.surface.describe().history).toMatchObject({ back: [{ id: n.jobs.id }], forward: [] });
@@ -351,7 +354,7 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
     BV.at(b, "lanes");
     await act("open", { id: n.beans.id }, "detail1", AS);
     await whole(d, n.beans.id);
-    BV.at(b, "detail0");
+    await b.dispatch.act({ action: "tile.focus", tile: "detail1" }, { kind: "user" });
     key({ kind: "alt-left" });
     await whole(d, n.jobs.id);
   }, 30_000);

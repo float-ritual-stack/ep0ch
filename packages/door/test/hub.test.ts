@@ -101,9 +101,10 @@ describe.skipIf(!outliner)("the float-hub views", () => {
   test("agents pick by act, said on screen; never while the person is typing; bad picks are refused", async () => {
     expect((app.actions() as any).actions.map((a: any) => a.name)).toEqual(expect.arrayContaining(["waiting.pick", "waiting.reload", "pane.split"]));
     (app as any).lastInput = 0;                                                     // the person is idle
+    const current = top().current?.id;
     expect(await app.act({ action: "waiting.pick", args: { id: ada.id }, as: "test-agent" })).toMatchObject({ n: 1, of: 2, id: ada.id, who: "Ada" });
     expect((app as any).message).toContain("an agent (test-agent) showed what Ada owes (1 of 2)");
-    expect(top().current?.id).toBe(ada.id);
+    expect(top().current?.id).toBe(current);
     await expect(app.act({ action: "waiting.pick", args: { n: 3 }, as: "test-agent" })).rejects.toThrow(/pick 1 to 2/);
     await expect(app.act({ action: "waiting.pick", args: { id: "nope" }, as: "test-agent" })).rejects.toThrow(/no waiting item nope/);
     await expect(app.act({ action: "waiting.pick", args: {}, as: "test-agent" })).rejects.toThrow(/n or id/);
