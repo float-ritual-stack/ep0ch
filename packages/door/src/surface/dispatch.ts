@@ -346,12 +346,17 @@ export class Dispatcher {
   /** Every action here once, in the order a name is looked up; the tiles `tile=` names. */
   list(): { actions: ActionInfo[]; tiles: string[] } {
     const seen = new Set<string>(), out: ActionInfo[] = [];
+    const bindings = this.host.bindings?.() ?? [];
+    // The layout host can also be the screen delegate; describe it once per listing.
+    const delegated = new Map<Dispatcher, ActionInfo[]>();
     for (const r of this.regs) {
-      const infos = "set" in r ? r.set.list() : r.listed === false ? [] : r.delegate()?.list().actions ?? [];
+      const target = "set" in r || r.listed === false ? undefined : r.delegate();
+      if (target && !delegated.has(target)) delegated.set(target, target.list().actions);
+      const infos = "set" in r ? r.set.list() : target ? delegated.get(target)! : [];
       for (const a of infos) {
         if (seen.has(a.name) || (r.claims && !r.claims({ action: a.name }))) continue;
-        const keys = modeActionKeys([this.host.bindings?.() ?? []], a.name);
-        out.push({ ...a, ...(keys ? { keys: [...new Set([a.keys, keys].filter(Boolean))].join("; ") } : {}) });
+        const keys = modeActionKeys([bindings], a.name);
+        out.push(keys ? { ...a, keys: [...new Set([a.keys, keys].filter(Boolean))].join("; ") } : a);
         seen.add(a.name);
       }
     }
