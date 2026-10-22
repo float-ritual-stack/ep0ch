@@ -16,6 +16,9 @@ import { REMOTE_CLIENT, type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { SocketBoard } from "../../src/socket";
 import { C, fg, tailFrom } from "../../src/style";
+import { SessionTerm, serveAs } from "../../src/session/session-term";
+import { PROTOCOL } from "../../src/session/protocol";
+import { serveLink, connectLink, linkStates, openLinked } from "@ep0ch/outliner/link";
 import { external } from "../../src/open";
 import { outliner, Scratch, until } from "../scratch";
 
@@ -834,6 +837,8 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     expect(await app.act({ action: "artifact.open", args: { n: 3 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: file.url, launched: false });
     expect(await app.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: pinned.url, launched: false });
     const opened: string[][] = [], run = external.run;
+    const display = process.env.DISPLAY;
+    process.env.DISPLAY = ":fictional";
     external.run = cmd => { opened.push(cmd); };
     try {
       press({ kind: "enter" }); ch("]"); ch("]"); press({ kind: "enter" });
@@ -844,7 +849,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
       await until(() => opened.length === 2, "Click opened the live folder", 5000);
       expect(opened[1]!.at(-1)).toBe(live.url);
-    } finally { external.run = run; }
+    } finally { external.run = run; if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display; }
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     const path = join(scratch.root, "gone-lamp.html");
     writeFileSync(path, "<h1>Last lamp</h1>");
@@ -857,6 +862,71 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     await until(() => screen().includes("file gone since"), "the deleted file's warning on its card", 10_000);
     expect(await app.act({ action: "artifact.open", args: { n: 1 }, as: "test-agent" })).toMatchObject({ outside: "browser", url: last.url, launched: false });
     expect((await board.get(note.id))!.text).toBe(text);
+  }, 30_000);
+
+  test("artifacts from a remote session use the laptop link or copy a clickable URL", async () => {
+    const session = new SessionTerm(), bytes: string[] = [];
+    const pressing = session.attach({ send(m) { if (m.t === "output") bytes.push(m.text); }, backlog: () => 0, onDrain() {}, close() {} }, {
+      proto: PROTOCOL, cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false, pid: 123, remote: true,
+    });
+    serveAs(session);
+    const remoteApp = new App(session as any, board, Date.now(), () => {}), showcase = new Showcase();
+    const opened: string[][] = [], run = external.run;
+    external.run = cmd => { opened.push(cmd); };
+    const outlines = process.env.EP0CH_OUTLINES;
+    const display = process.env.DISPLAY, wayland = process.env.WAYLAND_DISPLAY;
+    process.env.DISPLAY = ":fictional";
+    process.env.EP0CH_OUTLINES = join(scratch.root, "linked");
+    let link: ReturnType<typeof serveLink> | undefined, connector: ReturnType<typeof connectLink> | undefined;
+    try {
+      remoteApp.push(showcase);
+      await until(() => !!(showcase as any).notes, "remote showcase");
+      await remoteApp.act({ action: "section", args: { name: "artifacts" }, as: "test-agent" });
+      const stage = (showcase as any).stage((showcase as any).sel).top;
+      const images = (await remoteApp.act({ action: "images", as: "test-agent" }) as any).images;
+      const { url } = await board.request<{ url: string }>("artifacts.show", { name: images[1].path });
+      await stage.dispatch.press("artifact.open", { n: 2 });
+      expect(opened).toEqual([]);
+      expect(bytes.join("")).toContain(osc52(url));
+      expect((remoteApp as any).message).toContain("click to open");
+      expect((remoteApp as any).message).toContain(`\x1b]8;;${url}\x1b\\`);
+      (remoteApp as any).paint();
+      expect(bytes.join("")).toContain(`\x1b]8;;${url}\x1b\\`);
+      if (process.platform === "linux") {
+        pressing.hello.remote = false;
+        delete process.env.DISPLAY; delete process.env.WAYLAND_DISPLAY;
+        await stage.dispatch.press("artifact.open", { n: 2 });
+        expect(opened).toEqual([]);
+        expect((remoteApp as any).message).toContain("click to open");
+        pressing.hello.remote = true; process.env.DISPLAY = ":fictional";
+      }
+      const received: string[] = [];
+      let openError = false;
+      link = serveLink({ outlines: process.env.EP0CH_OUTLINES!, port: 0, keys: { travel: "fictional-key" }, log() {} });
+      connector = connectLink({ server: `http://127.0.0.1:${link.port}`, machine: "travel", key: "fictional-key", host: scratch.sock, log() {}, open: async url => { if (openError) throw new Error("Browser unavailable; click the copied URL"); received.push(url); } });
+      await until(() => linkStates(process.env.EP0CH_OUTLINES!).length === 1, "laptop link up");
+      bytes.length = 0;
+      await stage.dispatch.press("artifact.open", { n: 2 });
+      expect(received).toEqual([url]);
+      expect(opened).toEqual([]);
+      expect(bytes.join("")).not.toContain(osc52(url));
+      expect((remoteApp as any).message).toContain("on travel");
+      expect(await remoteApp.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ url, launched: false });
+      expect(received).toEqual([url]);
+      expect(await openLinked(process.env.EP0CH_OUTLINES!, "file:///tmp/fictional")).toMatchObject({ opened: false, error: expect.stringContaining("only HTTP or HTTPS") });
+      expect(received).toEqual([url]);
+      openError = true;
+      await stage.dispatch.press("artifact.open", { n: 2 });
+      expect((remoteApp as any).message).toContain("Browser unavailable; click the copied URL");
+      expect(bytes.join("")).toContain(osc52(url));
+      expect(opened).toEqual([]);
+    } finally {
+      connector?.stop(); await link?.stop();
+      if (outlines === undefined) delete process.env.EP0CH_OUTLINES; else process.env.EP0CH_OUTLINES = outlines;
+      if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display;
+      if (wayland === undefined) delete process.env.WAYLAND_DISPLAY; else process.env.WAYLAND_DISPLAY = wayland;
+      external.run = run; serveAs(null); showcase.dispose(); remoteApp.retire(); session.dispose();
+    }
   }, 30_000);
 
 });

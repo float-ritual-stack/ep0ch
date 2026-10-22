@@ -236,7 +236,7 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
   test("the session log keeps errors with stacks in its rotated file, and CLI and peek read the log", async () => {
     const dir = placeOf({ outline: "scratch", socket: h.scratch.sock }).dir;
     useOutlineState(dir);
-    const errorActions = actionSet<{}>()("broken", { "broken.press": def({ summary: "exercise a failing press", keys: "enter", touches: "nothing", replay: "ask", args: {}, run() { throw new TypeError("broken fixture action"); } }) });
+    const errorActions = actionSet<{}>()("broken", { "broken.press": def({ summary: "exercise a failing press", keys: "enter", touches: "nothing", replay: "ask", args: {}, run() { throw new TypeError("broken fixture action; run ep0ch link status\nprivate error detail"); } }) });
     const dispatch = Dispatcher.of(errorActions, {}, () => app);
     const errorScreen = { title: "broken fixture", dispatch, key() { void dispatch.press("broken.press"); }, render: () => ({ lines: ["Press enter"] }) };
     app.push(errorScreen);
@@ -246,8 +246,11 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     try {
       press({ kind: "enter" });
       await until(() => app.messages.rows.at(-1)?.kind === "error", "the error logged");
-      expect(app.messages.rows.at(-1)).toMatchObject({ action: "broken.press", message: "could not run broken.press; status.log has the details" });
-      expect(JSON.stringify(app.describe())).not.toContain("broken fixture action");
+      expect(app.messages.rows.at(-1)).toMatchObject({ action: "broken.press", message: "could not run broken.press: broken fixture action; run ep0ch link status" });
+      expect(JSON.stringify(app.describe())).toContain("broken fixture action; run ep0ch link status");
+      expect(JSON.stringify(app.describe())).not.toContain("private error detail");
+      await expect(app.act({ action: "broken.press", as: "test-agent" })).rejects.toThrow("broken fixture action");
+      expect(app.messages.rows.at(-1)?.message).toContain("broken fixture action; run ep0ch link status");
       expect(readFileSync(messageLogPath(dir), "utf8")).toContain("TypeError: broken fixture action");
       for (let i = 0; i < 505; i++) app.flash(`Message ${i}: ${"garden ".repeat(320)}`);
       expect(app.messages.rows).toHaveLength(500);

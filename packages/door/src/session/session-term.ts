@@ -123,7 +123,7 @@ export class SessionTerm implements Display {
   resume() { /* the same */ }
 
   /** Raw bytes App writes (the clipboard, OSC 52): the person's terminal, the one with their keys. */
-  write(s: string) { if (this.active && !this.active.away) this.active.link.send({ t: "output", text: s }); }
+  write(s: string, client = this.active) { if (client && this.clients.includes(client) && !client.away) client.link.send({ t: "output", text: s }); }
 
   setGround(seq: string) {
     if (seq === GROUND_RESET && !this.ground) return;

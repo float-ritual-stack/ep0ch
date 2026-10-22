@@ -70,7 +70,7 @@ import { alignComments, isOutlineNote, onTheirWords, openResource, RESOURCE_NOTE
 import { isResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { changeOf, liveRowStep, parseStatus, STEP_BOXES, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, partyOf, type StepChoice, type StepRef } from "../steps";
 import { boxStatus, stepClosed } from "@ep0ch/outline-core/checklist-marks";
-import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
+import { addressedResource, destinationOf, external, externalOpenCommand, fileOpenCommand, opensRemotely, openRemote } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, noteReplyTarget, recordAs, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, propertyListOf, takeStrays, unsent, unshelve, unshelveIf, type Ended, type LeaveResult, type Unsent } from "../draft-session";
 import { baseTextOf, copyNote, copyOf, diffNote, oldUnsentLine, settleQuietly, unsentEntries, unsentLabel, unsentView, viewVerdict, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
@@ -5831,13 +5831,17 @@ export class NoteSurface {
    * follow never opens anything there (it would take their screen); it gets the address back in its answer, and
    * the reader says so.
    */
-  private openOutside(where: Outside["outside"], url: string, host: SurfaceHost): Outside {
+  private openOutside(where: Outside["outside"], url: string, host: SurfaceHost): Outside | Promise<Outside> {
     const by = host.actor, app = where === "browser" ? "the browser" : "the system viewer";
     if (by?.kind === "agent") {
       this.noteAgent(by, `was given ${url} · an agent doesn't open ${app}`);
       host.ctx.flash(`was given ${url} · an agent doesn't open ${app}`);
       host.redraw();
       return { outside: where, url, launched: false };
+    }
+    if (opensRemotely()) {
+      if (where === "viewer") throw new ActionRefused(`the file is on this machine: ${url}; use a web URL to open it on your own machine`);
+      return openRemote(url, host.ctx).then(launched => ({ outside: where, url, launched }));
     }
     external.run(where === "browser" ? externalOpenCommand(url) : fileOpenCommand(url));
     host.ctx.flash(`opened ${where === "browser" ? url : "it"} in ${app}`);

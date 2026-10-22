@@ -1,3 +1,7 @@
+import { outlinesDir } from "./discover";
+import { openLinked } from "@ep0ch/outliner/link";
+import { servingSession } from "./session/session-term";
+import type { Ctx } from "./app";
 import { qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import type { AuthoredResourceLink } from "./authored";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -27,6 +31,26 @@ export function fileOpenCommand(path: string, platform: NodeJS.Platform = proces
 export const external = {
   run(cmd: string[]) { Bun.spawn(cmd, { stdin: "ignore", stdout: "ignore", stderr: "ignore" }).unref(); },
 };
+
+/** The one place that decides whether an outside open belongs on this machine. */
+export function opensRemotely(): boolean {
+  const client = servingSession()?.typingOn();
+  return (client ? client.hello.remote : !!(process.env.SSH_CONNECTION || process.env.SSH_TTY))
+    || (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY);
+}
+
+export async function openRemote(url: string, ctx: Ctx): Promise<boolean> {
+  const session = servingSession(), client = session?.typingOn();
+  const write = session && client ? (bytes: string) => session.write(bytes, client) : undefined;
+  const result = await openLinked(outlinesDir(), url);
+  if (result.opened) {
+    ctx.flash(`opened ${url} on ${result.machine}`);
+    return true;
+  }
+  ctx.copy?.(url, undefined, write);
+  ctx.flash(`${result.error ? `${result.error} · ` : ""}copied ${url} · click to open`, 12000, { href: url });
+  return false;
+}
 
 const BLOCK_ID = /^[A-Za-z0-9_-]{8,}$/;
 const FRAGMENT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;

@@ -22,6 +22,12 @@ export async function installLinkedSha(sha: string): Promise<LinkInstallResult> 
   return { sha, code, commit: installedCommit, notDone: report.notDone, notes: report.notes, sessions, error: report.error || (code !== 0 ? err || undefined : undefined) };
 }
 
+async function openOnMac(url: string): Promise<void> {
+  const child = Bun.spawn(["open", url], { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const [error, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
+  if (code !== 0) throw new Error(`open ${url}: ${error.split(/\r?\n/, 1)[0] || `exit ${code}`}; click the copied link to open it`);
+}
+
 export async function runLink(args: string[]): Promise<number> {
   const outlines = process.env.EP0CH_OUTLINES || join(homedir(), "outlines");
   try {
@@ -62,7 +68,7 @@ export async function runLink(args: string[]): Promise<number> {
     let installed = () => {};
     const running = config.mode === "serve"
       ? serveLink({ outlines, port: config.port, keys: Object.fromEntries(await Promise.all(config.machines.map(async m => [m, await linkKey(m)]))), log, onResult: async (machine, result, deploy) => { log(linkInstallSummary(machine, result)); await recordLinkInstall(deploy, machine, result); } })
-      : connectLink({ server: config.server, machine: config.machine, key: await linkKey(config.machine), commit, install: installLinkedSha, autoInstall: () => { const c = readLinkConfig(outlines); return c?.mode === "connect" && c.autoInstall !== false; }, onInstalled: () => installed(), host: outlineLayout(outlines).socket, statusPath: join(outlines, ".host/link-state.json"), log });
+      : connectLink({ server: config.server, machine: config.machine, key: await linkKey(config.machine), commit, install: installLinkedSha, autoInstall: () => { const c = readLinkConfig(outlines); return c?.mode === "connect" && c.autoInstall !== false; }, onInstalled: () => installed(), open: openOnMac, host: outlineLayout(outlines).socket, statusPath: join(outlines, ".host/link-state.json"), log });
     await new Promise<void>(resolve => {
       const stop = () => { void running.stop(); resolve(); };
       installed = stop;

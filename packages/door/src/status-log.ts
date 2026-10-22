@@ -7,10 +7,15 @@ import { outlineState } from "./state";
 import { printable } from "./text";
 
 export interface MessageContext { action?: string; tile?: string; note?: string }
-export interface MessageDetails extends MessageContext { kind?: "status" | "warning" | "refusal" | "error"; stack?: string }
+export interface MessageDetails extends MessageContext { kind?: "status" | "warning" | "refusal" | "error"; stack?: string; href?: string }
 export interface StatusMessage extends MessageContext { id: string; time: string; kind: NonNullable<MessageDetails["kind"]>; message: string }
 export function errorDetails(error: unknown): MessageDetails {
   return { kind: error instanceof ActionRefused ? "refusal" : "error", stack: error instanceof Error ? error.stack : new Error(String(error)).stack };
+}
+/** Keep the cause readable on one terminal row; the stack belongs in the message log. */
+export function actionFailure(action: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `could not run ${action}: ${message.split(/\r?\n/, 1)[0]}`;
 }
 export const messageContext = new AsyncLocalStorage<MessageDetails>();
 export const messageLogPath = (dir = outlineState()) => join(dir, "messages.jsonl");

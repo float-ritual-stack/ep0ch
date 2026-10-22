@@ -166,7 +166,7 @@ function fakeLink() {
   const clip = () => sent.filter(m => m.t === "output" && m.text.includes("\x1b]52;")).map(m => (m as { text: string }).text);
   return { link, sent, clip };
 }
-const hello = (more: Partial<Hello> = {}): Hello => ({ proto: PROTOCOL, cols: 80, rows: 24, cellW: 9, cellH: 16, kitty: false, pid: 4242, ...more });
+const hello = (more: Partial<Hello> = {}): Hello => ({ proto: PROTOCOL, remote: false, cols: 80, rows: 24, cellW: 9, cellH: 16, kitty: false, pid: 4242, ...more });
 
 describe("the copy in a session", () => {
   const session = () => {

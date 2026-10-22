@@ -152,10 +152,10 @@ describe("inline Markdown, by Detail's rules", () => {
 
 describe("Markdown links", () => {
   let runs: string[][] = [];
-  const run = external.run;
-  beforeAll(() => { external.run = cmd => { runs.push(cmd); }; });
+  const run = external.run, display = process.env.DISPLAY;
+  beforeAll(() => { process.env.DISPLAY = ":fictional"; external.run = cmd => { runs.push(cmd); }; });
   afterEach(() => { runs = []; });
-  afterAll(() => { external.run = run; });
+  afterAll(() => { external.run = run; if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display; });
   const shed = note("Bike shed\nThree bikes.");
   const TEXT = "Allotment notes\nAsk [the society](https://example.org/allotments) or see [the shed](pi-outliner://page/Bike%20shed), not ![a photo](plot.png).";
 

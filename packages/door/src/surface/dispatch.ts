@@ -1,6 +1,6 @@
 import { modeActionKeys } from "./modes";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
-import { messageContext, type MessageDetails } from "../status-log";
+import { actionFailure, messageContext, type MessageDetails } from "../status-log";
 import type { Hint } from "./hint-card";
 // The dispatcher (PIE-514): one per screen host, the one door every action goes through. A screen registers its
 // action sets; its keys and clicks (`press`), the control socket (`act`) and a tile holding a whole screen all call
@@ -494,7 +494,7 @@ export class Dispatcher {
     const tell = (e: unknown) => {
       const failed = !(e instanceof ActionRefused || e instanceof Offline);
       const action = messageContext.getStore()?.action ?? "the action";
-      const why = failed ? `could not run ${action}; status.log has the details` : e.message, said = failed ? why : say === true ? null : say === false ? why : say(why);
+      const why = failed ? actionFailure(action, e) : e.message, said = failed ? why : say === true ? null : say === false ? why : say(why);
       // Said where the person is looking (the focused tile's frame) as well as on the status bar (Ctx.refuse, PIE-727).
       if (said) messageContext.run({ ...messageContext.getStore(), kind: failed ? "error" : "refusal", ...(failed && e instanceof Error ? { stack: e.stack } : {}) }, () => (ctx?.refuse ? ctx.refuse(said, at) : ctx?.flash?.(said)));
       ctx?.redraw?.();

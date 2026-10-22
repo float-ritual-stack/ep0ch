@@ -1,10 +1,11 @@
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { StatusBarNote, STATUS_BAR_ACTIONS, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
+import { OSC8_CLOSE } from "./hyperlink";
 import { fullPlainText } from "./overflow";
 import { Overflow } from "./overflow";
 import { linkUpdateLabel } from "@ep0ch/outliner/link";
 import { outlinesDir } from "./discover";
-import { errorDetails } from "./status-log";
+import { actionFailure, errorDetails } from "./status-log";
 import { StatusLog, messageContext, type MessageDetails } from "./status-log";
 import { WaitingAsks } from "./waiting-asks";
 import { RUNBOOK_ACTIONS } from "./runbook";
@@ -186,7 +187,7 @@ export interface Ctx {
    * screen; `from`: a terminal tile's name, when its program copied it ("copied from <tile>"). False when nothing was
    * copied (over COPY_MAX, or a tile's copy the door didn't pass on: `Uncopied`), and the toast says why.
    */
-  copy?(text: string | Uncopied, from?: string): boolean;
+  copy?(text: string | Uncopied, from?: string, write?: (bytes: string) => void): boolean;
   cycleVideo(): void;
   /**
    * `keys.probe` (PIE-699): the next keys are described instead of run (the bytes they arrived as, the modifiers, what the
@@ -743,9 +744,11 @@ export class App implements Ctx {
     const desk = focus?.startsWith("drawer:") ? this.drawer.desk : tilesOf(this.stack.at(-1));
     const tile = meta.tile === undefined ? desk?.tileOutline().find(t => t.focused) : undefined;
     this.messages.append(msg, { tile: tile?.id ?? focus ?? undefined, note: tile?.showing?.id, ...meta });
-    this.messageWarning = warning; this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw();
+    this.messageWarning = warning; this.message = printable(msg, " ");
+    if (details.href) this.message = `\x1b]8;;${new URL(details.href).href}\x1b\\${this.message}${OSC8_CLOSE}`;
+    this.messageUntil = Date.now() + ms; this.flashes++; this.redraw();
   }
-  /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
+  /** A message in the status bar: untrusted text stays plain; an explicit href supplies its clickable destination. */
   flash(msg: string, ms = 4000, details: MessageDetails = {}) { this.showMessage(fullPlainText(msg), ms, true, details); }
 
   // ── a refusal of the person's key or click (PIE-727): said on the status bar and on the focused tile's frame ──
@@ -877,7 +880,7 @@ export class App implements Ctx {
    * program's own OSC 52 (`from`: the tile's name), passed on. Never an agent's. In a session it goes to the client
    * with the keys, never a watcher (SessionTerm.write). Over COPY_MAX it says so and copies nothing.
    */
-  copy(text: string | Uncopied, from?: string): boolean {
+  copy(text: string | Uncopied, from?: string, write = (bytes: string) => this.term.write(bytes)): boolean {
     const no: Uncopied | null = typeof text !== "string" ? text : Buffer.byteLength(text) > COPY_MAX ? { tooBig: Buffer.byteLength(text) } : null;
     if (no || typeof text !== "string") {
       // Long enough to read why, and what to do (click in the tile, then copy again).
@@ -885,7 +888,7 @@ export class App implements Ctx {
       this.redraw();
       return false;
     }
-    this.term.write(osc52(text));
+    write(osc52(text));
     this.toast = { text: `${from ? `copied from ${from}` : "copied to clipboard"} · ${[...text].length} chars`, until: Date.now() + TOAST_MS, ok: true };
     this.redraw();
     return true;
@@ -1167,7 +1170,7 @@ export class App implements Ctx {
         return r;
       } catch (e) {
         const refused = e instanceof ActionRefused || e instanceof Offline;
-        this.flash(refused ? `${who} · ${req.action} refused: ${e.message}` : `${who} · could not run ${req.action}; status.log has the details`, 4000, { kind: refused ? "refusal" : "error", ...(!refused && e instanceof Error ? { stack: e.stack } : {}) });
+        this.flash(refused ? `${who} · ${req.action} refused: ${e.message}` : `${who} · ${actionFailure(req.action, e)}`, 4000, { kind: refused ? "refusal" : "error", ...(!refused && e instanceof Error ? { stack: e.stack } : {}) });
         throw e;
       }
     });
