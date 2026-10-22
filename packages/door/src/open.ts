@@ -47,8 +47,8 @@ export async function openRemote(url: string, ctx: Ctx): Promise<boolean> {
     ctx.flash(`opened ${url} on ${result.machine}`);
     return true;
   }
-  ctx.copy?.(url, undefined, write);
-  ctx.flash(`${result.error ? `${result.error} · ` : ""}copied ${url} · click to open`, 12000, { href: url });
+  const copied = ctx.copy?.(url, undefined, write);
+  ctx.flash(`${result.error ? `${result.error.split(/\r?\n/, 1)[0]} · ` : ""}${copied ? "copied" : "not copied"} ${url} · click to open`, 12000, { href: url, ...(result.error ? { kind: "error" as const, stack: result.error } : {}) });
   return false;
 }
 

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 // A session's terminal: the one App draws on and reads keys from in a door session (src/session/daemon.ts), made of
 // every client attached to it. Each client is a terminal of its own: its own size, Kitty support and video mode, its
 // own rows painted (a Painter over its socket) and its own keys decoded. App renders one frame; each client is sent
@@ -78,6 +79,12 @@ export class ClientRows extends Rows {
 /** The session this process serves (src/session/daemon.ts), for the showcase's section; null in the door's own terminal. */
 let serving: SessionTerm | null = null;
 export const servingSession = () => serving;
+const pressing = new AsyncLocalStorage<SessionClient | null>();
+/** An action keeps the terminal that pressed it across service requests and nested dispatch. */
+export function fromPress<T>(run: () => T): T {
+  const current = pressing.getStore();
+  return pressing.run(current === undefined ? serving?.activeClient ?? null : current, run);
+}
 export const serveAs = (t: SessionTerm | null) => { serving = t; };
 
 export class SessionTerm implements Display {
@@ -123,7 +130,11 @@ export class SessionTerm implements Display {
   resume() { /* the same */ }
 
   /** Raw bytes App writes (the clipboard, OSC 52): the person's terminal, the one with their keys. */
-  write(s: string, client = this.active) { if (client && this.clients.includes(client) && !client.away) client.link.send({ t: "output", text: s }); }
+  write(s: string, client = this.active): boolean {
+    if (!client || !this.clients.includes(client) || client.away) return false;
+    client.link.send({ t: "output", text: s });
+    return true;
+  }
 
   setGround(seq: string) {
     if (seq === GROUND_RESET && !this.ground) return;
@@ -196,7 +207,7 @@ export class SessionTerm implements Display {
     return true;
   }
   /** The client the person is typing on. */
-  typingOn(): SessionClient | null { return this.active; }
+  typingOn(): SessionClient | null { return pressing.getStore() ?? this.active; }
 
   /** The session's terminals, for `peek`. */
   session() { return { pid: process.pid, clients: this.list() }; }

@@ -885,7 +885,22 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       const stage = (showcase as any).stage((showcase as any).sel).top;
       const images = (await remoteApp.act({ action: "images", as: "test-agent" }) as any).images;
       const { url } = await board.request<{ url: string }>("artifacts.show", { name: images[1].path });
-      await stage.dispatch.press("artifact.open", { n: 2 });
+      const otherBytes: string[] = [];
+      const other = session.attach({ send(m) { if (m.t === "output") otherBytes.push(m.text); }, backlog: () => 0, onDrain() {}, close() {} }, { ...pressing.hello, remote: false, pid: 456 });
+      const request = board.request.bind(board);
+      let release!: () => void, arrived!: () => void;
+      const gate = new Promise<void>(r => { release = r; }), waiting = new Promise<void>(r => { arrived = r; });
+      (board as any).request = (action: string, args: unknown) => {
+        const response = request(action, args as any);
+        return action === "artifacts.show" ? response.then(async result => { arrived(); await gate; return result; }) : response;
+      };
+      try {
+        const pending = stage.dispatch.press("artifact.open", { n: 2 });
+        await waiting;
+        session.input(other, "");
+        release(); await pending;
+      } finally { release(); board.request = request; session.input(pressing, ""); }
+      expect(otherBytes.join("")).not.toContain(osc52(url));
       expect(opened).toEqual([]);
       expect(bytes.join("")).toContain(osc52(url));
       expect((remoteApp as any).message).toContain("click to open");
@@ -901,9 +916,9 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
         pressing.hello.remote = true; process.env.DISPLAY = ":fictional";
       }
       const received: string[] = [];
-      let openError = false;
+      let openError: "throw" | "detach" | null = null;
       link = serveLink({ outlines: process.env.EP0CH_OUTLINES!, port: 0, keys: { travel: "fictional-key" }, log() {} });
-      connector = connectLink({ server: `http://127.0.0.1:${link.port}`, machine: "travel", key: "fictional-key", host: scratch.sock, log() {}, open: async url => { if (openError) throw new Error("Browser unavailable; click the copied URL"); received.push(url); } });
+      connector = connectLink({ server: `http://127.0.0.1:${link.port}`, machine: "travel", key: "fictional-key", host: scratch.sock, log() {}, open: async url => { if (openError) { if (openError === "detach") session.detach(pressing); throw new Error("Browser unavailable; click the copied URL\nprivate connector detail"); } received.push(url); } });
       await until(() => linkStates(process.env.EP0CH_OUTLINES!).length === 1, "laptop link up");
       bytes.length = 0;
       await stage.dispatch.press("artifact.open", { n: 2 });
@@ -915,11 +930,18 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       expect(received).toEqual([url]);
       expect(await openLinked(process.env.EP0CH_OUTLINES!, "file:///tmp/fictional")).toMatchObject({ opened: false, error: expect.stringContaining("only HTTP or HTTPS") });
       expect(received).toEqual([url]);
-      openError = true;
+      openError = "throw";
       await stage.dispatch.press("artifact.open", { n: 2 });
       expect((remoteApp as any).message).toContain("Browser unavailable; click the copied URL");
+      expect((remoteApp as any).message).not.toContain("private connector detail");
+      expect(remoteApp.messages.rows.at(-1)?.kind).toBe("error");
       expect(bytes.join("")).toContain(osc52(url));
       expect(opened).toEqual([]);
+      openError = "detach"; bytes.length = 0; otherBytes.length = 0;
+      await stage.dispatch.press("artifact.open", { n: 2 });
+      expect((remoteApp as any).message).toContain("not copied");
+      expect(bytes.join("").includes(osc52(url))).toBe(false);
+      expect(otherBytes.join("").includes(osc52(url))).toBe(false);
     } finally {
       connector?.stop(); await link?.stop();
       if (outlines === undefined) delete process.env.EP0CH_OUTLINES; else process.env.EP0CH_OUTLINES = outlines;

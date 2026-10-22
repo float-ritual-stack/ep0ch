@@ -1,3 +1,4 @@
+import { fromPress } from "../session/session-term";
 import { modeActionKeys } from "./modes";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
 import { actionFailure, messageContext, type MessageDetails } from "../status-log";
@@ -500,7 +501,7 @@ export class Dispatcher {
       ctx?.redraw?.();
       return undefined;
     };
-    try { return Promise.resolve(f()).then(r => { ctx?.redraw?.(); return r; }, tell); } catch (e) { return Promise.resolve(tell(e)); }
+    try { return Promise.resolve(fromPress(f)).then(r => { ctx?.redraw?.(); return r; }, tell); } catch (e) { return Promise.resolve(tell(e)); }
   }
 
   /**

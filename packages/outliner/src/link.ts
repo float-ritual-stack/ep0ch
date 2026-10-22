@@ -272,11 +272,11 @@ export function connectLink(o: { server: string; machine: string; key: string; h
               if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("only HTTP or HTTPS links can open on this machine");
               if (!o.open) throw new Error("this connector cannot open links; run ep0ch install --apply on the Mac");
               await o.open(url.href);
-              socket.send(JSON.stringify({ opened: id }));
+              if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ opened: id }));
             } catch (error) {
-              const why = (error as Error).message;
+              const why = (error as Error).stack ?? String(error);
               o.log(`open failed: ${why}`);
-              socket.send(JSON.stringify({ opened: id, error: why }));
+              if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ opened: id, error: why }));
             }
           })();
         } else if (authenticated && typeof message.install === "string" && /^[a-f0-9]{40}$/.test(message.install)) {

@@ -187,7 +187,7 @@ export interface Ctx {
    * screen; `from`: a terminal tile's name, when its program copied it ("copied from <tile>"). False when nothing was
    * copied (over COPY_MAX, or a tile's copy the door didn't pass on: `Uncopied`), and the toast says why.
    */
-  copy?(text: string | Uncopied, from?: string, write?: (bytes: string) => void): boolean;
+  copy?(text: string | Uncopied, from?: string, write?: (bytes: string) => boolean | void): boolean;
   cycleVideo(): void;
   /**
    * `keys.probe` (PIE-699): the next keys are described instead of run (the bytes they arrived as, the modifiers, what the
@@ -880,7 +880,7 @@ export class App implements Ctx {
    * program's own OSC 52 (`from`: the tile's name), passed on. Never an agent's. In a session it goes to the client
    * with the keys, never a watcher (SessionTerm.write). Over COPY_MAX it says so and copies nothing.
    */
-  copy(text: string | Uncopied, from?: string, write = (bytes: string) => this.term.write(bytes)): boolean {
+  copy(text: string | Uncopied, from?: string, write: (bytes: string) => boolean | void = bytes => this.term.write(bytes)): boolean {
     const no: Uncopied | null = typeof text !== "string" ? text : Buffer.byteLength(text) > COPY_MAX ? { tooBig: Buffer.byteLength(text) } : null;
     if (no || typeof text !== "string") {
       // Long enough to read why, and what to do (click in the tile, then copy again).
@@ -888,7 +888,11 @@ export class App implements Ctx {
       this.redraw();
       return false;
     }
-    write(osc52(text));
+    if (write(osc52(text)) === false) {
+      this.toast = { text: "not copied: the pressing terminal is no longer available", until: Date.now() + TOAST_MS, ok: false };
+      this.redraw();
+      return false;
+    }
     this.toast = { text: `${from ? `copied from ${from}` : "copied to clipboard"} · ${[...text].length} chars`, until: Date.now() + TOAST_MS, ok: true };
     this.redraw();
     return true;
