@@ -177,6 +177,22 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     }, 30_000);
   }
 
+  test("standing: a press cannot clear or pick the person's power bar while it holds typing keys", async () => {
+    const s = await twoReaders();
+    try {
+      await app.dispatch.act({ action: "bar.open", args: { query: "seedlings", scope: "notes" } }, USER);
+      const edit = await pressed("await act('bar.edit', { op: 'clear' }); return 'cleared';");
+      expect(edit).toMatch(/typing|power bar/);
+      const pick = await pressed("await act('bar.pick', { n: 1 }); return 'picked';");
+      expect(pick).toMatch(/typing|power bar/);
+      const read = await app.dispatch.act({ action: "bar.edit", args: { op: "select", from: 0, to: 0 } }, USER) as { query: string };
+      expect(read.query).toBe("seedlings");
+    } finally {
+      await app.dispatch.act({ action: "bar.close" }, USER);
+      s.done();
+    }
+  }, 30_000);
+
   test("2 standing: a script the person pressed opens a note in the reader the person is in", async () => {
     const s = await twoReaders();
     try {
