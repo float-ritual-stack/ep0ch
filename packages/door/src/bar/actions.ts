@@ -90,6 +90,8 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
           return await b.pickRow(at, !!alt, actor);
         } catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); } finally { b.close(); }
       }
+      const held = actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
+      if (held) throw new ActionRefused(held);
       const b = on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       if (query !== undefined || scope !== undefined) throw new ActionRefused("the person's pick is from the bar as they see it: query= and scope= are an agent's");
@@ -116,6 +118,8 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", 
     ],
     async run({ op, text, from, to, query, scope }, { on, standing }, actor: Actor) {
       if (!["clear", "complete", "paste", "select", "cut", "delete-word", "undo"].includes(op)) throw new ActionRefused("choose clear, complete, paste, select, cut, delete-word or undo");
+      const held = standing && actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
+      if (held) throw new ActionRefused(held);
       const b = !standing ? await on.unseen({ query, scope: scopeArg(scope) }) : on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       try { await b.edit(op, { text, from, to }, actor.kind === "user"); return { query: b.query, selected: b.input.selectedText() }; }
