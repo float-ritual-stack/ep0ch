@@ -3547,7 +3547,6 @@ export class OutlinerStore {
 
   private valueReferences = new Map<string, { answer: ReturnType<typeof answerSite>; versions: string[]; sequence: number; minute: number }>();
   private valueReferenceIds: Set<string> | undefined;
-  private refreshingValueReferences = new Set<string>();
 
   private valueReferenceVersion(id: string): string {
     const block = this.get(id);
@@ -3562,15 +3561,9 @@ export class OutlinerStore {
       if (!block) { this.valueReferences.delete(id); this.valueReferenceIds.delete(id); continue; }
       const cached = this.valueReferences.get(id);
       if (cached && cached.answer.deps.every((dep, i) => this.valueReferenceVersion(dep) === cached.versions[i]) && (!cached.answer.anyChange || cached.sequence === this.sequence) && (!cached.answer.clock || cached.minute === Math.floor(Date.now() / 60_000))) continue;
-      if (this.refreshingValueReferences.has(id)) throw new Error("value link cycle: this address reads its own backlinks");
-      this.refreshingValueReferences.add(id);
-      try {
-        const answer = answerSite(this, { blockId: id });
-        replaceReferenceIndex(this.database, id, block.text, answer.values);
-        this.valueReferences.set(id, { answer, versions: answer.deps.map(dep => this.valueReferenceVersion(dep)), sequence: this.sequence, minute: Math.floor(Date.now() / 60_000) });
-      } finally {
-        this.refreshingValueReferences.delete(id);
-      }
+      const answer = answerSite(this, { blockId: id });
+      replaceReferenceIndex(this.database, id, block.text, answer.values);
+      this.valueReferences.set(id, { answer, versions: answer.deps.map(dep => this.valueReferenceVersion(dep)), sequence: this.sequence, minute: Math.floor(Date.now() / 60_000) });
     }
   }
 

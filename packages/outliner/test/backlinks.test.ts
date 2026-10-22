@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, spyOn } from "bun:test";
 import { OutlinerStore } from "../src/store";
+import { answerSite } from "../src/site-answer";
 import { readAuthoredLinks } from "../src/authored-links";
 
 const cleanups: Array<() => void> = [];
@@ -25,6 +26,7 @@ describe("semantic backlink relation", () => {
     const workspace = store();
     const source = workspace.create("Loop\n[[{{this.children | links:this .count}}]]");
     workspace.create("Child", source.id);
+    expect(answerSite(workspace, { blockId: source.id }).values[0]?.problem?.message).toContain("cycle");
     const values = workspace.referenceValues(source.id);
     expect(values[0]?.problem?.message).toContain("cycle");
     expect(values[0]?.values).toBeUndefined();
