@@ -48,7 +48,7 @@ describe("a press's invitation (PIE-957)", () => {
   const where = (over: object) => ({ ...NOBODY, idle: 100, ...over });
   const invited = (id: string, run: string) => ({ kind: "agent", id: "script:tidy", run, invitation: id }) as const;
 
-  test("it lifts \"the person is at the keys\" for its own run, never while they type, never for another run, and not once spent", () => {
+  test("it lifts \"the person is at the keys\" for its own run even while they type, never for another run, and not once spent", () => {
     const id = INVITES.mint("you");
     const def = { touches: "screen" } as const;
     // A press a moment ago: an agent without an invitation is told to wait.
@@ -56,23 +56,24 @@ describe("a press's invitation (PIE-957)", () => {
     // The invitation is bound to the first run that carries it (or the one the press answered with).
     INVITES.bind(id, "run-1");
     expect(actorRule(def, invited(id, "run-1"), where({}), {})).toBeNull();
-    // Typing is not lifted by it.
-    expect(actorRule(def, invited(id, "run-1"), where({ busy: true, why: "the person is typing" }), {})).toContain("typing");
+    // The press is the person's keystroke, even while they type.
+    expect(actorRule(def, invited(id, "run-1"), where({ busy: true, why: "the person is typing" }), {})).toBeNull();
     // Another run can't use it, and a spent one is nothing.
     expect(actorRule(def, invited(id, "run-2"), where({}), {})).toContain("at the keys");
     INVITES.spendRun("run-1");
     expect(actorRule(def, invited(id, "run-1"), where({}), {})).toContain("at the keys");
   });
 
-  test("a hold on navigation (the showcase's sections) is lifted for layout and tile actions only: an invited run can't leave the section", () => {
+  test("a press lifts navigation and typing holds for its run", () => {
     const id = INVITES.mint("you");
     INVITES.bind(id, "run-9");
     const held = where({ busy: true, navHold: true, why: "the person is in section 3; sections change from the index" });
     expect(actorRule({ touches: "screen" }, invited(id, "run-9"), held, { action: "layout.load" })).toBeNull();
     expect(actorRule({ touches: "screen" }, invited(id, "run-9"), held, { action: "tile.focus" })).toBeNull();
-    expect(actorRule({ touches: "screen" }, invited(id, "run-9"), held, { action: "section" })).toContain("sections change");
-    // A real hold (typing, the power bar) is not a hold on navigation: the invitation lifts nothing there.
-    expect(actorRule({ touches: "screen" }, invited(id, "run-9"), where({ busy: true, why: "the person is typing" }), { action: "layout.load" })).toContain("typing");
+    expect(actorRule({ touches: "screen" }, invited(id, "run-9"), held, { action: "section" })).toBeNull();
+    // Typing and a power-bar hold follow the same press rule.
+    expect(actorRule({ touches: "screen" }, invited(id, "run-9"), where({ busy: true, why: "the person is typing" }), { action: "layout.load" })).toBeNull();
+    INVITES.spendRun("run-9");
   });
 });
 
