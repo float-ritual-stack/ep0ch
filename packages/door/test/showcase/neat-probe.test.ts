@@ -251,7 +251,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     return () => app.drawer.desk?.dispatch.act({ action: "tile.close", tile: "screen" }, USER);
   };
 
-  test.failing("4 address: tile= takes the drawer path that links itself answers", async () => {
+  test("4 address: tile= takes the drawer path that links itself answers", async () => {
     const s = await twoReaders(); const off = await linksInDrawer(s);
     try {
       const shown = await app.dispatch.act({ action: "links", tile: "briefing" }, USER) as { tile?: string };
@@ -260,7 +260,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     } finally { await off(); s.done(); }
   }, 30_000);
 
-  test.failing("5 layers: layout.get from a script lists the drawer's tiles", async () => {
+  test("5 layers: layout.get from a script lists the drawer's tiles", async () => {
     const s = await twoReaders(); const off = await linksInDrawer(s);
     try {
       const answer = await pressed("const t = (await act('layout.get')).tiles; return t.map(x => x.name).join(',');");
@@ -280,7 +280,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
     } finally { press({ kind: "esc" } as any); await app.drawer.desk?.dispatch.act({ action: "tile.close", tile: "loose" }, USER); s.done(); }
   }, 30_000);
 
-  test.failing("6b keys: alt+l with the keys on a drawer tile inside a group links that tile, not the screen's", async () => {
+  test("6b keys: alt+l with the keys on a drawer tile inside a group links that tile, not the screen's", async () => {
     const s = await twoReaders(); const off = await linksInDrawer(s);
     try {
       app.drawer.enter();
@@ -290,4 +290,116 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       expect(app.drawer.desk!.linkingFrom()?.constructor.name).toBe("BacklinksPane");
     } finally { press({ kind: "esc" } as any); await off(); s.done(); }
   }, 30_000);
+  test("a wire keeps the target id through the drawer and grouping, then ends when the target closes", async () => {
+    const s = await twoReaders();
+    const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+    const target = s.d.layoutAll().tiles.find(t => t.name === "other")!.id as string;
+    const source = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.id as string;
+    const wire = () => s.d.layoutAll().tiles.find(t => t.id === source) as any;
+    try {
+      await act("tile.drawer", target);
+      await act("tile.link", source, { to: target, verb: "open" });
+      expect(wire().wires).toContainEqual({ verb: "open", to: target });
+      await act("tile.title", target, { text: "Potting bench" });
+      await act("tile.group", target, { name: "garden" });
+      expect(s.d.layoutAll().tiles.find(t => t.id === target)?.name).toBe("other");
+      expect(wire().wires).toContainEqual({ verb: "open", to: target });
+      await act("tile.group", "@drawer/garden", { on: false });
+      await act("tile.drawer", target, { on: false });
+      expect(wire().wires).toContainEqual({ verb: "open", to: target });
+      await act("open", source, { id: s.testing.id });
+      await act("tile.close", target);
+      expect(wire().wires).not.toContainEqual({ verb: "open", to: target });
+      expect(app.describe().messages.some(m => m.message.includes("wire dropped") && m.message.includes(target))).toBe(true);
+    } finally {
+      const left = app.drawer.made?.resolveTile(target);
+      if (left) await left.dispatch.act({ action: "tile.close", tile: target }, USER);
+      s.done();
+    }
+  }, 30_000);
+
+  for (const place of ["screen", "group", "drawer group"]) test(`keys and default actions use the reader in the ${place}`, async () => {
+    const s = await twoReaders();
+    const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+    const id = s.d.layoutAll().tiles.find(t => t.name === "other")!.id as string;
+    let group: string | undefined;
+    try {
+      if (place !== "screen") {
+        await act("tile.open", id, { kind: "reader", name: "companion" });
+        const made = await act("tile.group", id, { name: "garden", with: "companion" }) as { id: string };
+        group = made.id;
+        if (place === "drawer group") { await act("tile.drawer", group); app.drawer.enter(); }
+      }
+      await act("tile.focus", id);
+      const tile = () => s.d.layoutAll().tiles.find(t => t.id === id)!;
+      expect(app.person().address).toBe(id);
+      press({ kind: "char", ctrl: true, ch: "w" }); press({ kind: "char", ch: "c" });
+      expect(tile().collapsed).toBe(true);
+      await act("tile.collapse", undefined, { on: false });
+      expect(tile().collapsed).toBeFalsy();
+      press({ kind: "alt", ch: "h" });
+      expect(tile().collapsed).toBe(true);
+      await act("tile.collapse", id, { on: false });
+      press({ kind: "char", ctrl: true, ch: "w" }); press({ kind: "char", ch: "z" });
+      expect(s.d.layoutAll().layers.find(l => l.tiles.some(t => t.id === id))?.zoom).toBe(id);
+      await act("tile.zoom", id, { on: false });
+      const target = s.d.layoutAll().tiles.find(t => t.name === "briefing")!.id;
+      for (const [key, verb] of [["s", "select"], ["o", "open"], ["a", "alt"]] as const) {
+        await act("tile.focus", id);
+        press({ kind: "alt", ch: "l" }); press({ kind: "char", ch: key });
+        app.flush();
+        const r = s.d.layoutAll().tiles.find(t => t.id === target)!.rect!;
+        press({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 2 });
+        press({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 2 });
+        expect((tile() as any).wires).toContainEqual({ verb, to: target });
+      }
+      await act("tile.focus", id);
+      const rows = s.d.resolveTile(id)!.dispatch.menu(id, USER);
+      const fold = rows.find(r => r.action === "tile.collapse")!;
+      expect(fold.tile).toBe(id);
+      await app.dispatch.act(fold, USER);
+      expect(tile().collapsed).toBe(true);
+      await act("tile.collapse", id, { on: false });
+      await act("hyper.set", undefined, { on: true });
+      press({ kind: "hyper", ch: "-" });
+      expect(tile().collapsed).toBe(true);
+      press({ kind: "hyper", ch: "=" });
+      expect(tile().collapsed).toBeFalsy();
+      press({ kind: "hyper", ch: "z" });
+      expect(s.d.layoutAll().layers.find(l => l.tiles.some(t => t.id === id))?.zoom).toBe(id);
+      await act("tile.zoom", id, { on: false });
+      await act("hyper.set", undefined, { on: false });
+      const status = await act("status.bar.pin", undefined, { line: '::button{label="Fold here" act="tile.collapse on=true"}' }) as { note: string };
+      try {
+        await app.loadExtensions(true);
+        await until(() => { app.flush(); return h.painted.at(-1)?.includes("Fold here") ?? false; }, "the address status button");
+        const items = await act("status.bar.items") as any;
+        const button = items.items.find((i: any) => i.text.includes("Fold here"));
+        press({ kind: "mouse", action: "down", button: 0, x: button.from, y: 59 });
+        await until(() => tile().collapsed === true, "the button folds the focused tile");
+      } finally { await board.trash(status.note); }
+    } finally {
+      if (group && app.drawer.made?.resolveTile(group)) await act("tile.close", group);
+      s.done();
+    }
+  }, 30_000);
+
+  test("two grouped tiles named kettle require an id or a path", async () => {
+    const s = await twoReaders();
+    try {
+      for (const name of ["west", "east"]) {
+        const tile = await app.dispatch.act({ action: "tile.open", tile: "briefing", args: { kind: "reader", name: "kettle" } }, USER) as { id: string };
+        await app.dispatch.act({ action: "tile.group", tile: tile.id, args: { name } }, USER);
+      }
+      await expect(app.dispatch.act({ action: "tile.info", tile: "kettle" }, USER)).rejects.toThrow(/several tiles named kettle/);
+      const west = await app.dispatch.act({ action: "tile.info", tile: "west/kettle" }, USER) as { id: string };
+      const east = await app.dispatch.act({ action: "tile.info", tile: "east/kettle" }, USER) as { id: string };
+      expect(west.id).not.toBe(east.id);
+      await app.dispatch.act({ action: "tile.title", tile: west.id, args: { text: "Copper kettle" } }, USER);
+      const tiles = s.d.layoutAll().tiles;
+      expect(tiles.find(t => t.id === west.id)?.title).toBe("Copper kettle");
+      expect(tiles.find(t => t.id === east.id)?.collapsed).toBeFalsy();
+    } finally { s.done(); }
+  }, 30_000);
+
 });

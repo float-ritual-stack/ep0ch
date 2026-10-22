@@ -1021,6 +1021,7 @@ export class App implements Ctx {
       messages: this.messages.rows,
       pointers: this.agentPointers.list(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
+      layout: this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d))?.layoutAll() ?? this.drawer.made?.layoutAll(),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
       ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.() ?? null };
   }
@@ -1112,7 +1113,7 @@ export class App implements Ctx {
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1) }) },
-    { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing && this.drawer.entered ? this.drawer.desk ?? undefined : this.stack.at(-1) }) },
+    { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.hostLayer.desks()[0]?.resolveTile(this.person().address ?? "")?.desk ?? this.stack.at(-1) : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },
     { set: MACRO_ACTIONS, takes: "none", on: () => ({ ctx: this, recording: this.recording }) },
     { set: STATUS_BUTTON_ACTIONS, takes: "none", claims: req => req.action === "button.press" && req.args?.note !== undefined && req.tile === undefined,
@@ -1122,8 +1123,7 @@ export class App implements Ctx {
       open: (id: string, actor: Actor) => this.hostLayer.openOnScreen(id, true, actor),
     }) },
     { set: BAR_ACTIONS, takes: "none", on: (_, how) => ({ on: this.barOn, standing: how.standing }) },
-    // A tile the screen shown doesn't have but the drawer does (tile=, PIE-498): the drawer's desk answers it.
-    { claims: req => this.drawer.routes(req, this.stack.at(-1)), delegate: () => this.drawer.desk?.dispatch, listed: false },
+    { claims: req => !!req.tile && !!this.hostLayer.desks()[0]?.resolveTile(req.tile), delegate: req => req?.tile ? this.hostLayer.desks()[0]?.resolveTile(req.tile)?.dispatch : undefined, request: req => ({ ...req, tile: this.hostLayer.desks()[0]?.resolveTile(req.tile!)?.tile.id ?? req.tile }), listed: false },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
     { set: RUNBOOK_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXTENSION_INSTALL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
@@ -1138,7 +1138,7 @@ export class App implements Ctx {
    */
   person(): Whereabouts {
     const s = this.stack.at(-1);
-    const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
+    const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostAddress: this.drawer.made?.keys().address, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
     const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
     // The power bar holds their keys while it's open.
     // (A hold on navigation alone, the showcase's, doesn't count as busy here: a real hold replaces it.)

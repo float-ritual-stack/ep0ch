@@ -1222,20 +1222,6 @@ export class AgentDrawer {
     return panes;
   }
 
-  /**
-   * An agent's `act` naming a tile the screen shown doesn't have but the drawer does: the drawer's desk answers it
-   * (tile.type into a terminal in the drawer, a note action in a reader in the drawer, tile.drawer on=false).
-   */
-  routes(req: ActRequest, top: Screen | undefined): boolean {
-    if (!req.tile || req.tile === "focused" || req.tile === DRAWER_TILE_ID && req.action === "tile.herdr") return false;
-    const d = this.d, here = top?.dispatch?.tile?.(req.tile) ?? null, inDrawer = d?.dispatch.tile(req.tile) ?? null;
-    // One name on the screen shown and in the drawer: never a guess (typing into the wrong terminal); the ids tell them apart.
-    if (here && inDrawer && here.name === req.tile && inDrawer.name === req.tile && d!.dispatch.takes(req)) throw new ActionRefused(`${req.tile} names a tile here${here.id ? ` (${here.id})` : ""} and one in the drawer${inDrawer.id ? ` (${inDrawer.id})` : ""} · name it by id: tile=${inDrawer.id ?? inDrawer.name} for the drawer's`);
-    if (here) return false;
-    // By its name or id only: a number (`tile=1`) or a block is a place on the screen shown, never a drawer tab's.
-    return !!d && !!inDrawer && (inDrawer.name === req.tile || inDrawer.id === req.tile) && d.dispatch.takes(req);
-  }
-
   describe() {
     const pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
     const shown = this.tabs().find(t => t.name === this.shownTab());

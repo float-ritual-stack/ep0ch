@@ -182,7 +182,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(group.inner).toBe(inner);
       expect((inner.pane("draft") as any).surface.draft).toBe(draft);
       expect(draft.text).toContain("Keep this unsaved");
-      expect((inner.layoutGet() as any).tiles.find((t: any) => t.name === "replies").wires).toContainEqual({ verb: "open", to: "reader" });
+      expect((inner.layoutGet() as any).tiles.find((t: any) => t.name === "replies").wires).toContainEqual({ verb: "open", to: inner.layoutGet().tiles.find((t: any) => t.name === "reader")!.id });
       expect((inner.layoutGet() as any).tiles.filter((t: any) => t.name === "reader" || t.name === "draft").every((t: any) => t.tabs?.includes("reader") && t.tabs?.includes("draft"))).toBe(true);
       await next.dispatch.act({ action: "tile.drawer", tile: "bundle" }, USER);
       d.app.pop(); d.paint();
@@ -209,6 +209,32 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  test("saved drawer paths become ids once, and a missing wire is dropped", async () => {
+    const first = await door();
+    let path = "";
+    try {
+      await first.desk.dispatch.act({ action: "tile.open", tile: "reader", args: { kind: "backlinks", name: "letter-links", source: "tile:reader" } }, USER);
+      await first.desk.dispatch.act({ action: "tile.drawer", tile: "letter-links" }, USER);
+      path = join(outlineState(), hostSpec().saves!);
+    } finally { first.app.quit(); }
+    const saved = JSON.parse(readFileSync(path, "utf8"));
+    const leaves = (value: any): any[] => value && typeof value === "object" ? [value, ...Object.values(value).flatMap(leaves)] : [];
+    const links = leaves(saved).find(v => v.name === "letter-links" && v.kind === "backlinks");
+    links.source = "tile:@desk/reader";
+    links.wires = [{ verb: "open", to: "@desk/reader" }, { verb: "alt", to: "@desk/gone" }];
+    writeFileSync(path, JSON.stringify(saved));
+    const next = await door();
+    try {
+      await until(() => !readFileSync(path, "utf8").includes("@desk/"), "saved references rewritten");
+      const target = next.desk.layoutGet().tiles.find(t => t.name === "reader")!.id;
+      const restored = leaves(JSON.parse(readFileSync(path, "utf8"))).find(v => v.name === "letter-links" && v.kind === "backlinks");
+      expect(restored.source).toBe(`tile:${target}`);
+      expect(restored.link).toBe(target);
+      expect(restored.wires).toBeUndefined();
+      expect(next.paint().join("\n")).toContain("wire dropped");
+    } finally { next.app.quit(); }
+  });
+
   test("the first b after restarting opens a group saved in a shut drawer (PIE-1120)", async () => {
     const first = await door();
     const note = await board.createBlock(null, "Seed tray instructions");
@@ -225,6 +251,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await next.desk.dispatch.act({ action: "tile.focus", tile: "reader" }, USER);
       expect(next.app.drawer.tabs().some(t => t.name === "bundle")).toBe(true);
       next.key(char("b"));
+
       const links = () => (next.pane("bundle") as any)?.inner?.pane("replies");
       await until(() => { next.paint(); return links()?.target?.id === note.id && !!links()?.data; }, "the restored grouped links loaded on the first b");
       expect(next.app.drawer.open).toBe(true);
@@ -733,11 +760,12 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await until(() => shell()?.running === true, "shell runs");
       const pid = shell()!.pid;
       // A drawer that can't take it (its layout locked): leaving would end it, so it's refused, said.
-      await d.app.drawer.desk!.dispatch.act({ action: "layout.lock", args: { on: true } }, USER);
+      await d.app.drawer.desk!.dispatch.act({ action: "layout.lock", tile: "drawer.agent", args: { on: true } }, USER);
+      expect(d.app.drawer.desk!.layoutGet().locked).toBe(true);
       d.app.pop();
-      expect(d.app.screens().at(-1)).toBe(other);
+      expect(d.app.screens().at(-1) === other).toBe(true);
       expect(d.A.message).toContain("shell couldn't go into your drawer");
-      await d.app.drawer.desk!.dispatch.act({ action: "layout.lock", args: { on: false } }, USER);
+      await d.app.drawer.desk!.dispatch.act({ action: "layout.lock", tile: "drawer.agent", args: { on: false } }, USER);
       d.app.pop();                                               // no refusal: last callers goes, its shell comes along
       expect(d.app.screens().at(-1)).toBe(d.desk);
       expect(d.inDrawer("shell")).toBe(true);
@@ -784,7 +812,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
       const pid = d.kettle()!.pid;
       await d.app.act({ action: "tile.drawer", args: {}, tile: "kettle", as: AS });
-      expect(d.app.drawer.tabs().find(t => t.name === "kettle")!.id).toMatch(/^k\d+$/);     // a drawer id, never a screen's t<n>
+      expect(d.app.drawer.tabs().find(t => t.name === "kettle")!.id).toMatch(/^t-/);     // a drawer id, never a screen's t<n>
       const other = otherScreen();
       d.app.push(other); d.paint();
       await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false, to: "notes" }, tile: "kettle" }, USER);
