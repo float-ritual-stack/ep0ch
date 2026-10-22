@@ -15,6 +15,8 @@ import { changedSinceRead, Refused, type NotePlacement } from "./socket";
 import { paint, width } from "./style";
 import { readState, writeState } from "./state";
 import { NEW_NOTE_OPENS, type NewNoteOpens } from "./desk/screen-spec";
+import { actorRule } from "./surface/dispatch";
+import { type Actor } from "./socket";
 import type { Key } from "./term";
 
 /** A part of a drawn row that a click presses a key on (PaneView.spots): `from`..`to`, columns of the row. */
@@ -30,10 +32,10 @@ export function newNoteOffer(row: number): { line: string; spot: KeySpot } {
 }
 
 /** What `note.new` runs on: the door, and the screen it's pressed on (the top one). */
-export interface NewNoteOn { ctx: Ctx; here?: Screen }
+export interface NewNoteOn { ctx: Ctx; here?: Screen; standing: boolean }
 
 /** How the person's new note opens (`newNote` on Screen.editNew): where, and the note it was made from (its context). */
-export interface NewNoteHow { opens: NewNoteOpens; context: string | null }
+export interface NewNoteHow { opens: NewNoteOpens; context: string | null; actor?: Actor }
 
 /**
  * Where the person's new notes open where a screen doesn't say (PIE-591): EP0CH_NEW_NOTE, else what `note.opens` saved
@@ -65,23 +67,23 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       { act: "note.new text=\"Shed roof repair [status::open]\"", does: "makes a note titled Shed roof repair, attributed to you, under the note in front" },
       { act: "note.new inbox=true opens=tab", does: "makes a note at the top of the Inbox, shown as a tab on the focused tile" },
     ],
-    async run({ text, near, inbox, opens: asked }, { ctx, here }, actor) {
+    async run({ text, near, inbox, opens: asked }, { ctx, here, standing }, actor) {
       if (here?.noDrawer) throw new ActionRefused("not here: log on first (the logon and the logoff make no notes)");
       if (ctx.home) throw new ActionRefused("there's no outline open yet: open or make one here first (the home base), then ctrl+n makes a note in it");
       if (near !== undefined && inbox) throw new ActionRefused("near= and inbox=true say two places; give one");
       let opens = opensArg(asked);
       // Checked before anything is made: an agent never puts a note in the person's drawer.
-      if (actor.kind === "agent" && opens === "drawer") throw new ActionRefused("an agent's note doesn't go into the person's drawer: opens=float or tab shows it on the screen");
+      if (!standing && opens === "drawer") throw new ActionRefused("an agent's note doesn't go into the person's drawer: opens=float or tab shows it on the screen");
       // The person's ctrl+n where the screen runs something of its own (the board's lanes: a card in the lane).
-      const rule = actor.kind === "agent" || opens || near !== undefined || inbox || text !== undefined ? null : here?.newNoteRule?.() ?? null;
+      const rule = !standing || opens || near !== undefined || inbox || text !== undefined ? null : here?.newNoteRule?.() ?? null;
       if (rule?.action) {
         if (!here?.dispatch) throw new ActionRefused(`the ${here?.title ?? "screen"} has no ${rule.action} to run`);
-        const out = await here.dispatch.press(rule.action, rule.args ?? {});
+        const out = await here.dispatch.act({ action: rule.action, args: rule.args ?? {} }, actor);
         return { via: rule.action, ...(out && typeof out === "object" ? out : {}) };
       }
-      if (actor.kind !== "agent") opens ??= rule?.opens ?? personOpens();
+      if (standing) opens ??= rule?.opens ?? personOpens();
       // The person's context is the reader they're in; an agent's is only what it names (never the person's reader).
-      const at = inbox ? undefined : near ?? (actor.kind === "agent" ? undefined : here?.noteContext?.() ?? undefined);
+      const at = inbox ? undefined : near ?? (!standing ? undefined : here?.noteContext?.() ?? undefined);
       let made: { note: Msg; placement: NotePlacement };
       // A near= the caller named is that note or nothing; the reader's own note falls back to the Inbox.
       try { made = await ctx.board.newNote(text ?? "", at, actor, near !== undefined); }
@@ -95,7 +97,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       const { note, placement } = made;
       const out = { id: note.id, title: subject(note), parentId: placement.parentId, rule: placement.rule, said: placement.said };
       // An agent's opens nothing (the dispatcher says it on the status bar, `says`, named), unless it asked where: shown there, unfocused.
-      if (actor.kind === "agent") {
+      if (!standing) {
         // Made either way: a showing refused (a locked screen) is said with the note's id, never as a failure to retry.
         if (opens && here?.showNew) {
           try { return { ...out, reader: await here.showNew(note, opens, actor) }; }
@@ -107,11 +109,13 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       // open puts a message reader over it, and that reader opens the edit. Only an edit on this very note counts.
       let reader: string | null = null;
       try {
-        if (here?.editNew) reader = await here.editNew(note, { opens: opens ?? "float", context: at ?? null });
+        const held = ctx.dispatch && actorRule({ touches: "screen", host: true }, actor, ctx.dispatch.where(), {});
+        if (held) throw new ActionRefused(held);
+        if (here?.editNew) reader = await here.editNew(note, { opens: opens ?? "float", context: at ?? null, actor });
         else if (ctx.press) {
-          await ctx.press("open", { id: note.id });
+          await ctx.dispatch!.act({ action: "open", args: { id: note.id } }, actor);
           const top = ctx.screens?.().at(-1);
-          if (top && top !== here && top.noteContext?.() === note.id && top.editNew) reader = await top.editNew(note);
+          if (top && top !== here && top.noteContext?.() === note.id && top.editNew) reader = await top.editNew(note, { opens: "lands", context: at ?? null, actor });
         }
       } catch (e) { throw new ActionRefused(`the new note couldn't be opened to write (${e instanceof Error ? e.message : String(e)}); ${await putAway(ctx, note)}`); }
       if (reader === null) throw new ActionRefused(`the new note couldn't be opened to write here (cancelled, or no reader took it); ${await putAway(ctx, note)}`);

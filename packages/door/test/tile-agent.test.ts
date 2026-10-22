@@ -17,7 +17,7 @@ const AGENT: Actor = { kind: "agent", id: "seed-agent-639" };
 const NAMES = new Map([[1, "tree"], [2, "reader"], [3, "detail"], [4, "notes"]]);
 const tree = (): LNode => splitOf("row", [leaf(1), leaf(2), leaf(3), leaf(4)], [1, 1, 1, 1]);
 const facts = (id: number): TileFacts => ({ kind: id === 1 ? "tree" : "reader", notes: id !== 1 });
-const ctx = (actor: Actor): Ctx => ({ actor, area: AREA, tile: facts, person: { focus: 2, typingIn: null, busy: false }, kinds: { all: ["reader", "tree"], notes: ["reader"] } });
+const ctx = (actor: Actor): Ctx => ({ actor, standing: actor.kind === "user", protectTyping: actor.kind === "agent", area: AREA, tile: facts, person: { focus: 2, typingIn: null, busy: false }, kinds: { all: ["reader", "tree"], notes: ["reader"] } });
 const run = (s: LayoutState, op: Op, actor: Actor = PERSON) => { const r = apply(s, op, ctx(actor)); if (!r.ok) throw new Error(`refused: ${r.refused}`); return r.state; };
 const no = (s: LayoutState, op: Op, re: RegExp, actor: Actor = AGENT) => { const r = refusal(s, op, ctx(actor)); expect(r).toMatch(re); };
 const fresh = (agents: [number, "free" | "edit" | "off"][] = [], policy = {}) => init({ tree: tree(), names: NAMES, agents: new Map(agents), policy: policyOf(policy) });

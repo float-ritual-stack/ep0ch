@@ -185,7 +185,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     const { id, proposal } = await proposed();
     const { s, h } = await reading(id);
     const n = s.describeElements().find(e => e.control === "dismiss")!.n;
-    await NOTE_ACTIONS.run("element.open", { n }, { surface: s, host: h }, OTHER);
+    await NOTE_ACTIONS.run("element.open", { n }, { surface: s, host: h, standing: false }, OTHER);
     expect((await board.get(proposal))!.deleted).toBe(true);
     expect(current(s)).toBeUndefined();                                                   // the person's [ ] stays theirs
   }, 30_000);
@@ -226,7 +226,7 @@ describe.skipIf(!outliner)("embeds and proposals in a reader, on a scratch servi
     expect(s.hint()).not.toContain("A apply");
     expect(s.key(char("A"), h)).toBe(true);
     await until(() => flashes.some(f => f.includes("can't be applied")), "A's refusal");
-    await expect(NOTE_ACTIONS.run("proposal.apply", { id: proposal }, { surface: s, host: h }, TIDY)).rejects.toThrow("can't be applied");
+    await expect(NOTE_ACTIONS.run("proposal.apply", { id: proposal }, { surface: s, host: h, standing: false }, TIDY)).rejects.toThrow("can't be applied");
     expect(prop((await board.get(proposal))!, "proposal-status")).toBe("open");
     const p = at(frame(), "[dismiss]");
     expect(s.click(p.x + 1, p.y, h)).toBe(true);

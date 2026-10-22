@@ -243,7 +243,7 @@ describe("the drawer", () => {
     } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
-  test("yolo: the person hands the door to agents, so their typing in the drawer holds no agent back; loud, and theirs to start", async () => {
+  test("yolo: the person hands the door to agents, but typing still holds its keys; loud, and theirs to start", async () => {
     const d = door();
     try {
       d.app.push(d.screen("main menu") as any);
@@ -260,10 +260,10 @@ describe("the drawer", () => {
       expect(d.yoloTold).toEqual([true]);
       expect(d.paint().at(-1)).toContain("YOLO");
       expect(d.app.person().yolo).toBe(true);
-      // Typing in the drawer and at the keys a moment ago: the agent puts the drawer away all the same, and it's said.
+      // Standing never lifts typing protection, even when the person handed over the door.
       d.A.lastInput = Date.now();
-      await d.app.act({ action: "host.toggle", args: { open: false }, as: "claude-7" });
-      expect(d.app.drawer.open).toBe(false);
+      await expect(d.app.act({ action: "host.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in the drawer/);
+      expect(d.app.drawer.open).toBe(true);
       // A click on YOLO takes it back.
       const row = d.paint().length - 1, col = d.paint().at(-1)!.indexOf("YOLO");
       d.key(mouse("down", col, row)); d.key(mouse("up", col, row));

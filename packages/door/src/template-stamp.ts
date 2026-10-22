@@ -13,7 +13,7 @@ import { ActionRefused, actionSet, def } from "./surface/actions";
 import type { Actor } from "./socket";
 
 /** What `template.stamp` runs on: the door, and the screen it's pressed on (the top one). */
-export interface TemplateOn { ctx: Ctx; here?: Screen }
+export interface TemplateOn { ctx: Ctx; here?: Screen; standing: boolean }
 
 /** `with=` as props: names to text. */
 function propsOf(raw: string | undefined): Record<string, string> {
@@ -56,7 +56,7 @@ export const TEMPLATE_ACTIONS = actionSet<TemplateOn>()("template", {
       { act: "template.stamp of=[[seed-swap-signup]] title=\"Seed swap, {{now.date}}\"", does: "writes the seed-swap-signup template out as a new note with that title" },
       { act: "template.stamp of=type:meeting parent=[[garden]] with={\"who\":\"Ana\"}", does: "stamps the meeting template under the garden page with who filled in" },
     ],
-    async run({ of, as, into, parent, title, for: forQuery, freeze, with: w }, { ctx }, actor: Actor) {
+    async run({ of, as, into, parent, title, for: forQuery, freeze, with: w }, { ctx, standing }, actor: Actor) {
       const given = propsOf(w);
       const request = (template: string, props: Record<string, string>) => ({
         of: template, ...(as !== undefined ? { as } : {}), ...(into !== undefined ? { into } : {}), ...(parent !== undefined ? { parent } : {}),
@@ -68,7 +68,7 @@ export const TEMPLATE_ACTIONS = actionSet<TemplateOn>()("template", {
         try { out = await ctx.board.templateStamp(request(template, props), actor); }
         catch (e) { throw new ActionRefused(`not stamped: ${e instanceof Error ? e.message : String(e)}`); }
         const first = out.stamped[0];
-        if (actor.kind === "user" && !into && first && ctx.press) { await ctx.press("open", { id: first.id }); ctx.flash(out.said, 8000); }
+        if (standing && !into && first && ctx.dispatch) { await ctx.dispatch.act({ action: "open", args: { id: first.id } }, actor); ctx.flash(out.said, 8000); }
         ctx.redraw();
         return out;
       };

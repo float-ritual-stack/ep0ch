@@ -646,13 +646,13 @@ export const ECHO_AREA_ACTIONS = actionSet<KindHost>()("echo", {
       { act: "echo.area n=2 tile=areas", does: "picks the second message area and lists its messages beside" },
       { act: "echo.area tag=garden.swap open=true tile=areas", does: "picks the GARDEN.SWAP area and moves the person's keys to its messages" },
     ],
-    async run({ n, tag, open }, { pane, desk }, actor) {
+    async run({ n, tag, open }, { pane, desk, standing }, actor) {
       const net = areasOf(pane);
       if ((n === undefined) === (tag === undefined)) throw new ActionRefused("echo.area takes n or tag, one of them");
       const i = tag !== undefined ? (net.areas ?? []).findIndex(a => a.tag.toLowerCase() === tag.trim().toLowerCase()) : n! - 1;
       if (i < 0) throw new ActionRefused(`no area tagged ${tag}; the areas are ${(net.areas ?? []).map(a => a.tag).join(", ") || "none yet"}`);
       const a = await net.pick(i, desk);
-      if (open && actor.kind === "user" && net.messages) desk.focusPane?.(net.messages, actor);
+      if (open && standing && net.messages) desk.focusPane?.(net.messages, actor);
       return { n: i + 1, tag: a.tag, name: a.name, at: a.node, from: a.origin, messages: a.total, new: a.fresh };
     },
   }),
@@ -678,7 +678,7 @@ export const ECHO_MESSAGE_ACTIONS = actionSet<KindHost>()("echo", {
       { act: "echo.message n=1", does: "lights the oldest message of the area listed" },
       { act: "echo.message id=8c4d1e92-6a3b-4f07-b2e5-1d9a7c0f3b58 read=true", does: "reads that message in the reader, marked read" },
     ],
-    run({ n, id, read }, { pane, desk }, actor) {
+    run({ n, id, read }, { pane, desk, standing }, actor) {
       const ms = pane as EchoMessages, items = ms.items;
       if (!ms.area || !items) throw new ActionRefused("no area's messages are listed yet · pick an area");
       if ((n === undefined) === (id === undefined)) throw new ActionRefused("echo.message takes n or id, one of them");
@@ -690,7 +690,7 @@ export const ECHO_MESSAGE_ACTIONS = actionSet<KindHost>()("echo", {
       if (!read) return { n: i + 1, of: items.length, id: items[i]!.msg.id, subject: subject(items[i]!.msg), read: false };
       if (!r) throw new ActionRefused("there's no message reader on this screen");
       const out = r.read(ms.area, items, i, desk, actor);
-      if (actor.kind === "user") desk.focusPane?.(r, actor);
+      if (standing) desk.focusPane?.(r, actor);
       return { ...out, read: true };
     },
   }),

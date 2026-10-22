@@ -102,7 +102,7 @@ const TILES: BarSource = {
     if (!p) throw new ActionRefused(`${t.path} isn't open any more`);
     // An agent goes through the tile actions on the screen shown (a tile in a mount by its path), so their rules are its:
     // it never moves the person's screen.
-    if (how.actor.kind === "agent") {
+    if (!host.dispatch.standing(how.actor)) {
       if (t.screen !== host.screens().at(-1)) throw new ActionRefused(`${t.path} isn't on the screen shown: an agent doesn't move the person's screen or drawer from the bar`);
       const r = await host.dispatch.act({ action: "tile.focus", tile: t.path }, how.actor);
       return how.alt ? host.dispatch.act({ action: "tile.zoom", tile: t.path, args: { on: true } }, how.actor) : r;

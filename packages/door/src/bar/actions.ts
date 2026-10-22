@@ -5,6 +5,7 @@
 // `bar.pick` lists them for itself and picks one, which runs through the source's shared path as the agent, so every
 // rule an action has for an agent (never their keys, focus or screen) is that path's own.
 import { ActionRefused, actionSet, actRequestOf, def, lineWords, type ActRequest } from "../surface/actions";
+import { actorRule } from "../surface/dispatch";
 import type { Actor } from "../socket";
 import type { PowerBar } from "./bar";
 import { clearPrivateForm, formFocus, formLine, formOpen, formRun, formSet, formState } from "./ask";
@@ -43,7 +44,7 @@ const scopeArg = (scope: string | undefined): string | null => {
 };
 const scopes = () => barSources().map(s => ({ scope: s.id, prefix: s.prefix, title: s.title, about: s.about, by: s.by }));
 
-export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
+export const BAR_ACTIONS = actionSet<{ on: BarOn; standing: boolean }>()("bar", {
   "bar.open": def({
     summary: "the power bar: one palette over every screen. With nothing typed it lists the tiles open on every screen and in your drawer (indented as each screen's layout tree, with the note each shows), then what others changed since you looked; typed, the tiles, the outline's notes (the service's one search), the actions you can do here (with their keys), what changed and the screens, each under its heading; scope=tiles|notes|actions|recent|screens|extensions or an extension's (or its prefix: % / > + @ &, ~ and so on) lists one. The person's opens it with their keys in it (query= typed in); an agent's answers the rows it would list (numbered from 1, with scope=, query=) and opens nothing",
     keys: "ctrl+k, cmd+k (where the terminal sends it), ✦p (hyper, also while typing; ✦g in its screens scope), a click on the status bar's ^K, on every screen (not while typing, in a terminal tile or the drawer's program); / on the desk and the screens on it, g in a river column (the notes scope); ^W ? on the desk (the actions scope on the ^W keys, to filter and press one)",
@@ -56,9 +57,11 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       { act: "bar.open scope=notes query=garden", does: "answers the notes that match garden, numbered for bar.pick; nothing opens" },
       { act: "bar.open query=zoom", does: "answers every source's rows for zoom: tiles, notes, actions, screens" },
     ],
-    async run({ query, scope }, { on }, actor: Actor) {
+    async run({ query, scope }, { on, standing }, actor: Actor) {
       const s = scopeArg(scope);
-      if (actor.kind === "agent") { const b = await on.unseen({ query, scope: s }); try { return { ...b.describe(), scopes: scopes() }; } finally { b.close(); } }
+      if (!standing) { const b = await on.unseen({ query, scope: s }); try { return { ...b.describe(), scopes: scopes() }; } finally { b.close(); } }
+      const held = actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
+      if (held) throw new ActionRefused(held);
       const b = on.open({ query, scope: s });
       return { open: true, scope: b.scope ?? "all", query: b.query };
     },
@@ -79,14 +82,16 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       { act: "bar.pick scope=notes query=garden n=1", does: "opens the first note matching garden where an agent's opens land" },
       { act: "bar.pick source=notes key=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 alt=true", does: "opens that note (a row bar.open answered) in a new detail" },
     ],
-    async run({ n, alt, query, scope, source, key }, { on }, actor: Actor) {
-      if (actor.kind === "agent") {
+    async run({ n, alt, query, scope, source, key }, { on, standing }, actor: Actor) {
+      if (!standing) {
         const b = await on.unseen({ query, scope: scopeArg(scope) });
         try {
           const at = source !== undefined || key !== undefined ? b.rowNamed(source, key) : n ?? 1;
           return await b.pickRow(at, !!alt, actor);
         } catch (e) { throw new ActionRefused(e instanceof Error ? e.message : String(e)); } finally { b.close(); }
       }
+      const held = actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
+      if (held) throw new ActionRefused(held);
       const b = on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       if (query !== undefined || scope !== undefined) throw new ActionRefused("the person's pick is from the bar as they see it: query= and scope= are an agent's");
@@ -111,12 +116,14 @@ export const BAR_ACTIONS = actionSet<{ on: BarOn }>()("bar", {
       { act: "bar.edit op=clear", does: "clears the power bar's line" },
       { act: "bar.edit op=complete", does: "fills the next part of the lit row into the line, selected" },
     ],
-    async run({ op, text, from, to, query, scope }, { on }, actor: Actor) {
+    async run({ op, text, from, to, query, scope }, { on, standing }, actor: Actor) {
       if (!["clear", "complete", "paste", "select", "cut", "delete-word", "undo"].includes(op)) throw new ActionRefused("choose clear, complete, paste, select, cut, delete-word or undo");
-      const b = actor.kind === "agent" ? await on.unseen({ query, scope: scopeArg(scope) }) : on.bar();
+      const held = standing && actorRule({ touches: "screen", host: true }, actor, on.host().dispatch.where(), {});
+      if (held) throw new ActionRefused(held);
+      const b = !standing ? await on.unseen({ query, scope: scopeArg(scope) }) : on.bar();
       if (!b) throw new ActionRefused("the power bar isn't open · ctrl+k opens it");
       try { await b.edit(op, { text, from, to }, actor.kind === "user"); return { query: b.query, selected: b.input.selectedText() }; }
-      finally { if (actor.kind === "agent") b.close(); }
+      finally { if (!standing) b.close(); }
     },
   }),
   "bar.docs": def({

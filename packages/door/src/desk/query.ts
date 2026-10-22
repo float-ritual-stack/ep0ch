@@ -1,3 +1,5 @@
+import { standsAsPerson } from "../surface/dispatch";
+import { NOBODY } from "../whereabouts";
 import { rowLines } from "../text";
 // Query tiles (PIE-511): one saved view's cards (a virtual branch, as the service reads it with `views.read`),
 // with its own cursor. A board lane is one; so is a query tile opened on the desk (`^W o q`, `tile.open
@@ -246,12 +248,12 @@ export class QueryPane implements Pane {
    * Pick card `i`: the person's cursor moves there and it becomes what the tile shows (a preview follows it; with a
    * home, only where its selection goes: the current note stays, PIE-794); `open` opens it as ⏎ does, `fresh` as alt+⏎.
    */
-  pick(i: number, open: boolean, desk: DeskApi, actor: Actor = USER, fresh = false): { card: string; title: string; n: number } {
+  pick(i: number, open: boolean, desk: DeskApi, actor: Actor = USER, fresh = false, standing = standsAsPerson(actor, desk.ctx.person?.() ?? NOBODY, "tile")): { card: string; title: string; n: number } {
     const items = this.items ?? [];
     const m = items[i];
     if (!m) throw new ActionRefused(this.items ? (items.length ? `${this.name} has ${items.length} card${items.length === 1 ? "" : "s"}; n is 1-${items.length}` : `${this.name} is empty`) : `${this.name} is still being read`);
     // An agent's pick is its own: the person's cursor and what the tile shows stay.
-    if (actor.kind !== "agent") { this.sel = i; if (this.home && desk.showFrom) desk.showFrom(this, m); else desk.setCurrent(m, { from: this }); }
+    if (standing) { this.sel = i; if (this.home && desk.showFrom) desk.showFrom(this, m, actor); else desk.setCurrent(m, { from: this, by: actor }); }
     if (open || fresh) desk.setCurrent(m, { from: this, link: true, ...(fresh ? { fresh: true } : {}), by: actor });
     desk.redraw();
     return { card: m.id, title: subject(m), n: i + 1 };
@@ -290,7 +292,7 @@ export class QueryPane implements Pane {
 }
 
 /** A query tile's actions on the desk: which card is picked (and opened), and reading the view again. */
-export interface QueryOn { pane: QueryPane; desk: DeskApi }
+export interface QueryOn { pane: QueryPane; desk: DeskApi; standing: boolean }
 export const QUERY_ACTIONS = actionSet<QueryOn>()("query", {
   "query.pick": def({
     summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it; a tile beside a reader, its home, only previews: the current note stays), open=true opens it as ⏎ does (in its home, replacing its note), fresh=true as alt+⏎ (a new detail beside its home). An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
@@ -307,12 +309,12 @@ export const QUERY_ACTIONS = actionSet<QueryOn>()("query", {
       { act: "query.pick tile=query n=3", does: "selects the third card; a preview following the lane shows it" },
       { act: "query.pick tile=query id=7d9a1f40 fresh=true", does: "opens that card in a new detail beside the lane's home" },
     ],
-    run({ n, id, by, open, fresh }, { pane, desk }, actor) {
+    run({ n, id, by, open, fresh }, { pane, desk, standing }, actor) {
       if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("query.pick takes one of n, id or by");
       const items = pane.items ?? [];
       const i = id !== undefined ? items.findIndex(m => m.id === id || (id.length >= 8 && m.id.startsWith(id))) : by !== undefined ? clamp(pane.sel + Math.trunc(by), 0, Math.max(0, items.length - 1)) : n! - 1;
       if (id !== undefined && i < 0) throw new ActionRefused(`${pane.name} doesn't list ${id}`);
-      return pane.pick(i, !!open, desk, actor, !!fresh);
+      return pane.pick(i, !!open, desk, actor, !!fresh, standing);
     },
   }),
   "query.reload": def({
