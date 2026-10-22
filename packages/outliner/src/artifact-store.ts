@@ -255,7 +255,7 @@ export class ArtifactStore {
         if (cached && cached.dev === stat.dev && cached.ino === stat.ino && cached.size === stat.size && cached.mtime === stat.mtimeMs) hash = cached.hash;
         else {
           content = readFileSync(fd);
-          hash = new Bun.CryptoHasher("sha256").update(content).digest("hex");
+          hash = new Bun.CryptoHasher("sha256").update(basename(canonical) + "\0").update(content).digest("hex");
         }
         // A removed snapshot needs the source again even when its fingerprint is unchanged.
         if (!content && (entry?.hash !== hash || !existsSync(join(this.root, "snapshots", name, String(entry.version), "files")))) content = readFileSync(fd);
@@ -274,7 +274,7 @@ export class ArtifactStore {
       const snapshot = await this.snapshot(name);
       entry = paths[path] = { name, hash, version: snapshot.version };
       save();
-    } else if (entry.gone) { delete entry.gone; save(); }
+    } else if (entry?.gone) { delete entry.gone; save(); }
     this.fileHashes.set(canonical, { ...fingerprint!, hash: hash! });
     return this.info(`${name}@${entry!.version}`);
   }

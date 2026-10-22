@@ -808,11 +808,22 @@ test("artifact symlinks use the target kind and read the checked open file", asy
   finally { probe.mockRestore(); }
   expect(replaced).toBe(true);
   expect(readFileSync(join(root, ".artifacts/snapshots", info.name, String(info.version), "files/drawing.svg"), "utf8")).toBe("<svg>Lantern</svg>");
+  rmSync(link); symlinkSync(write("other/drawing.html", "<svg>Lantern</svg>"), link);
+  const retargeted = await client.request<ArtifactInfo>({ action: "artifacts.show", name: link });
+  expect(retargeted.files).toContain("drawing.html");
+  expect(retargeted.version).toBe(info.version! + 1);
+  const jsx = "export default () => <p>Same bytes, different target kind</p>";
+  rmSync(link); symlinkSync(write("other/counter.jsx", jsx), link);
+  const compiled = await client.request<ArtifactInfo>({ action: "artifacts.show", name: link });
+  rmSync(link); symlinkSync(write("other/index.html", jsx), link);
+  const html = await client.request<ArtifactInfo>({ action: "artifacts.show", name: link });
+  expect(readFileSync(join(root, ".artifacts/snapshots", html.name, String(html.version), "files/index.html"), "utf8")).toBe(jsx);
+  expect(html.version).toBe(compiled.version! + 1);
   rmSync(link); symlinkSync(write("credentials.txt", "fictional key"), link);
   await expect(client.request({ action: "artifacts.show", name: link })).rejects.toThrow(/target.*isn't an artifact/i);
   rmSync(link); symlinkSync(write(".env", "FICTIONAL=value"), link);
   await expect(client.request({ action: "artifacts.show", name: link })).rejects.toThrow(/target.*isn't an artifact/i);
-});
+}, COMPILE_TIMEOUT);
 
 test("artifact paths refuse canonical hidden segments and explain the visible copy or explicit put", async () => {
   const { client, write, workspace } = await setup();
