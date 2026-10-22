@@ -103,3 +103,24 @@ export async function loadGotoPrompt(directory?: string): Promise<{ ranking: Que
     revisions: [revision],
   };
 }
+
+/**
+ * figure-fit.json (PIE-721): the choice's instructions and the two gate questions figure-fit.ts asks. The agent tools
+ * read it (OUTLINER_PROMPT_DIR, else the shipped one); it is never copied into an outline's folder, which they don't
+ * read. A prompt folder without it (one made for goto-ranking alone) reads the shipped one.
+ */
+export async function loadFigureFitPrompt(directory?: string): Promise<{ instructions: string; structured: string; prose: string; revisions: PromptRevision[] }> {
+  let revision: PromptRevision;
+  try { revision = await readPrompt(aiPromptDirectory(directory), "figure-fit.json"); }
+  catch (error) {
+    if (!(error instanceof PromptFileError) || aiPromptDirectory(directory) === resolve(DEFAULT_AI_PROMPT_DIRECTORY)) throw error;
+    revision = await readPrompt(resolve(DEFAULT_AI_PROMPT_DIRECTORY), "figure-fit.json");
+  }
+  const data = object(json(revision), revision.path, ["instructions", "structured", "prose"], "document");
+  return {
+    instructions: nonempty(data.instructions, revision.path, "instructions"),
+    structured: nonempty(data.structured, revision.path, "structured"),
+    prose: nonempty(data.prose, revision.path, "prose"),
+    revisions: [revision],
+  };
+}

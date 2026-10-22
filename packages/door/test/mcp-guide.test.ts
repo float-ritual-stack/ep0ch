@@ -33,6 +33,10 @@ describe("the gateway's guide, alone", () => {
       said: "; 2 warnings about what was written (warnings): saved as written, fix them now",
     });
     expect(writeReading({ id: "x" })).toEqual({ fields: {}, said: "" });
+    expect(writeReading({ id: "x", suggestion: { component: "graph-timeline", said: "this reads as a timeline: ::graph-timeline would draw it" } })).toEqual({
+      fields: { suggestion: { component: "graph-timeline", said: "this reads as a timeline: ::graph-timeline would draw it" } },
+      said: "; this reads as a timeline: ::graph-timeline would draw it (suggestion)",
+    });
     expect(writeReading(undefined)).toEqual({ fields: {}, said: "" });
   });
 });

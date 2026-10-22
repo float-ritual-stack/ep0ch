@@ -371,7 +371,9 @@ questions, steps as live queries), a decision record (the question, options as a
 change it). Reach past them: ask `outline_components` (or `ep0ch library --brief`) for what exists and pick what
 fits; `ep0ch library --guide` (the Claude mod's context, the MCP gateway's instructions) lists them all in a line each.
 A write answers with the `components` the note now holds and its `warnings` (a figure's name or key with a typo, YAML
-that doesn't read, a reference that leads nowhere): the text is saved as written, so fix them in the same turn. In
+that doesn't read, a reference that leads nowhere): the text is saved as written, so fix them in the same turn. Where
+figure-fit is on, a write that leaves a note as rows with no figure may answer with a `suggestion` ("this reads as a
+timeline: ::graph-timeline would draw it"): take it when it fits, from `outline_components <id>`. In
 the Claude mod a note that holds a figure comes back drawn; read the drawing before calling it done. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
 the content.
 

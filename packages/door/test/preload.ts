@@ -10,6 +10,8 @@ import { join } from "node:path";
 import "../../../scripts/fake-ssh-owner";
 
 for (const k of Object.keys(process.env)) if (k.startsWith("EP0CH_") && k !== "EP0CH_OUTLINER") delete process.env[k];
+// No test asks the real Jev for a figure suggestion (the outliner's figure-fit.ts, run by the gateway's writes).
+process.env.OUTLINER_FIGURE_FIT = "off";
 // A test's budget is its own waits' (until()'s, 5 s and up), not Bun's 5 s default: under a loaded runner (CI's
 // --parallel=16) a test whose waits all held still ran past 5 s and was timed out. A timeout costs more than that test:
 // Bun ends every process the file started when a test times out ("killed N dangling processes"), the file's scratch
