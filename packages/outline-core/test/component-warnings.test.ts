@@ -32,6 +32,16 @@ describe("what a written note's components will draw", () => {
       .toEqual(["the ::graph-stat on line 2 doesn't take titel: did you mean title?"]);
   });
 
+  test("a live figure's own keys read clean; a typo in a tile's keys is said once, since that tile would draw static", () => {
+    expect(read("Garden", "::graph-check", "---", "query: type=chore", "done: stage=done", "now: stage=doing", "---", "::",
+      "::graph-meter", "---", "query: type=chore", "done: stage=done", "---", "::",
+      "::graph-stat", "---", "items: [{ label: open, query: type=chore, accent: true }, { label: views, view: \"[[chores]]\" }]", "---", "::").warnings).toEqual([]);
+    expect(read("Garden", "::graph-stat", "---", "items: [{ label: open, qeury: type=chore }, { label: shut, qeury: type=done }]", "---", "::").warnings)
+      .toEqual(["the ::graph-stat on line 2: its items don't take qeury: did you mean query?"]);
+    // Rows written as Markdown are the figure's own reading, never checked as YAML.
+    expect(read("Garden", "::graph-stat", "---", "---", "- open: 4", "- **shut**: 2", "::").warnings).toEqual([]);
+  });
+
   test("a value outside what a property takes", () => {
     const r = read("Garden", "::graph-table", "---", "title: beds", "query: type=bed", "density: snug", "---", "::");
     expect(r.components).toEqual(["graph-table"]);

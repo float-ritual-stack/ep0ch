@@ -15,7 +15,7 @@ export const GUIDE_NAMES = ["graph-stat", "graph-tabs", "graph-table", "graph-de
 
 const HOUSE = [
   "Notes are Blockdown: Markdown-adjacent text plus the outline's own forms. Reach for those forms instead of prose:",
-  "- A count, a status or a list that will change goes in a live figure or view with `query:` (the saved views' grammar), so it stays true: graph-tabs, graph-table, a `view` note or `::links` with a query, and graph-stat counts each item live with its own `query:`. Never paste numbers a query can count.",
+  "- A count, a status or a list that will change goes in a live figure or view with `query:` (the saved views' grammar), so it stays true: graph-stat (each tile counts its own `query:`), graph-tabs, graph-table, a `view` note or `::links` with a query. Never paste numbers a query can count.",
   "- A decision, a comparison, a plan or a history, a checklist: graph-decision, graph-compare, graph-timeline, graph-check, not paragraphs.",
   "- An aside or a warning is a callout (`> [!tip]`). A look or a behaviour that should follow every matching note is a rule note, with no code.",
   "- Point with links, not directions: `((id|label))`, `[[page]]`, a Work ID. Properties are open: `[key::value]` on a note's first line, any key.",

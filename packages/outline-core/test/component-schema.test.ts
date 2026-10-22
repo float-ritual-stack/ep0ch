@@ -144,7 +144,7 @@ test("candidates: keys with their meaning, written [key::; values with theirs; Y
   expect(valueCandidates(all, "heading-pattern", "w").map(v => v.insertion)).toEqual(["waffle]"]);
   expect(valueCandidates(all, "heading-rows", "").map(v => v.label)).toEqual(["1", "2", "3"]);
   expect(valueCandidates(all, "heading", "").at(-1)).toMatchObject({ label: "fade", detail: expect.stringContaining("---") });
-  expect(yamlKeyCandidates(all, "graph-meter", "").map(k => k.insertion)).toEqual(["title: ", "value: ", "limit: ", "unit: ", "label: ", "caption: "]);
+  expect(yamlKeyCandidates(all, "graph-meter", "").map(k => k.insertion)).toEqual(["title: ", "value: ", "limit: ", "unit: ", "label: ", "caption: ", "query: ", "view: ", "machinery: ", "done: "]);
   expect(valueCandidates(all, "value", "0.", false, "graph-meter").map(v => v.insertion)).toEqual(["0.25", "0.6", "0.95"]);
 });
 
