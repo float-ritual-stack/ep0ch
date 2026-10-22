@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import type { Rect } from "../src/canvas";
 import type { Actor } from "../src/socket";
 import {
-  apply, copyTree, describe as describeLayout, flowOf, init, landing, leaf, leaves, place, reviveTree, serialize, splitOf,
+  apply, copyTree, describe as describeLayout, flowOf, init, placement, leaf, leaves, place, reviveTree, serialize, splitOf,
   type Ctx, type Flow, type LayoutState, type LNode, type Op, type Person, type TileFacts,
 } from "../src/desk/screen-layout";
 
@@ -114,14 +114,14 @@ describe("opens into the next column (the flow's open rule)", () => {
   test("the rule is the flow's policy: a column's opens land next, unless a link, opens-into or its policy says otherwise", () => {
     AREA = wide(220);
     const s = river(3);
-    expect(landing(s, 2, "open", facts(2))).toEqual({ next: true });
+    expect(placement(s, { from: 2, note: "arrival" }, ctxOf(PERSON, {})).route).toEqual({ next: true });
     const current = ok(s, { op: "policy", node: flowIn(s).id!, set: { opens: "current" }, clear: [] }).state;
-    expect(landing(current, 2, "open", facts(2))).toBeNull();
+    expect(placement(current, { from: 2, note: "arrival" }, ctxOf(PERSON, {})).route).toBeNull();
     const linked = ok(s, { op: "link", tile: 2, to: 3 }).state;
-    expect(landing(linked, 2, "open", facts(2))).toEqual({ to: 3 });
+    expect(placement(linked, { from: 2, note: "arrival" }, ctxOf(PERSON, {})).route).toEqual({ to: 3 });
     // Outside a flow, a screen that says `next` has no next column to open into: the current note.
     const plain = init({ tree: splitOf("row", [leaf(1), leaf(2)]), names: new Map([[1, "a"], [2, "b"]]), policy: { opens: "next" } });
-    expect(landing(plain, 1, "open", facts(1))).toBeNull();
+    expect(placement(plain, { from: 1, note: "arrival" }, ctxOf(PERSON, {})).route).toBeNull();
   });
 
   test("the person's open lands right after its column, keeps their place to go back to, and shifts only if it must", () => {
@@ -248,7 +248,7 @@ describe("the explicit shift, holding, closing, back and forward", () => {
     const f = flowIn(r);
     expect(f.kids.length).toBe(1);
     expect(f.anchor).toBe(1);                                      // the wide column was in the stack: the one left is wide
-    expect(landing(r, 1, "open", facts(1))).toEqual({ next: true });
+    expect(placement(r, { from: 1, note: "arrival" }, ctxOf(PERSON, {})).route).toEqual({ next: true });
   });
 
   test("a flow inside a screen: beside other tiles, in a dock; its memory saved and put back by column", () => {

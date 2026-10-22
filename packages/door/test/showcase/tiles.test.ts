@@ -119,7 +119,7 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     } finally { foreign.close(); }
   }, 20_000);
 
-  test("tree, preview, detail from scratch: select stays in the preview, Enter opens, alt opens a new reader", async () => {
+  test("tree, preview, detail from scratch: opens swap in place and keep inner spines", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "select-open" }, as: "test-agent" });
     const index = SECTIONS.findIndex(s => s.key === "select-open");
@@ -140,28 +140,19 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     expect(d.current.id).toBe(before);
     await act("tree.pick", { id: seeded.notes.root.id, open: true });
     await until(() => d.pane("detail").msg?.id === seeded.notes.root.id, "Enter in the linked detail");
-    const count = d.layoutGet().tiles.length;
-    await act("tree.pick", { id: seeded.notes.shed.id, fresh: true });
-    await until(() => d.layoutGet().tiles.length === count + 1, "alt-open's new reader");
-    expect(d.pane("detail").msg.id).toBe(seeded.notes.root.id);
-    expect(d.layoutGet().tiles.some((t: any) => t.name !== "detail" && t.kind === "reader" && t.showing?.id === seeded.notes.shed.id)).toBe(true);
-    const firstAlt = d.layoutGet().tiles.find((t: any) => t.kind === "reader" && t.name !== "detail" && t.name !== "tree-preview").name;
-    d.build(d.saved(), true);
-    for (const note of [seeded.notes.root, seeded.notes.notebook, seeded.notes.shed, seeded.notes.root]) {
+    const destination = d.layoutGet().tiles.find((t: any) => t.name === "detail");
+    let previous = seeded.notes.root.id;
+    for (let i = 0; i < 10; i++) {
+      const note = i % 2 ? seeded.notes.notebook : seeded.notes.shed;
       await act("tree.pick", { id: note.id, fresh: true });
+      const tiles = d.layoutGet().tiles;
+      expect(tiles.find((t: any) => t.id === destination.id).showing.id).toBe(note.id);
+      expect(tiles.some((t: any) => t.collapsed && t.showing?.id === previous)).toBe(true);
+      expect(tiles.find((t: any) => t.name === "tree-preview").collapsed).not.toBe(true);
+      previous = note.id;
     }
-    const pile = d.layoutGet().tiles.filter((t: any) => t.kind === "reader" && t.name !== "detail" && t.name !== "tree-preview");
-    expect(pile.length).toBe(5);
-    expect(pile.find((t: any) => t.name === firstAlt).collapsed).toBe(true);
-    const back = pile.find((t: any) => t.collapsed);
-    expect(back.showing.id).toBe(seeded.notes.shed.id);
-    await act("tile.collapse", { on: false }, back.name);
-    expect(d.pane(back.name).msg.id).toBe(seeded.notes.shed.id);
-    screen();
-    expect(d.layoutGet().tiles.find((t: any) => t.name === back.name).rect.cols).toBeGreaterThanOrEqual(48);
-    await act("reader.mode", { mode: "held" }, back.name);
-    await act("tree.pick", { id: seeded.notes.notebook.id, fresh: true });
-    expect(d.layoutGet().tiles.find((t: any) => t.name === back.name).collapsed).not.toBe(true);
+    d.build(d.saved(), true);
+    expect(d.pane("detail").msg.id).toBe(previous);
     await act("tile.link", { verb: "alt", rule: "tab", to: "detail" });
     d.build(d.saved(), true);
     const tabsBefore = d.layoutGet().tiles.length;
@@ -170,7 +161,7 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     expect(d.tileOutline().find((t: any) => t.name === "detail")).toMatchObject({ tab: true, shown: false });
     await act("tile.link", { verb: "select" });
     await act("tree.pick", { id: seeded.notes.shed.id });
-    await until(() => d.pane("detail").msg?.id === seeded.notes.shed.id, "without select targets the current note follows the tree");
+    expect(d.pane("detail").msg.id).toBe(previous);
   }, 20_000);
 
   test("terminal: the tile's program copies (OSC 52), and the door passes it on to the person's terminal, said as the tile's", async () => {

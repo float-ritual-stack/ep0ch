@@ -103,6 +103,48 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       } };
     };
 
+    test(`placement: an unpressed open changes only its named reader (${placement})`, async () => {
+      const s = await placed();
+      try {
+        const other = placement === "screen" ? "other" : "nest/other";
+        await s.owner.dispatch.act({ action: "reader.mode", tile: s.tile, args: { mode: "follows" } }, USER);
+        const before = JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: s.tile }, USER));
+        const note = await board.createBlock(null, "Fresh seedlings\nPlant these tomorrow.");
+        await s.owner.dispatch.act({ action: "open", tile: other, args: { id: note.id } }, { kind: "agent", id: "garden-helper" });
+        const after = JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: s.tile }, USER));
+        expect(after).not.toContain(note.id);
+        expect(before).not.toContain(note.id);
+        expect(JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: other }, USER))).toContain(note.id);
+        const scripted = await board.createBlock(null, "Script's seedlings\nLeave the briefing alone.");
+        const path = placement === "drawer" ? `@drawer/${other}` : other;
+        const answer = await pressed(`await act('open', {tile: '${path}', id: '${scripted.id}'}); return 'opened';`, USER, "mcp");
+        expect(answer).toContain("opened");
+        expect(JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: s.tile }, USER))).not.toContain(scripted.id);
+        expect(JSON.stringify(await s.owner.dispatch.act({ action: "tile.info", tile: other }, USER))).toContain(scripted.id);
+      } finally { await s.cleanup(); }
+    }, 30_000);
+
+    test(`placement: ten opens keep the destination and accumulate inner spines (${placement})`, async () => {
+      const s = await placed();
+      try {
+        const other = placement === "screen" ? "other" : "nest/other";
+        const initial = s.owner.layoutAll().tiles.find(t => t.name === "other")!;
+        let old = s.testing.id;
+        for (let i = 0; i < 10; i++) {
+          const note = await board.createBlock(null, `Seed tray ${i}\nReady to plant.`);
+          await s.owner.dispatch.act({ action: "open", tile: other, args: { id: note.id } }, USER);
+          const tiles = s.owner.layoutAll().tiles;
+          const destination = tiles.find(t => t.id === initial.id)!;
+          expect(destination.name).toBe("other");
+          expect(JSON.stringify(destination)).toContain(note.id);
+          const kept = tiles.find(t => t.id !== initial.id && t.kind === "reader" && t.collapsed && JSON.stringify(t.showing ?? null).includes(old));
+          expect(kept).toBeDefined();
+          expect(kept!.collapsed).toBeTruthy();
+          old = note.id;
+        }
+      } finally { await s.cleanup(); }
+    }, 30_000);
+
     test(`1 standing: a pressed script folds the focused reader (${placement})`, async () => {
       const s = await placed();
       try {

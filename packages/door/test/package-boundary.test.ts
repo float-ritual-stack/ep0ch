@@ -1,3 +1,4 @@
+import ts from "typescript";
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -46,4 +47,23 @@ describe("package boundary", () => {
     }
     expect(bad).toEqual([]);
   });
+});
+
+test("only placement calls the layout landing rule", () => {
+  const bypasses: string[] = [];
+  for (const file of files(join(root, "src"))) {
+    const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "landing") {
+        let owner: ts.Node | undefined = node.parent;
+        while (owner && !ts.isFunctionDeclaration(owner) && !ts.isMethodDeclaration(owner)) owner = owner.parent;
+        const name = owner && "name" in owner ? owner.name?.getText(source) : undefined;
+        if (file !== join(root, "src/desk/screen-layout.ts") || (name !== "placement" && name !== "landing"))
+          bypasses.push(`${file.slice(root.length + 1)}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  expect(bypasses).toEqual([]);
 });

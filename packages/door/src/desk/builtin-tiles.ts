@@ -39,14 +39,13 @@ const reading: Pick<TileKind, "previews" | "accepts" | "holdsWork" | "shows" | "
   // Its header's backdrop (PIE-598), when it draws one or the setting turned it off.
   describe: p => { const h = (p as ReaderPane).surface.headerBackdrop(); return h.backdrop || !h.on ? { header: h } : {}; },
   // A note opened into it replaces its own, kept in its history (PIE-453): back returns to what it showed. Its mode
-  // stays (PIE-794): one that follows the current note moves the current note (and shows it, as it follows); a held one
-  // (or one a host owns) shows it and nothing else moves.
+  // stays. Placement owns whether the current note moves; taking a note only changes this reader.
   take: (p, m, desk, by) => {
     const r = p as ReaderPane;
     if (r.holdsKeys || r.editing) return `holds ${sessionName(r)}`;
     // An explicit open wins over a saved-history read still in flight.
     if (r.wantNote() !== m.id) r.dropWant();
-    if (r.follows && !r.holding) { r.surface.track(() => desk.setCurrent(m, { reveal: true, ...(by ? { by } : {}) })); return null; }
+    if (r.follows && !r.holding) { r.surface.track(() => r.show(m, desk)); return null; }
     r.surface.track(() => r.hold(m, desk));
     return null;
   },

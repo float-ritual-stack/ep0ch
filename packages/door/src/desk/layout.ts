@@ -845,7 +845,7 @@ export interface Effective {
   /** The open rule: an open with no link lands as the current note, or in a new column after its own (a flow's). */
   opens: OpenRule;
   altOpens: AltRule;
-  /** Growth by room (PIE-794): the width a reader opened beside others still gets before earlier ones fold. */
+  /** The full width of a flow column before the flow squeezes it. */
   readable: number;
   /** Which layer said each: "screen", a container's id, or "kind". */
   by: Partial<Record<keyof Policy, string>>;
