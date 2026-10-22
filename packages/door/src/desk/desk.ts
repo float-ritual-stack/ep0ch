@@ -5139,7 +5139,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (from && part === undefined) {
       const name = from.desk.nameOfPane?.(from.tile);
       ctx.pop();
-      if (name && this.dispatch.standing(actor)) { await from.desk.perform?.("tile.expand", {}, USER, from.tile)?.catch(() => {}); from.desk.focusPane?.(from.tile, actor); }
+      if (name && this.dispatch.standing(actor)) { await from.desk.perform?.("tile.expand", {}, actor, from.tile)?.catch(() => {}); from.desk.focusPane?.(from.tile, actor); }
       return { tile: name ?? null, back: true, screen: this.spec.name };
     }
     const stack = ctx.screens?.() ?? [];
@@ -6056,13 +6056,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A float opened into a container (the board's readers row) goes back into it, as its last tile there; a full one
     // gives way, never a tile holding an edit or a comment, nor (for an agent) the one the person has.
     if (this.isFloat(t.id) && key !== undefined && c) {
+      const held = actorRule({ touches: "screen", host: true }, actor, this.dispatch.where(), { action: "tile.float" });
+      if (this.dispatch.standing(actor) && held) throw new ActionRefused(held);
       const at: At<number> = { kind: "in", key, weight: this.weightIn(key) };
       const asked = this.ask({ op: "float", tile: t.id, at }, actor);
       if (!asked.ok) throw new ActionRefused(asked.refused);
       this.apply({ op: "float", tile: t.id, at }, actor);
       const room = this.makeRoom(t.id, actor);
       if (room) this.ctx.flash(room);
-      if (this.dispatch.standing(actor)) { this.focus = t.id; this.noteFocus(); }
+      if (this.dispatch.standing(actor)) this.focusTile(t.name, actor);
       this.save(); this.redraw();
       return { tile: t.name, pane: t.name, floated: false, now: t.name };
     }
@@ -6095,6 +6097,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
     if (!this.dispatch.standing(actor)) return { tile: t.name, rows, ...(q.trim() ? { of: every.length } : {}) };
+    const held = actorRule({ touches: "screen", host: true }, actor, this.dispatch.where(), { action: "tile.menu" });
+    if (held) throw new ActionRefused(held);
     let anchor: { col: number; row: number; right?: boolean };
     if (at !== undefined) {
       const m = /^(\d+),(\d+)$/.exec(at.trim());
