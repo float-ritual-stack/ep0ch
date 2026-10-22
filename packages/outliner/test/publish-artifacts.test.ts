@@ -694,6 +694,11 @@ test("artifact file lines enter the store, follow edits and retain the last snap
   ]);
   expect((await show(a)).name).toBe(one.name);
   expect((await show(b)).name).toBe(two.name);
+  await client.request({ action: "artifacts.rm", name: `${one.name}@${one.version}` });
+  const restored = await show(a);
+  expect(restored.name).toBe(one.name);
+  expect(restored.version).toBe(2);
+  expect(await serve(restored).text()).toBe("A");
   await reopened.close(); await peer.close();
 }, COMPILE_TIMEOUT);
 
@@ -723,3 +728,24 @@ test("artifact file refusals name the host, supported kinds and concrete repair 
   await expect(show("entry")).rejects.toThrow(`[artifact::${join(folder, "index.html")}]`);
   expect(store.get(note.id)?.text).toBe(text);
 });
+
+test("unimported artifact paths still render and recompile after a file edit", async () => {
+  const extraRoot = mkdtempSync(join(tmpdir(), "outliner-artifact-root-"));
+  cleanups.push(() => rmSync(extraRoot, { recursive: true, force: true }));
+  const { store, get, write } = await setup({ roots: [extraRoot] });
+  const absolute = join(extraRoot, "external.html");
+  writeFileSync(absolute, "<h1>Absolute page</h1>");
+  const paths = ["notes/chart.jsx", "./artifacts/x.html", "artifacts/demos/x.jsx", absolute];
+  write(paths[0]!, "export default () => <p>First chart</p>");
+  write("artifacts/x.html", "<h1>Relative page</h1>");
+  write(paths[2]!, "export default () => <p>Nested chart</p>");
+  const note = store.create(`Paths [publish::paths]\n${paths.map(path => `[artifact::${path}]`).join("\n")}`);
+  const html = await (await get("/p/paths?view=html")).text();
+  for (let line = 1; line <= paths.length; line++) {
+    const route = `/p/${note.id}/artifact/${line}`;
+    expect(html).toContain(`src="${route}"`);
+    expect((await get(route)).status).toBe(200);
+  }
+  write(paths[0]!, "export default () => <p>Changed chart</p>");
+  expect(await (await get(`/p/${note.id}/artifact/1`)).text()).toContain("Changed chart");
+}, COMPILE_TIMEOUT);

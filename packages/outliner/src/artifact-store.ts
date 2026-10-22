@@ -252,7 +252,7 @@ export class ArtifactStore {
       throw error;
     }
     const hash = new Bun.CryptoHasher("sha256").update(content).digest("hex");
-    if (entry?.hash !== hash) {
+    if (entry?.hash !== hash || !existsSync(join(this.root, "snapshots", name, String(entry.version), "files"))) {
       await this.put(name, { [basename(path)]: content });
       const snapshot = await this.snapshot(name);
       entry = paths[path] = { name, hash, version: snapshot.version };
