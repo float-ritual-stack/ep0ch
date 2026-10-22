@@ -664,7 +664,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     return {
       beside: this.besides, opened: this.opened, outward: this.outward && this.holder && this.spec.lands === undefined && !this.namedReaders().length ? tileIds.get(this.holder.tile) : undefined, otherNames: this.otherNames(),
-      actor, standing: this.dispatch.standing(actor, "shape"), protectTyping: actor.kind === "agent" && !INVITES.covers(actor.invitation, "shape", actor.run), area: this.area, tile: id => this.facts(id, actor),
+      actor, standing: this.dispatch.standing(actor, "shape"), protectTyping: actor.kind === "agent" && !w.yolo && !INVITES.covers(actor.invitation, "shape", actor.run), area: this.area, tile: id => this.facts(id, actor),
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, { action: "layout.change" }), here: w.focus !== null || w.typingIn !== null, ...(w.yolo ? { yolo: true } : {}) },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };

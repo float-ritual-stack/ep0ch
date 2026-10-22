@@ -203,6 +203,10 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
     const no = agentRefusal(g.agents.level, at.tile?.label ?? at.tile?.name ?? "that tile", g.action, { by: g.agents.by, note: g.agents.level === "edit" ? edits : reads });
     if (no) return no;
   }
+  // Yolo hands the door to agents (Evan, Oct 22: "yolo is 'just fix it and get it done even if some agents need to move
+  // things' … and yes, that includes the keys"): focus, typing, idle and away guards all lift. Only the words the person is
+  // typing stay theirs (the draft rule below), since that's capture, not keys.
+  if (where.yolo && def.touches !== "draft") return null;
   switch (def.touches) {
     case "nothing": case "shape": return null;
     case "draft": {
@@ -233,7 +237,6 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
       if (where.keys === "host" && !def.host) return null;
       // (A hold on navigation only, as the showcase's sections, is lifted by an invitation too.)
       if (where.busy && !(where.navHold && /^(layout|tile|float)\./.test(at.action ?? "") && standing)) return `${where.why ?? "the person is typing"}; not moved`;
-      // Yolo retains its existing typing guards; a press returned above.
       if (standing) return null;
       if (where.idle < SHELL_IDLE_MS) return `the person is at the keys (last key ${(where.idle / 1000).toFixed(1)}s ago); try again once they've been idle ${SHELL_IDLE_MS / 1000}s`;
       return null;
