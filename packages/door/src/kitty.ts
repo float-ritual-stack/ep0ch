@@ -77,20 +77,34 @@ export const KITTY_QUERY = APC("i=31,s=1,v=1,a=q,t=d,f=24", "AAAA") + "\x1b[c";
  * an image the terminal no longer has needs no answer.
  */
 /**
- * Placement `p` with what `r` (a dock sliding over, your drawer, the power bar, a tile drawn later) covers taken away: whole when `r`
- * misses it; cut short when `r` covers only its lower rows across its width (a spine's rotated title running down
- * under your drawer, PIE-794: it was dropped whole, so a long title's spine showed blank); else gone.
+ * Placement `p` with what `r` (a dock sliding over, your drawer, the power bar, a hint card, a popup, a tile drawn later)
+ * covers taken away: whole when `r` misses it; else the bands still showing above, below, left and right of `r`, each
+ * the same uploaded image placed with its crop (PIE-794: a spine's title under your drawer is cut at its edge; PIE-1191: a
+ * header image under a hint card keeps what the card leaves). A text-sized title can't be cut, so it goes whole.
  */
-export function uncovered(p: Placement, r: { col: number; row: number; cols: number; rows: number }): Placement | null {
+export function uncovered(p: Placement, r: { col: number; row: number; cols: number; rows: number }): Placement[] {
   const overlaps = p.col < r.col + r.cols && p.col + p.cols > r.col && p.row < r.row + r.rows && p.row + p.rows > r.row;
-  if (!overlaps) return p;
-  const across = r.col <= p.col && r.col + r.cols >= p.col + p.cols, below = r.row > p.row && r.row + r.rows >= p.row + p.rows;
-  if (!across || !below || p.sized || !("data" in p.image)) return null;
-  const rows = r.row - p.row, from = p.crop ?? { x: 0, y: 0, w: p.image.width, h: p.image.height };
-  return { ...p, rows, crop: { ...from, h: Math.max(1, Math.floor((from.h * rows) / p.rows)) } };
+  if (!overlaps) return [p];
+  if (p.sized) return [];
+  const from = p.crop ?? { x: 0, y: 0, w: p.image.width, h: p.image.height };
+  // The cover's edges in the placement's cells, and a cell edge's pixel in the crop (floored, so bands tile exactly).
+  const top = Math.max(0, r.row - p.row), bottom = Math.min(p.rows, r.row + r.rows - p.row);
+  const left = Math.max(0, r.col - p.col), right = Math.min(p.cols, r.col + r.cols - p.col);
+  const y = (row: number) => from.y + Math.floor((from.h * row) / p.rows), x = (col: number) => from.x + Math.floor((from.w * col) / p.cols);
+  const band = (name: string, c0: number, r0: number, c1: number, r1: number): Placement | null => {
+    if (c1 <= c0 || r1 <= r0) return null;
+    const crop = { x: x(c0), y: y(r0), w: Math.max(1, x(c1) - x(c0)), h: Math.max(1, y(r1) - y(r0)) };
+    return { ...p, key: `${p.key}${name}`, col: p.col + c0, row: p.row + r0, cols: c1 - c0, rows: r1 - r0, crop };
+  };
+  const bands = [
+    band("·above", 0, 0, p.cols, top), band("·below", 0, bottom, p.cols, p.rows),
+    band("·left", 0, top, left, bottom), band("·right", right, top, p.cols, bottom),
+  ].filter((b): b is Placement => b !== null);
+  // One band keeps the placement's own key, so a picture cut only at one edge stays the same placement as it moves.
+  return bands.length === 1 ? [{ ...bands[0]!, key: p.key }] : bands;
 }
 /** `ps` with what `r` covers taken away (uncovered). */
-export const uncover = (ps: Placement[], r: { col: number; row: number; cols: number; rows: number }): Placement[] => ps.flatMap(p => { const q = uncovered(p, r); return q ? [q] : []; });
+export const uncover = (ps: Placement[], r: { col: number; row: number; cols: number; rows: number }): Placement[] => ps.flatMap(p => uncovered(p, r));
 
 export class KittyLayer {
   private uploaded = new Map<string, number>();   // content hash → image id
