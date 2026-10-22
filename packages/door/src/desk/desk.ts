@@ -961,14 +961,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const wires: TileWire[] = [];
     this.selectSeeds.clear();
     const across: import("./screen-layout").AcrossWire<number>[] = [];
+    const sourceWires: typeof wantWires = [];
     for (const [to, savedSource] of wantSources) {
       const source = references.get(savedSource) ?? savedSource;
       const src = [...names].find(([id, n]) => this.tileId(id) === source || n === source)?.[0];
       const container = node(tree, source);
       if (container || src === undefined) this.selectSeeds.set(to, source);
-      for (const from of src !== undefined ? [src] : container ? leaves(container) : []) wires.push({ from, verb: "select", to });
+      for (const from of src !== undefined ? [src] : container ? leaves(container) : []) sourceWires.push({ from, verb: "select", to: this.tileId(to) });
     }
-    for (const { from, verb, to: savedTo, rule } of wantWires) {
+    for (const { from, verb, to: savedTo, rule } of [...sourceWires, ...wantWires]) {
       if (this.panes.get(from) instanceof ScreenTile) continue;
       for (let i = wires.length - 1; i >= 0; i--) if (wires[i]!.from === from && wires[i]!.verb === verb) wires.splice(i, 1);
       for (let i = across.length - 1; i >= 0; i--) if (across[i]!.from === from && across[i]!.verb === verb) across.splice(i, 1);

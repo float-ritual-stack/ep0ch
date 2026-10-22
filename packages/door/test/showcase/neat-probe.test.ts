@@ -525,6 +525,9 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       { t: "leaf", kind: "reader", name: "first" },
       { t: "leaf", kind: "reader", name: "last" },
       { t: "leaf", kind: "backlinks", name: "links", wires: [{ verb: "select", to: "first" }, { verb: "select", to: "last" }] },
+      { t: "leaf", kind: "backlinks", name: "followed" },
+      { t: "leaf", kind: "preview", name: "preview1", source: "tile:followed" },
+      { t: "leaf", kind: "preview", name: "preview2", source: "tile:followed" },
       { t: "leaf", kind: "screen", name: "parcel", wires: [{ verb: "select", to: "first" }], inner: { root: { t: "leaf", kind: "reader", name: "inside" } } },
     ], weights: [1, 1, 1, 1] } } });
     app.push(d);
@@ -532,6 +535,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       const tiles = d.layoutAll().tiles;
       expect(tiles.find(t => t.name === "links")!.wires).toEqual([{ verb: "select", to: tiles.find(t => t.name === "last")!.tile }]);
       expect(tiles.find(t => t.name === "parcel")!.wires).toEqual([]);
+      expect(tiles.find(t => t.name === "followed")!.wires).toEqual([{ verb: "select", to: tiles.find(t => t.name === "preview2")!.tile }]);
     } finally { app.pop(); d.dispose(); }
   });
 

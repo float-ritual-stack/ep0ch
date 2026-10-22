@@ -230,7 +230,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     expect(reader("reader").msg?.id).toBe(hall.id);
   }, 20_000);
 
-  test("saved preview-role links keep selections and opens, and preview sources keep selections on load", async () => {
+  test("a saved explicit select wire replaces an implicit preview source on load", async () => {
     await setup();
     const saved = D().saved();
     const walk = (n: any) => {
@@ -242,12 +242,13 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     walk(saved.root);
     D().build(saved, true);
     await pickRow(porch.id);
-    await until(() => reader("peek").msg?.id === porch.id, "the old source becomes a select wire");
+    await until(() => reader("reader").msg?.id === porch.id, "the explicit select destination wins on load");
+    expect(reader("peek").msg?.id).not.toBe(porch.id);
     expect(reader("reader").msg?.id).toBe(porch.id);
     await act("tile.focus", {}, "links");
     await act("backlinks.open", { id: hall.id }, "links");
     await until(() => reader("reader").msg?.id === hall.id, "the saved preview-role link also takes opens");
-    expect(tile("links").wires).toEqual(expect.arrayContaining([{ verb: "select", to: tile("peek").tile }, { verb: "select", to: tile("reader").tile }, { verb: "open", to: tile("reader").tile }]));
+    expect(tile("links").wires).toEqual(expect.arrayContaining([{ verb: "select", to: tile("reader").tile }, { verb: "open", to: tile("reader").tile }]));
   }, 20_000);
 
   test("an agent's open from the list lands in its home and never takes the person's keys; a group row opens or folds", async () => {
