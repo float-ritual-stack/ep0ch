@@ -30,6 +30,22 @@ describe("children keep the note's context", () => {
     const doc = renderDoc('Before\n\n> [!tip] Controls\n> ::button{label="Go" act="theme.cycle"}', { ...env, button: (_call, line) => [`press line ${line}`] });
     expect(doc.lines.map(plain).join("\n")).toContain("press line 3");
   });
+  for (const [label, width, opener] of [
+    ["framed callout", 70, "> [!note] Header"],
+    ["narrow callout", 14, "> [!note] Header"],
+    ["output callout", 70, "> [!output] Header"],
+  ] as const) test(`${label} keeps rows anchored to its header after its body`, () => {
+    const doc = renderDoc(`Before\n${opener}\n> Inside\n\nAfter`, {
+      ...env, width,
+      after: line => line === 1 ? ["Header output"] : line === 2 ? ["Body output"] : [],
+    });
+    const rows = doc.lines.map(plain);
+    const header = rows.findIndex(row => row.includes("Header output"));
+    expect(header).toBeGreaterThan(rows.findIndex(row => row.includes("Inside")));
+    expect(rows.filter(row => row.includes("Header output"))).toHaveLength(1);
+    expect(rows.filter(row => row.includes("Body output"))).toHaveLength(1);
+    expect(doc.source[header]).toBe(1);
+  });
   test("a box in a note with a header image keeps its own image in the body", () => {
     const doc = renderDoc('img::header.png [layout::hero]\n::box{border=line}\nimg::beans.png\n::', { ...env, hero: true, heroLine: 0 });
     expect(doc.hero?.path).toEndWith("header.png");

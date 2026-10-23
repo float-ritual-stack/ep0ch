@@ -780,6 +780,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         facts: [og.label || "output", og.type === "answer" ? "an agent's answer" : "written by a script"], controls: source0 ? [fg(C.lcyan) + source0 + RESET] : [], width: W,
       }, env.regions));
       regions.push({ key, row: base, rows: out.length - base });
+      mark();
+      insert(i + 1);
       inserted = cb.end;
       i = cb.end - 1;
       continue;
@@ -816,6 +818,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
           adoptMedia(sub, base0, 0, i + 1);
           if (byline) { out.push(bylineRow(W)); source.push(i + 1 + byline.line); }
         }
+        mark();
+        insert(i + 1);
         inserted = cb.end;
         i = cb.end - 1;
         continue;
@@ -870,6 +874,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       edge(out.length);
       out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET); source.push(-1);
       blocks.push({ kind: "callout", row: top, rows: out.length - top, line: i, end: cb.end, inner: [i + 1, cb.end], strip: cb.depth, text: written, col: bw - 2 });
+      mark();
+      insert(i + 1);
       inserted = cb.end;
       i = cb.end - 1;
       continue;
