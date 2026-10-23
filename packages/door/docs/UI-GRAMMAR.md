@@ -425,7 +425,7 @@ tile operations
     ├── [~] zoom                          desk and the screens on it, the board too (#98); tile.zoom; not the river (PIE-428)
     ├── [~] open beside / split           desk ^W o, board alt+⏎, river ⏎/s; tile.open, pane.split
     ├── [~] close                         desk ^W x, board x, river x; tile.close (desk, board)
-    ├── [~] resize                        desk drag/^W<>, board drag/{}<>: one tree; tile.resize
+    ├── [~] resize                        desk drag/^W<>, board drag/^W<>: one tree; tile.resize
     ├── [~] move                          desk: drag a header, ^W m t T H J K L (layout.move, tabs on drop); board float HJKL; tile.float, tile.dock; into the drawer: tile.drawer, ^W a
     ├── [~] squeeze (width tiers)         river full/peek/spine around the wide column (w widens); board lanes, readers c · one spine part
     └── [~] persist layout                the tree to desk.json, delivery.json (same fields); river.json
@@ -926,7 +926,7 @@ and [ ] by actionable element. Wheel, PgUp/PgDn, space and Home/End scroll witho
 The desk, board, river, detail, welcome, brief, showcase and BBS readers share NoteSurface. Lists,
 pickers, menus and the showcase index keep their row navigation; drafts and terminal programs keep their keys.
 EchoNet moves message stepping from [ ] to { }, freeing [ ] for the shared reader. Board { } lane-sizing
-shortcuts are removed: use ^W < > or drag the border. Braces mean message stepping only, wherever bound.
+shortcuts are removed: use ^W < > or drag the border. Unprefixed braces mean message stepping only, wherever bound; ^W { } align the open tiles.
 ^W [ ] remain tab selection. Raw decoration remains ~ (PIE-707). No other screen binds the changed punctuation.
 
 The focus contract: the screen gives keys to a tile; the reader owns one source place (reading line,
@@ -1130,7 +1130,7 @@ laptop are not verified here: run `keys.probe` and press the chord to see what y
 | `layout.move` | `tile=<tile>`, `to`, `where`, `index` | drag a header, `^W m t T H J K L` |
 | `tile.open` (`pane.split`: `kind`, `dir`) | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `to`, `where` | `^W o`, `^W O` |
 | `tile.close`, `tile.focus`, `tile.info` | `tile=<tile>` | `^W x`, the board's `x`; click, Tab, 1-9 |
-| `tile.resize`, `tile.zoom` | `by`, `axis`; `on` | `^W < > + -`, the board's `{ } < >`; `^W z` |
+| `tile.resize`, `tile.zoom` | `by`, `axis`; `on` | `^W < > + -`; `^W z` |
 | `tile.float`, `tile.collapse` | none; `on` | `^W f`, the board's `o`, the frame card's put-back row; `^W c`, the board's `c`, `alt+c` |
 | `tile.widen` | `tile=<tile>` | `^W W`, a click on a flow column's spine |
 | `tile.link` | `tile=<tile>`, `to` (a tile, or a path across an edge: `group/tile`, `../tile`, `@drawer/tile`, `@screen/tile`; none unlinks), `verb=select\|open\|alt` (default open), `remove=true` removes one select target | `alt+l` starts open; `s` select, `a` alt; frame chips and ^W P start the same mode |
