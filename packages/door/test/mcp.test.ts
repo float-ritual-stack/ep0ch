@@ -1,7 +1,10 @@
 // PIE-520: the local stdio MCP server is bound to the outline the CLI can open, and serves canonical
 // ep0ch:// block resources plus read/find/links tools. Scratch service only; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, symlinkSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, symlinkSync, rmSync, cpSync } from "node:fs";
+import { createServer, connect } from "node:net";
+import { createInterface } from "node:readline";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { join, resolve } from "node:path";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { usageShape } from "../src/mcp-usage";
@@ -44,6 +47,104 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     await scratch.dispose();
     for (const [k, v] of Object.entries(oldEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }, 20_000);
+
+  test("a connected MCP keeps writing across grammar and protocol installs without a connector toggle", async () => {
+    // A disposable installed checkout; only the handshake numbers change, all tools still use the real host.
+    const repo = join(scratch.root, "installed");
+    for (const name of ["door", "outline-core"]) {
+      const dest = join(repo, "packages", name);
+      mkdirSync(dest, { recursive: true });
+      cpSync(resolve(import.meta.dir, `../../${name}/src`), join(dest, "src"), { recursive: true });
+      cpSync(resolve(import.meta.dir, `../../${name}/package.json`), join(dest, "package.json"));
+    }
+    symlinkSync(resolve(import.meta.dir, "../assets"), join(repo, "packages/door/assets"));
+    const modules = join(repo, "packages/door/node_modules");
+    mkdirSync(join(modules, "@ep0ch"), { recursive: true });
+    symlinkSync(join(repo, "packages/outline-core"), join(modules, "@ep0ch/outline-core"));
+    symlinkSync(resolve(import.meta.dir, "../../outliner"), join(modules, "@ep0ch/outliner"));
+    for (const name of readdirSync(resolve(import.meta.dir, "../node_modules"))) {
+      if (name !== "@ep0ch") symlinkSync(resolve(import.meta.dir, "../node_modules", name), join(modules, name));
+    }
+    const wire = join(repo, "packages/outline-core/src/protocol.ts");
+    let source = readFileSync(wire, "utf8");
+    if (!source.includes("export const GRAMMAR =")) source += "\nexport const GRAMMAR = 1;\n";
+    writeFileSync(wire, source);
+    const grammar = Number(/export const GRAMMAR = (\d+);/.exec(source)![1]);
+    let hostProtocol = PROTOCOL, hostGrammar = grammar;
+    const proxyPath = join(scratch.root, "versions.sock");
+    const connections = new Set<import("node:net").Socket>();
+    const proxy = createServer(client => {
+      const upstream = connect(scratch.sock);
+      connections.add(client); connections.add(upstream);
+      client.pipe(upstream);
+      const lines = createInterface({ input: upstream });
+      lines.on("line", line => {
+        const reply = JSON.parse(line);
+        if (reply.result?.protocolVersion !== undefined) {
+          reply.result.protocolVersion = hostProtocol; reply.result.grammarVersion = hostGrammar;
+        }
+        client.write(JSON.stringify(reply) + "\n");
+      });
+      client.on("close", () => { upstream.destroy(); connections.delete(client); connections.delete(upstream); lines.close(); });
+    });
+    await new Promise<void>(r => proxy.listen(proxyPath, r));
+    await board.configureMcpAccess("full");
+    const child = Bun.spawn([process.execPath, join(repo, "packages/door/src/main.ts"), "--ws", scratch.name, "mcp"], {
+      cwd: scratch.root, env: { ...process.env, ...scratch.env, EP0CH_WS: "wrong-seedlings", EP0CH_SOCKET: proxyPath }, stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    });
+    const errors = new Response(child.stderr).text();
+    const output = createInterface({ input: require("node:stream").Readable.fromWeb(child.stdout) });
+    const replies = output[Symbol.asyncIterator]();
+    let id = 0;
+    const rpc = async (method: string, params: unknown) => {
+      const requestId = ++id;
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params }) + "\n");
+      const next = await replies.next();
+      if (next.done) throw new Error(await errors);
+      const reply = JSON.parse(next.value!);
+      expect(reply.id).toBe(requestId);
+      return reply;
+    };
+    const write = async (text: string) => {
+      const reply = await rpc("tools/call", { name: "outline_create", arguments: { ref: target.id, text } });
+      expect(reply.error).toBeUndefined();
+      expect(reply.result.isError, JSON.stringify(reply)).not.toBe(true);
+      return reply;
+    };
+    try {
+      await rpc("initialize", { clientInfo: { name: "version-gardener" } });
+      await write("Before the install");
+      const created = await rpc("tools/call", { name: "outline_new", arguments: { name: "version-seedlings", purpose: "Version handover checks", seed: ["Seed tray"] } });
+      expect(created.result.isError, JSON.stringify(created)).not.toBe(true);
+      const seedlings = new SocketBoard(scratch.sock, undefined, "version-seedlings");
+      let tray: string;
+      try { tray = (await seedlings.roots())[0]!.id; } finally { seedlings.close(); }
+      hostGrammar++;
+      const warning = await write("New drawing rules");
+      expect(JSON.stringify(warning)).toContain("drawn with older rules");
+      expect(JSON.stringify(await write("Still captures"))).not.toContain("drawn with older rules");
+      writeFileSync(wire, source.replace(/export const GRAMMAR = \d+;/, `export const GRAMMAR = ${hostGrammar};`));
+      await write("After the grammar install");
+      const kept = await rpc("tools/call", { name: "outline_create", arguments: { outline: "version-seedlings", ref: tray, text: "Still my tray" } });
+      expect(kept.result.isError, JSON.stringify(kept)).not.toBe(true);
+      hostProtocol++;
+      const refused = await rpc("tools/call", { name: "outline_create", arguments: { ref: target.id, text: "Must refuse" } });
+      expect(JSON.stringify(refused)).toContain("ep0ch install --apply");
+      writeFileSync(wire, readFileSync(wire, "utf8").replace(/export const GRAMMAR = \d+;/, `export const GRAMMAR = ${hostGrammar + 1};`));
+      const stillOld = await rpc("tools/call", { name: "outline_create", arguments: { ref: target.id, text: "Still must refuse" } });
+      expect(JSON.stringify(stillOld)).toContain("ep0ch install --apply");
+      writeFileSync(wire, readFileSync(wire, "utf8").replace(/export const PROTOCOL = \d+;/, `export const PROTOCOL = ${hostProtocol};`));
+      await Promise.all([write("After the protocol install"), write("Queued during handover")]);
+      const saved = await board.request<{ text: string; actorId: string }[]>("children", { parentId: target.id });
+      expect(saved.some(b => b.text === "After the protocol install" && b.actorId.includes("version-gardener"))).toBe(true);
+      child.stdin.end();
+      expect(await child.exited, await errors).toBe(0);
+    } finally {
+      child.kill(); await child.exited; output.close();
+      for (const socket of connections) socket.destroy();
+      await new Promise<void>(r => proxy.close(() => r()));
+    }
+  }, 60_000);
 
   test("artifact upload accepts a folder over CLI and MCP writes obey the access level", async () => {
     const folder = join(scratch.root, "built-site");

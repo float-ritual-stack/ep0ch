@@ -10,8 +10,9 @@ file adds outline-core's. Claude Code loads it when you touch a file under `pack
 it before changing outline-core.
 
 - **No I/O, and no imports outside itself** (`node:path` is fine).
-- **A change to what it matches or computes, or to a wire type, bumps `PROTOCOL`** (`src/protocol.ts`), at the final
-  rebase, as the root `AGENTS.md` says.
+- **Wire types and shared write-location computations bump `PROTOCOL`; parse/draw rules bump `GRAMMAR`**
+  (`src/protocol.ts` lists the boundary). Take PROTOCOL to main's plus one at the final rebase. Grammar differences
+  warn once and keep working; protocol differences refuse, as the root `AGENTS.md` says.
 - **It is the one copy.** References, page links, embeds and anchors (`link-syntax.ts`), property tokens and scope,
   the header line (`header-line.ts`), code fences and literal regions (`code-fence.ts`, `code-ranges.ts`), the
   block-as-a-record shape (`block-record.ts`), the draft.patch compare, the search matcher and the wire types live

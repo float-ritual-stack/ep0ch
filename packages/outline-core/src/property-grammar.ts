@@ -1,7 +1,7 @@
 // The property token's grammar: what a `[key::value]` token and a property key are. This file is the
 // one definition. The service's parser (properties.ts), the query language (block-query.ts) and context
 // resolution use it, and the door imports it to find tokens while it paints. It lives in outline-core so
-// both sides import the same file: any change to what these patterns match bumps PROTOCOL (protocol.ts).
+// both sides import the same file: display parsing bumps GRAMMAR; patch-named token spans bump PROTOCOL (protocol.ts).
 //
 // `propertyTokenMatches` is the token grammar only. Whether a token counts as a property also depends on where it
 // sits (code spans, fences, literal regions, reference labels) and its scope, which `properties.preview` answers for

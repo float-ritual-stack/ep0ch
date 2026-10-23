@@ -126,7 +126,7 @@ source evidence or distinguish authored glyphs from controls.
   token matches, and the backslash escape. The parser (outline-core's `property-parse.ts`), the query
   language (`block-query.ts`) and context resolution build on it, and the door
   imports it to find tokens while it paints; no other file restates the key rule.
-  Any change to what it matches bumps `PROTOCOL`. Where a token counts as a
+  Display matching changes bump `GRAMMAR`; patch-named ranges still bump `PROTOCOL`. Where a token counts as a
   property (code, literal regions, scope) stays with `properties.preview`.
 - `header-line.ts` in outline-core owns a note's header line: the run of chips that
   ends its first line (blanks or ` - ` between them), its prose, the ` -`

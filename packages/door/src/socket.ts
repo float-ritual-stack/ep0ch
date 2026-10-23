@@ -1,3 +1,5 @@
+import { grammarWarning } from "@ep0ch/outline-core/protocol";
+import { meetRules } from "@ep0ch/outliner/client-code";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { SourcesAnswer } from "@ep0ch/outline-core/sources";
 // Board over the outliner's JSON-lines socket, on outline-core's PROTOCOL: a service on another number is refused.
@@ -663,11 +665,23 @@ export class SocketBoard implements Board {
 
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
 
+  grammarNotice: string | undefined;
+  private grammarSaid = false;
+  onGrammar: (notice: string) => void = () => {};
+  takeGrammarNotice(): string | undefined {
+    if (this.grammarSaid || !this.grammarNotice) return undefined;
+    this.grammarSaid = true;
+    return this.grammarNotice;
+  }
+
   async info(): Promise<BoardInfo & { replaced?: boolean }> {
-    const r = await this.request<{ protocolVersion: number; outlineInstanceId?: string; location: { hostname: string; machine?: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus }>("ping");
+    const r = await this.request<{ protocolVersion: number; grammarVersion: number; outlineInstanceId?: string; location: { hostname: string; machine?: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus }>("ping");
     if (this.outline && r.outline?.name && r.outline.name !== this.outline)
       throw new Error(`the outline host at ${this.path} answered for "${r.outline.name}", not "${this.outline}"`);
     // One check: the service speaks this checkout's protocol. Older or newer, it is refused, never worked around.
+    await meetRules(r);
+    this.grammarNotice = grammarWarning(r.grammarVersion);
+    if (this.grammarNotice && !this.grammarSaid) this.onGrammar(this.grammarNotice);
     const mismatch = protocolMismatch(r.protocolVersion, "this door");
     if (mismatch) throw new Error(`${mismatch} (${this.path})`);
     this.protocol = r.protocolVersion;

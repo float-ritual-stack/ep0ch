@@ -27,7 +27,7 @@
 // of both moves 1 row with 2 columns.
 //
 // Spacing is drawn, never text: a renderer puts it outside the cells it reads back (selection, copy, peek), and an
-// export leaves it out. Pure: no I/O. A change to what it matches or computes bumps PROTOCOL (protocol.ts).
+// export leaves it out. Pure: no I/O. A change to what it matches or computes bumps GRAMMAR (protocol.ts).
 
 import { CALLOUT_TONES, type CalloutTone } from "./callouts";
 import { componentAttrs, noteCodeFences } from "./component-block";

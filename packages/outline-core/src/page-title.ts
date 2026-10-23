@@ -3,7 +3,7 @@
 // `2026-09-30 [page::2026-09-30]`). The tokens stay. A first line with any other text keeps it, so a title that's
 // already there is never overwritten. This file is the one rule: the service applies it to the texts clients write
 // (`create`, `update`, `notes.create`, `capture.create`, `edit-recovery.commit`; not a quick-capture draft's idle saves), so the door, Detail, the CLI and agents agree, and the door's editor
-// applies it as ⏎ leaves the first line. A change to what it matches bumps PROTOCOL (protocol.ts).
+// applies it as ⏎ leaves the first line. A change to what it matches bumps GRAMMAR (protocol.ts).
 import { isPropertyTokenLine, propertyTokensInLine } from "./property-grammar";
 
 /** The first line with the page's title put in front, or null when it has a title already (or names no page). */

@@ -119,7 +119,7 @@ export function protocolOf(source: string): number | null {
 /**
  * A PR that bumps PROTOCOL merges only at main's plus one (AGENTS.md "Rebase on the way in"): another merge may have
  * taken the number since the branch picked it. `base` is PROTOCOL where the branch left main: a branch that never
- * changed it (only behind main) is not a bump. Null when the branch leaves PROTOCOL alone, or bumps it right.
+ * changed it (including a GRAMMAR-only change) is not a bump. Null when the branch leaves PROTOCOL alone, or bumps it right.
  */
 export function protocolRefusal(main: number, branch: number, base: number, pr: string | null): string | null {
   if (branch === base || branch === main + 1) return null

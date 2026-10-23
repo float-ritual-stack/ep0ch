@@ -1,3 +1,4 @@
+import { clientReload, reexecClient } from "@ep0ch/outliner/client-code";
 // `ep0ch mcp serve --http`: the remote MCP gateway (ADR 0002, decision 4; PIE-520's remote part). The same read-only
 // server as `ep0ch mcp` (src/mcp.ts, `answerMcp`), over streamable HTTP, for the outlines on this machine's host and
 // read-only mirrors of other machines' outlines (EP0CH_MCP_MIRRORS, src/mcp-mirror.ts).
@@ -157,6 +158,8 @@ const localNames = async () => {
 export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string, live?: LiveMachines | null, admin?: McpOutlineAdmin): McpOutlines & { close(): void } {
   const machine = canonicalLocalMachineName();
   const boards = new Map<string, Promise<NotesBoard | { error: string }>>();
+  const usedBoards = new Set<NotesBoard>();
+  let grammarSaid = false;
   /** An outline's machine as answers name it: what it calls itself once its host has answered live, else its ssh name. */
   const nameOf = (m: OutlineMirror) => m.homeName() ?? m.machine;
   const mirrored = () => mirrors.map(m => `${m.outline}@${nameOf(m)}`).join(", ");
@@ -176,7 +179,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
    * else the mirror, saying why. Writes still queued for the machine overlay a live read, so a caller sees its own.
    */
   const routed = async (mirror: OutlineMirror): Promise<McpBoard | { error: string; access?: McpAccessLevel }> => {
-    const named = <T extends McpBoard>(b: T): T => { b.board.address = { outline: mirror.outline, machine: nameOf(mirror) }; return b; };
+    const named = <T extends McpBoard>(b: T): T => { b.board.address = { outline: mirror.outline, machine: nameOf(mirror) }; usedBoards.add(b.board); return b; };
     if (!live) { const r = await mirrorRead(mirror); return "error" in r ? r : named(r); }
     const a = await live.board(mirror.machine, mirror.outline);
     if ("board" in a) {
@@ -212,9 +215,19 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       log(`mcp gateway: can't open ${name}: ${board.error}`);
       return { error: `No outline ${name} is open to this gateway on ${machine}.` };
     }
+    await board.info();
+    usedBoards.add(board);
     return { board, served: servedLive() };
   };
   return {
+    grammarNote() {
+      if (grammarSaid) return undefined;
+      for (const board of usedBoards) {
+        const note = board.takeGrammarNotice();
+        if (note) { grammarSaid = true; return note; }
+      }
+      return undefined;
+    },
     kind: "remote",
     machine,
     ...(admin ? { admin } : {}),
@@ -288,7 +301,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
   };
 }
 
-export interface Gateway { url: string; port: number; stop(): void }
+export interface Gateway { url: string; port: number; stop(): void; drain(): Promise<void> }
 
 /** Starts the HTTP gateway. `keys` overrides the issuer's JWKS (tests sign their own). */
 export function startGateway(opts: {
@@ -470,7 +483,11 @@ export function startGateway(opts: {
       return json(200, answer.reply, sessionHeader);
     },
   });
-  return { url: `http://${opts.bind}:${server.port}${mcpPath}`, port: server.port!, stop: () => {
+  return { url: `http://${opts.bind}:${server.port}${mcpPath}`, port: server.port!, drain: async () => {
+    for (const stream of streams) stream.close();
+    streams.clear();
+    await server.stop(false);
+  }, stop: () => {
     for (const stream of streams) stream.close();
     streams.clear();
     server.stop(true);
@@ -551,12 +568,20 @@ export async function mcpServeCommand(args: string[], io: ServeIo = {}): Promise
   err(`ep0ch mcp gateway on ${gateway.url}: resource ${config.resources.map(r => r.href).join(", ")}, issuer ${config.issuer}, outlines on ${outlines.machine}${parsed.ws ? ` (default ${parsed.ws})` : ""}` +
     (mirrors.length ? `, mirrors ${mirrors.map(m => `${m.outline}@${m.machine} (${m.follow}${m.exists() ? "" : ", no copy yet"})`).join(", ")}${live ? ", live through the ssh forward when the machine answers" : ", live route off (EP0CH_MCP_LIVE=0)"}` : "") +
     (config.allowedSubjects.length ? `, ${config.allowedSubjects.length} allowed subject(s)` : " [CAPTURE MODE: every token is refused and its subject logged; set EP0CH_MCP_ALLOWED_SUBJECTS]"));
+  const previousHandover = clientReload.handover;
+  let handingOver = false;
+  clientReload.handover = async () => {
+    if (handingOver) return;
+    handingOver = true;
+    setTimeout(() => { void gateway.drain().then(() => { outlines.close(); reexecClient(); }); }, 0);
+  };
   io.ready?.(gateway);
   const stop = new Promise<void>(resolve => {
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
   });
   await Promise.race([stop, ...(io.until ? [io.until] : [])]);
+  clientReload.handover = previousHandover;
   gateway.stop();
   outlines.close();
   return 0;

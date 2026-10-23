@@ -1,3 +1,4 @@
+import { clientReload, reexecClient } from "./client-code";
 import {PaneDisplay} from "./pane-display";
 import {OutlinerUiConfig} from "./ui-config";
 import {focusActiveCapture} from "./capture-owner";
@@ -119,7 +120,7 @@ function draw(): void {
   syncRightClickOwnership();
 }
 
-async function stop(): Promise<void> {
+async function stop(restart = false): Promise<void> {
   if (stopping) return;
   if (paneOwnsRightClick) {
     try {
@@ -138,6 +139,7 @@ async function stop(): Promise<void> {
   keyboardInput?.destroy();
   process.stdin.off("data", handleRawInput);
   process.stdout.write(`${mouseEnabled ? disableMouse : ""}\x1b[?25h\x1b[?1049l`);
+  if (restart) reexecClient();
   process.exit(0);
 }
 
@@ -316,6 +318,7 @@ function startWatcher(): void {
       runtime,
     },
     onConnect: async () => {
+      await client.requireCompatibleService();
       await runtimeSync?.synchronize();
       enqueueWork(() => controller.handleConnect());
     },
@@ -346,9 +349,10 @@ if (process.stdin.isTTY) process.stdin.setRawMode(true);
 process.stdout.write(`\x1b[?1049h\x1b[?25l${mouseEnabled ? enableMouse : ""}`);
 process.stdin.on("data", handleRawInput);
 
-process.on("SIGINT", stop);
-process.on("SIGTERM", stop);
-process.on("SIGHUP", stop);
+clientReload.handover = () => stop(true);
+process.on("SIGINT", () => void stop());
+process.on("SIGTERM", () => void stop());
+process.on("SIGHUP", () => void stop());
 
 keypressInput.on("keypress", (str: string | undefined, key: TerminalKey) => {
   const text = str ?? "";

@@ -5,7 +5,7 @@
 // (outliner `block-query.ts`) calls it and evaluates the result (the reference index, the tree, the text). Every
 // atom combines with AND, OR, NOT and parentheses like `key=value` does. Pure: no I/O.
 //
-// A change to what an atom matches bumps PROTOCOL (protocol.ts).
+// A change to what an atom matches bumps GRAMMAR (protocol.ts).
 
 import { CALL_PATTERN } from "./attribution";
 import { HASHTAG_VALUE_PATTERN } from "./property-grammar";

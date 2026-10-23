@@ -5,7 +5,6 @@
 // `responseFor` with an `McpOutlines` saying which outlines they read; each outline's own access setting gates every
 // read and write, and every answer says where it came from (`source`: live or mirror, and `asOf`). A write to a mirror's
 // outline never touches the mirror: it queues for the outline's home machine (src/mcp-netmail.ts).
-import { createInterface } from "node:readline";
 import { boardFor, canonicalLocalMachineName, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
 import { MCP_ACCESS_LEVELS, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
@@ -60,7 +59,7 @@ interface RpcRequest { jsonrpc?: string; id?: RpcId; method?: string; params?: u
 interface McpContent { type: "text"; text: string }
 interface ToolResult { content: McpContent[]; isError?: boolean }
 /** `folder`: where a stdio server runs (default: this process's), whose `.ep0ch` may name the caller's persona. */
-interface McpIo { input?: AsyncIterable<string>; write?: (line: string) => void; err?: (line: string) => void; folder?: string }
+interface McpIo { input?: AsyncIterable<string>; write?: (line: string) => void; err?: (line: string) => void; folder?: string; call?: () => string; adopted?: () => string[]; onAdopt?: (name: string) => void; onRelease?: (name: string) => void }
 
 type Board = NotesBoard;
 
@@ -149,6 +148,8 @@ export interface McpOutlines {
   netmail?: McpQueue;
   /** A line for the server's log (the gateway's): each write and what it became. */
   log?: (line: string) => void;
+  grammarNote?(): string | undefined;
+  unavailable?: string;
 }
 
 /** An `about` as a listing shows it: with who, as a person reads it (`loki (claude-code@float-2)`). */
@@ -157,25 +158,28 @@ export const aboutListing = (a: OutlineAbout): OutlineAbout & { by: string } => 
 const uriOrName = (named: NamedOutline, machine: string) => named.machine ? `ep0ch://${named.outline}@${named.machine}` : `outline ${named.outline}@${machine}`;
 
 /** The stdio server's outlines: the one board it was started on. */
-export function boundOutlines(board: Board, admin?: McpOutlineAdmin): McpOutlines {
+export function boundOutlines(board: Board, admin?: McpOutlineAdmin, lifetime: Pick<McpIo, "onAdopt" | "onRelease"> = {}): McpOutlines {
   const bound = board.address;
   /** Outlines this session made with outline_new: served beside the bound one, on this machine. */
   const made = new Map<string, Board>();
   const hereOnly = (n: NamedOutline) => !n.machine || sameMachine(n.machine, admin?.machine ?? bound.machine);
   return {
+    grammarNote: () => board.takeGrammarNotice(),
     kind: "local",
     machine: bound.machine,
     defaultOutline: bound.outline,
     ...(admin ? { admin } : {}),
-    adopt(b) { if (admin && b.address) made.set(b.address.outline, b); },
-    release(name) { made.get(name)?.close(); made.delete(name); },
+    adopt(b) { if (admin && b.address) { made.set(b.address.outline, b); lifetime.onAdopt?.(b.address.outline); } },
+    release(name) { made.get(name)?.close(); made.delete(name); lifetime.onRelease?.(name); },
     async board(named) {
+      await board.info();
       if (!named || namesOutline({ outline: named.outline, machine: named.machine ?? bound.machine }, bound)) return { board, served: servedLive() };
       const other = made.get(named.outline);
       if (other && hereOnly(named)) return { board: other, served: servedLive() };
       return { error: `${uriOrName(named, bound.machine)} names ${named.outline}@${named.machine ?? bound.machine}; this MCP server is bound to ${bound.outline}@${bound.machine}${made.size ? ` and the ${made.size === 1 ? "outline" : "outlines"} it made (${[...made.keys()].join(", ")})` : ""}` };
     },
     async list(caller) {
+      await board.info();
       const rows: McpOutlineListing[] = [];
       const abouts = new Map((admin ? await admin.host<HostedOutlineList>("outlines.list").catch(() => ({ outlines: [] as HostedOutlineSummary[] })) : { outlines: [] as HostedOutlineSummary[] }).outlines.map(o => [o.name, o.about]));
       for (const b of [board, ...made.values()]) {
@@ -218,11 +222,6 @@ class RpcError extends Error {
 }
 
 const invalidParams = (message: string) => new RpcError(-32602, message);
-
-async function* stdinLines(): AsyncIterable<string> {
-  const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
-  try { for await (const line of rl) yield line; } finally { rl.close(); }
-}
 
 function blockUri(board: Board, blockId: string): string {
   return formatEp0chBlockUri({ ...board.address, blockId });
@@ -1155,6 +1154,7 @@ function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, s
     case "tools/list":
       return offersWrites(outlines, caller).then(async w => ({ tools: toolList(outlines, w, caller, !!caller && !!outlines.admin && !(await lokiAccessRefusal(outlines, caller))).map(withLoadHint) }));
     case "tools/call":
+      if (outlines.unavailable) return toolError(outlines.unavailable);
       return callTool(outlines, req.params, caller, scope);
     case "resources/list":
       return componentResources(outlines).then(resources => ({ resources: [...resources, ...skillResources(gatewaySkills())] }));
@@ -1235,6 +1235,9 @@ async function responseFor(outlines: McpOutlines, req: ParsedMessage, caller?: M
       : responseError(req.id, -32603, outlines.internalError?.(e as Error) ?? (e as Error).message);
   }
   if (measuring) {
+    const result = (response as { result?: ToolResult }).result;
+    const note = result?.content ? outlines.grammarNote?.() : undefined;
+    if (note) result!.content.push({ type: "text", text: note });
     const requestBytes = Buffer.byteLength(JSON.stringify(req)), responseBytes = Buffer.byteLength(JSON.stringify(response));
     try {
       recordUsage({ time, actor: caller ? actorOf(caller).actorId : "mcp", tool, outline,
@@ -1400,9 +1403,10 @@ export async function mcpCommand(argsIn: string[], io: McpIo = {}): Promise<numb
   const parsedArgs = mcpArgs(argsIn);
   const err = io.err ?? console.error;
   if ("error" in parsedArgs) { err(`ep0ch: ${parsedArgs.error}`); return 2; }
-  const board = await boardFor(parsedArgs);
-  if ("error" in board) { err(`ep0ch: ${board.error}`); return 1; }
-  const outlines = boundOutlines(board, localAdmin());
+  if (!io.input) { const { mcpStdio } = await import("./mcp-stdio"); return mcpStdio(argsIn); }
+  let board: Board | undefined;
+  let outlines: McpOutlines | undefined;
+  const admin = localAdmin();
   const write = io.write ?? (line => process.stdout.write(`${line}\n`));
   try {
     // No token on stdio: the caller is the client the MCP `initialize` names, written as `mcp:<client>` (and mapped by
@@ -1410,11 +1414,27 @@ export async function mcpCommand(argsIn: string[], io: McpIo = {}): Promise<numb
     let clientId: string | undefined;
     // One call per stdio connection (PIE-685).
     const call = mintCallId();
-    for await (const line of io.input ?? stdinLines()) {
+    for await (const line of io.input) {
+      if (!board) {
+        const opened = await boardFor(parsedArgs);
+        if ("error" in opened) {
+          // A stale installation still answers the connector; a later request can meet an updated host.
+          outlines = { kind: "local", machine: admin.machine, unavailable: opened.error,
+            board: async () => opened, list: async () => { throw new Error(opened.error); } };
+        } else {
+          board = opened;
+          outlines = boundOutlines(board, admin, io);
+          for (const name of io.adopted?.() ?? []) {
+            const kept = await admin.open(name);
+            if ("error" in kept) throw new Error(kept.error);
+            outlines.adopt!(kept as Board);
+          }
+        }
+      }
       clientId = clientNamed(line) ?? clientId;
-      const answer = await answerMcp(outlines, line, { sub: STDIO_SUBJECT, ...(clientId ? { clientId } : {}), call, folder: io.folder ?? process.cwd() });
+      const answer = await answerMcp(outlines!, line, { sub: STDIO_SUBJECT, ...(clientId ? { clientId } : {}), call: io.call?.() ?? call, folder: io.folder ?? process.cwd() });
       if (answer?.reply) write(JSON.stringify(answer.reply));
     }
     return 0;
-  } finally { board.close(); }
+  } finally { board?.close(); }
 }

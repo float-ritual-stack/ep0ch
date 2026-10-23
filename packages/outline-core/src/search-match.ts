@@ -12,7 +12,7 @@ import { subtitleOf } from "./block-record";
  *
  * The door filters lists it already holds with it on every key, importing
  * this file from outline-core. Any change to what matches or how it ranks
- * bumps PROTOCOL (protocol.ts).
+ * bumps GRAMMAR (protocol.ts).
  *
  * The rungs, best first (a document scores on the first rung it reaches):
  *

@@ -10,7 +10,7 @@
 // The service lists an outline's styles (`headings.styles`: these built-ins plus the declarations, read with the
 // outline's property scopes); the door draws by them, and a client that doesn't (Detail, the publisher, an export)
 // shows the heading or rule as written. A style can be a level's default (`[heading-default::1]`, or `rule` for every
-// `---`), so plain Markdown gets the look with no property. Pure: no I/O. A change to what it matches bumps PROTOCOL
+// `---`), so plain Markdown gets the look with no property. Pure: no I/O. A change to what it matches bumps GRAMMAR
 // (protocol.ts).
 
 import { CALLOUT_TONES, type CalloutTone } from "./callouts";

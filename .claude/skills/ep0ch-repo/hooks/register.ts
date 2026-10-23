@@ -56,7 +56,7 @@ async function protocolCheck($: EngineInterface, merge: Merge): Promise<string |
   if (!headRefOid || baseRefName !== 'main') return null
   const repo = merge.repo ?? '{owner}/{repo}'
   const at = (ref: string) => gh(['api', '-H', 'Accept: application/vnd.github.raw', `repos/${repo}/contents/${PROTOCOL_PATH}?ref=${ref}`])
-  // Where the branch left main: a branch only behind main hasn't bumped anything.
+  // Compare the PROTOCOL value with merge-base: a GRAMMAR-only edit to this file is not a wire bump.
   const compared = await gh(['api', `repos/${repo}/compare/main...${headRefOid}`, '--jq', '.merge_base_commit.sha'])
   const mergeBase = compared?.trim()
   if (!mergeBase) return null

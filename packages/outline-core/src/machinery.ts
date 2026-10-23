@@ -6,7 +6,7 @@
 //
 // One predicate (`isMachinery`) and one flag (`machinery: hide | only | show`) say what a list, a feed or a query holds.
 // The service answers the flag; every client passes it on and never decides for itself which notes are machinery.
-// Pure: no I/O. A change to what counts as machinery bumps PROTOCOL (protocol.ts).
+// Pure: no I/O. A change to what counts as machinery bumps GRAMMAR (protocol.ts).
 
 import { replacePropertyTokens } from "./property-grammar";
 

@@ -8,6 +8,7 @@
 // time, one that didn't is left alone for a backoff (45 s) so a sleeping laptop never makes every call slow. A try that
 // outlasts its budget keeps going in the background and, if it ends well, marks the machine up for the next call.
 // A host on another PROTOCOL is as good as away, with the command that fixes it.
+import { meetRules } from "@ep0ch/outliner/client-code";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { forwardTo } from "./machine";
 import type { NotesBoard } from "./notes-cli";
@@ -120,7 +121,8 @@ export class LiveMachines {
     if (this.closed) return this.fail("the gateway is shutting down");
     const probe = new SocketBoard(socket, REQUEST_TIMEOUT_MS);
     try {
-      const r = await probe.request<{ protocolVersion: number }>("ping");
+      const r = await probe.request<{ protocolVersion: number; grammarVersion: number }>("ping");
+      await meetRules(r);
       if (r.protocolVersion !== PROTOCOL) {
         const why = `its outline host speaks protocol ${r.protocolVersion} and this gateway ${PROTOCOL}`;
         this.log(`mcp live: ${machine}: ${why}`);

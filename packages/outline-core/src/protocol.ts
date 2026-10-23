@@ -1,13 +1,22 @@
 // The wire contract between the outline service (packages/outliner) and its clients (the door, Tree, Detail,
 // the CLI, the Claude mod). Both sides import this file; neither restates it. It does no I/O.
 //
-// PROTOCOL is the one compatibility check: `ping` reports the service's number and a client refuses a service
-// whose number differs from its own. Bump it with any change to the wire (an action, a field, a meaning) and
-// with any change to what outline-core's shared modules match or compute (the property grammar, the code fence
-// and literal ranges, the link grammar, the checklist box grammar, the heading styles, the style cascade, the component schemas, the draft.patch compare, the search matcher, the query atoms, the date reader), since a long-running service
-// and a remote door can run different checkouts.
+// PROTOCOL refuses a different wire contract (actions, fields and their meanings) or a difference in rules
+// both sides must compute identically for writes: draft-patch-compare.ts and edit-merge.ts (draft.patch comparisons),
+// link-syntax.ts anchors, code-fence.ts/code-ranges.ts literal ranges, property-parse.ts/property-grammar.ts
+// token spans, and header-line.ts boundaries when a patch names those anchors or ranges. Bump PROTOCOL
+// when those write-location computations change; parsing only for display bumps GRAMMAR instead.
+// GRAMMAR tracks parse/draw rules: components, figures, property display, headings, styles, search and dates.
+// A newer host's grammar warns once and never refuses capture; the host's parsing owns saved content.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 261;
+export const PROTOCOL = 262;
+/** Parse/draw rules, independent of whether a write can land correctly. */
+export const GRAMMAR = 1;
+
+/** A stale renderer can keep working; surface this once in the client's own message channel. */
+export function grammarWarning(grammar: number): string | undefined {
+  return grammar > GRAMMAR ? "drawn with older rules; run `ep0ch install --apply`" : undefined;
+}
 
 /**
  * The revision a comment on a Resource names (the `resource-comment` batch operation, PIE-650). A Resource's
@@ -255,6 +264,8 @@ export interface OutlinerServiceStatus {
   status: "ready";
   /** The service's PROTOCOL; a client refuses any other number (`protocolMismatch`). */
   protocolVersion: number;
+  /** Parse/draw rules; a mismatch never refuses a request. */
+  grammarVersion: number;
   /** Opaque identity of this outline file instance; changes when an outline is restored, reset, imported or recreated. */
   outlineInstanceId?: string;
   /** `machine`: the machine's name in `ep0ch://` URIs (the name its person gave it, else its host name's). */

@@ -17,14 +17,14 @@ instead (`hooks/guards.ts`):
 | `gh pr merge … -d` / `--delete-branch` | `gh pr merge <n> --merge` |
 | `bun test --parallel` on float-2 | `scripts/agent-env <name> --test -- timeout 900 bun test <files>`; `scripts/box-test` |
 | a whole-suite `bun test` / `bun run test…` (no test file named) on float-box or float-2, outside `scripts/agent-env` | `scripts/box-test <package>`; a few files: `scripts/agent-env <name> --test -- timeout 900 bun test <files>` |
-| `gh pr merge` into main when the PR sets `PROTOCOL` to anything but main's or main's plus one | the number to use, and the rebase |
+| `gh pr merge` into main when the PR changes `PROTOCOL` to anything but main's plus one | the number to use, and the rebase |
 
 - The command is read the way a shell splits it (`hooks/shell.ts`): `;`, `&&` and pipes split it, wrappers such as
   `timeout`, `env`, `sudo`, `scripts/agent-env … --` and `bash -c '…'` are looked through, and quoted text and heredoc
   bodies are ignored. A commit message that mentions `pkill` is not a `pkill`.
 - The PROTOCOL check asks `gh` for each merged PR's head and reads `packages/outline-core/src/protocol.ts` at that
   commit, at main, and where the branch left main. Only a branch that changed it is held to main's plus one; a branch
-  merely behind a bump on main merges. A slice merging into its `wave/…` branch is let through: it takes its number
+  merely behind a bump on main merges. A GRAMMAR-only bump is accepted, even though it edits the same file. A slice merging into its `wave/…` branch is let through: it takes its number
   when the wave merges. When `gh` can't answer within 10s, the merge goes on.
 
 ## Scratch cleanup never stops for a prompt

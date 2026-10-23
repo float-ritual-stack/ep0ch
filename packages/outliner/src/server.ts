@@ -16,7 +16,7 @@ import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { RULE_NAME } from "@ep0ch/outline-core/rules";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readNewNoteIntent } from "./note-placement";
@@ -2473,6 +2473,7 @@ export class OutlinerServer {
           result = {
             status: "ready",
             protocolVersion: PROTOCOL,
+      grammarVersion: GRAMMAR,
             outlineInstanceId: this.store.outlineInstanceId,
             location: { hostname: this.hostname, machine: localMachineName(this.outlinesFolder), workspaceRoot: this.store.workspaceRoot, database: this.store.database.filename, stateDirectory: this.host ? this.stateDirectory : dirname(this.store.database.filename) },
             ...(this.outline ? { outline: { ...this.outline } } : {}),

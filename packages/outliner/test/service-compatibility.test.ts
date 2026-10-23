@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PROTOCOL } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR } from "@ep0ch/outline-core/protocol";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { checkServiceCompatibility, waitForCompatibleService } from "../src/service-compatibility";
@@ -90,7 +90,7 @@ test("the CLI refuses a service on another protocol without sending its request"
 test("a missing protocol number is refused like an older service", () => {
   const unnumbered = { status: "ready" } as unknown as OutlinerServiceStatus;
   expect(checkServiceCompatibility(unnumbered)?.message).toContain("restart the outline host on current code");
-  expect(checkServiceCompatibility({ status: "ready", protocolVersion: PROTOCOL })).toBeUndefined();
+  expect(checkServiceCompatibility({ status: "ready", protocolVersion: PROTOCOL, grammarVersion: GRAMMAR })).toBeUndefined();
 });
 
 function scriptedPing(responses: Array<OutlinerServiceStatus | Error>) {
@@ -106,10 +106,10 @@ function scriptedPing(responses: Array<OutlinerServiceStatus | Error>) {
 }
 
 test("the launcher wait accepts a service that restarts onto this protocol", async () => {
-  const current: OutlinerServiceStatus = { status: "ready", protocolVersion: PROTOCOL };
+  const current: OutlinerServiceStatus = { status: "ready", protocolVersion: PROTOCOL, grammarVersion: GRAMMAR };
   const client = scriptedPing([
     new Error("connect ENOENT"),
-    { status: "ready", protocolVersion: PROTOCOL - 1 },
+    { status: "ready", protocolVersion: PROTOCOL - 1, grammarVersion: GRAMMAR },
     current,
   ]);
   await expect(waitForCompatibleService(client, { timeoutMs: 5_000 })).resolves.toBe(current);
@@ -117,7 +117,7 @@ test("the launcher wait accepts a service that restarts onto this protocol", asy
 });
 
 test("the launcher wait still reports a service on another protocol at its deadline", async () => {
-  const client = scriptedPing([{ status: "ready", protocolVersion: PROTOCOL - 1 }]);
+  const client = scriptedPing([{ status: "ready", protocolVersion: PROTOCOL - 1, grammarVersion: GRAMMAR }]);
   await expect(waitForCompatibleService(client, { timeoutMs: 250 })).rejects.toThrow("restart the outline host on current code");
   expect(client.calls).toBeGreaterThan(1);
 });
