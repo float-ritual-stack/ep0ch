@@ -27,7 +27,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mcpEnvFile, mcpSetting } from "@ep0ch/outliner/mcp-access-files";
 import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
-import { actorLabel, composeActor, composeSessionId, CALL_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
+import { actorLabel, composeActor, composeSessionId, CALL_PATTERN, CLIENT_PATTERN, PERSONA_PATTERN } from "@ep0ch/outline-core/attribution";
 import { sessionPersona, type LocationReader } from "@ep0ch/outline-core/outline-location";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { AGENT_TOOL_DEFINITIONS, AGENT_TOOL_SURFACES, describeTool, type TargetWords } from "@ep0ch/outline-core/agent-tool-definitions";
@@ -100,8 +100,8 @@ export interface WriteActor { actorId: string; sessionId?: string }
 export function clientName(clientId: string | undefined, env: Record<string, string | undefined> | null = process.env): string {
   if (!clientId) return "client";
   const named = env && (mcpSetting(env, "EP0CH_MCP_CLIENT_NAMES") ?? "").split(",").map(e => e.split("=").map(x => x.trim())).find(([id]) => id === clientId)?.[1];
-  if (named && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(named)) return named;
-  try { const url = new URL(clientId); if (url.hostname) return url.hostname; } catch { /* not a URL */ }
+  if (named && CLIENT_PATTERN.test(named)) return named;
+  try { const url = new URL(clientId); if (CLIENT_PATTERN.test(url.hostname)) return url.hostname; } catch { /* not a URL */ }
   return clientId.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, 64) || "client";
 }
 

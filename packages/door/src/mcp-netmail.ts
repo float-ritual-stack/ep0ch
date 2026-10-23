@@ -188,7 +188,10 @@ export class Netmail {
   forBlock(machine: string, outline: string, blockId: string, who: { actorId: string; subject: string }, pending = true): NetmailReceipt[] {
     const principal = parseActor(who.actorId).principal;
     return (this.db.query(`SELECT * FROM entries WHERE machine = ? AND outline = ? AND block_id = ? AND (subject = ? OR substr(subject, 1, ?) = ?)${pending ? " AND (state = 'queued' OR (state = 'applied' AND result_revision IS NOT NULL))" : ""} ORDER BY queued_at, rowid`)
-      .all(machine, outline, blockId, who.subject, who.subject.length + 1, `${who.subject}#`) as Record<string, unknown>[]).map(receiptOf).filter(entry => parseActor(entry.actorId).principal === principal);
+      .all(machine, outline, blockId, who.subject, who.subject.length + 1, `${who.subject}#`) as Record<string, unknown>[]).map(receiptOf).filter(entry => {
+        const other = parseActor(entry.actorId).principal;
+        return principal !== undefined && other !== undefined ? other === principal : entry.actorId === who.actorId;
+      });
   }
 
   /** Records what the machine's entries became; an id it doesn't hold waiting is skipped. Returns how many settled. */

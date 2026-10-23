@@ -851,6 +851,23 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(remoteWrite({ domain: "content", action: "update", sequence: 1, change, catchUp: true })).toBeNull();
     expect(remoteWrite({ domain: "content", action: "update", sequence: 1, change: { ...change, actor: { author: "agent", actorId: "claude-code" } } })).toBeNull();
   });
+  test("long-hostname clients on one subject read only their own pending writes", async () => {
+    const remote = { uri: formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.trunk! }) };
+    const host = `${"a".repeat(60)}.${"b".repeat(60)}`;
+    const callers = ["first", "second"].map(name => ({ sub: PERSON, clientId: `https://${host}.${name}.example.test/client` }));
+    const queued = [];
+    for (const [i, caller] of callers.entries()) {
+      const write = await tool("outline_comment", { ...remote, whole: true, body: `Private inventory ${i}`, persona: "scout" }, undefined, caller);
+      expect(write.json.outcome).toBe("queued");
+      queued.push(write.json.queueId);
+    }
+    for (const [i, caller] of callers.entries()) {
+      const read = await tool("outline_read", remote, undefined, caller);
+      expect(read.json.pending.comments).toEqual([{ queueId: queued[i], body: `Private inventory ${i}` }]);
+    }
+    await pull();
+  });
+
   test("a per-write persona records its principal and leaves the named path's cap in place", async () => {
     const parent = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.seeds! });
     const made = await tool("outline_create", { uri: parent, text: "Persona's seed tray", persona: "scout" });
@@ -883,6 +900,22 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
 
 describe("personas: who a connection writes as", () => {
   const caller = { sub: "user_fictional_a", clientId: "https://chat.example.test/oauth/client-metadata" };
+  test("a queue actor without a principal sees only its exact actor's writes", () => {
+    const dir = scratchDir("ep0ch-actor-queue-");
+    const queue = new Netmail(join(dir, "queue.sqlite"));
+    try {
+      const actors = ["mcp:scout/invalid:one", "mcp:scout/invalid:two", "mcp:chat.example.test"];
+      const entries = actors.map(actorId => queue.enqueue({
+        machine: FAR, outline: "attic-notes", blockId: "fictional-trunk", uri: "ep0ch://attic-notes@far-box/b/fictional-trunk",
+        tool: "outline_comment", input: { body: actorId, whole: true }, actorId, subject: `${PERSON}#fictional-call`, clientId: null,
+        level: "full", revision: null, mirrorRevision: null, textHash: null, instanceId: null,
+      }));
+      for (const [i, actorId] of actors.entries()) {
+        expect(queue.forBlock(FAR, "attic-notes", "fictional-trunk", { actorId, subject: PERSON }).map(e => e.id)).toEqual([entries[i]!.id]);
+      }
+    } finally { queue.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test("a client or subject maps to a name; none keeps the client's; a bad name is ignored; the file works too", () => {
     expect(actorOf(caller, {}).actorId).toBe("mcp:chat.example.test");
     expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=daddy" })).toEqual({ actorId: "mcp:daddy/chat.example.test", sessionId: "user_fictional_a" });
