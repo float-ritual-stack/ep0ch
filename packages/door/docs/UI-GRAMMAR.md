@@ -273,7 +273,40 @@ pane, region or column, the table below says what it is today.
 | screen layer | The screen shown (board, desk, river, reader, LORD): swapped per screen, each as small as it was designed. |
 | layout operation | One change to a screen's layout, applied for one actor as one transaction by the screen-layout module: the new state or a refusal with its reason, nothing done (PIE-513). The only way a layout changes; keys, clicks and `act` reach it through actions. `Op`, `apply` in `src/desk/screen-layout.ts`. |
 | screen | A **screen spec** on the desk, the one screen host (PIE-515): its containers and tiles, a key map naming actions, a hint, a band, where opens land. Board, desk, river, welcome, waiting and brief are all screens; the desk, the board, the welcome, waiting, the brief and a pinned page are specs (the river too, since PIE-515), plain data a note can hold. A screen's own layout between runs is kept in the door's state (`desk.json`, `delivery.json`, §3's persist row); a screen saved by name is a **screen note** in the outline (PIE-565, `[type::screen]`), which every door on it opens. |
+| spine | A tile folded to a strip of its title (a column a few cells wide), still in the layout: click or open it and it unfolds. The open tiles and their spines read like an open book: the pages you're reading in the middle, the rest stacked at the edges. See **Spines** below. |
 | pane | Not a door word. It means Herdr's or tmux's compositor box. The door's code still names a tile's class `Pane` (`ReaderPane`, `PaneView`, …), a rename left for later; `pane.split` is the one `pane.*` action left, and `tile=` names a tile in `act`. |
+
+### Spines
+
+A row or flow keeps its open tiles together and stacks the rest as spines (PIE-1208, PIE-1223). The container's
+`spines` policy says where a pushed-out tile goes; `min-width` says when opening one folds another.
+
+| What happens | Where the spine goes |
+|---|---|
+| An open pushes a tile out of the open group (`spines: book`, the default) | Its own side's stack, newest nearest the open tiles; it never crosses the open tiles (a page slides, it doesn't flip). |
+| You fold a tile by hand (click its fold, `^W` fold) | Where it is, even between two open tiles: nothing moves. |
+| You open a spine | It joins the open group with an even share. Below `min-width` (40 columns by default; 0 never folds) the open tile touched longest ago folds instead. |
+| Align left / centre / right (the container's menu, `^W`, `layout.gather side=left\|centre\|right`) | Every spine to one edge, or split evenly around the open tiles (an odd one to the right). It sticks as the `spines` policy until changed. |
+
+```text
+ align left:   open pair at the left, every spine stacked on the right
+ ┌────────────┐┌────────────┐
+ │     A      ││     B      │ |||||||||||||| (14)
+ └────────────┘└────────────┘
+
+ align centre: the pair in the middle, spines split evenly (7 | 7)
+         ┌────────────┐┌────────────┐
+ ||||||| │     A      ││     B      │ |||||||
+         └────────────┘└────────────┘
+
+ align right:  every spine stacked on the left, open pair at the right
+                     ┌────────────┐┌────────────┐
+ (14) |||||||||||||| │     A      ││     B      │
+                     └────────────┘└────────────┘
+```
+
+Which side and how many is `placement()`'s spine rule (`src/desk/screen-layout.ts`), the one owner; the showcase's
+book-spines section runs all of it.
 
 ### View and tile
 

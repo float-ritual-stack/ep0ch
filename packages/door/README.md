@@ -2855,6 +2855,7 @@ A row or flow's `spines` policy is `book` by default: pushed-out pages slide to 
 newest next to the open pages. `start` gathers left, `end` right, `centre` splits evenly (an odd spine goes right), and `invoker` places a kept page toward
 where its open came from. Hand-folded tiles stay where they are. Opening a vertical spine gives it an
 even share of the open group; below `min-width` (40 by default), the page touched longest ago folds.
+Drawings of the book and of align left, centre and right: [UI-GRAMMAR, Spines](docs/UI-GRAMMAR.md#spines).
 `min-width=0` keeps every page open. Set either field through `layout.policy` or the policy panel.
 
 
