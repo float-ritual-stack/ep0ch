@@ -66,6 +66,7 @@ export interface TileSpec {
   inner?: unknown;
   /** Where this tile's opens land: another tile's name (PIE-473). */
   altReader?: boolean;
+  deliberate?: boolean;
   wires?: { verb: "select" | "open" | "alt"; to: string; rule?: import("./layout").AltRule }[];
   selectFrom?: string;
   link?: string;

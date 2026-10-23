@@ -109,7 +109,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(await app.act({ action: "section", args: { name: "links-open" }, as: "test-agent" })).toMatchObject({ key: "links-open" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "links-open")).top; };
     const tiles = () => stage().layoutGet().tiles as any[];
-    const shows = (name: string) => tiles().find(t => t.name === name)?.showing?.id;
+    const shows = (name: string) => stage().pane(name)?.msg?.id;
     await until(() => shows("detail") === seeded.notes.shed.id && tiles().find(t => t.name === "backlinks")?.backlinks?.rows?.some((r: any) => r.id), "the shed and its links", 8000);
     const rows = tiles().find(t => t.name === "backlinks").backlinks.rows as { n: number; id?: string }[];
     const first = rows.find(r => r.id && r.id !== seeded.notes.shed.id)!;
@@ -168,7 +168,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(await app.act({ action: "section", args: { name: "lists-open" }, as: "test-agent" })).toMatchObject({ key: "lists-open" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "lists-open")).top; };
     const tiles = () => stage().layoutGet().tiles as any[];
-    const shows = (name: string) => tiles().find(t => t.name === name)?.showing?.id;
+    const shows = (name: string) => stage().pane(name)?.msg?.id;
     const detail = () => stage().pane("detail") as any;
     const tree = () => stage().pane("tree") as any;
     const person = (action: string, args: Record<string, unknown> = {}, tile = "detail") => stage().dispatch.act({ action, tile, args }, { kind: "user" });
@@ -198,16 +198,15 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     const before = tiles().length;
     await until(() => rows().length > 0, "the shed's rows again", 5000);
     await person("links.open", { n, where: "new" });
-    await until(() => tiles().length === before + 1, "a new detail beside", 5000);
-    expect(tiles().some(t => t.collapsed && t.showing?.id === seeded.notes.shed.id)).toBe(true);
+    await until(() => tiles().some(t => t.showing?.id === row.id && !t.collapsed), "the existing row tile opens", 5000);
+    expect(tiles().filter(t => t.kind === "reader" && t.showing?.id === row.id)).toHaveLength(1);
+    expect(tiles().length).toBe(before);
     expect(shows("detail")).toBe(row.id);
     const made = () => tiles().filter(t => t.kind === "reader" && t.mode === "held").map(t => t.name as string);
     for (const note of [seeded.notes.notebook, seeded.notes.shed]) {
-      const previous = shows("detail"), count = tiles().length;
       stage().setCurrent(note, { from: stage().pane("detail"), link: true, fresh: true });
-      expect(shows("detail")).toBe(note.id);
-      expect(tiles().length).toBe(count + 1);
-      expect(tiles().some(t => t.collapsed && t.showing?.id === previous)).toBe(true);
+      expect(tiles().some(t => t.kind === "reader" && t.showing?.id === note.id && !t.collapsed)).toBe(true);
+      expect(tiles().filter(t => t.kind === "reader" && t.showing?.id === note.id)).toHaveLength(1);
     }
     const spines = () => tiles().filter(t => t.collapsed).map(t => t.name as string);
     expect(spines().length).toBeGreaterThan(0);
@@ -227,7 +226,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(await app.act({ action: "section", args: { name: "tags" }, as: "test-agent" })).toMatchObject({ key: "tags" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "tags")).top; };
     const tiles = () => stage().layoutGet().tiles as any[];
-    const shows = (name: string) => tiles().find(t => t.name === name)?.showing?.id;
+    const shows = (name: string) => stage().pane(name)?.msg?.id;
     const detail = () => stage().pane("detail") as any;
     const person = (action: string, args: Record<string, unknown> = {}, tile = "detail") => stage().dispatch.act({ action, tile, args }, { kind: "user" });
     const tagElem = (tag: string) => (detail().surface.describeElements() as any[]).find(e => e.label === `#${tag}` || e.label?.includes(`#${tag}`));
@@ -272,7 +271,8 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(list().query).toBe("#compost");
     expect(list().selected?.id).toBe(sel);
     // The list saves with the screen as written: its query and its home.
-    expect(JSON.stringify(stage().saved())).toContain(`"query":"#compost","source":"tile:detail"`);
+    const homeId = tiles().find(t => t.kind === "reader" && t.showing?.id === seeded.notes.frost.id && !t.collapsed).tile;
+    expect(JSON.stringify(stage().saved())).toContain(`"query":"#compost","source":"tile:${homeId}"`);
     // Held (PIE-855: p, its ○, the menu), it keeps #compost and the next tag opens a list of its own; ⏎ still lands in the detail.
     expect(await person("tile.hold", {}, L)).toMatchObject({ name: L, held: true });
     expect(list().held).toBe(true);
@@ -283,8 +283,8 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(held).toMatchObject({ query: "#compost", held: true, home: "detail" });
     expect(held.cards).toHaveLength(2);
     // Let go while the new one is the detail's list: refused, with what to do.
-    await expect(person("tile.hold", { on: false }, L)).rejects.toThrow(/is detail's list now: close it or hold it/);
-    expect(JSON.stringify(stage().saved())).toContain(`"query":"#compost","source":"tile:detail","mode":"held"`);
+    await expect(person("tile.hold", { on: false }, L)).rejects.toThrow(/is .+'s list now: close it or hold it/);
+    expect(JSON.stringify(stage().saved())).toContain(`"query":"#compost","source":"tile:${homeId}","mode":"held"`);
     // A restarted door makes it from that save still held.
     expect((makeTile({ kind: "query", query: "#compost", source: "tile:detail", mode: "held" }) as any).held).toBe(true);
     const heldCard = held.cards.find((c: any) => c.title === "Lift the dahlias");
@@ -292,7 +292,10 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await until(() => shows("detail") === heldCard.id, "⏎ in the held list opens in the detail", 5000);
     // What each list follows and where its opens land, in plain words (PIE-855): tile.info for an agent, ^W P's rows for the person.
     const L2 = lists().find(t => t.name !== L).name as string;
-    expect(await app.act({ action: "tile.info", tile: L2, as: "test-agent" })).toMatchObject({ follows: "the #tags opened in detail", opens: expect.stringMatching(/^detail, its reader/) });
+    const currentHome = stage().nameOfPane(stage().pane("detail"));
+    const info = await app.act({ action: "tile.info", tile: L2, as: "test-agent" }) as any;
+    expect(info.follows).toBe(`the #tags opened in ${currentHome}`);
+    expect(info.opens).toStartWith(`${currentHome}, its reader`);
     expect(await app.act({ action: "tile.info", tile: L, as: "test-agent" })).toMatchObject({ follows: expect.stringMatching(/^nothing: held on its tag/) });
     // The following list's header says \u00ab detail; a click on it opens ^W P at its follows row, and the unlink row holds it.
     const rows = () => sc.render(app).lines.map(plain);
@@ -302,8 +305,8 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     click(mark().x + 1, mark().y);
     const panel = () => stage().overlays.top();
     await until(() => panel()?.name === "policy", "^W P from the follows mark", 5000);
-    expect(panel().items[panel().sel].label).toBe(`${L2} follows: the #tags opened in detail`);
-    expect(rows().join("\n")).toContain("⏎ opens in: detail");
+    expect(panel().items[panel().sel].label).toBe(`${L2} follows: the #tags opened in ${currentHome}`);
+    expect(rows().join("\n")).toContain(`⏎ opens in: ${currentHome}`);
     press({ kind: "char", ch: "j" }); press({ kind: "enter" });
     await until(() => lists().find(t => t.name === L2)?.held === true, "unlinked from the panel: held", 5000);
     expect(panel().items[0].label).toMatch(new RegExp(`^${L2} follows: nothing: held on its tag`));
@@ -319,7 +322,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "P" });
     rows();
     panel().sel = opens(); press({ kind: "char", ch: "x" });
-    await until(() => tiles().find(t => t.name === L2)?.link === "detail", "unlinked: opens use the reader again", 5000);
+    await until(() => tiles().find(t => t.name === L2)?.link === currentHome, "unlinked: opens use the reader again", 5000);
     press({ kind: "esc" });
     expect(stage().overlays.top()?.name).not.toBe("policy");
     for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
@@ -386,7 +389,8 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await (stage() as any).dispatch.press("note.thread", {}, "reader");
     const reopened = rows().find(r => r.text === "Eli: not this year, sorry")!.n;
     await (stage() as any).dispatch.press("note.thread.open", { n: reopened }, "reader");
-    await until(() => reader()?.showing?.title === "Eli: not this year, sorry", "Eli's post read", 8000);
+    expect(stage().layoutGet().tiles.find((t: any) => t.name === "thread-preview")?.showing?.title).toBe("Eli: not this year, sorry");
+    expect(reader().showing.id).toBe(seeded.notes.threadHere.id);
   }, 30_000);
 
 

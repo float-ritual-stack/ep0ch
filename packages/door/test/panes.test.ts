@@ -387,7 +387,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(message()).toContain(`an agent (${AS}) closed ${f.name}`);
   });
 
-  test("an agent's swap keeps the replaced note as a spine and leaves another reader's edit and keys alone", async () => {
+  test("an agent's swap keeps the replaced note in its existing reader and leaves that reader's edit and keys alone", async () => {
     await withDetails();
     await act("edit.text", { text: "Prune the apples [stage::queued]\nAn agent's draft." }, "detail2");
     await until(() => !!details()[1].draft, "the agent's draft");
@@ -399,15 +399,9 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(mine.msg.id).toBe(note.id);
     expect(held.draft).toBeTruthy();
     expect(focus()).toBe("detail1");
-    const kept = b.layoutGet().tiles.find(t => t.collapsed && t.showing?.id === prior)!;
-    expect(kept).toBeDefined();
-    expect(b.layoutGet().tiles.filter(t => t.collapsed)).toHaveLength(1);
-    expect(message()).toContain("kept as a spine");
-    const x = () => { b.render(B().ctx); return (b as any).closeButtons.find((c: any) => c.id === (b as any).idNamed(kept.name)); };
-    const at = x();
-    expect(at).toBeDefined();
-    mouse("down", at.from, at.row); mouse("up", at.from, at.row);
-    await until(() => !b.layoutGet().tiles.some(t => t.tile === kept.tile), "the spine closed by its x");
+    expect(held.msg.id).toBe(prior);
+    expect(b.layoutGet().tiles.filter(t => t.kind === "reader" && t.showing?.id === prior)).toHaveLength(1);
+    expect(b.layoutGet().tiles.filter(t => t.collapsed && t.showing?.id === prior)).toHaveLength(0);
   });
 
   test("interchangeable, subject to policy: a lane leaves the columns only once they let it; a desk tile goes beside them, not in", async () => {

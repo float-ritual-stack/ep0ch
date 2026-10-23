@@ -540,6 +540,94 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
+  test("book spines (PIE-1229): alt-open and back never accumulate copies", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "book-spines" }, as: "test-agent" });
+    const stage = () => S().stages.get(S().sel).top as any;
+    const tiles = () => { screen(); return stage().describe().panes as any[]; };
+    await until(() => tiles().every(t => t.showing), "the book's notes");
+    for (const t of tiles().filter(t => t.name !== "fir"))
+      await stage().dispatch.act({ action: "tile.close", tile: t.name, args: {} }, USER);
+    await stage().dispatch.act({ action: "tile.expand", tile: "fir", args: {} }, USER);
+    const unique = () => {
+      const ids = tiles().map(t => t.showing?.id).filter(Boolean);
+      expect(ids.length).toBeGreaterThan(0);
+      expect(ids.length).toBe(new Set(ids).size);
+    };
+    unique();
+    press({ kind: "enter" });
+    const click = (x: number, y: number, mods?: number) => {
+      press({ kind: "mouse", action: "down", button: 0, x, y, mods });
+      press({ kind: "mouse", action: "up", button: 0, x, y, mods });
+    };
+    for (const path of ["act", "keys", "click"] as const) for (let i = 0; i < 3; i++) {
+      const from = tiles().find(t => !t.collapsed).name;
+      if (path === "act") {
+        await stage().dispatch.act({ action: "open", args: { from, id: seeded.notes.shed.id, fresh: true } }, USER);
+      } else {
+        await stage().dispatch.press("tile.focus", {}, from);
+        const elements = await stage().dispatch.act({ action: "elements", tile: from, args: {} }, USER);
+        const link = elements.elements.find((e: any) => e.kind === "link" && e.label === "Bike shed");
+        expect(link).toBeDefined();
+        await stage().dispatch.press("element.select", { n: link.n }, from);
+        if (path === "keys") press({ kind: "alt-enter" });
+        else {
+          const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("Our plot") && l.includes("Bike shed"));
+          expect(y).toBeGreaterThan(0);
+          click(lines[y]!.indexOf("Bike shed") + 2, y, 8);
+        }
+      }
+      await until(() => tiles().some(t => t.showing?.id === seeded.notes.shed.id), `${path}: the linked note opens`);
+      unique();
+      const opened = tiles().find(t => t.showing?.id === seeded.notes.shed.id);
+      if (path === "act") await stage().dispatch.act({ action: "back", tile: opened.name, args: {} }, USER);
+      else if (path === "keys") press({ kind: "alt-left" });
+      else {
+        const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("← back ·"));
+        expect(y).toBeGreaterThan(0);
+        click(lines[y]!.indexOf("← back ·") + 3, y);
+      }
+      await until(() => tiles().some(t => !t.collapsed && t.showing?.id === seeded.notes.notebook.id), `${path}: back unfolds the original note`);
+      unique();
+      const reader = stage().paneNamed(tiles().find(t => !t.collapsed).name);
+      expect(reader.surface.describeHistory().forward.some((p: any) => p.id === seeded.notes.shed.id)).toBe(true);
+    }
+    const original = tiles()[0].name;
+    // An ordinary open of a note already here reuses its folded tile, too.
+    await stage().dispatch.act({ action: "open", args: { from: original, id: seeded.notes.shed.id, fresh: true } }, USER);
+    unique();
+    const a = tiles().find(t => t.showing?.id === seeded.notes.notebook.id);
+    const b = tiles().find(t => t.showing?.id === seeded.notes.shed.id);
+    await stage().dispatch.act({ action: "open", args: { from: b.name, id: seeded.notes.notebook.id } }, USER);
+    unique();
+    expect(tiles().find(t => t.name === a.name).collapsed).toBeUndefined();
+    for (const kind of ["split", "tile.open", "pinned"] as const) {
+      const made = await stage().dispatch.act(kind === "split"
+        ? { action: "pane.split", tile: a.name, args: { kind: "reader", dir: "row" } }
+        : { action: "tile.open", tile: a.name, args: { kind: "reader", mode: kind === "pinned" ? "pinned" : "held", ...(kind === "pinned" ? { page: "Allotment notebook" } : { note: seeded.notes.notebook.id }) } }, USER);
+      await stage().dispatch.act({ action: "open", tile: made.name, args: { id: seeded.notes.notebook.id } }, USER);
+      await stage().dispatch.act({ action: "open", tile: made.name, args: { id: seeded.notes.shed.id } }, USER);
+      await stage().dispatch.act({ action: "back", tile: made.name, args: {} }, USER);
+      expect(tiles().find(t => t.name === made.name)?.showing?.id).toBe(seeded.notes.notebook.id);
+      expect(tiles().find(t => t.name === a.name)?.showing?.id).toBe(seeded.notes.notebook.id);
+      await stage().dispatch.act({ action: "tile.close", tile: made.name, args: {} }, USER);
+    }
+    const source = tiles().find(t => t.showing?.id === seeded.notes.notebook.id).name;
+    const pinned = await stage().dispatch.act({ action: "tile.open", tile: source, args: { kind: "reader", mode: "pinned", page: "Allotment notebook" } }, USER);
+    await until(() => tiles().find(t => t.name === pinned.name)?.showing?.id === seeded.notes.notebook.id, "the pinned page");
+    await stage().dispatch.act({ action: "open", tile: source, args: { id: seeded.notes.shed.id } }, USER);
+    await stage().dispatch.act({ action: "back", tile: source, args: {} }, USER);
+    expect(tiles().find(t => t.name === pinned.name)?.mode).toBe("pinned");
+    expect(tiles().find(t => t.name === source)?.showing?.id).toBe(seeded.notes.notebook.id);
+    await stage().dispatch.act({ action: "tile.close", tile: pinned.name, args: {} }, USER);
+    await stage().dispatch.act({ action: "layout.policy", tile: source, args: { closable: false } }, USER);
+    await stage().dispatch.act({ action: "open", tile: source, args: { id: seeded.notes.shed.id } }, USER);
+    await stage().dispatch.act({ action: "back", tile: source, args: {} }, USER);
+    expect(tiles().find(t => t.name === source)?.showing?.id).toBe(seeded.notes.notebook.id);
+    await stage().dispatch.act({ action: "layout.policy", tile: source, args: { closable: true } }, USER);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
   test("folds: a tile folds to a spine by the glyph's click, alt+click, alt+h and act, and a click on the spine opens it with a fair share", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "folds" }, as: "test-agent" })).toMatchObject({ key: "folds" });
