@@ -313,8 +313,11 @@ export class ScriptRuns {
     };
     const buttonProps = buttonBlock && request.button?.line !== undefined
       ? buttonCallAt(buttonBlock.text.split("\n"), request.button.line)?.props : undefined;
+    // args carry each slot's last value; a key the button repeats (`page=a page=b`) reads whole from the button, but only
+    // where the press passed that button's own value: an alt press or an override passes its own, and keeps it.
+    const slot = (k: string, v: unknown) => { const all = buttonProps && Object.hasOwn(buttonProps, k) ? buttonProps[k] : undefined; return all && all.at(-1) === String(v) ? all : [String(v)]; };
     let site = this.bind(source, { blockId: request.blockId, line: request.line, trigger: !!request.trigger,
-      props: { ...Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, [String(v)]])), ...buttonProps } });
+      props: Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, slot(k, v)])) });
     let caller: { text: string; span: DraftPatchSpan } | undefined;
     // place(): the plan is made on the note as its draft has it now, sent as this script, applied or one proposal at the caller.
     const place = async (content: string, opts: { at?: string; mode?: string; label?: string; interpolate?: boolean }) => {

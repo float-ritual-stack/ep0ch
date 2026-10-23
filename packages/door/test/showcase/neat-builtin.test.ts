@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type { Desk } from "../../src/desk/desk";
-import { USER } from "../../src/socket";
+import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
 describe.skipIf(!outliner)("the showcase screen: built-in neat", () => {
   const h = useShowcaseScreen();
 
-  const press = async (note: string, expected = "links wired") => {
+  const press = async (note: string, expected = "links wired", actor: Actor = USER, extra: Record<string, string | boolean> = {}) => {
     const { app } = h;
     const before = new Set(app.describe().messages.map(row => row.id));
-    await app.dispatch.act({ action: "button.press", args: { note, label: "neat" } }, USER);
-    const result = () => app.describe().messages.find(row => !before.has(row.id) && row.message.startsWith("neat:"));
+    await app.dispatch.act({ action: "button.press", args: { note, label: "neat", ...extra } }, actor);
+    const result = () => app.describe().messages.find(row => !before.has(row.id) && /(^|· )neat:/.test(row.message));
     await until(() => !!result(), "neat finished", 10_000).catch(error => { throw new Error(`${error.message}; last messages: ${JSON.stringify(app.describe().messages.slice(-3))}`); });
     expect(result()!.message).toContain(expected);
     h.screen();
@@ -80,4 +80,13 @@ describe.skipIf(!outliner)("the showcase screen: built-in neat", () => {
     expect(after.tree).toEqual(before.tree);
   }, 30_000);
 
+  test("a button's repeated slots reach the script whoever presses it, and its alt passes only its own", async () => {
+    const { app, board } = h;
+    await board.createBlock(null, "Echo slots [script::echo-slots]\n```js\nreturn 'neat: ' + JSON.stringify(props.page);\n```");
+    const button = await board.createBlock(null, 'Two pages\n::button{label="neat" of=echo-slots page=meadow page=orchard alt="echo-slots page=pond"}');
+    await app.loadExtensions(true);
+    await press(button.id, 'neat: ["meadow","orchard"]');
+    await press(button.id, 'neat: ["meadow","orchard"]', { kind: "agent", id: "test-agent" });
+    await press(button.id, 'neat: ["pond"]', USER, { alt: true });
+  }, 30_000);
 });

@@ -49,7 +49,11 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
   const act = get("act")?.trim(), of = get("of")?.trim(), label = get("label")?.trim();
   const slots = pairs.filter(p => !OWN.has(p.key.toLowerCase()));
   const props: Record<string, string[]> = {};
-  if (of) for (const { key, value } of slots) (props[key] ??= []).push(value);
+  // Own keys only: a slot may be any word, `constructor` or `__proto__` included, and none reaches Object.prototype.
+  if (of) for (const { key, value } of slots) {
+    if (Object.hasOwn(props, key)) props[key]!.push(value);
+    else Object.defineProperty(props, key, { value: [value], enumerable: true, writable: true, configurable: true });
+  }
   const endLine = buttonBodyEnd(lines, i);
   let steps: ButtonStep[] = [], problem: string | undefined;
   try {

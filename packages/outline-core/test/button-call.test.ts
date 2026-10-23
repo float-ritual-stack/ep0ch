@@ -55,3 +55,12 @@ test("one-line buttons and blank-separated prose never become a button body", ()
     expect(buttonCallAt([`::button{${attrs}}`, "Following prose", "::"], 0)?.endLine).toBe(0);
   }
 });
+
+test("slots repeat into lists, and a slot named like an Object method (constructor=, toString=) is a key like page=", () => {
+  expect(buttonCallAt(["::button{of=neat page=[[a]] page=[[b]]}"], 0)?.props).toEqual({ page: ["[[a]]", "[[b]]"] });
+  const odd = buttonCallAt(["::button{of=probe constructor=x toString=y __proto__=z}"], 0);
+  expect(odd?.problem).toBeUndefined();
+  expect(odd?.props?.["constructor"] as unknown).toEqual(["x"]);
+  expect(odd?.props?.["toString"] as unknown).toEqual(["y"]);
+  expect(({} as Record<string, unknown>).z).toBeUndefined();
+});
