@@ -866,6 +866,46 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
   }, 30_000);
 
   for (const place of ["screen", "group", "drawer group"]) {
+    for (const locked of [false, true]) for (const fixed of locked ? [false, true] : [false]) test(`book repair: ${locked ? `locked sibling keeps its width${fixed ? " beside a fixed container" : ""}` : "stacked children leave an eligible spine"} in the ${place}`, async () => {
+      const d = new Desk({ name: "stacked-book", title: "Stacked book", layout: { root: { t: "split", dir: "row", key: "spread", policy: { "min-width": locked ? 0 : 80 }, kids: [
+        { t: "split", dir: "col", key: "stack", kids: [
+          { t: "leaf", kind: "reader", name: "birch" }, { t: "leaf", kind: "reader", name: "cedar" },
+        ], weights: [1, 1] },
+        { t: "leaf", kind: "reader", name: "fir" }, { t: "leaf", kind: "reader", name: "elm" },
+        ...(fixed ? [{ t: "split" as const, dir: "col" as const, policy: { fixed: 40 }, kids: [{ t: "leaf" as const, kind: "reader", name: "sprig" }], weights: [1] }] : []),
+      ], weights: fixed ? [2, 1, 1, 1] : [2, 1, 1] } } });
+      app.push(d);
+      const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+      const ids = Object.fromEntries(d.layoutAll().tiles.map(t => [t.name, t.tile!]));
+      let group: string | undefined;
+      try {
+        if (place !== "screen") {
+          group = (await act("tile.group", ids.fir, { node: "spread", name: "woodland" }) as { tile: string }).tile;
+          if (place === "drawer group") { await act("tile.open", group, { kind: "reader", name: "landing" }); await act("tile.drawer", group); app.drawer.enter(); }
+        }
+        const owner = d.resolveTile(ids.fir!)!.desk;
+        const tiles = () => { app.flush(); return owner.layoutGet().tiles; };
+        d.render(app); app.drawer.render(200, 60, "Probe");
+        if (locked) await act("layout.policy", ids.birch, { locked: true });
+        await act("tile.collapse", ids.elm, { on: true });
+        const before = tiles().find(t => t.tile === ids.birch)!.rect!.cols;
+        await act("tile.focus", ids.fir);
+        await act("tile.expand", ids.elm);
+        const after = tiles();
+        expect(after.find(t => t.tile === ids.elm)!.collapsed).toBeFalsy();
+        if (locked) expect(after.find(t => t.tile === ids.birch)!.rect!.cols).toBe(before);
+        else {
+          expect(after.find(t => t.tile === ids.fir)!.collapsed).toBe(true);
+          expect(after.filter(t => !t.collapsed).every(t => t.rect!.cols >= 80)).toBe(true);
+        }
+      } finally {
+        if (group && app.drawer.made?.resolveTile(group)) await act("tile.close", group);
+        app.pop(); d.dispose();
+      }
+    }, 30_000);
+  }
+
+  for (const place of ["screen", "group", "drawer group"]) {
     for (const row of ["manual fold", "pushed left", "pushed right", "gather left", "gather right", "gather sides", "fair share", "outer page", "minimum boundary", "non-resizable", "oldest folds"]) test(`book spines: ${row} in the ${place}`, async () => {
       const names = ["birch", "cedar", "elm", "fir", "oak"];
       const d = new Desk({ name: "book", title: "Book", layout: { root: { t: "split", dir: "row", key: "spread",

@@ -1106,3 +1106,33 @@ export function describeTree<I>(n: LNode<I>, name: (id: I) => string, opts: Plac
   if (n.t === "columns") return { columns: n.source ?? null, ...(n.key ? { key: n.key } : {}), ...idOf(n), path, share: round(sh), kids };
   return { split: n.dir, ...(n.key ? { key: n.key } : {}), ...idOf(n), path, share: round(sh), kids };
 }
+
+/** The one owner of spine sides for placement, unfolding and flow squeezing; manual folds stay put. */
+export function spineEdge<I>(row: Line<I>, collapsed: ReadonlyMap<I, unknown>, id: I, policy: Effective["spines"], before = false, mode: "keep" | "unfold" = "keep"): { target: I; dir: "left" | "right" } | null {
+  if (policy === "invoker") return null;
+  const i = row.kids.findIndex(k => leaves(k).includes(id));
+  const open = row.kids.flatMap((k, n) => leaves(k).some(t => !collapsed.has(t)) ? [n] : []);
+  const others = open.filter(n => n !== i);
+  const spread = mode === "unfold" ? others : open;
+  const remembered = row.t === "flow" ? row.sides?.find(s => leaves(row.kids[i]!).includes(s.tile)) : undefined;
+  const left = policy === "start" || policy === "book" && (remembered ? remembered.side === "left" : spread.length ? i <= (spread[0]! + spread.at(-1)!) / 2 : before);
+  if (mode === "unfold" && policy === "book" && others.length && i > others[0]! && i < others.at(-1)!) return null;
+  const edge = left ? others[0] : others.at(-1);
+  // Keeping a page beside its replacement uses that tile when it is already the spread's edge.
+  if (mode === "unfold" && edge === undefined) return null;
+  const n = mode === "unfold" ? edge! : edge === undefined || (left ? i < edge : i > edge) ? i : edge;
+  return { target: leaves(row.kids[n]!)[0]!, dir: left ? "left" : "right" };
+}
+
+/** Draw squeezed columns in the same stacks that a held-page placement uses. */
+export function spineOrder<I>(flow: Flow<I>, shown: number[], spines: ReadonlySet<number>, policy: Effective["spines"]): number[] {
+  const collapsed = new Map(flow.kids.flatMap((k, i) => !shown.includes(i) || spines.has(i) ? leaves(k).map(t => [t, true] as const) : []));
+  const edges = new Map(shown.filter(i => spines.has(i)).map(i => [i, spineEdge(flow, collapsed, leaves(flow.kids[i]!)[0]!, policy)]));
+  if ([...edges.values()].every(edge => edge === null)) return shown;
+  const position = (i: number) => flow.sides?.findIndex(s => leaves(flow.kids[i]!).includes(s.tile)) ?? -1;
+  const stacks = shown.filter(i => spines.has(i)).sort((a, b) => {
+    const x = position(a), y = position(b);
+    return x >= 0 && y >= 0 ? x - y : a - b;
+  });
+  return [...stacks.filter(i => edges.get(i)?.dir === "left"), ...shown.filter(i => !spines.has(i)), ...stacks.filter(i => edges.get(i)?.dir === "right")];
+}

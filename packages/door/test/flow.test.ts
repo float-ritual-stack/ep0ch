@@ -54,6 +54,32 @@ describe("the squeeze: full → peek → spine around the wide column", () => {
     expect(widths).toEqual([3, 32, 33, 76, 76]);
   });
 
+  test("book flow and held-page placement agree on remembered spine sides", () => {
+    AREA = wide(200); holding = new Set();
+    const f = flowOf(Array.from({ length: 7 }, (_, i) => leaf(i + 1)), { anchor: 4, policy: { "min-width": 70, spines: "book" } });
+    f.sides = Array.from({ length: 7 }, (_, i) => ({ tile: i + 1, side: "right" as const }));
+    const s = init({ tree: f, names: new Map(Array.from({ length: 7 }, (_, i) => [i + 1, `c${i + 1}`])) });
+    const p = place(s, AREA);
+    const spine = 1;
+    expect(p.covers!.get(spine)).toBe("spine");
+    const context = ctxOf(PERSON, {});
+    context.tile = id => ({ ...facts(id), held: true, showing: "old-page" });
+    const kept = placement(s, { from: spine, to: spine, note: "new-page" }, context).keep!;
+    expect(kept.at).toMatchObject({ kind: "split", dir: "right" });
+    expect(p.rects.get(spine)!.col).toBeGreaterThan(p.rects.get(4)!.col);
+  });
+
+  test("book flow and held-page placement agree before any sides are remembered", () => {
+    AREA = wide(100); holding = new Set();
+    const f = flowOf(Array.from({ length: 5 }, (_, i) => leaf(i + 1)), { anchor: 1, policy: { "min-width": 70, spines: "book" } });
+    const s = init({ tree: f, names: new Map(Array.from({ length: 5 }, (_, i) => [i + 1, `c${i + 1}`])) });
+    const p = place(s, AREA), context = ctxOf(PERSON, {});
+    context.tile = id => ({ ...facts(id), held: true, showing: "old-page" });
+    expect(p.covers!.get(3)).toBe("spine");
+    expect(p.rects.get(3)!.col).toBeGreaterThan(p.rects.get(1)!.col);
+    expect(placement(s, { from: 3, to: 3, note: "new-page" }, context).keep!.at).toMatchObject({ kind: "split", dir: "right" });
+  });
+
   test("a zero minimum keeps every page open even in a narrow flow", () => {
     AREA = wide(12);
     const s = ok(river(7), { op: "policy", node: "screen", set: { "min-width": 0 }, clear: [] }).state;

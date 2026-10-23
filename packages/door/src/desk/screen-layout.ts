@@ -25,7 +25,7 @@ import { byOf, type Actor } from "../socket";
 import { arrive, columnOf, leaving, setAhead, setHeld, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
 import {
   activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
-  node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, replaceNode, resize, serialize as serializeTree, shown, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
+  node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, replaceNode, resize, serialize as serializeTree, shown, spineEdge, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
   MIN_COLS, POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
 import { SPINE } from "../spine";
@@ -593,28 +593,17 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held || request.keep) && facts.showing && facts.showing !== note && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
         const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
         const row = parentOf(s.tree, target)?.parent;
-        const edge = row?.dir === "row" ? spineEdge(row, s.collapsed, target, space.spines, before) : null;
+        const flowCovers = row?.t === "flow" ? coversOf(s, row, ctx.area, id => !!ctx.tile(id).holds) : undefined;
+        const folded = row?.t === "flow" ? new Map(row.kids.flatMap((k, i) => {
+          const cover = flowCovers!.get(i);
+          return cover === undefined || cover === "spine" ? leaves(k).map(t => [t, true] as const) : [];
+        })) : s.collapsed;
+        const edge = row?.dir === "row" ? spineEdge(row, folded, target, space.spines, before) : null;
         result.keep = { tile: target, at: { kind: "split", target: edge?.target ?? target, dir: edge?.dir ?? (before ? "left" : "right") } };
       }
     }
   }
   return result;
-}
-
-/** Stack front for an automatic fold or an opened spine; manual folding never calls this. */
-function spineEdge<I>(row: Line<I>, collapsed: ReadonlyMap<I, Fold>, id: I, policy: Effective["spines"], before = false, mode: "keep" | "unfold" = "keep"): { target: I; dir: "left" | "right" } | null {
-  if (policy === "invoker") return null;
-  const i = row.kids.findIndex(k => leaves(k).includes(id));
-  const open = row.kids.flatMap((k, n) => leaves(k).some(t => !collapsed.has(t)) ? [n] : []);
-  const others = open.filter(n => n !== i);
-  const spread = mode === "unfold" ? others : open;
-  const left = policy === "start" || policy === "book" && (spread.length ? i <= (spread[0]! + spread.at(-1)!) / 2 : before);
-  if (mode === "unfold" && policy === "book" && others.length && i > others[0]! && i < others.at(-1)!) return null;
-  const edge = left ? others[0] : others.at(-1);
-  // Keeping a page beside its replacement uses that tile when it is already the spread's edge.
-  if (mode === "unfold" && edge === undefined) return null;
-  const n = mode === "unfold" ? edge! : edge === undefined || (left ? i < edge : i > edge) ? i : edge;
-  return { target: leaves(row.kids[n]!)[0]!, dir: left ? "left" : "right" };
 }
 
 /** The flow tile `id` is a column of (the nearest one over it), and its column there. */
@@ -1583,12 +1572,12 @@ class Step<I> {
   private openSpine(id: I, prior?: ReadonlyMap<I, Rect>) {
     const typing = this.ctx.protectTyping ? this.ctx.person.typingIn : null;
     const before = typing === null ? undefined : (prior ?? rects({ ...this.d, zoom: null }, this.ctx.area)).get(typing);
-    this.keepsSize(() => this.unfoldRow(id));
+    this.keepsSize(() => this.unfoldRow(id, prior));
     const after = typing === null ? undefined : rects({ ...this.d, zoom: null }, this.ctx.area).get(typing);
     if (before && (before.cols !== after?.cols || before.rows !== after?.rows)) refuse(`${this.name(typing!)} is where the person is typing; an agent doesn't resize it`);
   }
 
-  private unfoldRow(id: I) {
+  private unfoldRow(id: I, prior?: ReadonlyMap<I, Rect>) {
     const row = parentOf(this.d.tree, id)?.parent;
     if (!row || row.dir !== "row" || row.t === "flow") return;
     this.shape(id, "opening a spine");
@@ -1604,11 +1593,20 @@ class Step<I> {
     const boxes = rects({ ...this.d, zoom: null }, this.ctx.area);
     const rs = leaves(row).flatMap(t => boxes.has(t) ? [boxes.get(t)!] : []);
     const width = rs.length ? Math.max(...rs.map(r => r.col + r.cols)) - Math.min(...rs.map(r => r.col)) : 0;
+    const keptSizes = new Map(row.kids.flatMap(k => {
+      const fixed = k.t !== "leaf" && k.policy?.fixed !== undefined;
+      if (this.folded(k) || !fixed && (this.yolo || !leaves(k).some(t => this.policyAt(t).locked))) return [];
+      const rs = leaves(k).flatMap(t => (prior ?? boxes).has(t) ? [(prior ?? boxes).get(t)!] : []);
+      return [[k, Math.max(...rs.map(r => r.col + r.cols)) - Math.min(...rs.map(r => r.col))] as const];
+    }));
+    const reserved = [...keptSizes.values()].reduce((sum, cols) => sum + cols, 0);
     const opened = () => row.kids.filter(k => !this.folded(k));
-    const fits = () => (width - (row.kids.length - opened().length) * SPINE) / opened().length >= e["min-width"];
+    const room = () => width - (row.kids.length - opened().length) * SPINE - reserved;
+    const sharing = () => opened().filter(k => !keptSizes.has(k));
+    const fits = () => room() / sharing().length >= e["min-width"];
     const age = (k: LNode<I>) => Math.max(...leaves(k).map(t => this.d.touched.indexOf(t)));
     while (e["min-width"] > 0 && opened().length > 1 && !fits()) {
-      const oldest = opened().filter(k => k !== kid && leaves(k).every(t => {
+      const oldest = opened().filter(k => k !== kid && (k.t === "leaf" || k.t === "tabs") && leaves(k).every(t => {
         const f = this.facts(t);
         const p = this.policyAt(t);
         return !f.holds && !f.editing && !p.locked && p.draggable && p.collapsible && (!this.agent || t !== this.d.focus && agentLevel(this.d, t, f).level === "free");
@@ -1623,7 +1621,8 @@ class Step<I> {
         rest.splice(at, 0, oldest); this.reorder(row, rest);
       }
     }
-    row.weights = row.kids.map(() => 1);
+    const share = room() / sharing().length;
+    row.weights = row.kids.map(k => keptSizes.get(k) ?? (this.folded(k) ? 1 : share));
     this.touch(id);
   }
 

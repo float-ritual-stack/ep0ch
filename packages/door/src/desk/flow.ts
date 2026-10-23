@@ -13,7 +13,7 @@
 // never reused), so the bookkeeping survives every tree change that keeps the tile.
 import type { Rect } from "../canvas";
 import { SPINE } from "../spine";
-import { effective, leaves, type Flow, type LNode, type Placed, type PlaceOpts } from "./layout";
+import { effective, leaves, spineOrder, type Flow, type LNode, type Placed, type PlaceOpts } from "./layout";
 
 export type Cover = "full" | "peek" | "spine";
 /** A peek's width before the leftover room is shared out. */
@@ -72,17 +72,7 @@ export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean
     const room = full.reduce((sum, i) => sum + w.get(i)!, 0);
     full.forEach((i, n) => w.set(i, Math.floor(room / full.length) + (n < room % full.length ? 1 : 0)));
   }
-  const open = shown.filter(i => cover.get(i) !== "spine");
-  const position = (i: number) => f.sides?.findIndex(s => leaves(f.kids[i]!).includes(s.tile)) ?? -1;
-  const spines = shown.filter(i => cover.get(i) === "spine").sort((a, b) => {
-    const x = position(a), y = position(b);
-    return x >= 0 && y >= 0 ? x - y : a - b;
-  });
-  const middle = open.length ? (open[0]! + open.at(-1)!) / 2 : anchor;
-  const left = (i: number) => { const side = f.sides?.find(s => leaves(f.kids[i]!).includes(s.tile)); return side ? side.side === "left" : i < middle; };
-  const order = policy.spines === "invoker" ? shown : policy.spines === "start" ? [...spines, ...open]
-    : policy.spines === "end" ? [...open, ...spines]
-    : [...spines.filter(left), ...open, ...spines.filter(i => !left(i))];
+  const order = spineOrder(f, shown, new Set(shown.filter(i => cover.get(i) === "spine")), policy.spines);
   return order.map(i => ({ i, cover: cover.get(i)!, width: w.get(i)!, natural: cover.get(i) === "peek" ? Math.max(w.get(i)!, FULL) : w.get(i)! }));
 }
 
