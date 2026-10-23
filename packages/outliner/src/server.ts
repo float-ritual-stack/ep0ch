@@ -4107,7 +4107,7 @@ export class OutlinerServer {
         const name = this.outline?.name ?? basename(this.store.database.filename, ".sqlite");
         const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(name)}`
           : publicAddress.publicUrl ? publicAddress.tailnetUrl ?? publicAddress.url ?? new URL(publicAddress.publicUrl).origin
-          : this.snapshotAddress?.();
+          : this.snapshotAddress?.() ?? address.tailnetUrl ?? address.url;
         const result = await this.snapshots.create(request, origin);
         this.sharesChanged();
         return result;

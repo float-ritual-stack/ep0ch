@@ -402,6 +402,8 @@ test("an outline without a publisher downloads through another outline's public 
   let web: OutlinePublishers | undefined;
   const http = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => web!.handle(request, "public") });
   const origin = `http://127.0.0.1:${http.port}`;
+  const tailnet = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => web!.handle(request) });
+  const tailnetOrigin = `http://127.0.0.1:${tailnet.port}`;
   try {
     await host.start();
     await host.create("garden");
@@ -414,13 +416,22 @@ test("an outline without a publisher downloads through another outline's public 
     const b = new OutlinerClient(host.socketPath, 15_000, "orchard");
     const create = () => b.request<OutlineSnapshot>({ action: "outline.snapshot" });
     await expect(create()).rejects.toThrow("ep0ch outline snapshot orchard --out orchard.snapshot.sqlite");
+    home = new Publisher({ client: a, basePath: "/pub", url: `${tailnetOrigin}/pub` });
+    await home.start();
+    web = new OutlinePublishers({ home, homeName: "garden", names: async () => ["garden", "orchard"], open: () => { throw new Error("only garden has a tailnet publisher"); } });
+    const tailnetSnapshot = await a.request<OutlineSnapshot>({ action: "outline.snapshot" });
+    expect(tailnetSnapshot.url).toStartWith(`${tailnetOrigin}/pub/s/`);
+    const tailnetResponse = await fetch(tailnetSnapshot.url!);
+    expect(tailnetResponse.status).toBe(200);
+    await tailnetResponse.arrayBuffer();
+    await home.stop();
     home = new Publisher({ client: a, publicUrl: `${origin}/share` });
     await home.start();
     web = new OutlinePublishers({ home, homeName: "garden", names: async () => ["garden", "orchard"],
       open: (name, basePath) => new Publisher({ client: new OutlinerClient(host.socketPath, 15_000, name), basePath, url: `${origin}${basePath}` }),
     });
     const snapshot = await create();
-    expect(snapshot.url).toStartWith(`${origin}/o/orchard/s/`);
+    expect(snapshot.url).toStartWith(`${origin}/share/o/orchard/s/`);
     expect((await fetch(snapshot.url!, { method: "HEAD" })).status).toBe(200);
     expect((await fetch(snapshot.url!.replace("/o/orchard/", "/o/garden/"))).status).toBe(404);
     expect((await fetch(snapshot.url!.replace("snapshot.sqlite", "p/" + note.id))).status).toBe(404);
@@ -451,12 +462,14 @@ test("an outline without a publisher downloads through another outline's public 
     await ownResponse.arrayBuffer();
     // Opening the download route has now connected orchard's thin publisher too.
     const again = await create();
-    expect((await fetch(`${origin}/share${new URL(again.url!).pathname}`, { method: "HEAD" })).status).toBe(200);
+    expect((await fetch(again.url!.replace("/share/o/", "/o/"), { method: "HEAD" })).status).toBe(200);
     await b.request({ action: "shares.revoke", shareId: again.shareId! });
+    await web.stop();
     await home.stop();
     await expect(create()).rejects.toThrow("ep0ch outline snapshot orchard --out orchard.snapshot.sqlite");
   } finally {
     http.stop(true);
+    tailnet.stop(true);
     await web?.stop();
     await home?.stop();
     await host.close();

@@ -82,7 +82,8 @@ The host prints its ready line (socket, outlines folder) after startup, logs eac
 `OutlineSnapshots` owns the SQLite copy and uses `ShareSessions` for its one-download
 TTL and revocation. When an outline has no public publisher, `OutlineHost` chooses
 another connected public publisher on this host. Its public listener routes
-`/o/<outline>/s/<token>/snapshot.sqlite` through `OutlinePublishers.snapshot`, the
+`/o/<outline>/s/<token>/snapshot.sqlite` below its public mount through
+`OutlinePublishers.snapshot`, the
 same token-only download handler used by the signed-in web listener. It opens no
 note pages on the public listener. With no public publisher, the refusal names
 `ep0ch outline snapshot <name> --out <name>.snapshot.sqlite` with the outline filled in.

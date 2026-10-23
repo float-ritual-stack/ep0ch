@@ -695,7 +695,7 @@ export class OutlineHost {
       server.setSnapshotAddress(() => {
         for (const outline of this.opened.values()) {
           const url = outline.server.publisherAddress(true).publicUrl;
-          if (url) return `${new URL(url).origin}/o/${encodeURIComponent(name)}`;
+          if (url) return `${url.replace(/\/+$/, "")}/o/${encodeURIComponent(name)}`;
         }
         return undefined;
       });
