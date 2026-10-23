@@ -350,7 +350,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       : values.url ?? process.env.OUTLINER_PUBLISH_URL;
     const publishUrl = rawPublishUrl ? publisherUrl(rawPublishUrl, signinUrl ? (values["signin-url"] ? "--signin-url" : "EP0CH_WEB_URL") : values.url ? "--url" : "OUTLINER_PUBLISH_URL") : undefined;
     const publicBind = checkPublicBind(values["public-bind"] ?? process.env.OUTLINER_PUBLIC_BIND ?? "127.0.0.1");
-    const { Publisher, servePublisher, renderIndexText, publisherRequest } = await import("./publish");
+    const { Publisher, renderIndexText, publisherRequest } = await import("./publish");
     // The door in the browser (publish-door.ts): `--door <ptyZZZ checkout>` (or EP0CH_WEB_DOOR) serves it on the tailnet
     // listener and the signed-in one, each page a terminal attached to this outline's door session: the outline this
     // publisher serves at its base path (--ws, else the one the host answered for), never a guess from the folder.
@@ -431,8 +431,8 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       }),
     });
     const server = Bun.serve({ hostname: "127.0.0.1", port, idleTimeout: 30, fetch: (request, server) => web.handle(publisherRequest(request, server.requestIP(request)?.address)) });
-    // One publisher, one index; the public listener is the same publisher seen by the public audience.
-    const publicServer = publicPort === undefined ? undefined : servePublisher(publisher, publicPort, "public", publicBind);
+    // The public audience keeps the home index; only snapshot tokens can reach another outline.
+    const publicServer = publicPort === undefined ? undefined : Bun.serve({ hostname: publicBind, port: publicPort, idleTimeout: 30, fetch: (request, server) => web.handle(publisherRequest(request, server.requestIP(request)?.address), "public") });
     // The signed-in web client (web-signin.ts): the same web client, behind a sign-in, for a public origin's proxy.
     let signinServer: ReturnType<typeof Bun.serve> | undefined;
     if (signinPort !== undefined) {

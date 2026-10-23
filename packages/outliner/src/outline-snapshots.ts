@@ -21,7 +21,8 @@ export class OutlineSnapshots {
 
   async create(input: { ttl?: string | number; out?: string; mutation?: MutationProvenance }, origin?: string): Promise<OutlineSnapshot> {
     const ttlMs = shareTtlMs(input.ttl ?? "15m");
-    if (!input.out && !origin) throw new Error("No snapshot download address: start the publisher with --url or --public-url, or use ep0ch outline snapshot <name> --out <file> on this machine");
+    const outline = basename(this.store.database.filename, ".sqlite");
+    if (!input.out && !origin) throw new Error(`No snapshot download address: no publisher on this host has a public listener; use ep0ch outline snapshot ${outline} --out ${outline}.snapshot.sqlite on this machine`);
     mkdirSync(this.folder, { recursive: true, mode: 0o700 });
     const temporary = this.path(crypto.randomUUID());
     const destination = input.out ?? temporary;
@@ -30,7 +31,6 @@ export class OutlineSnapshots {
     if (code !== 0) throw new Error(`Snapshot copy failed: ${stderr.trim()}`);
     const metadata = JSON.parse(stdout) as Pick<OutlineSnapshot, "bytes" | "sha256" | "schema" | "asOf">;
     const by = input.mutation?.author === "agent" ? input.mutation.actorId ?? "agent" : "you";
-    const outline = basename(this.store.database.filename, ".sqlite");
     const record = this.store.create(`Snapshot of ${outline} [type::snapshot] [machine::snapshot] [publish::never]\n\nWho: ${by}\nOutline: ${outline}\nAs of: ${metadata.asOf}\nBytes: ${metadata.bytes}\nSHA-256: ${metadata.sha256}\nSchema: ${metadata.schema}\nState: ${input.out ? "saved to file" : "waiting"}`, null, "system");
     if (input.out) return { ...metadata, path: destination };
     try {

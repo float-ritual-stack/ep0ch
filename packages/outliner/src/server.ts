@@ -4065,10 +4065,16 @@ export class OutlinerServer {
   }
 
   /** Where the publisher serving this outline is opened, as it said when it connected; nothing when none is. */
-  private publisherAddress(): PublisherAddress {
+  publisherAddress(publicOnly = false): PublisherAddress {
     this.pruneDestroyedSubscribers();
-    for (const client of this.subscribers.values()) if (client.publish) return client.publish;
+    for (const client of this.subscribers.values()) if (client.publish && (!publicOnly || client.publish.publicUrl)) return client.publish;
     return {};
+  }
+
+  private snapshotAddress?: () => string | undefined;
+
+  setSnapshotAddress(address: () => string | undefined): void {
+    this.snapshotAddress = address;
   }
 
   /**
@@ -4097,7 +4103,11 @@ export class OutlinerServer {
       case "outline.snapshot": {
         const address = this.publisherAddress();
         const root = address.url ? new URL(address.url).pathname.replace(/\/o\/[^/]+\/?$/, "").replace(/\/+$/, "") : "/pub";
-        const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(this.outline?.name ?? basename(this.store.database.filename, ".sqlite"))}` : address.tailnetUrl ?? address.url ?? (address.publicUrl ? new URL(address.publicUrl).origin : undefined);
+        const publicAddress = this.publisherAddress(true);
+        const name = this.outline?.name ?? basename(this.store.database.filename, ".sqlite");
+        const origin = request.webUrl ? `${new URL(request.webUrl).origin}${root}/o/${encodeURIComponent(name)}`
+          : publicAddress.publicUrl ? publicAddress.tailnetUrl ?? publicAddress.url ?? new URL(publicAddress.publicUrl).origin
+          : this.snapshotAddress?.() ?? address.tailnetUrl ?? address.url;
         const result = await this.snapshots.create(request, origin);
         this.sharesChanged();
         return result;
