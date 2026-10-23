@@ -881,6 +881,15 @@ their existing host-level meanings.
 
 The editor's `::` popup shows each component once under its schema's group, with the library demo. Enter inserts; Right or `>` opens variations and arguments; Left returns. Inside `{}` and component YAML, schema types select property, query-value, reference, action and enum pickers. The preview reads the schema: its purpose, copyable source, drawing, then props. Property examples and variations use the draft's keys, or the `of=` target's; schema samples apply when there are none. After choosing a row, `y` copies the source; `[copy]` does too; dragging selects and copies the drawing. The `@` preview reads the script note and fence (choose a row then `g`, or click `[g]`, to open its definition beside the draft), a file script's registered path and code, or the extension folder and handler.
 
+### Facets keys (PIE-1220)
+
+In a facets or tags tile, `+` requires the selected key or value, `-` excludes it,
+and `0` or Backspace drops the pick (`facets.set`). On a key, Enter or a click on
+its name still folds its values; its `[+]` / `[-]` buttons pick the whole key.
+`[` gives matches less room and `]` gives them more (`facets.resize`), as the
+Matches divider's less/more buttons and drag do. These two keys were unbound in
+this tile; other tiles keep their own bindings. The count stays above both lists.
+
 ### Hint controls (PIE-1096)
 
 Alt+Shift+N (`alt+N`) sets the visible card's stable hint id to status (`hint.never`),
