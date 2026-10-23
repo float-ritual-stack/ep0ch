@@ -9039,11 +9039,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "form.focus": def({
     summary: "fill a field in the note's form", touches: "tile", replay: "safe", person: "the person's form focus",
     args: { field: { type: "string", about: "field name, or run" } },
+    examples: [{ act: "form.focus field=book", does: "starts filling the book field in this note" }],
     run({ field }, { surface, host }) { surface.focusForm(field, host); },
   }),
   "form.move": def({
     summary: "move between the form's fields", keys: modeActionKeys([FORM_KEYS], "form.move"), touches: "tile", replay: "safe", person: "the person's form focus",
     args: { by: { type: "number", about: "1 next, -1 previous" } },
+    examples: [{ act: "form.move by=1", does: "moves to the next form field, keeping the answers" }],
     run({ by }, { surface, host }) { const f = surface.form!; const at = (f.focus + by + f.fields.length + 1) % (f.fields.length + 1); surface.focusForm(f.fields[at]?.name ?? "run", host); },
   }),
   "form.leave": def({
@@ -9053,16 +9055,19 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "form.place": def({
     summary: "place or extend the shared editor's cursor in a form field", keys: "click, drag", touches: "tile", replay: "safe", person: "the person's form cursor",
     args: { field: { type: "string", about: "field name" }, col: { type: "number", about: "zero-based column" }, extend: { type: "boolean", optional: true, about: "extend selection" } },
+    examples: [{ act: "form.place field=book col=0", does: "places the cursor at the start of the book answer" }],
     run({ field, col, extend }, { surface, host }) { surface.focusForm(field, host); const d = surface.form!.draft(field); d.place(0, d.posAt(col, 0).col, extend); host.redraw(); },
   }),
   "form.input": def({
     summary: "type in the form with the shared editor", touches: "tile", replay: "ask", person: "the person's form editor",
     args: { key: { type: "string", about: "editor key as JSON" } },
+    examples: [{ act: `form.input key='{"kind":"paste","text":"Piranesi"}'`, does: "pastes a book title into the focused field with the shared editor" }],
     run({ key }, { surface, host }) { surface.form!.input(JSON.parse(key) as Key, text => host.ctx.copy?.(text)); host.redraw(); },
   }),
   "form.set": def({
     summary: "answer one field of this note's form; agents keep their own answers", keys: "click, left/right on a choice", touches: "nothing", replay: "safe",
     args: { field: { type: "string", about: "field name" }, value: { type: "string", about: "answer" } },
+    examples: [{ act: "form.set field=book value=Piranesi", does: "answers the book field for the actor submitting the form" }],
     run({ field, value }, { surface, host }, actor) { const f = surface.form; if (!f) throw new ActionRefused("this note has no form-field properties"); f.set(field, value, actor); if (actor.kind === "user") surface.focusForm(field, host); host.redraw(); return { answers: f.values(actor) }; },
   }),
   "form.submit": def({
