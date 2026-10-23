@@ -87,6 +87,7 @@ export class FacetsPane implements Pane {
   share = 0.4;
   private divider = -1;
   private bodyRoom = 0;
+  private noteRoom = 0;
   private dragging = false;
   private lineRows: number[] = [];
   private width = 0;
@@ -240,6 +241,7 @@ export class FacetsPane implements Pane {
     if (a?.hint) push(fg(C.yellow) + " " + a.hint + RESET);
     this.bodyRoom = Math.max(0, h - lines.length - 1);
     const noteRoom = this.bodyRoom > 1 ? clamp(Math.round(this.bodyRoom * this.share), 1, this.bodyRoom - 1) : this.bodyRoom;
+    this.noteRoom = noteRoom;
     const keyRoom = this.bodyRoom - noteRoom;
     const draw = (notes: boolean, room: number, view: RowView) => {
       const body: { text: string; row: number }[] = [];
@@ -332,7 +334,7 @@ export class FacetsPane implements Pane {
     if (this.draft !== null) return true;
     if (k.action === "up") { this.dragging = false; return true; }
     if (this.dragging && k.action === "drag") {
-      this.act(desk, "facets.resize", { share: (this.divider + Math.round(this.bodyRoom * this.share) - y) / Math.max(1, this.bodyRoom) });
+      this.act(desk, "facets.resize", { share: (this.divider + this.noteRoom - y) / Math.max(1, this.bodyRoom) });
       return true;
     }
     if (k.action === "down" && y === this.divider) {
@@ -341,7 +343,11 @@ export class FacetsPane implements Pane {
       else this.dragging = true;
       return true;
     }
-    if (k.action === "wheel-up" || k.action === "wheel-down") { if (this.rows().length) this.act(desk, "facets.pick", { by: wheelRows(k.action === "wheel-up" ? -1 : 1), part: y > this.divider ? "matches" : "keys" }); return true; }
+    if (k.action === "wheel-up" || k.action === "wheel-down") {
+      const part = y > this.divider ? "matches" : "keys";
+      if (this.rows().some(r => (r.kind === "note") === (part === "matches"))) this.act(desk, "facets.pick", { by: wheelRows(k.action === "wheel-up" ? -1 : 1), part });
+      return true;
+    }
     if (k.action !== "down") return true;
     const hit = this.hit(x, y);
     if (hit.sort) { this.act(desk, "facets.sort", { by: hit.sort }); return true; }
@@ -594,6 +600,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
 const SORTS = FACET_SORTS as readonly string[];
 const makeFacets = (kind: "facets" | "tags") => (s: { query?: string; args?: Record<string, unknown> }) => {
   const a = s.args ?? {};
+  if (a.share !== undefined && (typeof a.share !== "number" || !Number.isFinite(a.share) || a.share < 0.15 || a.share > 0.85)) throw new ActionRefused("facets: args.share must be a number from 0.15 to 0.85; edit the screen's tile args to share: 0.4");
   return new FacetsPane(kind, { query: s.query, sort: SORTS.includes(String(a.sort)) ? (a.sort as FacetSort) : undefined, zero: a.zero === true, share: a.share as number | undefined, ...(Array.isArray(a.open) ? { open: a.open.map(String) } : {}) });
 };
 const kindOf = (kind: "facets" | "tags", about: string, key: string): TileKind => ({

@@ -161,11 +161,18 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     const y = divider();
     pane.mouse({ kind: "mouse", action: "down", button: 0, x: 2, y }, 2, y, stage);
     pane.mouse({ kind: "mouse", action: "drag", button: 0, x: 2, y: y + 2 }, 2, y + 2, stage);
+    pane.mouse({ kind: "mouse", action: "drag", button: 0, x: 2, y: y + 2 }, 2, y + 2, stage);
     pane.mouse({ kind: "mouse", action: "up", button: 0, x: 2, y: y + 2 }, 2, y + 2, stage);
-    expect(divider()).toBeGreaterThan(y);
+    expect(divider()).toBe(y + 2);
     pane.key({ kind: "char", ch: "]" }, stage);
     expect(divider()).toBeLessThan(y + 2);
     await act("facets.resize", { share: 0.4 });
+    await act("facets.set", { key: "facet-overflow", mode: "exclude" });
+    expect(drawn().join("\n")).toContain("No matching notes.");
+    const message = (app as any).message;
+    pane.mouse({ kind: "mouse", action: "wheel-down", button: 0, x: 2, y: 13 }, 2, 13, stage);
+    await app.dispatch.press("facets.list", {}, "tags");
+    expect((app as any).message).toBe(message);
     await act("facets.clear");
   }, 20_000);
 
