@@ -46,6 +46,11 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
 - **No MVP to validate the idea.** Every idea here has been prototyped, often many times (about 400 Vercel projects
   alone, from mid-2025): read pie's [[prototypes-before-ep0ch]] (`ep0ch show --ws pie 0be35f1c-2b63-4d40-8b0f-c60c1655a423`)
   for prior art. Design the end state and build it in slices of that architecture; never propose the smallest proof first.
+- **Is it the next `neat`?** When the person asks for a behaviour, first try it as a script or an extension on the parts
+  that exist, written plainly (`neat`, the layout script that became a built-in, is the worked example: gurgle's
+  "neat: the button that wouldn't bend"). If it works, it's done. If a step fails, the failures are the tickets: fix the
+  door or the service, red first, and never bend the script around a bug (a probe bent to pass hides what it found). A
+  script that proves handy, narrow and flexible in daily use becomes a built-in later, not first.
 - **Extend a shared part rather than write a parallel one** (a second *implementation* of a reader, pane model,
   search, editor or presence view; a second place to read notes is fine). If none fits, say in the PR why not.
   A second place that *decides* the same question (who acts, which tile, where an open lands) is a **hydra**: name it
