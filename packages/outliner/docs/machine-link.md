@@ -42,7 +42,7 @@ when the versions differ, so an update can repair that mismatch. The server also
 proves the link key before the connector accepts an install request; client and
 server proofs use separate HMAC domains. Unknown machines, wrong keys, duplicate live connections and invalid
 frames are refused; the server logs the reason without the proof or key. The only tunnel destination is the connector's own outline-host socket. No frame can name a host,
-port or executable. The one control verb is `install <sha>`; it never carries a shell command.
+port or executable. Control messages carry an install SHA or an HTTP(S) URL to open, never a shell command.
 
 Binary WebSocket messages carry an operation byte, a four-byte big-endian stream
 id, and optional data. OPEN, DATA, CLOSE and ACK multiplex Unix connections.
@@ -119,3 +119,23 @@ inside one outline. `test/link.test.ts` covers the setting, receipts and reconne
 The wire changes require a PROTOCOL bump at the final merge rebase. Install this
 implementation once on both ends to bootstrap install control; a connector from
 before this verb was implemented cannot install itself over the link.
+
+## Opening on the laptop
+
+A remote or headless door sends its web URL through the link server's private
+`.host/link-open.sock` (0600), then over the authenticated link as `open` with a
+request id. The Mac connector accepts only HTTP(S), runs `open <url>` and answers
+with the id and any error. The server answers the door after that receipt.
+
+The attaching terminal captures the source address from `SSH_CONNECTION` (or
+`SSH_CLIENT`). The connector reports its non-loopback interface addresses when
+it authenticates. Only a single compatible link whose addresses include that
+terminal's source receives the open. Unmatched or unknown sources, including
+addresses hidden by NAT or a jump host, use the terminal path. Multiple matching
+links also use the terminal instead of choosing a destination by connection order. A
+missing link, disconnect or unanswered request leaves the URL copied by OSC 52
+to the pressing terminal, with an OSC 8 link in its flash. A local Mac door keeps
+using `open` directly; agent follows only return the address.
+
+The kitchen sink's artifacts section demonstrates this path; its remote-session
+test captures terminal bytes and uses a scratch link with a recording opener.

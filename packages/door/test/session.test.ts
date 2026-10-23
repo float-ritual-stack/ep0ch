@@ -189,7 +189,7 @@ function fakeLink(cols: number, rows: number) {
   };
   return { link, mirror, sent, get closed() { return closed; }, setBacklog(n: number) { backlog = n; if (!n) drain(); }, text: () => mirror.text() };
 }
-const hello = (cols: number, rows: number, more: Partial<Hello> = {}): Hello => ({ proto: PROTOCOL, cols, rows, cellW: 9, cellH: 16, kitty: false, pid: 4242, ...more });
+const hello = (cols: number, rows: number, more: Partial<Hello> = {}): Hello => ({ proto: PROTOCOL, remote: false, cols, rows, cellW: 9, cellH: 16, kitty: false, pid: 4242, ...more });
 
 describe("two clients on one session", () => {
   function session() {
@@ -931,7 +931,7 @@ class HandoffClient {
   static async attach(path: string, cols: number, rows: number): Promise<HandoffClient> {
     const sock = await new Promise<Socket>((res, rej) => { const s = connect(path, () => res(s)); s.once("error", rej); });
     const c = new HandoffClient(sock, cols, rows);
-    const hello: Hello = { proto: PROTOCOL, cols, rows, cellW: 9, cellH: 16, kitty: false, pid: 4242 };
+    const hello: Hello = { proto: PROTOCOL, remote: false, cols, rows, cellW: 9, cellH: 16, kitty: false, pid: 4242 };
     c.send({ t: "hello", hello });
     return c;
   }

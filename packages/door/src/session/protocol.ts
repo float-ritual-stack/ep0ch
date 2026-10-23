@@ -5,8 +5,8 @@
 // one byte of type, four of length (big-endian), then the payload, UTF-8: raw text for `input` and `output`, JSON
 // for the rest.
 
-/** Bumped when a message changes shape: a client and a daemon of different protocols say so instead of guessing. 5: every upgrade hands over, including an open draft. 4: install requests an idle-only handover. 3: clients can name their host pane (`clientHost`). 2: sessions are per outline (SessionInfo.place and .dir; Hello.target gone). */
-export const PROTOCOL = 5;
+/** Bumped when a message changes shape: a client and a daemon of different protocols say so instead of guessing. 7: clients report their SSH source address. 6: clients report remote terminals. 5: every upgrade hands over, including an open draft. 4: install requests an idle-only handover. 3: clients can name their host pane (`clientHost`). 2: sessions are per outline (SessionInfo.place and .dir; Hello.target gone). */
+export const PROTOCOL = 7;
 
 /** The largest frame either side takes: well above a screen of Kitty uploads, small enough to bound memory. */
 export const FRAME_LIMIT = 64 << 20;
@@ -14,6 +14,10 @@ export const FRAME_LIMIT = 64 << 20;
 /** What a client says when it attaches: its terminal (from its own probe), what it asked for, who it is. */
 export interface Hello {
   proto: number;
+  /** This terminal reached the machine over SSH. */
+  remote: boolean;
+  /** SSH source address captured by this terminal at attach, for matching a machine link. */
+  remoteAddress?: string;
   cols: number; rows: number; cellW: number; cellH: number;
   /** The terminal answered the Kitty graphics query (or EP0CH_KITTY says so). */
   kitty: boolean;

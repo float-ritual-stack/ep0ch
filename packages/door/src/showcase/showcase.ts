@@ -958,7 +958,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "artifacts", need: "open a live artifact folder or a frozen snapshot without pasting source into notes", part: "the media line and NoteSurface artifact card; artifact.open asks artifacts.show for the same static URL the publisher frames; put and the watcher reuse publish-artifacts.ts", files: "outline-core/src/artifacts.ts, src/artifacts.ts, src/doc.ts, src/surface/note.ts, outliner/src/artifact-store.ts, outliner/src/artifact-server.ts, outliner/src/publish-media.ts",
-    aside: "[ ] to a card, then ⏎, or a click on it or its [open ↗]: it opens running in the browser, on the note's web page · an agent: images lists them (kind artifact), artifact.open n=1 gives the address · + - and ← → size and place it as an image's (its frame on the web page) · no script runs in the terminal",
+    aside: "[ ] to a card, then ⏎, or a click on it or its [open ↗]: it opens running in the browser, on the note's web page · over ssh or on a headless host, your laptop link opens it on your own machine; without a link it is copied and the flash is clickable · an agent: images lists them (kind artifact), artifact.open n=1 gives the address · + - and ← → size and place it as an image's (its frame on the web page) · no script runs in the terminal",
     stage(n, show) {
       const r = new ReaderPane();
       return deskOf({ title: "showcase · artifacts", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.artifacts]]);

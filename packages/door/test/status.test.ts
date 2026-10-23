@@ -1,5 +1,7 @@
 // The status bar: its right part (video, uptime, clock) always shows whole, set apart by a separator.
 import { describe, expect, test, spyOn } from "bun:test";
+import xterm from "@xterm/headless";
+import { rowBytes } from "../src/term";
 import { App, statusLine } from "../src/app";
 import { visible, width } from "../src/style";
 import { setTheme, theme } from "../src/theme";
@@ -133,6 +135,25 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     setTheme(savedTheme);
     size.cols = 220;
     app.flash("");
+  });
+
+  test("a clipped clickable flash leaves the clock outside its hyperlink", async () => {
+    const url = "https://example.test/" + "garden/".repeat(30);
+    for (const cols of [80, 50]) {
+      size.cols = cols;
+      app.flash(`copied ${url} · click to open`, 12000, { href: url });
+      bar();
+      const terminal = new xterm.Terminal({ cols, rows: 1, allowProposedApi: true });
+      try {
+        await new Promise<void>(done => terminal.write(rowBytes(0, painted.at(-1)!, cols), done));
+        const row = terminal.buffer.active.getLine(0)!;
+        const text = row.translateToString();
+        const clock = text.search(/\d\d:\d\d/);
+        expect(clock).toBeGreaterThanOrEqual(0);
+        expect(Array.from({ length: cols }, (_, x) => (row.getCell(x) as any).extended.urlId).some(Boolean)).toBe(true);
+        for (let x = clock; x < clock + 5; x++) expect((row.getCell(x) as any).extended.urlId).toBe(0);
+      } finally { terminal.dispose(); }
+    }
   });
 
   test("without a config note the current bar and every item's declared gestures agree, including conditional chips", async () => {

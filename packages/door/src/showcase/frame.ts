@@ -117,7 +117,7 @@ function frameCtx(f: FramedScreen): Ctx {
     pressNow: () => o().pressNow?.() ?? 0,
     refusal: () => o().refusal?.() ?? null,
     nothingToClose: leave => f.nothingToClose(leave),
-    copy: (text, from) => o().copy?.(text, from) ?? false,
+    copy: (text, from, write) => o().copy?.(text, from, write) ?? false,
     cycleVideo: () => o().cycleVideo(),
     setTheme: name => o().setTheme?.(name),
     suspend: ((run: () => Promise<unknown>, what?: string) => o().suspend(run, what)) as Ctx["suspend"],

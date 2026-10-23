@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type Server as SocketServer } from "node:net";
+import { networkInterfaces } from "node:os";
 import { chmodSync, existsSync, readFileSync, readlinkSync, readdirSync, statSync, writeFileSync, renameSync, watch } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ServerWebSocket } from "bun";
@@ -13,6 +14,21 @@ import { linkDeployPath, linkDeployAt, linkResultPath, readLinkFile, writeLinkFi
 export { publishLinkInstall, linkInstallResult, linkInstallSummary, linkUpdateLabel, reconcileLinkInstall } from "./link-install";
 export type { LinkDeploy, LinkInstallResult } from "./link-install";
 
+export type OpenResult = { opened: true; machine: string } | { opened: false; error?: string };
+const openSocket = (outlines: string) => join(outlines, ".host/link-open.sock");
+
+/** Ask the link process on this host; a missing link leaves delivery to the terminal. */
+export async function openLinked(outlines: string, url: string, remoteAddress: string | undefined): Promise<OpenResult> {
+  try {
+    const response = await fetch("http://localhost/open", { unix: openSocket(outlines), method: "POST", body: JSON.stringify({ url, remoteAddress }) });
+    return await response.json() as OpenResult;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ECONNREFUSED" || code === "FailedToOpenSocket") return { opened: false };
+    return { opened: false, error: `laptop link: ${(error as Error).message}; run ep0ch link status` };
+  }
+}
+
 type LinkState = { machine: string; since?: string; pid: number; up: boolean; reason?: string };
 const savedState = (path: string): LinkState | undefined => {
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return; }
@@ -24,9 +40,11 @@ function saveState(path: string, state: LinkState) {
 
 const proof = (key: string, machine: string, nonce: string, role: "client" | "server" = "client") => createHmac("sha256", key).update(`ep0ch-link-${role}\n${machine}\n${nonce}`).digest();
 const receiptKey = (result: LinkInstallResult) => createHash("sha256").update(JSON.stringify(result)).digest("hex");
-type Peer = { nonce: string; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
+type Peer = { nonce: string; addresses?: string[]; machine?: string; streams?: LinkStreams; listener?: SocketServer; timer?: ReturnType<typeof setTimeout>; last: number; closed?: boolean; reason?: string; authenticated?: boolean; sent?: string };
 export function serveLink(o: { outlines: string; port: number; keys: Record<string, string>; log: (line: string) => void; onResult?: (machine: string, result: LinkInstallResult, deploy: LinkDeploy) => Promise<void> }) {
   let reporting = Promise.resolve();
+  let openId = 0;
+  const opens = new Map<number, { ws: ServerWebSocket<Peer>; finish: (result: OpenResult) => void }>();
   const io = nodeMachineIO(), peers = new Map<string, ServerWebSocket<Peer>>();
   if (new Set(Object.values(o.keys)).size !== Object.keys(o.keys).length) throw new Error("Each link key must name only one machine");
   for (const machine of Object.keys(o.keys)) forwardPaths(o.outlines, machine);
@@ -44,6 +62,7 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
   });
   const cleanup = (ws: ServerWebSocket<Peer>, code?: number, reason?: string) => {
     const p = ws.data;
+    for (const pending of opens.values()) if (pending.ws === ws) pending.finish({ opened: false, error: "laptop link disconnected; run ep0ch link status" });
     p.closed = true; clearTimeout(p.timer); p.streams?.close(); p.listener?.close();
     if (p.machine && peers.get(p.machine) === ws) {
       peers.delete(p.machine);
@@ -76,6 +95,7 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
             const key = Object.hasOwn(o.keys, auth.machine) ? o.keys[auth.machine] : undefined;
             if (!key || !timingSafeEqual(proof(key, auth.machine, p.nonce), Buffer.from(auth.proof, "hex"))) throw new Error("unknown machine or wrong key");
             if (peers.has(auth.machine)) throw new Error("machine already linked");
+            p.addresses = auth.addresses;
             p.machine = auth.machine;
             peers.set(auth.machine, ws);
             const paths = forwardPaths(o.outlines, auth.machine);
@@ -110,6 +130,11 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
           } else if (typeof bytes === "string") {
             if (bytes === "ping") { p.last = Date.now(); ws.send("pong"); return; }
             const message = JSON.parse(bytes), result = message.result;
+            if (Number.isInteger(message.opened)) {
+              const pending = opens.get(message.opened);
+              if (pending?.ws === ws) pending.finish(message.error ? { opened: false, error: String(message.error) } : { opened: true, machine: p.machine! });
+              return;
+            }
             if (!result || typeof result.sha !== "string" || !/^[a-f0-9]{40}$/.test(result.sha) || !Number.isInteger(result.code) || !Array.isArray(result.notDone) || !result.notDone.every((s: unknown) => typeof s === "string") || !Array.isArray(result.sessions)) throw new Error("invalid install result");
             const deploy = readLinkFile<LinkDeploy>(linkDeployAt(o.outlines, result.sha));
             if (!deploy) throw new Error("unexpected install result");
@@ -129,15 +154,38 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
       close: cleanup,
     },
   });
+  const socket = openSocket(o.outlines);
+  io.remove(socket);
+  const opener = Bun.serve({ unix: socket, async fetch(req) {
+    const { url, remoteAddress } = await req.json() as { url: string; remoteAddress?: string };
+    const [ws, ...others] = [...peers.values()].filter(ws => ws.data.authenticated && ws.data.streams && !ws.data.closed && remoteAddress && ws.data.addresses?.includes(remoteAddress));
+    if (!ws) return Response.json({ opened: false });
+    if (others.length) return Response.json({ opened: false, error: "multiple machine links are up; click the copied URL" });
+    const id = ++openId;
+    const result = await new Promise<OpenResult>(resolve => {
+      const timer = setTimeout(() => finish({ opened: false, error: "laptop link did not answer; run ep0ch link status" }), 5000);
+      const finish = (result: OpenResult) => { clearTimeout(timer); opens.delete(id); resolve(result); };
+      opens.set(id, { ws, finish });
+      ws.send(JSON.stringify({ open: url, id }));
+    });
+    return Response.json(result);
+  } });
+  chmodSync(socket, 0o600);
   for (const machine of Object.keys(o.keys)) {
     const path = join(o.outlines, ".remote", `${machine}.link.json`);
     saveState(path, { machine, since: savedState(path)?.since, pid: process.pid, up: false, reason: "waiting for connector" });
   }
   const heartbeat = setInterval(() => { for (const ws of peers.values()) if (Date.now() - ws.data.last > 25_000) { ws.data.reason = "heartbeat timed out"; ws.terminate(); } }, 10_000);
-  return { port: server.port!, async stop() { updates.close(); clearInterval(heartbeat); for (const ws of peers.values()) { ws.data.reason = "link server stopped"; cleanup(ws); ws.terminate(); } await server.stop(true); } };
+  return { port: server.port!, async stop() {
+    // The CLI signal handler can exit before an awaited stop resumes: release its sockets first.
+    updates.close(); clearInterval(heartbeat);
+    for (const ws of peers.values()) { ws.data.reason = "link server stopped"; cleanup(ws); ws.terminate(); }
+    const closed = opener.stop(true); io.remove(socket);
+    await server.stop(true); await closed;
+  } };
 }
 
-export function connectLink(o: { server: string; machine: string; key: string; host: string; statusPath?: string; commit?: string; install?: (sha: string) => Promise<LinkInstallResult>; autoInstall?: () => boolean; onInstalled?: () => void; log: (line: string) => void }) {
+export function connectLink(o: { server: string; machine: string; key: string; host: string; statusPath?: string; commit?: string; install?: (sha: string) => Promise<LinkInstallResult>; autoInstall?: () => boolean; onInstalled?: () => void; open?: (url: string) => Promise<void>; log: (line: string) => void }) {
   const updatePath = o.statusPath ? join(o.statusPath, "../link-update.json") : undefined;
   let update = updatePath ? readLinkFile<LinkUpdate>(updatePath) : undefined;
   let receipts = update?.receipts ?? [];
@@ -214,7 +262,7 @@ export function connectLink(o: { server: string; machine: string; key: string; h
         const message = JSON.parse(event.data);
         if (typeof message.challenge === "string" && !authenticated) {
           nonce = message.challenge;
-          socket.send(JSON.stringify({ protocol: PROTOCOL, machine: o.machine, proof: proof(o.key, o.machine, message.challenge).toString("hex") }));
+          socket.send(JSON.stringify({ protocol: PROTOCOL, machine: o.machine, addresses: Object.values(networkInterfaces()).flatMap(rows => rows?.filter(row => !row.internal).map(row => row.address) ?? []), proof: proof(o.key, o.machine, message.challenge).toString("hex") }));
         } else if (message.ready === true && !authenticated) {
           if (typeof message.proof !== "string" || !/^[a-f0-9]{64}$/.test(message.proof) || !timingSafeEqual(proof(o.key, o.machine, nonce, "server"), Buffer.from(message.proof, "hex"))) throw new Error("server did not prove the link key");
           authenticated = true;
@@ -225,6 +273,21 @@ export function connectLink(o: { server: string; machine: string; key: string; h
           since = new Date().toISOString(); state(true);
           o.log(`link ${o.machine} up since ${since}`);
           heartbeat = setInterval(() => { if (Date.now() - last > 25_000) endAttempt("heartbeat timed out"); else socket.send("ping"); }, 10_000);
+        } else if (authenticated && typeof message.open === "string") {
+          const id = message.id;
+          void (async () => {
+            try {
+              const url = new URL(message.open);
+              if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("only HTTP or HTTPS links can open on this machine");
+              if (!o.open) throw new Error("this connector cannot open links; run ep0ch install --apply on the Mac");
+              await o.open(url.href);
+              if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ opened: id }));
+            } catch (error) {
+              const why = (error as Error).stack ?? String(error);
+              o.log(`open failed: ${why}`);
+              if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ opened: id, error: why }));
+            }
+          })();
         } else if (authenticated && typeof message.install === "string" && /^[a-f0-9]{40}$/.test(message.install)) {
           wanted = message.install;
           if (installing) return;
