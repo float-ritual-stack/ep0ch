@@ -1592,7 +1592,7 @@ class Step<I> {
     const row = parentOf(this.d.tree, id)?.parent;
     if (!row || row.dir !== "row" || row.t === "flow") return;
     this.shape(id, "opening a spine");
-    refuse(this.resizeWhy(row));
+    if (this.resizeWhy(row)) { this.touch(id); return; }
     const e = this.ofNode(row);
     const kid = row.kids.find(k => leaves(k).includes(id))!;
     const edge = spineEdge(row, this.d.collapsed, id, e.spines, false, "unfold");
@@ -1928,6 +1928,10 @@ class Step<I> {
     const want = on ?? !was;
     if (want === was) this.d.changed = false;
     setHeld(f.flow, f.ci, want);
+    if (want && !was) {
+      this.touch(id);
+      f.flow.recent = [...this.d.touched];
+    }
     this.d.answer = { held: want };
   }
   /** A view's own dock's policy, kept for when it's put back in a dock after a restart pinned (only when none is kept). */

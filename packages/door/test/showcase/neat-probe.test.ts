@@ -866,7 +866,7 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
   }, 30_000);
 
   for (const place of ["screen", "group", "drawer group"]) {
-    for (const row of ["manual fold", "pushed left", "pushed right", "gather left", "gather right", "gather sides", "fair share", "outer page", "minimum boundary", "oldest folds"]) test(`book spines: ${row} in the ${place}`, async () => {
+    for (const row of ["manual fold", "pushed left", "pushed right", "gather left", "gather right", "gather sides", "fair share", "outer page", "minimum boundary", "non-resizable", "oldest folds"]) test(`book spines: ${row} in the ${place}`, async () => {
       const names = ["birch", "cedar", "elm", "fir", "oak"];
       const d = new Desk({ name: "book", title: "Book", layout: { root: { t: "split", dir: "row", key: "spread",
         kids: names.map(name => ({ t: "leaf", kind: "reader", name, mode: "held" })), weights: [1, 4, 0.1, 2, 1] } } });
@@ -916,6 +916,13 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
           if (side === "right") expect(order.slice(-3).every(t => t.collapsed)).toBe(true);
           if (side === "sides") { expect(order[0]!.collapsed).toBe(true); expect(order.at(-1)!.collapsed).toBe(true); }
           expect((await act("layout.policy", ids.cedar) as any).effective.spines).toBe(side === "left" ? "start" : side === "right" ? "end" : "book");
+        } else if (row === "non-resizable") {
+          await act("layout.policy", ids.cedar, { resizable: false, locked: true });
+          await expect(act("tile.expand", ids.elm)).rejects.toThrow(/locked/);
+          await act("layout.policy", ids.cedar, { locked: false });
+          await act("tile.expand", ids.elm);
+          expect(tile("elm").collapsed).toBeFalsy();
+          expect(tile("elm").rect!.cols).toBeGreaterThan(3);
         } else if (row === "outer page") {
           await act("tile.expand", ids.birch);
           const order = ordered(), open = order.filter(t => !t.collapsed);
@@ -992,6 +999,9 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
       expect(tiles().map(t => [t.tile, t.cover, t.rect])).toEqual(defaultWidth);
       await act("layout.policy", ids.cedar, { "min-width": 0 });
       expect(tiles().every(t => t.cover === "full")).toBe(true);
+      await act("layout.policy", ids.cedar, { "min-width": 70 });
+      await act("tile.hold", ids.beech, { on: true });
+      expect(tiles().find(t => t.name === "beech")!.cover).toBe("full");
     } finally {
       if (group && app.drawer.made?.resolveTile(group)) await act("tile.close", group);
       app.pop(); d.dispose();
