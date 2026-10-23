@@ -645,7 +645,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const how = src ? tileSource(src.source)?.source.drop : undefined;
     const home = this.homeName(id);
     return {
-      clearsOnClose: p?.clearsOnClose?.(), history: p instanceof ReaderPane,
+      deliberate: p?.deliberate, clearsOnClose: p?.clearsOnClose?.(), history: p instanceof ReaderPane,
       kind: this.unregistered.get(id)?.kind ?? p?.kind ?? "tile",
       ...(k?.policy ? { policy: k.policy } : {}), ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), following: p instanceof ReaderPane && p.follows && !p.holding, pinned: p instanceof ReaderPane && p.followMode === "pinned", available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.holding && !this.layout.altReaders.has(id),
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
@@ -691,6 +691,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!r.state.names.has(wire.to) && r.state.names.has(wire.from)) this.ctx?.flash(`${this.nameOf(wire.from)}: ${wire.verb} wire dropped; ${this.nameOf(wire.to)} (${this.tileId(wire.to)}) closed`);
     }
     this.state = r.state;
+    if (r.answer.deliberate !== undefined) this.paneNamed(r.answer.tile as string)!.deliberate = r.answer.deliberate as boolean;
     const now = this.snapshotShape();
     if (!this.replaying && prior && now && now.shape !== prior.shape) this.recordChange(prior.before, by?.actor ?? USER, by?.op ?? "change");
     this.settled = now;
@@ -901,7 +902,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const old = new Map(this.panes);
     const oldNames = new Map(this.names);
     const byName = new Map([...this.names].map(([id, n]) => [n, id] as const));
-    const altReaders = new Set<number>(), deliberate = new Set<number>();
+    const altReaders = new Set<number>();
     const used = new Set<number>(), fresh: number[] = [], wantWires: { from: number; verb: WireVerb; to: string; rule?: AltRule }[] = [], wantSources: [number, string][] = [];
     const names = new Map<number, string>(), roles = new Map<string, number>();
     const folded = new Map<number, Fold>(), agentsOf = new Map<number, AgentLevel>();
@@ -942,7 +943,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const w of l.wires ?? []) wantWires.push({ from: id, ...w });
       if (l.selectFrom) wantSources.push([id, l.selectFrom]);
       if (l.altReader) altReaders.add(id);
-      if (l.deliberate) deliberate.add(id);
+      this.panes.get(id)!.deliberate = l.deliberate ?? this.panes.get(id)!.deliberate;
       if (l.collapsed) folded.set(id, l.collapsed === "h" ? { dir: "h" } : {});
       if (isAgentLevel(l.agents)) agentsOf.set(id, l.agents);
       // This tile's own look (PIE-675), as its spec kept it: string values only.
@@ -1000,7 +1001,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
     const restorePolicies = (n: LNode) => { if (n.t !== "leaf") { n.policy = restorePolicy(n.policy); kidsOf(n).forEach(restorePolicies); } };
     restorePolicies(tree);
-    const next = init({ tree, names, floats, collapsed: folded, wires, across, altReaders, deliberate, agents: agentsOf, policy: restorePolicy(policy) }, this.layout, { freshIds: !restore });
+    const next = init({ tree, names, floats, collapsed: folded, wires, across, altReaders, agents: agentsOf, policy: restorePolicy(policy) }, this.layout, { freshIds: !restore });
     this.state = next;
     this.specTiles = roles;
     if (this.ctx) this.reconcileNames();
@@ -1363,7 +1364,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(this.selectSeeds.has(id) ? { selectFrom: this.selectSeeds.get(id) } : {}),
       ...(this.collapsed.has(id) ? { collapsed: this.collapsed.get(id)!.dir === "h" ? "h" as const : true as const } : {}),
       ...(this.layout.altReaders.has(id) ? { altReader: true } : {}),
-      ...(this.layout.deliberate.has(id) ? { deliberate: true } : {}),
+      ...(p.deliberate ? { deliberate: true } : {}),
       ...(this.layout.agents.has(id) ? { agents: this.layout.agents.get(id)! } : {}),
       ...(p.instanceLook && Object.keys(p.instanceLook).length ? { look: { ...p.instanceLook } } : {}),
       ...(wires.some(w => w.verb === "open") ? { link: wires.find(w => w.verb === "open")!.to } : {}),
@@ -6739,7 +6740,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   bringIn(moved: MovedTile, to: string | undefined, where: Where | undefined, actor: Actor): TileDone {
     const l = this.landingFor(to, where), kind = moved.spec.kind;
     const id = this.nextId;
-    const r = this.ask({ op: "open", tile: id, kind, name: moved.name, loose: true, at: l.at }, actor);
+    const r = this.ask({ op: "open", tile: id, kind, name: moved.name, loose: true, deliberate: moved.pane.deliberate ?? false, at: l.at }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
     this.put(moved.pane);
     this.movedIn.add(id);

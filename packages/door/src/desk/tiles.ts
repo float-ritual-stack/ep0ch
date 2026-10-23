@@ -141,6 +141,7 @@ export function makeTile(given: Partial<TileSpec> & { kind: TileKindName }): Pan
   const k = tileKind(s.kind);
   if (!k) return new UnavailableTile(s.kind, missingKind(s.kind), s.state ?? {});
   const p = k.make(s);
+  p.deliberate = s.deliberate;
   p.writtenTitle = s.writtenTitle;
   p.systemTitle = s.systemTitle;
   return p;

@@ -178,6 +178,8 @@ export interface DeskApi {
 }
 
 export interface Pane {
+  /** Made on purpose: retained with this instance across groups, spills and the drawer. */
+  deliberate?: boolean;
   readonly bindings?: readonly ModeKey[];
   /** Whether its host currently draws the tile (also reaches nested screens). */
   shownAs?(on: boolean): void;

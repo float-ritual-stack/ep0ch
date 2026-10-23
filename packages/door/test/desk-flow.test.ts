@@ -131,4 +131,64 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
     key({ kind: "char", ch: "x" });
     await until(() => !tile(r.tile), "the column closed by its x");
   });
+
+  const loadReaders = async (name: string, root: object) => {
+    await saveScreenNote(board, { name, title: name, layouts: true, layout: { name, root: root as never } }, { kind: "user" });
+    await mine("layout.load", { name });
+    render();
+  };
+  const reader = (name: string, note?: string) => ({ t: "leaf", kind: "reader", name, ...(note ? { note, mode: "held" } : {}) });
+
+  test("review: back never removes a spec reader held full by the person", async () => {
+    await loadReaders("held-review", { t: "flow", kids: [reader("original", notes.trip.id), reader("traveller")] });
+    await mine("open", { id: notes.trip.id }, "traveller");
+    await mine("open", { id: notes.boat.id }, "traveller");
+    await mine("tile.hold", { on: true }, "traveller");
+    await mine("back", {}, "traveller");
+    expect(tile("traveller")?.showing?.id).toBe(notes.trip.id);
+    expect(tile("original")?.showing?.id).toBe(notes.trip.id);
+  });
+
+  test.each(["next", "container"])("review: %s reuses a reader outside its flow without a flow arrival", async route => {
+    await loadReaders(`outside-${route}`, { t: "split", dir: "row", ...(route === "container" ? { policy: { opensInto: "stream" } } : {}), kids: [reader("outside", notes.tide.id), { t: "flow", key: "stream", kids: [reader("source", notes.trip.id)] }] });
+    await until(() => tile("outside")?.showing?.id === notes.tide.id, "the reader outside the flow");
+    await mine("open", { id: notes.tide.id, from: "source" });
+    expect(tile("outside")?.showing?.id).toBe(notes.tide.id);
+    expect(get().focus).toBe("outside");
+    expect(tile("source")?.showing?.id).toBe(notes.trip.id);
+  });
+
+  test.each(["split", "tile.open"])("review: a %s reader stays independent inside a group, after spilling, and in the drawer", async kind => {
+    await loadReaders(`purpose-${kind.replace(".", "-")}`, { t: "split", dir: "row", kids: [reader("original", notes.trip.id), reader("anchor")] });
+    const made = await mine(kind === "split" ? "pane.split" : "tile.open", { kind: "reader", ...(kind === "split" ? { dir: "row" } : { mode: "follows" }) }, "anchor") as { name: string };
+    const group = await mine("tile.group", { with: "original" }, made.name) as { name: string };
+    const inner = () => pane(group.name).inner;
+    const check = async (d: Desk) => {
+      render();
+      if (d === app.drawer.desk) d.render(D().ctx);
+      const act = (action: string, args = {}, tile?: string) => d.dispatch.act({ action, args, tile }, { kind: "user" });
+      await act("open", { id: notes.trip.id }, made.name);
+      await act("open", { id: notes.boat.id }, made.name);
+      await act("back", {}, made.name);
+      const tiles = (await act("layout.get") as any).tiles;
+      expect(tiles.find((t: any) => t.name === made.name)?.showing?.id).toBe(notes.trip.id);
+      expect(tiles.find((t: any) => t.name === "original")?.showing?.id).toBe(notes.trip.id);
+    };
+    await check(inner());
+    await mine("tile.group", { on: false }, group.name);
+    await check(desk);
+    const regrouped = await mine("tile.group", { with: "original" }, made.name) as { name: string };
+    await mine("tile.drawer", { on: true }, regrouped.name);
+    const drawer = app.drawer.desk!;
+    await app.dispatch.press("host.toggle", { open: true });
+    (app as any).paint();
+    const carried = drawer.paneNamed(regrouped.name) as any;
+    await check(carried.inner);
+    await drawer.dispatch.act({ action: "layout.move", args: { to: regrouped.name, where: "right" }, tile: regrouped.name }, { kind: "user" });
+    await drawer.dispatch.act({ action: "tile.group", args: { on: false }, tile: regrouped.name }, { kind: "user" });
+    await check(drawer);
+    for (const name of [made.name, "original"]) await drawer.dispatch.act({ action: "tile.close", tile: name, args: {} }, { kind: "user" });
+    await app.dispatch.press("host.toggle", { open: false });
+  });
+
 });

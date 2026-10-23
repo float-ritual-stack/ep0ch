@@ -107,7 +107,7 @@ const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, l
 const repliesTile = () => new BacklinksPane("reader", false, ["children"]);
 
 /** A stage: its tiles (made here, the exhibits), how they're laid out by their place (default side by side), its title. */
-interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[]; deliberate?: readonly Pane[]; agents?: (AgentLevel | undefined)[] }
+interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[]; agents?: (AgentLevel | undefined)[] }
 /**
  * A stage as a screen spec (PIE-515) on the desk, its tiles given (the showcase makes its own exhibits): each named by
  * its kind (reader, reader2), laid out as the stage says.
@@ -117,7 +117,7 @@ function stageDesk(st: Stage): Desk {
   st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p instanceof ReaderPane && p.kind === "reader" && p.holding ? "detail" : p.kind)));
   const ids = st.panes.map((_, i) => i);
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
-  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.panes[i] instanceof PreviewPane && "tile" in st.panes[i].source ? { source: `tile:${st.panes[i].source.tile}` } : {}), ...(st.deliberate?.includes(st.panes[i]!) ? { deliberate: true } : {}), ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
+  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.panes[i] instanceof PreviewPane && "tile" in st.panes[i].source ? { source: `tile:${st.panes[i].source.tile}` } : {}), ...(st.panes[i]!.deliberate ? { deliberate: true } : {}), ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
   return new Desk({ name: "showcase", title: st.title, layout: { root, focus: names.get(0) } }, { given: new Map(st.panes.map((p, i) => [names.get(i)!, p])) });
 }
 /** A stage whose readers show `notes` (one each, in order) once it opens. */
@@ -236,8 +236,8 @@ export const SECTIONS: Section[] = [
     aside: "four readers on one note, each writing a comment in another place: inline (top left, under its line), floating (top right), split (bottom left) and popup (bottom right) · select words with the mouse and press C: the box opens where you are, the note still scrolls around it · ctrl+o (or a click on the chip) moves it · drag a floating box's ≡ top edge to move it and its ◢ corner to size it, or ctrl+g then the arrows (shift: size); opened again, it's in its usual place · click another tile and back: the box is there as you left it · click a link while it's unsent: the power bar asks, save and continue, keep writing, or discard · ctrl+s saves and the thread sits in place, references and embeds drawn · an agent's comment lands as a thread, never in your box",
     stage(n, show) {
       const places = ["inline", "floating", "split", "popup"] as const;
-      const readers = places.map(() => new ReaderPane());
-      return deskOf({ title: "showcase · composer", panes: readers, names: [...places], deliberate: readers,
+      const readers = places.map(() => Object.assign(new ReaderPane(), { deliberate: true }));
+      return deskOf({ title: "showcase · composer", panes: readers, names: [...places],
         layout: ([a, b, c, d]) => pair("col", 0.5, row(0.5, a!, b!), row(0.5, c!, d!)) }, show, readers.map(r => [r, n.margin] as [ReaderPane, Msg | undefined]), d => {
         // The person's own keys would do these: a comment on each reader's line, through the stage's dispatcher, then its place.
         places.forEach((place, i) => {
