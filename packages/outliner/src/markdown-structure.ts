@@ -1,7 +1,7 @@
 import {Marked, Tokenizer, type Token, type Tokens} from 'marked';
 import {COMPONENT_OPEN, componentBlockAt} from '@ep0ch/outline-core/component-block';
 import type {PreviewSourceSpan} from './detail-preview-regions';
-import {boxExtension} from './blockdown-marked';
+import {boxExtension,componentLineIn} from './blockdown-marked';
 
 // A component block (`::graph-stat` … `::`) is one opaque token: its `---` lines are YAML fences, not setext
 // headings, so sections and folds run through it (outline-core's component-block rule). `start` lets one cut a
@@ -11,30 +11,12 @@ const SETEXT_UNDERLINE = /^ {0,3}(=+|-+) *$/;
 const BLOCK_START = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|```|~~~|>|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|(?:[-*_][ \t]*){3,}$|<[A-Za-z!/?])/;
 /** A GFM table's delimiter row: the line above it, with a `|`, starts a table, which ends a paragraph too. */
 const TABLE_DELIMITER = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
-/** The first line of `src` that opens a component block, as an offset, or -1: where a table must stop. */
-function componentLineIn(src: string): number {
-  for (let at = 0; at < src.length;) {
-    const next = src.indexOf('\n', at), end = next < 0 ? src.length : next;
-    if (at > 0 && COMPONENT_OPEN.test(src.slice(at, end)) && componentBlockAt(src.slice(at))) return at;
-    if (at > 0 && !src.slice(at, end).trim()) return -1;
-    at = end + 1;
-  }
-  return -1;
-}
 const parser = new Marked({
   extensions: [boxExtension, {
     name: 'component', level: 'block',
     // Where a paragraph must be cut: the first line, before its blank line, that opens a component block. It reads
     // only the paragraph (marked asks before each one) and never cuts at an opener that opens nothing (plain text).
-    start: (src: string) => {
-      for (let at = src.indexOf('\n'); at >= 0;) {
-        const from = at + 1, next = src.indexOf('\n', from), line = src.slice(from, next < 0 ? src.length : next);
-        if (!line.trim()) return undefined;
-        if (/^[ \t]*::[a-z]/.test(line) && COMPONENT_OPEN.test(line) && componentBlockAt(src.slice(from))) return from;
-        at = next;
-      }
-      return undefined;
-    },
+    start: (src: string) => { const at = componentLineIn(src); return at < 0 ? undefined : at; },
     tokenizer: (src: string) => {
       const block = componentBlockAt(src);
       return block && block.name !== 'box' ? {type: 'component', raw: block.raw, name: block.name} : undefined;
