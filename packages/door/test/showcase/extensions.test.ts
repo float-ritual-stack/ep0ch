@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { App } from "../../src/app";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
-import { SocketBoard } from "../../src/socket";
+import { USER, SocketBoard } from "../../src/socket";
 import { extensionNamed } from "../../src/extensions";
 import { outliner, Scratch, until } from "../scratch";
 
@@ -120,6 +120,65 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await board.undoExtension(done.undo!, { kind: "agent", id: "test-agent" });
     expect((await board.get(plan.id))!.text).toBe(plan.text);
     expect(await board.children(plan.id)).toEqual([]);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+
+  test("forms draw and submit in place by clicks and act (PIE-1212)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "forms" }, as: "test-agent" });
+    await until(() => screen().includes("book *"), "the reading log's labelled form", 3000);
+    expect(screen()).not.toContain("[form-field::");
+    expect(screen()).toContain("(*) slow");
+    const click = (text: string, offset = 1) => {
+      const rows = screen().split("\n"), right = rows.find(row => row.includes("2 Shed repairs"))!.indexOf("2 Shed repairs");
+      const y = rows.findIndex(row => row.includes(text) && row.indexOf(text) < right);
+      expect(y).toBeGreaterThanOrEqual(0);
+      const x = rows[y]!.indexOf(text) + offset;
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "up", button: 0, x, y });
+    };
+    press({ kind: "enter" });
+    click("│ pages", 15);
+    press({ kind: "paste", text: "272" });
+    press({ kind: "enter" });
+    await until(() => screen().includes("book is required"), "required warning in the form").catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    expect(screen()).toContain("272");
+    click("│ book *", 15);
+    press({ kind: "paste", text: "Piranesi extra" });
+    const rows = screen().split("\n"), y = rows.findIndex(row => row.includes("Piranesi extra")), x = rows[y]!.indexOf("Piranesi extra");
+    press({ kind: "mouse", action: "down", button: 0, x: x + 8, y });
+    press({ kind: "mouse", action: "drag", button: 0, x: x + 14, y });
+    press({ kind: "mouse", action: "up", button: 0, x: x + 14, y });
+    press({ kind: "delete" });
+    expect(screen()).not.toContain("Piranesi extra");
+    press({ kind: "char", ch: "z", ctrl: true });
+    expect(screen()).toContain("Piranesi extra");
+    press({ kind: "char", ch: "y", ctrl: true });
+    press({ kind: "tab" });
+    press({ kind: "backtab" });
+    expect(screen()).toContain("Piranesi");
+    press({ kind: "tab" });
+    press({ kind: "tab" });
+    press({ kind: "left" });
+    expect(screen()).toContain("(*) gripping");
+    click("( ) slow");
+    await until(() => screen().includes("(*) slow"), "clicked slow radio");
+    click("( ) gripping");
+    await until(() => screen().includes("(*) gripping"), "clicked gripping radio");
+    click("[ Fill in the form ]");
+    const reading = seeded.notes.formReading.id;
+    await untilAsync(async () => (await board.children(reading)).some(m => m.text === "Piranesi [book::Piranesi] [pages::272] [mood::gripping]"), "the clicked form's child").catch(async e => { throw new Error(`${e.message}\n${JSON.stringify(await board.children(reading))}\n${screen()}`); });
+    await app.act({ action: "form.set", tile: "reader", args: { field: "book", value: "The Dispossessed" }, as: "test-agent" });
+    await app.act({ action: "form.set", tile: "reader", args: { field: "pages", value: "341" }, as: "test-agent" });
+    await app.act({ action: "form.submit", tile: "reader", as: "test-agent" });
+    expect((await board.children(reading)).map(m => m.text)).toContain("The Dispossessed [book::The Dispossessed] [pages::341] [mood::slow]");
+    expect(screen()).toContain("Piranesi");
+    press({ kind: "esc" });
+    await app.dispatch.act({ action: "edit", tile: "reader" }, USER);
+    expect(screen()).toContain("[form-field::book text required]");
+    await app.dispatch.act({ action: "edit.close", tile: "reader" }, USER);
+    expect((await board.get(reading))!.text).toContain("[form-field::book text required]");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
 

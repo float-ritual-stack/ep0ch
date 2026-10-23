@@ -2337,6 +2337,13 @@ draws a ticket (PIE-512):
   what the agent said, its reply, and who asked. Its edit lands in the note attributed to the extension
   (`ext:tidy`); one that would overwrite what you're typing becomes a proposal under the line.
 
+A note's `[form-field::name text required]`, number and choice properties draw as a form in reading mode.
+Click a box, or select its element with `[ ]` and press Enter. Text uses the shared editor, including
+mouse selection, paste and undo. Tab/shift+Tab moves between fields; left/right changes a radio choice.
+Enter or the button submits through `ext.form.fill`; missing required answers stay marked in the form.
+Esc leaves with answers kept. Editing shows the raw properties. Agents use `form.set field=book value=Piranesi`
+and `form.submit` on the reader tile with their own answers. Showcase section 67 demonstrates both forms.
+
 A generated region (an output, a component's view, an `@name` request, a `::use`, a written `[!output]` callout) reads as
 the note's own content (PIE-956): its words, table or figure flush with the text around it at the note's measure, with
 no box, no indent, no header and no bullet row. A region shows no mark until the `[ ]` position or a click reaches it (`[sources]` and `S` are the way in); then one dim `≡` in the reader's gutter beside its first row is the only sign
