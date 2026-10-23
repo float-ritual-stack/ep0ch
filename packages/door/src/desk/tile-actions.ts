@@ -558,7 +558,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "layout.gather": def({
     summary: "gather the row's spines left, right, or to their nearer sides, keeping open tiles together; sets the container's spines policy to start, end, or book for later opens",
-    keys: "^W { left, ^W } right, ^W | to the sides; the container's policy menu",
+    keys: "^W { left, ^W } right, ^W | to the sides; click, enter or space in the container's policy menu",
     touches: "shape", replay: "safe", says: r => `gathered spines ${r.side}`,
     args: { side: { type: "string", choices: ["left", "right", "sides"], about: "left, right, or sides (nearest edge)" }, node: { type: "string", optional: true, about: "row or flow container id; left out, the tile's nearest row" } },
     menu: [
