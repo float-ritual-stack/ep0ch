@@ -641,6 +641,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     closeBar();
   });
   test("a mistyped command shows its corrected run, completes arguments and keeps its answer for recall", async () => {
+    await app.dispatch.press("tile.expand", {}, "reader");
     const query = "tile.colapse tile=reader on=true direction=v";
     const answer = await app.act({ action: "bar.open", args: { query }, as: "wren-agent" }) as any;
     expect(answer.rows[0]?.label).toBe("run tile.collapse tile=reader on=true dir=v");
