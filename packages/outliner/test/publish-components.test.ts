@@ -62,7 +62,7 @@ test("a box renders its note's values, bold and day links inside its frame", asy
   const { store, page, client } = await setup();
   store.create("Previous [page::garden-prev] [publish::public]");
   store.create("Next [page::garden-next] [publish::public]");
-  const lines = "Kept by {{this.owner}}: **seed trays**.\n<< [[garden-prev]] | [[garden-next]] >>\n[[{{this.destination}}|Value-built destination]]";
+  const lines = "Kept by {{this.owner}}: **seed trays**.\n<< [[garden-prev]] | [[garden-next]] >>\n[[{{this.destination}}|Value-built destination]]\n> [!note] Seed care\n> Keep **seedlings** dry.";
   const note = store.create(`Box parity [owner::Ada] [destination::garden-next]\n\n${lines}\n\n::box{border=round pad.x=1}\n${lines}\n::box{pad.x=1}\nNested **bold**\n::\n::graph-stat\n---\ntitle: Box harvest\n---\n- beans: 7\n::\n::`);
   const html = await page(`/p/${note.id}`);
   expect(html.match(/<strong>seed trays<\/strong>/g)).toHaveLength(2);
@@ -79,6 +79,8 @@ test("a box renders its note's values, bold and day links inside its frame", asy
   const drawn = reader.lines.map(stripTerminalSequences).join("\n");
   expect(drawn).not.toContain("::box");
   expect(drawn.match(/Kept by Ada: seed trays\./g)).toHaveLength(2);
+  expect(drawn.match(/Seed care/g)).toHaveLength(2);
+  expect(drawn).not.toContain("[!note]");
   expect(reader.frame.cells.some(cell => cell.styles.includes("bold") && cell.text === "s")).toBe(true);
   const destinations = reader.frame.cells.filter(cell => cell.link?.uri.includes("garden-next"));
   expect(new Set(destinations.map(cell => cell.row)).size).toBe(4);

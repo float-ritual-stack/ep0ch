@@ -13,6 +13,24 @@ import {parseStyleAttrs,resolveStyle} from '@ep0ch/outline-core/style-cascade';
 const parser=new Marked(blockdownMarked);
 type Row=DocumentGlyph[];
 
+export function noteBoxFrame(fields:Record<string,string>,width:number) {
+  const v=resolveStyle([{level:'block',label:'box',fields:{'margin.x':'0',...fields}}],width).values;
+  const mx=Math.min(v['margin.x'],Math.max(0,Math.floor((width-10)/2))),px=Math.min(v['pad.x'],Math.max(0,Math.floor((width-2*mx-4)/2)));
+  const framed=width-2*(mx+px)>=10&&(v.border!=='auto'&&v.border!=='none'||v.edge==='box');
+  const inset=mx+px+Number(framed),inner=Math.max(1,width-2*inset),round=v.border==='round';
+  const left=' '.repeat(mx)+(framed?'│':'')+' '.repeat(px),right=' '.repeat(px)+(framed?'│':'');
+  const border=(top:boolean)=>' '.repeat(mx)+(round?(top?'╭':'╰'):(top?'┌':'└'))+'─'.repeat(Math.max(0,width-2*mx-2))+(round?(top?'╮':'╯'):(top?'┐':'┘'));
+  const margin=Array<string>(v['margin.y']).fill(''),padding=Array<string>(v['pad.y']).fill(left+' '.repeat(inner)+right);
+  return {inner,left,right,before:[...margin,...(framed?[border(true)]:[]),...padding],after:[...padding,...(framed?[border(false)]:[]),...margin]};
+}
+
+export function noteBoxGlyphRows(frame:ReturnType<typeof noteBoxFrame>,rows:Row[]):Row[] {
+  const decoration=(text:string)=>generatedGlyphs(text,'box frame and spacing',false,['quoteBorder']);
+  return [...frame.before.map(decoration),...rows.map(content=>[
+    ...decoration(frame.left),...content,...decoration(' '.repeat(Math.max(0,frame.inner-glyphWidth(content)))+frame.right),
+  ]),...frame.after.map(decoration)];
+}
+
 function transformed(source:MappedDocument,text:string):MappedDocument {
   if(source.text===text)return source;
   if(source.runs.length===1)return atomicDocument(text,source.runs[0]!.origin);
@@ -356,21 +374,8 @@ function layout(nodes:readonly LayoutNode[],width:number,theme:MarkdownTheme,lis
   for(const node of nodes) {
     if(node.kind==='flow')rows.push(...wrapDocumentGlyphs(node.glyphs,width));
     else if(node.kind==='box') {
-      const v=resolveStyle([{level:'block',label:'box',fields:{'margin.x':'0',...node.fields}}],width).values;
-      const mx=Math.min(v['margin.x'],Math.max(0,Math.floor((width-10)/2))),px=Math.min(v['pad.x'],Math.max(0,Math.floor((width-2*mx-4)/2)));
-      const framed=width-2*(mx+px)>=10&&(v.border!=='auto'&&v.border!=='none'||v.edge==='box');
-      const left=mx+px+Number(framed),inner=Math.max(1,width-2*left);
-      const decoration=(text:string)=>generatedGlyphs(text,'box frame and spacing',false,['quoteBorder']);
-      const round=v.border==='round';
-      const border=(top:boolean)=>decoration(' '.repeat(mx)+(round?(top?'╭':'╰'):(top?'┌':'└'))+'─'.repeat(Math.max(0,width-2*mx-2))+(round?(top?'╮':'╯'):(top?'┐':'┘')));
-      const row=(content:Row)=>[...decoration(' '.repeat(mx)+(framed?'│':'')+' '.repeat(px)),...content,...decoration(' '.repeat(Math.max(0,inner-glyphWidth(content))+px)+(framed?'│':''))];
-      for(let i=0;i<v['margin.y'];i++)rows.push([]);
-      if(framed)rows.push(border(true));
-      for(let i=0;i<v['pad.y'];i++)rows.push(row([]));
-      rows.push(...layout(node.children,inner,theme).map(row));
-      for(let i=0;i<v['pad.y'];i++)rows.push(row([]));
-      if(framed)rows.push(border(false));
-      for(let i=0;i<v['margin.y'];i++)rows.push([]);
+      const frame=noteBoxFrame(node.fields,width);
+      rows.push(...noteBoxGlyphRows(frame,layout(node.children,frame.inner,theme)));
     } else if(node.kind==='quote') {
       const prefix=width>=3?generatedGlyphs('│ ','quote border',false,['quoteBorder']):[];
       const children=layout(node.children,Math.max(1,width-glyphWidth(prefix)),theme);
