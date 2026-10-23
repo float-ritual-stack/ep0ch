@@ -494,6 +494,9 @@ function commentTexts(extensionId: string, record: ExtensionRecordData, count: n
 export class ExtensionSyncs {
   private readonly syncs = new Map<string, ExtensionSync>();
   private started = false;
+  /** Notes saved before the providers were first read (the host answers while it reads them): caught up then. Null after. */
+  private early: Set<string> | null = new Set();
+  private used = false;
 
   constructor(private readonly store: OutlinerStore, private readonly options: ExtensionSyncOptions = {}) {}
 
@@ -507,6 +510,16 @@ export class ExtensionSyncs {
       this.syncs.set(id, sync);
       if (this.started) sync.start();
     }
+    this.used = true;
+    this.catchUp();
+  }
+
+  /** The first provider list is in: the notes saved before it get their records now, not at the next poll. */
+  private catchUp(): void {
+    if (!this.early || !this.used || !this.started) return;
+    const early = this.early;
+    this.early = null;
+    for (const blockId of early) this.blockChanged(blockId);
   }
 
   /** The sync of one extension (`jira`), when it provides Resources here. */
@@ -526,6 +539,7 @@ export class ExtensionSyncs {
       for (const sync of this.syncs.values()) sync.observed(resource, document);
     };
     for (const sync of this.syncs.values()) sync.start();
+    this.catchUp();
   }
 
   stop(): void {
@@ -535,6 +549,7 @@ export class ExtensionSyncs {
   }
 
   blockChanged(blockId: string): void {
+    this.early?.add(blockId);
     for (const sync of this.syncs.values()) sync.blockChanged(blockId);
   }
 
