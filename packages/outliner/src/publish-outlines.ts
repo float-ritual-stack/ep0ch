@@ -1,7 +1,8 @@
 // The web client over every outline the host serves: the home outline at the web root (`/pub`), as always, and each
 // other outline at `/pub/o/<name>/`, its own Publisher (the same class, the same pages and routes) started the first
 // time it is asked for and kept. `/pub/o/` lists them. The tailnet listener and the sign-in listener (web-signin.ts) both
-// answer through this, so a signed-in browser reads exactly what the tailnet does. Another machine's outline is at
+// answer through this, so a signed-in browser reads exactly what the tailnet does. Public snapshot tokens also
+// reach their named outline here, without granting page reads. Another machine's outline is at
 // `/pub/o/<name>@<machine>/`, read live through that machine's forward or from its copy here (publish-remote.ts).
 import { isOutlineName } from "./paths";
 import { escapeHtml, plainPage, type Publisher, type PublishAudience, type SignedIn } from "./publish";
@@ -37,7 +38,16 @@ export class OutlinePublishers {
 
   /** One request: an outline's own publisher below `/o/<name>`, the outlines' list at `/o/`, else the home outline. */
   async handle(request: Request, audience: PublishAudience = "tailnet", signedIn?: SignedIn): Promise<Response> {
-    if (audience !== "tailnet") return this.options.home.handle(request, audience, undefined, signedIn);
+    if (audience === "public") {
+      if (!this.options.home.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
+        return new Response("Host not allowed\n", { status: 421 });
+      }
+      const path = new URL(request.url).pathname;
+      const mount = this.options.home.publicBase.basePath;
+      const below = mount && path.startsWith(`${mount}/`) ? path.slice(mount.length) : path;
+      if (/^\/o\/[^/]+\/s\/[^/]+\/snapshot\.sqlite$/.test(below)) return this.snapshot(request, mount);
+      return this.options.home.handle(request, audience, undefined, signedIn);
+    }
     // The tailnet's Host rule, before anything is listed (the sign-in listener checked its own name).
     if (!signedIn && !this.options.home.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
       return new Response("Host not allowed\n", { status: 421, headers: { "content-type": "text/plain; charset=utf-8" } });
@@ -92,11 +102,13 @@ export class OutlinePublishers {
   }
 
   /** Only a snapshot token grants this route; it never opens pages or the outline index. */
-  async snapshot(request: Request): Promise<Response> {
+  async snapshot(request: Request, root = this.webRoot): Promise<Response> {
     const path = new URL(request.url).pathname;
-    const below = path.startsWith(`${this.webRoot}/`) ? path.slice(this.webRoot.length) : "";
+    const below = root && path.startsWith(`${root}/`) ? path.slice(root.length) : path;
     const match = /^(?:\/o\/([^/]+))?\/s\/([A-Za-z0-9_-]+)\/snapshot\.sqlite$/.exec(below);
-    const name = match?.[1] ?? this.options.homeName;
+    let name: string | undefined;
+    try { name = match?.[1] ? decodeURIComponent(match[1]) : this.options.homeName; }
+    catch { return new Response("Not found", { status: 404 }); }
     if (!match || !name || !isOutlineName(name) || !(await this.options.names()).includes(name)) return new Response("Not found", { status: 404 });
     const publisher = name === this.options.homeName ? this.options.home : await this.publisher(name);
     return publisher.snapshotDownload(request, match[2]!);

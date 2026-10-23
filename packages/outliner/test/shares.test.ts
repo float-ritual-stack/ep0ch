@@ -1,3 +1,5 @@
+import { Database } from "bun:sqlite";
+import { OutlineHost } from "../src/outline-host";
 import { get as httpGet } from "node:http";
 import { randomBytes } from "node:crypto";
 import { gunzipSync } from "node:zlib";
@@ -390,4 +392,74 @@ test("snapshot links on the web origin need no session, serve gzip once, and cle
     expect(records.blocks.some(block => block.text.includes("aborted"))).toBe(true);
     await expect(create("25h")).rejects.toThrow("24h");
   } finally { http.stop(true); }
+});
+
+
+test("an outline without a publisher downloads through another outline's public listener, with its own token lifetime", async () => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), "snapshot-host-")));
+  const host = new OutlineHost({ outlinesFolder: join(folder, "outlines"), log: () => {} });
+  let home: Publisher | undefined;
+  let web: OutlinePublishers | undefined;
+  const http = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => web!.handle(request, "public") });
+  const origin = `http://127.0.0.1:${http.port}`;
+  try {
+    await host.start();
+    await host.create("garden");
+    await host.create("orchard");
+    const garden = await host.open("garden");
+    const orchard = await host.open("orchard");
+    garden.store.create("Garden harvest\nMarigolds and beans.", null, "user");
+    const note = orchard.store.create("Orchard harvest [publish::never]\nPears and plums.", null, "user");
+    const a = new OutlinerClient(host.socketPath, 15_000, "garden");
+    const b = new OutlinerClient(host.socketPath, 15_000, "orchard");
+    const create = () => b.request<OutlineSnapshot>({ action: "outline.snapshot" });
+    await expect(create()).rejects.toThrow("ep0ch outline snapshot orchard --out orchard.snapshot.sqlite");
+    home = new Publisher({ client: a, publicUrl: `${origin}/share` });
+    await home.start();
+    web = new OutlinePublishers({ home, homeName: "garden", names: async () => ["garden", "orchard"],
+      open: (name, basePath) => new Publisher({ client: new OutlinerClient(host.socketPath, 15_000, name), basePath, url: `${origin}${basePath}` }),
+    });
+    const snapshot = await create();
+    expect(snapshot.url).toStartWith(`${origin}/o/orchard/s/`);
+    expect((await fetch(snapshot.url!, { method: "HEAD" })).status).toBe(200);
+    expect((await fetch(snapshot.url!.replace("/o/orchard/", "/o/garden/"))).status).toBe(404);
+    expect((await fetch(snapshot.url!.replace("snapshot.sqlite", "p/" + note.id))).status).toBe(404);
+    const response = await fetch(snapshot.url!);
+    expect(response.status).toBe(200);
+    const bytes = await response.arrayBuffer();
+    expect(new Bun.CryptoHasher("sha256").update(bytes).digest("hex")).toBe(snapshot.sha256);
+    const file = join(folder, "download.sqlite");
+    await Bun.write(file, bytes);
+    const copy = new Database(file, { readonly: true });
+    try {
+      expect(copy.query<{ text: string }, []>("SELECT text FROM blocks").all().map(row => row.text)).toContain(note.text);
+      expect(copy.query<{ text: string }, []>("SELECT text FROM blocks").all().some(row => row.text.includes("Marigolds and beans"))).toBe(false);
+    } finally { copy.close(); }
+    expect((await fetch(snapshot.url!)).status).toBe(404);
+    const revoked = await create();
+    await b.request({ action: "shares.revoke", shareId: revoked.shareId! });
+    expect((await fetch(revoked.url!)).status).toBe(404);
+    const expired = await create();
+    const kept = JSON.parse(orchard.store.readMetadata(SHARES_METADATA_KEY)!);
+    kept.sessions.find((session: ShareSession) => session.id === expired.shareId).expiresAt = new Date(Date.now() - 1000).toISOString();
+    orchard.store.writeMetadata(SHARES_METADATA_KEY, JSON.stringify(kept));
+    expect((await fetch(expired.url!)).status).toBe(404);
+    const own = await a.request<OutlineSnapshot>({ action: "outline.snapshot" });
+    expect(own.url).toStartWith(`${origin}/s/`);
+    const ownResponse = await fetch(own.url!);
+    expect(ownResponse.status).toBe(200);
+    await ownResponse.arrayBuffer();
+    // Opening the download route has now connected orchard's thin publisher too.
+    const again = await create();
+    expect((await fetch(`${origin}/share${new URL(again.url!).pathname}`, { method: "HEAD" })).status).toBe(200);
+    await b.request({ action: "shares.revoke", shareId: again.shareId! });
+    await home.stop();
+    await expect(create()).rejects.toThrow("ep0ch outline snapshot orchard --out orchard.snapshot.sqlite");
+  } finally {
+    http.stop(true);
+    await web?.stop();
+    await home?.stop();
+    await host.close();
+    rmSync(folder, { recursive: true, force: true });
+  }
 });

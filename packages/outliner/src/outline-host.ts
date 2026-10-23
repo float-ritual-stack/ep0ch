@@ -692,6 +692,13 @@ export class OutlineHost {
       server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder });
       server.setOutline({ name });
       server.setHost(() => this.status());
+      server.setSnapshotAddress(() => {
+        for (const outline of this.opened.values()) {
+          const url = outline.server.publisherAddress(true).publicUrl;
+          if (url) return `${new URL(url).origin}/o/${encodeURIComponent(name)}`;
+        }
+        return undefined;
+      });
       server.setLinkReader(request => (this.links ??= new OutlineLinks(() => this.names(), async name => (await this.open(name)).store, this.outlinesFolder)).read(name, request));
       server.startHosted();
       if (this.closing) throw new Error("The outline host is stopping");
