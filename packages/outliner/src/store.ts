@@ -3559,6 +3559,8 @@ export class OutlinerStore {
     for (const id of this.valueReferenceIds) {
       const block = this.get(id);
       if (!block) { this.valueReferences.delete(id); this.valueReferenceIds.delete(id); continue; }
+      // A note in Trash links nowhere and is never answered; a restore reads it again.
+      if (block.effectiveDeletedRootId) { this.valueReferences.delete(id); continue; }
       const cached = this.valueReferences.get(id);
       if (cached && cached.answer.deps.every((dep, i) => this.valueReferenceVersion(dep) === cached.versions[i]) && (!cached.answer.anyChange || cached.sequence === this.sequence) && (!cached.answer.clock || cached.minute === Math.floor(Date.now() / 60_000))) continue;
       const answer = answerSite(this, { blockId: id });

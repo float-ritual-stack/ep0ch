@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test, spyOn } from "bun:test";
 import { OutlinerStore } from "../src/store";
 import { answerSite } from "../src/site-answer";
 import { readAuthoredLinks } from "../src/authored-links";
+import { readBlockRecords } from "../src/block-records";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -31,6 +32,18 @@ describe("semantic backlink relation", () => {
     expect(values[0]?.problem?.message).toContain("cycle");
     expect(values[0]?.values).toBeUndefined();
     expect(workspace.referenceValues(source.id)[0]?.problem?.message).toContain("cycle");
+  });
+
+  test("a value-built link in a note in Trash never breaks reading the rest of the outline", () => {
+    const workspace = store();
+    const template = workspace.create("Envelope [ticket::PC-1]\nFor [[{{this.ticket}}]]");
+    const item = workspace.create("Reply to the shed committee");
+    workspace.delete(template.id);
+    expect(() => workspace.referenceValues(item.id)).not.toThrow();
+    expect(workspace.referenceValues(template.id)).toEqual([]);
+    expect(() => workspace.queryBacklinks({ targetBlockId: item.id, limit: 50 } as never)).not.toThrow();
+    // The read that failed for Evan's float-hub (Oct 22): every block record after a trashed value-link template.
+    expect(readBlockRecords(workspace as never, [item.id]).records.map(r => r.id)).toEqual([item.id]);
   });
 
   test("value-built date and week links roll their backlinks over with the clock", () => {
