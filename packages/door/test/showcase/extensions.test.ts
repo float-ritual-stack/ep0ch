@@ -6,7 +6,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { openScreen } from "../../src/desk/screen-specs";
-import type { Desk } from "../../src/desk/desk";
+import { Desk } from "../../src/desk/desk";
 import { App } from "../../src/app";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
@@ -148,6 +148,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect(screen()).toContain("272");
     click("│ book *", 15);
     press({ kind: "paste", text: "Piranesi extra" });
+    expect(screen()).not.toContain("book is required");
     const rows = screen().split("\n"), y = rows.findIndex(row => row.includes("Piranesi extra")), x = rows[y]!.indexOf("Piranesi extra");
     press({ kind: "mouse", action: "down", button: 0, x: x + 8, y });
     press({ kind: "mouse", action: "drag", button: 0, x: x + 14, y });
@@ -207,6 +208,48 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
       const plainColumn = await river.dispatch.act({ action: "open", args: { id: seeded.notes.notebook.id } }, USER) as { name: string };
       await expect(river.dispatch.act({ action: "form.move", tile: plainColumn.name, args: { by: 1 } }, USER)).rejects.toThrow("form-field");
       await expect(river.dispatch.act({ action: "form.input", tile: plainColumn.name, args: { key: JSON.stringify({ kind: "paste", text: "an answer" }) } }, USER)).rejects.toThrow("form-field");
+    } finally { app.pop(); }
+  }, 30_000);
+
+
+  test("a long form answer is edited at the text drawn in its box (PIE-1212)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "forms" }, as: "test-agent" });
+    await until(() => screen().includes("book *"), "the form before its long answer");
+    const answer = Array.from({ length: 80 }, (_, n) => String(n).padStart(3, "0")).join(" ");
+    for (const [field, value] of [["pages", "272"], ["mood", "slow"], ["book", answer]]) {
+      await app.dispatch.act({ action: "form.set", tile: "reader", args: { field, value } }, USER);
+    }
+    await app.dispatch.act({ action: "form.leave", tile: "reader" }, USER);
+    const rows = screen().split("\n"), y = rows.findIndex(row => row.includes("│ book *"));
+    const start = rows[y]!.indexOf("│", rows[y]!.indexOf("book *")) + 1;
+    const shown = rows[y]!.slice(start, rows[y]!.indexOf("│", start)).trimEnd();
+    const from = answer.indexOf(shown.slice(0, 8));
+    expect(from).toBeGreaterThanOrEqual(0);
+    const x = start + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    ch("@");
+    press({ kind: "enter" });
+    const expected = answer.slice(0, from + 2) + "@" + answer.slice(from + 2);
+    await untilAsync(async () => (await board.children(seeded.notes.formReading.id)).some(m => m.text === `${expected} [book::${expected}] [pages::272] [mood::slow]`), "the answer edited at its visible text");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+
+  test("a field named run can be filled and submitted (PIE-1212)", async () => {
+    const note = await board.createBlock(null, "Trail log\n[form-field::run text required]\n[form-field::distance number]");
+    const desk = new Desk({ name: "named-form", title: "Trail log", layout: { focus: "reader", root: { t: "leaf", kind: "reader", name: "reader" } } });
+    app.push(desk);
+    try {
+      await desk.dispatch.act({ action: "open", args: { id: note.id } }, USER);
+      await until(() => desk.render(app).lines.map(plain).join("\n").includes("run *"), "the form with a run field");
+      await desk.dispatch.act({ action: "form.focus", tile: "reader", args: { field: "run" } }, USER);
+      press({ kind: "paste", text: "Morning loop" });
+      press({ kind: "tab" });
+      press({ kind: "paste", text: "5" });
+      press({ kind: "enter" });
+      await untilAsync(async () => (await board.children(note.id)).some(m => m.text === "Morning loop [run::Morning loop] [distance::5]"), "the run field's submitted answer");
     } finally { app.pop(); }
   }, 30_000);
 

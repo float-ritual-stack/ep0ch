@@ -3,7 +3,7 @@ import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { chipRows } from "./chip-rows";
 import { Draft } from "../edit";
 import { USER, type Actor } from "../socket";
-import { fg, C, pad, RESET, width } from "../style";
+import { fg, C, pad, RESET, visible, width } from "../style";
 import { ActionRefused, asBoundKey, keyName, shownLine } from "./actions";
 import { printable, wrap } from "../text";
 import { editorLineKey } from "./editor";
@@ -52,8 +52,9 @@ export class NoteForm {
     if (!this.fields.some(f => f.name === field)) throw new ActionRefused(`the form has no field ${field}; choose ${this.fields.map(f => f.name).join(", ")}`);
     const d = this.draft(field, actor);
     d.splice(0, d.text.length, value, {}, actor);
-    this.warnings.delete(this.party(actor));
+    this.clearWarning(actor);
   }
+  clearWarning(actor: Actor) { this.warnings.delete(this.party(actor)); }
   warning(actor: Actor, text: string) { this.warnings.set(this.party(actor), text); }
   check(actor: Actor) {
     const missing = this.fields.find(f => f.required && !this.draft(f.name, actor).text.trim());
@@ -78,7 +79,11 @@ export class NoteForm {
   }
   input(key: Key, copy: (text: string) => void) {
     const field = this.fields[this.focus];
-    if (field && field.type !== "choice") editorLineKey(this.draft(field.name), key, copy);
+    if (field && field.type !== "choice") {
+      const draft = this.draft(field.name), before = draft.text;
+      editorLineKey(draft, key, copy);
+      if (draft.text !== before) this.clearWarning(USER);
+    }
   }
   draw(w: number, active: boolean, tag: (field: string, text: string, act: string) => string): string[] {
     const inner = Math.max(16, w - 4), labelWidth = Math.min(16, Math.max(...this.fields.map(f => width(f.name) + (f.required ? 2 : 0))) + 2);
@@ -97,14 +102,15 @@ export class NoteForm {
       } else {
         const box = field.type === "number" ? Math.min(10, room) : room;
         line(" ".repeat(labelWidth) + "┌" + "─".repeat(box) + "┐");
-        const text = active && this.focus === index ? d.render(box, 1)[0] ?? "" : printable(d.text);
+        const drawn = d.render(box, 1)[0] ?? "";
+        const text = active && this.focus === index ? drawn : printable(visible(drawn));
         line(label + "│" + tag(field.name, pad(text, box), shownLine("form.focus", { field: field.name })) + "│");
         line(" ".repeat(labelWidth) + "└" + "─".repeat(box) + "┘");
       }
     });
     const indent = " ".repeat(labelWidth), button = "Fill in the form";
     line(indent + "┌" + "─".repeat(width(button) + 2) + "┐");
-    line(indent + "│ " + tag("run", button, "form.submit") + " │");
+    line(indent + "│ " + tag("@submit", button, "form.submit") + " │");
     line(indent + "└" + "─".repeat(width(button) + 2) + "┘");
     const warning = this.warnings.get("user");
     if (warning) line(fg(C.yellow) + printable(warning) + RESET);

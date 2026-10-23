@@ -916,7 +916,7 @@ export class NoteSurface {
   focusForm(field: string, host: SurfaceHost) {
     const form = this.form;
     if (!form) throw new ActionRefused("this note has no form-field properties");
-    form.focus = field === "run" ? form.fields.length : form.fields.findIndex(f => f.name === field);
+    form.focus = field === "@submit" ? form.fields.length : form.fields.findIndex(f => f.name === field);
     if (form.focus < 0) throw new ActionRefused(`the form has no field ${field}`);
     const mode: ReaderMode<SurfaceHost> = {
       name: "form", of: form, word: "form", noun: "the form", holdsKeys: true,
@@ -925,7 +925,7 @@ export class NoteSurface {
       click: () => undefined, rows: () => null,
       leave: async () => { this.modes.drop("form"); return { left: "closed" }; },
       hint: () => "filling the form",
-      state: () => "form", describe: () => ({ focus: form.fields[form.focus]?.name ?? "run", answers: form.values(USER) }),
+      state: () => "form", describe: () => ({ focus: form.fields[form.focus]?.name ?? "@submit", answers: form.values(USER) }),
     };
     this.modes.push(mode);
     const element = this.elems.find(e => e.link?.form?.field === field);
@@ -9037,7 +9037,7 @@ const FLOAT_MOVE_ARGS = {
 export const NOTE_ACTIONS = actionSet<On>()("note", {
   "form.focus": def({
     summary: "fill a field in the note's form", touches: "tile", replay: "safe", person: "the person's form focus",
-    args: { field: { type: "string", about: "field name, or run" } },
+    args: { field: { type: "string", about: "field name, or @submit" } },
     examples: [{ act: "form.focus field=book", does: "starts filling the book field in this note" }],
     run({ field }, { surface, host }) { surface.focusForm(field, host); },
   }),
@@ -9045,7 +9045,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "move between the form's fields", keys: modeActionKeys([FORM_KEYS], "form.move"), touches: "tile", replay: "safe", person: "the person's form focus",
     args: { by: { type: "number", about: "1 next, -1 previous" } },
     examples: [{ act: "form.move by=1", does: "moves to the next form field, keeping the answers" }],
-    run({ by }, { surface, host }) { const f = surface.form; if (!f) throw new ActionRefused("this note has no form-field properties; write [form-field::name text] in its edit"); const at = (f.focus + by + f.fields.length + 1) % (f.fields.length + 1); surface.focusForm(f.fields[at]?.name ?? "run", host); },
+    run({ by }, { surface, host }) { const f = surface.form; if (!f) throw new ActionRefused("this note has no form-field properties; write [form-field::name text] in its edit"); const at = (f.focus + by + f.fields.length + 1) % (f.fields.length + 1); surface.focusForm(f.fields[at]?.name ?? "@submit", host); },
   }),
   "form.leave": def({
     summary: "leave the form with its answers kept", keys: modeActionKeys([FORM_KEYS], "form.leave"), touches: "tile", replay: "safe", person: "the person's form focus", args: {},
@@ -9079,7 +9079,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (f.busy) throw new ActionRefused("the form is still submitting");
       f.busy = true;
       try {
-        return await host.ctx.dispatch!.act({ action: "ext.form.fill", args: { block: f.block, with: JSON.stringify(f.values(actor)) } }, actor);
+        const result = await host.ctx.dispatch!.act({ action: "ext.form.fill", args: { block: f.block, with: JSON.stringify(f.values(actor)) } }, actor);
+        f.clearWarning(actor);
+        return result;
       } catch (error) { f.warning(actor, error instanceof Error ? error.message : String(error)); throw error; }
       finally { f.busy = false; host.redraw(); }
     },
