@@ -5,6 +5,8 @@
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { openScreen } from "../../src/desk/screen-specs";
+import type { Desk } from "../../src/desk/desk";
 import { App } from "../../src/app";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
@@ -181,6 +183,24 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     expect((await board.get(reading))!.text).toContain("[form-field::book text required]");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
+
+
+  test("the form draws and submits from a river column (PIE-1212)", async () => {
+    const river = openScreen("river") as Desk;
+    app.push(river);
+    try {
+      const opened = await river.dispatch.act({ action: "open", args: { id: seeded.notes.formReading.id } }, USER) as { name: string };
+      await river.dispatch.act({ action: "tile.focus", tile: opened.name }, USER);
+      const drawn = () => river.render(app).lines.map(plain).join("\n");
+      await until(() => drawn().includes("book *"), "the form in the river's compact reader", 3000);
+      await river.dispatch.act({ action: "form.focus", tile: opened.name, args: { field: "book" } }, USER);
+      press({ kind: "paste", text: "The Left Hand of Darkness" });
+      press({ kind: "tab" });
+      press({ kind: "paste", text: "304" });
+      press({ kind: "enter" });
+      await untilAsync(async () => (await board.children(seeded.notes.formReading.id)).some(m => m.text === "The Left Hand of Darkness [book::The Left Hand of Darkness] [pages::304] [mood::slow]"), "the river form's submitted child");
+    } finally { app.pop(); }
+  }, 30_000);
 
 
   test("forms (PIE-828): one action, two notes, two forms; the person answers the reading log's in the power bar by keys, an agent the repairs' in with=; each writes a child with its own chips", async () => {

@@ -902,9 +902,9 @@ export class NoteSurface {
   private splitDrag: SplitFrame | null = null;
   private besideRect: { x: number; y: number; w: number; h: number } | null = null;
   private readonly forms = new Map<string, NoteForm>();
-  get form(): NoteForm | null {
-    const m = this.msg;
-    if (!m || !isOutlineNote(m)) return null;
+  get form(): NoteForm | null { return this.msg ? this.formOf(this.msg) : null; }
+  private formOf(m: Msg): NoteForm | null {
+    if (!isOutlineNote(m)) return null;
     let form = this.forms.get(m.id);
     if (!form) {
       form = new NoteForm(m.id, m.text);
@@ -920,7 +920,7 @@ export class NoteSurface {
     if (form.focus < 0) throw new ActionRefused(`the form has no field ${field}`);
     const mode: ReaderMode<SurfaceHost> = {
       name: "form", of: form, word: "form", noun: "the form", holdsKeys: true,
-      keys: FORM_KEYS, ended: () => this.msg?.id !== form.block, editing: () => false, covers: () => false,
+      keys: FORM_KEYS, ended: () => this.msg?.id !== form.block, editing: () => true, covers: () => false,
       key: (k, h) => form.key(k, (action, args) => { void this.runKey(action as keyof NoteActionArgs, args ?? {}, h); }),
       click: () => undefined, rows: () => null,
       leave: async () => { this.modes.drop("form"); return { left: "closed" }; },
@@ -2223,15 +2223,6 @@ export class NoteSurface {
         plan.place.set(line, { end: line + 1, draw: width => ({ rows: replace.flatMap(({ p }) => extensionRegion(p, width, now, (to, text) => tagged(drawn, to, text), extDraw, book).rows) }) });
         regions.set(line, ps.filter(p => !replace.includes(p)));
       }
-      const form = !this.raw ? this.form : null;
-      if (form) {
-        const at = bodyText.length - 1;
-        const after = plan.after.get(at) ?? [];
-        after.push(width => form.draw(width, this.modes.get("form")?.of === form, (field, text, act) => tagged(drawn, {
-          role: "control", label: field, form: { field }, press: { act: `${act} tile=${m.id}`, block: m.id, line: 0 },
-        }, text)));
-        plan.after.set(at, after);
-      }
       return regions.size || view || plan.after.size || plan.place.size ? {
         ...(plan.place.size ? {
           decorate: (line: number, width: number) => {
@@ -2377,7 +2368,7 @@ export class NoteSurface {
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
   private body(m: Msg, env: DocEnv, src: Source | null, drawn: Link[], tokens?: ReturnType<typeof resourceTokensOf>, more?: (text: string, lines: readonly number[]) => Partial<DocEnv>) {
     let { text, points, lines, literal } = this.foldsIn(m);
-    const form = !this.raw ? this.form : null;
+    const form = !this.raw ? this.formOf(m) : null;
     if (form) {
       const body = text.split("\n");
       for (const chip of [...form.chips].reverse()) {
@@ -2394,6 +2385,14 @@ export class NoteSurface {
     const blocks: LinkBlockInfo[] = [];
     this.linkBlocksDrawn = blocks;
     const { preview, spanPreview, ...hooks } = this.bodyHooks(m, lines, env, src, drawn);
+    const additions = withBeside(more?.(text, lines) ?? {}, this.besideRegions(m, lines, src, preview));
+    const after = additions.after, lastFormLine = text.split("\n").length - 1;
+    if (form) additions.after = (line, width) => joinRows([
+      after?.(line, width) ?? [],
+      ...(line === lastFormLine ? [form.draw(width, this.modes.get("form")?.of === form, (field, value, act) => tagged(drawn, {
+        role: "control", label: field, form: { field }, press: { act: `${act} tile=${m.id}`, block: m.id, line: 0 },
+      }, value))] : []),
+    ]);
     const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), {
       ...env, literal, ...hooks, ...(isOutlineNote(m) ? { outputs: new Map(findOutputRegions(text).map(r => [r.startLine, r])) } : {}),
       linkBlocks: this.printed ? undefined : {
@@ -2418,7 +2417,7 @@ export class NoteSurface {
         seen: f => figures.push(f),
       },
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
-      ...withBeside(more?.(text, lines) ?? {}, this.besideRegions(m, lines, src, preview)),
+      ...additions,
     });
     return { doc, points, lines };
   }
