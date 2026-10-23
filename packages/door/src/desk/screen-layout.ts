@@ -173,7 +173,7 @@ export interface Ctx<I = number> {
 
 /** Where a new or moved tile goes. A drag's places, plus: into a named line (`in`), the next column of a flow, a float. */
 export type At<I = number> = Place<I>
-  | { kind: "in"; key: string; index?: number; weight?: number }
+  | { kind: "in"; key: string; node?: string; index?: number; weight?: number }
   | { kind: "next"; from: I }
   | { kind: "float"; rect?: Rect; near?: I };
 
@@ -207,7 +207,7 @@ export type Op<I = number> =
   | { op: "shares"; split: string; shares: number[] }
   | { op: "grow"; tile: I; axis: Axis; by: number }
   | { op: "even" }
-  | { op: "gather"; tile: I; node?: string; side: "left" | "right" | "sides" }
+  | { op: "gather"; tile: I; node?: string; side: "left" | "right" | "sides" | "centre" }
   | { op: "lock"; on?: boolean }
   /** What an agent may do to tile `tile` (PIE-639): its own level, or (`level` null) the containers' and the screen's again. */
   | { op: "agents"; tile: I; level: AgentLevel | null }
@@ -599,7 +599,9 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
           return cover === undefined || cover === "spine" ? leaves(k).map(t => [t, true] as const) : [];
         })) : s.collapsed;
         const edge = row?.dir === "row" ? spineEdge(row, folded, target, space.spines, before) : null;
-        result.keep = { tile: target, at: { kind: "split", target: edge?.target ?? target, dir: edge?.dir ?? (before ? "left" : "right") } };
+        result.keep = { tile: target, at: row?.t === "split" && row.key && edge
+          ? { kind: "in", key: row.key, node: row.id, index: row.kids.findIndex(k => leaves(k).includes(edge.target)) + (edge.dir === "right" ? 1 : 0) }
+          : { kind: "split", target: edge?.target ?? target, dir: edge?.dir ?? (before ? "left" : "right") } };
       }
     }
   }
@@ -784,7 +786,7 @@ class Step<I> {
       e = effective([{ by: "screen", policy: this.d.policy }, ...(this.d.tree.t !== "leaf" ? [{ by: this.d.tree.id ?? this.d.tree.t, policy: this.d.tree.policy }] : [])]);
       there = `the ${to.dir} edge`;
     } else if (to.kind === "in") {
-      const line = node(this.d.tree, to.key);
+      const line = to.node ? nodeById(this.d.tree, to.node) : node(this.d.tree, to.key);
       if (!line) refuse(`there's no ${to.key} in the layout for ${label}`);
       e = this.ofNode(line!); there = to.key;
     } else if (to.kind === "next") {
@@ -977,7 +979,10 @@ class Step<I> {
     else if (at.kind === "edge") this.d.tree = edge(t, id, at.dir);
     else if (at.kind === "tabs") this.d.tree = tabInto(t, at.target, id, at.index);
     else if (at.kind === "split") this.d.tree = besideSlot(t, at.target, leaf(id), at.dir, at.weight ?? 0.5, !!at.pair);
-    else if (at.kind === "in") this.d.tree = insert(t, at.key, leaf(id), at.weight ?? 1, at.index);
+    else if (at.kind === "in") {
+      const target = at.node ? nodeById(t, at.node)! : node(t, at.key)!;
+      this.d.tree = replaceNode(t, target, insert(target, at.key, leaf(id), at.weight ?? 1, at.index));
+    }
     else if (at.kind === "next") {
       const f = flowHolding(t, at.from)!;
       f.flow.kids.splice(f.ci + 1, 0, leaf(id)); f.flow.weights.splice(f.ci + 1, 0, 1);
@@ -1012,6 +1017,10 @@ class Step<I> {
         else this.reveal(dest.tile);
         if (plan.keys !== undefined) this.give(plan.keys);
       }
+      if (plan.keep || dest.kind === "new") {
+        const row = parentOf(this.d.tree, plan.keep?.tile ?? op.tile)?.parent;
+        if (row && isLine(row) && row.t !== "flow" && this.ofNode(row).spines === "centre") this.centreSpines(row);
+      }
       this.d.answer = { placement: plan };
       return;
     }
@@ -1032,6 +1041,8 @@ class Step<I> {
     } else {
       const wasShown = shown(this.d.tree);
       this.putAt(op.tile, op.at);
+      const row = parentOf(this.d.tree, op.tile)?.parent;
+      if (row && isLine(row) && row.t !== "flow" && this.ofNode(row).spines === "centre") this.centreSpines(row);
       // An agent's new tab is added without being shown over the tab the person has there.
       if (this.agent && wasShown.includes(this.d.focus) && !shown(this.d.tree).includes(this.d.focus)) activate(this.d.tree, this.d.focus);
       if (op.at.kind === "next") {
@@ -1540,7 +1551,7 @@ class Step<I> {
     flow.sides = [...hidden.filter(s => s.side === "left"), ...visible, ...hidden.filter(s => s.side === "right")];
   }
 
-  private gather(id: I, side: "left" | "right" | "sides", node?: string) {
+  private gather(id: I, side: "left" | "right" | "sides" | "centre", node?: string) {
     const row = node ? nodeById(this.d.tree, node) : parentOf(this.d.tree, id)?.parent;
     if (!row || !isLine(row) || row.dir !== "row") refuse(`${this.name(id)} needs a row or flow to gather spines`);
     const r = row as Line<I>;
@@ -1549,7 +1560,7 @@ class Step<I> {
     for (const t of leaves(r)) this.drag(t);
     if (r.t === "flow") {
       if (side === "sides") this.rememberFlowSides(r);
-      r.policy = { ...r.policy, spines: side === "left" ? "start" : side === "right" ? "end" : "book" };
+      r.policy = { ...r.policy, spines: side === "left" ? "start" : side === "right" ? "end" : side === "centre" ? "centre" : "book" };
       this.d.answer = { side, node: r.id, spines: r.policy.spines };
       return;
     }
@@ -1563,9 +1574,20 @@ class Step<I> {
       const box = boxes.get(leaves(k)[0]!);
       (side === "left" || side === "sides" && box && box.col + box.cols / 2 < middle ? left : right).push(k);
     }
-    this.reorder(r, [...left, ...open, ...right]);
-    r.policy = { ...r.policy, spines: side === "left" ? "start" : side === "right" ? "end" : "book" };
+    if (side === "centre") this.centreSpines(r);
+    else this.reorder(r, [...left, ...open, ...right]);
+    r.policy = { ...r.policy, spines: side === "left" ? "start" : side === "right" ? "end" : side === "centre" ? "centre" : "book" };
     this.d.answer = { side, node: r.id, spines: r.policy.spines };
+  }
+
+  private centreSpines(row: Line<I>) {
+    if (row.dir !== "row") return;
+    const left: LNode<I>[] = [], open: LNode<I>[] = [], right: LNode<I>[] = [];
+    for (const k of row.kids) {
+      if (!this.folded(k)) open.push(k);
+      else (spineEdge(row, this.d.collapsed, leaves(k)[0]!, "centre")?.dir === "left" ? left : right).push(k);
+    }
+    this.reorder(row, [...left, ...open, ...right]);
   }
 
   /** All ways of opening a row's spine share the room afresh, rather than restoring its old weight. */
@@ -1621,6 +1643,7 @@ class Step<I> {
         rest.splice(at, 0, oldest); this.reorder(row, rest);
       }
     }
+    if (e.spines === "centre") this.centreSpines(row);
     const share = room() / sharing().length;
     row.weights = row.kids.map(k => keptSizes.get(k) ?? (this.folded(k) ? 1 : share));
     this.touch(id);

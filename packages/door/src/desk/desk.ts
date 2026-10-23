@@ -10,7 +10,7 @@ import { HintCard, hintStatus, MOVE_HINT, RESIZE_HINT, GATHER_HINT, CONFIRM_HINT
 import { revealOn, type Reveal } from "../reveal";
 import { rowLines, withRowLimit } from "../text";
 import { readNote, outlineBoards } from "./outline-boards";
-import { MIN_ROWS, type AltRule } from "./layout";
+import { MIN_ROWS, SPINES, type AltRule } from "./layout";
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 // The desk: the door owns the whole canvas, and the canvas is tiles (PIE-413). A tile is a view (the outline
 // tree, a reader, a detail, a preview, a program in a terminal, a whole screen) in the layout tree: split,
@@ -4749,8 +4749,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       rows.splice(1, 0, ...sizes);
     }
     if (node && isLine(node) && node.dir === "row") {
-      const spines = ["book", "start", "end", "invoker"] as const;
-      rows.push({ label: "spines · book, left, right, or toward the invoker", value: at.spines,
+      const spines = SPINES;
+      rows.push({ label: "spines · book, left, right, centre, or toward the invoker", value: at.spines,
         run: () => set({ spines: spines[(spines.indexOf(at.spines) + 1) % spines.length] }) });
       rows.push({ label: "min-width · open page width (0 keeps all open)", value: String(at["min-width"]),
         run: () => set({ clear: "min-width" }), adjust: by => set({ "min-width": Math.max(0, at["min-width"] + by) }) });
@@ -5954,7 +5954,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return r.answer as { split: string | undefined; path: string; border: number; share: number; tiles: string[] };
   }
 
-  gatherSpines(sel: string | undefined, side: "left" | "right" | "sides", actor: Actor, node?: string) {
+  gatherSpines(sel: string | undefined, side: "left" | "right" | "sides" | "centre", actor: Actor, node?: string) {
     const t = this.tile(sel);
     const r = this.apply({ op: "gather", tile: t.id, side, node }, actor);
     this.save(); this.redraw(); return r.answer;

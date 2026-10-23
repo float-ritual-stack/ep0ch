@@ -171,18 +171,28 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const stage = () => S().stages.get(S().sel).top as any;
     const tiles = () => { screen(); return (stage().describe().panes as any[]).slice().sort((a, b) => a.rect.col - b.rect.col); };
     const act = (action: string, args: Record<string, unknown>) => stage().dispatch.act({ action, tile: "cedar", args }, USER);
-    await act("layout.gather", { side: "left" });
-    expect(tiles().slice(0, 3).every(t => t.collapsed)).toBe(true);
-    press({ kind: "enter" });
-    await stage().dispatch.press("tile.focus", {}, "cedar");
-    press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "}" });
-    expect(tiles().slice(-3).every(t => t.collapsed)).toBe(true);
     const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
-    await stage().dispatch.press("tile.menu", { q: "gather spines to the sides" }, "cedar");
-    const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("gather spines to the sides") && l.includes("^W"));
-    expect(y).toBeGreaterThan(0);
-    click(lines[y]!.indexOf("gather spines to the sides") + 3, y);
-    await until(() => stage().policyGet("cedar").effective.spines === "book", "the menu's gather action");
+    const check = (left: number, right: number) => {
+      const order = tiles(), open = order.filter(t => !t.collapsed);
+      expect(order.indexOf(open[0])).toBe(left);
+      expect(order.length - order.indexOf(open.at(-1)) - 1).toBe(right);
+    };
+    press({ kind: "enter" });
+    for (const [label, side, key, left, right] of [
+      ["align left", "right", "{", 0, 14], ["align centre", "centre", "|", 7, 7], ["align right", "left", "}", 14, 0],
+    ] as const) {
+      await act("layout.gather", { side }); check(left, right);
+      await act("layout.gather", { side: "sides" });
+      await stage().dispatch.press("tile.focus", {}, "cedar");
+      press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: key });
+      check(left, right);
+      await act("layout.gather", { side: "sides" });
+      await stage().dispatch.press("tile.menu", { q: label }, "cedar");
+      const lines = screen().split("\n"), y = lines.findIndex(l => l.includes(label) && l.includes("^W"));
+      expect(y).toBeGreaterThan(0);
+      click(lines[y]!.indexOf(label) + 3, y);
+      check(left, right);
+    }
     // Left gather makes an outer spine with another spine between it and the open pages.
     await act("layout.gather", { side: "left" });
     const outer = tiles()[0], at = S().stageRect;

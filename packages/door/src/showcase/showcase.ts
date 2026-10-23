@@ -356,16 +356,16 @@ export const SECTIONS: Section[] = [
     key: "book-spines", need: "keep open pages together, with spines gathered like an open book",
     part: "the container's spines and min-width policy, placement(), the shared unfold path and layout.gather; the same layout tree on a screen or in a group",
     files: "src/desk/screen-layout.ts, src/desk/layout.ts, src/desk/tile-actions.ts, src/desk/wkeys.ts",
-    aside: "Two pages open in the spread, page edges at the sides. Click a spine: it joins the spread with an even share. Below min-width (40), the page touched longest ago folds to its own side. A hand fold stays where it is. The container menu and policy panel offer gather left, right and to the sides; gathers stick as spines=start, end or book. invoker keeps the old placement toward the tile an open came from.",
+    aside: "Two pages open in the spread, page edges at the sides. Click a spine: it joins the spread with an even share. Below min-width (40), the page touched longest ago folds to its own side. A hand fold stays where it is. The container menu offers align left (^W {), centre (^W |) and right (^W }). Centre splits spines evenly, with an odd one on the right. The alignment sticks as spines=end, centre or start; sides keeps book placement. invoker keeps the old placement toward the tile an open came from.",
     stage(n, show) {
-      const readers = Array.from({ length: 5 }, () => { const r = new ReaderPane(true); r.holdOn(); return r; });
-      const names = ["birch", "cedar", "elm", "fir", "oak"];
-      const notes = [n.notebook, n.shed, n.whiteboard, n.notebook, n.shed];
+      const readers = Array.from({ length: 16 }, () => { const r = new ReaderPane(true); r.holdOn(); return r; });
+      const names = ["birch", "cedar", "elm", "fir", "oak", ...Array.from({ length: 11 }, (_, i) => `page-${i + 1}`)];
+      const notes = readers.map((_, i) => [n.notebook, n.shed, n.whiteboard][i % 3]);
       return deskOf({ title: "showcase · book spines", panes: readers, names,
         layout: ids => ({ t: "split", dir: "row", key: "spread", kids: ids.map(leaf), weights: ids.map(() => 1), policy: { spines: "book", "min-width": 40 } }),
       }, show, readers.map((r, i) => [r, notes[i]]), d => {
-        for (const name of ["birch", "elm", "oak"]) d.collapseTile(name, true, USER);
-        d.gatherSpines("cedar", "sides", USER);
+        for (const name of names.filter(name => name !== "cedar" && name !== "fir")) d.collapseTile(name, true, USER);
+        d.gatherSpines("cedar", "centre", USER);
       });
     },
   },
