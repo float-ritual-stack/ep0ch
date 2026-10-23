@@ -8,6 +8,7 @@ import {atomicDocument,concatDocuments,sliceDocument,type MappedDocument} from '
 import {DocumentFrame,documentGlyphs,generatedGlyphs,wrapDocumentGlyphs,type DocumentGlyph,type GlyphStyle} from './document-frame';
 import {COLUMN_BREAK,DETAIL_ROW_LANGUAGE} from './detail-rows';
 import {blockdownMarked} from './blockdown-marked';
+import {parseStyleAttrs,resolveStyle} from '@ep0ch/outline-core/style-cascade';
 
 const parser=new Marked(blockdownMarked);
 type Row=DocumentGlyph[];
@@ -123,6 +124,7 @@ function blockInline(source:MappedDocument,token:Token):{source:MappedDocument;s
 type LayoutNode = (
   | {kind:'flow';glyphs:DocumentGlyph[]}
   | {kind:'quote';children:LayoutNode[]}
+  | {kind:'box';children:LayoutNode[];fields:Record<string,string>}
   | {kind:'list';items:{marker:DocumentGlyph[];children:LayoutNode[]}[];loose:boolean}
   | {kind:'code';lines:DocumentGlyph[][];language:string}
   /** A component's row (src/detail-rows.ts): its children side by side when each gets `min` cells, else stacked. */
@@ -178,6 +180,12 @@ function compileBlocks(document:MappedDocument,path:string,definitions:Links|und
     const next=tokens[index+1]?.type;
     const blankAfter=Boolean(next&&next!=='space'&&token.type!=='list'&&(token.type!=='paragraph'||next!=='list'));
     if(token.type==='def')continue;
+    if(token.type==='noteBox') {
+      const children=compileBlocks(sliceDocument(source,token.bodyStart,token.bodyEnd),nodePath,tokens.links);
+      if(!children)return null;
+      const fields=parseStyleAttrs(token.attrs).fields;
+      nodes.push({kind:'box',children,fields,blankAfter});continue;
+    }
     if(token.type==='space'){
       // Hidden reference definitions do not introduce a second visual gap.
       if(tokens[index-1]?.type!=='def')nodes.push({kind:'flow',glyphs:[],blankAfter:false});
@@ -347,7 +355,23 @@ function layout(nodes:readonly LayoutNode[],width:number,theme:MarkdownTheme,lis
   const rows:Row[]=[];
   for(const node of nodes) {
     if(node.kind==='flow')rows.push(...wrapDocumentGlyphs(node.glyphs,width));
-    else if(node.kind==='quote') {
+    else if(node.kind==='box') {
+      const v=resolveStyle([{level:'block',label:'box',fields:{'margin.x':'0',...node.fields}}],width).values;
+      const mx=Math.min(v['margin.x'],Math.max(0,Math.floor((width-10)/2))),px=Math.min(v['pad.x'],Math.max(0,Math.floor((width-2*mx-4)/2)));
+      const framed=width-2*(mx+px)>=10&&(v.border!=='auto'&&v.border!=='none'||v.edge==='box');
+      const left=mx+px+Number(framed),inner=Math.max(1,width-2*left);
+      const decoration=(text:string)=>generatedGlyphs(text,'box frame and spacing',false,['quoteBorder']);
+      const round=v.border==='round';
+      const border=(top:boolean)=>decoration(' '.repeat(mx)+(round?(top?'╭':'╰'):(top?'┌':'└'))+'─'.repeat(Math.max(0,width-2*mx-2))+(round?(top?'╮':'╯'):(top?'┐':'┘')));
+      const row=(content:Row)=>[...decoration(' '.repeat(mx)+(framed?'│':'')+' '.repeat(px)),...content,...decoration(' '.repeat(Math.max(0,inner-glyphWidth(content))+px)+(framed?'│':''))];
+      for(let i=0;i<v['margin.y'];i++)rows.push([]);
+      if(framed)rows.push(border(true));
+      for(let i=0;i<v['pad.y'];i++)rows.push(row([]));
+      rows.push(...layout(node.children,inner,theme).map(row));
+      for(let i=0;i<v['pad.y'];i++)rows.push(row([]));
+      if(framed)rows.push(border(false));
+      for(let i=0;i<v['margin.y'];i++)rows.push([]);
+    } else if(node.kind==='quote') {
       const prefix=width>=3?generatedGlyphs('│ ','quote border',false,['quoteBorder']):[];
       const children=layout(node.children,Math.max(1,width-glyphWidth(prefix)),theme);
       while(children.length&&!children.at(-1)!.length)children.pop();

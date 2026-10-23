@@ -1,6 +1,7 @@
 import {Marked, Tokenizer, type Token, type Tokens} from 'marked';
 import {COMPONENT_OPEN, componentBlockAt} from '@ep0ch/outline-core/component-block';
 import type {PreviewSourceSpan} from './detail-preview-regions';
+import {boxExtension} from './blockdown-marked';
 
 // A component block (`::graph-stat` … `::`) is one opaque token: its `---` lines are YAML fences, not setext
 // headings, so sections and folds run through it (outline-core's component-block rule). `start` lets one cut a
@@ -21,7 +22,7 @@ function componentLineIn(src: string): number {
   return -1;
 }
 const parser = new Marked({
-  extensions: [{
+  extensions: [boxExtension, {
     name: 'component', level: 'block',
     // Where a paragraph must be cut: the first line, before its blank line, that opens a component block. It reads
     // only the paragraph (marked asks before each one) and never cuts at an opener that opens nothing (plain text).
@@ -36,7 +37,7 @@ const parser = new Marked({
     },
     tokenizer: (src: string) => {
       const block = componentBlockAt(src);
-      return block ? {type: 'component', raw: block.raw, name: block.name} : undefined;
+      return block && block.name !== 'box' ? {type: 'component', raw: block.raw, name: block.name} : undefined;
     },
     renderer: () => '',
   }],
@@ -143,7 +144,8 @@ export function markdownSourceTokens(source: string): MarkdownSourceToken[] {
       const finish = last === undefined ? begin : last + (source[last] === '\r' && source[last + 1] === '\n' ? 2 : 1);
       const node: MarkdownSourceToken = {token, span: {start: begin, end: finish, startLine: lineAt(begin), endLine: lineAt(Math.max(begin, finish - 1))}, children: []};
       const localMap = map.slice(start, end + 1);
-      if (token.type === 'list') node.children = visit(input.slice(start, end), localMap, token.items);
+      if (token.type === 'noteBox') node.children = visit(token.raw.slice(token.bodyStart, token.bodyEnd), localMap.slice(token.bodyStart, token.bodyEnd + 1), token.tokens ?? []);
+      else if (token.type === 'list') node.children = visit(input.slice(start, end), localMap, token.items);
       else if (token.type === 'list_item' || token.type === 'blockquote') {
         const mapped = childOffsets(input.slice(start, end), token.text, localMap);
         if (mapped) node.children = visit(token.text, mapped, token.tokens ?? []);

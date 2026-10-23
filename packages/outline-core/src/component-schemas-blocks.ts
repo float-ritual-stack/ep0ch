@@ -47,7 +47,7 @@ const boxInt = (key: string, meaning: string, base: number, max: number): PropSc
 const BOX: ComponentSchema = {
   id: "box", group: "layout",
   title: "Box (::box)",
-  intro: "A block of a note drawn with spacing and list looks of its own: the lines inside are laid out by the same reader with the box as the block level of the look, inset by its margin and padding. The attributes are the style tokens (`margin.x`, `pad.y`, `list.gap`…) written in braces on the opening line; the box closes with `::`. The look is drawn, never text: copying across it copies the lines.",
+  intro: "A container for the note's own content: values read this note, bold and links render as outside, and components and figures can nest inside. The same reader lays out its body, inset by the box's margin and padding. The attributes are the style tokens (`margin.x`, `pad.y`, `list.gap`…) written in braces on the opening line; the box closes with `::`. The look is drawn, never text: copying across it copies the lines.",
   where: "a `::box{…}` line, its attributes in braces, and the lines to the closing `::`",
   props: [
     boxInt("margin.x", "columns either side of the box's lines", 0, 12),

@@ -521,7 +521,17 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const ink = v.tone === "neutral" ? fgRgb(theme().edge.tile) : fg(TONE[v.tone]);
       const off = i + 1, end = boxed.end, inside = (n: number) => n > i && n < end;
       const sub = renderDoc(src.slice(i + 1, end).join("\n"), {
-        ...env, nested: true, width: inner, keepTags: true, embed: undefined, after: undefined, task: undefined, decorate: undefined, look: { values: v, layers, width: at, ...(look?.lists ? { lists: (n: number, f: Readonly<Record<string, string>>) => look.lists!(n + off, f) } : {}) },
+        ...env, nested: true, width: inner, keepTags: true,
+        embed: env.embed && ((id, fragment, _n, width) => env.embed!(id, fragment, embeds++, width)),
+        after: env.after && ((n, width) => env.after!(n + off, width)),
+        task: env.task && ((n, box) => env.task!(n + off, box)),
+        use: env.use && ((call, n, width) => env.use!(call, n + off, width)),
+        button: env.button && ((call, n, width) => env.button!(call, n + off, width)),
+        callout: env.callout && ((n, block) => env.callout!(n + off, block)),
+        image: env.image && ((n, control, text) => env.image!(n + off, control, text)),
+        decorate: env.decorate && ((n, width) => { const d = env.decorate!(n + off, width); return d && { ...d, end: d.end - off }; }),
+        outputs: env.outputs && new Map([...env.outputs].filter(([n]) => inside(n)).map(([n, region]) => [n - off, region])),
+        look: { values: v, layers, width: at, ...(look?.lists ? { lists: (n: number, f: Readonly<Record<string, string>>) => look.lists!(n + off, f) } : {}) },
         literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
         folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: Math.min(p.end, end) - off })) },
       });
@@ -553,6 +563,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       adoptMedia(sub, base, left, off);
       if (framed) drawn(frameEdge(g.bl, g.br), 1, end);
       drawn("", my, end);
+      inserted = end;
       i = end;
       continue;
     }

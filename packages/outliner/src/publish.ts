@@ -372,7 +372,7 @@ const markdownRenderer: Marked = new Marked({
   ...blockdownMarked,
   gfm: true,
   // A callout (`> [!type] Title`) is a box; any other quote stays a quote.
-  extensions: [calloutExtension(() => activeCallouts)],
+  extensions: [...(blockdownMarked.extensions ?? []), calloutExtension(() => activeCallouts)],
   renderer: {
     html({ text }) {
       return escapeHtml(text);

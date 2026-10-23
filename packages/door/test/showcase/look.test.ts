@@ -212,6 +212,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "style" }, as: "test-agent" })).toMatchObject({ key: "style" });
     await until(() => screen().includes("Broad beans") && screen().includes("╭"), "the lab's boxes", 8000);
+    await until(() => screen().includes("Live beans from Headings and dividers"), "the box's live value and link", 8000);
     const raw = () => sc.render(app).lines;
     const labPane = () => S().stage(SECTIONS.findIndex(s => s.key === "style")).top.pane("lab") as any;
     const peekHeader = () => labPane()?.surface.headerBackdrop() as { backdrop: { image: string; focus?: { x: number; y: number } } | null } | undefined;

@@ -263,6 +263,26 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
     }, 30_000);
   }
 
+  test("a day link inside a framed box opens through act and a mouse click", async () => {
+    const target = await create(null, "Tomorrow's garden [page::box-next]\nWater the seedlings.");
+    const source = await create(null, "Garden today\n::box{border=round pad.x=1}\n<< [[box-next|Next garden]] >>\n::");
+    const d = await door(120, board, { id: source.id, drawn: "Next garden" });
+    try {
+      await d.desk.openTile({ kind: "tree" }, "detail", "right", { kind: "user" });
+      await d.desk.dispatch.press("tile.focus", {}, "tree");
+      const elements = await d.app.act({ action: "elements", tile: "detail", as: "look-agent" }) as { elements: { n: number; label: string }[] };
+      const link = elements.elements.find(e => e.label.includes("Next garden"))!;
+      expect(link).toBeDefined();
+      await d.app.act({ action: "element.open", args: { n: link.n }, tile: "detail", as: "look-agent" });
+      await until(() => d.reader().msg?.id === target.id, "act opened the box's link");
+      await d.app.act({ action: "open", args: { id: source.id }, tile: "detail", as: "look-agent" });
+      await until(() => d.lines().some(l => l.includes("Next garden")), "back to the box");
+      const p = d.where("Next garden");
+      d.mouse("down", p.x + 2, p.y); d.mouse("up", p.x + 2, p.y);
+      await until(() => d.reader().msg?.id === target.id, "the mouse opened the same target");
+    } finally { d.close(); }
+  }, 30_000);
+
   test("a press in the padding or beside the measure is the nearest cell of the text; a click on the first character after the margin places the edit's cursor there; a paste lands at it", async () => {
     const d = await door(120);
     try {
