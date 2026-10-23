@@ -478,7 +478,7 @@
         { "r": "door", "p": "src/desk/layout.ts", "l": 32, "m": "export interface Policy" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 874, "m": "export function effective" },
         { "r": "door", "p": "src/desk/flow.ts", "l": 36, "m": "export function squeeze" },
-        { "r": "door", "p": "src/desk/flow.ts", "l": 90, "m": "export function placeFlow" },
+        { "r": "door", "p": "src/desk/flow.ts", "l": 94, "m": "export function placeFlow" },
         { "r": "door", "p": "src/desk/drop.ts", "l": 42, "m": "export function dropAt" }
       ]
     },
