@@ -72,7 +72,7 @@ async function setup(busy: Busy = () => false) {
 test("a render script's output on a page says hidden here when the script read a note the page may not show", async () => {
   const { store, draw, tailnet, publicly } = await setup();
   const quiet = store.create("Gate codes [code::4471]");
-  const locked = store.create("Vault codes [publish::never] [code::9023]");
+  const locked = store.create("Vault codes [publish::never] [code::zq-vault-code]");
   const page = store.create([
     "Shed report [publish::public:shed-report]",
     `::= (await resolve('((${quiet.id})).code')).values[0]`,
@@ -83,10 +83,10 @@ test("a render script's output on a page says hidden here when the script read a
   // The tailnet page shows an untagged note, never a locked one; the public page shows neither.
   const inside = await tailnet("shed-report");
   expect(inside).toContain("4471");
-  expect(inside).not.toContain("9023");
+  expect(inside).not.toContain("zq-vault-code");
   const outside = await publicly("shed-report");
   expect(outside).not.toContain("4471");
-  expect(outside).not.toContain("9023");
+  expect(outside).not.toContain("zq-vault-code");
   expect(outside).toContain("hidden here");
 });
 
@@ -109,14 +109,14 @@ test("an ::if over a relation never lets its body say what a note the page may n
 test("a render script reads only the children the page may show", async () => {
   const { store, draw, tailnet, publicly } = await setup();
   const parent = store.create("Seed shelf [publish::public:shelf]");
-  store.create("Vault codes [publish::never] [code::9023]", parent.id);
+  store.create("Vault codes [publish::never] [code::zq-vault-code]", parent.id);
   const reader = store.create("Peek [script::peek] [mode::render] [publish::public]\n```js\nreturn JSON.stringify(await read(\"" + parent.id + "\", { depth: 1 }));\n```");
   const page = store.create("Shelf view [publish::public:shelf-view]\npeek::", null, "user");
   void reader;
   await draw(page.id);
   await until("the line drawn", () => store.extensionOutputs(page.id).filter(row => row.result).length === 1);
   for (const html of [await tailnet("shelf-view"), await publicly("shelf-view")]) {
-    expect(html).not.toContain("9023");
+    expect(html).not.toContain("zq-vault-code");
     expect(html).toContain("&quot;children&quot;:[]");
     expect(html).toContain("&quot;complete&quot;:true");
   }
