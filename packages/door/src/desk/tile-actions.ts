@@ -566,6 +566,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { label: "gather spines right", group: "Container", key: "ctrl+w }", args: { side: "right" } },
       { label: "gather spines to the sides", group: "Container", key: "ctrl+w |", args: { side: "sides" } },
     ],
+    examples: [
+      { act: "layout.gather tile=reader side=left", does: "gathers this row's spines on the left and keeps that policy" },
+      { act: "layout.gather tile=reader side=sides", does: "gathers each spine at its nearer edge and keeps book policy" },
+    ],
     run({ side, node }, { d, reader }, actor) { return d.gatherSpines(reader, side as "left" | "right" | "sides", actor, node); },
   }),
   "layout.even": def({

@@ -968,11 +968,22 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
         expect(spines.length).toBeGreaterThan(0);
         expect(order.indexOf(open.at(-1)!) - order.indexOf(open[0]!), JSON.stringify(order.map(t => [t.name, t.collapsed]))).toBe(open.length - 1);
         if (side === "left") expect(order.slice(0, spines.length).every(t => t.cover === "spine")).toBe(true);
-        if (side === "right") expect(order.slice(-spines.length).every(t => t.cover === "spine")).toBe(true);
+        if (side === "right" || side === "sides") expect(order.slice(-spines.length).every(t => t.cover === "spine")).toBe(true);
         const full = order.filter(t => t.cover === "full");
         expect(full.length).toBeGreaterThan(1);
         expect(Math.max(...full.map(t => t.rect!.cols)) - Math.min(...full.map(t => t.rect!.cols))).toBeLessThanOrEqual(1);
       }
+      const width = tiles().reduce((sum, t) => sum + t.rect!.cols, 0);
+      await act("layout.policy", ids.cedar, { "min-width": Math.floor((width - (names.length - 2) * 3) / 2) });
+      await act("layout.gather", ids.cedar, { side: "left" });
+      const before = tiles(), full = before.filter(t => t.cover === "full");
+      const arriving = before.find(t => t.cover === "spine")!;
+      await act("tile.focus", full.at(-1)!.tile!);
+      await act("tile.widen", arriving.tile!);
+      const after = tiles(), folded = after.find(t => full.some(f => f.tile === t.tile) && t.cover === "spine")!;
+      expect(folded).toBeDefined();
+      const stack = after.filter(t => t.cover === "spine" && t.rect!.col < after.find(t => t.cover === "full")!.rect!.col);
+      expect(stack.at(-1)!.tile).toBe(folded.tile);
       await act("layout.policy", ids.cedar, { clear: "min-width" });
       const defaultWidth = tiles().map(t => [t.tile, t.cover, t.rect]);
       await act("layout.policy", ids.cedar, { "min-width": 40 });

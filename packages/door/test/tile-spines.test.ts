@@ -58,7 +58,7 @@ describe.skipIf(!outliner)("tile spines: one click folds a tile, a click on the 
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EDITOR"]) delete process.env[k];
   });
 
-  test("the tile menu folds a tile; clicking the spine restores its size", async () => {
+  test("the tile menu folds a tile; clicking the spine opens a readable share", async () => {
     const side = names().find(n => D().foldDirOf([...D().names].find(([, x]: [number, string]) => x === n)![0]) === "v")!;
     const before = rect(side);
     await clickFold(side);
@@ -66,7 +66,7 @@ describe.skipIf(!outliner)("tile spines: one click folds a tile, a click on the 
     expect(rect(side).cols).toBe(3);
     click(rect(side).col + 1, rect(side).row + 3);
     expect(tile(side).collapsed).toBeUndefined();
-    expect(rect(side)).toEqual(before);
+    expect(rect(side).cols).toBeGreaterThanOrEqual(40);
   });
 
   test("keys: alt+h folds the focused tile and opens it again, alt+H folds it to a horizontal spine", () => {

@@ -173,9 +173,10 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     const d0 = B().details[0] as ReaderPane;
     await whole(d0);
     key({ kind: "esc" }); key(char("j")); key({ kind: "alt-enter" });          // detail 2, focused
-    const d1 = B().details[1] as ReaderPane;
+    const d1 = B().details[B().active] as ReaderPane;
+    const kept = B().details.find((p: ReaderPane) => p !== d1) as ReaderPane;
     await whole(d1);
-    expect(BV.where(b)).toBe("detail1");
+    expect(BV.where(b)).toBe(`detail${B().details.indexOf(d1)}`);
     key(char("e"));
     await until(() => !!d1.draft, "the person's draft");
     await Bun.sleep(20);
@@ -183,9 +184,9 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     // stay in their edit, and their detail is never the one folded.
     expect(await act("open", { id: cards.gate.id })).toMatchObject({ id: cards.gate.id });
     expect(B().details).toContain(d1);
-    expect(B().details).toContain(d0);
+    expect(B().details).toContain(kept);
     expect(BV.where(b)).toBe(`detail${B().details.indexOf(d1)}`);
-    expect(B().details.at(-1).msg.id).toBe(cards.gate.id);
+    expect(B().details.some((p: ReaderPane) => p.msg?.id === cards.gate.id)).toBe(true);
     expect((b as any).collapsed.has((b as any).idOf(d1))).toBe(false);
     const text = d1.draft!.text;
     key(char("t")); key(char("o"));                                           // board keys (outline, pop out) if they leaked
@@ -199,7 +200,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     const p0 = B().details[0] as ReaderPane;
     await whole(p0);
     key({ kind: "esc" }); key(char("j")); key({ kind: "alt-enter" });
-    const p1 = B().details[1] as ReaderPane;
+    const p1 = B().details.find((p: ReaderPane) => p !== p0) as ReaderPane;
     await mine("tile.focus", {}, nm(p0));
     key(char("i"));
     expect(p0.surface.panel).not.toBeNull();

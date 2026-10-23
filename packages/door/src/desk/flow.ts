@@ -48,7 +48,7 @@ export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean
   const cover = new Map<number, Cover>(shown.map(i => [i, "spine"]));
   let spare = width - shown.length * SPINE;
   const recent = (i: number) => Math.max(-1, ...leaves(f.kids[i]!).map(id => (f.recent ?? []).indexOf(id)));
-  const rank = (i: number) => i === anchor ? -4 : held.has(i) || busy(i) ? -3 : recent(i) >= 0 ? -2 + 1 / (recent(i) + 2) : i === keep ? 0.25 : Math.abs(i - anchor);
+  const rank = (i: number) => i === anchor ? -4 : busy(i) ? -3 : recent(i) >= 0 ? -2 + 1 / (recent(i) + 2) : i === keep ? 0.25 : held.has(i) ? 0.5 : Math.abs(i - anchor);
   for (const i of [...shown].sort((a, b) => rank(a) - rank(b) || b - a)) {
     if (spare >= FULL - SPINE) { cover.set(i, "full"); spare -= FULL - SPINE; }
     else if (spare >= PEEK - SPINE) { cover.set(i, "peek"); spare -= PEEK - SPINE; }
@@ -69,11 +69,16 @@ export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean
     full.forEach((i, n) => w.set(i, Math.floor(room / full.length) + (n < room % full.length ? 1 : 0)));
   }
   const open = shown.filter(i => cover.get(i) !== "spine");
-  const spines = shown.filter(i => cover.get(i) === "spine");
+  const position = (i: number) => f.sides?.findIndex(s => leaves(f.kids[i]!).includes(s.tile)) ?? -1;
+  const spines = shown.filter(i => cover.get(i) === "spine").sort((a, b) => {
+    const x = position(a), y = position(b);
+    return x >= 0 && y >= 0 ? x - y : a - b;
+  });
   const middle = open.length ? (open[0]! + open.at(-1)!) / 2 : anchor;
+  const left = (i: number) => { const side = f.sides?.find(s => leaves(f.kids[i]!).includes(s.tile)); return side ? side.side === "left" : i < middle; };
   const order = policy.spines === "invoker" ? shown : policy.spines === "start" ? [...spines, ...open]
     : policy.spines === "end" ? [...open, ...spines]
-    : [...spines.filter(i => i < middle), ...open, ...spines.filter(i => i >= middle)];
+    : [...spines.filter(left), ...open, ...spines.filter(i => !left(i))];
   return order.map(i => ({ i, cover: cover.get(i)!, width: w.get(i)!, natural: cover.get(i) === "peek" ? Math.max(w.get(i)!, FULL) : w.get(i)! }));
 }
 
@@ -200,6 +205,7 @@ export function tidyFlow<I>(f: Flow<I>): Flow<I> {
   const out: Flow<I> = { ...f };
   for (const k of ["anchor", "keep", "read"] as const) if (out[k] !== undefined && !here.has(out[k]!)) delete out[k];
   if (out.anchor === undefined && out.kids.length) out.anchor = tileOfColumn(out, 0);
+  if (out.sides) { out.sides = out.sides.filter(s => here.has(s.tile)); if (!out.sides.length) delete out.sides; }
   if (out.recent) { out.recent = out.recent.filter(id => here.has(id)); if (!out.recent.length) delete out.recent; }
   if (out.held) { out.held = out.held.filter(id => here.has(id)); if (!out.held.length) delete out.held; }
   if (out.trail) {

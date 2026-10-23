@@ -142,7 +142,10 @@ export type Flow<I = number> = {
   t: "flow"; dir: "row"; kids: LNode<I>[]; weights: number[];
   anchor?: I; keep?: I; read?: I; held?: I[];
   /** Touch order at the last open/widen; ordinary focus never changes the spread. */
-  recent?: I[]; trail?: { tile: I; from?: I; ahead?: I }[];
+  recent?: I[];
+  /** Each page's side before an explicit layout change. */
+  sides?: { tile: I; side: "left" | "right" }[];
+  trail?: { tile: I; from?: I; ahead?: I }[];
   key?: string; id?: string; policy?: Policy;
 };
 const hasPolicy = (n: { policy?: Policy }) => !!n.policy && Object.keys(n.policy).length > 0;
@@ -447,6 +450,7 @@ export function swapLeaf<I>(n: LNode<I>, from: I, to: I): boolean {
     n.anchor = was(n.anchor); n.keep = was(n.keep); n.read = was(n.read);
     if (n.held) n.held = n.held.map(x => was(x)!);
     if (n.recent) n.recent = n.recent.map(x => was(x)!);
+    if (n.sides) n.sides = n.sides.map(s => ({ ...s, tile: was(s.tile)! }));
     if (n.trail) n.trail = n.trail.map(t => ({ tile: was(t.tile)!, ...(t.from !== undefined ? { from: was(t.from) } : {}), ...(t.ahead !== undefined ? { ahead: was(t.ahead) } : {}) }));
   }
   return kidsOf(n).some(k => swapLeaf(k, from, to));
@@ -900,7 +904,7 @@ export function clone<I>(n: LNode<I>): LNode<I> {
   if (n.t === "leaf") return { t: "leaf", id: n.id };
   if (n.t === "tabs") return { t: "tabs", ids: [...n.ids], active: n.active, ...idOf(n) };
   if (n.t === "dock") return { ...n, kid: clone(n.kid), ...idOf(n) };
-  if (n.t === "flow") return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...(n.held ? { held: [...n.held] } : {}), ...(n.recent ? { recent: [...n.recent] } : {}), ...(n.trail ? { trail: n.trail.map(t => ({ ...t })) } : {}), ...idOf(n) };
+  if (n.t === "flow") return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...(n.held ? { held: [...n.held] } : {}), ...(n.recent ? { recent: [...n.recent] } : {}), ...(n.sides ? { sides: n.sides.map(s => ({ ...s })) } : {}), ...(n.trail ? { trail: n.trail.map(t => ({ ...t })) } : {}), ...idOf(n) };
   return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...idOf(n) } as LNode<I>;
 }
 
@@ -973,7 +977,7 @@ export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weig
  * A flow as saved (PIE-513): its columns, and its memory by column number (0 the first): the wide one, the one kept
  * full, the one read before, the held ones, and each column's way back (`from`) and forward (`ahead`).
  */
-export type FlowForm<L> = { t: "flow"; kids: NaryForm<L>[]; anchor?: number; keep?: number; read?: number; held?: number[]; recent?: number[]; trail?: { col: number; from?: number; ahead?: number }[]; key?: string; id?: string; policy?: Policy };
+export type FlowForm<L> = { t: "flow"; kids: NaryForm<L>[]; anchor?: number; keep?: number; read?: number; held?: number[]; recent?: number[]; sides?: { col: number; side: "left" | "right" }[]; trail?: { col: number; from?: number; ahead?: number }[]; key?: string; id?: string; policy?: Policy };
 /** Columns as saved (PIE-511): its tiles as they were last filled, its weights, and where its tiles come from. */
 export type ColumnsForm<L> = { t: "columns"; kids: NaryForm<L>[]; weights: number[]; source?: string; key?: string; id?: string; policy?: Policy };
 /** A tab set as saved: its tiles and which one is shown. `id` (a split's too): absent in a form saved before PIE-491. */
@@ -1026,6 +1030,10 @@ export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L
     const held = (Array.isArray(x.held) ? x.held : []).map(col).filter((t: I | undefined): t is I => t !== undefined);
     if (held.length) f.held = held;
     if (Array.isArray(x.recent)) f.recent = x.recent.map(col).filter((t: I | undefined): t is I => t !== undefined);
+    if (Array.isArray(x.sides)) f.sides = x.sides.flatMap((s: any) => {
+      const tile = col(s?.col);
+      return tile !== undefined && (s.side === "left" || s.side === "right") ? [{ tile, side: s.side }] : [];
+    });
     const trail = (Array.isArray(x.trail) ? x.trail : []).map((t: any) => ({ tile: col(t?.col), from: col(t?.from), ahead: col(t?.ahead) })).filter((t: any) => t.tile !== undefined)
       .map((t: any) => ({ tile: t.tile as I, ...(t.from !== undefined ? { from: t.from as I } : {}), ...(t.ahead !== undefined ? { ahead: t.ahead as I } : {}) }));
     if (trail.length) f.trail = trail;
@@ -1070,7 +1078,8 @@ export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): NaryForm<L> 
     const recent = (n.recent ?? []).map(col).filter(i => i >= 0);
     const trail = (n.trail ?? []).map(t => ({ col: col(t.tile), from: at(t.from), ahead: at(t.ahead) })).filter(t => t.col >= 0 && (t.from !== undefined || t.ahead !== undefined))
       .map(t => ({ col: t.col, ...(t.from !== undefined ? { from: t.from } : {}), ...(t.ahead !== undefined ? { ahead: t.ahead } : {}) }));
-    const memory = { ...(recent.length ? { recent } : {}), ...(at(n.anchor) !== undefined ? { anchor: at(n.anchor) } : {}), ...(at(n.keep) !== undefined ? { keep: at(n.keep) } : {}), ...(at(n.read) !== undefined ? { read: at(n.read) } : {}), ...(held.length ? { held } : {}), ...(trail.length ? { trail } : {}) };
+    const sides = (n.sides ?? []).flatMap(s => { const i = col(s.tile); return i >= 0 ? [{ col: i, side: s.side }] : []; });
+    const memory = { ...(sides.length ? { sides } : {}), ...(recent.length ? { recent } : {}), ...(at(n.anchor) !== undefined ? { anchor: at(n.anchor) } : {}), ...(at(n.keep) !== undefined ? { keep: at(n.keep) } : {}), ...(at(n.read) !== undefined ? { read: at(n.read) } : {}), ...(held.length ? { held } : {}), ...(trail.length ? { trail } : {}) };
     return { t: "flow", kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), ...memory, ...(n.key ? { key: n.key } : {}), ...idOf(n) };
   }
   return { t: "split", dir: n.dir, kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.key ? { key: n.key } : {}), ...(n.pair ? { pair: true as const } : {}), ...idOf(n) };

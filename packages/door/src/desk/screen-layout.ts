@@ -609,6 +609,7 @@ function spineEdge<I>(row: Line<I>, collapsed: ReadonlyMap<I, Fold>, id: I, poli
   const others = open.filter(n => n !== i);
   const spread = mode === "unfold" ? others : open;
   const left = policy === "start" || policy === "book" && (spread.length ? i <= (spread[0]! + spread.at(-1)!) / 2 : before);
+  if (mode === "unfold" && policy === "book" && others.length && i > others[0]! && i < others.at(-1)!) return null;
   const edge = left ? others[0] : others.at(-1);
   // Keeping a page beside its replacement uses that tile when it is already the spread's edge.
   if (mode === "unfold" && edge === undefined) return null;
@@ -1054,7 +1055,7 @@ class Step<I> {
     if (!this.agent && op.keys !== false) {
       const from = op.at.kind === "next" ? op.at.from : undefined;
       this.give(op.tile);
-      if (from !== undefined) { const f = flowHolding(this.d.tree, op.tile)!; arrive(f.flow, f.ci, columnOf(f.flow, from), coversOf(this.d, f.flow, this.ctx.area, id => !!this.facts(id).holds), this.d.touched); }
+      if (from !== undefined) { const f = flowHolding(this.d.tree, op.tile)!; this.rememberFlowSides(f.flow); arrive(f.flow, f.ci, columnOf(f.flow, from), coversOf(this.d, f.flow, this.ctx.area, id => !!this.facts(id).holds), this.d.touched); }
     }
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
@@ -1069,6 +1070,7 @@ class Step<I> {
     const fromCol = columnOf(f!.flow, from);
     if (fromCol >= 0 && fromCol !== f!.ci) setFrom(f!.flow, f!.ci, from);
     if (keys) this.give(id);
+    this.rememberFlowSides(f!.flow);
     arrive(f!.flow, f!.ci, fromCol, coversOf(this.d, f!.flow, this.ctx.area, x => !!this.facts(x).holds), this.d.touched);
   }
   /** The person's keys go to tile `id`; in a flow, the column they leave is the one they were reading. */
@@ -1538,6 +1540,17 @@ class Step<I> {
     row.weights = order.map(k => weights.get(k)!);
   }
 
+  private rememberFlowSides(flow: Flow<I>) {
+    const placed = place(this.d, this.ctx.area, id => !!this.facts(id).holds);
+    const at = [...(placed.flows ?? []), ...placed.slid.flatMap(d => d.placed.flows ?? [])].find(f => f.node.id === flow.id);
+    if (!at) return;
+    const middle = at.rect.col + at.rect.cols / 2;
+    const visible = at.cols.flatMap(c => leaves(flow.kids[c.i]!).map(tile => ({ tile, side: c.rect.col + c.rect.cols / 2 < middle ? "left" as const : "right" as const })));
+    const shown = new Set(visible.map(s => s.tile));
+    const hidden = (flow.sides ?? []).filter(s => !shown.has(s.tile));
+    flow.sides = [...hidden.filter(s => s.side === "left"), ...visible, ...hidden.filter(s => s.side === "right")];
+  }
+
   private gather(id: I, side: "left" | "right" | "sides", node?: string) {
     const row = node ? nodeById(this.d.tree, node) : parentOf(this.d.tree, id)?.parent;
     if (!row || !isLine(row) || row.dir !== "row") refuse(`${this.name(id)} needs a row or flow to gather spines`);
@@ -1546,6 +1559,7 @@ class Step<I> {
     if (policy.locked && !this.yolo) refuse(this.lockedWhy(policy, "gathering spines"));
     for (const t of leaves(r)) this.drag(t);
     if (r.t === "flow") {
+      if (side === "sides") this.rememberFlowSides(r);
       r.policy = { ...r.policy, spines: side === "left" ? "start" : side === "right" ? "end" : "book" };
       this.d.answer = { side, node: r.id, spines: r.policy.spines };
       return;
@@ -1619,7 +1633,7 @@ class Step<I> {
     const f = flowHolding(this.d.tree, id);
     this.d.changed = !!f;
     this.d.answer = { folded: [] };
-    if (f) widenFlow(f.flow, f.ci, this.d.touched);
+    if (f) { this.rememberFlowSides(f.flow); widenFlow(f.flow, f.ci, this.d.touched); }
   }
 
   private resizeBorder(op: Extract<Op<I>, { op: "resize" }>) {
@@ -1885,6 +1899,7 @@ class Step<I> {
     const typing = this.ctx.person.typingIn;
     if (this.ctx.protectTyping && typing !== null && typing !== id && columnOf(f.flow, typing) >= 0) refuse(`the person is typing in ${this.name(typing)}, a column of this flow; an agent's widen would squeeze it (block.mark gets their attention)`);
     const before = f.flow.anchor;
+    this.rememberFlowSides(f.flow);
     widenFlow(f.flow, f.ci, this.d.touched);
     if (f.flow.anchor === before) this.d.changed = false;
     this.d.answer = { wide: true };
@@ -1901,7 +1916,7 @@ class Step<I> {
     if (dir < 0) setAhead(f.flow, to, f.ci);
     f.flow.read = tileOfColumn(f.flow, f.ci);
     this.d.focus = tileOfColumn(f.flow, to)!;
-    if (coversOf(this.d, f.flow, this.ctx.area, x => !!this.facts(x).holds).get(to) !== "full") widenFlow(f.flow, to, this.d.touched);
+    if (coversOf(this.d, f.flow, this.ctx.area, x => !!this.facts(x).holds).get(to) !== "full") { this.rememberFlowSides(f.flow); widenFlow(f.flow, to, this.d.touched); }
     this.d.answer = { tile: this.name(this.d.focus) };
   }
   /** Hold the tile's column (it resists compression, as the river's `p` does) or let it go; default toggles. */
