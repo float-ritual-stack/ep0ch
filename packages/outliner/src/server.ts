@@ -1973,8 +1973,10 @@ export class OutlinerServer {
         } }, block, section.text);
       }
       const { replaceSection, allowStructural, ...update } = request;
-      const response: OutlinerResponse = section.text === block.text && block.revision === request.expectedRevision
-        ? { id: request.id, ok: true, result: block, sequence: this.store.sequence }
+      // A save that landed during the structure check is not a no-op: the update below refuses the stale revision.
+      const now = this.store.require(request.blockId);
+      const response: OutlinerResponse = section.text === block.text && now.revision === block.revision && block.revision === request.expectedRevision
+        ? { id: request.id, ok: true, result: now, sequence: this.store.sequence }
         : this.handle({ ...update, text: section.text }, subscribedClient);
       if (response.ok) response.result = { ...(response.result as Block), section: { heading: section.heading, previous: section.previous } };
       return response;
