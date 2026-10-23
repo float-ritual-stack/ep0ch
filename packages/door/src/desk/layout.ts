@@ -26,7 +26,14 @@ export type Axis = "row" | "col";
  * What a container allows (PIE-505), saved with the screen. Left out, a field is what the container around it
  * says (the screen's policy is the outermost); `locked` anywhere above locks everything under it.
  */
+export type Spines = "book" | "start" | "end" | "invoker";
+export const SPINES: readonly Spines[] = ["book", "start", "end", "invoker"];
+
 export interface Policy {
+  /** Where automatically folded pages gather; hand folds stay where they are. */
+  spines?: Spines;
+  /** Least width of an open page before the least recently touched one folds; 0 keeps all open. */
+  "min-width"?: number;
   /** Its tiles can be dragged out (layout.move, layout.swap). */
   draggable?: boolean;
   /** It takes tiles moved or opened into it. */
@@ -91,7 +98,7 @@ export type HostMode = "beside" | "over" | "none";
 export type AltRule = "beside" | "tab" | "tile" | "first-unheld";
 export const ALT_RULES: readonly AltRule[] = ["beside", "tab", "tile", "first-unheld"];
 export type OpenRule = "current" | "next" | "beside";
-export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents"] as const;
+export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "altOpens", "host", "readable", "shuts", "agents", "spines", "min-width"] as const;
 /** The width a reader opened beside others still gets before earlier ones fold to spines, when no policy says (PIE-794). */
 export const READABLE = 48;
 
@@ -133,7 +140,9 @@ export type Dock<I = number> = { t: "dock"; kid: LNode<I>; edge: Dir; open: bool
  */
 export type Flow<I = number> = {
   t: "flow"; dir: "row"; kids: LNode<I>[]; weights: number[];
-  anchor?: I; keep?: I; read?: I; held?: I[]; trail?: { tile: I; from?: I; ahead?: I }[];
+  anchor?: I; keep?: I; read?: I; held?: I[];
+  /** Touch order at the last open/widen; ordinary focus never changes the spread. */
+  recent?: I[]; trail?: { tile: I; from?: I; ahead?: I }[];
   key?: string; id?: string; policy?: Policy;
 };
 const hasPolicy = (n: { policy?: Policy }) => !!n.policy && Object.keys(n.policy).length > 0;
@@ -153,6 +162,7 @@ export const columnsOf = <I>(kids: LNode<I>[], o: { source?: string; key?: strin
 
 /** How a view sizes its panes as they're placed. */
 export interface PlaceOpts<I> {
+  flowPolicy?(flow: Flow<I>): Pick<Effective, "spines" | "min-width" | "readable" | "by">;
   /** A pane squeezed to this many cells along the split's axis (a spine): its share goes to the others. */
   fixed?(id: I, dir: Axis): number | undefined;
   /** The fewest cells a kid may have along its parent's axis (default 6 across a row, 3 down a col). */
@@ -436,6 +446,7 @@ export function swapLeaf<I>(n: LNode<I>, from: I, to: I): boolean {
     const was = (x: I | undefined) => (x === from ? to : x);
     n.anchor = was(n.anchor); n.keep = was(n.keep); n.read = was(n.read);
     if (n.held) n.held = n.held.map(x => was(x)!);
+    if (n.recent) n.recent = n.recent.map(x => was(x)!);
     if (n.trail) n.trail = n.trail.map(t => ({ tile: was(t.tile)!, ...(t.from !== undefined ? { from: was(t.from) } : {}), ...(t.ahead !== undefined ? { ahead: was(t.ahead) } : {}) }));
   }
   return kidsOf(n).some(k => swapLeaf(k, from, to));
@@ -838,6 +849,8 @@ export function unwrapDock<I>(root: LNode<I>, d: Dock<I>): LNode<I> {
 
 /** What applies to a tile, from the screen's policy down through its containers to its kind's default. */
 export interface Effective {
+  spines: Spines;
+  "min-width": number;
   locked: boolean; draggable: boolean; droppable: boolean; closable: boolean; resizable: boolean; collapsible: boolean;
   accepts: string[] | null; opensInto: string | null;
   /** What an agent may do to a tile under it (PIE-639): the nearest layer that says wins; `free` when none does. */
@@ -855,11 +868,13 @@ export interface Effective {
  * wins, and `locked` anywhere locks everything under it.
  */
 export function effective(layers: { by: string; policy?: Policy; flow?: boolean }[]): Effective {
-  const out: Effective = { locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, agents: "free", opens: "current", altOpens: "beside", readable: READABLE, by: {} };
+  const out: Effective = { spines: "book", "min-width": 40, locked: false, draggable: true, droppable: true, closable: true, resizable: true, collapsible: true, accepts: null, opensInto: null, agents: "free", opens: "current", altOpens: "beside", readable: READABLE, by: {} };
   for (const { by, policy: p, flow } of layers) {
     // A flow's own rule, when it says none: its tiles open into the next column.
     if (flow && !p?.opens) { out.opens = "next"; out.by.opens = by; }
     if (!p) continue;
+    if (p.spines) { out.spines = p.spines; out.by.spines = by; }
+    if (p["min-width"] !== undefined) { out["min-width"] = p["min-width"]; out.by["min-width"] = by; }
     if (p.altOpens) { out.altOpens = p.altOpens; out.by.altOpens = by; }
     if (p.opens) { out.opens = p.opens; out.by.opens = by; }
     if (p.locked) { out.locked = true; out.by.locked ??= by; }
@@ -885,7 +900,7 @@ export function clone<I>(n: LNode<I>): LNode<I> {
   if (n.t === "leaf") return { t: "leaf", id: n.id };
   if (n.t === "tabs") return { t: "tabs", ids: [...n.ids], active: n.active, ...idOf(n) };
   if (n.t === "dock") return { ...n, kid: clone(n.kid), ...idOf(n) };
-  if (n.t === "flow") return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...(n.held ? { held: [...n.held] } : {}), ...(n.trail ? { trail: n.trail.map(t => ({ ...t })) } : {}), ...idOf(n) };
+  if (n.t === "flow") return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...(n.held ? { held: [...n.held] } : {}), ...(n.recent ? { recent: [...n.recent] } : {}), ...(n.trail ? { trail: n.trail.map(t => ({ ...t })) } : {}), ...idOf(n) };
   return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...idOf(n) } as LNode<I>;
 }
 
@@ -958,7 +973,7 @@ export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weig
  * A flow as saved (PIE-513): its columns, and its memory by column number (0 the first): the wide one, the one kept
  * full, the one read before, the held ones, and each column's way back (`from`) and forward (`ahead`).
  */
-export type FlowForm<L> = { t: "flow"; kids: NaryForm<L>[]; anchor?: number; keep?: number; read?: number; held?: number[]; trail?: { col: number; from?: number; ahead?: number }[]; key?: string; id?: string; policy?: Policy };
+export type FlowForm<L> = { t: "flow"; kids: NaryForm<L>[]; anchor?: number; keep?: number; read?: number; held?: number[]; recent?: number[]; trail?: { col: number; from?: number; ahead?: number }[]; key?: string; id?: string; policy?: Policy };
 /** Columns as saved (PIE-511): its tiles as they were last filled, its weights, and where its tiles come from. */
 export type ColumnsForm<L> = { t: "columns"; kids: NaryForm<L>[]; weights: number[]; source?: string; key?: string; id?: string; policy?: Policy };
 /** A tab set as saved: its tiles and which one is shown. `id` (a split's too): absent in a form saved before PIE-491. */
@@ -984,10 +999,11 @@ export function policyOf(x: unknown): Policy {
   if (!x || typeof x !== "object") return out;
   const o = x as Record<string, unknown>;
   for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible", "overlay", "stays", "locked", "shuts"] as const) if (typeof o[k] === "boolean") out[k] = o[k] as boolean;
-  for (const k of ["min", "max", "fixed", "readable"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
+  for (const k of ["min", "max", "fixed", "readable", "min-width"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)).map(canonKind))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;
   if (o.opens === "current" || o.opens === "next" || o.opens === "beside") out.opens = o.opens;
+  if (SPINES.includes(o.spines as Spines)) out.spines = o.spines as Spines;
   if (ALT_RULES.includes(o.altOpens as AltRule)) out.altOpens = o.altOpens as AltRule;
   if (o.host === "beside" || o.host === "over" || o.host === "none") out.host = o.host;
   if (isAgentLevel(o.agents)) out.agents = o.agents;
@@ -1009,6 +1025,7 @@ export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L
     for (const k of ["anchor", "keep", "read"] as const) { const t = col(x[k]); if (t !== undefined) f[k] = t; }
     const held = (Array.isArray(x.held) ? x.held : []).map(col).filter((t: I | undefined): t is I => t !== undefined);
     if (held.length) f.held = held;
+    if (Array.isArray(x.recent)) f.recent = x.recent.map(col).filter((t: I | undefined): t is I => t !== undefined);
     const trail = (Array.isArray(x.trail) ? x.trail : []).map((t: any) => ({ tile: col(t?.col), from: col(t?.from), ahead: col(t?.ahead) })).filter((t: any) => t.tile !== undefined)
       .map((t: any) => ({ tile: t.tile as I, ...(t.from !== undefined ? { from: t.from as I } : {}), ...(t.ahead !== undefined ? { ahead: t.ahead as I } : {}) }));
     if (trail.length) f.trail = trail;
@@ -1050,9 +1067,10 @@ export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): NaryForm<L> 
     const col = (id: I | undefined) => columnOf(n, id);
     const at = (id: I | undefined) => { const i = col(id); return i >= 0 ? i : undefined; };
     const held = (n.held ?? []).map(col).filter(i => i >= 0);
+    const recent = (n.recent ?? []).map(col).filter(i => i >= 0);
     const trail = (n.trail ?? []).map(t => ({ col: col(t.tile), from: at(t.from), ahead: at(t.ahead) })).filter(t => t.col >= 0 && (t.from !== undefined || t.ahead !== undefined))
       .map(t => ({ col: t.col, ...(t.from !== undefined ? { from: t.from } : {}), ...(t.ahead !== undefined ? { ahead: t.ahead } : {}) }));
-    const memory = { ...(at(n.anchor) !== undefined ? { anchor: at(n.anchor) } : {}), ...(at(n.keep) !== undefined ? { keep: at(n.keep) } : {}), ...(at(n.read) !== undefined ? { read: at(n.read) } : {}), ...(held.length ? { held } : {}), ...(trail.length ? { trail } : {}) };
+    const memory = { ...(recent.length ? { recent } : {}), ...(at(n.anchor) !== undefined ? { anchor: at(n.anchor) } : {}), ...(at(n.keep) !== undefined ? { keep: at(n.keep) } : {}), ...(at(n.read) !== undefined ? { read: at(n.read) } : {}), ...(held.length ? { held } : {}), ...(trail.length ? { trail } : {}) };
     return { t: "flow", kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), ...memory, ...(n.key ? { key: n.key } : {}), ...idOf(n) };
   }
   return { t: "split", dir: n.dir, kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.key ? { key: n.key } : {}), ...(n.pair ? { pair: true as const } : {}), ...idOf(n) };

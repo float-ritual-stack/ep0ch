@@ -13,13 +13,11 @@
 // never reused), so the bookkeeping survives every tree change that keeps the tile.
 import type { Rect } from "../canvas";
 import { SPINE } from "../spine";
-import { leaves, type Flow, type LNode, type Placed, type PlaceOpts } from "./layout";
+import { effective, leaves, type Flow, type LNode, type Placed, type PlaceOpts } from "./layout";
 
 export type Cover = "full" | "peek" | "spine";
 /** A peek's width before the leftover room is shared out. */
 export const PEEK = 24;
-/** A full column's width in a flow `w` cells wide: about four tenths of it, between 40 and 76. */
-export const fullWidth = (w: number) => Math.max(40, Math.min(76, Math.round(w * 0.42)));
 
 /** The column (kid index) of the flow holding tile `id`, or -1. */
 export const columnOf = <I>(f: Flow<I>, id: I | undefined): number => (id === undefined ? -1 : f.kids.findIndex(k => leaves(k).includes(id)));
@@ -31,15 +29,15 @@ export interface PlacedColumn { i: number; cover: Cover; rect: Rect; box: Rect }
 
 /**
  * Where each column of the flow goes in `width` cells, built around the anchor (never around focus). The anchor
- * first, then the column the person was reading (`keep`), then held columns and those holding work, then by
+ * first, then held columns and those holding work, then the touch order captured by the last open, then by
  * distance; with too many even as spines, the ones nearest the anchor. Leftover room shows more of the peeks first,
  * then goes to the anchor, so the strip fills its room. River.layout(), as a pure function of the flow.
  */
-export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean): { i: number; cover: Cover; width: number; natural: number }[] {
+export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean, policy: Pick<ReturnType<typeof effective>, "spines" | "min-width" | "readable" | "by"> = effective([{ by: "flow", policy: f.policy }])): { i: number; cover: Cover; width: number; natural: number }[] {
   const n = f.kids.length;
   if (!n) return [];
   // Growth by room (PIE-794): the flow's `readable` is a full column's width, when it says one.
-  const FULL = f.policy?.readable ? Math.min(width, f.policy.readable) : fullWidth(width);
+  const FULL = Math.min(width, Math.max(SPINE, policy["min-width"] === 0 ? 0 : policy.by.readable ? Math.max(policy.readable, policy["min-width"]) : policy["min-width"]));
   const anchor = Math.max(0, columnOf(f, f.anchor));
   const keepAt = columnOf(f, f.keep);
   const keep = keepAt === anchor ? -1 : keepAt;
@@ -49,7 +47,8 @@ export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean
     .slice(0, Math.max(1, Math.floor(width / SPINE))).sort((a, b) => a - b);
   const cover = new Map<number, Cover>(shown.map(i => [i, "spine"]));
   let spare = width - shown.length * SPINE;
-  const rank = (i: number) => (i === anchor ? -1 : i === keep ? 0.25 : held.has(i) || busy(i) ? 0.5 : Math.abs(i - anchor));
+  const recent = (i: number) => Math.max(-1, ...leaves(f.kids[i]!).map(id => (f.recent ?? []).indexOf(id)));
+  const rank = (i: number) => i === anchor ? -4 : held.has(i) || busy(i) ? -3 : recent(i) >= 0 ? -2 + 1 / (recent(i) + 2) : i === keep ? 0.25 : Math.abs(i - anchor);
   for (const i of [...shown].sort((a, b) => rank(a) - rank(b) || b - a)) {
     if (spare >= FULL - SPINE) { cover.set(i, "full"); spare -= FULL - SPINE; }
     else if (spare >= PEEK - SPINE) { cover.set(i, "peek"); spare -= PEEK - SPINE; }
@@ -64,7 +63,18 @@ export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean
   // Narrower than one spine per column shown (a tiny terminal): the anchor gives way, so nothing lands off the room.
   const over = [...w.values()].reduce((a, x) => a + x, 0) - width;
   if (over > 0 && shown.includes(anchor)) w.set(anchor, Math.max(1, w.get(anchor)! - over));
-  return shown.map(i => ({ i, cover: cover.get(i)!, width: w.get(i)!, natural: cover.get(i) === "peek" ? Math.max(w.get(i)!, FULL) : w.get(i)! }));
+  const full = shown.filter(i => cover.get(i) === "full");
+  if (full.length > 1) {
+    const room = full.reduce((sum, i) => sum + w.get(i)!, 0);
+    full.forEach((i, n) => w.set(i, Math.floor(room / full.length) + (n < room % full.length ? 1 : 0)));
+  }
+  const open = shown.filter(i => cover.get(i) !== "spine");
+  const spines = shown.filter(i => cover.get(i) === "spine");
+  const middle = open.length ? (open[0]! + open.at(-1)!) / 2 : anchor;
+  const order = policy.spines === "invoker" ? shown : policy.spines === "start" ? [...spines, ...open]
+    : policy.spines === "end" ? [...open, ...spines]
+    : [...spines.filter(i => i < middle), ...open, ...spines.filter(i => i >= middle)];
+  return order.map(i => ({ i, cover: cover.get(i)!, width: w.get(i)!, natural: cover.get(i) === "peek" ? Math.max(w.get(i)!, FULL) : w.get(i)! }));
 }
 
 /**
@@ -76,7 +86,7 @@ export function placeFlow<I>(f: Flow<I>, r: Rect, opts: PlaceOpts<I>, out: Place
   if (f.key) out.nodes.set(f.key, r);
   const cols: PlacedColumn[] = [];
   let x = r.col;
-  for (const c of squeeze(f, r.cols, opts.holds)) {
+  for (const c of squeeze(f, r.cols, opts.holds, opts.flowPolicy?.(f))) {
     const rect: Rect = { ...r, col: x, cols: c.width }, box: Rect = { ...rect, cols: c.natural };
     const inner = place(f.kids[c.i]!, box, opts, { rects: new Map(), nodes: new Map(), dividers: [] });
     for (const [id, t] of inner.rects) {
@@ -137,9 +147,10 @@ export function setHeld<I>(f: Flow<I>, i: number, on: boolean) {
  * The explicit shift: column `ci` takes the wide place. The column the person was reading (`read`, else the old
  * wide one) stays full after it. Already the wide one: nothing moves. River.widen().
  */
-export function widen<I>(f: Flow<I>, ci: number) {
+export function widen<I>(f: Flow<I>, ci: number, touched: readonly I[] = []) {
   const anchor = Math.max(0, columnOf(f, f.anchor));
   if (!f.kids[ci] || ci === anchor) return;
+  f.recent = [...touched];
   const readAt = columnOf(f, f.read);
   const read = readAt >= 0 && readAt !== ci ? readAt : anchor;
   if (read !== ci) f.keep = tileOfColumn(f, read);
@@ -152,9 +163,10 @@ export function widen<I>(f: Flow<I>, ci: number) {
  * column already shows full and `from` stays full, nothing shifts; otherwise it takes the wide place and `from`
  * stays full beside it. `covers`: each column's cover now. River.place().
  */
-export function arrive<I>(f: Flow<I>, ci: number, from: number, covers: Map<number, Cover>) {
+export function arrive<I>(f: Flow<I>, ci: number, from: number, covers: Map<number, Cover>, touched: readonly I[] = []) {
   const full = (i: number) => covers.get(i) === "full";
   if (full(ci) && (from < 0 || full(from))) return;
+  f.recent = [...touched];
   f.anchor = tileOfColumn(f, ci);
   if (from >= 0 && from !== ci) f.keep = tileOfColumn(f, from); else delete f.keep;
 }
@@ -188,6 +200,7 @@ export function tidyFlow<I>(f: Flow<I>): Flow<I> {
   const out: Flow<I> = { ...f };
   for (const k of ["anchor", "keep", "read"] as const) if (out[k] !== undefined && !here.has(out[k]!)) delete out[k];
   if (out.anchor === undefined && out.kids.length) out.anchor = tileOfColumn(out, 0);
+  if (out.recent) { out.recent = out.recent.filter(id => here.has(id)); if (!out.recent.length) delete out.recent; }
   if (out.held) { out.held = out.held.filter(id => here.has(id)); if (!out.held.length) delete out.held; }
   if (out.trail) {
     out.trail = out.trail.filter(t => here.has(t.tile)).map(t => ({ tile: t.tile, ...(t.from !== undefined && here.has(t.from) ? { from: t.from } : {}), ...(t.ahead !== undefined && here.has(t.ahead) ? { ahead: t.ahead } : {}) })).filter(t => t.from !== undefined || t.ahead !== undefined);

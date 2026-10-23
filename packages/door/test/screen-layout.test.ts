@@ -721,7 +721,7 @@ for (const cols of [160, 250]) for (const target of [1, 2]) test(`placement keep
       if (!r.ok) throw new Error(r.refused);
       s = r.state;
       const kept = Array.from({ length: i + 1 }, (_, n) => 10 + n);
-      expect(leaves(s.tree)).toEqual(target === 1 ? [1, ...kept.reverse(), 2] : [1, ...kept, 2]);
+      expect(leaves(s.tree)).toEqual(target === 1 ? [...kept, 1, 2] : [1, 2, ...kept.reverse()]);
       expect([...s.collapsed.keys()]).toEqual(Array.from({ length: i + 1 }, (_, n) => 10 + n));
       expect(place(s, area).rects.get(other)).toEqual(fixed);
       expect(s.names.get(target)).toBe(target === 1 ? "left" : "right");

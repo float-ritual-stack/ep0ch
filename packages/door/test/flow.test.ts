@@ -21,7 +21,7 @@ const ctxOf = (actor: Actor, person: Partial<Person>): Ctx => ({ actor, standing
 /** A flow of `n` reader columns (tiles 1..n, "c1".."cn"), the wide one `anchor`. */
 function river(n: number, anchor = n): LayoutState {
   const ids = Array.from({ length: n }, (_, i) => i + 1);
-  return init({ tree: flowOf(ids.map(id => leaf(id)), { anchor }), names: new Map(ids.map(id => [id, `c${id}`])) });
+  return init({ tree: flowOf(ids.map(id => leaf(id)), { anchor, policy: { readable: 76 } }), names: new Map(ids.map(id => [id, `c${id}`])) });
 }
 function ok(s: LayoutState, op: Op, actor: Actor = PERSON, person: Partial<Person> = {}) {
   const r = apply(s, op, ctxOf(actor, person));

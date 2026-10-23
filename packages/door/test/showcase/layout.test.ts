@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { App } from "../../src/app";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
-import { SocketBoard } from "../../src/socket";
+import { USER, SocketBoard } from "../../src/socket";
 import { contrast, THEMES } from "../../src/theme";
 import { Mirror } from "../../src/mirror";
 import { hyperOn, useHyper } from "../../src/hyper";
@@ -164,7 +164,37 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   }, 60_000);
 
 
-  test("folds: a tile folds to a spine by the glyph's click, alt+click, alt+h and act, and a click on the spine opens it at its size", async () => {
+  test("book spines: gather by act, keys and the container menu; a clicked outer page joins the spread", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "book-spines" }, as: "test-agent" });
+    await until(() => marks["book-spines"]!.every(m => screen().includes(m)), "the book spread");
+    const stage = () => S().stages.get(S().sel).top as any;
+    const tiles = () => { screen(); return (stage().describe().panes as any[]).slice().sort((a, b) => a.rect.col - b.rect.col); };
+    const act = (action: string, args: Record<string, unknown>) => stage().dispatch.act({ action, tile: "cedar", args }, USER);
+    await act("layout.gather", { side: "left" });
+    expect(tiles().slice(0, 3).every(t => t.collapsed)).toBe(true);
+    press({ kind: "enter" });
+    await stage().dispatch.press("tile.focus", {}, "cedar");
+    press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "}" });
+    expect(tiles().slice(-3).every(t => t.collapsed)).toBe(true);
+    const click = (x: number, y: number) => { press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y }); };
+    await stage().dispatch.press("tile.menu", { q: "gather spines to the sides" }, "cedar");
+    const lines = screen().split("\n"), y = lines.findIndex(l => l.includes("gather spines to the sides") && l.includes("^W"));
+    expect(y).toBeGreaterThan(0);
+    click(lines[y]!.indexOf("gather spines to the sides") + 3, y);
+    await until(() => stage().policyGet("cedar").effective.spines === "book", "the menu's gather action");
+    // Left gather makes an outer spine with another spine between it and the open pages.
+    await act("layout.gather", { side: "left" });
+    const outer = tiles()[0], at = S().stageRect;
+    click(at.col + outer.rect.col + 1, at.row + outer.rect.row + 3);
+    await until(() => !tiles().find(t => t.name === outer.name).collapsed, "the clicked spine opens");
+    const order = tiles(), open = order.filter(t => !t.collapsed);
+    expect(order.indexOf(open.at(-1)) - order.indexOf(open[0])).toBe(open.length - 1);
+    expect(Math.max(...open.map(t => t.rect.cols)) - Math.min(...open.map(t => t.rect.cols))).toBeLessThanOrEqual(1);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
+  test("folds: a tile folds to a spine by the glyph's click, alt+click, alt+h and act, and a click on the spine opens it with a fair share", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "folds" }, as: "test-agent" })).toMatchObject({ key: "folds" });
     await until(() => marks.folds!.every(m => screen().includes(m)), "the folds section");
@@ -182,14 +212,14 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     expect(tile("tree").rect.cols).toBe(3);
     click(at().col + tile("tree").rect.col + 1, at().row + tile("tree").rect.row + 3); sc.render(app);
     expect(tile("tree").collapsed).toBeUndefined();
-    expect(tile("tree").rect).toEqual(before.tree);
+    expect(tile("tree").rect.cols).toBeGreaterThan(before.tree.cols);
     clickGlyph("reader", 8);
     expect(tile("reader")).toMatchObject({ collapsed: true, collapsedDir: "h" });
     expect(tile("reader").rect.rows).toBe(1);
     expect(sc.render(app).lines.map(plain).join("\n")).toContain("▸ ");
     click(at().col + tile("reader").rect.col + 2, at().row + tile("reader").rect.row); sc.render(app);
     expect(tile("reader").collapsed).toBeUndefined();
-    expect(tile("reader").rect).toEqual(before.reader);
+    expect(tile("reader").rect.rows).toBe(before.reader.rows);
     // By keys: alt+h on the focused tile and again.
     if (S().focus !== "stage") press({ kind: "enter" });
     const focused = tiles().find(x => x.focused).name;
