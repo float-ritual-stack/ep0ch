@@ -61,17 +61,17 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const source = new Database(join(far.outlines, `${name}.sqlite`), { readonly: true });
     try { source.run("VACUUM INTO ?", [target]); } finally { source.close(); }
   };
-  const token = async (aud = RESOURCE) => new SignJWT({ client_id: CLIENT, scope: "profile" })
-    .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(PERSON).setAudience(aud)
+  const token = async (aud = RESOURCE, who = { sub: PERSON, clientId: CLIENT }) => new SignJWT({ client_id: who.clientId, scope: "profile" })
+    .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(who.sub).setAudience(aud)
     .setIssuedAt().setExpirationTime("5m").sign(signing);
   /** A request at the gateway's `/mcp`, or at `/<persona>/mcp` (`at`), with a token for that path's resource. */
-  const rpc = async (method: string, params?: unknown, at?: string) => {
+  const rpc = async (method: string, params?: unknown, at?: string, who?: { sub: string; clientId: string }) => {
     const url = at ? `${new URL(gateway.url).origin}/${at}/mcp` : gateway.url;
-    const res = await fetch(url, { method: "POST", headers: { Host: HOST, "Content-Type": "application/json", Authorization: `Bearer ${await token(at ? `https://mcp.example.test/${at}/mcp` : RESOURCE)}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params ? { params } : {}) }) });
+    const res = await fetch(url, { method: "POST", headers: { Host: HOST, "Content-Type": "application/json", Authorization: `Bearer ${await token(at ? `https://mcp.example.test/${at}/mcp` : RESOURCE, who)}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params ? { params } : {}) }) });
     return await res.json() as { result?: any; error?: { message: string } };
   };
-  const tool = async (name: string, args: Record<string, unknown>, at?: string) => {
-    const r = await rpc("tools/call", { name, arguments: args }, at);
+  const tool = async (name: string, args: Record<string, unknown>, at?: string, who?: { sub: string; clientId: string }) => {
+    const r = await rpc("tools/call", { name, arguments: args }, at, who);
     if (r.error) return { isError: true, text: r.error.message, json: null as any };
     const text = (r.result as { content: { text: string }[] }).content[0]!.text;
     let json: any = null;
@@ -129,7 +129,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
       FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: join(dir, "hub-home"), FAKE_SSH_OUTLINES: join(dir, "hub-outlines"), FAKE_SSH_BIN: join(dir, "bin"), FAKE_SSH_LOG: join(dir, "ssh.log"),
     });
 
-    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: `${PERSON},user_fictional_other` });
     if ("error" in config) throw new Error(config.error);
     const mirror = new OutlineMirror("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, async () => null);
     const outlines = machineOutlines(undefined, line => logs.push(line), async name => ["garden-notes", "pond-notes", "quiet-notes"].includes(name) ? boardOn(here, name, HERE) : { error: "no such outline" },
@@ -871,6 +871,10 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const queued = await tool("outline_comment", { uri: formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.trunk! }), whole: true, body: "A scout's inventory", persona: "scout" });
     expect(queued.json.outcome).toBe("queued");
     expect(queued.json.by).toBe("scout (chat.example.test)");
+    const remote = { uri: formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.trunk! }) };
+    expect((await tool("outline_read", remote)).json.pending.comments).toContainEqual({ queueId: queued.json.queueId, body: "A scout's inventory" });
+    expect((await tool("outline_read", remote, undefined, { sub: PERSON, clientId: "https://other.example.test/client" })).json.pending).toBeUndefined();
+    expect((await tool("outline_read", remote, undefined, { sub: "user_fictional_other", clientId: CLIENT })).json.pending).toBeUndefined();
     expect((await tool("outline_write_status", { queueId: queued.json.queueId, persona: "scout" })).json).toMatchObject({ state: "queued", by: "scout (chat.example.test)" });
     expect((await pull()).settled).toMatchObject([{ state: "applied" }]);
     expect((await boardOn(far, "attic-notes", FAR).comments(ids.trunk!)).find(t => t.body === "A scout's inventory")?.author).toBe("mcp:scout/chat.example.test");

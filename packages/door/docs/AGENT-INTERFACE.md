@@ -229,7 +229,8 @@ A gateway write records `mcp:loki/claude.ai`, shown as `loki (claude.ai)`; stdio
 and Resource comments. Omission keeps the existing connection, session or `EP0CH_MCP_PERSONAS` mapping.
 The optional label never changes the principal, outline access, or the named path's cap: a call through
 `/gpty/mcp` stays capped by gpty's entries even with `persona: "loki"`. Pass the same persona to
-`outline_write_status` when following that queued write. This option belongs to the shared note write
+`outline_write_status` when following that queued write. A normal `outline_read` includes pending writes
+from every persona of the same principal and subject, so the agent can read its writes back. This option belongs to the shared note write
 tools, not scripts, artifacts, sharing or outline administration.
 
 
