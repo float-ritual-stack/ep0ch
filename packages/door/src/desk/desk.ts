@@ -970,7 +970,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       for (const from of src !== undefined ? [src] : container ? leaves(container) : []) sourceWires.push({ from, verb: "select", to: this.tileId(to) });
     }
     for (const { from, verb, to: savedTo, rule } of [...sourceWires, ...wantWires]) {
-      if (this.panes.get(from) instanceof ScreenTile) continue;
+      const pane = this.panes.get(from);
+      if (pane instanceof ScreenTile && pane.group) continue;
       for (let i = wires.length - 1; i >= 0; i--) if (wires[i]!.from === from && wires[i]!.verb === verb) wires.splice(i, 1);
       for (let i = across.length - 1; i >= 0; i--) if (across[i]!.from === from && across[i]!.verb === verb) across.splice(i, 1);
       const to = references.get(savedTo) ?? savedTo;
@@ -5269,7 +5270,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private linkSource(sel: string | undefined, verb: WireVerb) {
     const src = this.tile(sel), pane = this.panes.get(src.id);
-    if (pane instanceof ScreenTile) {
+    if (pane instanceof ScreenTile && pane.group) {
       const inner = pane.inner?.keys().address;
       throw new ActionRefused(`${src.name} holds tiles; wire its inner tile: tile.link tile=${inner ?? `${src.name}/<tile>`} verb=${verb} to=<destination>`);
     }
