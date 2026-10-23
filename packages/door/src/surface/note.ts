@@ -918,9 +918,20 @@ export class NoteSurface {
     if (!form) throw new ActionRefused("this note has no form-field properties");
     form.focus = field === "@submit" ? form.fields.length : form.fields.findIndex(f => f.name === field);
     if (form.focus < 0) throw new ActionRefused(`the form has no field ${field}`);
+    let saidEnded = false;
     const mode: ReaderMode<SurfaceHost> = {
       name: "form", of: form, word: "form", noun: "the form", holdsKeys: true,
-      keys: FORM_KEYS, ended: () => this.msg?.id !== form.block, editing: () => true, covers: () => false,
+      keys: FORM_KEYS,
+      ended: () => {
+        if (this.msg?.id !== form.block) return true;
+        if (this.form) return false;
+        if (!saidEnded) {
+          saidEnded = true;
+          host.ctx.flash("the form has no valid fields now; your answers are kept in this session");
+        }
+        return true;
+      },
+      editing: () => true, covers: () => false,
       key: (k, h) => form.key(k, (action, args) => { void this.runKey(action as keyof NoteActionArgs, args ?? {}, h); }),
       click: () => undefined, rows: () => null,
       leave: async () => { this.modes.drop("form"); return { left: "closed" }; },

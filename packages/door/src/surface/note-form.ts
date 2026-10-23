@@ -33,12 +33,14 @@ export class NoteForm {
   busy = false;
   constructor(readonly block: string, public source: string) { this.update(source); }
   update(source: string) {
+    const focused = this.fields[this.focus]?.name;
     this.source = source;
     const chips = parsePropertyRecords(source).filter(p => p.key === FORM_FIELD_KEY);
     const parsed = formFields(chips.map(p => p.value));
     this.fields = parsed.fields;
     this.chips = chips.filter((_, index) => !parsed.problems.some(p => p.index === index));
-    this.focus = Math.min(this.focus, this.fields.length);
+    const at = this.fields.findIndex(f => f.name === focused);
+    this.focus = at < 0 ? Math.min(this.focus, this.fields.length) : at;
   }
   draft(field: string, actor = USER) {
     const key = partyOf(actor);

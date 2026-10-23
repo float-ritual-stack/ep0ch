@@ -254,6 +254,60 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   }, 30_000);
 
 
+  for (const changed of ["Trail log", "Trail log\n[form-field::run unsupported]"]) test(`an external edit releases a vanished form and keeps its answers: ${changed} (PIE-1212)`, async () => {
+    const source = "Trail log\n[form-field::run text required]\n[form-field::distance number]";
+    const note = await board.createBlock(null, source);
+    const other = new SocketBoard(scratch.sock);
+    await other.info();
+    const desk = new Desk({ name: "changed-form", title: "Trail log", layout: { focus: "reader", root: { t: "leaf", kind: "reader", name: "reader" } } });
+    app.push(desk);
+    const drawn = () => desk.render(app).lines.map(plain).join("\n");
+    try {
+      await desk.dispatch.act({ action: "open", args: { id: note.id } }, USER);
+      await until(() => drawn().includes("run *"), "the original form");
+      await desk.dispatch.act({ action: "form.focus", tile: "reader", args: { field: "run" } }, USER);
+      press({ kind: "paste", text: "Morning loop" });
+      const surface = desk.paneNamed("reader")!.surface!;
+      const before = app.messages.rows.length;
+      const updated = await other.update(note.id, changed, note.revision!);
+      await until(() => { drawn(); return surface.msg?.revision === updated.revision; }, "the second client's edit");
+      expect(surface.claims({ kind: "tab" })).toBe(false);
+      expect(surface.holdsKeys).toBe(false);
+      for (let i = 0; i < 3; i++) { drawn(); surface.claims({ kind: "char", ch: "x" }); }
+      expect(app.messages.rows.slice(before).filter(r => /form.*answers.*kept/i.test(r.message))).toHaveLength(1);
+      ch("e");
+      press({ kind: "enter" });
+      await until(() => !!surface.draft, "normal reader keys open the editor without Esc");
+      await desk.dispatch.act({ action: "edit.close", tile: "reader" }, USER);
+      await other.update(note.id, source, updated.revision!);
+      await until(() => drawn().includes("run *"), "restored fields");
+      expect(drawn()).toContain("Morning loop");
+    } finally { other.close(); app.pop(); }
+  }, 30_000);
+
+  test("an external field shape edit keeps surviving answers and the focused field (PIE-1212)", async () => {
+    const note = await board.createBlock(null, "Trail log\n[form-field::run text required]\n[form-field::distance number]");
+    const other = new SocketBoard(scratch.sock);
+    await other.info();
+    const desk = new Desk({ name: "reshaped-form", title: "Trail log", layout: { focus: "reader", root: { t: "leaf", kind: "reader", name: "reader" } } });
+    app.push(desk);
+    const drawn = () => desk.render(app).lines.map(plain).join("\n");
+    try {
+      await desk.dispatch.act({ action: "open", args: { id: note.id } }, USER);
+      await until(() => drawn().includes("run *"), "the original form");
+      await desk.dispatch.act({ action: "form.set", tile: "reader", args: { field: "distance", value: "5" } }, USER);
+      await desk.dispatch.act({ action: "form.focus", tile: "reader", args: { field: "run" } }, USER);
+      press({ kind: "paste", text: "Morning" });
+      const updated = await other.update(note.id, "Trail log\n[form-field::weather choice sun|rain default=sun]\n[form-field::run text required]", note.revision!);
+      const surface = desk.paneNamed("reader")!.surface!;
+      await until(() => { drawn(); return surface.msg?.revision === updated.revision; }, "the reshaped form");
+      expect(drawn()).toContain("(*) sun");
+      press({ kind: "paste", text: " loop" });
+      press({ kind: "enter" });
+      await untilAsync(async () => (await board.children(note.id)).some(m => m.text.includes("[run::Morning loop]") && m.text.includes("[weather::sun]") && !m.text.includes("[distance::")), "the surviving answer submitted with the new shape");
+    } finally { other.close(); app.pop(); }
+  }, 30_000);
+
   test("unfocused form answers draw as text and keep the raw answer (PIE-1212)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "forms" }, as: "test-agent" });
