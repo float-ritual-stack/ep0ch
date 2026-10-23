@@ -547,6 +547,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["reader: recipe", reading(SEED.recipe)],
     ["reader: shed", reading(SEED.shed)],
     ["reader: brief", reading(SEED.brief)],
+    ["reader: form", reading(SEED.formReading)],
+    ["reader: form typing", reading(SEED.formReading), [k("]"), { kind: "enter" }]],
+    ["reader: form choice", reading(SEED.formReading), [k("]"), { kind: "enter" }, { kind: "tab" }, { kind: "tab" }]],
     // PIE-786: a configurable note's settings card (,), on a rule note and on a view, and a field moved to.
     ["reader: a rule note's settings card", reading(SEED.settings), [k(",")]],
     ["reader: a rule note's settings card on its third field", reading(SEED.settings), [k(","), k("j"), k("j")]],

@@ -277,6 +277,8 @@ export type LinkTarget = {
    * `handler` say whose line it is, so the reader finds the keys its actions answer to.
    */
   ext?: { block: string; line: number; action: string; extension: string; handler: string };
+  /** A form field drawn in the reader: mouse placement uses its shared editor. */
+  form?: { field: string };
   /**
    * A press (PIE-957): a `::button`, or a view's button, badge, card, text or table row that carries an action line (role
    * "control"). ⏎ and a click run `act` through the door's one dispatcher as the person, on the note `block` (the script's `this`).

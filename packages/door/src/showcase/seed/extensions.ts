@@ -6,16 +6,16 @@ import { SEED } from "./names";
 /** Two notes with different forms (PIE-828): each says its own fields; the Form extension's one action asks for them. */
 export const FORM_READING = [
   SEED.formReading,
-  "What the plot's book club read over the winter. Fill in the form (the power bar: Fill in the form, or act ext.form.fill) and each book lands under this note with its answers as properties.",
+  "What the plot's book club read over the winter. Fill in the form below and each book lands under this note with its answers as properties.",
   "",
-  "The form: [form-field::book text required] [form-field::pages number] [form-field::mood choice gripping|slow|abandoned default=slow]",
+  "[form-field::book text required] [form-field::pages number] [form-field::mood choice gripping|slow|abandoned default=slow]",
 ].join("\n");
 
 export const FORM_REPAIRS = [
   SEED.formRepairs,
   "The same action, another form: this note asks which part, what's wrong and whether it's urgent.",
   "",
-  "The form: [form-field::part choice door|roof|window|gutter required] [form-field::what text required] [form-field::urgent choice yes|no default=no]",
+  "[form-field::part choice door|roof|window|gutter required] [form-field::what text required] [form-field::urgent choice yes|no default=no]",
 ].join("\n");
 
 /**

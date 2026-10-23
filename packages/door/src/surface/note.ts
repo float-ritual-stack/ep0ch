@@ -25,6 +25,7 @@ import { dirname, join } from "node:path";
 import { outlineState } from "../state";
 import { sourceDownload } from "@ep0ch/outline-core/sources";
 import { ReaderPosition, PositionRows } from "../reader-position";
+import { NoteForm, FORM_KEYS, FORM_CHOICE_KEYS } from "./note-form";
 import { elementEdit, type ElementOperation } from "./element-editor";
 // The note surface: one note, shown, edited and commented on the same way wherever it is hosted — the
 // board's preview, details and floats, the desk's reader, and (next) a river column. It owns the note's
@@ -900,6 +901,52 @@ export class NoteSurface {
   private splitDrawn: SplitFrame[] = [];
   private splitDrag: SplitFrame | null = null;
   private besideRect: { x: number; y: number; w: number; h: number } | null = null;
+  private readonly forms = new Map<string, NoteForm>();
+  get form(): NoteForm | null { return this.msg ? this.formOf(this.msg) : null; }
+  private formOf(m: Msg): NoteForm | null {
+    if (!isOutlineNote(m)) return null;
+    let form = this.forms.get(m.id);
+    if (!form) {
+      form = new NoteForm(m.id, m.text);
+      this.forms.set(m.id, form);
+    }
+    if (form.source !== m.text) form.update(m.text);
+    return form.fields.length ? form : null;
+  }
+  focusForm(field: string, host: SurfaceHost) {
+    const form = this.form;
+    if (!form) throw new ActionRefused("this note has no form-field properties");
+    form.focus = field === "@submit" ? form.fields.length : form.fields.findIndex(f => f.name === field);
+    if (form.focus < 0) throw new ActionRefused(`the form has no field ${field}`);
+    let saidEnded = false;
+    const mode: ReaderMode<SurfaceHost> = {
+      name: "form", of: form, word: "form", noun: "the form", holdsKeys: true,
+      keys: FORM_KEYS,
+      ended: () => {
+        if (this.msg?.id !== form.block) return true;
+        if (this.form) return false;
+        if (!saidEnded) {
+          saidEnded = true;
+          host.ctx.flash("the form has no valid fields now; your answers are kept in this session");
+        }
+        return true;
+      },
+      editing: () => true, covers: () => false,
+      key: (k, h) => form.key(k, (action, args) => { void this.runKey(action as keyof NoteActionArgs, args ?? {}, h); }),
+      click: () => undefined, rows: () => null,
+      leave: async () => { this.modes.drop("form"); return { left: "closed" }; },
+      hint: () => "filling the form",
+      state: () => "form", describe: () => ({ focus: form.fields[form.focus]?.name ?? "@submit", answers: form.values(USER) }),
+    };
+    this.modes.push(mode);
+    const element = this.elems.find(e => e.link?.form?.field === field);
+    if (element) { this.setElem(element); this.reveal = true; }
+    host.enterMode?.(); host.redraw();
+  }
+  leaveForm() { this.modes.drop("form"); }
+  private formHit(x: number, y: number) {
+    return this.hits.find(h => "link" in h && h.link.form && h.row === y - (this.drawn?.heroRows ?? 0) && x >= h.from && x < h.to);
+  }
   private readonly modes = new ModeStack<SurfaceHost>();
   /**
    * An open edit of `msg`: a draft session with the block adapter (src/draft-session.ts). While it exists
@@ -1027,7 +1074,7 @@ export class NoteSurface {
    * The mode the person is in, as hosts track it (Entered): the edit, else the comment, else the panel. A status
    * choice opened over one of them isn't a session: it holds no note.
    */
-  private sessionMode() { return this.modes.all().find(m => this.modes.active(m) && ["draft", "comment", "panel", "replies", "sources", "list-preview"].includes(m.name)); }
+  private sessionMode() { return this.modes.all().find(m => this.modes.active(m) && ["form", "draft", "comment", "panel", "replies", "sources", "list-preview"].includes(m.name)); }
   /** What the person is in here, by name ("edit", "comment", "property panel"), or null while reading. */
   sessionWord(): string | null { return this.sessionMode()?.word ?? null; }
   /** Typed text that isn't saved or sent: an edit, a comment being written, a property value. */
@@ -2331,7 +2378,16 @@ export class NoteSurface {
 
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
   private body(m: Msg, env: DocEnv, src: Source | null, drawn: Link[], tokens?: ReturnType<typeof resourceTokensOf>, more?: (text: string, lines: readonly number[]) => Partial<DocEnv>) {
-    const { text, points, lines, literal } = this.foldsIn(m);
+    let { text, points, lines, literal } = this.foldsIn(m);
+    const form = !this.raw ? this.formOf(m) : null;
+    if (form) {
+      const body = text.split("\n");
+      for (const chip of [...form.chips].reverse()) {
+        const line = lines.indexOf(chip.line);
+        if (line >= 0) body[line] = body[line]!.slice(0, chip.column) + body[line]!.slice(chip.column + chip.raw.length);
+      }
+      text = body.join("\n");
+    }
     this.keepFolds(points);
     // The live figures this layout draws, each told here; a tab or the density drawn as a control.
     const figures: FigureInfo[] = [];
@@ -2340,6 +2396,14 @@ export class NoteSurface {
     const blocks: LinkBlockInfo[] = [];
     this.linkBlocksDrawn = blocks;
     const { preview, spanPreview, ...hooks } = this.bodyHooks(m, lines, env, src, drawn);
+    const additions = withBeside(more?.(text, lines) ?? {}, this.besideRegions(m, lines, src, preview));
+    const after = additions.after, lastFormLine = text.split("\n").length - 1;
+    if (form) additions.after = (line, width) => joinRows([
+      after?.(line, width) ?? [],
+      ...(line === lastFormLine ? [form.draw(width, this.modes.get("form")?.of === form, (field, value, act) => tagged(drawn, {
+        role: "control", label: field, form: { field }, press: { act: `${act} tile=${m.id}`, block: m.id, line: 0 },
+      }, value))] : []),
+    ]);
     const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), {
       ...env, literal, ...hooks, ...(isOutlineNote(m) ? { outputs: new Map(findOutputRegions(text).map(r => [r.startLine, r])) } : {}),
       linkBlocks: this.printed ? undefined : {
@@ -2364,7 +2428,7 @@ export class NoteSurface {
         seen: f => figures.push(f),
       },
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
-      ...withBeside(more?.(text, lines) ?? {}, this.besideRegions(m, lines, src, preview)),
+      ...additions,
     });
     return { doc, points, lines };
   }
@@ -5344,7 +5408,7 @@ export class NoteSurface {
    * A key this reader takes ahead of its host's own while a live figure's element is current (tab and shift+tab
    * cycle a desk's tiles, ← → step a river's columns or a BBS reader's messages otherwise): the host asks first.
    */
-  claims(k: Key): boolean { return (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H"); }
+  claims(k: Key): boolean { return this.modes.get("form") !== null || (!!this.currentFigure() && (isUp(k) || isDown(k))) || !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H"); }
 
   /**
    * The image action key `k` runs while an image is the current element (PIE-532): + - its size (a header's height),
@@ -5675,6 +5739,14 @@ export class NoteSurface {
    */
   click(x: number, y: number, host: SurfaceHost): boolean {
     this.use(host);
+    const formHit = !this.draft && this.formHit(x, y);
+    if (formHit && "link" in formHit && formHit.link.form) {
+      const field = formHit.link.form.field, spec = this.form?.fields.find(f => f.name === field);
+      if (spec && spec.type !== "choice") {
+        void this.runKey("form.place", { field, col: x - formHit.from }, host);
+        return true;
+      }
+    }
     if (this.placementMenu) return this.modes.click(x, y, host) ?? false;
     if (this.listEditor.field) return this.modes.click(x, y, host) ?? false;
     const pr = this.listPreview.rect;
@@ -7471,6 +7543,14 @@ export class NoteSurface {
    */
   press(x: number, y: number, host: SurfaceHost, shift = false, keepCursor = false): void {
     this.use(host);
+    const hit = !this.draft && this.formHit(x, y);
+    if (hit && "link" in hit && hit.link.form) {
+      const field = hit.link.form.field, spec = this.form?.fields.find(f => f.name === field);
+      if (spec && spec.type !== "choice") {
+        void this.runKey("form.place", { field, col: x - hit.from, extend: shift }, host);
+        this.gesture.press(x, y); this.shiftPress = shift; return;
+      }
+    }
     this.dragging = false;
     if (this.placementMenu) { this.gesture.press(x, y); return; }
     const float = this.floatAt(x, y, host);
@@ -7524,6 +7604,14 @@ export class NoteSurface {
 
   /** The pointer moved with the button down: once off the pressed cell, it selects from there. */
   drag(x: number, y: number, host: SurfaceHost): void {
+    if (this.modes.get("form")) {
+      const hit = this.formHit(x, y);
+      if (hit && "link" in hit && hit.link.form?.field === this.form?.fields[this.form.focus]?.name) {
+        this.gesture.drag(x, y);
+        void this.runKey("form.place", { field: hit.link.form!.field, col: x - hit.from, extend: true }, host);
+        return;
+      }
+    }
     if (this.splitDrag) {
       const s = this.splitDrag;
       void this.runKey("attachment.split", { target: s.target, share: 1 - (s.beside ? x / s.w : y / s.h) }, host);
@@ -8958,6 +9046,57 @@ const FLOAT_MOVE_ARGS = {
     } as const;
 
 export const NOTE_ACTIONS = actionSet<On>()("note", {
+  "form.focus": def({
+    summary: "fill a field in the note's form", touches: "tile", replay: "safe", person: "the person's form focus",
+    args: { field: { type: "string", about: "field name, or @submit" } },
+    examples: [{ act: "form.focus field=book", does: "starts filling the book field in this note" }],
+    run({ field }, { surface, host }) { surface.focusForm(field, host); },
+  }),
+  "form.move": def({
+    summary: "move between the form's fields", keys: modeActionKeys([FORM_KEYS], "form.move"), touches: "tile", replay: "safe", person: "the person's form focus",
+    args: { by: { type: "number", about: "1 next, -1 previous" } },
+    examples: [{ act: "form.move by=1", does: "moves to the next form field, keeping the answers" }],
+    run({ by }, { surface, host }) { const f = surface.form; if (!f) throw new ActionRefused("this note has no form-field properties; write [form-field::name text] in its edit"); const at = (f.focus + by + f.fields.length + 1) % (f.fields.length + 1); surface.focusForm(f.fields[at]?.name ?? "@submit", host); },
+  }),
+  "form.leave": def({
+    summary: "leave the form with its answers kept", keys: modeActionKeys([FORM_KEYS], "form.leave"), touches: "tile", replay: "safe", person: "the person's form focus", args: {},
+    run(_, { surface, host }) { surface.leaveForm(); host.redraw(); },
+  }),
+  "form.place": def({
+    summary: "place or extend the shared editor's cursor in a form field", keys: "click, drag", touches: "tile", replay: "safe", person: "the person's form cursor",
+    args: { field: { type: "string", about: "field name" }, col: { type: "number", about: "zero-based column" }, extend: { type: "boolean", optional: true, about: "extend selection" } },
+    examples: [{ act: "form.place field=book col=0", does: "places the cursor at the start of the book answer" }],
+    run({ field, col, extend }, { surface, host }) { surface.focusForm(field, host); const d = surface.form!.draft(field); d.place(0, d.posAt(col, 0).col, extend); host.redraw(); },
+  }),
+  "form.input": def({
+    summary: "type in the form with the shared editor", touches: "tile", replay: "ask", person: "the person's form editor",
+    args: { key: { type: "string", about: "editor key as JSON" } },
+    examples: [{ act: `form.input key='{"kind":"paste","text":"Piranesi"}'`, does: "pastes a book title into the focused field with the shared editor" }],
+    run({ key }, { surface, host }) { const f = surface.form; if (!f) throw new ActionRefused("this note has no form-field properties; write [form-field::name text] in its edit"); f.input(JSON.parse(key) as Key, text => host.ctx.copy?.(text)); host.redraw(); },
+  }),
+  "form.set": def({
+    summary: "answer one field of this note's form; agents keep their own answers", keys: modeActionKeys([FORM_CHOICE_KEYS], "form.set"), touches: "nothing", replay: "safe",
+    args: { field: { type: "string", about: "field name" }, value: { type: "string", about: "answer" } },
+    examples: [{ act: "form.set field=book value=Piranesi", does: "answers the book field for the actor submitting the form" }],
+    run({ field, value }, { surface, host }, actor) { const f = surface.form; if (!f) throw new ActionRefused("this note has no form-field properties"); f.set(field, value, actor); if (actor.kind === "user") surface.focusForm(field, host); host.redraw(); return { answers: f.values(actor) }; },
+  }),
+  "form.submit": def({
+    summary: "submit this note's form through ext.form.fill", keys: modeActionKeys([FORM_KEYS], "form.submit"), touches: "nothing", replay: "ask", args: {},
+    async run(_, { surface, host }, actor) {
+      const f = surface.form;
+      if (!f) throw new ActionRefused("this note has no form-field properties");
+      const warning = f.check(actor);
+      if (warning) { f.warning(actor, warning); host.redraw(); return { warning }; }
+      if (f.busy) throw new ActionRefused("the form is still submitting");
+      f.busy = true;
+      try {
+        const result = await host.ctx.dispatch!.act({ action: "ext.form.fill", args: { block: f.block, with: JSON.stringify(f.values(actor)) } }, actor);
+        f.clearWarning(actor);
+        return result;
+      } catch (error) { f.warning(actor, error instanceof Error ? error.message : String(error)); throw error; }
+      finally { f.busy = false; host.redraw(); }
+    },
+  }),
   "ask.beside": def({
     summary: "show this ask's answer beside the note, keeping the person's keys in the note",
     touches: "shape", replay: "safe",

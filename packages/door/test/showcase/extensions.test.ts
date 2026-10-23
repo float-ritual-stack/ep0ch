@@ -5,10 +5,13 @@
 // (seeding, --reset, its pidfile) is test/try-it.test.ts's. Scratch services only; the seed is fictional.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import { openScreen } from "../../src/desk/screen-specs";
+import { Desk } from "../../src/desk/desk";
+import { ReaderPane } from "../../src/desk/panes";
 import { App } from "../../src/app";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
-import { SocketBoard } from "../../src/socket";
+import { USER, SocketBoard } from "../../src/socket";
 import { extensionNamed } from "../../src/extensions";
 import { outliner, Scratch, until } from "../scratch";
 
@@ -124,6 +127,207 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
   }, 40_000);
 
 
+  test("forms draw and submit in place by clicks and act (PIE-1212)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "forms" }, as: "test-agent" });
+    await until(() => screen().includes("book *"), "the reading log's labelled form", 3000);
+    expect(screen()).not.toContain("[form-field::");
+    expect(screen()).toContain("(*) slow");
+    const click = (text: string, offset = 1) => {
+      const rows = screen().split("\n"), right = rows.find(row => row.includes("2 Shed repairs"))!.indexOf("2 Shed repairs");
+      const y = rows.findIndex(row => row.includes(text) && row.indexOf(text) < right);
+      expect(y).toBeGreaterThanOrEqual(0);
+      const x = rows[y]!.indexOf(text) + offset;
+      press({ kind: "mouse", action: "down", button: 0, x, y });
+      press({ kind: "mouse", action: "up", button: 0, x, y });
+    };
+    press({ kind: "enter" });
+    click("│ pages", 15);
+    press({ kind: "paste", text: "272" });
+    press({ kind: "enter" });
+    await until(() => screen().includes("book is required"), "required warning in the form").catch(e => { throw new Error(`${e.message}\n${screen()}`); });
+    expect(screen()).toContain("272");
+    click("│ book *", 15);
+    press({ kind: "paste", text: "Piranesi extra" });
+    expect(screen()).not.toContain("book is required");
+    const rows = screen().split("\n"), y = rows.findIndex(row => row.includes("Piranesi extra")), x = rows[y]!.indexOf("Piranesi extra");
+    press({ kind: "mouse", action: "down", button: 0, x: x + 8, y });
+    press({ kind: "mouse", action: "drag", button: 0, x: x + 14, y });
+    press({ kind: "mouse", action: "up", button: 0, x: x + 14, y });
+    press({ kind: "delete" });
+    expect(screen()).not.toContain("Piranesi extra");
+    press({ kind: "char", ch: "z", ctrl: true });
+    expect(screen()).toContain("Piranesi extra");
+    press({ kind: "char", ch: "y", ctrl: true });
+    press({ kind: "home" });
+    press({ kind: "mouse", action: "down", button: 0, mods: 4, x: x + 8, y });
+    press({ kind: "mouse", action: "up", button: 0, mods: 4, x: x + 8, y });
+    press({ kind: "paste", text: "Piranesi" });
+    press({ kind: "tab" });
+    press({ kind: "backtab" });
+    expect(screen()).toContain("Piranesi");
+    press({ kind: "tab" });
+    press({ kind: "tab" });
+    press({ kind: "left" });
+    expect(screen()).toContain("(*) gripping");
+    click("( ) slow");
+    await until(() => screen().includes("(*) slow"), "clicked slow radio");
+    click("( ) gripping");
+    await until(() => screen().includes("(*) gripping"), "clicked gripping radio");
+    click("Fill in the form │");
+    const reading = seeded.notes.formReading.id;
+    await untilAsync(async () => (await board.children(reading)).some(m => m.text === "Piranesi [book::Piranesi] [pages::272] [mood::gripping]"), "the clicked form's child").catch(async e => { throw new Error(`${e.message}\n${JSON.stringify(await board.children(reading))}\n${screen()}`); });
+    await app.act({ action: "form.set", tile: "reader", args: { field: "book", value: "The Dispossessed" }, as: "user" });
+    await app.act({ action: "form.set", tile: "reader", args: { field: "pages", value: "341" }, as: "user" });
+    await app.act({ action: "form.submit", tile: "reader", as: "user" });
+    expect((await board.children(reading)).map(m => m.text)).toContain("The Dispossessed [book::The Dispossessed] [pages::341] [mood::slow]");
+    expect(screen()).toContain("Piranesi");
+    press({ kind: "esc" });
+    await app.dispatch.act({ action: "edit", tile: "reader" }, USER);
+    expect(screen()).toContain("[form-field::book text required]");
+    await app.dispatch.act({ action: "edit.close", tile: "reader" }, USER);
+    expect((await board.get(reading))!.text).toContain("[form-field::book text required]");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+
+  test("the form draws and submits from a river column (PIE-1212)", async () => {
+    const river = openScreen("river") as Desk;
+    app.push(river);
+    try {
+      const opened = await river.dispatch.act({ action: "open", args: { id: seeded.notes.formReading.id } }, USER) as { name: string };
+      await river.dispatch.act({ action: "tile.focus", tile: opened.name }, USER);
+      const drawn = () => river.render(app).lines.map(plain).join("\n");
+      await until(() => drawn().includes("book *"), "the form in the river's compact reader", 3000);
+      await river.dispatch.act({ action: "form.focus", tile: opened.name, args: { field: "book" } }, USER);
+      press({ kind: "paste", text: "The Left Hand of Darkness" });
+      press({ kind: "tab" });
+      press({ kind: "paste", text: "304" });
+      press({ kind: "enter" });
+      await untilAsync(async () => (await board.children(seeded.notes.formReading.id)).some(m => m.text === "The Left Hand of Darkness [book::The Left Hand of Darkness] [pages::304] [mood::slow]"), "the river form's submitted child");
+      await river.dispatch.act({ action: "form.leave", tile: opened.name }, USER);
+      const plainColumn = await river.dispatch.act({ action: "open", args: { id: seeded.notes.notebook.id } }, USER) as { name: string };
+      await expect(river.dispatch.act({ action: "form.move", tile: plainColumn.name, args: { by: 1 } }, USER)).rejects.toThrow("form-field");
+      await expect(river.dispatch.act({ action: "form.input", tile: plainColumn.name, args: { key: JSON.stringify({ kind: "paste", text: "an answer" }) } }, USER)).rejects.toThrow("form-field");
+    } finally { app.pop(); }
+  }, 30_000);
+
+
+  test("a long form answer is edited at the text drawn in its box (PIE-1212)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "forms" }, as: "test-agent" });
+    await until(() => screen().includes("book *"), "the form before its long answer");
+    const answer = Array.from({ length: 80 }, (_, n) => String(n).padStart(3, "0")).join(" ");
+    for (const [field, value] of [["pages", "272"], ["mood", "slow"], ["book", answer]]) {
+      await app.dispatch.act({ action: "form.set", tile: "reader", args: { field, value } }, USER);
+    }
+    await app.dispatch.act({ action: "form.leave", tile: "reader" }, USER);
+    const rows = screen().split("\n"), y = rows.findIndex(row => row.includes("│ book *"));
+    const start = rows[y]!.indexOf("│", rows[y]!.indexOf("book *")) + 1;
+    const shown = rows[y]!.slice(start, rows[y]!.indexOf("│", start)).trimEnd();
+    const from = answer.indexOf(shown.slice(0, 8));
+    expect(from).toBeGreaterThanOrEqual(0);
+    const x = start + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y });
+    press({ kind: "mouse", action: "up", button: 0, x, y });
+    ch("@");
+    press({ kind: "enter" });
+    const expected = answer.slice(0, from + 2) + "@" + answer.slice(from + 2);
+    await untilAsync(async () => (await board.children(seeded.notes.formReading.id)).some(m => m.text === `${expected} [book::${expected}] [pages::272] [mood::slow]`), "the answer edited at its visible text");
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
+
+
+  test("a field named run can be filled and submitted (PIE-1212)", async () => {
+    const note = await board.createBlock(null, "Trail log\n[form-field::run text required]\n[form-field::distance number]");
+    const desk = new Desk({ name: "named-form", title: "Trail log", layout: { focus: "reader", root: { t: "leaf", kind: "reader", name: "reader" } } });
+    app.push(desk);
+    try {
+      await desk.dispatch.act({ action: "open", args: { id: note.id } }, USER);
+      await until(() => desk.render(app).lines.map(plain).join("\n").includes("run *"), "the form with a run field");
+      await desk.dispatch.act({ action: "form.focus", tile: "reader", args: { field: "run" } }, USER);
+      press({ kind: "paste", text: "Morning loop" });
+      press({ kind: "tab" });
+      press({ kind: "paste", text: "5" });
+      press({ kind: "enter" });
+      await untilAsync(async () => (await board.children(note.id)).some(m => m.text === "Morning loop [run::Morning loop] [distance::5]"), "the run field's submitted answer");
+    } finally { app.pop(); }
+  }, 30_000);
+
+
+  for (const changed of ["Trail log", "Trail log\n[form-field::run unsupported]"]) test(`an external edit releases a vanished form and keeps its answers: ${changed} (PIE-1212)`, async () => {
+    const source = "Trail log\n[form-field::run text required]\n[form-field::distance number]";
+    const note = await board.createBlock(null, source);
+    const other = new SocketBoard(scratch.sock);
+    await other.info();
+    const desk = new Desk({ name: "changed-form", title: "Trail log", layout: { focus: "reader", root: { t: "leaf", kind: "reader", name: "reader" } } });
+    app.push(desk);
+    const drawn = () => desk.render(app).lines.map(plain).join("\n");
+    try {
+      await desk.dispatch.act({ action: "open", args: { id: note.id } }, USER);
+      await until(() => drawn().includes("run *"), "the original form");
+      await desk.dispatch.act({ action: "form.focus", tile: "reader", args: { field: "run" } }, USER);
+      press({ kind: "paste", text: "Morning loop" });
+      const reader = desk.paneNamed("reader");
+      if (!(reader instanceof ReaderPane)) throw new Error("the form must be in a reader");
+      const surface = reader.surface;
+      const before = app.messages.rows.length;
+      const updated = await other.update(note.id, changed, note.revision!);
+      await until(() => { drawn(); return surface.msg?.revision === updated.revision; }, "the second client's edit");
+      expect(surface.claims({ kind: "tab" })).toBe(false);
+      expect(surface.holdsKeys).toBe(false);
+      for (let i = 0; i < 3; i++) { drawn(); surface.claims({ kind: "char", ch: "x" }); }
+      expect(app.messages.rows.slice(before).filter(r => /form.*answers.*kept/i.test(r.message))).toHaveLength(1);
+      ch("e");
+      press({ kind: "enter" });
+      await until(() => !!surface.draft, "normal reader keys open the editor without Esc");
+      await desk.dispatch.act({ action: "edit.close", tile: "reader" }, USER);
+      await other.update(note.id, source, updated.revision!);
+      await until(() => drawn().includes("run *"), "restored fields");
+      expect(drawn()).toContain("Morning loop");
+    } finally { other.close(); app.pop(); }
+  }, 30_000);
+
+  test("an external field shape edit keeps surviving answers and the focused field (PIE-1212)", async () => {
+    const note = await board.createBlock(null, "Trail log\n[form-field::run text required]\n[form-field::distance number]");
+    const other = new SocketBoard(scratch.sock);
+    await other.info();
+    const desk = new Desk({ name: "reshaped-form", title: "Trail log", layout: { focus: "reader", root: { t: "leaf", kind: "reader", name: "reader" } } });
+    app.push(desk);
+    const drawn = () => desk.render(app).lines.map(plain).join("\n");
+    try {
+      await desk.dispatch.act({ action: "open", args: { id: note.id } }, USER);
+      await until(() => drawn().includes("run *"), "the original form");
+      await desk.dispatch.act({ action: "form.set", tile: "reader", args: { field: "distance", value: "5" } }, USER);
+      await desk.dispatch.act({ action: "form.focus", tile: "reader", args: { field: "run" } }, USER);
+      press({ kind: "paste", text: "Morning" });
+      const updated = await other.update(note.id, "Trail log\n[form-field::weather choice sun|rain default=sun]\n[form-field::run text required]", note.revision!);
+      const reader = desk.paneNamed("reader");
+      if (!(reader instanceof ReaderPane)) throw new Error("the form must be in a reader");
+      const surface = reader.surface;
+      await until(() => { drawn(); return surface.msg?.revision === updated.revision; }, "the reshaped form");
+      expect(drawn()).toContain("(*) sun");
+      press({ kind: "paste", text: " loop" });
+      press({ kind: "enter" });
+      await untilAsync(async () => (await board.children(note.id)).some(m => m.text.includes("[run::Morning loop]") && m.text.includes("[weather::sun]") && !m.text.includes("[distance::")), "the surviving answer submitted with the new shape");
+    } finally { other.close(); app.pop(); }
+  }, 30_000);
+
+  test("unfocused form answers draw as text and keep the raw answer (PIE-1212)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "forms" }, as: "test-agent" });
+    await until(() => screen().includes("book *"), "the form before setting its answers");
+    const value = "Piranesi\x1b]8;;https://untrusted.invalid\x07a link\x1b]8;;\x07";
+    await app.dispatch.act({ action: "form.set", tile: "reader", args: { field: "book", value } }, USER);
+    await app.dispatch.act({ action: "form.leave", tile: "reader" }, USER);
+    expect(sc.render(app).lines.join("\n")).not.toContain("\x1b]8;;https://untrusted.invalid");
+    const kept = await app.dispatch.act({ action: "form.set", tile: "reader", args: { field: "pages", value: "272" } }, USER);
+    expect(kept).toMatchObject({ answers: { book: value } });
+    await app.dispatch.act({ action: "form.leave", tile: "reader" }, USER);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
+
   test("forms (PIE-828): one action, two notes, two forms; the person answers the reading log's in the power bar by keys, an agent the repairs' in with=; each writes a child with its own chips", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "forms" }, as: "test-agent" })).toMatchObject({ key: "forms" });
@@ -149,7 +353,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     press({ kind: "down" });
     press({ kind: "enter" });
     for (let i = 0; i < 80 && !(await kids(reading.id)).length; i++) await Bun.sleep(100);
-    expect(await kids(reading.id)).toEqual(["Moss and Lichen [book::Moss and Lichen] [pages::212] [mood::gripping]"]);
+    expect(await kids(reading.id)).toContain("Moss and Lichen [book::Moss and Lichen] [pages::212] [mood::gripping]");
     // The repairs note asks for other fields; an agent gives them at once and is never asked, its default filled in.
     await expect(app.act({ action: "ext.form.fill", args: { block: repairs.id, with: JSON.stringify({ part: "roof" }) }, as: "test-agent" })).rejects.toThrow(/needs what=.*with=/);
     await app.act({ action: "ext.form.fill", args: { block: repairs.id, with: JSON.stringify({ part: "roof", what: "a slipped tile over the bench" }) }, as: "test-agent" });

@@ -42,7 +42,7 @@ export function modeActionKeys(tables: readonly (readonly ModeKey[])[], action: 
   return keys.length ? keys.map(keyCaption).join(", ") : undefined;
 }
 
-export type ModeName = "list-preview" | "placement" | "picker" | "panel" | "draft" | "comment" | "links" | "grip" | "replies" | "sources";
+export type ModeName = "form" | "list-preview" | "placement" | "picker" | "panel" | "draft" | "comment" | "links" | "grip" | "replies" | "sources";
 
 /**
  * Which mode takes a reader's keys first, when more than one is open: a step's status choice or an inline `::links`
@@ -51,7 +51,7 @@ export type ModeName = "list-preview" | "placement" | "picker" | "panel" | "draf
  * the edit or the comment (one at a time: each refuses to open while the other is). Over a comment being written: moving
  * its box by keys (ctrl+g, PIE-785).
  */
-export const PRECEDENCE: Record<ModeName, number> = { "list-preview": 2, placement: 4, replies: 2, sources: 2, grip: 3, picker: 3, links: 3, panel: 2, draft: 1, comment: 1 };
+export const PRECEDENCE: Record<ModeName, number> = { form: 1, "list-preview": 2, placement: 4, replies: 2, sources: 2, grip: 3, picker: 3, links: 3, panel: 2, draft: 1, comment: 1 };
 
 /** One mode, as the reader asks it. `H` is the reader's host. */
 export interface ReaderMode<H> extends Mode<H> {
