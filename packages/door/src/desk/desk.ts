@@ -4747,6 +4747,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // by ⏎ stays under the selection for the ⏎ that clears it.
       rows.splice(1, 0, ...sizes);
     }
+    if (node && isLine(node) && node.dir === "row") {
+      const spines = ["book", "start", "end", "invoker"] as const;
+      rows.push({ label: "spines · book, left, right, or toward the invoker", value: at.spines,
+        run: () => set({ spines: spines[(spines.indexOf(at.spines) + 1) % spines.length] }) });
+      rows.push({ label: "min-width · open page width (0 keeps all open)", value: String(at["min-width"]),
+        run: () => set({ clear: "min-width" }), adjust: by => set({ "min-width": Math.max(0, at["min-width"] + by) }) });
+      for (const entry of this.dispatch.menu(tname, USER).filter(m => m.action === "layout.gather")) rows.push({
+        label: entry.label, value: "", run: () => this.run(entry.action, { ...entry.args, node: id }, tname),
+      });
+    }
     if (node?.t === "dock") {
       rows.push(flag("collapsible", "it slides shut"));
       rows.push({ label: "overlay · slides over (off: takes its room)", value: onOff(node.policy?.overlay !== false), run: () => set({ overlay: node.policy?.overlay === false }) });
@@ -5941,6 +5951,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!this.drag) this.save();
     this.redraw();
     return r.answer as { split: string | undefined; path: string; border: number; share: number; tiles: string[] };
+  }
+
+  gatherSpines(sel: string | undefined, side: "left" | "right" | "sides", actor: Actor, node?: string) {
+    const t = this.tile(sel);
+    const r = this.apply({ op: "gather", tile: t.id, side, node }, actor);
+    this.save(); this.redraw(); return r.answer;
   }
 
   evenOut(actor: Actor) {

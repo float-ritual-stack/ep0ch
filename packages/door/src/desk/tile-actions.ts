@@ -1,7 +1,7 @@
 import { canonSpec } from "./tiles";
 import { FRAME_GLYPHS } from "./frame-controls";
 import { GATHER_HINT } from "../surface/hint-card";
-import { ALT_RULES, type AltRule } from "./layout";
+import { SPINES, ALT_RULES, type AltRule } from "./layout";
 // Tiles and layouts as actions (PIE-413, PIE-473, PIE-474): every change to the layout is one of these
 // commands. The desk's keys, its mouse drags and clicks, and the control socket (`ep0ch act`) are only
 // callers: a header dropped on a tile's centre runs `layout.move where=tabs`, `^W m l` runs
@@ -70,12 +70,13 @@ const loadLayout = {
 } as const;
 
 /** What `layout.policy`'s arguments set and clear (the run applies it; `says` puts it in words). */
-function policyChange({ clear, accepts, opensInto, opens, altOpens, host, agents, min, max, fixed, readable, node: _node, ...flags }: PolicyArgs): { set: Policy; gone: string[] } {
+function policyChange({ clear, accepts, opensInto, opens, altOpens, host, agents, min, max, fixed, readable, spines, "min-width": minWidth, node: _node, ...flags }: PolicyArgs): { set: Policy; gone: string[] } {
   const set: Policy = {}, gone = (clear ?? "").split(",").map(x => x.trim()).filter(Boolean);
   for (const [k, v] of Object.entries(flags)) if (typeof v === "boolean") (set as Record<string, unknown>)[k] = v;
-  for (const [k, v] of Object.entries({ min, max, fixed, readable })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
+  for (const [k, v] of Object.entries({ min, max, fixed, readable, "min-width": minWidth })) if (v !== undefined) { if (v < 0) gone.push(k); else (set as Record<string, unknown>)[k] = Math.round(v); }
   if (accepts !== undefined) { const kinds = accepts.split(",").map(x => x.trim()).filter(Boolean); if (!kinds.length || (kinds.length === 1 && kinds[0] === "any")) gone.push("accepts"); else set.accepts = kinds; }
   if (opensInto !== undefined) { if (opensInto) set.opensInto = opensInto; else gone.push("opensInto"); }
+  if (spines !== undefined) set.spines = spines as Policy["spines"];
   if (opens !== undefined) set.opens = opens as Policy["opens"];
   if (altOpens !== undefined) set.altOpens = altOpens as AltRule;
   if (host !== undefined) set.host = host as Policy["host"];
@@ -84,6 +85,8 @@ function policyChange({ clear, accepts, opensInto, opens, altOpens, host, agents
 }
 /** What `layout.policy` sets: the schema `act` checks, and so its arguments' type. */
 const POLICY_ARGS = {
+  spines: { type: "string", optional: true, choices: SPINES, about: "book slides pages to their own side, start gathers left, end right, invoker keeps them toward the invoking tile" },
+  "min-width": { type: "number", optional: true, about: "minimum open page width (default 40); opening a spine shares evenly and folds the least recently touched open page below this; 0 keeps all open, -1 clears" },
   node: { type: "string", optional: true, about: "the container's id, or screen" },
   draggable: { type: "boolean", optional: true, about: "its tiles can be dragged out" },
   droppable: { type: "boolean", optional: true, about: "it takes tiles moved or opened into it" },
@@ -309,7 +312,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.collapse": def({
     hint: (_a, { d, reader }) => reader !== "all" && d.tileNow(reader, USER).collapsed ? { title: "Folded tile", lines: ["A spine keeps the tile and its contents. Click its title to open it again."], keys: [{ keys: "ctrl+w c", does: "fold or open" }] } : null,
-    summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. dir=v is a vertical spine (a column the title is written down, for a tile side by side with others), dir=h a horizontal one (one row with the title, for a tile stacked with others: its height goes to its neighbours); no dir takes the way its split runs. A tab set folds as one; opening a spine gives the tile back its size. In the drawer, put it away or show that tab again, keeping its whole group. Elsewhere only a tile in a row or a column of others folds (a lane, a reader in a row). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
+    summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. dir=v is a vertical spine (a column the title is written down, for a tile side by side with others), dir=h a horizontal one (one row with the title, for a tile stacked with others: its height goes to its neighbours); no dir takes the way its split runs. A tab set folds as one; opening a vertical spine shares the open group evenly and folds its least recently touched page below min-width (40 by default). In the drawer, put it away or show that tab again, keeping its whole group. Elsewhere only a tile in a row or a column of others folds (a lane, a reader in a row). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
     keys: "alt+h (alt+H a horizontal spine); bare - folds and + or = opens the focused tile where it takes no text (a tile's own - + = win: the tune inspector, an image, a figure), either opens a spine, ✦- ✦= (hyper); the frame card's fold row; ^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
     // On the board, tile=all opens every spine (its own word for every one of them).
     places: ["all"],
@@ -328,7 +331,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.expand": def({
-    summary: "open tile=<tile> from its spine, back at the size it had (tile.collapse on=false); what was in it is as it was left",
+    summary: "open tile=<tile> from its spine, sharing its row evenly (tile.collapse on=false); what was in it is as it was left",
     keys: "alt+h, - + = or ⏎ space on a spine; a click on a spine; dragging a tile onto it",
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `opened ${r.name ?? r.tile}`),
     args: {},
@@ -552,6 +555,22 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       { act: "layout.resize path=1.0 border=1 share=0.25", does: "places the border after the split at path 1.0's second kid at a quarter" },
     ],
     run({ split, path, border, share }, { d }, actor) { return d.resizeBorder({ split, path }, border, share, actor); },
+  }),
+  "layout.gather": def({
+    summary: "gather the row's spines left, right, or to their nearer sides, keeping open tiles together; sets the container's spines policy to start, end, or book for later opens",
+    keys: "^W { left, ^W } right, ^W | to the sides; click, enter or space in the container's policy menu",
+    touches: "shape", replay: "safe", says: r => `gathered spines ${r.side}`,
+    args: { side: { type: "string", choices: ["left", "right", "sides"], about: "left, right, or sides (nearest edge)" }, node: { type: "string", optional: true, about: "row or flow container id; left out, the tile's nearest row" } },
+    menu: [
+      { label: "gather spines left", group: "Container", key: "ctrl+w {", args: { side: "left" } },
+      { label: "gather spines right", group: "Container", key: "ctrl+w }", args: { side: "right" } },
+      { label: "gather spines to the sides", group: "Container", key: "ctrl+w |", args: { side: "sides" } },
+    ],
+    examples: [
+      { act: "layout.gather tile=reader side=left", does: "gathers this row's spines on the left and keeps that policy" },
+      { act: "layout.gather tile=reader side=sides", does: "gathers each spine at its nearer edge and keeps book policy" },
+    ],
+    run({ side, node }, { d, reader }, actor) { return d.gatherSpines(reader, side as "left" | "right" | "sides", actor, node); },
   }),
   "layout.even": def({
     summary: "every split shares its room equally", keys: "^W =",

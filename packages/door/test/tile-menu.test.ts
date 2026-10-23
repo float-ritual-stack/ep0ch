@@ -278,7 +278,7 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
       // The wheel scrolls the rows, not only the cursor: the rest of the menu comes into view and the foot stays.
       const first = box().l.join("\n");
       expect(first).not.toContain(last.label + " ");
-      for (let n = 0; n < 40; n++) key({ kind: "mouse", action: "wheel-down", button: 0, x: 5, y: 5 });
+      for (let n = 0; n < rows.length && !box().l.join("\n").includes(last.label); n++) key({ kind: "mouse", action: "wheel-down", button: 0, x: 5, y: 5 });
       expect(box().l.join("\n")).toContain(last.label);
       expect(box().b).toBeGreaterThan(box().t);
       // A thumb on the box's right border says there is more, and the cursor is on a row in view, never off the screen.

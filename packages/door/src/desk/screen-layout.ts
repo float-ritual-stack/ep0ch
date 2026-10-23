@@ -25,7 +25,7 @@ import { byOf, type Actor } from "../socket";
 import { arrive, columnOf, leaving, setAhead, setHeld, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
 import {
   activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, dockOf, docks, dockToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
-  node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, replaceNode, resize, serialize as serializeTree, shown, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
+  node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, replaceNode, resize, serialize as serializeTree, shown, spineEdge, swapLeaf, tabInto, tabsOf, unwrapDock, visible, wrapDock, wrapNodeDock,
   MIN_COLS, POLICY_KEYS, type Axis, type Container, type Dir, type Dock, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
 import { SPINE } from "../spine";
@@ -45,12 +45,12 @@ export type {
 } from "./layout";
 export type { Cover } from "./flow";
 /** The flow's squeeze, and where back and forward go from a column (its trail). */
-export { columnOf, squeeze, fullWidth, PEEK, travelTarget, tileOfColumn } from "./flow";
+export { columnOf, squeeze, PEEK, travelTarget, tileOfColumn } from "./flow";
 
 /**
  * A tile folded to a spine (`tile.collapse`): the agent that folded it, if an agent did, and which way. Vertical (the
  * default) is a strip `SPINE` cells wide in a row of tiles side by side; `dir: "h"` is one row high in a column of
- * stacked tiles. Its weight in the split is untouched, so opening it again gives it back its size.
+ * stacked tiles. Opening a vertical spine shares its row evenly.
  */
 export type Fold = { by?: string; dir?: "h" };
 /** Whether a fold fits a split along `axis`: a vertical spine needs tiles side by side (row), a horizontal one stacked (col). */
@@ -68,6 +68,8 @@ export interface LayoutState<I = number> {
   readonly wires: readonly Wire<I>[];
   readonly across: readonly AcrossWire<I>[];
   readonly altReaders: ReadonlySet<I>;
+  /** Oldest first; touching a tile moves it to the end. */
+  readonly touched: readonly I[];
   /** Each tile's name: what links, previews, `act tile=` and `peek` call it. */
   readonly names: ReadonlyMap<I, string>;
   /** What an agent may do to a tile of its own (PIE-639): wins over the containers' and the screen's default; absent, they say. */
@@ -205,6 +207,7 @@ export type Op<I = number> =
   | { op: "shares"; split: string; shares: number[] }
   | { op: "grow"; tile: I; axis: Axis; by: number }
   | { op: "even" }
+  | { op: "gather"; tile: I; node?: string; side: "left" | "right" | "sides" }
   | { op: "lock"; on?: boolean }
   /** What an agent may do to tile `tile` (PIE-639): its own level, or (`level` null) the containers' and the screen's again. */
   | { op: "agents"; tile: I; level: AgentLevel | null }
@@ -238,12 +241,12 @@ const refuse = (why: string | null | undefined): void => { if (why) throw new Re
 // ── the state as an operation changes it (a private copy: a refused operation leaves the caller's as it was) ──
 
 interface Draft<I> {
-  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; wires: Wire<I>[]; across: AcrossWire<I>[]; altReaders: Set<I>; names: Map<I, string>; agents: Map<I, AgentLevel>;
+  tree: LNode<I>; floats: Float<I>[]; collapsed: Map<I, Fold>; zoom: I | null; wires: Wire<I>[]; across: AcrossWire<I>[]; altReaders: Set<I>; touched: I[]; names: Map<I, string>; agents: Map<I, AgentLevel>;
   policy: Policy; locks: Set<string>; remembered: Map<string, Policy | undefined>; focus: I; changed: boolean; answer: Record<string, unknown>;
 }
 const draftOf = <I>(s: LayoutState<I>, focus: I): Draft<I> => ({
   tree: clone(s.tree), floats: s.floats.map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map([...s.collapsed].map(([k, v]) => [k, { ...v }])), zoom: s.zoom,
-  across: s.across.map(w => ({ ...w })), wires: s.wires.map(w => ({ ...w })), altReaders: new Set(s.altReaders), names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
+  across: s.across.map(w => ({ ...w })), wires: s.wires.map(w => ({ ...w })), altReaders: new Set(s.altReaders), touched: [...s.touched], names: new Map(s.names), agents: new Map(s.agents), policy: { ...s.policy }, locks: new Set(s.locks), remembered: new Map(s.remembered), focus, changed: true, answer: {},
 });
 
 /** The leaf node of tile `id` where it stands alone (not a tab): what a group's tree replaces. */
@@ -283,7 +286,7 @@ function stamp<I>(tree: LNode<I>, policy: Policy, floats: readonly Float<I>[], p
 function seal<I>(d: Draft<I>, prev: { rev: number; nextNode: number; shapeKey: string }): LayoutState<I> {
   const s = stamp(d.tree, d.policy, d.floats, prev);
   return freeze({
-    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, wires: d.wires, across: d.across, altReaders: d.altReaders, names: d.names, agents: d.agents, policy: d.policy,
+    tree: d.tree, floats: d.floats, collapsed: d.collapsed, zoom: d.zoom, wires: d.wires, across: d.across, altReaders: d.altReaders, touched: d.touched, names: d.names, agents: d.agents, policy: d.policy,
     locks: [...d.locks], remembered: d.remembered, rev: s.rev, nextNode: s.nextNode, shapeKey: s.shapeKey,
   });
 }
@@ -300,7 +303,7 @@ export function init<I>(parts: { tree: LNode<I>; names: ReadonlyMap<I, string>; 
   if (opts.freshIds) forgetIds(given, num => num < (prev?.nextNode ?? 1));
   const tree = normalise(given);
   const d: Draft<I> = {
-    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, across: (parts.across ?? []).map(w => ({ ...w })), wires: (parts.wires ?? []).map(w => ({ ...w })), altReaders: new Set(parts.altReaders), names: new Map(parts.names), agents: new Map(parts.agents ?? []),
+    tree, floats: (parts.floats ?? []).map(f => ({ id: f.id, rect: { ...f.rect } })), collapsed: new Map(parts.collapsed ?? []), zoom: null, across: (parts.across ?? []).map(w => ({ ...w })), wires: (parts.wires ?? []).map(w => ({ ...w })), altReaders: new Set(parts.altReaders), touched: prev && "touched" in prev ? prev.touched.filter(id => parts.names.has(id)) : [], names: new Map(parts.names), agents: new Map(parts.agents ?? []),
     policy: policyOf(parts.policy), locks: new Set(prev && "locks" in prev ? prev.locks : []), remembered: new Map(prev && "remembered" in prev ? prev.remembered : []),
     focus: leaves(tree)[0]!, changed: true, answer: {},
   };
@@ -485,7 +488,7 @@ export type NotePlacement<I = number> = {
  * otherwise the wire, nearest container, home and flow rule are read in that order. A missing container falls
  * back to a visible reader only for the person. An unlinked reader takes its own open. A busy named destination
  * refuses an agent; the person's open keeps the edit and uses a reader beside it. An unwired held note is kept as a spine
- * toward the invoking tile; a wire aimed at a tile replaces its note with history. New-note tabs that cannot fit float instead.
+ * at its container policy's stack front; a wire aimed at a tile replaces its note with history. New-note tabs that cannot fit float instead.
  * Floats, tabs, docks and shapes that cannot take a spine swap with reader history only.
  * Only the person's standing moves the current note or keys; an invitation is already resolved by the dispatcher.
  */
@@ -589,7 +592,14 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       const space = effective([{ by: "screen", policy: s.policy }, ...chain.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
       if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held || request.keep) && facts.showing && facts.showing !== note && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
         const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
-        result.keep = { tile: target, at: { kind: "split", target, dir: before ? "left" : "right" } };
+        const row = parentOf(s.tree, target)?.parent;
+        const flowCovers = row?.t === "flow" ? coversOf(s, row, ctx.area, id => !!ctx.tile(id).holds) : undefined;
+        const folded = row?.t === "flow" ? new Map(row.kids.flatMap((k, i) => {
+          const cover = flowCovers!.get(i);
+          return cover === undefined || cover === "spine" ? leaves(k).map(t => [t, true] as const) : [];
+        })) : s.collapsed;
+        const edge = row?.dir === "row" ? spineEdge(row, folded, target, space.spines, before) : null;
+        result.keep = { tile: target, at: { kind: "split", target: edge?.target ?? target, dir: edge?.dir ?? (before ? "left" : "right") } };
       }
     }
   }
@@ -603,8 +613,8 @@ function flowHolding<I>(tree: LNode<I>, id: I): { flow: Flow<I>; ci: number } | 
 }
 
 /** How the tiles are placed: a folded tile is a spine across a row; a tile holding work keeps its flow column wide. */
-export function placeOpts<I>(s: Pick<LayoutState<I>, "collapsed">, holds?: (id: I) => boolean): PlaceOpts<I> {
-  return { fixed: (id, dir) => { const f = s.collapsed.get(id); return f && foldFits(f, dir) ? (f.dir === "h" ? 1 : SPINE) : undefined; }, ...(holds ? { holds } : {}) };
+export function placeOpts<I>(s: Pick<LayoutState<I>, "collapsed" | "tree" | "policy">, holds?: (id: I) => boolean): PlaceOpts<I> {
+  return { flowPolicy: f => policyOfNode(s, f), fixed: (id, dir) => { const f = s.collapsed.get(id); return f && foldFits(f, dir) ? (f.dir === "h" ? 1 : SPINE) : undefined; }, ...(holds ? { holds } : {}) };
 }
 /** Tile `id`'s share of the screen along each axis: the product of its weight in each line over it (a flow's columns count whole). */
 function shareOf<I>(tree: LNode<I>, id: I): { row: number; col: number } {
@@ -620,11 +630,11 @@ function shareOf<I>(tree: LNode<I>, id: I): { row: number; col: number } {
   return out;
 }
 /** The screen placed in `area`: the tree, the docks sliding over it, each flow's columns (floats keep their own rects). */
-export function place<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed">, area: Rect, holds?: (id: I) => boolean): PlacedScreen<I> {
+export function place<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | "policy">, area: Rect, holds?: (id: I) => boolean): PlacedScreen<I> {
   return placeScreen({ root: s.tree, floats: [...s.floats] }, area, placeOpts(s, holds));
 }
 /** Where each tile is in `area`, from the state as it is: the zoomed tile alone, else the tree, the docks over it, the floats. */
-export function rects<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | "zoom">, area: Rect, holds?: (id: I) => boolean): Map<I, Rect> {
+export function rects<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | "zoom" | "policy">, area: Rect, holds?: (id: I) => boolean): Map<I, Rect> {
   if (s.zoom !== null && allTiles(s).includes(s.zoom)) return new Map([[s.zoom, area]]);
   const ps = place(s, area, holds);
   const out = new Map(ps.rects);
@@ -633,15 +643,15 @@ export function rects<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed"
   return out;
 }
 /** Each flow column's cover as `area` squeezes it now (by column index). */
-function coversOf<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed">, f: Flow<I>, area: Rect, holds?: (id: I) => boolean): Map<number, Cover> {
+function coversOf<I>(s: Pick<LayoutState<I>, "tree" | "floats" | "collapsed" | "policy">, f: Flow<I>, area: Rect, holds?: (id: I) => boolean): Map<number, Cover> {
   const ps = place(s, area, holds);
   const at = [...(ps.flows ?? []), ...ps.slid.flatMap(x => x.placed.flows ?? [])].find(x => x.node === f || x.node.id === f.id);
   if (at) return new Map(at.cols.map(c => [c.i, c.cover]));
-  return new Map(squeeze(f, area.cols, holds).map(c => [c.i, c.cover]));
+  return new Map(squeeze(f, area.cols, holds, policyOfNode(s, f)).map(c => [c.i, c.cover]));
 }
 
 /** The tree as `peek` and `layout.get` show it: each tile by name with its share, each container with its id and path. */
-export function describe<I>(s: Pick<LayoutState<I>, "tree" | "collapsed">, name: (id: I) => string, leafId?: (id: I) => string) {
+export function describe<I>(s: Pick<LayoutState<I>, "tree" | "collapsed" | "policy">, name: (id: I) => string, leafId?: (id: I) => string) {
   return describeTree(s.tree, name, placeOpts(s), leafId);
 }
 /** The tree as `view.subscribe` publishes it: each split's path and shares, each container's policy, each tile by name and id. */
@@ -854,6 +864,7 @@ class Step<I> {
       case "resize": return this.keepsSize(() => this.resizeBorder(op));
       case "shares": return this.keepsSize(() => this.shares(op.split, op.shares));
       case "grow": return this.keepsSize(() => this.grow(op.tile, op.axis, op.by));
+      case "gather": return this.keepsSize(() => this.gather(op.tile, op.side, op.node));
       case "even": return this.keepsSize(() => this.even());
       case "lock": return this.lock(op.on);
       case "agents": return this.setAgents(op.tile, op.level);
@@ -915,6 +926,7 @@ class Step<I> {
       case "grow": return no(op.tile, "resizing it", "off");
       case "resize": { const n = op.split !== undefined ? nodeById(this.d.tree, op.split) : nodeAt(this.d.tree, op.path ?? ""); return isLine(n as LNode<I>) ? each([...under((n as Line<I>).kids[op.border]), ...under((n as Line<I>).kids[op.border + 1])], "resizing it", "off") : undefined; }
       case "shares": return each(under(nodeById(this.d.tree, op.split)), "resizing it", "off");
+      case "gather": return each(under(op.node ? nodeById(this.d.tree, op.node) : parentOf(this.d.tree, op.tile)?.parent), "gathering its spines");
       case "even": return each(this.all(), "evening out the layout (it resizes it)", "off");
       case "link": no(op.tile, "changing where its opens land"); if (op.to !== undefined) no(op.to, "linking opens into it"); return;
       case "tab": { const ts = tabsOf(this.d.tree, op.tile); no(op.tile, "switching its tabs"); return ts ? no(ts.ids[ts.active]!, "hiding it by switching tabs") : undefined; }
@@ -1032,7 +1044,7 @@ class Step<I> {
     if (!this.agent && op.keys !== false) {
       const from = op.at.kind === "next" ? op.at.from : undefined;
       this.give(op.tile);
-      if (from !== undefined) { const f = flowHolding(this.d.tree, op.tile)!; arrive(f.flow, f.ci, columnOf(f.flow, from), coversOf(this.d, f.flow, this.ctx.area, id => !!this.facts(id).holds)); }
+      if (from !== undefined) { const f = flowHolding(this.d.tree, op.tile)!; this.rememberFlowSides(f.flow); arrive(f.flow, f.ci, columnOf(f.flow, from), coversOf(this.d, f.flow, this.ctx.area, id => !!this.facts(id).holds), this.d.touched); }
     }
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
@@ -1047,7 +1059,8 @@ class Step<I> {
     const fromCol = columnOf(f!.flow, from);
     if (fromCol >= 0 && fromCol !== f!.ci) setFrom(f!.flow, f!.ci, from);
     if (keys) this.give(id);
-    arrive(f!.flow, f!.ci, fromCol, coversOf(this.d, f!.flow, this.ctx.area, x => !!this.facts(x).holds));
+    this.rememberFlowSides(f!.flow);
+    arrive(f!.flow, f!.ci, fromCol, coversOf(this.d, f!.flow, this.ctx.area, x => !!this.facts(x).holds), this.d.touched);
   }
   /** The person's keys go to tile `id`; in a flow, the column they leave is the one they were reading. */
   private give(id: I) {
@@ -1055,6 +1068,7 @@ class Step<I> {
     const f = flowHolding(this.d.tree, id);
     if (f && was !== id) { const wf = flowHolding(this.d.tree, was); if (wf?.flow === f.flow && wf.ci !== f.ci) f.flow.read = was; }
     this.d.focus = id;
+    this.touch(id);
   }
 
   private close(id: I, gone: boolean) {
@@ -1239,7 +1253,8 @@ class Step<I> {
   private move(src: I, to: Place<I>) {
     this.present(src);
     // A tile dropped onto a spine opens it first, in the same step: a refused move leaves the fold as it was.
-    if ("target" in to && to.target !== src) for (const t of this.foldSet(to.target)) this.d.collapsed.delete(t);
+    const opening = "target" in to && to.target !== src && this.d.collapsed.has(to.target) ? to.target : undefined;
+    if (opening !== undefined) this.collapse(opening, false);
     this.guard(src, "move");
     this.drag(src);
     this.into(this.facts(src).kind, this.name(src), to);
@@ -1474,6 +1489,7 @@ class Step<I> {
     if (!want) {
       const before = rects({ ...this.d, zoom: null }, this.ctx.area);
       for (const t of this.foldSet(id)) this.d.collapsed.delete(t);
+      this.openSpine(id, before);
       if (this.d.altReaders.has(id)) this.room(id, before, true);
       this.d.changed = true;
       this.d.answer = { ...this.d.answer, collapsed: false };
@@ -1500,13 +1516,123 @@ class Step<I> {
     this.d.answer = { collapsed: true, dir: fold.dir === "h" ? "h" : "v" };
   }
 
+  private touch(id: I) {
+    this.d.touched = this.d.touched.filter(t => t !== id && this.d.names.has(t));
+    this.d.touched.push(id);
+  }
+
+  private folded(k: LNode<I>): boolean { return leaves(k).every(t => this.d.collapsed.has(t)); }
+
+  private reorder(row: Line<I>, order: LNode<I>[]) {
+    const weights = new Map(row.kids.map((k, i) => [k, row.weights[i]!]));
+    row.kids = order;
+    row.weights = order.map(k => weights.get(k)!);
+  }
+
+  private rememberFlowSides(flow: Flow<I>) {
+    const placed = place(this.d, this.ctx.area, id => !!this.facts(id).holds);
+    const at = [...(placed.flows ?? []), ...placed.slid.flatMap(d => d.placed.flows ?? [])].find(f => f.node.id === flow.id);
+    if (!at) return;
+    const middle = at.rect.col + at.rect.cols / 2;
+    const visible = at.cols.flatMap(c => leaves(flow.kids[c.i]!).map(tile => ({ tile, side: c.rect.col + c.rect.cols / 2 < middle ? "left" as const : "right" as const })));
+    const shown = new Set(visible.map(s => s.tile));
+    const hidden = (flow.sides ?? []).filter(s => !shown.has(s.tile));
+    flow.sides = [...hidden.filter(s => s.side === "left"), ...visible, ...hidden.filter(s => s.side === "right")];
+  }
+
+  private gather(id: I, side: "left" | "right" | "sides", node?: string) {
+    const row = node ? nodeById(this.d.tree, node) : parentOf(this.d.tree, id)?.parent;
+    if (!row || !isLine(row) || row.dir !== "row") refuse(`${this.name(id)} needs a row or flow to gather spines`);
+    const r = row as Line<I>;
+    const policy = this.ofNode(r);
+    if (policy.locked && !this.yolo) refuse(this.lockedWhy(policy, "gathering spines"));
+    for (const t of leaves(r)) this.drag(t);
+    if (r.t === "flow") {
+      if (side === "sides") this.rememberFlowSides(r);
+      r.policy = { ...r.policy, spines: side === "left" ? "start" : side === "right" ? "end" : "book" };
+      this.d.answer = { side, node: r.id, spines: r.policy.spines };
+      return;
+    }
+    refuse(this.resizeWhy(r));
+    const boxes = rects({ ...this.d, zoom: null }, this.ctx.area);
+    const rs = leaves(r).flatMap(t => boxes.has(t) ? [boxes.get(t)!] : []);
+    const middle = rs.length ? (Math.min(...rs.map(r => r.col)) + Math.max(...rs.map(r => r.col + r.cols))) / 2 : 0;
+    const left: LNode<I>[] = [], open: LNode<I>[] = [], right: LNode<I>[] = [];
+    for (const k of r.kids) {
+      if (!this.folded(k)) { open.push(k); continue; }
+      const box = boxes.get(leaves(k)[0]!);
+      (side === "left" || side === "sides" && box && box.col + box.cols / 2 < middle ? left : right).push(k);
+    }
+    this.reorder(r, [...left, ...open, ...right]);
+    r.policy = { ...r.policy, spines: side === "left" ? "start" : side === "right" ? "end" : "book" };
+    this.d.answer = { side, node: r.id, spines: r.policy.spines };
+  }
+
+  /** All ways of opening a row's spine share the room afresh, rather than restoring its old weight. */
+  private openSpine(id: I, prior?: ReadonlyMap<I, Rect>) {
+    const typing = this.ctx.protectTyping ? this.ctx.person.typingIn : null;
+    const before = typing === null ? undefined : (prior ?? rects({ ...this.d, zoom: null }, this.ctx.area)).get(typing);
+    this.keepsSize(() => this.unfoldRow(id, prior));
+    const after = typing === null ? undefined : rects({ ...this.d, zoom: null }, this.ctx.area).get(typing);
+    if (before && (before.cols !== after?.cols || before.rows !== after?.rows)) refuse(`${this.name(typing!)} is where the person is typing; an agent doesn't resize it`);
+  }
+
+  private unfoldRow(id: I, prior?: ReadonlyMap<I, Rect>) {
+    const row = parentOf(this.d.tree, id)?.parent;
+    if (!row || row.dir !== "row" || row.t === "flow") return;
+    this.shape(id, "opening a spine");
+    if (this.resizeWhy(row)) { this.touch(id); return; }
+    const e = this.ofNode(row);
+    const kid = row.kids.find(k => leaves(k).includes(id))!;
+    const edge = spineEdge(row, this.d.collapsed, id, e.spines, false, "unfold");
+    if (edge && edge.target !== id) {
+      const rest = row.kids.filter(k => k !== kid);
+      const at = rest.findIndex(k => leaves(k).includes(edge.target)) + (edge.dir === "right" ? 1 : 0);
+      rest.splice(at, 0, kid); this.reorder(row, rest);
+    }
+    const boxes = rects({ ...this.d, zoom: null }, this.ctx.area);
+    const rs = leaves(row).flatMap(t => boxes.has(t) ? [boxes.get(t)!] : []);
+    const width = rs.length ? Math.max(...rs.map(r => r.col + r.cols)) - Math.min(...rs.map(r => r.col)) : 0;
+    const keptSizes = new Map(row.kids.flatMap(k => {
+      const fixed = k.t !== "leaf" && k.policy?.fixed !== undefined;
+      if (this.folded(k) || !fixed && (this.yolo || !leaves(k).some(t => this.policyAt(t).locked))) return [];
+      const rs = leaves(k).flatMap(t => (prior ?? boxes).has(t) ? [(prior ?? boxes).get(t)!] : []);
+      return [[k, Math.max(...rs.map(r => r.col + r.cols)) - Math.min(...rs.map(r => r.col))] as const];
+    }));
+    const reserved = [...keptSizes.values()].reduce((sum, cols) => sum + cols, 0);
+    const opened = () => row.kids.filter(k => !this.folded(k));
+    const room = () => width - (row.kids.length - opened().length) * SPINE - reserved;
+    const sharing = () => opened().filter(k => !keptSizes.has(k));
+    const fits = () => room() / sharing().length >= e["min-width"];
+    const age = (k: LNode<I>) => Math.max(...leaves(k).map(t => this.d.touched.indexOf(t)));
+    while (e["min-width"] > 0 && opened().length > 1 && !fits()) {
+      const oldest = opened().filter(k => k !== kid && (k.t === "leaf" || k.t === "tabs") && leaves(k).every(t => {
+        const f = this.facts(t);
+        const p = this.policyAt(t);
+        return !f.holds && !f.editing && !p.locked && p.draggable && p.collapsible && (!this.agent || t !== this.d.focus && agentLevel(this.d, t, f).level === "free");
+      })).sort((a, b) => age(a) - age(b))[0];
+      if (!oldest) break;
+      const t = leaves(oldest)[0]!;
+      const edge = spineEdge(row, this.d.collapsed, t, e.spines);
+      for (const t of leaves(oldest)) this.d.collapsed.set(t, byOf(this.ctx.actor));
+      if (edge && edge.target !== t) {
+        const rest = row.kids.filter(k => k !== oldest);
+        const at = rest.findIndex(k => leaves(k).includes(edge.target)) + (edge.dir === "right" ? 1 : 0);
+        rest.splice(at, 0, oldest); this.reorder(row, rest);
+      }
+    }
+    const share = room() / sharing().length;
+    row.weights = row.kids.map(k => keptSizes.get(k) ?? (this.folded(k) ? 1 : share));
+    this.touch(id);
+  }
+
   /** Ordinary splits keep their shape. Only a flow compresses its columns around an arrival. */
   private room(id: I, _prior?: ReadonlyMap<I, Rect>, _alt = false) {
     this.present(id);
     const f = flowHolding(this.d.tree, id);
     this.d.changed = !!f;
     this.d.answer = { folded: [] };
-    if (f) widenFlow(f.flow, f.ci);
+    if (f) { this.rememberFlowSides(f.flow); widenFlow(f.flow, f.ci, this.d.touched); }
   }
 
   private resizeBorder(op: Extract<Op<I>, { op: "resize" }>) {
@@ -1640,7 +1766,11 @@ class Step<I> {
     this.present(id);
     const set = tabsOf(this.d.tree, id);
     if (set && !(this.agent && set.ids.includes(this.d.focus) && this.d.focus !== id)) activate(this.d.tree, id);
+    const folded = this.d.collapsed.has(id);
+    const prior = folded ? rects({ ...this.d, zoom: null }, this.ctx.area) : undefined;
     for (const t of this.foldSet(id)) this.d.collapsed.delete(t);
+    if (folded) this.openSpine(id, prior);
+    this.touch(id);
     // An agent doesn't move a flow's strip under the column the person is typing in (as its widen doesn't).
     const f = flowHolding(this.d.tree, id), typing = this.ctx.person.typingIn;
     const steps = !(this.ctx.protectTyping && f && typing !== null && flowHolding(this.d.tree, typing)?.flow === f.flow);
@@ -1768,7 +1898,8 @@ class Step<I> {
     const typing = this.ctx.person.typingIn;
     if (this.ctx.protectTyping && typing !== null && typing !== id && columnOf(f.flow, typing) >= 0) refuse(`the person is typing in ${this.name(typing)}, a column of this flow; an agent's widen would squeeze it (block.mark gets their attention)`);
     const before = f.flow.anchor;
-    widenFlow(f.flow, f.ci);
+    this.rememberFlowSides(f.flow);
+    widenFlow(f.flow, f.ci, this.d.touched);
     if (f.flow.anchor === before) this.d.changed = false;
     this.d.answer = { wide: true };
   }
@@ -1784,7 +1915,7 @@ class Step<I> {
     if (dir < 0) setAhead(f.flow, to, f.ci);
     f.flow.read = tileOfColumn(f.flow, f.ci);
     this.d.focus = tileOfColumn(f.flow, to)!;
-    if (coversOf(this.d, f.flow, this.ctx.area, x => !!this.facts(x).holds).get(to) !== "full") widenFlow(f.flow, to);
+    if (coversOf(this.d, f.flow, this.ctx.area, x => !!this.facts(x).holds).get(to) !== "full") { this.rememberFlowSides(f.flow); widenFlow(f.flow, to, this.d.touched); }
     this.d.answer = { tile: this.name(this.d.focus) };
   }
   /** Hold the tile's column (it resists compression, as the river's `p` does) or let it go; default toggles. */
@@ -1796,6 +1927,10 @@ class Step<I> {
     const want = on ?? !was;
     if (want === was) this.d.changed = false;
     setHeld(f.flow, f.ci, want);
+    if (want && !was) {
+      this.touch(id);
+      f.flow.recent = [...this.d.touched];
+    }
     this.d.answer = { held: want };
   }
   /** A view's own dock's policy, kept for when it's put back in a dock after a restart pinned (only when none is kept). */

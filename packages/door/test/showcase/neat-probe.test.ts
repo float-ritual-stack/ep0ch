@@ -865,6 +865,189 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
     }
   }, 30_000);
 
+  for (const place of ["screen", "group", "drawer group"]) {
+    for (const locked of [false, true]) for (const fixed of locked ? [false, true] : [false]) test(`book repair: ${locked ? `locked sibling keeps its width${fixed ? " beside a fixed container" : ""}` : "stacked children leave an eligible spine"} in the ${place}`, async () => {
+      const d = new Desk({ name: "stacked-book", title: "Stacked book", layout: { root: { t: "split", dir: "row", key: "spread", policy: { "min-width": locked ? 0 : 80 }, kids: [
+        { t: "split", dir: "col", key: "stack", kids: [
+          { t: "leaf", kind: "reader", name: "birch" }, { t: "leaf", kind: "reader", name: "cedar" },
+        ], weights: [1, 1] },
+        { t: "leaf", kind: "reader", name: "fir" }, { t: "leaf", kind: "reader", name: "elm" },
+        ...(fixed ? [{ t: "split" as const, dir: "col" as const, policy: { fixed: 40 }, kids: [{ t: "leaf" as const, kind: "reader", name: "sprig" }], weights: [1] }] : []),
+      ], weights: fixed ? [2, 1, 1, 1] : [2, 1, 1] } } });
+      app.push(d);
+      const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+      const ids = Object.fromEntries(d.layoutAll().tiles.map(t => [t.name, t.tile!]));
+      let group: string | undefined;
+      try {
+        if (place !== "screen") {
+          group = (await act("tile.group", ids.fir, { node: "spread", name: "woodland" }) as { tile: string }).tile;
+          if (place === "drawer group") { await act("tile.open", group, { kind: "reader", name: "landing" }); await act("tile.drawer", group); app.drawer.enter(); }
+        }
+        const owner = d.resolveTile(ids.fir!)!.desk;
+        const tiles = () => { app.flush(); return owner.layoutGet().tiles; };
+        d.render(app); app.drawer.render(200, 60, "Probe");
+        if (locked) await act("layout.policy", ids.birch, { locked: true });
+        await act("tile.collapse", ids.elm, { on: true });
+        const before = tiles().find(t => t.tile === ids.birch)!.rect!.cols;
+        await act("tile.focus", ids.fir);
+        await act("tile.expand", ids.elm);
+        const after = tiles();
+        expect(after.find(t => t.tile === ids.elm)!.collapsed).toBeFalsy();
+        if (locked) expect(after.find(t => t.tile === ids.birch)!.rect!.cols).toBe(before);
+        else {
+          expect(after.find(t => t.tile === ids.fir)!.collapsed).toBe(true);
+          expect(after.filter(t => !t.collapsed).every(t => t.rect!.cols >= 80)).toBe(true);
+        }
+      } finally {
+        if (group && app.drawer.made?.resolveTile(group)) await act("tile.close", group);
+        app.pop(); d.dispose();
+      }
+    }, 30_000);
+  }
+
+  for (const place of ["screen", "group", "drawer group"]) {
+    for (const row of ["manual fold", "pushed left", "pushed right", "gather left", "gather right", "gather sides", "fair share", "outer page", "minimum boundary", "non-resizable", "oldest folds"]) test(`book spines: ${row} in the ${place}`, async () => {
+      const names = ["birch", "cedar", "elm", "fir", "oak"];
+      const d = new Desk({ name: "book", title: "Book", layout: { root: { t: "split", dir: "row", key: "spread",
+        kids: names.map(name => ({ t: "leaf", kind: "reader", name, mode: "held" })), weights: [1, 4, 0.1, 2, 1] } } });
+      app.push(d);
+      const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+      const ids = Object.fromEntries(d.layoutAll().tiles.map(t => [t.name, t.tile!]));
+      let group: string | undefined;
+      try {
+        for (const name of names) {
+          const m = await board.createBlock(null, `${name} page\nA made-up woodland page.`);
+          await act("open", ids[name], { id: m.id });
+        }
+        if (place !== "screen") {
+          const made = await act("tile.group", ids.cedar, { node: "spread", name: "woodland" }) as { tile: string };
+          group = made.tile;
+          if (place === "drawer group") {
+            await act("tile.open", group, { kind: "reader", name: "landing" });
+            await act("tile.drawer", group); app.drawer.enter();
+          }
+        }
+        app.flush();
+        const owner = d.resolveTile(ids.cedar!)!.desk;
+        const tiles = () => { app.flush(); return owner.layoutGet().tiles; };
+        const tile = (name: string) => tiles().find(t => t.tile === ids[name])!;
+        const ordered = () => tiles().slice().sort((a, b) => a.rect!.col - b.rect!.col);
+        await act("tile.collapse", ids.birch, { on: true });
+        await act("tile.collapse", row === "outer page" ? ids.cedar : ids.elm, { on: true });
+        await act("tile.collapse", ids.oak, { on: true });
+        if (row === "manual fold") {
+          expect(ordered().map(t => t.name)).toEqual(names);
+        } else if (row.startsWith("pushed")) {
+          const target = row === "pushed left" ? "cedar" : "fir";
+          const fresh = await board.createBlock(null, "New page\nThe next woodland page.");
+          await act("open", ids[target], { id: fresh.id });
+          const order = ordered();
+          const kept = order.filter(t => t.collapsed && !names.includes(t.name!));
+          expect(kept).toHaveLength(1);
+          const i = order.indexOf(kept[0]!);
+          expect(row === "pushed left" ? i < order.findIndex(t => t.name === "cedar") : i > order.findIndex(t => t.name === "fir")).toBe(true);
+          expect(row === "pushed left" ? order[i - 1]!.name : order[i + 1]!.name).toBe(row === "pushed left" ? "birch" : "oak");
+        } else if (row.startsWith("gather")) {
+          const side = row.split(" ")[1]!;
+          await act("layout.gather", ids.cedar, { side });
+          const order = ordered(), open = order.filter(t => !t.collapsed);
+          expect(order.indexOf(open[1]!) - order.indexOf(open[0]!)).toBe(1);
+          if (side === "left") expect(order.slice(0, 3).every(t => t.collapsed)).toBe(true);
+          if (side === "right") expect(order.slice(-3).every(t => t.collapsed)).toBe(true);
+          if (side === "sides") { expect(order[0]!.collapsed).toBe(true); expect(order.at(-1)!.collapsed).toBe(true); }
+          expect((await act("layout.policy", ids.cedar) as any).effective.spines).toBe(side === "left" ? "start" : side === "right" ? "end" : "book");
+        } else if (row === "non-resizable") {
+          await act("layout.policy", ids.cedar, { resizable: false, locked: true });
+          await expect(act("tile.expand", ids.elm)).rejects.toThrow(/locked/);
+          await act("layout.policy", ids.cedar, { locked: false });
+          await act("tile.expand", ids.elm);
+          expect(tile("elm").collapsed).toBeFalsy();
+          expect(tile("elm").rect!.cols).toBeGreaterThan(3);
+        } else if (row === "outer page") {
+          await act("tile.expand", ids.birch);
+          const order = ordered(), open = order.filter(t => !t.collapsed);
+          expect(order.indexOf(open.at(-1)!) - order.indexOf(open[0]!), JSON.stringify(order.map(t => [t.name, t.collapsed]))).toBe(open.length - 1);
+          expect(Math.max(...open.map(t => t.rect!.cols)) - Math.min(...open.map(t => t.rect!.cols))).toBeLessThanOrEqual(1);
+        } else {
+          if (row === "minimum boundary") await act("layout.policy", ids.cedar, { "min-width": Math.floor((tiles().reduce((sum, t) => sum + t.rect!.cols, 0) - 6) / 3) });
+          if (row === "oldest folds") await act("layout.policy", ids.cedar, { "min-width": Math.floor((tile("cedar").rect!.cols + tile("fir").rect!.cols - 10) / 2) });
+          await act("tile.focus", ids.cedar);
+          await act("tile.focus", ids.fir);
+          await act("tile.expand", ids.elm);
+          expect(tile("elm").collapsed).toBeFalsy();
+          const open = tiles().filter(t => !t.collapsed);
+          if (row === "minimum boundary") expect(open).toHaveLength(3);
+          else if (row === "fair share") expect(Math.max(...open.map(t => t.rect!.cols)) - Math.min(...open.map(t => t.rect!.cols))).toBeLessThanOrEqual(1);
+          else { expect(tile("cedar").collapsed).toBe(true); expect(tile("fir").collapsed).toBeFalsy(); }
+        }
+      } finally {
+        if (group && app.drawer.made?.resolveTile(group)) await act("tile.close", group);
+        app.pop(); d.dispose();
+      }
+    }, 30_000);
+  }
+
+  for (const place of ["screen", "group", "drawer group"]) test(`book flow: gathers actual squeezed spines and shares open columns in the ${place}`, async () => {
+    const names = ["ash", "beech", "birch", "cedar", "elm", "fir", "oak"];
+    const d = new Desk({ name: "flow-book", title: "Flow book", layout: { root: { t: "flow", key: "pages",
+      kids: names.map(name => ({ t: "leaf", kind: "reader", name, mode: "held" })), policy: { "min-width": 70 } } } });
+    app.push(d);
+    const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+    const ids = Object.fromEntries(d.layoutAll().tiles.map(t => [t.name, t.tile!]));
+    let group: string | undefined;
+    try {
+      if (place !== "screen") {
+        group = (await act("tile.group", ids.cedar, { node: "pages", name: "leaves" }) as { tile: string }).tile;
+        if (place === "drawer group") { await act("tile.open", group, { kind: "reader", name: "landing" }); await act("tile.drawer", group); app.drawer.enter(); }
+      }
+      app.flush();
+      const owner = d.resolveTile(ids.cedar!)!.desk;
+      const tiles = () => { app.flush(); return owner.layoutGet().tiles.filter(t => t.rect).sort((a, b) => a.rect!.col - b.rect!.col); };
+      await act("tile.focus", ids.ash);
+      await act("tile.focus", ids.fir);
+      await act("tile.widen", ids.cedar);
+      expect(tiles().find(t => t.name === "fir")!.cover).toBe("full");
+      expect(tiles().find(t => t.name === "ash")!.cover).not.toBe("full");
+      const beforeFocus = tiles().map(t => [t.tile, t.rect]);
+      await act("tile.focus", ids.ash);
+      expect(tiles().map(t => [t.tile, t.rect])).toEqual(beforeFocus);
+      for (const side of ["left", "right", "sides"] as const) {
+        await act("layout.gather", ids.cedar, { side });
+        const order = tiles(), spines = order.filter(t => t.cover === "spine"), open = order.filter(t => t.cover !== "spine");
+        expect(spines.length).toBeGreaterThan(0);
+        expect(order.indexOf(open.at(-1)!) - order.indexOf(open[0]!), JSON.stringify(order.map(t => [t.name, t.collapsed]))).toBe(open.length - 1);
+        if (side === "left") expect(order.slice(0, spines.length).every(t => t.cover === "spine")).toBe(true);
+        if (side === "right" || side === "sides") expect(order.slice(-spines.length).every(t => t.cover === "spine")).toBe(true);
+        const full = order.filter(t => t.cover === "full");
+        expect(full.length).toBeGreaterThan(1);
+        expect(Math.max(...full.map(t => t.rect!.cols)) - Math.min(...full.map(t => t.rect!.cols))).toBeLessThanOrEqual(1);
+      }
+      const width = tiles().reduce((sum, t) => sum + t.rect!.cols, 0);
+      await act("layout.policy", ids.cedar, { "min-width": Math.floor((width - (names.length - 2) * 3) / 2) });
+      await act("layout.gather", ids.cedar, { side: "left" });
+      const before = tiles(), full = before.filter(t => t.cover === "full");
+      const arriving = before.find(t => t.cover === "spine")!;
+      await act("tile.focus", full.at(-1)!.tile!);
+      await act("tile.widen", arriving.tile!);
+      const after = tiles(), folded = after.find(t => full.some(f => f.tile === t.tile) && t.cover === "spine")!;
+      expect(folded).toBeDefined();
+      const stack = after.filter(t => t.cover === "spine" && t.rect!.col < after.find(t => t.cover === "full")!.rect!.col);
+      expect(stack.at(-1)!.tile).toBe(folded.tile);
+      await act("layout.policy", ids.cedar, { clear: "min-width" });
+      const defaultWidth = tiles().map(t => [t.tile, t.cover, t.rect]);
+      await act("layout.policy", ids.cedar, { "min-width": 40 });
+      expect(tiles().map(t => [t.tile, t.cover, t.rect])).toEqual(defaultWidth);
+      await act("layout.policy", ids.cedar, { "min-width": 0 });
+      expect(tiles().every(t => t.cover === "full")).toBe(true);
+      await act("layout.policy", ids.cedar, { "min-width": 70 });
+      await act("tile.hold", ids.beech, { on: true });
+      expect(tiles().find(t => t.name === "beech")!.cover).toBe("full");
+    } finally {
+      if (group && app.drawer.made?.resolveTile(group)) await act("tile.close", group);
+      app.pop(); d.dispose();
+    }
+  }, 30_000);
+
   test("two grouped tiles named kettle require an id or a path", async () => {
     const s = await twoReaders();
     try {

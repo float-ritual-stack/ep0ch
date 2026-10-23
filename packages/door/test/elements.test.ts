@@ -319,7 +319,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     const d = await detail();
     stepTo(d, "Stake the beans");
     key({ kind: "alt-enter" });
-    await until(() => B().details.length === 2 && B().details[1].msg?.id === n.beans.id, "a new detail");
+    await until(() => B().details.length === 2 && d.msg?.id === n.beans.id, "a new detail");
     expect(d.msg!.id).toBe(n.beans.id);
     expect(B().details.find((p: ReaderPane) => p !== d)?.msg?.id).toBe(n.jobs.id);
     await fresh();
@@ -328,7 +328,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     BV.at(b, "preview");
     stepTo(B().preview, "Garden plan");
     key({ kind: "alt-enter" });
-    await until(() => B().details.length === 2 && B().details[1].msg?.id === n.plan.id, "a new detail from the preview");
+    await until(() => B().details.length === 2 && B().details.some((p: ReaderPane) => p.msg?.id === n.plan.id), "a new detail from the preview");
     expect(B().details.some((p: ReaderPane) => p.msg?.id === n.jobs.id)).toBe(true);
   }, 30_000);
 

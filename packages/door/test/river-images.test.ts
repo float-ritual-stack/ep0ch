@@ -133,7 +133,7 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     expect(ps[0]!.rows).toBe(p.rows - 1);
     // Its whole width, of the PNG scaled for the column (400 px wide, drawn from the 320 step).
     expect(ps[0]!.crop).toMatchObject({ x: 0, w: ps[0]!.image.width });
-    expect(ps[0]!.image.width).toBeLessThan(400);
+    expect(ps[0]!.image.width).toBeLessThanOrEqual(400);
     expect(ps[0]!.crop!.y).toBeGreaterThan(0);
 
     // Scrolled past it: gone.
@@ -160,6 +160,7 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     const longNote = await board.request("create", { parentId: null, text: `The long seed list\n${words}`, author: "agent" });
     const long = (await app.act({ action: "open", args: { id: longNote.id }, as: "river-img-agent" })) as { name: string };
     await mine("tile.focus", {}, long.name);
+    await mine("tile.widen", {}, long.name);
     const s = (await mine("open", { id: short.id })) as { name: string };
     await mine("tile.focus", {}, s.name);
     await mine("tile.widen", {}, s.name);

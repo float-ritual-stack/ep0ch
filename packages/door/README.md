@@ -2851,6 +2851,13 @@ compositor the snapshot harness uses), so it shows what is actually on screen, n
 arguments (`src/surface/actions.ts`). Keys run them, and `act` runs the same code for an agent, so an
 agent's edit meets the same revision check, property warning and duplicate-safe comment sends as yours:
 
+A row or flow's `spines` policy is `book` by default: pushed-out pages slide to their own side,
+newest next to the open pages. `start` gathers left, `end` right, and `invoker` places a kept page toward
+where its open came from. Hand-folded tiles stay where they are. Opening a vertical spine gives it an
+even share of the open group; below `min-width` (40 by default), the page touched longest ago folds.
+`min-width=0` keeps every page open. Set either field through `layout.policy` or the policy panel.
+
+
 | Action | Arguments | Keys it stands for |
 |---|---|---|
 | `screen.shell` | none. The person's only: an agent's is refused (it would take their terminal); open a terminal tile instead (`tile.open kind=pty`) | `!` on the menu, a click on `! Shell`, `^W !` on the desk |
@@ -2911,6 +2918,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem\|approved\|rejected` (default toggles done) | `s`, `j k`, `space x + - w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`; without it the person's first `d` arms, an agent's is refused), `card`; `id` (default the card trashed last) | `d d`, `u` |
 | `tile.widen` | `tile=<tile>` in a flow | desk `^W W`, a click on a flow column's spine |
+| `layout.gather` | `side=left` gathers spines left (`spines=start`), `right` gathers right (`end`), `sides` gathers each to its nearer edge (`book`). The policy sticks. `node=<id>` targets a container; otherwise the focused tile's row or flow | `^W {`, `^W }`, `^W \|`; the tile menu's Container rows and `^W P` |
 | `tile.collapse` | `tile=preview\|detail1\|detail2` or a lane's tile (the focused one by default), `on=true\|false` (default toggles), `dir=v\|h` (vertical or horizontal spine); `tile=all` opens everything (board) | `c`, `⏎` or a click on a spine, `alt+c`; desk `^W c`, `alt+h` (alt+H horizontal), bare `-` folds and `+` `=` open the focused tile where it takes no text, `✦-` `✦=` (hyper), the frame card's fold row |
 | `tile.expand` | `tile` | a click on a spine; dragging a tile onto it |
 | `tile.resize` | `tile=<tile>` (`lanes`, a reader, `tree`, `backlinks`, a float; default the focused one), `by` (steps, `-20`…`20`), `axis=row\|col` (width, default; or height) | board `{ } < >`, desk `^W < > + -`, dragging a border |

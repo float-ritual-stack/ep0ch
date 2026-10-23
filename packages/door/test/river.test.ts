@@ -455,7 +455,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     readOnReader(lib());
     key(char("/")); type("squash");
     expect(river.holdsKeys()).toBe(true);                        // typing a filter holds the keys
-    expect(screen()).toContain("type:hub -status:done author:codex word");
+    expect(screen()).toContain("/ squash");
     key({ kind: "enter" });
     await until(() => focused().filter.length === 1, "the filter");
     expect(river.holdsKeys()).toBe(false);

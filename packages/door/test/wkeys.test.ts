@@ -197,7 +197,7 @@ describe.skipIf(!outliner)("^W keys, the keys box and the ^W list (PIE-704)", ()
   test("a key found by its letters, a mount key the old list lacked, runs through the list", async () => {
     key(ctrlW); key(ch("?"));
     await until(() => peek().bar?.scope === "actions", "open");
-    type("gather");
+    type("gather group");
     await until(() => peek().bar.rows[0]?.keycap === "ctrl+w G", "gather into a group first");
     expect(peek().bar.rows[0].label).toMatch(/group/);
     const tiles = D().all().length;

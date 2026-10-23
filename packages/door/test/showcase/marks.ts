@@ -28,6 +28,7 @@ export const marks: Record<string, string[]> = {
   undo: ["editing · Jar labels", "pasted 42 lines · ctrl+z undoes", "[copy]"],
   hints: ["source: select wire", "select wire", "HintCard"],
   panes: ["outline", "children", "Visitors", "Kitchen sink"],
+  "book-spines": ["Bike shed", "Allotment notebook", "spines"],
   folds: ["outline", "children", "◂", "▾"],
   screens: ["Daily brief", "2026-03-11", "Needs you"],
   kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],

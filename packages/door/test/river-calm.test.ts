@@ -57,6 +57,8 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     river = openScreen("river") as Desk;
     app.push(new MainMenu()); app.push(river);
     await until(() => (V().column(1)?.items?.length ?? 0) >= 3, "the Library", 10_000);
+    // Keep a squeezed strip so focus and peeks are exercised even with the smaller default page minimum.
+    await act("layout.policy", { node: "screen", readable: 76 });
     // Evan's sequence: several columns open, the last one wide.
     await jump("Mailroom");
     await jump("Harbour log");

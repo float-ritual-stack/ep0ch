@@ -342,7 +342,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "folds", need: "fold any tile to a spine with one click, and open it again", part: "the layout tree's fold (PIE-642): a ◂ or ▾ on every tile's frame beside ⋯ and ×, alt+click for a horizontal spine, alt+h alt+H, bare - + = (PIE-699), a click on the spine; tile.collapse dir=v|h and tile.expand (Fold in src/desk/screen-layout.ts; drawSpine, drawHSpine)", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/spine.ts, src/desk/tile-actions.ts",
-    aside: "click the ◂ on the outline to fold it down the side, the ▾ on the reader to fold it up into one row (its height goes to the tile below); a click on a spine, or ⏎ on it, opens it at the size it had · alt+click folds the other way round, alt+h and alt+H do the focused tile, and so do a bare - (fold) and + or = (open) wherever the tile takes no text; a tile's own - + = win (the tune inspector, an image, a figure) · terminals pass alt in the mouse report where shift-click is taken for selection · `act tile.collapse tile=<t> dir=v|h`, `act tile.expand tile=<t>` do the same, and refuse the tile you are typing in",
+    aside: "click the ◂ on the outline to fold it down the side, the ▾ on the reader to fold it up into one row (its height goes to the tile below); a click on a spine, or ⏎ on it, opens it with an even share of its row (a horizontal spine restores its height) · alt+click folds the other way round, alt+h and alt+H do the focused tile, and so do a bare - (fold) and + or = (open) wherever the tile takes no text; a tile's own - + = win (the tune inspector, an image, a figure) · terminals pass alt in the mouse report where shift-click is taken for selection · `act tile.collapse tile=<t> dir=v|h`, `act tile.expand tile=<t>` do the same, and refuse the tile you are typing in",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = repliesTile(), act = new ActivityPane();
       // The outline beside the rest (a vertical spine), the reader over thread and activity side by side (a horizontal spine for the reader).
@@ -350,6 +350,23 @@ export const SECTIONS: Section[] = [
         title: "showcase · folds", panes: [tree, r, th, act],
         layout: ([t, rd, h, a]) => pair("row", 0.28, leaf(t!), pair("col", 0.55, leaf(rd!), pair("row", 0.5, leaf(h!), leaf(a!)))),
       }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
+    },
+  },
+  {
+    key: "book-spines", need: "keep open pages together, with spines gathered like an open book",
+    part: "the container's spines and min-width policy, placement(), the shared unfold path and layout.gather; the same layout tree on a screen or in a group",
+    files: "src/desk/screen-layout.ts, src/desk/layout.ts, src/desk/tile-actions.ts, src/desk/wkeys.ts",
+    aside: "Two pages open in the spread, page edges at the sides. Click a spine: it joins the spread with an even share. Below min-width (40), the page touched longest ago folds to its own side. A hand fold stays where it is. The container menu and policy panel offer gather left, right and to the sides; gathers stick as spines=start, end or book. invoker keeps the old placement toward the tile an open came from.",
+    stage(n, show) {
+      const readers = Array.from({ length: 5 }, () => { const r = new ReaderPane(true); r.holdOn(); return r; });
+      const names = ["birch", "cedar", "elm", "fir", "oak"];
+      const notes = [n.notebook, n.shed, n.whiteboard, n.notebook, n.shed];
+      return deskOf({ title: "showcase · book spines", panes: readers, names,
+        layout: ids => ({ t: "split", dir: "row", key: "spread", kids: ids.map(leaf), weights: ids.map(() => 1), policy: { spines: "book", "min-width": 40 } }),
+      }, show, readers.map((r, i) => [r, notes[i]]), d => {
+        for (const name of ["birch", "elm", "oak"]) d.collapseTile(name, true, USER);
+        d.gatherSpines("cedar", "sides", USER);
+      });
     },
   },
   {
