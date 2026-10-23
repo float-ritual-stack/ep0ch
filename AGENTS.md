@@ -240,6 +240,8 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
 
 ## Agents and skills here
 
+Run Codex builders with `scripts/builder <PIE-n> [--model <model>] -- <brief file>`; before running one or writing work records, read [Records](docs/agents/records.md) for report placement and append-only facts.
+
 `.claude/agents/` holds the agent definitions a brief starts from: `ep0ch-builder` (a ticket or wave slice end to
 end), `ep0ch-verifier` (reproduce an old ticket, then close it with evidence or fix it test-first, leaving the close
 to the deployer), and the read-only `ep0ch-recon` and `ep0ch-auditor` (one findings note in an outline, `path:line`

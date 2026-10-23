@@ -3,22 +3,14 @@ import { sessionPersona, whichOutline } from "@ep0ch/outline-core/outline-locati
 import { configuredMachineName, hostMachineName } from "@ep0ch/outliner/machine-name";
 import { disk } from "../discover";
 import { hostRequest } from "../socket";
+import { writeRecord } from "../records";
+import { runningSessions } from "../session/place";
+import { defaultStateDir } from "../state";
 import { pluginCode, run } from "./facts";
 import { sshInstallClients } from "./plan";
 import type { Facts } from "./model";
 
-interface Note { id: string; revision: number; text: string }
 type Env = Record<string, string | undefined>;
-
-/**
- * The Deploys note install creates: a figure's props sit between `---` lines (without them the lines are its
- * Markdown rows and the table has no query, PIE-941).
- */
-export const DEPLOYS_NOTE = [
-  "Deploys [system-view::deploys] [machine::install] [type::virtual-branch] [query::type=deploy machine=install] [sort::created] [direction::desc]", "",
-  "Install runs, newest first. Copy this figure into the build log for the latest five:", "",
-  "::graph-table", "---", "query: type=deploy machine=install", "sort: created", "direction: desc", "limit: 5", "columns: [title, created]", "---", "::",
-].join("\n");
 
 /** Install writes through its own host, even when the invoking folder names a different machine. */
 export async function startDeployRecord(f: Facts, env: Env, folder: string, when: Date, creating: () => void) {
@@ -30,27 +22,37 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   const sessionId = env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID || env.CODEX_THREAD_ID;
   const provenance = actor ? { actorId: actor, sessionId } : undefined;
   const author = actor ? "agent" : "user";
-  const request = <T>(action: string, params: Record<string, unknown> = {}) => hostRequest<T>(f.host.socket, action, { outline, ...params });
-  const roots = await request<{ blocks: Note[] }>("blocks.query", { query: { where: "system-view=deploys machine=install" } });
-  // Once a create is sent, a lost answer must never lead to another create for this run.
-  creating();
-  let parent = roots.blocks[0];
-  if (!parent) parent = await request<Note>("create", { parentId: null, author, provenance, text: DEPLOYS_NOTE });
+  const request = <T>(action: string, params: Record<string, unknown> = {}) => {
+    // A schema refusal can be tried after restart; a lost create answer must never create twice.
+    if (action === "create" || action === "template.stamp") creating();
+    return hostRequest<T>(f.host.socket, action, { outline, ...params });
+  };
   const machine = f.machineName?.chosen || configuredMachineName(env, f.host.folder) || hostMachineName();
-  const heading = `Deploy ${when.toISOString()} on ${machine} [type::deploy] [machine::install]`;
+  const heading = `Deploy ${when.toISOString()} on ${machine}`;
   const identity = [`When: ${when.toISOString()}`, `Machine: ${machine}`, `Who: ${actor || "person"}`, ...(sessionId ? [`Session: ${sessionId}`] : []), `From: ${f.repo.checkout.head ?? "unknown"}`];
   const legs = new Map(sshInstallClients(f).map(name => [name, `${name}: not run`]));
   const links = new Map<string, string>();
   let local = "running; if unfinished, inspect the install output before deploying again";
   let to = "pending", protocol = f.repo.protocol;
   const text = () => [heading, "", ...identity, `To: ${to}`, `Protocol: ${protocol ?? "unknown"}`, `Local: ${local}`, "", "Client legs:", ...(legs.size ? legs.values() : ["none configured"]), ...[...links].map(([machine, line]) => `\nLink ${machine}:\n${line}\n`)].join("\n");
-  let note = await request<Note>("create", { parentId: parent.id, text: text(), author, provenance });
-  const save = async () => {
-    note = await request<Note>("update", { blockId: note.id, expectedRevision: note.revision, text: text(), mutation: { author, ...provenance } });
+  const board = { request };
+  const who = { author: author as "agent" | "user", provenance };
+  const append = async (previous?: string) => {
+    const ping = await request<{ protocolVersion: number; grammarVersion: number }>("ping");
+    const sessions = await runningSessions(env.EP0CH_STATE ?? defaultStateDir(env));
+    return writeRecord(board, "deploy", {
+      sha: to === "pending" ? f.repo.checkout.head ?? "unknown" : to,
+      host: machine, protocol: String(ping.protocolVersion), grammar: String(ping.grammarVersion),
+      sessions: JSON.stringify(sessions.map(s => ({ pid: s.info.pid, place: s.info.place, code: s.info.code }))),
+      failed: [local.startsWith("failed") || local.includes("needs attention") ? local : "", ...[...legs.values()].filter(line => line.startsWith("!"))].filter(Boolean).join("\n") || "none", details: text(), ...(previous ? { previous } : {}),
+    }, who);
   };
+  let note = await append();
+  const first = note.id;
+  const save = async () => { note = await append(note.id); };
   return {
-    id: note.id,
-    linkRecord: { socket: f.host.socket, outline, id: note.id },
+    id: first,
+    linkRecord: { socket: f.host.socket, outline, id: first },
     async local(outcome: string) {
       local = outcome;
       const head = await run(["git", "-C", f.repo.root, "rev-parse", "HEAD"], { env });
@@ -67,12 +69,9 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
 export async function recordLinkInstall(deploy: LinkDeploy, machine: string, result: LinkInstallResult) {
   if (!deploy.record) return;
   const { socket, outline, id } = deploy.record;
-  const note = await hostRequest<Note>(socket, "get", { outline, blockId: id });
-  const marker = `\nLink ${machine}:\n`;
-  const start = note.text.indexOf(marker);
-  const end = start < 0 ? -1 : note.text.indexOf("\nLink ", start + marker.length);
-  const section = marker + linkInstallSummary(machine, result) + "\n";
-  const text = start < 0 ? note.text + section : note.text.slice(0, start) + section + (end < 0 ? "" : note.text.slice(end));
-  if (text === note.text) return;
-  await hostRequest(socket, "update", { outline, blockId: id, expectedRevision: note.revision, text, mutation: { author: "agent", actorId: "ep0ch-install" } });
+  await writeRecord({ request: <T>(action: string, params: Record<string, unknown> = {}) => hostRequest<T>(socket, action, { outline, ...params }) }, "deploy", {
+    sha: result.commit ?? deploy.sha, host: machine, previous: id,
+    sessions: JSON.stringify(result.sessions), failed: [result.error, ...result.notDone].filter(Boolean).join("; ") || (result.code ? `exit ${result.code}` : "none"),
+    details: linkInstallSummary(machine, result),
+  }, { author: "agent", provenance: { actorId: "ep0ch-install" } });
 }

@@ -1504,10 +1504,13 @@ test("install records a deploy in the host's default outline from an unnamed fol
     f.home = h.env.HOME!;
     f.host = { ...f.host, folder: h.outlines, socket: h.sock };
     const record = await startDeployRecord(f, h.env, h.folder("unnamed"), now, () => {});
+    const before = await hostRequest<{ text: string }>(h.sock, "get", { outline: "garden", blockId: record.id });
     await record.local("finished");
-    const result = await hostRequest<{ blocks: { id: string; text: string }[] }>(h.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=install" } });
-    expect(result.blocks.find(b => b.id === record.id)?.text).toContain("Local: finished");
-    const other = await hostRequest<{ blocks: unknown[] }>(h.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=install" } });
+    const result = await hostRequest<{ blocks: { id: string; text: string }[] }>(h.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=record" } });
+    expect((await hostRequest<{ text: string }>(h.sock, "get", { outline: "garden", blockId: record.id })).text).toBe(before.text);
+    expect(result.blocks.some(b => b.id !== record.id && b.text.includes("Local: finished") && b.text.includes(record.id)), JSON.stringify(result)).toBe(true);
+    expect(result.blocks.find(b => b.text.includes("Local: finished"))?.text).toContain("failed:\nnone");
+    const other = await hostRequest<{ blocks: unknown[] }>(h.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=record" } });
     expect(other.blocks).toEqual([]);
   } finally { await h.dispose(); }
 }, 30_000);

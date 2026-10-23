@@ -243,8 +243,7 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     // A host started by hand on the new code refuses compost, and a client says the exact commands, on their own lines.
     fakeSystemctl("start", "outliner-host.service");
     for (let i = 0; !(await hostLive(sock, 1000)); i++) { if (i > 100) throw new Error("the scratch host didn't come back"); await Bun.sleep(100); }
-    const unfinished = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install" } });
-    expect(unfinished.blocks).toHaveLength(1);
+    const unfinished = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=record" } });
     expect(unfinished.blocks[0].text).toContain(`From: ${oldHead}`);
     expect(unfinished.blocks[0].text).toContain("Local: running");
     expect(first.out).toContain("deploy record could not be saved");
@@ -283,16 +282,16 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(seeds.blocks[0].text).toContain("Bay badges");
     // The host opens both on the new code (a ping opens the outline it names, and it refuses one at another schema).
     for (const outline of ["allotment", "compost"]) expect(await hostRequest(sock, "ping", { outline })).toMatchObject({ protocolVersion: expect.any(Number) });
-    const repaired = await hostRequest(sock, "blocks.query", { outline: "compost", query: { where: "type=deploy machine=install" } });
-    expect(repaired.blocks).toHaveLength(1);
-    expect(repaired.blocks[0].text).toContain("✓ workstation");
+    const repaired = await hostRequest(sock, "blocks.query", { outline: "compost", query: { where: "type=deploy machine=record" } });
+    expect(repaired.blocks.some((b: { text: string }) => b.text.includes("✓ workstation"))).toBe(true);
     env.EP0CH_WS = "allotment";
     // A second install has nothing to rewrite, and leaves the host serving.
     const again = await ep0ch("install", "--apply", "--json");
     expect(again.code).toBe(0);
     expect(JSON.parse(again.out).steps.find((s: { id: string }) => s.id === "sweep").done).toEqual(["nothing to rewrite"]);
-    const records = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" } } });
-    expect(records.blocks).toHaveLength(2);
+    const records = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=record", sort: { field: "created", direction: "desc" } } });
+    const savedStart = await hostRequest(sock, "get", { outline: "allotment", blockId: unfinished.blocks[0].id });
+    expect(savedStart.text).toBe(unfinished.blocks[0].text);
     const record = records.blocks[0];
     expect(record.author).toBe("agent");
     expect(record.text).toContain("wren");
@@ -306,8 +305,8 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(record.text).toContain("✓ workstation");
     const revisions = await hostRequest(sock, "block.revisions", { outline: "allotment", blockId: record.id });
     expect(revisions.revisions[0]).toMatchObject({ author: "agent", actorId: "wren" });
-    const view = await hostRequest(sock, "views.read", { outline: "allotment", viewId: record.parentId, format: "tree" });
-    expect(view.blocks.map((b: { id: string }) => b.id)).toEqual(records.blocks.map((b: { id: string }) => b.id));
+    const recordsPage = await hostRequest(sock, "get", { outline: "allotment", blockId: record.parentId });
+    expect(recordsPage.text).toContain("[page::Records]");
     const everyday = await ep0ch("find", "--query", "type=deploy", "--json");
     expect(everyday.code).toBe(0);
     expect(everyday.out).not.toContain(record.id);
@@ -365,11 +364,11 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     mkdirSync(join(home, ".ep0ch"));
     writeFileSync(join(home, ".ep0ch/config.toml"), 'ws = "allotment"\nagent = "robin"\n');
     expect((await ep0ch("install", "--apply", "--json")).code).toBe(0);
-    let latest = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
+    let latest = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=record", sort: { field: "created", direction: "desc" }, limit: 1 } });
     expect(latest.blocks[0].text).toContain("Who: robin");
     writeFileSync(join(home, ".ep0ch/config.toml"), 'ws = "allotment"\n');
     expect((await ep0ch("install", "--apply", "--json")).code).toBe(0);
-    latest = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
+    latest = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=record", sort: { field: "created", direction: "desc" }, limit: 1 } });
     expect(latest.blocks[0].author).toBe("user");
     expect(latest.blocks[0].text).toContain("Who: person");
 
@@ -421,12 +420,12 @@ process.once("SIGTERM",()=>{connector.stop();process.exit(0)});
       expect(await linkedClient.exited).toBe(0);
       linkedClient = Bun.spawn([bun, join(root, "linked-client.ts")], { cwd: clientHome, env: clientEnv, stdout: "ignore", stderr: Bun.file(join(root, "linked-client-again.log")) });
       await until(() => { try { return JSON.parse(readFileSync(join(outlines, ".remote/travel.link.json"), "utf8")).up; } catch { return false; } }, "updated connector comes back");
-      const record = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
+      const record = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=record host=travel", sort: { field: "created", direction: "desc" }, limit: 1 } });
       expect(record.blocks[0].text).toContain(`travel: installed ${linkedHead}`);
       expect(record.blocks[0].text).toContain("session was handed over");
       const repeated = await ep0ch("install", "--apply", "--json");
       expect(repeated.code).toBe(0);
-      const repeatedRecord = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=install", sort: { field: "created", direction: "desc" }, limit: 1 } });
+      const repeatedRecord = await hostRequest(sock, "blocks.query", { outline: "allotment", query: { where: "type=deploy machine=record host=travel", sort: { field: "created", direction: "desc" }, limit: 1 } });
       expect(repeatedRecord.blocks[0].id).not.toBe(record.blocks[0].id);
       expect(repeatedRecord.blocks[0].text).toContain(`travel: installed ${linkedHead}`);
       expect(repeatedRecord.blocks[0].text).not.toContain("install pending");

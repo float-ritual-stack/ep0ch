@@ -677,7 +677,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     say(`    deploy record: ${deploy.id}`);
     if (json) plan.notes.push(`deploy record: ((${deploy.id}))`);
   });
-  if (!args.includes("--as-client") && facts.host.running) await beginRecord();
+  if (facts.host.running) await beginRecord();
   const results: (Step & { done?: string[]; error?: string; recover?: string })[] = [];
   let current = facts;
   const sessionFailures: string[] = [];
@@ -719,7 +719,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       if (step.id === "clients" && deploy) await record(() => deploy!.local("local steps complete; installing clients"));
       const handed = await execute(step, current, env, task, done, deploy ? (name, line) => record(() => deploy!.client(name, line)) : undefined, !args.includes("--no-allow"), sha);
       if (handed) sessionFailures.push(...handed.filter(s => !s.ok).map(s => s.message));
-      if (step.id === "host" && !creatingRecord && !args.includes("--as-client")) await beginRecord();
+      if (step.id === "host" && !creatingRecord) await beginRecord();
       task.end(true);
       results.push({ ...step, done });
     } catch (e) {
@@ -735,7 +735,8 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   }
   const waiting = results.filter(s => s.status === "manual");
   const clientBlocked = args.includes("--as-client") && (results.some(s => (s.id === "repo" || (sha && ["host", "schema"].includes(s.id))) && (s.status === "manual" || s.unchecked)) || sessionFailures.length > 0);
-  if (deploy) await record(() => deploy!.local(waiting.length ? `finished; needs attention: ${waiting.map(s => `${s.title}: ${s.why}`).join("; ")}` : "finished"));
+  const attention = [...waiting.map(s => `${s.title}: ${s.why}`), ...sessionFailures];
+  if (deploy) await record(() => deploy!.local(attention.length ? `finished; needs attention: ${attention.join("; ")}` : "finished"));
   if (!args.includes("--as-client") && facts.linkConfig?.mode === "connect") {
     const head = await run(["git", "-C", facts.repo.root, "rev-parse", "HEAD"], { env });
     if (head.code === 0) reconcileLinkInstall(facts.host.folder, { sha: head.out, commit: head.out, code: results.some(s => ["repo", "host", "schema"].includes(s.id) && s.status === "manual") || sessionFailures.length ? 1 : 0, notDone: [...waiting.map(s => `${s.title}: ${s.why}`), ...sessionFailures], sessions: results.filter(s => s.id === "session") });
