@@ -153,7 +153,9 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
     const was = divider();
     await act("facets.resize", { share: 0.7 });
     expect(divider()).toBeLessThan(was);
+    await act("tile.link", { to: "reader", verb: "select" });
     await app.dispatch.press("facets.pick", { n: pane.rows().length }, "tags");
+    await until(() => stage.pane("reader").render(70, 14, false, stage).lines.map(plain).join("\n").includes("Overflow tray"), "the picked match in its wired reader");
     expect(drawn()[0]).toMatch(/1 of \d+ notes/);
     expect(drawn().join("\n")).toContain(before.notes[0].title);
     const y = divider();

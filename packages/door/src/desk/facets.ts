@@ -387,7 +387,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       { act: "facets.pick n=4 tile=facets", does: "moves the cursor to the fourth row of the facets tile" },
       { act: "facets.pick by=-2 tile=facets", does: "moves the cursor up two rows" },
     ],
-    run({ n, by, part }, { pane, desk }) {
+    run({ n, by, part }, { pane, desk }, actor) {
       const p = pane as FacetsPane, rows = p.rows();
       if (!rows.length) throw new ActionRefused("the facets tile lists nothing yet");
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("facets.pick takes n or by");
@@ -397,7 +397,10 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       const at = walk.indexOf(p.at);
       const i = by !== undefined ? walk[clamp((at < 0 ? (by > 0 ? -1 : walk.length) : at) + Math.trunc(by), 0, walk.length - 1)]! : n! - 1;
       if (!(i >= 0 && i < rows.length)) throw new ActionRefused(`the tile has ${rows.length} rows; n is 1-${rows.length}`);
-      p.at = i; desk.redraw();
+      p.at = i;
+      const row = rows[i];
+      if (row?.kind === "note") desk.showFrom?.(p, row.note, actor);
+      desk.redraw();
       return { n: i + 1 };
     },
   }),
@@ -572,6 +575,7 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       share: { type: "number", optional: true, about: "the matching notes' share, 0.15 to 0.85" },
       by: { type: "number", optional: true, about: "change in share" },
     },
+    examples: [{ act: "facets.resize share=0.6 tile=facets", does: "gives matching notes sixty percent of the tile's body" }],
     run({ share, by }, { pane, desk }) {
       const p = pane as FacetsPane;
       if ((share === undefined) === (by === undefined)) throw new ActionRefused("facets.resize takes share= or by=");
