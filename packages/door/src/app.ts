@@ -1293,8 +1293,8 @@ export class App implements Ctx {
     if (k.kind === "hyper") { this.hyper(k.ch); return; }
     const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
     if (lifted?.liftInput(k, () => {
-      if (this.drawer.entered && !this.drawer.isDrawer(lifted)) this.drawerRun("host.leave", { quiet: true });
       this.stack.at(-1)?.enterTiles?.();
+      if (this.drawer.entered && !this.drawer.isDrawer(lifted)) this.drawerRun("host.leave", { quiet: true });
     })) return;
     // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
