@@ -25,7 +25,7 @@ import { dirname, join } from "node:path";
 import { outlineState } from "../state";
 import { sourceDownload } from "@ep0ch/outline-core/sources";
 import { ReaderPosition, PositionRows } from "../reader-position";
-import { NoteForm, FORM_KEYS } from "./note-form";
+import { NoteForm, FORM_KEYS, FORM_CHOICE_KEYS } from "./note-form";
 import { elementEdit, type ElementOperation } from "./element-editor";
 // The note surface: one note, shown, edited and commented on the same way wherever it is hosted — the
 // board's preview, details and floats, the desk's reader, and (next) a river column. It owns the note's
@@ -9065,7 +9065,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     run({ key }, { surface, host }) { surface.form!.input(JSON.parse(key) as Key, text => host.ctx.copy?.(text)); host.redraw(); },
   }),
   "form.set": def({
-    summary: "answer one field of this note's form; agents keep their own answers", keys: "click, left/right on a choice", touches: "nothing", replay: "safe",
+    summary: "answer one field of this note's form; agents keep their own answers", keys: modeActionKeys([FORM_CHOICE_KEYS], "form.set"), touches: "nothing", replay: "safe",
     args: { field: { type: "string", about: "field name" }, value: { type: "string", about: "answer" } },
     examples: [{ act: "form.set field=book value=Piranesi", does: "answers the book field for the actor submitting the form" }],
     run({ field, value }, { surface, host }, actor) { const f = surface.form; if (!f) throw new ActionRefused("this note has no form-field properties"); f.set(field, value, actor); if (actor.kind === "user") surface.focusForm(field, host); host.redraw(); return { answers: f.values(actor) }; },

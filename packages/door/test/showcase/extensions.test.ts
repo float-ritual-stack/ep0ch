@@ -166,7 +166,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     await until(() => screen().includes("(*) slow"), "clicked slow radio");
     click("( ) gripping");
     await until(() => screen().includes("(*) gripping"), "clicked gripping radio");
-    click("[ Fill in the form ]");
+    click("Fill in the form │");
     const reading = seeded.notes.formReading.id;
     await untilAsync(async () => (await board.children(reading)).some(m => m.text === "Piranesi [book::Piranesi] [pages::272] [mood::gripping]"), "the clicked form's child").catch(async e => { throw new Error(`${e.message}\n${JSON.stringify(await board.children(reading))}\n${screen()}`); });
     await app.act({ action: "form.set", tile: "reader", args: { field: "book", value: "The Dispossessed" }, as: "test-agent" });

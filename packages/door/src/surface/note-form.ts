@@ -17,6 +17,12 @@ export const FORM_KEYS: readonly ModeKey[] = [
   { key: "esc", action: "form.leave", label: "leave" },
 ];
 
+export const FORM_CHOICE_KEYS: readonly ModeKey[] = [
+  { key: "left", action: "form.set", args: { by: -1 }, label: "previous choice" },
+  { key: "right", action: "form.set", args: { by: 1 }, label: "next choice" },
+  { key: "click", action: "form.set" },
+];
+
 export class NoteForm {
   fields: FormField[] = [];
   chips: ReturnType<typeof parsePropertyRecords> = [];
@@ -35,7 +41,6 @@ export class NoteForm {
   }
   private party(actor: Actor) { return actor.kind === "user" ? "user" : actor.id; }
   draft(field: string, actor = USER) {
-    if (!this.fields.some(f => f.name === field)) throw new ActionRefused(`the form has no field ${field}; choose ${this.fields.map(f => f.name).join(", ")}`);
     const key = this.party(actor);
     let drafts = this.answers.get(key);
     if (!drafts) { drafts = new Map(this.fields.map(f => [f.name, new Draft(this.block, 0, f.default ?? "")])); this.answers.set(key, drafts); }
@@ -44,6 +49,7 @@ export class NoteForm {
   }
   values(actor: Actor) { return Object.fromEntries(this.fields.map(f => [f.name, this.draft(f.name, actor).text])); }
   set(field: string, value: string, actor: Actor) {
+    if (!this.fields.some(f => f.name === field)) throw new ActionRefused(`the form has no field ${field}; choose ${this.fields.map(f => f.name).join(", ")}`);
     const d = this.draft(field, actor);
     d.splice(0, d.text.length, value, {}, actor);
     this.warnings.delete(this.party(actor));
@@ -59,9 +65,11 @@ export class NoteForm {
     const field = this.fields[this.focus];
     if (!field) return true;
     if (field.type === "choice") {
-      if (k.kind === "left" || k.kind === "right") {
+      const choice = modeBinding(FORM_CHOICE_KEYS, k);
+      if (choice) {
         const options = field.options!, index = options.indexOf(this.draft(field.name).text);
-        run("form.set", { field: field.name, value: options[(index + (k.kind === "left" ? -1 : 1) + options.length) % options.length] });
+        const by = choice.args!.by as number;
+        run(choice.action, { field: field.name, value: options[(index + by + options.length) % options.length] });
       }
       return true;
     }
@@ -83,7 +91,7 @@ export class NoteForm {
       if (field.type === "choice") {
         const chips = field.options!.map(value => ({
           label: tag(field.name, `(${d.text === value ? "*" : " "}) ${value}`, shownLine("form.set", { field: field.name, value })),
-          on: d.text === value, hit: { action: "form.set", args: { field: field.name, value } },
+          on: d.text === value, cursor: active && this.focus === index && d.text === value, hit: { action: "form.set", args: { field: field.name, value } },
         }));
         for (const row of chipRows(chips, inner, label)) line(row.text);
       } else {
@@ -94,7 +102,10 @@ export class NoteForm {
         line(" ".repeat(labelWidth) + "└" + "─".repeat(box) + "┘");
       }
     });
-    line(" ".repeat(labelWidth) + tag("run", "[ Fill in the form ]", "form.submit"));
+    const indent = " ".repeat(labelWidth), button = "Fill in the form";
+    line(indent + "┌" + "─".repeat(width(button) + 2) + "┐");
+    line(indent + "│ " + tag("run", button, "form.submit") + " │");
+    line(indent + "└" + "─".repeat(width(button) + 2) + "┘");
     const warning = this.warnings.get("user");
     if (warning) line(fg(C.yellow) + warning + RESET);
     for (const text of ["* required", ...wrap(modeHint(FORM_KEYS, () => undefined), inner)]) line(text);
