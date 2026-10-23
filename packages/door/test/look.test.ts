@@ -280,7 +280,7 @@ describe.skipIf(!outliner)("the look on the desk, against a scratch outline", ()
       const p = d.where("Next garden");
       d.mouse("down", p.x + 2, p.y); d.mouse("up", p.x + 2, p.y);
       await until(() => d.desk.layoutGet().tiles.some(t => t.showing?.id === target.id && !t.collapsed), "the mouse reuses the target tile");
-      expect(d.desk.layoutGet().tiles.filter(t => t.showing?.id === target.id)).toHaveLength(1);
+      expect(d.desk.layoutGet().tiles.filter(t => t.kind === "reader" && t.showing?.id === target.id)).toHaveLength(1);
     } finally { d.close(); }
   }, 30_000);
 

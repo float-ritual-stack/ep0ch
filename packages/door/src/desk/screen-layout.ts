@@ -538,7 +538,8 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     if (request.newNote === "tab" && !tab) result.why = "not a tab here: it floats instead";
     return result;
   }
-  const deliberateTarget = route && "to" in route && (s.deliberate.has(route.to) || ctx.tile(route.to).pinned || wireTarget(s, from, verb) === route.to);
+  const deliberateTarget = s.wires.some(w => w.from === from && w.verb === verb)
+    || route && "to" in route && (s.deliberate.has(route.to) || ctx.tile(route.to).pinned);
   if (to === undefined && !request.at && !deliberateTarget && !(route && "across" in route)) {
     const source = ctx.tile(from);
     const existing = allTiles(s).find(id => {

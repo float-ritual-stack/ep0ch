@@ -162,6 +162,9 @@ describe.skipIf(!outliner)("the showcase screen: macros, asks and scripts", () =
     await stage.dispatch.press("ask.beside", { ask: "@planter show the seed counts" }, "notes");
     screen();
     await expect(stage.dispatch.press("answer.follow", { n: 1 }, "answer")).resolves.toBeDefined();
+    expect(reader.surface.describe().folds?.selected).not.toBeNull();
+    press({ kind: "esc" });
+    expect(reader.surface.describe().folds?.selected).toBeNull();
     press({ kind: "esc" });
     expect(S().focus).toBe("index");
   }, 40_000);
