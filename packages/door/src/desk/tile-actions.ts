@@ -85,7 +85,7 @@ function policyChange({ clear, accepts, opensInto, opens, altOpens, host, agents
 }
 /** What `layout.policy` sets: the schema `act` checks, and so its arguments' type. */
 const POLICY_ARGS = {
-  spines: { type: "string", optional: true, choices: SPINES, about: "book slides pages to their own side, start gathers left, end right, invoker keeps them toward the invoking tile" },
+  spines: { type: "string", optional: true, choices: SPINES, about: "book slides pages to their own side, start gathers left, end right, centre balances both sides, invoker keeps them toward the invoking tile" },
   "min-width": { type: "number", optional: true, about: "minimum open page width (default 40); opening a spine shares evenly and folds the least recently touched open page below this; 0 keeps all open, -1 clears" },
   node: { type: "string", optional: true, about: "the container's id, or screen" },
   draggable: { type: "boolean", optional: true, about: "its tiles can be dragged out" },
@@ -557,20 +557,20 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run({ split, path, border, share }, { d }, actor) { return d.resizeBorder({ split, path }, border, share, actor); },
   }),
   "layout.gather": def({
-    summary: "gather the row's spines left, right, or to their nearer sides, keeping open tiles together; sets the container's spines policy to start, end, or book for later opens",
-    keys: "^W { left, ^W } right, ^W | to the sides; click, enter or space in the container's policy menu",
+    summary: "align open tiles left, centre or right by gathering their spines; keeps the alignment for later opens",
+    keys: "^W { align left, ^W } align right, ^W | align centre; click, enter or space in the container's policy menu",
     touches: "shape", replay: "safe", says: r => `gathered spines ${r.side}`,
-    args: { side: { type: "string", choices: ["left", "right", "sides"], about: "left, right, or sides (nearest edge)" }, node: { type: "string", optional: true, about: "row or flow container id; left out, the tile's nearest row" } },
+    args: { side: { type: "string", choices: ["left", "right", "centre", "sides"], about: "spines left or right, centre (balanced), or sides (nearest edge)" }, node: { type: "string", optional: true, about: "row or flow container id; left out, the tile's nearest row" } },
     menu: [
-      { label: "gather spines left", group: "Container", key: "ctrl+w {", args: { side: "left" } },
-      { label: "gather spines right", group: "Container", key: "ctrl+w }", args: { side: "right" } },
-      { label: "gather spines to the sides", group: "Container", key: "ctrl+w |", args: { side: "sides" } },
+      { label: "align left", group: "Container", key: "ctrl+w {", args: { side: "right" } },
+      { label: "align centre", group: "Container", key: "ctrl+w |", args: { side: "centre" } },
+      { label: "align right", group: "Container", key: "ctrl+w }", args: { side: "left" } },
     ],
     examples: [
       { act: "layout.gather tile=reader side=left", does: "gathers this row's spines on the left and keeps that policy" },
       { act: "layout.gather tile=reader side=sides", does: "gathers each spine at its nearer edge and keeps book policy" },
     ],
-    run({ side, node }, { d, reader }, actor) { return d.gatherSpines(reader, side as "left" | "right" | "sides", actor, node); },
+    run({ side, node }, { d, reader }, actor) { return d.gatherSpines(reader, side as "left" | "right" | "sides" | "centre", actor, node); },
   }),
   "layout.even": def({
     summary: "every split shares its room equally", keys: "^W =",

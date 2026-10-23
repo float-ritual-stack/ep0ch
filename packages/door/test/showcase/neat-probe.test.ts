@@ -947,6 +947,67 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
     }, 30_000);
   }
 
+  for (const place of ["screen", "group", "drawer group"]) for (const count of [14, 15]) test(`align centre: ${count} spines in the ${place}, including a later open`, async () => {
+    const names = ["cedar", "fir", ...Array.from({ length: count }, (_, i) => `page-${i}`)];
+    const spread = { t: "split" as const, dir: "row" as const, key: "spread", policy: { opensInto: "spread" },
+      kids: names.map(name => ({ t: "leaf" as const, kind: "reader", name, mode: "held" as const })), weights: names.map(() => 1) };
+    const d = new Desk({ name: "alignment", title: "Alignment", layout: { root: place === "screen"
+      ? { t: "split", dir: "col", kids: [
+        { t: "split", dir: "row", key: "spread", kids: [{ t: "leaf", kind: "reader", name: "decoy" }], weights: [1] }, spread,
+      ], weights: [0.1, 0.9] } : spread } });
+    app.push(d);
+    const act = (action: string, tile?: string, args?: Record<string, unknown>) => app.dispatch.act({ action, tile, args }, USER);
+    const ids = Object.fromEntries(d.layoutAll().tiles.map(t => [t.name, t.tile!]));
+    let group: string | undefined;
+    try {
+      const note = await board.createBlock(null, "Woodland page\nA made-up page for the spread.");
+      await act("open", ids.cedar, { id: note.id });
+      if (place !== "screen") {
+        group = (await act("tile.group", ids.cedar, { node: "spread", name: "woodland" }) as { tile: string }).tile;
+        if (place === "drawer group") { await act("tile.open", group, { kind: "reader", name: "landing" }); await act("tile.drawer", group); app.drawer.enter(); }
+      }
+      app.flush();
+      for (const name of names.slice(2)) await act("tile.collapse", ids[name], { on: true });
+      await act("layout.gather", ids.cedar, { side: "centre" });
+      const owner = d.resolveTile(ids.cedar!)!.desk;
+      const check = (n: number) => {
+        app.flush();
+        const rows = owner.layoutGet().tiles.filter(t => t.rect && t.name !== "decoy").sort((a, b) => a.rect!.col - b.rect!.col);
+        const open = rows.filter(t => !t.collapsed);
+        expect(open.map(t => t.name)).toEqual(["cedar", "fir"]);
+        expect(rows.indexOf(open[0]!)).toBe(Math.floor(n / 2));
+        expect(rows.length - rows.indexOf(open[1]!) - 1).toBe(Math.ceil(n / 2));
+        expect(rows.filter(t => t.collapsed).map(t => t.name)).toEqual(names.slice(2));
+      };
+      check(count);
+      const next = await board.createBlock(null, "Next woodland page\nThe prior page becomes a spine.");
+      await act("open", ids.cedar, { id: next.id });
+      app.flush();
+      const rows = owner.layoutGet().tiles.filter(t => t.rect && t.name !== "decoy").sort((a, b) => a.rect!.col - b.rect!.col);
+      const open = rows.filter(t => !t.collapsed);
+      expect(rows.indexOf(open[0]!)).toBe(Math.floor((count + 1) / 2));
+      expect(rows.length - rows.indexOf(open.at(-1)!) - 1).toBe(Math.ceil((count + 1) / 2));
+      const all = owner.layoutGet().tiles;
+      expect(new Set(all.map(t => t.tile)).size).toBe(all.length);
+      if (place !== "screen") {
+        await act("comment.note", ids.cedar);
+        const fresh = await board.createBlock(null, "Third woodland page\nAn open while the first reader has a comment draft.");
+        await act("open", undefined, { id: fresh.id, from: ids.cedar });
+        app.flush();
+        const after = owner.layoutGet().tiles.filter(t => t.rect && t.name !== "decoy").sort((a, b) => a.rect!.col - b.rect!.col);
+        const pages = after.filter(t => !t.collapsed);
+        expect(pages).toHaveLength(3);
+        expect(after.indexOf(pages[0]!)).toBe(Math.floor((count + 1) / 2));
+        expect(after.length - after.indexOf(pages.at(-1)!) - 1).toBe(Math.ceil((count + 1) / 2));
+        await act("comment.close", ids.cedar);
+      }
+      expect((await act("layout.policy", ids.cedar) as any).effective.spines).toBe("centre");
+    } finally {
+      if (group && app.drawer.made?.resolveTile(group)) await act("tile.close", group);
+      app.pop(); d.dispose();
+    }
+  }, 30_000);
+
   for (const place of ["screen", "group", "drawer group"]) {
     for (const row of ["manual fold", "pushed left", "pushed right", "gather left", "gather right", "gather sides", "fair share", "outer page", "minimum boundary", "non-resizable", "oldest folds"]) test(`book spines: ${row} in the ${place}`, async () => {
       const names = ["birch", "cedar", "elm", "fir", "oak"];

@@ -26,8 +26,8 @@ export type Axis = "row" | "col";
  * What a container allows (PIE-505), saved with the screen. Left out, a field is what the container around it
  * says (the screen's policy is the outermost); `locked` anywhere above locks everything under it.
  */
-export type Spines = "book" | "start" | "end" | "invoker";
-export const SPINES: readonly Spines[] = ["book", "start", "end", "invoker"];
+export type Spines = "book" | "start" | "end" | "centre" | "invoker";
+export const SPINES: readonly Spines[] = ["book", "start", "end", "centre", "invoker"];
 
 export interface Policy {
   /** Where automatically folded pages gather; hand folds stay where they are. */
@@ -1115,7 +1115,12 @@ export function spineEdge<I>(row: Line<I>, collapsed: ReadonlyMap<I, unknown>, i
   const others = open.filter(n => n !== i);
   const spread = mode === "unfold" ? others : open;
   const remembered = row.t === "flow" ? row.sides?.find(s => leaves(row.kids[i]!).includes(s.tile)) : undefined;
-  const left = policy === "start" || policy === "book" && (remembered ? remembered.side === "left" : spread.length ? i <= (spread[0]! + spread.at(-1)!) / 2 : before);
+  let left = policy === "start" || policy === "book" && (remembered ? remembered.side === "left" : spread.length ? i <= (spread[0]! + spread.at(-1)!) / 2 : before);
+  if (policy === "centre") {
+    const folded = row.kids.flatMap((k, n) => leaves(k).every(t => collapsed.has(t)) ? [n] : []);
+    left = collapsed.has(id) ? folded.indexOf(i) < Math.floor(folded.length / 2)
+      : spread.length ? i <= (spread[0]! + spread.at(-1)!) / 2 : before;
+  }
   if (mode === "unfold" && policy === "book" && others.length && i > others[0]! && i < others.at(-1)!) return null;
   const edge = left ? others[0] : others.at(-1);
   // Keeping a page beside its replacement uses that tile when it is already the spread's edge.
