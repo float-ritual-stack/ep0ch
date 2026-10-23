@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "a398563d", "outliner": "a398563d", "on": "2026-10-23" },
+  "verified": { "door": "0ab34830", "outliner": "0ab34830", "on": "2026-10-23" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -407,7 +407,7 @@
         { "r": "door", "p": "src/app.ts", "l": 784, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 491, "m": "private asPerson(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 7129, "m": "export function refusalHint" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 7131, "m": "export function refusalHint" }
       ]
     },
     {
@@ -502,7 +502,7 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 665, "m": "private layoutCtx" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 2757, "m": "  run(name: string, args" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1487, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6144, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6146, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 118, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 397, "m": "\"tile.widen\": def({" }
       ],
@@ -618,7 +618,7 @@
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 194, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6414, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6416, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1150, "m": "private take(id: I, heir?" }
       ]
     },

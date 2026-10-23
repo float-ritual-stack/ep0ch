@@ -88,7 +88,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     (app as any).lastInput = 0;
   }, 30_000);
 
-  for (const place of ["group", "drawer", "spines"] as const) {
+  for (const place of ["group", "drawer", "drawer group", "spines"] as const) {
     test(`lift: a tile in ${place} keeps its column above the drawer`, async () => {
       await app.dispatch.press("host.toggle", { open: false });
       await sc.dispatch.press("section.leave");
@@ -96,44 +96,56 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       screen();
       const d = sc.tilesHere()!;
       const original = d.layoutSpec();
-      d.build({ root: { t: "split", dir: "h", kids: ["left", "brief", "peer", "right"].map(name => ({
+      (d as any).build({ root: { t: "split", dir: "row", kids: ["left", "brief", "peer", "right"].map(name => ({
         t: "leaf" as const, kind: "reader", name, note: seeded.notes.hub.id,
       })) }, focus: "brief" }, false);
-      let target = "brief";
-      if (place === "group") {
-        const g = await d.dispatch.act({ action: "tile.group", tile: "brief", args: { with: "peer" } }, USER);
-        target = `${g.name}/brief`;
-      } else if (place === "drawer") {
-        await d.dispatch.act({ action: "tile.drawer", tile: "brief" }, USER);
-        target = "@drawer/brief";
-      } else {
-        for (const tile of ["left", "right"]) await d.dispatch.act({ action: "tile.collapse", tile, args: { on: true } }, USER);
+      const grouped = place === "group" || place === "drawer group";
+      const inDrawer = place === "drawer" || place === "drawer group";
+      let transferred: string | undefined;
+      try {
+        let target = "brief";
+        if (grouped) {
+          const g = await d.dispatch.act({ action: "tile.group", tile: "brief", args: { with: "peer" } }, USER);
+          target = (g as { name: string }).name;
+        }
+        if (inDrawer) {
+          await d.dispatch.act({ action: "tile.drawer", tile: target }, USER);
+          transferred = target;
+        } else if (place === "spines") {
+          for (const tile of ["left", "right"]) await d.dispatch.act({ action: "tile.collapse", tile, args: { on: true } }, USER);
+        }
+        await app.dispatch.press("host.toggle", { open: true });
+        (app as any).paint(true);
+        const root = app.drawer.desks().find(desk => inDrawer ? app.drawer.isDrawer(desk) : desk === d)!;
+        const owner = grouped ? (root.pane(target) as any).inner : root;
+        const home = owner.layoutGet().tiles.find((t: any) => t.name === "brief")!.rect;
+        const container = grouped ? root.layoutGet().tiles.find(t => t.name === target)!.rect : null;
+        const col = home.col + (container ? root.screenOrigin.col + container.col + 1 : root.screenOrigin.col);
+        if (place !== "spines") {
+          await sc.dispatch.press("section.try");
+          await app.dispatch.press("host.leave", { quiet: true });
+          await d.dispatch.press("tile.focus", {}, "left");
+        }
+        const before = root.layoutSpec().root;
+        await owner.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "column", on: true } }, USER);
+        (app as any).paint(true);
+        const rows = h.painted.map(plain);
+        expect(rows[0]!.slice(col, col + home.cols)).toContain("⇣");
+        expect(rows[57]![col]).toMatch(/[│║]/);
+        expect(rows[57]![col + home.cols - 1]).toMatch(/[│║]/);
+        expect(owner.lifted?.reach).toBe("column");
+        press({ kind: "mouse", action: "down", button: 0, x: col + 3, y: 10 });
+        ch("j");
+        expect(owner.lifted?.reach).toBe("column");
+        press({ kind: "esc" });
+        expect(owner.lifted).toBeNull();
+        expect(root.layoutSpec().root).toEqual(before);
+      } finally {
+        if (transferred && app.drawer.made?.pane(transferred)) await app.drawer.made.dispatch.act({ action: "tile.drawer", tile: transferred }, USER);
+        (d as any).build(original, false);
+        await app.dispatch.press("host.toggle", { open: false });
+        await sc.dispatch.press("section.leave");
       }
-      await app.dispatch.press("host.toggle", { open: true });
-      (app as any).paint(true);
-      const root = app.drawer.desks().find(desk => place === "drawer" ? app.drawer.isDrawer(desk) : desk === d)!;
-      const owner = place === "group" ? (d.pane(target.split("/")[0]!) as any).inner : root;
-      const home = owner.layoutGet().tiles.find((t: any) => t.name === "brief")!.rect;
-      const container = place === "group" ? d.layoutGet().tiles.find(t => t.name === target.split("/")[0])!.rect : null;
-      const col = home.col + (container ? d.screenOrigin.col + container.col + 1 : root.screenOrigin.col);
-      const before = root.layoutSpec().root;
-      await owner.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "column", on: true } }, USER);
-      (app as any).paint(true);
-      const rows = h.painted.map(plain);
-      expect(rows[0]!.slice(col, col + home.cols)).toContain("⇣");
-      expect(rows[57]![col]).toMatch(/[│║]/);
-      expect(rows[57]![col + home.cols - 1]).toMatch(/[│║]/);
-      expect(owner.lifted?.reach).toBe("column");
-      press({ kind: "mouse", action: "down", button: 0, x: col + 3, y: 10 });
-      ch("j");
-      expect(owner.lifted?.reach).toBe("column");
-      press({ kind: "esc" });
-      expect(owner.lifted).toBeNull();
-      expect(root.layoutSpec().root).toEqual(before);
-      if (place === "drawer") await owner.dispatch.act({ action: "tile.drawer", tile: "brief" }, USER);
-      d.build(original, false);
-      await app.dispatch.press("host.toggle", { open: false });
-      await sc.dispatch.press("section.leave");
     }, 30_000);
   }
 

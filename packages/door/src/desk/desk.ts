@@ -3471,6 +3471,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The person's keys are on this desk (a screen's: not in your drawer, nor elsewhere in a frame around it; the drawer's: in it): its focused tile has them. */
   private keysHere(): boolean {
+    const holder = this.holder, parent = holder?.desk();
+    if (parent) return parent.keysHere() && parent.hasFocus(holder!.tile);
     const w = this.ctx?.person?.();
     if (!w) return true;
     // Your drawer's desk has them while the person is in it (`keys: host`); a screen's, while they're on it.
@@ -6117,7 +6119,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const lift = this.layout.lift, r = this.liftedRect;
     if (!lift || !r) return false;
     if (k.kind === "mouse") {
-      if (k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows) { if (k.action === "down") enter(); this.key(k, this.ctx); return true; }
+      if (k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows) { if (k.action === "down") { this.run("tile.focus", {}, this.nameOf(lift.tile)); enter(); } this.key(k, this.ctx); return true; }
       if (k.action === "down" || k.action === "wheel-up" || k.action === "wheel-down") this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile));
     } else if (this.keysHere() && this.focus === lift.tile) {
       if (k.kind === "esc") { this.key(k, this.ctx); return true; }
