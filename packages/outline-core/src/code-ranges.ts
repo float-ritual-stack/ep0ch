@@ -168,6 +168,7 @@ export function structuralLiteralLines(lines: readonly string[], yaml = true): {
   const spans: { start: number; end: number }[] = [];
   // `yaml` off: a component's front matter is read by its owner, and a `{{ }}` in it is a placeholder (PIE-533 example 14).
   for (const block of yaml ? componentBlocks(lines) : []) {
+    if (block.name === "box") continue;
     let open = -1, closed = false;
     for (let i = block.start + 1; i <= block.end; i++) {
       if (!YAML_FENCE_LINE.test(lines[i]!.replace(/\r$/, ""))) continue;

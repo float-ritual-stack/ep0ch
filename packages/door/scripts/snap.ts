@@ -51,7 +51,7 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch outline host (this repository's packages/outliner, or EP0CH_OUTLINER).
-const scratch = scenario === "bold" || scenario === "frames" || scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
+const scratch = scenario === "box" || scenario === "bold" || scenario === "frames" || scenario === "titles" || scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch outline host: set EP0CH_OUTLINER to the outliner package`); process.exit(2); }
   return new Scratch();
@@ -73,6 +73,15 @@ const snap = async (name: string, wait = 600) => {
 const press = (k: Key) => keyFn(k);
 const ch = (c: string) => press({ kind: "char", ch: c });
 
+if (scenario === "box") {
+  const target = await board.createBlock(null, "Next garden [page::garden-next]\nWater the seedlings.");
+  const lines = `Kept by {{this.owner}}: **seed trays**.\n<< [[garden-next|Next garden]] >>\n((${target.id}|The seedlings))\n[[{{this.destination}}|Value-built destination]]`;
+  const note = await board.createBlock(null, `Box parity [owner::Ada] [destination::garden-next]\n\n${lines}\n\n::box{border=round pad.x=1}\n${lines}\n::`);
+  app.push(new MainMenu());
+  app.push(openScreen("detail", { note: note.id, persist: false }));
+  await snap("body", 1500);
+  app.quit(); board.close(); await scratch!.dispose(); process.exit(0);
+}
 if (scenario === "bold") {
   const { BOLD_DEMO } = await import("../src/showcase/seed/notes");
   const note = await board.createBlock(null, "Bold throughout a note\n\n" + BOLD_DEMO);

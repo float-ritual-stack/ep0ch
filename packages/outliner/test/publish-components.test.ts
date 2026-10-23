@@ -8,6 +8,9 @@ import { Publisher } from "../src/publish";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { scratchOutline } from "./scratch-outline";
+import { loadDetailReadPreview } from "../src/detail-read-preview";
+import { renderDetailReadPreview } from "../src/detail-pi-preview";
+import { stripTerminalSequences, type MarkdownTheme } from "@earendil-works/pi-tui";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -24,7 +27,8 @@ async function setup() {
   const store = new OutlinerStore(paths.database, { workspaceRoot: workspace });
   const server = new OutlinerServer(store, paths.socket);
   await server.start();
-  const publisher = new Publisher({ client: new OutlinerClient(paths.socket) });
+  const client = new OutlinerClient(paths.socket);
+  const publisher = new Publisher({ client });
   cleanups.push(async () => {
     await publisher.stop();
     await server.close();
@@ -36,7 +40,7 @@ async function setup() {
     expect(response.status).toBe(200);
     return response.text();
   };
-  return { store, page, publisher };
+  return { store, page, publisher, client };
 }
 
 /** Chores in three stages, one of them locked, and a hub of three views over them. */
@@ -53,6 +57,34 @@ function seed(store: OutlinerStore) {
   const byBed = store.create("By bed [type::virtual-branch] [query::type=chore] [group::bed]");
   return { hub, sowing, harvest, byBed };
 }
+
+test("a box renders its note's values, bold and day links inside its frame", async () => {
+  const { store, page, client } = await setup();
+  store.create("Previous [page::garden-prev] [publish::public]");
+  store.create("Next [page::garden-next] [publish::public]");
+  const lines = "Kept by {{this.owner}}: **seed trays**.\n<< [[garden-prev]] | [[garden-next]] >>\n[[{{this.destination}}|Value-built destination]]\n> [!note] Seed care\n> Keep **seedlings** dry.";
+  const note = store.create(`Box parity [owner::Ada] [destination::garden-next]\n\n${lines}\n\n::box{border=round pad.x=1}\n${lines}\n::box{pad.x=1}\nNested **bold**\n::\n::graph-stat\n---\ntitle: Box harvest\n---\n- beans: 7\n::\n::`);
+  const html = await page(`/p/${note.id}`);
+  expect(html.match(/<strong>seed trays<\/strong>/g)).toHaveLength(2);
+  expect(html.match(/href="\/p\/garden-prev\?view=html"/g)).toHaveLength(2);
+  expect(html.match(/href="\/p\/garden-next\?view=html"/g)).toHaveLength(4);
+  expect(html).toContain("<strong>bold</strong>");
+  expect(html).toContain("<figcaption>Box harvest</figcaption>");
+  expect(html).not.toContain("::box");
+  expect(html).not.toContain("{{this.owner}}");
+  const document = await loadDetailReadPreview(client, note);
+  const plain = (s: string) => s;
+  const theme: MarkdownTheme = { heading: plain, link: plain, linkUrl: plain, code: plain, codeBlock: plain, codeBlockBorder: plain, quote: plain, quoteBorder: plain, hr: plain, listBullet: plain, bold: plain, italic: plain, strikethrough: plain, underline: plain };
+  const reader = renderDetailReadPreview(document, 80, theme, undefined, true);
+  const drawn = reader.lines.map(stripTerminalSequences).join("\n");
+  expect(drawn).not.toContain("::box");
+  expect(drawn.match(/Kept by Ada: seed trays\./g)).toHaveLength(2);
+  expect(drawn.match(/Seed care/g)).toHaveLength(2);
+  expect(drawn).not.toContain("[!note]");
+  expect(reader.frame.cells.some(cell => cell.styles.includes("bold") && cell.text === "s")).toBe(true);
+  const destinations = reader.frame.cells.filter(cell => cell.link?.uri.includes("garden-next"));
+  expect(new Set(destinations.map(cell => cell.row)).size).toBe(4);
+});
 
 test("a hub reads as a board of its views, each lane its rows and count; locked rows never show", async () => {
   const { store, page } = await setup();

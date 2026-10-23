@@ -598,66 +598,196 @@ var COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?)|(\{(?:[^{}\
 var COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
 var HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 var YAML_FENCE = /^ {0,3}---[ \t]*$/;
-function componentBlockAt(source) {
-  const firstEnd = source.indexOf(`
-`);
-  const open = COMPONENT_OPEN.exec(source.slice(0, firstEnd < 0 ? source.length : firstEnd).replace(/\r$/, ""));
-  if (!open)
-    return null;
-  const oneLine = { name: open[1], raw: source.slice(0, firstEnd < 0 ? source.length : firstEnd + 1) };
-  if (firstEnd < 0)
-    return open[2] ? oneLine : null;
-  let at = firstEnd + 1, fence = null, yamlSeen = false;
-  while (at < source.length) {
-    const next = source.indexOf(`
-`, at);
-    const end = next < 0 ? source.length : next;
-    const line = source.slice(at, end).replace(/\r$/, "");
-    if ((fence === null || fence === "yaml") && COMPONENT_CLOSE.test(line))
-      return { name: open[1], raw: source.slice(0, next < 0 ? end : end + 1) };
-    if (fence === "yaml") {
-      if (YAML_FENCE.test(line))
-        fence = null;
-    } else if (fence !== null) {
-      if (closesCodeFence(line, fence))
-        fence = null;
-    } else {
-      if (open[2] && !line.trim())
-        break;
-      if (HEADING.test(line) || COMPONENT_OPEN.test(line))
-        break;
-      if (YAML_FENCE.test(line) && !yamlSeen) {
-        fence = "yaml";
-        yamlSeen = true;
-      } else
-        fence = codeFenceOpen(line);
-    }
-    at = end + 1;
-  }
-  return open[2] ? oneLine : null;
-}
-function componentBlocks(lines) {
-  const out = [];
-  const text = lines.join(`
-`), offsets = [];
-  for (let i = 0, at = 0;i < lines.length; at += lines[i].length + 1, i++)
-    offsets.push(at);
-  for (let i = 0;i < lines.length; i++) {
-    const line = lines[i].replace(/\r$/, "");
-    const open = COMPONENT_OPEN.exec(line);
-    const block = open && componentBlockAt(text.slice(offsets[i]));
-    if (open && block) {
-      const end = i + block.raw.replace(/\n$/, "").split(`
-`).length - 1;
-      out.push({ name: open[1], args: open[2] ?? null, start: i, end, ...open[3] ? { attrs: open[3].slice(1, -1) } : {} });
-      i = end;
+var QUOTES = { '"': '"', "'": "'", "“": "”", "‘": "’" };
+function splitWords(line, lines, shell = true) {
+  const rows = [];
+  let out = [];
+  let word = "", inWord = false, close = null, escaped = false, brace = false, list = false, from = 0, at = 0;
+  const push = (end) => {
+    out.push({ value: word, raw: line.slice(from, end), ...close ? { quote: close } : {} });
+    word = "";
+    inWord = false;
+  };
+  for (const c of line) {
+    const here = at;
+    at += c.length;
+    if (brace && c === `
+`)
+      brace = false;
+    if (brace) {
+      word += c;
+      if (c === "}" && word.endsWith("}}"))
+        brace = false;
       continue;
     }
-    const fence = codeFenceOpen(line);
-    if (fence)
-      i = fenceEnd(lines, i, fence).end;
+    if (c === "{" && !close && !escaped && word.endsWith("{") && !word.endsWith("\\{")) {
+      word += c;
+      brace = true;
+      continue;
+    }
+    if (!shell && !close && !escaped && c === "[" && word.endsWith("="))
+      list = true;
+    if (list) {
+      word += c;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c === "\\" && close !== "'") {
+        escaped = true;
+        continue;
+      }
+      if (close) {
+        if (c === close)
+          close = null;
+      } else if (c === '"' || c === "'")
+        close = c;
+      else if (c === "]")
+        list = false;
+      continue;
+    }
+    if (escaped) {
+      word += close && c !== close && c !== "\\" || c === "{" ? `\\${c}` : c;
+      escaped = false;
+      continue;
+    }
+    if (c === "\\" && close !== "'" && close !== "’") {
+      if (!inWord)
+        from = here;
+      escaped = true;
+      inWord = true;
+      continue;
+    }
+    if (close) {
+      if (c === close)
+        close = null;
+      else
+        word += c;
+      continue;
+    }
+    if (QUOTES[c] && (shell || !inWord || word.endsWith("="))) {
+      if (!inWord)
+        from = here;
+      close = QUOTES[c];
+      inWord = true;
+      continue;
+    }
+    if (/\s/.test(c)) {
+      if (inWord)
+        push(here);
+      if (lines && c === `
+`) {
+        rows.push(out);
+        out = [];
+      }
+      continue;
+    }
+    if (!inWord)
+      from = here;
+    word += c;
+    inWord = true;
   }
-  return out;
+  if (inWord)
+    push(at);
+  rows.push(out);
+  return rows;
+}
+var ATTR_KEY = /^[A-Za-z][\w.-]*$/;
+function componentAttrs(attrs) {
+  const classes = [], pairs = [];
+  for (const { value: word } of splitWords(attrs, false, false).flat()) {
+    const cls = /^\.([A-Za-z][\w-]*)$/.exec(word);
+    if (cls) {
+      classes.push(cls[1]);
+      continue;
+    }
+    const eq = word.indexOf("=");
+    const key = eq < 0 ? word : word.slice(0, eq);
+    if (ATTR_KEY.test(key))
+      pairs.push({ key, value: eq < 0 ? "on" : word.slice(eq + 1) });
+  }
+  return { classes, pairs };
+}
+function componentBlocks(lines) {
+  return scanComponents(lines, false, (start, fence) => fenceEnd(lines, start, fence).end);
+}
+function scanComponents(lines, firstOnly = false, fenceStop) {
+  const frames = [], stack = [];
+  const finish = (end) => {
+    const frame = stack.pop();
+    if (end !== undefined) {
+      frame.block.end = end;
+      frame.closed = true;
+    } else if (frame.block.args !== null)
+      frame.closed = true;
+  };
+  let i = -1, skipThrough = -1;
+  scan:
+    for (const raw of lines) {
+      i++;
+      if (i <= skipThrough)
+        continue;
+      const line = raw.replace(/\r$/, "");
+      let parent = stack.at(-1);
+      if (parent) {
+        if (parent.fence !== null && parent.fence !== "yaml") {
+          if (closesCodeFence(line, parent.fence))
+            parent.fence = null;
+          continue;
+        }
+        if (COMPONENT_CLOSE.test(line)) {
+          finish(i);
+          if (firstOnly && !stack.length)
+            break;
+          continue;
+        }
+        if (parent.fence === "yaml") {
+          if (YAML_FENCE.test(line))
+            parent.fence = null;
+          continue;
+        }
+      }
+      const open = COMPONENT_OPEN.exec(line);
+      while (parent && (parent.block.args !== null && !line.trim() || parent.block.name !== "box" && (HEADING.test(line) || open))) {
+        finish();
+        if (firstOnly && !stack.length)
+          break scan;
+        parent = stack.at(-1);
+      }
+      if (open) {
+        const block = {
+          name: open[1],
+          args: open[2] ?? null,
+          start: i,
+          end: i,
+          ...open[3] ? { attrs: open[3].slice(1, -1) } : {}
+        };
+        const inline = block.name === "use" || block.name === "button" && block.attrs !== undefined && componentAttrs(block.attrs).pairs.some((p) => p.key.toLowerCase() === "act" || p.key.toLowerCase() === "of");
+        const frame = { block, fence: null, yamlSeen: false, closed: !!inline };
+        frames.push(frame);
+        if (!inline)
+          stack.push(frame);
+        else if (firstOnly && !stack.length)
+          break;
+        continue;
+      }
+      if (parent) {
+        if (parent.block.name !== "box" && YAML_FENCE.test(line) && !parent.yamlSeen) {
+          parent.fence = "yaml";
+          parent.yamlSeen = true;
+        } else
+          parent.fence = codeFenceOpen(line);
+      } else {
+        if (firstOnly)
+          break;
+        const fence = codeFenceOpen(line);
+        if (fence)
+          skipThrough = fenceStop(i, fence);
+      }
+    }
+  while (stack.length)
+    finish();
+  return frames.filter((frame) => frame.closed).map((frame) => frame.block);
 }
 
 // packages/outline-core/src/code-ranges.ts
@@ -680,6 +810,8 @@ var YAML_FENCE_LINE = /^ {0,3}---[ \t]*$/;
 function structuralLiteralLines(lines, yaml = true) {
   const spans = [];
   for (const block of yaml ? componentBlocks(lines) : []) {
+    if (block.name === "box")
+      continue;
     let open = -1, closed = false;
     for (let i = block.start + 1;i <= block.end; i++) {
       if (!YAML_FENCE_LINE.test(lines[i].replace(/\r$/, "")))

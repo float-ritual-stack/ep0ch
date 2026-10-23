@@ -1,5 +1,7 @@
 import {createHash} from 'node:crypto';
-import {AttributedMarkdown} from './attributed-markdown';
+import {AttributedMarkdown,noteBoxFrame,noteBoxGlyphRows} from './attributed-markdown';
+import {componentBlocks} from '@ep0ch/outline-core/component-block';
+import {parseStyleAttrs} from '@ep0ch/outline-core/style-cascade';
 import {DocumentFrame,documentGlyphs,generatedGlyphs,paintDocumentRows,type DocumentGlyph} from './document-frame';
 import {concatDocuments,documentProvenanceKey,generatedDocument,sliceDocument,type MappedDocument} from './document-provenance';
 import {LinkAwareMarkdown} from './link-aware-markdown';
@@ -441,7 +443,16 @@ export class DetailCalloutDocument implements Component {
   ) {
     const source=typeof input==='string'?generatedDocument(input,'unobserved callout document'):input;
     const lines = sourceLines(source.text);
-    const roots = regions.filter((region) => region.parentId === null);
+    const callouts = regions.filter((region) => region.parentId === null);
+    const boxes = componentBlocks(source.text.split('\n')).filter(block=>block.name==='box');
+    // Keep a containing box whole when the callout pass splits the note into pieces.
+    const containers = boxes.filter(box=>callouts.some(region=>region.headerLine>box.start&&region.sourceSpan!.endLine<box.end)
+      && !boxes.some(parent=>parent.start<box.start&&parent.end>box.end)
+      && !callouts.some(region=>region.headerLine<box.start&&region.sourceSpan!.endLine>box.end));
+    const roots = [
+      ...callouts.filter(region=>!containers.some(box=>region.headerLine>box.start&&region.sourceSpan!.endLine<box.end)),
+      ...containers.map(box=>({box,headerLine:box.start,sourceSpan:{endLine:box.end}})),
+    ].sort((a,b)=>a.headerLine-b.headerLine);
     let cursor = 0;
     let hasPreviousRoot = false;
     for (const root of roots) {
@@ -463,7 +474,20 @@ export class DetailCalloutDocument implements Component {
           ).map((component) => ({ component })));
         }
       }
-      this.pieces.push({
+      if ('box' in root) {
+        const off=root.box.start+1,start=lines[off]!.start,end=lines[root.box.end]!.start;
+        const nested=regions.filter(region=>region.headerLine>=off&&region.sourceSpan!.endLine<root.box.end).map(region=>({
+          ...region,headerLine:region.headerLine-off,sourceSpan:{...region.sourceSpan!,start:region.sourceSpan!.start-start,end:region.sourceSpan!.end-start,startLine:region.sourceSpan!.startLine-off,endLine:region.sourceSpan!.endLine-off},
+        }));
+        const body=new DetailCalloutDocument(sliceDocument(source,start,end),nested,theme,state,linksEnabled,
+          decoration&&{...decoration,ranges:decoration.ranges.map(range=>({startLine:range.startLine-off,endLine:range.endLine-off}))},calloutTheme,trackLinks);
+        const fields=parseStyleAttrs(root.box.attrs??'').fields;
+        this.pieces.push({component:{
+          glyphRows(width) {const frame=noteBoxFrame(fields,width),rows=body.glyphRows(frame.inner);return rows&&noteBoxGlyphRows(frame,rows);},
+          render(width) {const frame=noteBoxFrame(fields,width);return [...frame.before,...body.render(frame.inner).map(line=>frame.left+line+' '.repeat(Math.max(0,frame.inner-visibleWidth(line)))+frame.right),...frame.after];},
+          invalidate() {body.invalidate();},
+        }});
+      } else this.pieces.push({
         child: new CalloutNode(
           root,
           source,
@@ -493,9 +517,14 @@ export class DetailCalloutDocument implements Component {
     }
   }
 
-  render(width: number): string[] {
+  glyphRows(width:number):DocumentGlyph[][]|null {
     const rows=this.pieces.map(piece=>piece.child?piece.child.glyphRows(width):piece.component!.glyphRows(width));
-    this.renderedFrame=rows.every(row=>row!==null)?new DocumentFrame(rows.flat() as DocumentGlyph[][],width,this.theme,this.linksEnabled):null;
+    return rows.every(row=>row!==null)?rows.flat() as DocumentGlyph[][]:null;
+  }
+
+  render(width: number): string[] {
+    const rows=this.glyphRows(width);
+    this.renderedFrame=rows?new DocumentFrame(rows,width,this.theme,this.linksEnabled):null;
     if(this.renderedFrame)return [...this.renderedFrame.lines];
     return this.pieces.flatMap((piece) =>
       piece.child ? piece.child.render(width) : piece.component!.render(width)

@@ -85,7 +85,7 @@ export function placeAnchor(text: string, index: number, inCode = /^ {4}|^\t/.te
 }
 
 /** First lines nothing may follow: a fence, a table row, HTML, a rule, a link reference definition, a bare callout tag. */
-const OWN_LINE = /^(?:`{3,}|~{3,}|\||<|(?:[-*_][ \t]*){3,}$|\[[^\]]+\]:|\[![^\]]+\][+-]?[ \t]*$)/;
+const OWN_LINE = /^(?:`{3,}|~{3,}|::|\||<|(?:[-*_][ \t]*){3,}$|\[[^\]]+\]:|\[![^\]]+\][+-]?[ \t]*$)/;
 
 /** The rendered page with each sentinel as its block's anchor; one left alone in a paragraph takes the paragraph's place. */
 export function drawAnchors(html: string, ids: readonly string[]): string {

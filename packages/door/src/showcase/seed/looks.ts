@@ -17,7 +17,7 @@ export const HEADING_STYLE_LINE = "# Plot style [heading-style::plot] [heading-p
  * long enough to wrap at any width, a list for the gap and dividers, and a box with a look of its own.
  */
 export const SPACING_LAB = [
-  `${SEED.spacingLab} [page::${SEED.spacingLab}] [style::lab]`,
+  `${SEED.spacingLab} [page::${SEED.spacingLab}] [style::lab] [crop::beans]`,
   "This page is drawn by the lab style, which the Looks lab note declares: its measure holds the text to 64 columns, centred in a wide tile, its padding keeps it off the frame, and its list has a blank row and a dotted line between items. Nudge any value in the tune inspector under it and the page moves in the next frame; s writes it to the level you pick, and every door on the outline draws it.",
   "",
   "## Seed trays",
@@ -32,7 +32,7 @@ export const SPACING_LAB = [
   "- Leeks",
   "",
   "::box{list.gap=0 list.zebra list.zebra.bg=green list.zebra.strength=4 margin.x=4 edge=bar tone=green}",
-  "A box sets its own look: no gap, every other row on a green stripe, a green bar down its side, four columns in.",
+  "Live **{{this.crop}}** from [[Headings and dividers]]: the same note inside a box.",
   "- Leeks",
   "- Onion sets",
   "- Garlic",

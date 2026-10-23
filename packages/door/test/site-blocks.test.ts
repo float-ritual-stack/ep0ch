@@ -18,6 +18,23 @@ describe.skipIf(!outliner)("::fields, ::if and a figure over this, drawn from si
   beforeAll(async () => { await scratch.start(); board = new SocketBoard(scratch.sock); await board.info(); }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 
+  test("a box presents the same values, bold and day links as its note", async () => {
+    await make("Previous [page::garden-prev]");
+    await make("Next [page::garden-next]");
+    const card = await make("Box card [type::template]\nTemplate kept by {{this.owner}}.");
+    const lines = "Kept by {{this.owner}}: **seed trays**.\n<< [[garden-prev]] | [[garden-next]] >>\n[[{{this.destination}}|Value-built destination]]";
+    const id = await make(`Box parity [owner::Ada] [destination::garden-next]\n\n${lines}\n\n::box{border=round pad.x=1}\n${lines}\n::box{pad.x=1}\nNested **bold**\n::\n::graph-stat\n---\ntitle: Box harvest\n---\n- beans: 7\n::\n::use{of=((${card}))}\n::`);
+    const text = await show(id);
+    expect(text.match(/Kept by Ada: seed trays\./g)).toHaveLength(2);
+    expect(text).not.toContain("[[garden-prev]]");
+    expect(text).not.toContain("{{this.owner}}");
+    expect(text.match(/Value-built destination/g)).toHaveLength(2);
+    expect(text).toContain("Nested bold");
+    expect(text).toContain("BOX HARVEST");
+    expect(text).not.toContain("::graph-stat");
+    expect(text).toContain("Template kept by Ada.");
+  }, 20_000);
+
   test("the same figure on two project pages lists each page's own tickets", async () => {
     for (const [t, p] of [["Sort the bricks", "lego-night"], ["Build the tower", "lego-night"], ["Water the beans", "garden"]]) await make(`${t} [type::ticket] [project::${p}]`);
     const lego = await make(`Lego night [project::lego-night]\n\n${FIGURE}`);
