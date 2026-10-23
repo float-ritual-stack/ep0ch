@@ -55,6 +55,23 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     delete process.env.EP0CH_STATE;
   });
 
+  test("a new card's live preview finishes reading an embed inside a callout", async () => {
+    const target = await board.createBlock(null, "Seed depth\nBury the beans two fingers deep.");
+    BV.at(b, "lanes");
+    await b.dispatch.act({ action: "card.new", args: {} }, USER);
+    try {
+      key({ kind: "paste", text: `Planting\n> [!tip] Instructions\n> !((${target.id}))` });
+      key({ kind: "char", ch: "p", ctrl: true });
+      const preview = () => {
+        return b.render(B().ctx!).lines.map(visible).join("\n");
+      };
+      await until(() => preview().includes("Bury the beans two fingers deep."), "the new card's embed read in preview");
+    } finally {
+      await b.dispatch.press("composer.close", { discard: true });
+      (app as any).lastInput = 0;
+    }
+  });
+
   test("PIE-1173: the reader hint offers float and never offers t outline", async () => {
     BV.at(b, "preview");
     const drawn = b.render(B().ctx!).lines.map(visible).join("\n");
