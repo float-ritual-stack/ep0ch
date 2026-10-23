@@ -885,6 +885,7 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       const stage = (showcase as any).stage((showcase as any).sel).top;
       const images = (await remoteApp.act({ action: "images", as: "test-agent" }) as any).images;
       const { url } = await board.request<{ url: string }>("artifacts.show", { name: images[1].path });
+      const file = await board.request<{ url: string }>("artifacts.show", { name: images[2].path });
       const otherBytes: string[] = [];
       const other = session.attach({ send(m) { if (m.t === "output") otherBytes.push(m.text); }, backlog: () => 0, onDrain() {}, close() {} }, { ...pressing.hello, remote: false, pid: 456 });
       const request = board.request.bind(board);
@@ -915,6 +916,10 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
         expect((remoteApp as any).message).toContain("click to open");
         pressing.hello.remote = true; process.env.DISPLAY = ":fictional";
       }
+      bytes.length = 0;
+      await stage.dispatch.press("artifact.open", { n: 3 });
+      expect(opened).toEqual([]);
+      expect(bytes.join("")).toContain(osc52(file.url));
       const received: string[] = [];
       let openError: "throw" | "detach" | null = null;
       link = serveLink({ outlines: process.env.EP0CH_OUTLINES!, port: 0, keys: { travel: "fictional-key", spare: "fictional-spare-key" }, log() {} });
@@ -938,16 +943,20 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       expect(opened).toEqual([]);
       expect(bytes.join("")).not.toContain(osc52(url));
       expect((remoteApp as any).message).toContain("on travel");
+      await stage.dispatch.press("artifact.open", { n: 3 });
+      expect(received).toEqual([url, file.url]);
+      expect(opened).toEqual([]);
+
       expect(await remoteApp.act({ action: "artifact.open", args: { n: 2 }, as: "test-agent" })).toMatchObject({ url, launched: false });
-      expect(received).toEqual([url]);
+      expect(received).toEqual([url, file.url]);
       expect(await openLinked(process.env.EP0CH_OUTLINES!, "file:///tmp/fictional", pressing.hello.remoteAddress)).toMatchObject({ opened: false, error: expect.stringContaining("only HTTP or HTTPS") });
-      expect(received).toEqual([url]);
+      expect(received).toEqual([url, file.url]);
       const otherOpens: string[] = [];
       spare = connectLink({ server: `http://127.0.0.1:${link.port}`, machine: "spare", key: "fictional-spare-key", host: scratch.sock, log() {}, open: async url => { otherOpens.push(url); } });
       await until(() => linkStates(process.env.EP0CH_OUTLINES!).length === 2, "two machine links up");
       bytes.length = 0;
       await stage.dispatch.press("artifact.open", { n: 2 });
-      expect(received).toEqual([url]);
+      expect(received).toEqual([url, file.url]);
       expect(otherOpens).toEqual([]);
       expect(bytes.join("")).toContain(osc52(url));
       expect((remoteApp as any).message).toContain("multiple machine links");
