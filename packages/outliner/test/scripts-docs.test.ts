@@ -4,8 +4,8 @@
 // the page's own "shows" block. When one of these fails the page is stale: `bun scripts/scripts-doc.ts` rewrites the
 // tables, and the message names a pointer to move. Scratch services in temp folders; every note and name is made up.
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { PRIMITIVE_TYPES } from "../src/component-primitives";
 import { scriptExamples, SCRIPTS_DOC_FILE, type ScriptExample } from "../src/script-examples";
 import { regenerated, stalePointers, withoutLines, withPointers } from "../scripts/scripts-doc";
@@ -17,6 +17,21 @@ test("the page's generated tables are what the code says, and each pointer's sym
   // A line that moved is not drift: the generator writes it again. A table that differs, or a symbol that is gone, is.
   expect(withoutLines(regenerated(page)) === withoutLines(page) ? "fresh" : "stale: run `bun packages/outliner/scripts/scripts-doc.ts` and commit the page").toBe("fresh");
   expect(stalePointers(page)).toEqual([]);
+});
+
+test("local links from the script reference and its worked extension examples resolve", () => {
+  const pending = [SCRIPTS_DOC_FILE];
+  const seen = new Set<string>();
+  while (pending.length) {
+    const file = pending.pop()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    for (const match of readFileSync(file, "utf8").matchAll(/\[[^\]\n]+\]\((\.[^\s)]+)\)/g)) {
+      const target = resolve(dirname(file), match[1]!.split("#")[0]!);
+      expect({ link: match[1], exists: existsSync(target) }).toMatchObject({ exists: true });
+      if (target.includes("/extensions/") && target.endsWith(".md")) pending.push(target);
+    }
+  }
 });
 
 test("a pointer whose line moved is regenerated from its symbol; one whose symbol or file is gone is named", () => {

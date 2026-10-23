@@ -1,0 +1,51 @@
+// ep0ch-script effects=write
+// Resolve explicit slots before arranging anything; defaults belong to this outline and this reader.
+const pick = async ref => (await read(ref)).id;
+const layout = await act('layout.get');
+const layer = layout.layers.find(x => !x.drawer);
+const current = layer.tiles.find(x => x.tile === layer.focus && x.kind === 'reader')?.showing?.id;
+let home;
+if (!props.page?.[0]) {
+  home = (await q('welcome=1', { limit: 1 })).blocks[0]?.id
+    ?? (await q('page=home', { limit: 1 })).blocks[0]?.id;
+  if (!home) {
+    let note = await read(current ?? this.id);
+    while (note.parent) note = await read(note.parent);
+    home = note.id;
+  }
+}
+const BRIEF = props.page?.[0] ? await pick(props.page[0]) : home;
+const CURRENT = props.page?.[1] ? await pick(props.page[1]) : (current ?? this.id);
+const failed = [];
+const step = async (name, args) => { try { return await act(name, args); } catch (e) { failed.push(`${name}: ${String(e).slice(0, 140)}`); return null; } };
+const tiles = async () => (await act('layout.get')).layers.find(x => !x.drawer).tiles;
+
+// A reader holding a note: one showing it already, else a new held one.
+async function readerFor(id, name, except) {
+  const t = (await tiles()).find(x => x.kind === 'reader' && x.showing?.id === id && x.tile !== except);
+  if (t) return t.tile;
+  const r = await step('tile.open', { kind: 'reader', mode: 'held', note: id, name });
+  return r?.tile ?? name;
+}
+const A = await readerFor(BRIEF, 'brief');
+const B = await readerFor(CURRENT, 'current', A);
+await step('reader.follow', { tile: A, source: 'none' });
+await step('reader.follow', { tile: B, source: 'none' });
+
+// side by side, 50/50; every other tile a spine
+await step('tile.collapse', { tile: A, on: false });
+await step('tile.collapse', { tile: B, on: false });
+await step('layout.move', { tile: B, to: A, where: 'right' });
+
+// the briefing's links in the drawer, wired: select and open → B, alt → A
+const shown = await step('links', { tile: A });
+const L = shown?.tile;
+if (L) {
+  await step('tile.drawer', { tile: L, on: true });
+  await step('tile.link', { tile: L, to: B, verb: 'select' });
+  await step('tile.link', { tile: L, to: B, verb: 'open' });
+  await step('tile.link', { tile: L, to: A, verb: 'alt' });
+}
+for (const t of await tiles()) if (t.tile !== A && t.tile !== B && t.tile !== L && !t.collapsed && t.shown !== false) await step('tile.collapse', { tile: t.tile, on: true });
+await step('layout.even', {});
+return failed.length ? `neat: ${failed.length} steps failed · ${failed.join(' · ')}` : `neat: ${A} | ${B}, links wired`;

@@ -55,12 +55,12 @@ test("a client that names its outline reads and watches that outline through the
   });
   cleanups.push(() => watcher.stop());
   await connected.promise;
-  await bob.request({ action: "create", text: "Bob's fictional kettle" });
-  await fred.request({ action: "create", text: "Fred's fictional lantern" });
+  const bobNote = await bob.request<Block>({ action: "create", text: "Bob's fictional kettle" });
+  const lantern = await fred.request<Block>({ action: "create", text: "Fred's fictional lantern" });
   const deadline = Date.now() + 3_000;
-  while (!events.some(event => event.domain === "content") && Date.now() < deadline) await Bun.sleep(10);
-  await Bun.sleep(50);
-  expect(events.filter(event => event.domain === "content")).toHaveLength(1);
+  while (!events.some(event => event.domain === "content" && event.blockId === lantern.id) && Date.now() < deadline) await Bun.sleep(10);
+  expect(events.find(event => event.domain === "content" && event.blockId === lantern.id)).toMatchObject({ action: "create" });
+  expect(events.some(event => event.domain === "content" && event.blockId === bobNote.id)).toBe(false);
   // The Tree's registration is on fred only.
   expect((await fred.request<OutlinerClientRegistration[]>({ action: "clients.list" })).map(client => client.clientId)).toContain("fred-tree");
   expect((await bob.request<OutlinerClientRegistration[]>({ action: "clients.list" })).map(client => client.clientId)).not.toContain("fred-tree");

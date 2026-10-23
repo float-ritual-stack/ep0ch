@@ -67,6 +67,7 @@ export const SEED = {
   rules: "Allotment committee, Saturday",
   settings: "Compost bay jobs get a badge",
   scripts: "Seed report",
+  neat: "A neat workbench",
   asks: "Keep writing while the answer arrives",
   scriptTarget: "Planting checklist",
   buttonSequences: "One button, two tiles",

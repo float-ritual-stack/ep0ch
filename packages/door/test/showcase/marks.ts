@@ -156,6 +156,7 @@ export const marks: Record<string, string[]> = {
   "facets": ["#frost-jobs", "uses▾", "facets"],
   "rich-edit": ["Seed inventory", "Beans", "Packets"],
   asks: ["Keep writing while the answer arrives"],
+  neat: ["A neat workbench", "[neat]"],
   scripts: ["Seed report", "Press alt+S"],
   "button-sequences": ["One button, two tiles", "Fold the bottom", "Sugar"],
   "scripts-in-place": ["Scripts in place", "beds-table"],

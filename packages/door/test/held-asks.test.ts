@@ -34,6 +34,7 @@ describe.skipIf(!outliner)("the waiting-on-you list shows requests held for r, a
     cpSync(resolve(import.meta.dir, "../../outliner/extensions/tidy"), join(dir, "tidy"), { recursive: true });
     board = new SocketBoard(await scratch.start());
     await board.info();
+    await board.listExtensions(true);
     await board.createBlock(null, "One wake [invoke-from::loki] [invoke-to::tidy] [cap::1/day]");
     await board.createBlock(null, "First\n*  tidy  this\n@tidy", { kind: "agent", id: "loki" });
     const held = await board.createBlock(null, "Reply to the swap thread\n*  messy  line\n@tidy", { kind: "agent", id: "loki" });

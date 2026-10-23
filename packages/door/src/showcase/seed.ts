@@ -310,6 +310,11 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "Keep typing while an agent adds another table: its fields are editable in this same draft.",
   ].join("\n"));
   notes.shed = await make(notes.root.id, shedText(notes.whiteboard.id));
+  notes.neat = await make(notes.root.id, [
+    `${SEED.neat}`,
+    'Two pages side by side, other tiles folded to spines, and the left page\'s links wired from the drawer.',
+    `::button{label="neat" of=neat page=((${notes.shed.id})) page=((${notes.scriptTarget.id}))}`,
+  ].join("\n"));
   await make(notes.shed.id, "Puncture kit\nPatches, glue, two tyre levers.");
   await make(notes.shed.id, "Chain oil\nThe dry lube, not the wet one.", SEED_AGENT);
   // Notes to trash and bring back (PIE-878): the heap, with two notes under it.

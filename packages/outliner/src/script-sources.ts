@@ -3,9 +3,9 @@ import { codeBlocks, codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/cod
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { durationMs, MAX_DEADLINE_MS, type ManifestSource, type ScriptSource } from "./extension-manifest";
+import { durationMs, MAX_DEADLINE_MS, type ManifestSource, type ScriptSource, type ExtensionOrigin } from "./extension-manifest";
 import type { OutlinerStore } from "./store";
-import type { ExtensionEntry } from "./extension-registry";
+import { BUILT_IN_EXTENSIONS, extensionRoots, type ExtensionEntry } from "./extension-registry";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { bind } from "./site-answer";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
@@ -59,10 +59,10 @@ const scriptStamp = (script: ScriptSource) => hash(JSON.stringify({ ...script, r
 /** Sources stay authored text; a malformed fence is reported by the loader, never by saving the block. */
 export async function scriptSources(store: OutlinerStore, draft?: { blockId: string; text: string }): Promise<ManifestSource[]> {
   const sources: ManifestSource[] = [];
-  const add = (identity: string, name: string, script: ScriptSource, error?: string) => {
+  const add = (identity: string, name: string, script: ScriptSource, error?: string, location?: { origin: ExtensionOrigin; directory: string }) => {
     const id = scriptSourceId(identity);
     sources.push({
-      ...(error ? { error } : {}), expectedId: id, idFrom: identity, origin: "outline", directory: store.workspaceRoot ?? "",
+      ...(error ? { error } : {}), expectedId: id, idFrom: identity, ...(location ?? { origin: "outline", directory: store.workspaceRoot ?? "" }),
       manifestRaw: JSON.stringify({ contract: 2, id, version: 1, name, ...(/^[a-z][a-z0-9-]{0,31}$/.test(name) ? { agents: [{ name, effects: script.effects }] } : {}),
         // Render mode: the script is a handler, its line (`name::`) draws what it returns under the line.
         ...(script.render ? { handlers: [{ key: name, kind: "output", effects: "read", description: `Draws what ${name} returns, in place`, argument: { name: "slots", description: "name=value words the script reads as props" } }] } : {}),
@@ -104,9 +104,20 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
           effects, author: { author: revision.author ?? block.author, ...(revision.actorId ? { actorId: revision.actorId } : {}) } }, problem);
     }
   }
-  if (store.workspaceRoot && !draft) {
-    for (const dotted of [false, true]) {
-      const folder = dotted ? join(store.workspaceRoot, ".ep0ch", "scripts") : join(store.workspaceRoot, "scripts");
+  if (!draft) {
+    const folders: { folder: string; opted: boolean; origin: ExtensionOrigin; directory: string }[] = [];
+    if (store.workspaceRoot) {
+      folders.push({ folder: join(store.workspaceRoot, "scripts"), opted: false, origin: "outline", directory: store.workspaceRoot },
+        { folder: join(store.workspaceRoot, ".ep0ch", "scripts"), opted: true, origin: "outline", directory: store.workspaceRoot });
+    }
+    // Notes and outline files win; installed extension copies precede the bundled source.
+    for (const root of [...extensionRoots(store.workspaceRoot), { path: BUILT_IN_EXTENSIONS, origin: "user" as const }]) {
+      for (const name of await readdir(root.path).catch(() => [])) {
+        if (await Bun.file(join(root.path, name, "extension.json")).exists())
+          folders.push({ folder: join(root.path, name, "scripts"), opted: true, origin: root.origin, directory: join(root.path, name) });
+      }
+    }
+    for (const { folder, opted, origin, directory } of folders) {
       let names: string[];
       try { names = await readdir(folder); } catch (error) {
         if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
@@ -116,16 +127,16 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
         if (!/\.(ts|js)$/.test(name)) continue;
         const file = join(folder, name);
         let code = "";
-        if (dotted) {
+        if (opted) {
           try { code = await Bun.file(file).text(); } catch (error) {
-            add(file, name.replace(/\.(ts|js)$/, ""), { code, file, revision: hash(code), effects: "read", author: { author: "user" } }, `${file}: cannot read script: ${error instanceof Error ? error.message : String(error)}`);
+            add(file, name.replace(/\.(ts|js)$/, ""), { code, file, revision: hash(code), effects: "read", author: { author: "user" } }, `${file}: cannot read script: ${error instanceof Error ? error.message : String(error)}`, { origin, directory });
             continue;
           }
         }
         const header = /^\s*\/\/ ep0ch-script(?: effects=(read|write))?\s*$/.exec(code.split(/\r?\n/)[0] ?? "");
-        const error = !dotted ? `${file}: ignored; scripts load only from .ep0ch/scripts/. Move it there only if you intend to run it, and opt in with // ep0ch-script.`
+        const error = !opted ? `${file}: ignored; scripts load only from .ep0ch/scripts/. Move it there only if you intend to run it, and opt in with // ep0ch-script.`
           : !header ? `${file}: ignored; opt in with a first line of // ep0ch-script (or // ep0ch-script effects=write).` : undefined;
-        add(file, name.replace(/\.(ts|js)$/, ""), { code, file, revision: hash(code), effects: header?.[1] === "write" ? "write" : "read", author: { author: "user" } }, error);
+        add(file, name.replace(/\.(ts|js)$/, ""), { code, file, revision: hash(code), effects: header?.[1] === "write" ? "write" : "read", author: { author: "user" } }, error, { origin, directory });
       }
     }
   }

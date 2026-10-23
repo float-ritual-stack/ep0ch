@@ -152,9 +152,10 @@ describe.skipIf(!outliner)("orient: sort, project, fold and never re-send, over 
     });
 
     test("fold collapses a note's proposal, comments and delivery into it, with a count", async () => {
-      const flat = await call("outline_query", { query: "updated >= -1d", fields: "title", limit: 50 });
+      const scope = { under: notes.lamp!.id, limit: 50 };
+      const flat = await call("outline_query", { query: "updated >= -1d", fields: "title", ...scope });
       for (const d of [...derived.comments, derived.reply, derived.proposal, derived.delivery]) expect(ids(flat)).toContain(d);
-      const folded = await call("outline_query", { ...ORIENT, limit: 50 });
+      const folded = await call("outline_query", { ...ORIENT, ...scope });
       for (const d of [...derived.comments, derived.reply, derived.proposal, derived.delivery]) expect(ids(folded)).not.toContain(d);
       const row = folded.json.matches.find((m: any) => m.id === notes.lamp!.id);
       expect(row.changes).toMatchObject({ count: 5, proposals: 1, comments: 3, deliveries: 1, summary: "5 changes (1 proposal, 3 comments, 1 delivery)" });

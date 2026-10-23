@@ -4460,10 +4460,10 @@ export class NoteSurface {
       }
       // An extension's action acts on a note: the one this press is written in, unless the line names another.
       if (EXT_ACTIONS.has(action) && args.block === undefined) args.block = p.block || this.msg?.id;
-      // The person's press of a script invites its run (src/surface/invite.ts): it may move their tiles while it runs. The
-      // run's note records the button and its author beside who asked.
-      if (actor.kind === "user" && scriptActions().some(s => s.action.name === action)) {
-        args.invitation ??= INVITES.mint("you");
+      // The person's press of a script invites its run (src/surface/invite.ts): it may move their tiles while it runs. Any
+      // press names its button (via), so the run's note records it and the run reads its slots whole (`page=a page=b`).
+      if (scriptActions().some(s => s.action.name === action)) {
+        if (actor.kind === "user") args.invitation ??= INVITES.mint("you");
         const home = p.block || this.msg?.id;
         if (home) args.via ??= `${home}:${p.line}`;
       }

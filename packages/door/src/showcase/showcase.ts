@@ -1147,6 +1147,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "neat", need: "arrange two notes with one built-in script", part: "script runtime, layout actions and drawer links", files: "outliner/extensions/neat/scripts/neat.js",
+    aside: "Press neat: two readers side by side, the other tiles as spines, and links in the drawer wired select/open to the right and alt to the left. Use page= twice to choose your own notes; without slots it uses this outline's welcome and the reader with your keys.",
+    stage(n, show) {
+      const a = new ReaderPane(true), b = new ReaderPane(true), c = new ReaderPane(true);
+      return deskOf({ title: "showcase · neat", panes: [a, b, c], names: ["notes", "source", "extra"], layout: ([x, y, z]) => pair("col", 0.5, row(0.5, x!, y!), leaf(z!)) }, show, [[a, n.neat], [b, n.shed], [c, n.heap]]);
+    },
+  },
+  {
     key: "scripts", need: "bind scripts to keys, names, rules and asks without waiting", part: "the dispatcher, action lines, QuickJS and run undo", files: "outliner/src/script-runs.ts, src/extensions.ts",
     aside: "alt+S runs seed-report · ^K or / then seed-report runs by name · slots are name=value · @seed-count runs in a note; rule-on::script:seed-count uses the same trigger path · alt+Q or click ⇧⌥Q starts recording · open a query tile with ^K tile.open kind=query query=\"#beans\" · alt+Q or REC stop saves a [script::] note · edit #beans to #{tag}; Run recording from ^K asks for tag · agent actions stay out · Run seed-report streams results below its source; ext.undo takes back its writes together",
     stage(n, show) {
