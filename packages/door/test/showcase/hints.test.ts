@@ -214,6 +214,7 @@ describe.skipIf(!outliner)("x-ray and hint cards", () => {
 
   test("each short wire changes its destination through its frame click", async () => {
     const d = h.S().stages.get(h.S().sel).top as Desk;
+    await d.dispatch.press("tile.close", {}, "hint-settings");
     for (const [tile, text] of [["source", "Source"], ["reader", "Target"]]) await d.dispatch.press("tile.title", { text }, tile);
     for (const [letter, verb] of [["○", "select"], ["»", "open"], ["^", "alt"]]) {
       const rows = h.screen().split("\n"), stage = h.S().stageRect;

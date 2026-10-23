@@ -1605,7 +1605,7 @@ class Step<I> {
     const rs = leaves(row).flatMap(t => boxes.has(t) ? [boxes.get(t)!] : []);
     const width = rs.length ? Math.max(...rs.map(r => r.col + r.cols)) - Math.min(...rs.map(r => r.col)) : 0;
     const opened = () => row.kids.filter(k => !this.folded(k));
-    const fits = () => (width - (row.kids.length - opened().length) * SPINE - (row.kids.length - 1)) / opened().length >= e["min-width"];
+    const fits = () => (width - (row.kids.length - opened().length) * SPINE) / opened().length >= e["min-width"];
     const age = (k: LNode<I>) => Math.max(...leaves(k).map(t => this.d.touched.indexOf(t)));
     while (e["min-width"] > 0 && opened().length > 1 && !fits()) {
       const oldest = opened().filter(k => k !== kid && leaves(k).every(t => {

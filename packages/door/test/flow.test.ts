@@ -54,6 +54,15 @@ describe("the squeeze: full → peek → spine around the wide column", () => {
     expect(widths).toEqual([3, 32, 33, 76, 76]);
   });
 
+  test("a zero minimum keeps every page open even in a narrow flow", () => {
+    AREA = wide(12);
+    const s = ok(river(7), { op: "policy", node: "screen", set: { "min-width": 0 }, clear: [] }).state;
+    const p = place(s, AREA);
+    expect([...p.rects.keys()].sort()).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect([...p.covers!.values()].every(c => c === "full")).toBe(true);
+    expect([...p.rects.values()].reduce((sum, r) => sum + r.cols, 0)).toBe(12);
+  });
+
   test("a peek is drawn whole at reading width, its right side under its neighbour like a dock", () => {
     AREA = wide(220);
     const p = place(river(5), AREA);

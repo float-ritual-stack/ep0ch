@@ -866,7 +866,7 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
   }, 30_000);
 
   for (const place of ["screen", "group", "drawer group"]) {
-    for (const row of ["manual fold", "pushed left", "pushed right", "gather left", "gather right", "gather sides", "fair share", "outer page", "oldest folds"]) test(`book spines: ${row} in the ${place}`, async () => {
+    for (const row of ["manual fold", "pushed left", "pushed right", "gather left", "gather right", "gather sides", "fair share", "outer page", "minimum boundary", "oldest folds"]) test(`book spines: ${row} in the ${place}`, async () => {
       const names = ["birch", "cedar", "elm", "fir", "oak"];
       const d = new Desk({ name: "book", title: "Book", layout: { root: { t: "split", dir: "row", key: "spread",
         kids: names.map(name => ({ t: "leaf", kind: "reader", name, mode: "held" })), weights: [1, 4, 0.1, 2, 1] } } });
@@ -922,13 +922,15 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
           expect(order.indexOf(open.at(-1)!) - order.indexOf(open[0]!), JSON.stringify(order.map(t => [t.name, t.collapsed]))).toBe(open.length - 1);
           expect(Math.max(...open.map(t => t.rect!.cols)) - Math.min(...open.map(t => t.rect!.cols))).toBeLessThanOrEqual(1);
         } else {
+          if (row === "minimum boundary") await act("layout.policy", ids.cedar, { "min-width": Math.floor((tiles().reduce((sum, t) => sum + t.rect!.cols, 0) - 6) / 3) });
           if (row === "oldest folds") await act("layout.policy", ids.cedar, { "min-width": Math.floor((tile("cedar").rect!.cols + tile("fir").rect!.cols - 10) / 2) });
           await act("tile.focus", ids.cedar);
           await act("tile.focus", ids.fir);
           await act("tile.expand", ids.elm);
           expect(tile("elm").collapsed).toBeFalsy();
           const open = tiles().filter(t => !t.collapsed);
-          if (row === "fair share") expect(Math.max(...open.map(t => t.rect!.cols)) - Math.min(...open.map(t => t.rect!.cols))).toBeLessThanOrEqual(1);
+          if (row === "minimum boundary") expect(open).toHaveLength(3);
+          else if (row === "fair share") expect(Math.max(...open.map(t => t.rect!.cols)) - Math.min(...open.map(t => t.rect!.cols))).toBeLessThanOrEqual(1);
           else { expect(tile("cedar").collapsed).toBe(true); expect(tile("fir").collapsed).toBeFalsy(); }
         }
       } finally {

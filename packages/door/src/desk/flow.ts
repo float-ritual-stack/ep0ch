@@ -36,8 +36,12 @@ export interface PlacedColumn { i: number; cover: Cover; rect: Rect; box: Rect }
 export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean, policy: Pick<ReturnType<typeof effective>, "spines" | "min-width" | "readable" | "by"> = effective([{ by: "flow", policy: f.policy }])): { i: number; cover: Cover; width: number; natural: number }[] {
   const n = f.kids.length;
   if (!n) return [];
+  if (policy["min-width"] === 0) return f.kids.map((_, i) => {
+    const size = Math.floor(width / n) + (i < width % n ? 1 : 0);
+    return { i, cover: "full" as const, width: size, natural: size };
+  });
   // Growth by room (PIE-794): the flow's `readable` is a full column's width, when it says one.
-  const FULL = Math.min(width, Math.max(SPINE, policy["min-width"] === 0 ? 0 : policy.by.readable ? Math.max(policy.readable, policy["min-width"]) : policy["min-width"]));
+  const FULL = Math.min(width, Math.max(SPINE, policy.by.readable ? Math.max(policy.readable, policy["min-width"]) : policy["min-width"]));
   const anchor = Math.max(0, columnOf(f, f.anchor));
   const keepAt = columnOf(f, f.keep);
   const keep = keepAt === anchor ? -1 : keepAt;
