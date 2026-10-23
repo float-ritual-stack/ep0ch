@@ -598,54 +598,6 @@ var COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?)|(\{(?:[^{}\
 var COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
 var HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 var YAML_FENCE = /^ {0,3}---[ \t]*$/;
-function componentBlockAt(source) {
-  const firstEnd = source.indexOf(`
-`);
-  const open = COMPONENT_OPEN.exec(source.slice(0, firstEnd < 0 ? source.length : firstEnd).replace(/\r$/, ""));
-  if (!open)
-    return null;
-  const oneLine = { name: open[1], raw: source.slice(0, firstEnd < 0 ? source.length : firstEnd + 1) };
-  if (open[1] === "use" || open[1] === "button" && open[3] && componentAttrs(open[3].slice(1, -1)).pairs.some((p) => p.key.toLowerCase() === "act" || p.key.toLowerCase() === "of"))
-    return oneLine;
-  if (firstEnd < 0)
-    return open[2] ? oneLine : null;
-  const container = open[1] === "box";
-  let at = firstEnd + 1, fence = null, yamlSeen = false;
-  while (at < source.length) {
-    const next = source.indexOf(`
-`, at);
-    const end = next < 0 ? source.length : next;
-    const line = source.slice(at, end).replace(/\r$/, "");
-    if ((fence === null || fence === "yaml") && COMPONENT_CLOSE.test(line))
-      return { name: open[1], raw: source.slice(0, next < 0 ? end : end + 1) };
-    if (fence === "yaml") {
-      if (YAML_FENCE.test(line))
-        fence = null;
-    } else if (fence !== null) {
-      if (closesCodeFence(line, fence))
-        fence = null;
-    } else {
-      if (open[2] && !line.trim())
-        break;
-      if (container && COMPONENT_OPEN.test(line)) {
-        const child = componentBlockAt(source.slice(at));
-        if (child) {
-          at += child.raw.length;
-          continue;
-        }
-      }
-      if (!container && (HEADING.test(line) || COMPONENT_OPEN.test(line)))
-        break;
-      if (!container && YAML_FENCE.test(line) && !yamlSeen) {
-        fence = "yaml";
-        yamlSeen = true;
-      } else
-        fence = codeFenceOpen(line);
-    }
-    at = end + 1;
-  }
-  return open[2] ? oneLine : null;
-}
 var QUOTES = { '"': '"', "'": "'", "“": "”", "‘": "’" };
 function splitWords(line, lines, shell = true) {
   const rows = [];
@@ -757,28 +709,85 @@ function componentAttrs(attrs) {
   return { classes, pairs };
 }
 function componentBlocks(lines) {
-  const out = [];
-  const text = lines.join(`
-`), offsets = [];
-  for (let i = 0, at = 0;i < lines.length; at += lines[i].length + 1, i++)
-    offsets.push(at);
-  for (let i = 0;i < lines.length; i++) {
-    const line = lines[i].replace(/\r$/, "");
-    const open = COMPONENT_OPEN.exec(line);
-    const block = open && componentBlockAt(text.slice(offsets[i]));
-    if (open && block) {
-      const end = i + block.raw.replace(/\n$/, "").split(`
-`).length - 1;
-      out.push({ name: open[1], args: open[2] ?? null, start: i, end, ...open[3] ? { attrs: open[3].slice(1, -1) } : {} });
-      if (block.name !== "box")
-        i = end;
-      continue;
+  return scanComponents(lines, false, (start, fence) => fenceEnd(lines, start, fence).end);
+}
+function scanComponents(lines, firstOnly = false, fenceStop) {
+  const frames = [], stack = [];
+  const finish = (end) => {
+    const frame = stack.pop();
+    if (end !== undefined) {
+      frame.block.end = end;
+      frame.closed = true;
+    } else if (frame.block.args !== null)
+      frame.closed = true;
+  };
+  let i = -1, skipThrough = -1;
+  scan:
+    for (const raw of lines) {
+      i++;
+      if (i <= skipThrough)
+        continue;
+      const line = raw.replace(/\r$/, "");
+      let parent = stack.at(-1);
+      if (parent) {
+        if (parent.fence !== null && parent.fence !== "yaml") {
+          if (closesCodeFence(line, parent.fence))
+            parent.fence = null;
+          continue;
+        }
+        if (COMPONENT_CLOSE.test(line)) {
+          finish(i);
+          if (firstOnly && !stack.length)
+            break;
+          continue;
+        }
+        if (parent.fence === "yaml") {
+          if (YAML_FENCE.test(line))
+            parent.fence = null;
+          continue;
+        }
+      }
+      const open = COMPONENT_OPEN.exec(line);
+      while (parent && (parent.block.args !== null && !line.trim() || parent.block.name !== "box" && (HEADING.test(line) || open))) {
+        finish();
+        if (firstOnly && !stack.length)
+          break scan;
+        parent = stack.at(-1);
+      }
+      if (open) {
+        const block = {
+          name: open[1],
+          args: open[2] ?? null,
+          start: i,
+          end: i,
+          ...open[3] ? { attrs: open[3].slice(1, -1) } : {}
+        };
+        const inline = block.name === "use" || block.name === "button" && block.attrs !== undefined && componentAttrs(block.attrs).pairs.some((p) => p.key.toLowerCase() === "act" || p.key.toLowerCase() === "of");
+        const frame = { block, fence: null, yamlSeen: false, closed: !!inline };
+        frames.push(frame);
+        if (!inline)
+          stack.push(frame);
+        else if (firstOnly && !stack.length)
+          break;
+        continue;
+      }
+      if (parent) {
+        if (parent.block.name !== "box" && YAML_FENCE.test(line) && !parent.yamlSeen) {
+          parent.fence = "yaml";
+          parent.yamlSeen = true;
+        } else
+          parent.fence = codeFenceOpen(line);
+      } else {
+        if (firstOnly)
+          break;
+        const fence = codeFenceOpen(line);
+        if (fence)
+          skipThrough = fenceStop(i, fence);
+      }
     }
-    const fence = codeFenceOpen(line);
-    if (fence)
-      i = fenceEnd(lines, i, fence).end;
-  }
-  return out;
+  while (stack.length)
+    finish();
+  return frames.filter((frame) => frame.closed).map((frame) => frame.block);
 }
 
 // packages/outline-core/src/code-ranges.ts

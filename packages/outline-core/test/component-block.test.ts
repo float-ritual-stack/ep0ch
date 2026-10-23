@@ -10,6 +10,22 @@ test("a component block runs from its ::name line through its closing ::", () =>
   expect(componentBlockAt("::links\nfilter: x\n::")).toEqual({ name: "links", raw: "::links\nfilter: x\n::" });
 });
 
+test("nested boxes keep their boundaries and unfinished boxes scan without stalling a note", () => {
+  const lines = ["::box{}", "outer", "::box{pad=1}", "inner", "::", "::use{of=seed}", "::", "after"];
+  expect(componentBlocks(lines)).toEqual([
+    { name: "box", args: null, attrs: "", start: 0, end: 6 },
+    { name: "box", args: null, attrs: "pad=1", start: 2, end: 4 },
+    { name: "use", args: null, attrs: "of=seed", start: 5, end: 5 },
+  ]);
+  for (const count of [23, 200]) {
+    const source = "::box{}\n".repeat(count) + "tail";
+    const start = performance.now();
+    expect(componentBlocks(source.split("\n"))).toEqual([]);
+    expect(componentBlockAt(source)).toBeNull();
+    expect(performance.now() - start).toBeLessThan(50);
+  }
+});
+
 test("an unclosed or one-line opener is not a component block", () => {
   expect(componentBlockAt("::graph-stat\n---\ntitle: Open")).toBeNull();
   expect(componentBlockAt("text\n::graph-stat\n::")).toBeNull();
@@ -17,6 +33,10 @@ test("an unclosed or one-line opener is not a component block", () => {
 });
 
 test("an opener with arguments is one line, or closes before a blank line", () => {
+  expect(componentBlocks("::box outer\n::box inner\n\n::".split("\n"))).toEqual([
+    { name: "box", args: "outer", start: 0, end: 0 },
+    { name: "box", args: "inner", start: 1, end: 1 },
+  ]);
   expect(componentBlockAt("::links ((abc))\n\nmore\n::")).toEqual({ name: "links", raw: "::links ((abc))\n" });
   expect(componentBlockAt("::links ((abc))")).toEqual({ name: "links", raw: "::links ((abc))" });
   expect(componentBlockAt("::links garden\ntitle: x\n::\nafter")).toEqual({ name: "links", raw: "::links garden\ntitle: x\n::\n" });
