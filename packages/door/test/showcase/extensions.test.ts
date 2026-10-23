@@ -157,6 +157,10 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     press({ kind: "char", ch: "z", ctrl: true });
     expect(screen()).toContain("Piranesi extra");
     press({ kind: "char", ch: "y", ctrl: true });
+    press({ kind: "home" });
+    press({ kind: "mouse", action: "down", button: 0, mods: 4, x: x + 8, y });
+    press({ kind: "mouse", action: "up", button: 0, mods: 4, x: x + 8, y });
+    press({ kind: "paste", text: "Piranesi" });
     press({ kind: "tab" });
     press({ kind: "backtab" });
     expect(screen()).toContain("Piranesi");
@@ -199,7 +203,26 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
       press({ kind: "paste", text: "304" });
       press({ kind: "enter" });
       await untilAsync(async () => (await board.children(seeded.notes.formReading.id)).some(m => m.text === "The Left Hand of Darkness [book::The Left Hand of Darkness] [pages::304] [mood::slow]"), "the river form's submitted child");
+      await river.dispatch.act({ action: "form.leave", tile: opened.name }, USER);
+      const plainColumn = await river.dispatch.act({ action: "open", args: { id: seeded.notes.notebook.id } }, USER) as { name: string };
+      await expect(river.dispatch.act({ action: "form.move", tile: plainColumn.name, args: { by: 1 } }, USER)).rejects.toThrow("form-field");
+      await expect(river.dispatch.act({ action: "form.input", tile: plainColumn.name, args: { key: JSON.stringify({ kind: "paste", text: "an answer" }) } }, USER)).rejects.toThrow("form-field");
     } finally { app.pop(); }
+  }, 30_000);
+
+
+  test("unfocused form answers draw as text and keep the raw answer (PIE-1212)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "forms" }, as: "test-agent" });
+    await until(() => screen().includes("book *"), "the form before setting its answers");
+    const value = "Piranesi\x1b]8;;https://untrusted.invalid\x07a link\x1b]8;;\x07";
+    await app.dispatch.act({ action: "form.set", tile: "reader", args: { field: "book", value } }, USER);
+    await app.dispatch.act({ action: "form.leave", tile: "reader" }, USER);
+    expect(sc.render(app).lines.join("\n")).not.toContain("\x1b]8;;https://untrusted.invalid");
+    const kept = await app.dispatch.act({ action: "form.set", tile: "reader", args: { field: "pages", value: "272" } }, USER);
+    expect(kept).toMatchObject({ answers: { book: value } });
+    await app.dispatch.act({ action: "form.leave", tile: "reader" }, USER);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 
 

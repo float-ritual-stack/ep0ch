@@ -7537,7 +7537,7 @@ export class NoteSurface {
       const field = hit.link.form.field, spec = this.form?.fields.find(f => f.name === field);
       if (spec && spec.type !== "choice") {
         void this.runKey("form.place", { field, col: x - hit.from, extend: shift }, host);
-        this.gesture.press(x, y); return;
+        this.gesture.press(x, y); this.shiftPress = shift; return;
       }
     }
     this.dragging = false;
@@ -9045,7 +9045,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "move between the form's fields", keys: modeActionKeys([FORM_KEYS], "form.move"), touches: "tile", replay: "safe", person: "the person's form focus",
     args: { by: { type: "number", about: "1 next, -1 previous" } },
     examples: [{ act: "form.move by=1", does: "moves to the next form field, keeping the answers" }],
-    run({ by }, { surface, host }) { const f = surface.form!; const at = (f.focus + by + f.fields.length + 1) % (f.fields.length + 1); surface.focusForm(f.fields[at]?.name ?? "run", host); },
+    run({ by }, { surface, host }) { const f = surface.form; if (!f) throw new ActionRefused("this note has no form-field properties; write [form-field::name text] in its edit"); const at = (f.focus + by + f.fields.length + 1) % (f.fields.length + 1); surface.focusForm(f.fields[at]?.name ?? "run", host); },
   }),
   "form.leave": def({
     summary: "leave the form with its answers kept", keys: modeActionKeys([FORM_KEYS], "form.leave"), touches: "tile", replay: "safe", person: "the person's form focus", args: {},
@@ -9061,7 +9061,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "type in the form with the shared editor", touches: "tile", replay: "ask", person: "the person's form editor",
     args: { key: { type: "string", about: "editor key as JSON" } },
     examples: [{ act: `form.input key='{"kind":"paste","text":"Piranesi"}'`, does: "pastes a book title into the focused field with the shared editor" }],
-    run({ key }, { surface, host }) { surface.form!.input(JSON.parse(key) as Key, text => host.ctx.copy?.(text)); host.redraw(); },
+    run({ key }, { surface, host }) { const f = surface.form; if (!f) throw new ActionRefused("this note has no form-field properties; write [form-field::name text] in its edit"); f.input(JSON.parse(key) as Key, text => host.ctx.copy?.(text)); host.redraw(); },
   }),
   "form.set": def({
     summary: "answer one field of this note's form; agents keep their own answers", keys: modeActionKeys([FORM_CHOICE_KEYS], "form.set"), touches: "nothing", replay: "safe",

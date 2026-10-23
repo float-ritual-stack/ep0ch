@@ -5,7 +5,7 @@ import { Draft } from "../edit";
 import { USER, type Actor } from "../socket";
 import { fg, C, pad, RESET, width } from "../style";
 import { ActionRefused, asBoundKey, keyName, shownLine } from "./actions";
-import { wrap } from "../text";
+import { printable, wrap } from "../text";
 import { editorLineKey } from "./editor";
 import { modeBinding, modeHint, type ModeKey } from "./modes";
 import type { Key } from "../term";
@@ -90,14 +90,14 @@ export class NoteForm {
       const d = this.draft(field.name), label = pad(field.name + (field.required ? " *" : ""), labelWidth);
       if (field.type === "choice") {
         const chips = field.options!.map(value => ({
-          label: tag(field.name, `(${d.text === value ? "*" : " "}) ${value}`, shownLine("form.set", { field: field.name, value })),
+          label: tag(field.name, `(${d.text === value ? "*" : " "}) ${printable(value)}`, shownLine("form.set", { field: field.name, value })),
           on: d.text === value, cursor: active && this.focus === index && d.text === value, hit: { action: "form.set", args: { field: field.name, value } },
         }));
         for (const row of chipRows(chips, inner, label)) line(row.text);
       } else {
         const box = field.type === "number" ? Math.min(10, room) : room;
         line(" ".repeat(labelWidth) + "┌" + "─".repeat(box) + "┐");
-        const text = active && this.focus === index ? d.render(box, 1)[0] ?? "" : d.text;
+        const text = active && this.focus === index ? d.render(box, 1)[0] ?? "" : printable(d.text);
         line(label + "│" + tag(field.name, pad(text, box), shownLine("form.focus", { field: field.name })) + "│");
         line(" ".repeat(labelWidth) + "└" + "─".repeat(box) + "┘");
       }
@@ -107,7 +107,7 @@ export class NoteForm {
     line(indent + "│ " + tag("run", button, "form.submit") + " │");
     line(indent + "└" + "─".repeat(width(button) + 2) + "┘");
     const warning = this.warnings.get("user");
-    if (warning) line(fg(C.yellow) + warning + RESET);
+    if (warning) line(fg(C.yellow) + printable(warning) + RESET);
     for (const text of ["* required", ...wrap(modeHint(FORM_KEYS, () => undefined), inner)]) line(text);
     rows.push(fg(C.dark) + "└" + "─".repeat(inner + 2) + "┘" + RESET);
     return rows;
