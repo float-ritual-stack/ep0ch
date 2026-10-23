@@ -148,7 +148,7 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
 - **Service meaning (boundary):** the service owns truth and meaning; clients own presentation. Does the change
   re-derive what the service owns (view membership, property parsing, query evaluation, backlinks, what changed)
   instead of asking it?
-- **Protocol:** any wire change, and any change to what outline-core matches or computes, bumps `PROTOCOL`
+- **Versions:** wire and shared write-location changes bump `PROTOCOL`; parse/draw changes bump `GRAMMAR`
   ([Protocol and schema](#protocol-and-schema)).
 - **The map and the docs:** does a new or changed shared part need a row in the door's reuse map, with a
   showcase section and seed content (`packages/door/src/showcase/`)? Is a new outliner shared part named in its
@@ -236,16 +236,15 @@ portability and runtime, daily-driver interaction), reporting, not fixing.
 
 The policy is in [AGENTS.md](AGENTS.md#schema-and-protocol-one-version): one schema version, one protocol number.
 
-**Protocol.** Client and service must speak the same protocol. There is one number, `PROTOCOL` in
-`packages/outline-core/src/protocol.ts`; `ping` reports the service's as `protocolVersion`, and every client
-refuses a service whose number differs from its own, older or newer, with words that name the side to update
-(`protocolMismatch`). The outliner applies it in `src/service-compatibility.ts` (the Herdr launcher and panes wait
-through `waitForCompatibleService`); the door in `SocketBoard.info()`. There are no capability lists and no
-minimums: the long-running host and a remote door on another checkout are the case the one check is for. Bump
-`PROTOCOL` with any wire change (a new action, a new or changed request or response field, a changed meaning, a
-removal) and with any change to what outline-core's shared modules match or compute (the property grammar, the
-draft.patch compare, the search matcher). Add round-trip coverage, and restart the complete topology (the host,
-then its clients) when it ships.
+**Protocol and grammar.** outline-core's `protocol.ts` owns both numbers. `PROTOCOL` guards the wire and
+shared computations that place writes (draft.patch compare, anchors and patch-named ranges); its comment lists
+those computations. A mismatch refuses and names the side to update (`protocolMismatch`). Parse/draw changes
+bump `GRAMMAR`: `ping` reports `protocolVersion` and `grammarVersion`, and an older renderer warns once and
+continues. The host's parsing owns saved content. Long-lived MCP clients reload installed code between requests,
+keeping stdio and caller identity; door sessions use their checkpointed handover, and the HTTP gateway drains
+responses before re-exec. Installed code still behind the host says `ep0ch install --apply`. Embedded Pi's SDK
+only exposes reload in user command contexts, so its stale extension retains its `/reload` instruction. Add
+round-trip coverage and install the host, then its clients when the wire changes.
 The door's control-socket answers and ActionDefs are not the PROTOCOL wire; their shape is held by
 `packages/door/docs/AGENT-INTERFACE.md` and `packages/door/test/claude-mod-contract.test.ts`.
 

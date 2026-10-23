@@ -1,3 +1,4 @@
+import { clientReload, reexecClient } from "./client-code";
 import type { RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { installCrashLog } from "./crash-log";
 import type { FragmentCandidateCollection } from "./fragment-search";
@@ -939,6 +940,7 @@ function startWatcher(): void {
       resourcePresentation: TUI_RESOURCE_PRESENTATION_CONTEXT,
     },
     onConnect: async () => {
+      await client.requireCompatibleService();
       void destinationDisplay.refresh();
       refreshCalloutTypes();
       await learnDetailRules(client);
@@ -992,7 +994,7 @@ function calloutTypesSoon(): void {
   calloutTimer.unref?.();
 }
 
-async function stop(exitCode = 0): Promise<void> {
+async function stop(exitCode = 0, restart = false): Promise<void> {
   if (stopping) return;
   try {controller.checkpointRecovery();inspection.checkpointRecovery();}
   catch(error){controller.onServiceError(error);return;}
@@ -1021,6 +1023,7 @@ async function stop(exitCode = 0): Promise<void> {
     // Best effort during terminal shutdown.
   }
   tui.stop({ preserveScreen: true });
+  if (restart) reexecClient();
   process.exit(exitCode);
 }
 
@@ -2021,6 +2024,7 @@ try {
 }
 
 // A crash (PIE-477) puts the terminal back and keeps its stack in <outlines>/.host/detail-crash.log.
+clientReload.handover = () => stop(0, true);
 installCrashLog("detail", () => tui.stop({ preserveScreen: true }));
 
 process.on("SIGINT", () => {

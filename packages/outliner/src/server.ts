@@ -1,3 +1,4 @@
+import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
 import { deployArtifact, artifactDns, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
 import { ArtifactStore } from "./artifact-store";
@@ -16,7 +17,7 @@ import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { RULE_NAME } from "@ep0ch/outline-core/rules";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readNewNoteIntent } from "./note-placement";
@@ -1961,6 +1962,25 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: (error as Error).message, sequence: this.store.sequence };
       }
     }
+    if (request.action === "update" && request.replaceSection !== undefined) {
+      const block = this.store.require(request.blockId);
+      const section = replaceSectionText(block.text, request.replaceSection.heading, request.replaceSection.body, block.id);
+      if (request.mutation.author === "agent" && request.allowStructural !== true) {
+        await refuseDroppedStructure({ request: async <T>(input: RequestInput): Promise<T> => {
+          const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
+          if (!response.ok) throw new Error(response.error);
+          return response.result as T;
+        } }, block, section.text);
+      }
+      const { replaceSection, allowStructural, ...update } = request;
+      // A save that landed during the structure check is not a no-op: the update below refuses the stale revision.
+      const now = this.store.require(request.blockId);
+      const response: OutlinerResponse = section.text === block.text && now.revision === block.revision && block.revision === request.expectedRevision
+        ? { id: request.id, ok: true, result: now, sequence: this.store.sequence }
+        : this.handle({ ...update, text: section.text }, subscribedClient);
+      if (response.ok) response.result = { ...(response.result as Block), section: { heading: section.heading, previous: section.previous } };
+      return response;
+    }
     if (request.action === "site.answer" && request.sources) {
       try {
         const budget = siteBudget();
@@ -2473,6 +2493,7 @@ export class OutlinerServer {
           result = {
             status: "ready",
             protocolVersion: PROTOCOL,
+      grammarVersion: GRAMMAR,
             outlineInstanceId: this.store.outlineInstanceId,
             location: { hostname: this.hostname, machine: localMachineName(this.outlinesFolder), workspaceRoot: this.store.workspaceRoot, database: this.store.database.filename, stateDirectory: this.host ? this.stateDirectory : dirname(this.store.database.filename) },
             ...(this.outline ? { outline: { ...this.outline } } : {}),
@@ -3355,7 +3376,7 @@ export class OutlinerServer {
         case "update":
           result = this.store.update(
             request.blockId,
-            titled(request.text),
+            titled(request.text!),
             request.expectedRevision,
             request.mutation,
             "text",

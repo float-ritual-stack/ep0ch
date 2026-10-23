@@ -160,9 +160,11 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
   on each machine (PIE-617). Delete the script once pie and float-hub have run it. No runtime chain of migrations.
 - **Big changes** can be a fresh database plus importing what matters now, not the entire history (`ep0ch outline
   import`, `packages/outliner/src/outline-import.ts`).
-- **Protocol works the same way.** One shared constant, `PROTOCOL` in outline-core, replaces capability negotiation; a
-  mismatch says which side to update. Bump it with any wire change and any change to what outline-core matches or
-  computes.
+- **Protocol and grammar.** `PROTOCOL` in outline-core guards wire types and shared computations needed to place a
+  write correctly (draft.patch compare, anchors and patch-named ranges; the list is in `protocol.ts`). Bump it for
+  those changes; a mismatch refuses and names the side to update. Parse/draw changes bump `GRAMMAR` instead: the
+  handshake carries both, and an older renderer warns once and keeps working. Long-lived clients take over on
+  installed code; when that code is still old, run `ep0ch install --apply`.
 
 ## Never touch a real outline or a real door
 
@@ -249,7 +251,7 @@ five default triage roles are `[triage::<role>]` properties and never set `work-
 
 The repository's own Claude mod, `.claude/skills/ep0ch-repo/` (loaded for sessions in this repository only), turns the
 hard rules above into refusals that name the command to run instead: `pkill`/`killall`, `git stash`, `gh pr merge
--d`/`--delete-branch`, `bun test --parallel` on float-2, and a merge into main whose `PROTOCOL` isn't main's plus one.
+-d`/`--delete-branch`, `bun test --parallel` on float-2, and a merge into main that changes `PROTOCOL` to anything but main's plus one.
 In the deployer's sessions it also runs the freshness sweep: after every three deploys or merges, a read-only agent
 checks what `.claude/freshness.md` lists as stale and hands its findings to the main thread. It also attaches a package's
 `.claude/rules/` file, once a session, to the first Bash command that touches that package.

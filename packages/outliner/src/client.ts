@@ -1,3 +1,4 @@
+import { meetRules } from "./client-code";
 import { createConnection, type Socket } from "node:net";
 import { requireCompatible } from "./service-compatibility";
 import { forwardFor } from "./machine-forward";
@@ -247,7 +248,10 @@ export class OutlinerClient {
       await this.ensure();
       answer = await this.send<T>(input, timeoutMs);
     }
-    if (this.outline && input.action === "ping") requireOutlineRouting(answer as OutlinerServiceStatus, this.socketPath, this.outline);
+    if (input.action === "ping") {
+      if (this.outline) requireOutlineRouting(answer as OutlinerServiceStatus, this.socketPath, this.outline);
+      await meetRules(answer as OutlinerServiceStatus);
+    }
     return answer;
   }
 

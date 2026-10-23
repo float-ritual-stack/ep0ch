@@ -48,7 +48,7 @@ import { isSystemNote, systemNoteKind } from "./note-placement";
 import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { readSavedView } from "./saved-view-read";
 import { parseWorkId } from "./work-ids";
-import { refuseDroppedStructure, replaceSectionText, WorkToolRefusal, type WorkToolsClient } from "./work-tools";
+import { refuseDroppedStructure, WorkToolRefusal, type WorkToolsClient } from "./work-tools";
 import type {
   AnnotationBatchReceipt,
   AnnotationRecord,
@@ -744,22 +744,30 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
     return { ...result, id: block.id, ref: `((${block.id}))` };
   }
   let next: string;
-  let section: EditResult["section"];
   if (input.text !== undefined) {
     next = requireText(input.text, "The new text");
   } else if (input.replaceSection !== undefined) {
     const { heading, body } = input.replaceSection ?? {};
     if (typeof heading !== "string" || typeof body !== "string") throw new WorkToolRefusal("replaceSection needs a heading and a body");
-    const replaced = replaceSectionText(block.text, heading, body, block.id);
-    next = replaced.text;
-    section = { heading: replaced.heading, previous: replaced.previous };
+    const updated = await client.request<Block & { section: NonNullable<EditResult["section"]> }>({
+      action: "update", blockId: block.id, replaceSection: { heading, body },
+      expectedRevision, mutation: mutationOf(actor), allowStructural: input.allowStructural,
+    });
+    const lost = input.allowStructural === true ? droppedStructure(block.text, updated.text) : undefined;
+    const dropped = lost ? [...lost.pages, ...lost.anchors.map(anchor => `^${anchor}`)] : [];
+    return {
+      id: updated.id, ref: `((${updated.id}))`, revision: updated.revision, previousRevision: block.revision,
+      diff: shortDiff(block.text, updated.text), section: updated.section,
+      ...(dropped.length ? { dropped } : {}),
+      ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text })),
+    };
   } else {
     const addition = requireText(input.append, "The text to append");
     next = addition.startsWith("\n") ? `${block.text.replace(/\s+$/, "")}${addition}` : `${block.text.replace(/\s+$/, "")}\n\n${addition}`;
   }
   requireText(next, "The note's new text");
   if (next === block.text) {
-    return { id: block.id, ref: `((${block.id}))`, revision: block.revision, previousRevision: block.revision, diff: "", ...(section ? { section } : {}) };
+    return { id: block.id, ref: `((${block.id}))`, revision: block.revision, previousRevision: block.revision, diff: "" };
   }
   // Only an explicit boolean true skips the guard ("true" or 1 do not), and what it let go is said in the result.
   let dropped: string[] = [];
@@ -781,7 +789,6 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
     revision: updated.revision,
     previousRevision: block.revision,
     diff: shortDiff(block.text, updated.text),
-    ...(section ? { section } : {}),
     ...(dropped.length ? { dropped } : {}),
     ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text })),
   };

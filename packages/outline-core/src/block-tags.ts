@@ -2,7 +2,7 @@
 // every hashtag block scope (a query's `#tag` and `tag=` match them wherever they sit); this file says which of them
 // sit where a reader hides the note's metadata, so a reader can draw them as one row of tags under the byline instead
 // of losing them with the properties. It sits on the property grammar and the media line, does no I/O, and is the one
-// definition the door, Detail and the web pages share; a change to what it matches bumps PROTOCOL.
+// definition the door, Detail and the web pages share; a change to what it matches bumps GRAMMAR.
 //
 // Metadata-only lines within the first paragraph are hidden. Prose and lines after its first blank stay in place.
 import { frontMatterLines } from "./header-line";

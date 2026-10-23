@@ -27,6 +27,7 @@ import { Offline, USER } from "../socket";
 import { alive, privateDir, readLastCall, stateDir, unclaimState, useOutlineState, writeLastCall } from "../state";
 import { serveAs, SessionTerm, type Link, type SessionClient } from "./session-term";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type SessionInfo } from "./protocol";
+import { clientReload, installedRules, newerRules, runningRules, reexecClient } from "@ep0ch/outliner/client-code";
 import { startSession, waitFor } from "./start";
 import { screenRequest } from "../start";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
@@ -86,6 +87,7 @@ export async function takeLock(path: string): Promise<boolean> {
 
 /** Run the session: open the door on a SessionTerm, serve the session socket. Never returns. */
 export async function serve(args: string[]): Promise<never> {
+  if (newerRules(installedRules(), runningRules)) reexecClient();
   // The starter's readiness pipe is this process's alone: nothing it starts (a tile's program) inherits the variable.
   const readyFd = process.env.EP0CH_SESSION_READY === "3" ? 3 : null;
   delete process.env.EP0CH_SESSION_READY;
@@ -244,6 +246,10 @@ export async function serve(args: string[]): Promise<never> {
     return next.ok ? { ok: true, message: "handed over" } : { ok: false, message: `the new daemon didn't start: ${next.error} · the programs still run in the terminal host; \`${ep0ch(process.env, place)}${sessionFlags({ place })}\` starts a session that adopts them` };
   };
   app.session = { upgrade: handOver, reload };
+  clientReload.handover = async () => {
+    await handOver();
+    await new Promise<never>(() => {});
+  };
 
   server = createServer(sock => {
     sockets.add(sock);

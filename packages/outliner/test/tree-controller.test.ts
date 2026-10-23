@@ -2769,7 +2769,7 @@ describe("createTreeController", () => {
       if (input.action === "tree.query") {
         return { blocks: card ? [card] : [], completeness: { kind: "complete" } };
       }
-      if (input.action === "update" && card) {
+      if (input.action === "update" && input.text !== undefined && card) {
         card = { ...card, text: input.text, displayText: input.text };
         return card;
       }
@@ -3303,7 +3303,7 @@ describe("createTreeController", () => {
         if (input.action === "views.read") return store.readSavedView(input.viewId, input, "tree") as T;
         if (input.action === "get") return store.get(input.blockId) as T;
         if (input.action === "create") return store.create(input.text, input.parentId, input.author) as T;
-        if (input.action === "update") return store.update(input.blockId, input.text, input.expectedRevision) as T;
+        if (input.action === "update" && input.text !== undefined) return store.update(input.blockId, input.text, input.expectedRevision) as T;
         if (input.action === "move") {
           if (++moves === 1) throw new Error("Transient move failure");
           return store.move(input.blockId, input.parentId!, input.position) as T;

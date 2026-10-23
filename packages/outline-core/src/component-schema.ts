@@ -6,7 +6,7 @@
 // an outline declares, such as `[heading-style::plot]` making `plot` a value of `[heading::]`, and the schemas
 // extensions ship in `extension.json`'s `components`). A linter (PIE-522) can validate values with `checkValue`.
 // Writing a schema is enough: no client has per-component docs or completion code. Pure: no I/O. A change to what it
-// says or matches bumps PROTOCOL (protocol.ts).
+// says or matches bumps GRAMMAR (protocol.ts).
 
 import { interpolate } from "./interpolation";
 import { BUILTIN_HEADING_STYLES, type HeadingStyle } from "./heading-styles";

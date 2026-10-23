@@ -7,7 +7,7 @@ import type { ServerWebSocket } from "bun";
 import { forwardPaths, sshArgv, withForwardLock } from "@ep0ch/outline-core/machine";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { hostAnswers, nodeMachineIO } from "./machine-forward";
-import { PROTOCOL } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR } from "@ep0ch/outline-core/protocol";
 import { LinkStreams } from "./link-streams";
 import { readLinkConfig } from "./link-config";
 import { linkDeployPath, linkDeployAt, linkResultPath, readLinkFile, writeLinkFile, type LinkDeploy, type LinkInstallResult, type LinkUpdate } from "./link-install";
@@ -81,7 +81,7 @@ export function serveLink(o: { outlines: string; port: number; keys: Record<stri
     websocket: {
       maxPayloadLength: 1024 * 1024, backpressureLimit: 4 * 1024 * 1024, closeOnBackpressureLimit: true,
       open(ws) {
-        ws.send(JSON.stringify({ challenge: ws.data.nonce, protocol: PROTOCOL }));
+        ws.send(JSON.stringify({ challenge: ws.data.nonce, protocol: PROTOCOL, grammar: GRAMMAR }));
         ws.data.timer = setTimeout(() => { o.log("link refused: authentication timeout"); ws.close(1008, "authentication timeout"); }, 5000);
       },
       async message(ws, bytes) {
@@ -262,7 +262,7 @@ export function connectLink(o: { server: string; machine: string; key: string; h
         const message = JSON.parse(event.data);
         if (typeof message.challenge === "string" && !authenticated) {
           nonce = message.challenge;
-          socket.send(JSON.stringify({ protocol: PROTOCOL, machine: o.machine, addresses: Object.values(networkInterfaces()).flatMap(rows => rows?.filter(row => !row.internal).map(row => row.address) ?? []), proof: proof(o.key, o.machine, message.challenge).toString("hex") }));
+          socket.send(JSON.stringify({ protocol: PROTOCOL, grammar: GRAMMAR, machine: o.machine, addresses: Object.values(networkInterfaces()).flatMap(rows => rows?.filter(row => !row.internal).map(row => row.address) ?? []), proof: proof(o.key, o.machine, message.challenge).toString("hex") }));
         } else if (message.ready === true && !authenticated) {
           if (typeof message.proof !== "string" || !/^[a-f0-9]{64}$/.test(message.proof) || !timingSafeEqual(proof(o.key, o.machine, nonce, "server"), Buffer.from(message.proof, "hex"))) throw new Error("server did not prove the link key");
           authenticated = true;

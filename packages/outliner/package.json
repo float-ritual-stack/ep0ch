@@ -9,6 +9,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./client-code": "./src/client-code.ts",
     "./with-secrets": "./src/with-secrets.ts",
     "./env-file": "./src/env-file.ts",
     "./snapshot-database": "./src/snapshot-database.ts",

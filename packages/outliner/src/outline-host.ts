@@ -4,7 +4,7 @@ import { ArtifactStore } from "./artifact-store";
 import type { ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { writeDotEp0ch } from "./outline-binding";
 import { Database } from "bun:sqlite";
-import { PROTOCOL, type OutlineAbout } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, type OutlineAbout } from "@ep0ch/outline-core/protocol";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
@@ -878,6 +878,7 @@ export class OutlineHost {
     return {
       status: "ready",
       protocolVersion: PROTOCOL,
+      grammarVersion: GRAMMAR,
       host: this.status(),
     };
   }

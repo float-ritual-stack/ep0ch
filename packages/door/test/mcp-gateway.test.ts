@@ -338,6 +338,35 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     expect((await call(batch.slice(0, 2))).status).toBe(200);
   });
 
+  test("drain refuses a notification stream still waiting for its signing key", async () => {
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
+    if ("error" in config) throw new Error(config.error);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const outlines = machineOutlines();
+    const at = startGateway({ config, outlines, port: 0, bind: "127.0.0.1", log: () => {}, keys: async (...args) => {
+      entered.resolve();
+      await release.promise;
+      return keys(...args);
+    } });
+    let response: Response | undefined;
+    try {
+      const pending = call(null, { method: "GET", at });
+      await entered.promise;
+      const drained = at.drain();
+      release.resolve();
+      response = await pending;
+      expect(response.status).toBe(503);
+      await response.text();
+      expect(await Promise.race([drained.then(() => "drained"), Bun.sleep(1000).then(() => "stuck")])).toBe("drained");
+    } finally {
+      release.resolve();
+      await response?.body?.cancel().catch(() => {});
+      at.stop();
+      outlines.close();
+    }
+  });
+
   test.each(["client", "gateway"])("notification streams enforce the %s limit", async limit => {
     const readers: ReadableStreamDefaultReader<Uint8Array>[] = [];
     const open = async (client: string, nonce = "") => {

@@ -1,7 +1,8 @@
 // Shared header presentation and front-matter boundaries. The service uses frontMatterLines for block scope;
 // headerLine finds only the trailing chips and tags a displayed title leaves out. Mid-title tags stay prose.
 // Exports retain tags in the body and move header chips into YAML, without changing the stored source.
-// Changes here bump PROTOCOL and the outliner's PROPERTY_PARSER_VERSION.
+// Display parsing bumps GRAMMAR; a change to patch-named header boundaries bumps PROTOCOL.
+// Property parsing also bumps the outliner's PROPERTY_PARSER_VERSION.
 import { HASHTAG_VALUE_PATTERN, isEscapedAt, isHexColour, PROPERTY_KEY_SOURCE, propertyTokensInLine } from "./property-grammar";
 
 /** One header chip: its key as written, its value (trimmed, otherwise verbatim), where it sits in the text. */

@@ -8,7 +8,7 @@
 // machine's clock (the outline host's, which is the person's). A time written with a zone (`Z`, `+02:00`) is moved to
 // that clock first. Everything compares on one axis, the wall clock as milliseconds on a UTC line (`wallClock`).
 //
-// A change to what this reads or how it compares bumps PROTOCOL (protocol.ts).
+// A change to what this reads or how it compares bumps GRAMMAR (protocol.ts).
 
 import { splitPropertyValue } from "./property-grammar";
 

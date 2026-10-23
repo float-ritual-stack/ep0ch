@@ -3,7 +3,7 @@ import {hostname} from 'node:os';
 import {createOutlinerClient} from './client';
 import {outlinesLayout,remoteHint,resolveClientPaths,resolveOutlinesFolder,invocationFolder} from './paths';
 import {checkServiceCompatibility} from './service-compatibility';
-import {PROTOCOL} from '@ep0ch/outline-core/protocol';
+import {PROTOCOL, GRAMMAR} from '@ep0ch/outline-core/protocol';
 import type {OutlinerServiceStatus} from './types';
 import {sanitizeDynamicText} from './terminal';
 
@@ -26,7 +26,7 @@ export async function inspectWorkspaceConnection(env:NodeJS.ProcessEnv=process.e
  const finish=(ok:boolean):WorkspaceReport=>({ok,entries,lines:entries.map(entry=>sanitizeDynamicText(entry.kind==='section'?`\n${entry.title}`:entry.kind==='note'?entry.text:`${entry.label}: ${entry.value}${entry.note?` (${entry.note})`:''}`))});
  section('Client');
  field('Folder',invocationFolder(env));
- field('Client host',hostname());field('Bun',process.execPath);field('Client protocol',String(PROTOCOL),'needs a host on the same protocol');
+ field('Client host',hostname());field('Bun',process.execPath);field('Client protocol',String(PROTOCOL),'needs a host on the same protocol');field('Client grammar',String(GRAMMAR));
  field('Outlines folder',resolveOutlinesFolder(env),env.EP0CH_OUTLINES?'from EP0CH_OUTLINES':'default');
  let paths;
  try{paths=resolveClientPaths(env);}catch(error){note(`Configuration error: ${error instanceof Error?error.message:String(error)}`);note('Fix the named setting or .ep0ch before launching; nothing was created.');return finish(false);}
@@ -41,7 +41,7 @@ export async function inspectWorkspaceConnection(env:NodeJS.ProcessEnv=process.e
  try{
   // Diagnosis starts nothing: a machine's forward that isn't up is reported, not started.
   const service=await createOutlinerClient({...paths,machine:undefined}).request<OutlinerServiceStatus>({action:'ping'},1500);
-  field('Service',`${service.status}; protocol ${service.protocolVersion}`);
+  field('Service',`${service.status}; protocol ${service.protocolVersion}; grammar ${service.grammarVersion}`);
   if(service.location){field('Service host',service.location.hostname);field('Service database',service.location.database);field('Outline folder',service.location.stateDirectory);}
   const problem=checkServiceCompatibility(service);
   if(problem){note(`${problem.message} The endpoint is reachable; this is not a forwarding failure.`);return finish(false);}

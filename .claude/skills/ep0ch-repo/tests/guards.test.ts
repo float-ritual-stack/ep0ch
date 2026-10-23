@@ -8,10 +8,10 @@ tier('user')
 const result = (exitCode: number, stdout = '', stderr = ''): ProcessRunResult =>
   ({ exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false })
 
-const protocolTs = (n: number) => `// the one check\nexport const PROTOCOL = ${n};\n`
+const protocolTs = (n: number, grammar = 1) => `export const PROTOCOL = ${n};\nexport const GRAMMAR = ${grammar};\n`
 
 /** `left`: PROTOCOL where the branch left main (default: main's, so a branch that differs changed it). */
-type Case = { hostname?: string; base?: string; branch?: number; main?: number; left?: number }
+type Case = { hostname?: string; base?: string; branch?: number; main?: number; left?: number; grammar?: number }
 
 /** A session on `hostname` whose gh answers from the case, recording what Bash really ran. */
 function sessionIn(on: On, c: Case = {}) {
@@ -28,7 +28,7 @@ function sessionIn(on: On, c: Case = {}) {
     if (argv[0] === 'gh' && argv[1] === 'api') {
       const ref = argv.at(-1)!.split('ref=')[1]
       const main = c.main ?? 165
-      return { value: result(0, protocolTs(ref === 'main' ? main : ref === 'base123' ? c.left ?? main : c.branch ?? main)) }
+      return { value: result(0, protocolTs(ref === 'main' ? main : ref === 'base123' ? c.left ?? main : c.branch ?? main, ref === 'abc123' ? c.grammar ?? 1 : 1)) }
     }
     return { value: result(1, '', 'unexpected') }
   })
@@ -131,8 +131,8 @@ describe('guardrails refuse with the reason and the command to run', () => {
     expect(s.ran).toEqual(['gh pr merge 520 --merge'])
   })
 
-  test('a merge that leaves PROTOCOL as main has it runs', async ($, on) => {
-    const s = sessionIn(on, { main: 165, branch: 165 })
+  test('a grammar-only bump leaves PROTOCOL alone and merges', async ($, on) => {
+    const s = sessionIn(on, { main: 165, branch: 165, grammar: 2 })
     expect((await bash($, 'gh pr merge --merge')).deny).toBeUndefined()
     expect(s.ran).toEqual(['gh pr merge --merge'])
   })

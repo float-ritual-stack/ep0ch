@@ -107,6 +107,9 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
     // `--screen <name> [<target>]`: the same action a menu letter, an agent's act and a session's attach run.
     if (start.open) await app.dispatch.act({ action: "screen.open", args: { ...start.open } }, USER).catch(e => app.flash((e as Error).message, 20_000, errorDetails(e)));
   }
+  const grammar = o.board.takeGrammarNotice();
+  if (grammar) app.flash(grammar, 20_000);
+  o.board.onGrammar = () => { const note = o.board.takeGrammarNotice(); if (note) app.flash(note, 20_000); };
   if (refused) app.flash(refused, 20_000);
   else if (others.length) app.flash(`another door (pid ${others.join(", ")}) is on this outline · marks are shared, the desk layout is whichever saves last`, 20_000);
   else if (recovered.length) app.flash(`an editor's text left by a door that ended was kept in ${recovered[0]}${recovered.length > 1 ? ` (+${recovered.length - 1})` : ""}`, 20_000);
