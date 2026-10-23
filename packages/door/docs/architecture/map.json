@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "d03ba840", "outliner": "d03ba840", "on": "2026-10-23" },
+  "verified": { "door": "59ead4fa", "outliner": "59ead4fa", "on": "2026-10-23" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -309,14 +309,14 @@
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
       "built": "NoteSurface behind the SurfaceHost seam; inline views, links, backlinks, tables and tabs lend their tagged rows to InlineList over RowView (PIE-1035), with wheel handoff and element selection; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
-        { "r": "door", "p": "src/surface/note.ts", "l": 670, "m": "export class NoteSurface" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 671, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/inline-list.ts", "l": 12, "m": "export class InlineList" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 138, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 54, "m": "export const PRECEDENCE" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 160, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 9048, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1176, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 1193, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 161, "m": "export interface SurfaceHost" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 9057, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1177, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 1194, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -899,7 +899,7 @@
         { "r": "outliner", "p": "../outline-core/src/link-syntax.ts", "l": 99, "m": "export function blockReferenceOccurrences" },
         { "r": "outliner", "p": "../outline-core/src/link-syntax.ts", "l": 258, "m": "export function normalizePageAddress" },
         { "r": "outliner", "p": "src/authored-links.ts", "l": 11, "m": "@ep0ch/outline-core/link-syntax" },
-        { "r": "door", "p": "src/refs.ts", "l": 20, "m": "@ep0ch/outline-core/link-syntax" }
+        { "r": "door", "p": "src/refs.ts", "l": 21, "m": "@ep0ch/outline-core/link-syntax" }
       ]
     },
     {

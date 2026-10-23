@@ -1352,7 +1352,7 @@ export class Lanes implements SourceModel {
       line(`a child note of ${drawEllipsized(titleOf(C0.parent), 60)}`, C.cyan),
       line(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
     ];
-    const lines = renderEditor(d, { look, title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, null, links), pick: true }, w, r.rows - 2);
+    const lines = renderEditor(d, { look, title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: (t, pw, links) => draftPreviewDoc(t, pw, { board: this.host.ctx.board, redraw: () => this.host.redraw() }, links), pick: true }, w, r.rows - 2);
     this.composerAt = r;
     lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
   }

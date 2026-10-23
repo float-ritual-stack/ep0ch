@@ -1,3 +1,4 @@
+import { expandsEmbeds } from "./embed-policy";
 import { valueLinkOccurrences } from "@ep0ch/outline-core/site-values";
 import { C, fg, drawEllipsized, ellipsize } from "./style";
 // Links in read mode, as Detail shows them: `((id))` and `[[address]]` become the target's title or the
@@ -370,6 +371,7 @@ const plainWords = (words: string) => words.replace(/[*_~\\]/g, "\\$&");
  * way, a placeholder stays as typed. `draft`: the text is the note's unsaved one.
  */
 export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = [], site?: { block: string; draft?: boolean; call?: SiteCall }): string {
+  embeds = expandsEmbeds(embeds);
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
   // Fence lines and the code between them are left as typed, links and Markdown alike. So is a component block

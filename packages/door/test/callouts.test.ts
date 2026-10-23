@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { foldPoints, renderDoc } from "../src/doc";
 import { SocketBoard, USER, type Actor } from "../src/socket";
-import { NoteSurface, type SurfaceHost } from "../src/surface/note";
+import { draftPreviewDoc, NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -19,6 +19,24 @@ const draw = (body: string, width: number) => {
   const points = foldPoints(body);
   return renderDoc(body, { width, cellW: 9, cellH: 18, graphics: false, maxImageRows: 4, unfold: false, folds: { points, folded: new Set(points.filter(p => p.start).map(p => p.key)) } }).lines.map(plain);
 };
+
+describe("children keep the note's context", () => {
+  const env = { width: 70, cellW: 9, cellH: 18, graphics: false, maxImageRows: 4, unfold: true };
+  test("an embed inside a callout expands", () => {
+    const doc = renderDoc("> [!note] Inside\n> !((10000000-0000-4000-8000-000000000001))", { ...env, embed: () => ["The beans are ready."] });
+    expect(doc.lines.map(plain).join("\n")).toContain("The beans are ready.");
+  });
+  test("a button inside a callout is asked at its note line", () => {
+    const doc = renderDoc('Before\n\n> [!tip] Controls\n> ::button{label="Go" act="theme.cycle"}', { ...env, button: (_call, line) => [`press line ${line}`] });
+    expect(doc.lines.map(plain).join("\n")).toContain("press line 3");
+  });
+  test("a box in a note with a header image keeps its own image in the body", () => {
+    const doc = renderDoc('img::header.png [layout::hero]\n::box{border=line}\nimg::beans.png\n::', { ...env, hero: true, heroLine: 0 });
+    expect(doc.hero?.path).toEndWith("header.png");
+    expect(doc.lines.map(plain).join("\n")).toContain("beans.png");
+    expect(doc.lines.map(plain).join("\n")).not.toContain("▀ header beans.png");
+  });
+});
 
 describe("narrow readers", () => {
   test("the folded hint gives way by whole words: all of it, then `· f`, then the count alone", () => {
@@ -62,6 +80,13 @@ describe.skipIf(!outliner)("changing a callout, against a scratch outline", () =
     note = await create(["Shed rules", "", "> [!warning] Mind the step", "> It wobbles.", "- [ ] fix the step", "", "> [!note]- Keys", "> On the hook."].join("\n"));
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
+
+  test("a new draft with an outline expands an embed", async () => {
+    const target = await create("Seed instructions\nPlant the beans two fingers deep.");
+    const src = { board, redraw() {} };
+    const render = () => draftPreviewDoc(`New planting\n!((${target.id}))`, 70, src).lines.map(plain).join("\n");
+    await until(() => render().includes("Plant the beans two fingers deep."), "draft embed expanded");
+  });
 
   test("refusals: a callout that changed since it was drawn, a bad type, none named by an agent, nothing to undo", async () => {
     const { s, host, render } = reader();

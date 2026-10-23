@@ -1,3 +1,4 @@
+import { expandsEmbeds } from "../embed-policy";
 import { standsAsPerson } from "./dispatch";
 import { READER_MOVE_KEYS, SOURCES_KEYS, SOURCE_KEYS, SOURCE_FIELD_KEYS, REPLIES_KEYS, REPLIES_FOLD_KEYS, REPLIES_CONTROLS, COMMENT_KEYS, EDIT_PREVIEW_KEYS, EDIT_PREVIEW_READER_KEYS, ATTACHED_KEYS } from "./attached-keys";
 import { modeBinding, modeHint, modeActionKeys } from "./modes";
@@ -52,7 +53,7 @@ import { propertyTokensInLine, splitPropertyValue } from "@ep0ch/outline-core/pr
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock, type LinkOccurrence } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, editedMark, type CommentEnv } from "../comment";
 import type { Step } from "../session/restore";
-import { codeSpans, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
+import { childEnv, codeSpans, foldPoints, heroBox, mediaLines, mediaRows, renderDoc, type Doc, type DocBlock, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, embedState, viewResults, embedStepChanged, isOpenProposal, proposalsBeside, NOT_APPLICABLE, proposalApplies, proposalControls, proposalOps, SHADE, type EmbedBody } from "../embeds";
 import { findOutputRegions } from "@ep0ch/outline-core/output-region";
@@ -2404,7 +2405,7 @@ export class NoteSurface {
         role: "control", label: field, form: { field }, press: { act: `${act} tile=${m.id}`, block: m.id, line: 0 },
       }, value))] : []),
     ]);
-    const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), {
+    const doc = renderDoc(presentLinks(text, expandsEmbeds(!!hooks.embed, m), src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), {
       ...env, literal, ...hooks, ...(isOutlineNote(m) ? { outputs: new Map(findOutputRegions(text).map(r => [r.startLine, r])) } : {}),
       linkBlocks: this.printed ? undefined : {
         ui: key => {
@@ -2497,6 +2498,13 @@ export class NoteSurface {
     this.previewDraft = undefined;
   }
 
+  static draftPreviewDoc(text: string, width: number, src: Source | null, links: LinkTarget[]): Doc & { pending: boolean } {
+    const env: DocEnv = { width: Math.max(10, width), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts: calloutsOf(src), headings: headingStylesOf(src) };
+    const hooks = new NoteSurface().bodyHooks(null, [], env, src, links);
+    const doc = renderDoc(presentLinks(text, expandsEmbeds(!!hooks.embed), src, text, links), { ...env, ...hooks });
+    return { ...doc, pending: !!src && embedsLoading(src.board) };
+  }
+
   snippet(text: string, width: number, host?: SurfaceHost): string[] { return this.snippetDoc(text, width, host).lines; }
   /** `snippet` with where its links are drawn (`links`: their targets, by `.links`' `n`), for a draft's preview to follow. */
   snippetDoc(text: string, width: number, host?: SurfaceHost, drawn: Link[] = [], pictures = false, draftOf?: string): { lines: string[]; links: LinkRange[]; pending: boolean; placements: Placement[]; images: DocImage[]; source: number[] } {
@@ -2524,7 +2532,7 @@ export class NoteSurface {
       site = { board: this.previewDraft.board, draft: { text }, pending: !this.previewDraft.ready, changed: loading => { pending ||= loading; } };
     }
     // `draftOf`: the text is that note's unsaved one (an edit's preview): its `{{ }}` are read from the text as typed (PIE-533 S2).
-    const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), true, src, text, drawn, undefined, draftOf && !site?.pending ? { block: draftOf, draft: true } : undefined), { ...env, ...(draftOf ? { note: draftOf, site } : {}), ...(embed ? { embed } : {}) });
+    const doc = renderDoc(presentLinks(printable(text.replace(/\t/g, " "), "", { lines: true }), expandsEmbeds(!!embed, m ?? undefined), src, text, drawn, undefined, draftOf && !site?.pending ? { block: draftOf, draft: true } : undefined), { ...env, ...(draftOf ? { note: draftOf, site } : {}), ...(embed ? { embed } : {}) });
     // Its `{{ }}` still being read: drawn again on the redraw the answer brings.
     if (draftOf && !site?.pending && siteAnswerWaiting(draftOf, text, src, true)) pending = true;
     // `images` for a host that lays them out in its own rows (a thread's panel), `placements` for one that places them as drawn (a preview).
@@ -2538,7 +2546,7 @@ export class NoteSurface {
     return stripMarks(stripTags(presentLinks(named, false, this.src, named)));
   }
 
-  private bodyHooks(m: Msg, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep" | "use"> & { preview?: (id: string, width: number) => string[]; spanPreview: (startLine: number, endLine: number, width: number) => string[] } {
+  private bodyHooks(m: Msg | null, noteLines: readonly number[], env: DocEnv, src: Source | null, drawn: Link[]): Pick<DocEnv, "embed" | "task" | "present" | "liveStep" | "use"> & { preview?: (id: string, width: number) => string[]; spanPreview: (startLine: number, endLine: number, width: number) => string[] } {
     // How many embedded bodies and template bodies are being drawn inside one another: an embed starts a fresh `::use`
     // depth and a template body a fresh embed one, so a note that embeds a template that embeds it back is stopped here.
     let nest = 0;
@@ -2567,8 +2575,8 @@ export class NoteSurface {
       const projections = isOutlineNote(target) ? projectionsOf(target, source) : [];
       const projected = this.projectionRegions(projections, lines);
       const inert = (text: string, width: number) => renderDoc(text, { ...env, width, graphics: false, after: undefined, embed: undefined, keepTags: false }).lines;
-      const rendered = renderDoc(presentLinks(text, true, source, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
-        ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, regions: undefined, outputs: undefined,
+      const rendered = renderDoc(presentLinks(text, expandsEmbeds(!!hooks.embed, target), source, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
+        ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, regions: undefined, outputs: undefined,
         // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
         nested: !!part,
         decorate: (line, width) => {
@@ -2598,7 +2606,7 @@ export class NoteSurface {
       const { text, lines, literal } = readableSource(target, src);
       const call: SiteCall = { ...(site.chain?.length ? { chain: site.chain } : {}), ...(site.props ? { props: site.props } : {}) };
       return renderDoc(presentLinks(text, true, src, target.text, drawn, undefined, { block: target.id, call }), {
-        ...env, width, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
+        ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal, keepTags: true, folds: undefined, after: undefined, regions: undefined, outputs: undefined,
         link: (block, t, figure, query) => tagged(drawn, { ...(query ? { query, label: query } : { block }), role: "row", ...(figure ? { figure: { figure } } : {}) }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: embedHook, task: () => null, present: presenter(target.text), liveStep, site,
@@ -2609,7 +2617,7 @@ export class NoteSurface {
     const useHook = (block: string, lines: readonly number[], site: UseSite | undefined, depth: number, book?: RegionBook): DocEnv["use"] => (call, i, width) => {
       const line = lines[i] ?? -1;
       if (line < 0) return [];
-      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m.id, width, src, sink: drawn, depth, body: templateBody(depth), ...(book ? { book } : {}) });
+      return useRegion({ call, line, host: block, ...(site ? { site } : {}), top: m?.id ?? "", width, src, sink: drawn, depth, body: templateBody(depth), ...(book ? { book } : {}) });
     };
     // A `::button` on body line `i` (PIE-957): a chip that is a press of its action line, on this note.
     const buttonHook = (block: string, lines: readonly number[]): DocEnv["button"] => (call, i) => {
@@ -2617,27 +2625,29 @@ export class NoteSurface {
       if (call.act === null || line < 0) return [fg(C.yellow) + `[${label}] ${call.problem ?? ""}` + RESET];
       return [tagged(drawn, { role: "control", label, press: { act: call.act, steps: call.steps, ...(call.alt ? { alt: call.alt } : {}), block, line } }, buttonLabel(label))];
     };
-    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m.id, env.inlineList);
+    const embedHook = (id: string, fragment: string | undefined, n: number, width: number) => embedRegion(id, fragment, n, width, src, inner, drawn, m?.id ?? "", env.inlineList);
     // A component's words as a line of the note (PIE-864): its links elements, unless its row is itself a link.
     const presenter = (noteText: string) => (t: string, linked: boolean) => presentLinks(t, false, src, noteText, linked ? undefined : drawn);
     // A live ::graph-check row's box: a step of its own note, whose mark writes the property its `done:` names.
     const liveStep: DocEnv["liveStep"] = (row, box) => LINK_ON + tagged(drawn, { role: "task", block: row.block, task: { block: row.block, revision: 0, step: liveRowStep(row), live: row.mark } }, box) + LINK_OFF;
     // A Resource or a file shown as a note has no steps, and its `!((…))` isn't the outline's to transclude.
-    const outline = isOutlineNote(m);
-    const steps = outline ? stepsOf(m, src) : null;
+    const outline = expandsEmbeds(!!src, m ?? undefined);
+    const steps = m && isOutlineNote(m) ? stepsOf(m, src) : null;
     const stepAt = new Map((steps?.items ?? []).map(st => [st.span.startLine, st]));
     const task: NonNullable<DocEnv["task"]> = (i, box) => {
+      if (!m) return null;
       const line = noteLines[i] ?? -1, st = stepAt.get(line);
       if (st && steps && steps.revision !== m.revision && !stepStillOn(st, m.text, line)) return null;
       const shown = boxStatus(box) === st?.status ? STEP_BOXES[st.status] : box;
       return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, shown) + LINK_OFF : null;
     };
     return {
-      spanPreview: (startLine, endLine, width) => embedRegion(m.id, undefined, 0, width, src, inner, drawn, m.id, env.inlineList, { note: m, startLine, endLine, task: (line, box) => task(noteLines.indexOf(line), box) }),
-      present: presenter(m.text), ...(outline ? { liveStep } : {}),
-      ...(outline ? { embed: embedHook, use: useHook(m.id, noteLines, undefined, 0, env.regions), button: buttonHook(m.id, noteLines) } : {}),
+      spanPreview: (startLine, endLine, width) => m ? embedRegion(m.id, undefined, 0, width, src, inner, drawn, m.id, env.inlineList, { note: m, startLine, endLine, task: (line, box) => task(noteLines.indexOf(line), box) }) : [],
+      present: presenter(m?.text ?? ""), ...(outline ? { liveStep } : {}),
+      ...(outline ? { embed: embedHook } : {}),
+      ...(m && outline ? { use: useHook(m.id, noteLines, undefined, 0, env.regions), button: buttonHook(m.id, noteLines) } : {}),
       // An inline ::links component's preview of its selected row (PIE-693): that note drawn as an embed of it is.
-      ...(outline ? { preview: (id: string, width: number) => embedRegion(id, undefined, 0, width, src, inner, drawn, m.id) } : {}),
+      ...(outline ? { preview: (id: string, width: number) => embedRegion(id, undefined, 0, width, src, inner, drawn, m?.id ?? "") } : {}),
       task,
     };
   }
@@ -8665,14 +8675,13 @@ export const imagePlacements = (images: readonly DocImage[], col: number, cellW:
 
 
 /**
- * A draft's live preview where no note is open (PIE-496): the readers' own body renderer, without folds or embeds. An
+ * A draft's live preview where no note is open (PIE-496): the reader's own body renderer, with embeds when its outline is available. An
  * edit's or a comment's preview on a note is `NoteSurface.snippetDoc`, its embeds expanded (PIE-852).
  */
 export function draftPreview(text: string, w: number, src: Source | null = null): string[] { return draftPreviewDoc(text, w, src).lines; }
 /** `draftPreview` with where its links are drawn (PIE-592): their targets land in `links`, by `.links`' `n`. */
-export function draftPreviewDoc(text: string, w: number, src: Source | null = null, links: LinkTarget[] = []): Doc {
-  const doc = renderDoc(presentLinks(text, false, src, text, links), { width: Math.max(10, w), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts: calloutsOf(src), headings: headingStylesOf(src) });
-  return doc;
+export function draftPreviewDoc(text: string, w: number, src: Source | null = null, links: LinkTarget[] = []): Doc & { pending: boolean } {
+  return NoteSurface.draftPreviewDoc(text, w, src, links);
 }
 
 /** The proposal `proposal.apply` or `proposal.dismiss` acts on: `id`, else the one whose embed or control is the current element, else the open proposal shown. */

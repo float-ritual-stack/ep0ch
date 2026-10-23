@@ -1,3 +1,4 @@
+import { expandsEmbeds } from "./embed-policy";
 import { clipText } from "./overflow";
 import { componentRowFields } from "./look";
 import { heroLook } from "./surface/hero-look";
@@ -389,12 +390,34 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
   return out;
 }
 
+/** A child's hooks stay in the owning note's coordinates; only its drawing is local. */
+export function childEnv(env: DocEnv, { off, end, width }: { off: number; end: number; width: number }): DocEnv {
+  const inside = (n: number) => n >= off && n < end;
+  return {
+    ...env, nested: true, width, keepTags: true,
+    // Only the note's own first line can supply its header, never a child's first line.
+    hero: false, heroLine: env.heroLine !== undefined && inside(env.heroLine) ? env.heroLine - off : -1,
+    after: env.after && ((n, w) => n < 0 ? [] : env.after!(n + off, w)),
+    task: env.task && ((n, box) => env.task!(n + off, box)),
+    use: env.use && ((call, n, w) => env.use!(call, n + off, w)),
+    button: env.button && ((call, n, w) => env.button!(call, n + off, w)),
+    callout: env.callout && ((n, block) => env.callout!(n + off, { ...block, line: block.line + off, end: block.end + off })),
+    image: env.image && ((n, control, text) => env.image!(n + off, control, text)),
+    decorate: env.decorate && ((n, w) => { const d = env.decorate!(n + off, w); return d && { ...d, end: Math.min(d.end, end) - off }; }),
+    outputs: env.outputs && new Map([...env.outputs].filter(([n]) => inside(n)).map(([n, region]) => [n - off, region])),
+    look: env.look && { ...env.look, lists: env.look.lists && ((n, fields) => env.look!.lists!(n + off, fields)) },
+    literal: env.literal && new Set([...env.literal].filter(inside).map(n => n - off)),
+    folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: Math.min(p.end, end) - off, ...(p.list ? { list: { ...p.list, line: p.list.line - off } } : {}) })) },
+  };
+}
+
 export function renderDoc(body: string, env: DocEnv): Doc {
   const out: string[] = [];
   const images: DocImage[] = [];
   const mediaRefs: Doc["media"] = [];
   let hero: Doc["hero"];
   let embeds = 0;
+  const children = { ...env, embed: env.embed && ((id: string, fragment: string | undefined, _n: number, width: number) => env.embed!(id, fragment, embeds++, width)) };
   const W = Math.max(10, env.width);
   // A checklist step's stable id (` ^task-<uuid>`, added by the service, e.g. when a step gets a comment)
   // is bookkeeping, not prose.
@@ -519,21 +542,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const inner = framed ? W - 2 * left : bar ? W - left - mx - px : Math.max(8, W - 2 * left);
       // The frame and the bar in the tone (theme.edge.tile for neutral): lines, never words.
       const ink = v.tone === "neutral" ? fgRgb(theme().edge.tile) : fg(TONE[v.tone]);
-      const off = i + 1, end = boxed.end, inside = (n: number) => n > i && n < end;
-      const sub = renderDoc(src.slice(i + 1, end).join("\n"), {
-        ...env, nested: true, width: inner, keepTags: true,
-        embed: env.embed && ((id, fragment, _n, width) => env.embed!(id, fragment, embeds++, width)),
-        after: env.after && ((n, width) => env.after!(n + off, width)),
-        task: env.task && ((n, box) => env.task!(n + off, box)),
-        use: env.use && ((call, n, width) => env.use!(call, n + off, width)),
-        button: env.button && ((call, n, width) => env.button!(call, n + off, width)),
-        callout: env.callout && ((n, block) => env.callout!(n + off, block)),
-        image: env.image && ((n, control, text) => env.image!(n + off, control, text)),
-        decorate: env.decorate && ((n, width) => { const d = env.decorate!(n + off, width); return d && { ...d, end: d.end - off }; }),
-        outputs: env.outputs && new Map([...env.outputs].filter(([n]) => inside(n)).map(([n, region]) => [n - off, region])),
-        look: { values: v, layers, width: at, ...(look?.lists ? { lists: (n: number, f: Readonly<Record<string, string>>) => look.lists!(n + off, f) } : {}) },
-        literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
-        folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: Math.min(p.end, end) - off })) },
+      const off = i + 1, end = boxed.end;
+      const child = childEnv(children, { off, end, width: inner });
+      const sub = renderDoc(src.slice(off, end).join("\n"), {
+        ...child, look: { values: v, layers, width: at, lists: child.look?.lists },
       });
       endZebra(); run = null;
       mark();
@@ -584,12 +596,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       }
       if (deco.frame) {
         // Around them: drawn in a frame by this renderer, their folds kept (a folded one inside stays folded).
-        const inner = Math.max(8, W - 4), off = i, end = deco.end, colour = deco.frame.colour, inside = (n: number) => n >= off && n < end;
-        const sub = renderDoc(src.slice(i, end).join("\n"), {
-          ...env, nested: true, width: inner, graphics: false, keepTags: true, embed: undefined, after: undefined, task: undefined,
-          callout: undefined, decorate: undefined, literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
-          folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: Math.min(p.end, end) - off })) },
-        });
+        const inner = Math.max(8, W - 4), off = i, end = deco.end, colour = deco.frame.colour;
+        const child = childEnv(children, { off, end, width: inner });
+        // The frame already being drawn must not decorate itself again.
+        const sub = renderDoc(src.slice(i, end).join("\n"), { ...child, decorate: child.decorate && ((n, w) => n === 0 ? null : child.decorate!(n, w)) });
         const title = deco.frame.title ? ` ${clipText(deco.frame.title, Math.max(0, W - 6))} ` : "";
         out.push(fg(colour) + "╭─" + title + "─".repeat(Math.max(0, W - 3 - vwidth(title))) + "╮" + RESET);
         mark();
@@ -598,6 +608,8 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
         edge(base - 1);
         adopt(sub, base, 2, off, { inner });
+        adoptMedia(sub, base, 2, off);
+        inserted = end;
         out.push(fg(colour) + "╰" + "─".repeat(Math.max(0, W - 2)) + "╯" + RESET); source.push(-1);
         edge(out.length - 1);
         i = end - 1;
@@ -749,14 +761,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const known = cb && cb.depth === 1 ? env.outputs?.get(i) : undefined;
     const og = known ?? (cb && cb.depth === 1 ? outputHeader(src[i]!) : null);
     if (cb && og) {
-      const off = i + 1, inside = (n: number) => n > i && n < cb.end;
-      const body = src.slice(i + 1, cb.end).map(l => stripQuotes(l, cb.depth));
-      const sub = renderDoc(body.join("\n"), {
-        ...env, nested: true, width: W, keepTags: true, embed: undefined, after: undefined, use: undefined, regions: undefined, outputs: undefined, task: env.task && ((n, box) => env.task!(n + off, box)), decorate: undefined,
-        literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
-        folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: p.end - off })) },
-        callout: env.callout && ((n, b) => env.callout!(n + off, { ...b, line: b.line + off, end: b.end + off, depth: b.depth + cb.depth })),
-      });
+      const off = i + 1;
+      const body = src.slice(off, cb.end).map(l => stripQuotes(l, cb.depth));
+      const sub = renderDoc(body.join("\n"), childEnv(children, { off, end: cb.end, width: W }));
       mark();
       const base = out.length;
       sub.lines.forEach((l, r) => { out.push(l); source.push(sub.source[r]! < 0 ? -1 : off + sub.source[r]!); });
@@ -773,6 +780,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         facts: [og.label || "output", og.type === "answer" ? "an agent's answer" : "written by a script"], controls: source0 ? [fg(C.lcyan) + source0 + RESET] : [], width: W,
       }, env.regions));
       regions.push({ key, row: base, rows: out.length - base });
+      inserted = cb.end;
       i = cb.end - 1;
       continue;
     }
@@ -800,13 +808,15 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         const tag = env.callout?.(i, cb) ?? ((x: string) => x);
         out.push(fg(colour) + pad(`${tag(t.icon)} ${BOLD}${cb.title || t.title}${UNBOLD}`, W) + RESET);
         if (body.length && !folded) {
-          const sub = renderDoc(body.join("\n"), { ...env, nested: true, keepTags: true, embed: undefined, after: undefined, task: undefined, folds: undefined, callout: undefined, decorate: undefined, literal: undefined });
+          const sub = renderDoc(body.join("\n"), childEnv(children, { off: i + 1, end: cb.end, width: W }));
           mark();
           const base0 = out.length;
           sub.lines.forEach((l, r) => { out.push(l); source.push(sub.source[r]! < 0 ? -1 : i + 1 + sub.source[r]!); });
           adopt(sub, base0, 0, i + 1, undefined, cb.depth);
+          adoptMedia(sub, base0, 0, i + 1);
           if (byline) { out.push(bylineRow(W)); source.push(i + 1 + byline.line); }
         }
+        inserted = cb.end;
         i = cb.end - 1;
         continue;
       }
@@ -845,18 +855,14 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         for (const l of spill ? wrap(spill, inner) : []) { cut(out.length, [0, 2], [2 + inner, Infinity]); out.push(fg(colour) + "│ " + BOLD + pad(l, inner) + UNBOLD + " │" + RESET); }
         // A title-only callout is just the titled frame; no empty row inside.
         if (body.length) {
-          const off = i + 1, inside = (n: number) => n > i && n < cb.end;
-          const sub = renderDoc(body.join("\n"), {
-            ...env, nested: true, width: inner, graphics: false, keepTags: true, embed: undefined, after: undefined, task: env.task && ((n, box) => env.task!(n + off, box)), decorate: undefined,
-            literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
-            folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: p.end - off })) },
-            callout: env.callout && ((n, b) => env.callout!(n + off, { ...b, line: b.line + off, end: b.end + off, depth: b.depth + cb.depth })),
-          });
+          const off = i + 1;
+          const sub = renderDoc(body.join("\n"), childEnv(children, { off, end: cb.end, width: inner }));
           mark();
           const base = out.length;
           sub.lines.forEach((l, r) => { out.push(framed(l)); source.push(sub.source[r]! < 0 ? -1 : off + sub.source[r]!); });
           for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
           adopt(sub, base, 2, off, { inner }, cb.depth);
+          adoptMedia(sub, base, 2, off);
           if (byline) { out.push(framed(bylineRow(inner))); source.push(off + byline.line); }
         }
       }
@@ -864,6 +870,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       edge(out.length);
       out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET); source.push(-1);
       blocks.push({ kind: "callout", row: top, rows: out.length - top, line: i, end: cb.end, inner: [i + 1, cb.end], strip: cb.depth, text: written, col: bw - 2 });
+      inserted = cb.end;
       i = cb.end - 1;
       continue;
     }
@@ -882,7 +889,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
 
     // Transclusions: each `!((…))` becomes its shaded region; the text around it stays where it was.
     // Inline code keeps its text (fences are consumed above): an embed in a code span is its text.
-    if (env.embed && line.includes("!((")) {
+    if (expandsEmbeds(!!env.embed) && line.includes("!((")) {
       const pieces: (string | { id: string; fragment?: string })[] = [];
       const code = codeSpanRanges(line);
       let at = 0;

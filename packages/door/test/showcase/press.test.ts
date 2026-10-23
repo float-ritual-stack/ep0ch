@@ -3,6 +3,7 @@
 // again. Edit and rich edit keep the board drawn under its line, read-only. One of the showcase's test files.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
+import { theme } from "../../src/theme";
 import { C, fg } from "../../src/style";
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -48,6 +49,26 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     const { elements } = await app.dispatch.act({ action: "elements", tile: "notes" }, USER) as { elements: { kind: string; label: string }[] };
     return elements.filter(e => e.kind === "control" && /^\[[1-9]\]$/.test(e.label));
   };
+
+  test("a callout expands its embed and its button presses at the authored line", async () => {
+    await app.dispatch.act({ action: "section", args: { name: "callouts" } }, USER);
+    await until(() => screen().includes("Leave two fingers between the beans."), "the callout's embed");
+    press({ kind: "enter" });
+    const before = theme().name;
+    try {
+      const rows = screen().split("\n"), y = rows.findIndex(l => l.includes("[Cycle theme]"));
+      expect(y).toBeGreaterThan(-1);
+      click(rows[y]!.indexOf("[Cycle theme]") + 2, y);
+      await until(() => theme().name !== before, "the callout button pressed");
+      const clicked = theme().name;
+      expect(await app.dispatch.act({ action: "button.press", args: { label: "Cycle theme" } }, USER)).toMatchObject({ act: "theme.cycle" });
+      expect(theme().name).not.toBe(clicked);
+    } finally {
+      app.setTheme(before);
+      press({ kind: "esc" });
+      await app.dispatch.act({ action: "section", args: { name: "press" } }, USER);
+    }
+  });
 
   test("button labels prefer exact matches and a note button's alt click runs its alternate action", async () => {
     const note = await board.createBlock(null, 'Video controls\n::button{label="Video" act="video.cycle" alt="theme.cycle"}\n::button{label="Video theme" act="theme.cycle"}');
