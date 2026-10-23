@@ -538,7 +538,17 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   });
 
   test("comment, reply, resolve: the same session the keys drive, authored by the agent", async () => {
+    const existing = await act("open", { id: cards.beans.id }, "detail") as { name: string };
+    const pots = await create(null, "Clean the pots\nBefore the next sowing.");
+    const other = await act("open", { id: pots.id }, "new-detail") as { name: string };
+    await mine("tile.focus", {}, other.name);
+    const keys = BV.where(b);
     const { name: reader } = await act("open", { id: cards.beans.id }, "detail") as { name: string };
+    expect(reader).toBe(existing.name);
+    // A paint cannot turn an agent's landing back into the reader the person still has the keys in.
+    b.render(b.ctx);
+    expect(BV.where(b)).toBe(keys);
+    expect(b.activePane("readers")).toBe(b.pane(reader));
     await expect(act("passage.select", { quote: "Tie them tightly" }, reader)).rejects.toThrow("isn't in the note's current text");
     const pane = B().details[B().active] as ReaderPane;
     expect(pane.session?.mode).toBe("select");                                   // the person sees what the agent tried

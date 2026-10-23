@@ -705,7 +705,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         for (const desk of pane.inner.descend()) if (desk.lifted) desk.dropLift(by.actor);
       }
     }
-    this.noteFocus();
+    this.noteFocus(by?.op === "focus" || by?.op === "tab");
     // A tile folded or opened is told (it keeps what it holds exactly).
     for (const id of new Set([...was.keys(), ...r.state.collapsed.keys()])) if (was.has(id) !== r.state.collapsed.has(id)) this.panes.get(id)?.folded?.(r.state.collapsed.has(id));
     return r;
@@ -5330,17 +5330,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private lastIn = new Map<string, number>();
   /** The last tile the keys were in that isn't a float: where esc in a float gives them back. */
   private lastGrounded: number | undefined;
+  private notedFocus: number | undefined;
   private grounded(): number | undefined {
     const g = this.lastGrounded;
     return g !== undefined && this.panes.has(g) && !this.isFloat(g) && visible(this.root).includes(g) ? g : this.tabStops().find(id => !this.isFloat(id));
   }
   /** Where the keys are now is the place of each columns container they're in. */
-  private noteFocus() {
+  private noteFocus(given = false) {
+    const changed = this.notedFocus !== this.focus;
+    this.notedFocus = this.focus;
     if (!this.isFloat(this.focus)) this.lastGrounded = this.focus;
     for (const c of chainOf(this.root, this.focus)) if (c.t === "columns" && c.id) this.lastIn.set(c.id, this.focus);
     // A tile opened into a container that's given the keys is where the next open there lands.
     const k = this.openedInto(this.focus);
-    if (k !== undefined && !this.isFloat(this.focus)) this.openedIn(k).active = this.focus;
+    // Painting the same focus must not undo a later open into a different reader.
+    if ((changed || given) && k !== undefined && !this.isFloat(this.focus)) this.openedIn(k).active = this.focus;
   }
 
   private linkSource(sel: string | undefined, verb: WireVerb) {
