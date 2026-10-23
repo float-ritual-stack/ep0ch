@@ -11,6 +11,7 @@ import { ReaderPane } from "../../src/desk/panes";
 import { QueryPane } from "../../src/desk/query";
 import { registerTileKind, tileKind, unregisterTileKind } from "../../src/desk/tile-kinds";
 import { Desk } from "../../src/desk/desk";
+import { savedNodes } from "../../src/desk/screen-spec";
 import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
@@ -567,6 +568,47 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       }
     }, 30_000);
   }
+
+  for (const kind of ["board", "river"] as const) {
+    test(`PIE-1218: a mounted ${kind}'s preview wire survives saving and reopening`, async () => {
+      const spec = { name: `mounted-${kind}`, title: "Mounted screen", saves: `mounted-${kind}.json`, layout: {
+        root: { t: "leaf" as const, kind, name: "mounted" },
+      } };
+      const d = new Desk(spec);
+      app.push(d);
+      try {
+        d.render(app);
+        await app.dispatch.act({ action: "tile.preview", tile: "mounted" }, USER);
+        const tiles = d.layoutAll().tiles;
+        expect(tiles.find(t => t.name === "mounted")!.wires).toEqual([{ verb: "select", to: tiles.find(t => t.name === "mounted-preview")!.tile }]);
+        const saved = readFileSync(join(process.env.EP0CH_STATE!, spec.saves), "utf8");
+        expect(savedNodes(JSON.parse(saved).root).find(t => t.name === "mounted")!.wires).toEqual(tiles.find(t => t.name === "mounted")!.wires);
+        const again = new Desk(spec);
+        app.push(again);
+        try {
+          again.render(app);
+          const restored = again.layoutAll().tiles;
+          expect(restored.find(t => t.name === "mounted")!.wires).toEqual([{ verb: "select", to: restored.find(t => t.name === "mounted-preview")!.tile }]);
+          if (kind === "board") expect(again.pane("mounted")!.spec!()).toMatchObject({ preview: false });
+        } finally { app.pop(); again.dispose(); }
+      } finally { app.pop(); d.dispose(); }
+    });
+  }
+
+  test("PIE-1218: tile.link on a mounted board lets the person click its preview destination", async () => {
+    const d = new Desk({ name: "board-link", title: "Board link", layout: { root: { t: "split", dir: "row", kids: [
+      { t: "leaf", kind: "board", name: "mounted" },
+      { t: "leaf", kind: "reader", name: "destination" },
+    ], weights: [1, 1] } } });
+    app.push(d);
+    try {
+      d.render(app);
+      expect(await app.dispatch.act({ action: "tile.link", tile: "mounted", args: { verb: "select", ask: true } }, USER)).toMatchObject({ picking: "select" });
+      const target = d.layoutAll().tiles.find(t => t.name === "destination")!;
+      press({ kind: "mouse", action: "down", button: 0, x: target.rect!.col + 3, y: target.rect!.row + 3 });
+      expect(d.layoutAll().tiles.find(t => t.name === "mounted")!.wires).toEqual([{ verb: "select", to: target.tile }]);
+    } finally { app.pop(); d.dispose(); }
+  });
 
   test("PIE-1206: saved duplicate destinations and group wires are repaired on load", async () => {
     const d = new Desk({ name: "wire-load", title: "Wire load", layout: { root: { t: "split", dir: "row", kids: [
