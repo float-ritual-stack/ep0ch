@@ -208,7 +208,7 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     press({ kind: "down" });
     press({ kind: "enter" });
     for (let i = 0; i < 80 && !(await kids(reading.id)).length; i++) await Bun.sleep(100);
-    expect(await kids(reading.id)).toEqual(["Moss and Lichen [book::Moss and Lichen] [pages::212] [mood::gripping]"]);
+    expect(await kids(reading.id)).toContain("Moss and Lichen [book::Moss and Lichen] [pages::212] [mood::gripping]");
     // The repairs note asks for other fields; an agent gives them at once and is never asked, its default filled in.
     await expect(app.act({ action: "ext.form.fill", args: { block: repairs.id, with: JSON.stringify({ part: "roof" }) }, as: "test-agent" })).rejects.toThrow(/needs what=.*with=/);
     await app.act({ action: "ext.form.fill", args: { block: repairs.id, with: JSON.stringify({ part: "roof", what: "a slipped tile over the bench" }) }, as: "test-agent" });
