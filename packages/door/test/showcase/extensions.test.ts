@@ -176,9 +176,9 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     click("Fill in the form │");
     const reading = seeded.notes.formReading.id;
     await untilAsync(async () => (await board.children(reading)).some(m => m.text === "Piranesi [book::Piranesi] [pages::272] [mood::gripping]"), "the clicked form's child").catch(async e => { throw new Error(`${e.message}\n${JSON.stringify(await board.children(reading))}\n${screen()}`); });
-    await app.act({ action: "form.set", tile: "reader", args: { field: "book", value: "The Dispossessed" }, as: "test-agent" });
-    await app.act({ action: "form.set", tile: "reader", args: { field: "pages", value: "341" }, as: "test-agent" });
-    await app.act({ action: "form.submit", tile: "reader", as: "test-agent" });
+    await app.act({ action: "form.set", tile: "reader", args: { field: "book", value: "The Dispossessed" }, as: "user" });
+    await app.act({ action: "form.set", tile: "reader", args: { field: "pages", value: "341" }, as: "user" });
+    await app.act({ action: "form.submit", tile: "reader", as: "user" });
     expect((await board.children(reading)).map(m => m.text)).toContain("The Dispossessed [book::The Dispossessed] [pages::341] [mood::slow]");
     expect(screen()).toContain("Piranesi");
     press({ kind: "esc" });

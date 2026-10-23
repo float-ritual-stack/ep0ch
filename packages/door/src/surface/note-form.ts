@@ -2,6 +2,7 @@ import { formFields, FORM_FIELD_KEY, type FormField } from "@ep0ch/outline-core/
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { chipRows } from "./chip-rows";
 import { Draft } from "../edit";
+import { partyOf } from "../steps";
 import { USER, type Actor } from "../socket";
 import { fg, C, pad, RESET, visible, width } from "../style";
 import { ActionRefused, asBoundKey, keyName, shownLine } from "./actions";
@@ -39,9 +40,8 @@ export class NoteForm {
     this.chips = chips.filter((_, index) => !parsed.problems.some(p => p.index === index));
     this.focus = Math.min(this.focus, this.fields.length);
   }
-  private party(actor: Actor) { return actor.kind === "user" ? "user" : actor.id; }
   draft(field: string, actor = USER) {
-    const key = this.party(actor);
+    const key = partyOf(actor);
     let drafts = this.answers.get(key);
     if (!drafts) { drafts = new Map(this.fields.map(f => [f.name, new Draft(this.block, 0, f.default ?? "")])); this.answers.set(key, drafts); }
     if (!drafts.has(field)) drafts.set(field, new Draft(this.block, 0, this.fields.find(f => f.name === field)!.default ?? ""));
@@ -54,8 +54,8 @@ export class NoteForm {
     d.splice(0, d.text.length, value, {}, actor);
     this.clearWarning(actor);
   }
-  clearWarning(actor: Actor) { this.warnings.delete(this.party(actor)); }
-  warning(actor: Actor, text: string) { this.warnings.set(this.party(actor), text); }
+  clearWarning(actor: Actor) { this.warnings.delete(partyOf(actor)); }
+  warning(actor: Actor, text: string) { this.warnings.set(partyOf(actor), text); }
   check(actor: Actor) {
     const missing = this.fields.find(f => f.required && !this.draft(f.name, actor).text.trim());
     return missing ? `${missing.name} is required` : null;
@@ -112,7 +112,7 @@ export class NoteForm {
     line(indent + "┌" + "─".repeat(width(button) + 2) + "┐");
     line(indent + "│ " + tag("@submit", button, "form.submit") + " │");
     line(indent + "└" + "─".repeat(width(button) + 2) + "┘");
-    const warning = this.warnings.get("user");
+    const warning = this.warnings.get(partyOf(USER));
     if (warning) line(fg(C.yellow) + printable(warning) + RESET);
     for (const text of ["* required", ...wrap(modeHint(FORM_KEYS, () => undefined), inner)]) line(text);
     rows.push(fg(C.dark) + "└" + "─".repeat(inner + 2) + "┘" + RESET);
