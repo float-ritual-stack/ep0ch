@@ -500,6 +500,16 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
         const r = await stdio([hello, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "outline_create", arguments: { uri: target.uri, text: "Named by persona" } } }]);
         const child = (await board.records([called(r.find(x => x.id === 2)).json.uri.split("/b/")[1]])).records[0]!;
         expect(child.actor).toBe(`mcp:desk/claude-desktop@${machine}`);
+        const childProcess = Bun.spawn([process.execPath, resolve(import.meta.dir, "../src/main.ts"), "mcp"], {
+          env: { ...process.env, ...scratch.env },
+          stdin: new Blob([[hello, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "outline_create", arguments: { uri: target.uri, text: "Scout's tray over stdio", persona: "scout" } } }].map(m => JSON.stringify(m)).join("\n") + "\n"]),
+          stdout: "pipe", stderr: "pipe",
+        });
+        const [output, error, code] = await Promise.all([new Response(childProcess.stdout).text(), new Response(childProcess.stderr).text(), childProcess.exited]);
+        expect({ code, error }).toEqual({ code: 0, error: "" });
+        const receipt = called(output.trim().split("\n").map(line => JSON.parse(line) as RpcResponse).find(x => x.id === 3));
+        expect(receipt.json.by).toBe(`scout (claude-desktop@${machine})`);
+        expect((await board.records([receipt.json.uri.split("/b/")[1]])).records[0]!.actor).toBe(`mcp:scout/claude-desktop@${machine}`);
       } finally { if (was === undefined) delete process.env.EP0CH_MCP_PERSONAS; else process.env.EP0CH_MCP_PERSONAS = was; await setAccess("read"); }
     }, 30_000);
 

@@ -851,6 +851,30 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(remoteWrite({ domain: "content", action: "update", sequence: 1, change, catchUp: true })).toBeNull();
     expect(remoteWrite({ domain: "content", action: "update", sequence: 1, change: { ...change, actor: { author: "agent", actorId: "claude-code" } } })).toBeNull();
   });
+  test("a per-write persona records its principal and leaves the named path's cap in place", async () => {
+    const parent = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.seeds! });
+    const made = await tool("outline_create", { uri: parent, text: "Persona's seed tray", persona: "scout" });
+    expect(made.isError).toBe(false);
+    expect(made.json.by).toBe("scout (chat.example.test)");
+    const child = await textOf(here, "garden-notes", HERE, made.json.uri.split("/b/")[1]);
+    expect(child.actor).toBe("mcp:scout/chat.example.test");
+    const capped = await tool("outline_set_property", { uri: parent, key: "keeper", value: "scout", revision: (await textOf(here, "garden-notes", HERE, ids.seeds!)).revision, persona: "scout" }, "gpty");
+    expect(capped.json.outcome).toBe("proposed");
+    expect(capped.json.by).toBe("scout (chat.example.test)");
+    expect((await textOf(here, "garden-notes", HERE, ids.seeds!)).text).not.toContain("keeper::scout");
+    for (const persona of ["not/a-persona", "", "x".repeat(65), 42, null]) {
+      const invalid = await tool("outline_create", { uri: parent, text: "Invalid persona's tray", persona });
+      expect(invalid.isError).toBe(true);
+      expect(invalid.text).toContain("^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$");
+      expect(invalid.text).toContain("loki");
+    }
+    const queued = await tool("outline_comment", { uri: formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.trunk! }), whole: true, body: "A scout's inventory", persona: "scout" });
+    expect(queued.json.outcome).toBe("queued");
+    expect(queued.json.by).toBe("scout (chat.example.test)");
+    expect((await tool("outline_write_status", { queueId: queued.json.queueId, persona: "scout" })).json).toMatchObject({ state: "queued", by: "scout (chat.example.test)" });
+    expect((await pull()).settled).toMatchObject([{ state: "applied" }]);
+    expect((await boardOn(far, "attic-notes", FAR).comments(ids.trunk!)).find(t => t.body === "A scout's inventory")?.author).toBe("mcp:scout/chat.example.test");
+  }, 60_000);
 });
 
 describe("personas: who a connection writes as", () => {

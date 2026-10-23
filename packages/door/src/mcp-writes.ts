@@ -79,6 +79,16 @@ export function withCall(caller: McpCaller, named: unknown): McpCaller {
   return typeof named === "string" && CALL_PATTERN.test(named) ? { ...caller, call: named, freshCall: false } : caller;
 }
 
+/** A per-call label changes attribution only; the connection keeps its principal and cap. */
+export const PERSONA_PROPERTY = {
+  type: "string", pattern: PERSONA_PATTERN.source,
+  description: "Optional. Use when an agent other than the connector's owner writes through it; for example, loki. Records persona (client) without changing the principal or access. Omit to keep the connection's persona mapping. For outline_write_status, pass the persona used on the queued write.",
+} as const;
+
+export const personaRefusal = (persona: unknown): string | undefined =>
+  persona !== undefined && (typeof persona !== "string" || !PERSONA_PATTERN.test(persona))
+    ? `persona must match ${PERSONA_PATTERN.source}; for example, persona: "loki".` : undefined;
+
 /** The agent a write is attributed to (the outliner's AgentActor). */
 export interface WriteActor { actorId: string; sessionId?: string }
 
@@ -143,8 +153,7 @@ const PERSONAS = PERSONA_PATTERN;
 export const personaOf = (caller: McpCaller, env?: Record<string, string | undefined>, machine?: string): string | undefined => personaClaim(caller, env, machine).persona;
 
 /** The attribution of a caller's write: `mcp:<persona>/<principal>` (outline-core's attribution.ts), its sessionId the subject and call. */
-export const actorOf = (caller: McpCaller, env?: Record<string, string | undefined>, machine?: string): WriteActor => {
-  const persona = personaOf(caller, env, machine);
+export const actorOf = (caller: McpCaller, env?: Record<string, string | undefined>, machine?: string, persona: string | undefined = personaOf(caller, env, machine)): WriteActor => {
   return { actorId: composeActor({ ...(persona ? { persona } : {}), principal: principalOf(caller, machine, env), mcp: true }), sessionId: sessionIdOf(caller) };
 };
 
@@ -337,12 +346,12 @@ export function gatewayExample(name: string): Record<string, unknown> | undefine
 export function writeToolDefinitions(outline: Record<string, unknown>) {
   const addressed = (properties: Record<string, unknown>, required: readonly string[]) => ({
     type: "object",
-    properties: { ...REF_ADDRESS, outline, ...properties, call: CALL_PROPERTY },
+    properties: { ...REF_ADDRESS, outline, ...properties, call: CALL_PROPERTY, persona: PERSONA_PROPERTY },
     required,
     additionalProperties: false,
     oneOf: [{ required: ["ref"] }, { required: ["uri"] }],
   });
-  const answer = "The answer says applied, proposed (with why and the proposal's URI) or queued (an outline whose home is another machine: it lands when that machine pulls it), with the block's URI. " +
+  const answer = "Pass optional persona when an agent other than the connector's owner writes through it (for example, loki); omission keeps today's mapping. The answer says applied, proposed (with why and the proposal's URI) or queued (an outline whose home is another machine: it lands when that machine pulls it), with the block's URI and `by` saying who it was recorded as. " +
     "An outline at `propose` access takes proposals only; `full` applies; `read` takes no writes (list_outlines shows each one's access).";
   const shared = SHARED_WRITE_TOOLS.map(definition => {
     // The block it acts on is the gateway's address (uri, or ref in outline); a thread tool's address is the note it is on.

@@ -220,6 +220,19 @@ serve --http` (the remote gateway, for claude.ai, behind Clerk OAuth) answer `ou
 `mcp:<client>`); the gateway writes to another machine's outline straight to that machine's own host when it answers over the shared ssh forward (`source: "live"` with the `machine`; `list_outlines` gives each such outline's `route` and when it was last checked), else queues them until that machine pulls them (PIE-615, PIE-661); `outline_write_status` follows a queued write, `outline_read` shows the caller's own queued edits as `pending`, and `outline_query` runs the views' grammar or a saved view (PIE-648). The door
 README's "Remote MCP gateway" has the setup.
 
+Every note write tool takes optional `persona` on both transports. Use it when an agent other than the
+connector's owner writes through it: `outline_comment({ ref: "PIE-123", outline: "garden", whole: true,
+body: "Checked the seed trays.", persona: "loki" })`. The shared `PERSONA_PATTERN` is
+`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`; a bad persona is refused with the pattern and an example.
+A gateway write records `mcp:loki/claude.ai`, shown as `loki (claude.ai)`; stdio keeps its own
+`<client>@<machine>` principal. The receipt's `by` names who it was recorded as, including queued writes
+and Resource comments. Omission keeps the existing connection, session or `EP0CH_MCP_PERSONAS` mapping.
+The optional label never changes the principal, outline access, or the named path's cap: a call through
+`/gpty/mcp` stays capped by gpty's entries even with `persona: "loki"`. Pass the same persona to
+`outline_write_status` when following that queued write. This option belongs to the shared note write
+tools, not scripts, artifacts, sharing or outline administration.
+
+
 ## The shell: screens and lists
 
 On every screen, before the screen's own actions: `screen.open name=<menu key, label or title>`,
