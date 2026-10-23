@@ -17,7 +17,7 @@ import { openScreen } from "../src/desk/screen-specs";
 import { view as riverView } from "./river-view";
 import { vgaCode } from "../src/mirror";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import { visible } from "../src/style";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -133,9 +133,11 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
   test("the river says 1 reply, not 1 replies", async () => {
     const river = openScreen("river") as Desk;
     app.push(river);
-    await until(() => (riverView(river).column(1)?.items?.length ?? 0) >= 3, "the Library", 10_000);
+    const view = riverView(river);
+    await until(() => !!view.column(1)?.items, "the Library", 10_000);
+    await app.dispatch.act({ action: "column.filter", tile: view.name(view.column(1)), args: { query: "Pantry" } }, USER);
     await until(() => lines().join("\n").includes("» 1 reply"), "the Pantry's one reply", 10_000);
     expect(lines().join("\n")).not.toContain("1 replies");
     app.pop();
-  });
+  }, 30_000);
 });

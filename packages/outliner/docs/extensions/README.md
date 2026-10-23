@@ -18,6 +18,11 @@ extensions. Files load only from `<outline folder>/.ep0ch/scripts/` (`.js` or `.
 first line is `// ep0ch-script`. The filename supplies the name. Files without that header, and files in the
 old `scripts/` folder, remain inactive; `ep0ch ext ls` explains why. Discovery never executes the file.
 
+An extension may ship opted-in `.js` or `.ts` scripts in its `scripts/` folder. Installed
+copies precede the bundled source, and outline script notes and outline files precede both.
+The bundled folders supply their scripts to every outline. See [neat](../../extensions/neat/README.md)
+for a complete layout script using the existing actions and drawer links.
+
 Scripts default to read-only. A file declares writes with `// ep0ch-script effects=write`; a block uses
 `[effects::write]`. Read scripts can query and read, but cannot call write tools or dispatch door actions.
 The runtime still records their progress in a run note. Recorded action scripts declare write effects.

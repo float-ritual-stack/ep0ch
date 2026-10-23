@@ -311,7 +311,10 @@ export class ScriptRuns {
         return captured(() => this.client.request(input));
       },
     };
-    let site = this.bind(source, { blockId: request.blockId, line: request.line, trigger: !!request.trigger, props: Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, [String(v)]])) });
+    const buttonProps = buttonBlock && request.button?.line !== undefined
+      ? buttonCallAt(buttonBlock.text.split("\n"), request.button.line)?.props : undefined;
+    let site = this.bind(source, { blockId: request.blockId, line: request.line, trigger: !!request.trigger,
+      props: { ...Object.fromEntries(Object.entries(request.args ?? {}).map(([k, v]) => [k, [String(v)]])), ...buttonProps } });
     let caller: { text: string; span: DraftPatchSpan } | undefined;
     // place(): the plan is made on the note as its draft has it now, sent as this script, applied or one proposal at the caller.
     const place = async (content: string, opts: { at?: string; mode?: string; label?: string; interpolate?: boolean }) => {
@@ -386,7 +389,7 @@ export class ScriptRuns {
                 if (entry.state === "failed") throw new Error(entry.error);
                 source = this.registry.extension(entry.id)!.script!;
               } else source = { ...extension.script!, code: item.source, format: "actions" };
-              const props = Object.fromEntries(Object.entries(args).map(([k, v]) => [k, [v]]));
+              const props = { ...Object.fromEntries(Object.entries(args).map(([k, v]) => [k, [v]])), ...(item.kind === "script" ? sequence.props : {}) };
               site = this.bind(source, { blockId: request.blockId, line: request.line, props });
               site.globals.input = value;
               const answer = await execute(args);

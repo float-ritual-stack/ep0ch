@@ -516,14 +516,15 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     const other = new Scratch();
     const b = new SocketBoard(await other.start());
     await b.info();
-    const before = (await b.roots()).length;
+    await b.listExtensions(true);
+    const before = await b.roots();
     const t = { info: { cols: 120, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     const a = new App(t as any, b, Date.now(), () => {});
     const s = new Showcase();
     a.push(s);
     await until(() => (s as any).problem !== "", "the answer", 5000);
     expect(s.render(a).lines.map(plain).join("\n")).toContain("This outline has no showcase");
-    expect((await b.roots()).length).toBe(before);
+    expect(await b.roots()).toEqual(before);
     a.quit(); b.close(); await other.dispose();
   }, 20_000);
 });

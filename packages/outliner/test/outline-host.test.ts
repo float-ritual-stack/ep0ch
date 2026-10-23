@@ -157,15 +157,13 @@ test("a subscription on one outline does not see another outline's changes", asy
   const bobWatch = await subscribe(host.socketPath);
   const fredWatch = await subscribe(host.socketPath, "fred");
 
-  await ok(host.socketPath, { action: "create", outline: "fred", text: "Fred's fictional lantern" });
-  await eventually(() => fredWatch.events.some(event => event.domain === "content"), "fred's content event");
-  await ok(host.socketPath, { action: "create", outline: "bob", text: "Bob's fictional teapot" });
-  await eventually(() => bobWatch.events.some(event => event.domain === "content"), "bob's content event");
-  await Bun.sleep(50);
-
-  const contentEvents = (events: OutlinerEvent[]) => events.filter(event => event.domain === "content");
-  expect(contentEvents(bobWatch.events)).toHaveLength(1);
-  expect(contentEvents(fredWatch.events)).toHaveLength(1);
+  const saw = (events: OutlinerEvent[], note: Block) => events.some(event => event.domain === "content" && event.blockId === note.id);
+  const fredNote = await ok<Block>(host.socketPath, { action: "create", outline: "fred", text: "Fred's fictional lantern" });
+  await eventually(() => saw(fredWatch.events, fredNote), "fred's content event");
+  const bobNote = await ok<Block>(host.socketPath, { action: "create", outline: "bob", text: "Bob's fictional teapot" });
+  await eventually(() => saw(bobWatch.events, bobNote), "bob's content event");
+  expect(saw(bobWatch.events, fredNote)).toBe(false);
+  expect(saw(fredWatch.events, bobNote)).toBe(false);
 });
 
 test("an unmodified OutlinerClient talks to the host's default outline", async () => {

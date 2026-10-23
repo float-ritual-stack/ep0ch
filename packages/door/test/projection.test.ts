@@ -374,6 +374,7 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
     const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
+    await app.loadExtensions(true);
     app.push(new MainMenu());
     b = boardScreen(hub.id);
     app.push(b);

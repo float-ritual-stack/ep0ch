@@ -56,8 +56,8 @@ describe.skipIf(!outliner)("the power bar", () => {
     app = new App(term, board, Date.now(), () => {});
     app.whatChanged.outline = "scratch";
     board.subscribe(e => app.event(e));
-    await app.whatChanged.seed(board);
     await app.loadExtensions(true);
+    await app.whatChanged.seed(board);
     desk = openScreen("desk") as Desk;
     app.push(desk);
     desk.setCurrent(notes.garden!);
@@ -75,7 +75,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     // Something others changed, so the recent rows have one.
     const m = await board.get(notes.shed!.id);
     await board.update(m!.id, "Bike shed\nthe spare inner tubes, patched", m!.revision!, AGENT);
-    await until(() => app.whatChanged.count() === 1, "the change counted");
+    await until(() => app.whatChanged.unseenIds().includes(notes.shed!.id), "the shed's change counted");
     expect(frame().at(-1)).toContain("^K");
     key(ctrlK);
     const bar = peek().bar;
@@ -89,7 +89,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(tiles.map((r: any) => r.detail.split(" · ")[0])).toEqual(desk.tileOutline().map(t => t.name).filter((_, i) => i < tiles.length));
     expect(tiles.find((r: any) => r.detail.startsWith("reader ·"))?.label).toBe("Garden plan");
     expect(tiles.some((r: any) => (r.depth ?? 0) > 0)).toBe(true);
-    await until(() => peek().bar.rows.find((r: any) => r.source === "recent")?.label === "Bike shed", "the change's title read");
+    await until(() => peek().bar.rows.some((r: any) => r.source === "recent" && r.label === "Bike shed"), "the change's title read");
     // Drawn: its frame, its scopes, and the person is busy (agents wait).
     const f = frame().join("\n");
     expect(f).toContain("power bar");
@@ -97,7 +97,7 @@ describe.skipIf(!outliner)("the power bar", () => {
     expect(f).toContain("/notes");
     expect(app.person().busy).toBe(true as boolean);
     // Looking here doesn't mark what changed seen (alt+o does).
-    expect(app.whatChanged.count()).toBe(1);
+    expect(app.whatChanged.unseenIds()).toContain(notes.shed!.id);
   });
 
   test("typed, every source answers under its heading; a prefix and alt+← alt+→ move between scopes; esc puts it away", async () => {

@@ -712,7 +712,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       if (fence.fence.info) {
         const { language, attrs } = codeFenceInfo(fence.fence.info);
         const name = SCRIPT_FENCE.languages.includes(language) && fence.closed ? attrs.script : undefined;
-        const run = name ? env.button?.({ line: fence.start, endLine: fence.start, steps: [{ kind: "script", source: name }], sequence: false, label: `Run ${name}`, act: name }, fence.start, W)?.join(" ") : undefined;
+        const run = name ? env.button?.({ line: fence.start, endLine: fence.start, steps: [{ kind: "script", source: name }], sequence: false, props: {}, label: `Run ${name}`, act: name }, fence.start, W)?.join(" ") : undefined;
         out.push(fg(C.dark) + `╭ ${fence.fence.info}` + RESET + (run ? ` ${run}` : ""));
         edge(first);
         if (name) for (const button of buttonCallsOf(src.join("\n")).filter(b => b.act?.split(/\s/)[0] === name)) {

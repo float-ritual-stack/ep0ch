@@ -13,6 +13,8 @@ export interface ButtonCall {
   endLine: number;
   steps: ButtonStep[];
   sequence: boolean;
+  /** Repeated slots of an of= script, in authored order. */
+  props: Record<string, string[]>;
   /** What the button says: `label=`, else the script's or action's name. */
   label: string;
   /** The action line a press runs; null when the line names none. */
@@ -46,6 +48,8 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
   const get = (key: string) => pairs.find(p => p.key.toLowerCase() === key)?.value;
   const act = get("act")?.trim(), of = get("of")?.trim(), label = get("label")?.trim();
   const slots = pairs.filter(p => !OWN.has(p.key.toLowerCase()));
+  const props: Record<string, string[]> = {};
+  if (of) for (const { key, value } of slots) (props[key] ??= []).push(value);
   const endLine = buttonBodyEnd(lines, i);
   let steps: ButtonStep[] = [], problem: string | undefined;
   try {
@@ -62,7 +66,7 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
   } catch (error) { problem = (error as Error).message; }
   if (!steps.length) problem ??= '::button needs what it runs: write one action or ((script)) per line, then ::, or use act= / of=';
   const line = steps.map(s => s.source).join("\n") || null;
-  return { line: i, endLine, steps, sequence: endLine > i || !!(act || of)?.startsWith("["), label: label || steps[0]?.source.split(/\s+/)[0] || "button", act: line,
+  return { line: i, endLine, steps, props, sequence: endLine > i || !!(act || of)?.startsWith("["), label: label || steps[0]?.source.split(/\s+/)[0] || "button", act: line,
     ...(get("alt") ? { alt: get("alt") } : {}), ...(problem ? { problem } : {}) };
 }
 
