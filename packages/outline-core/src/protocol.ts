@@ -6,7 +6,10 @@
 // link-syntax.ts anchors, code-fence.ts/code-ranges.ts literal ranges, property-parse.ts/property-grammar.ts
 // token spans, and header-line.ts boundaries when a patch names those anchors or ranges. Bump PROTOCOL
 // when those write-location computations change; parsing only for display bumps GRAMMAR instead.
-// GRAMMAR tracks parse/draw rules: components, figures, property display, headings, styles, search and dates.
+// Section edits send heading/body to the host, which alone computes the section boundary. Component scanning
+// that changes literal/property/anchor spans is still PROTOCOL-owned through code-ranges.ts; rich editing also
+// uses component source bounds. Component presentation, figures, property display, heading display, styles,
+// search and dates are GRAMMAR-owned. Never use a GRAMMAR-only parse to choose a write range.
 // A newer host's grammar warns once and never refuses capture; the host's parsing owns saved content.
 /** The wire protocol both sides of this checkout speak. */
 export const PROTOCOL = 262;

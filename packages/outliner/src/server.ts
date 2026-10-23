@@ -1,3 +1,4 @@
+import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
 import { deployArtifact, artifactDns, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
 import { ArtifactStore } from "./artifact-store";
@@ -1961,6 +1962,23 @@ export class OutlinerServer {
         return { id: request.id, ok: false, error: (error as Error).message, sequence: this.store.sequence };
       }
     }
+    if (request.action === "update" && request.replaceSection !== undefined) {
+      const block = this.store.require(request.blockId);
+      const section = replaceSectionText(block.text, request.replaceSection.heading, request.replaceSection.body, block.id);
+      if (request.mutation.author === "agent" && request.allowStructural !== true) {
+        await refuseDroppedStructure({ request: async <T>(input: RequestInput): Promise<T> => {
+          const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
+          if (!response.ok) throw new Error(response.error);
+          return response.result as T;
+        } }, block, section.text);
+      }
+      const { replaceSection, allowStructural, ...update } = request;
+      const response: OutlinerResponse = section.text === block.text && block.revision === request.expectedRevision
+        ? { id: request.id, ok: true, result: block, sequence: this.store.sequence }
+        : this.handle({ ...update, text: section.text }, subscribedClient);
+      if (response.ok) response.result = { ...(response.result as Block), section: { heading: section.heading, previous: section.previous } };
+      return response;
+    }
     if (request.action === "site.answer" && request.sources) {
       try {
         const budget = siteBudget();
@@ -3356,7 +3374,7 @@ export class OutlinerServer {
         case "update":
           result = this.store.update(
             request.blockId,
-            titled(request.text),
+            titled(request.text!),
             request.expectedRevision,
             request.mutation,
             "text",

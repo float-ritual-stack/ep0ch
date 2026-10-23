@@ -930,3 +930,17 @@ for (const destination of ["missing Inbox", "trashed parent", "trashed before", 
     expect(JSON.parse(r.stdout).text).toBe("Flag order");
   }
  });
+
+test("the host replaces a section from its own component boundaries", async () => {
+  const { store, socket } = await setup();
+  const note = store.create("Plan\n\n## First\n\n::graph-stat\nunfinished\n\n## Keep\n\nKeep this section.\n::");
+  const client = new OutlinerClient(socket);
+  const updated = await client.request<{ text: string; section: { previous: string; heading: string } }>({
+    action: "update", blockId: note.id, expectedRevision: note.revision,
+    replaceSection: { heading: "## First", body: "Replacement." },
+    mutation: { author: "agent", actorId: "garden-agent" },
+  });
+  expect(updated.text).toBe("Plan\n\n## First\n\nReplacement.\n\n## Keep\n\nKeep this section.\n::");
+  expect(updated.section).toEqual({ heading: "## First", previous: "::graph-stat\nunfinished" });
+  expect(store.get(note.id)!.text).toBe(updated.text);
+});

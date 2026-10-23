@@ -852,16 +852,14 @@ export async function replaceNoteSection(
 ): Promise<TextReplaceResult & { heading: string }> {
   const block = await resolveBlock(client, address);
   const revision = requireRevision(block, options.expectedRevision);
-  const section = replaceSectionText(block.text, heading, body, block.id);
-  if (actor.author === "agent") await refuseDroppedStructure(client, block, section.text);
-  const updated = await client.request<Block>({
+  const updated = await client.request<Block & { section: { previous: string; heading: string } }>({
     action: "update",
     blockId: block.id,
-    text: section.text,
+    replaceSection: { heading, body },
     expectedRevision: revision,
     mutation: mutationOf(actor),
   });
-  return { ...textResult(updated, section.previous), heading: section.heading };
+  return { ...textResult(updated, updated.section.previous), heading: updated.section.heading };
 }
 
 /**

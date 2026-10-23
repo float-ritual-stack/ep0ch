@@ -2449,11 +2449,14 @@ export type OutlinerRequestAction =
       id: string;
       action: "update";
       blockId: string;
-      text: string;
       expectedRevision: number;
       mutation: MutationProvenance;
       identityChanges?: ChecklistIdentityChange[];
-    }
+    } & (
+      | { text: string; replaceSection?: never }
+      // The host finds the section; a client's renderer may use older component rules.
+      | { text?: never; replaceSection: { heading: string; body: string }; allowStructural?: boolean }
+    )
   | { id: string; action: "checklist.query"; blockId: string; query: ChecklistQuery }
   | { id: string; action: "checklist.search"; query: ChecklistSearchQuery }
   | { id: string; action: "checklist.update"; blockId: string; input: ChecklistUpdateInput; mutation: MutationProvenance }

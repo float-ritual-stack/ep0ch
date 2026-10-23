@@ -374,6 +374,7 @@ export function startGateway(opts: {
     return { release() { if (released) return; released = true; const next = waiting.shift(); if (next) next(); else inflight--; } };
   };
 
+  let draining = false;
   const streams = new Set<{ sub: string; clientId?: string; close(): void }>();
   const closeDisallowedStreams = () => {
     for (const stream of streams) {
@@ -419,6 +420,7 @@ export function startGateway(opts: {
       if (req.method === "GET") {
         // Setup shares POST's admission queue; idle streams have their own budget so tools can still run.
         try {
+          if (draining) return json(503, { error: "draining", error_description: "the gateway is restarting; reconnect" });
           const owned = [...streams].filter(s => s.sub === verdict.sub && s.clientId === verdict.clientId);
           if (owned.length >= MAX_STREAMS_PER_CLIENT) owned[0]!.close();
           if (streams.size >= MAX_STREAMS) return busy();
@@ -484,10 +486,12 @@ export function startGateway(opts: {
     },
   });
   return { url: `http://${opts.bind}:${server.port}${mcpPath}`, port: server.port!, drain: async () => {
+    draining = true;
     for (const stream of streams) stream.close();
     streams.clear();
     await server.stop(false);
   }, stop: () => {
+    draining = true;
     for (const stream of streams) stream.close();
     streams.clear();
     server.stop(true);

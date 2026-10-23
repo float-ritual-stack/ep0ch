@@ -76,7 +76,7 @@ export interface ExtensionCallReference {
    * as a `draft.patch` under the `edit` policy: a door's live draft gets it, and while the person types in that passage
    * it becomes a proposal (`outcome: "proposed"`). Text that didn't change answers the block as it is.
    */
-  update: Call<Pick<Ask<"update">, "blockId" | "text" | "expectedRevision">, DraftPatchResult | Block>;
+  update: Call<Pick<Extract<OutlinerRequestAction, { action: "update"; text: string }>, "blockId" | "text" | "expectedRevision">, DraftPatchResult | Block>;
   /**
    * A block moved under `parentId` (`null`: the top level), at `position` among its children (default last), with the
    * blocks under it. Checked against the revision you read; refused on a block a person has a draft open in (or one
