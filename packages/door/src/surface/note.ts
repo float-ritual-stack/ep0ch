@@ -4457,7 +4457,7 @@ export class NoteSurface {
         const scripts = listed.extensions.filter(e => e.script && e.name === action && (e.state === "active" || e.state === "failed"));
         if (!scripts.length) {
           const provider = listed.available?.find(e => e.scripts?.some(s => s.name === action));
-          throw new ActionRefused(provider ? `Script ${action} is not installed; reinstall with ep0ch act extensions.install id=${provider.id}` : d.unknownAction(action));
+          throw new ActionRefused(provider ? `Script ${action} is not installed; install with ep0ch act extensions.install id=${provider.id}` : d.unknownAction(action));
         }
         if (scripts[0]!.state === "failed") throw new ActionRefused(scripts[0]!.error!);
         if (scripts.length > 1) host.ctx.flash(scripts[0]!.description ?? "");

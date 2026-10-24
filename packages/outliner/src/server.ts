@@ -499,7 +499,7 @@ export class OutlinerServer {
     const roots = extensionRoots(store.workspaceRoot);
     this.extensionRegistry = new ExtensionRegistry({
       roots,
-      sources: () => scriptSources(store),
+      sources: (extensions) => scriptSources(store, undefined, extensions),
       watchPaths: store.workspaceRoot ? [join(store.workspaceRoot, ".ep0ch", "scripts"), join(store.workspaceRoot, "scripts")] : [],
       outlineName: () => this.outline?.name,
       socketPath: () => this.socketPath,

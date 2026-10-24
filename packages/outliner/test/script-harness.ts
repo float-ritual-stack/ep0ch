@@ -64,6 +64,6 @@ export async function setup() {
     await client.request({ action: "extensions.list", reload: true });
     await client.request({ action: "resources.projection.read", blockId, materialize: true });
   };
-  return { store, server, client, create, extensionOf, run, output, draw };
+  return { root, store, server, client, create, extensionOf, run, output, draw };
 }
 

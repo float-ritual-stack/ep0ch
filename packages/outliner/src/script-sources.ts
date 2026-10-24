@@ -3,9 +3,9 @@ import { codeBlocks, codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/cod
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { SCRIPT_HEADER, readExtensionFolder, durationMs, MAX_DEADLINE_MS, type ManifestSource, type ScriptSource, type ExtensionOrigin } from "./extension-manifest";
+import { SCRIPT_HEADER, durationMs, MAX_DEADLINE_MS, type LoadedExtension, type ManifestSource, type ScriptSource, type ExtensionOrigin } from "./extension-manifest";
 import type { OutlinerStore } from "./store";
-import { extensionRoots, type ExtensionEntry } from "./extension-registry";
+import type { ExtensionEntry } from "./extension-registry";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { bind } from "./site-answer";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
@@ -56,8 +56,12 @@ export function propsUsed(code: string): string[] {
 /** `reads` is the version of what a render records of the notes it read: a change draws every render script again. */
 const scriptStamp = (script: ScriptSource) => hash(JSON.stringify({ ...script, revision: undefined, author: undefined, reads: 2 }));
 
-/** Sources stay authored text; a malformed fence is reported by the loader, never by saving the block. */
-export async function scriptSources(store: OutlinerStore, draft?: { blockId: string; text: string }): Promise<ManifestSource[]> {
+/**
+ * Sources stay authored text; a malformed fence is reported by the loader, never by saving the block.
+ * `extensions` are the ones the registry serves as active: an extension's manifest-declared scripts come from them,
+ * never from a walk of the extension folders (a disabled or shadowed copy supplies none).
+ */
+export async function scriptSources(store: OutlinerStore, draft?: { blockId: string; text: string }, extensions: readonly LoadedExtension[] = []): Promise<ManifestSource[]> {
   const sources: ManifestSource[] = [];
   const add = (identity: string, name: string, script: ScriptSource, error?: string, location?: { origin: ExtensionOrigin; directory: string }) => {
     const id = scriptSourceId(identity);
@@ -105,44 +109,38 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
     }
   }
   if (!draft) {
-    const folders: { folder: string; opted: boolean; origin: ExtensionOrigin; directory: string; scripts?: { name: string; file: string }[] }[] = [];
+    const folders: { folder: string; opted: boolean; origin: ExtensionOrigin; directory: string; scripts?: readonly { name: string; file: string }[] }[] = [];
     if (store.workspaceRoot) {
       folders.push({ folder: join(store.workspaceRoot, "scripts"), opted: false, origin: "outline", directory: store.workspaceRoot },
         { folder: join(store.workspaceRoot, ".ep0ch", "scripts"), opted: true, origin: "outline", directory: store.workspaceRoot });
     }
-    // Only installed extensions supply scripts; removing their folder removes their scripts too.
-    for (const root of extensionRoots(store.workspaceRoot)) {
-      for (const name of await readdir(root.path).catch(() => [])) {
-        const directory = join(root.path, name);
-        try {
-          const { manifest } = await readExtensionFolder(directory, root.origin);
-          if (manifest.scripts?.length) folders.push({ folder: directory, opted: true, origin: root.origin, directory, scripts: manifest.scripts });
-        } catch {
-          // The extension registry reports invalid folders; they supply no scripts.
-        }
-      }
+    for (const extension of extensions) {
+      if (extension.manifest.scripts?.length) folders.push({ folder: extension.directory, opted: true, origin: extension.origin, directory: extension.directory, scripts: extension.manifest.scripts });
     }
     for (const { folder, opted, origin, directory, scripts } of folders) {
-      let names: string[];
-      try { names = scripts ? scripts.map(s => s.file) : await readdir(folder); } catch (error) {
+      let found: { name: string; file: string }[];
+      try {
+        found = (scripts ? [...scripts] : (await readdir(folder)).map(file => ({ file, name: file.replace(/\.(ts|js)$/, "") }))).sort((a, b) => a.file.localeCompare(b.file) || a.name.localeCompare(b.name));
+      } catch (error) {
         if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
-        names = [];
+        found = [];
       }
-      for (const name of names.sort()) {
-        if (!/\.(ts|js)$/.test(name)) continue;
-        const file = join(folder, name);
-        const scriptName = scripts?.find(s => s.file === name)!.name ?? name.replace(/\.(ts|js)$/, "");
+      for (const { name: scriptName, file: relative } of found) {
+        if (!/\.(ts|js)$/.test(relative)) continue;
+        const file = join(folder, relative);
+        // A declaration is a name and a file: each name its own source, even if a manifest ever lets two share one file.
+        const identity = scripts ? `${file}:${scriptName}` : file;
         let code = "";
         if (opted) {
           try { code = await Bun.file(file).text(); } catch (error) {
-            add(file, scriptName, { code, file, revision: hash(code), effects: "read", author: { author: "user" } }, `${file}: cannot read script: ${error instanceof Error ? error.message : String(error)}`, { origin, directory });
+            add(identity, scriptName, { code, file, revision: hash(code), effects: "read", author: { author: "user" } }, `${file}: cannot read script: ${error instanceof Error ? error.message : String(error)}`, { origin, directory });
             continue;
           }
         }
         const header = SCRIPT_HEADER.exec(code.split(/\r?\n/)[0] ?? "");
         const error = !opted ? `${file}: ignored; scripts load only from .ep0ch/scripts/. Move it there only if you intend to run it, and opt in with // ep0ch-script.`
           : !header ? `${file}: ignored; opt in with a first line of // ep0ch-script (or // ep0ch-script effects=write).` : undefined;
-        add(file, scriptName, { code, file, revision: hash(code), effects: header?.[1] === "write" ? "write" : "read", author: { author: "user" } }, error, { origin, directory });
+        add(identity, scriptName, { code, file, revision: hash(code), effects: header?.[1] === "write" ? "write" : "read", author: { author: "user" } }, error, { origin, directory });
       }
     }
   }
