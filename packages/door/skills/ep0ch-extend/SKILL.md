@@ -35,7 +35,7 @@ sleep, a guess at a tile name): a probe bent to pass hides what it found.
 
 | Tier | When | Lives in |
 |---|---|---|
-| **Rule note** (no code) | "when a note matches X, draw/file/stamp Y": a look, a route, a property | a note in the outline (`[type::rule]`, `[type::route]`): extensions, *Rule notes: the no-code tier*, *Routing* |
+| **Rule note** (no code) | "when a note matches X, draw/file/stamp Y": a look, a route, a property | a note in the outline (`[rule-name::name]`, `[type::route]`): extensions, *Rule notes: the no-code tier*, *Routing* |
 | **Script note** | a small thing for one note or one outline: a button, a computed line, a stamp, a layout | a ```` ```js script=name ```` fence or a `[script::name]` note: scripts, *A script in one minute* |
 | **Extension folder** | disk, network, a secret, another language, a schedule, a component, a tile, a palette source, an agent | `<outline root>/extensions/<id>/` (that outline) or the user folder (every outline): extensions, *Where extensions live*, *The folder* |
 | **Built-in / kit** | proven in daily use, wanted in every outline | ep0ch's own `packages/outliner/extensions/<id>/`, installed from the power bar; a change to ep0ch itself, so `ep0ch-core` applies |
@@ -63,9 +63,10 @@ Not in the table: read the extensions reference's *Not yet* section. If it's lis
 
 ## Writing it
 
-- **Use the real surface, never a guessed one.** The connected door lists its current screen's actions with `ep0ch actions`; `ep0ch actions --doc <name>` reads a known action's page (built-ins also
-  work without a door). `act` refuses an unknown argument with the right call; every component's properties by `outline_components`. A name you made up
-  fails loudly, as it should.
+- **Use the real surface, never a guessed one.** The connected door lists its current screen's
+  actions with `ep0ch actions`; `ep0ch actions --doc <name>` reads a known action's page (built-ins also work
+  without a door). `act` refuses an unknown argument with the right call; every component's properties are listed
+  by `outline_components`. A name you made up fails loudly, as it should.
 - **Tiles by id, notes by id or `read(ref)`.** `read()` resolves an id, `((id))`, `[[page]]` or a Work ID.
 - **Attributed and undoable.** Whatever a script or extension writes is recorded as it; a press is one undo group.
   Don't work around that.
