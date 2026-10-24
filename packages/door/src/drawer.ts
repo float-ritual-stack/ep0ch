@@ -875,7 +875,7 @@ export class AgentDrawer {
   /** The chip in two parts: what it's doing, and what it knows (drawn in yellow when it offers ⟳). */
   private chipParts(now: number): { head: string; knows: string } {
     // A drag that ended by a key (esc, f, p, a) leaves no mouse event here: the light goes out with it.
-    if (this.dropHover && !tilesOf(this.host.screen?.())?.draggedTile()) this.dropHover = null;
+    if (this.dropHover && !tilesOf(this.host.screen?.())?.draggedTile()) { this.dropHover = null; this.dropSays = DRAWER_DROP; this.d?.cancelDrag(); }
     const shown = this.d ? this.shownTab() : null, pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
     const s = this.state(now);
     if (p && s !== "off" && s !== "exited" && s !== "empty") this.pollKnows(now, p);
@@ -889,7 +889,7 @@ export class AgentDrawer {
     const out = { head: `${this.open ? "▼" : "▲"} ${own ? this.name : shown}${own && this.prog.from === "env" ? " (from EP0CH_DAILY_AGENT)" : ""}${more > 0 ? ` +${more}` : ""}${what ? ` · ${what}` : ""}`, knows: knows ? ` · ${knows}` : "" };
     // A drag over it says it goes in there, in the chip's own width: the chip doesn't move under the pointer.
     // (The status bar's right part is right-aligned: a longer chip grows leftwards, a shorter one is padded.)
-    if (this.dropHover) { const say = `⤓ ${this.dropHover} ${DRAWER_DROP}`, w = width(out.head + out.knows); return { head: width(say) >= w ? say : pad(say, w), knows: "" }; }
+    if (this.dropHover) { const say = `⤓ ${this.dropHover} ${this.dropSays}`, w = width(out.head + out.knows); return { head: width(say) >= w ? say : pad(say, w), knows: "" }; }
     return out;
   }
 
@@ -992,6 +992,8 @@ export class AgentDrawer {
   }
   /** A tile dragged over the drawer (its chip, its drawer): what a release there does (the chip and the drawer light up). */
   private dropHover: string | null = null;
+  /** What a release over the drawer would do, in words (the chip's and the drag's): a tab, or a drop zone's landing. */
+  private dropSays = DRAWER_DROP;
 
   // ── actions ──
 
@@ -1055,21 +1057,25 @@ export class AgentDrawer {
    * person's drawer pulls the drawer up on it (their keys with it when they had them); an agent's adds the tab behind
    * the one shown and leaves the drawer and the keys as they are.
    */
-  put(from: Desk, name: string, actor: Actor, keys = false): TileDone {
+  put(from: Desk, name: string, actor: Actor, keys = false, to?: string, where?: Where): TileDone {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready (no screen is shown yet)");
     if (from === d) throw new ActionRefused(`${name} is in the drawer already`);
     this.dropHover = null;
     // The drawer's own program coming back (PIE-892): into its own tab again, in place of the one holding it.
-    if (this.isOwnOut(from.pane(name))) return this.reclaim(from, name, actor, keys);
+    if (this.isOwnOut(from.pane(name))) {
+      if (to !== undefined || where !== undefined) throw new ActionRefused(`${name} is the drawer's own program: it goes back into its own tab, in place (tile.drawer without to= and where=)`);
+      return this.reclaim(from, name, actor, keys);
+    }
     const kind = (from.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
     const out = from.takeRefusal(name, actor);
     if (out) throw new ActionRefused(out);
     const spec = { name, spec: { t: "leaf" as const, kind } };
-    const into = d.bringRefusal(spec, undefined, "tabs", actor);
+    // As a tab of the one shown, unless the drop says where in the drawer's layout (`to`, `where`: its drop zones').
+    const into = d.bringRefusal(spec, to, where ?? "tabs", actor);
     if (into) throw new ActionRefused(`the drawer doesn't take ${name}: ${into}`);
     const moved = from.takeOut(name, actor);
-    const done = this.bring(d, moved, undefined, "tabs", actor, a => from.bringIn(moved, undefined, undefined, a));
+    const done = this.bring(d, moved, to, where ?? "tabs", actor, a => from.bringIn(moved, undefined, undefined, a));
     if (this.ctx(actor).standing) {
       // Shown on its tab, the drawer up; the keys come along only when they were in it.
       d.focusTile(done.tile, actor);
@@ -1330,7 +1336,7 @@ export class AgentDrawer {
     const watching = this.state() === "watching";
     const where = watching ? ` · ${fg(C.lcyan)}another door has it${fg(C.yellow)}` : p?.herdr ? ` · in Herdr (${p.herdr.pane})` : "";
     const edge = this.dropHover ? C.yellow : this.entered ? C.yellow : C.brown;
-    const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: ${this.dropHover} ${DRAWER_DROP} ${bg(C.black)}` : `${fg(this.entered ? C.yellow : C.white)}${this.chipText()}${fg(C.yellow)}${where}${by} ${fg(C.dark)}· ↕ drag this edge · ⤓ drop a tile here`;
+    const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: ${this.dropHover} ${this.dropSays} ${bg(C.black)}` : `${fg(this.entered ? C.yellow : C.white)}${this.chipText()}${fg(C.yellow)}${where}${by} ${fg(C.dark)}· ↕ drag this edge · ⤓ drop a tile here`;
     canvas.text(0, 0, `${fg(edge)}${"═".repeat(2)} ${title} ${fg(edge)}${"═".repeat(Math.max(0, cols))}${RESET}`, cols);
     let placements: Placement[] = [];
     const d = this.desk;
@@ -1506,16 +1512,24 @@ export class AgentDrawer {
     // A screen's tile dragged by its title over the drawer (the chip, the drawer): it lights up; released, it goes in.
     const dragged = screen && screen !== this.d ? screen.draggedTile() : null;
     // No drag any more (let go elsewhere, esc, a key that acted on it): the chip and the drawer stop lighting up.
-    if (!dragged && this.dropHover) { this.dropHover = null; this.host.redraw(); }
+    if (!dragged && this.dropHover) { this.dropHover = null; this.dropSays = DRAWER_DROP; this.d?.cancelDrag(); this.host.redraw(); }
     if (dragged) {
       const over = onChip || inDrawer;
+      // Over the drawer's body it lands where the drawer desk's own drop zones say (an edge of a tile, its tab strip: the
+      // ghost it draws), as a tile dragged onto a group does; over the chip, or where no zone is, it goes in as a tab.
+      const kind = (screen!.pane(dragged) as { kind?: string } | undefined)?.kind ?? "tile";
+      const zone = inDrawer && !onChip && this.d && r!.rows >= 4 && !this.isOwnOut(screen!.pane(dragged)) ? this.d.foreignAt(k.x, k.y - this.deskRow(), { name: dragged, kind }) : null;
+      if (!zone) this.d?.cancelDrag();
+      const says = zone ? (zone.refused ? `✕ ${zone.refused}` : `into your drawer: ${zone.label}`) : DRAWER_DROP;
       const hover = over ? dragged : null;
-      if (hover !== this.dropHover) { this.dropHover = hover; screen!.drawerHover(hover ? `⤓ ${DRAWER_DROP}` : null); this.host.redraw(); }
+      if (hover !== this.dropHover || says !== this.dropSays) { this.dropHover = hover; this.dropSays = says; screen!.drawerHover(hover ? `⤓ ${says}` : null); this.host.redraw(); }
       if (!over) return false;
       if (k.action === "up") {
-        this.dropHover = null;
+        this.dropHover = null; this.dropSays = DRAWER_DROP;
+        this.d?.cancelDrag();
         screen!.cancelDrag();
-        void screen!.perform("tile.drawer", { on: true }, USER, dragged);
+        if (zone?.refused) this.host.flash(`not moved: ${zone.refused}`);
+        else void screen!.perform("tile.drawer", { on: true, ...(zone ? { ...(zone.to ? { to: zone.to } : {}), where: zone.where } : {}) }, USER, dragged);
       }
       return true;
     }
