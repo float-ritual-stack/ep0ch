@@ -683,7 +683,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!r.ok) throw new ActionRefused(r.refused);
     // An answer asked of an earlier state would undo what changed since: never taken (asks and commits are paired).
     if (r.base !== this.state) throw new Error("a layout answer was committed over a newer layout; ask again");
-    const was = this.layout.collapsed;
+    const was = this.layout.collapsed, previousFocus = this.focus;
     // The shape it leaves against the last settled one (kept after every commit and build, so an operation that has already
     // swapped a pane in can't leave us nothing to rebuild from): a change of shape is an entry, a focus move is none.
     const by = this.asked.get(r), prior = this.settled ?? this.snapshotShape();
@@ -698,6 +698,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const arrival = this.arrivals.get(r.focus);
     if (by?.actor.kind === "user" && (by.op === "focus" || by.op === "tab") && arrival) arrival.remaining = 0;
     for (const n of (r.answer.renamed as { from: string; to: string }[] | undefined) ?? []) this.ctx?.flash(`renamed ${n.from} to ${n.to}: tile names are shared with the drawer`);
+    if (by?.actor.kind === "user" && previousFocus !== r.focus) {
+      // Focus leaving a mount ends its lift in the same layout commit, before the next frame or input.
+      for (const [id, pane] of this.panes) if (id !== r.focus && pane instanceof ScreenTile && pane.inner) {
+        for (const desk of pane.inner.descend()) if (desk.lifted) desk.dropLift(by.actor);
+      }
+    }
     this.noteFocus();
     // A tile folded or opened is told (it keeps what it holds exactly).
     for (const id of new Set([...was.keys(), ...r.state.collapsed.keys()])) if (was.has(id) !== r.state.collapsed.has(id)) this.panes.get(id)?.folded?.(r.state.collapsed.has(id));
@@ -1574,7 +1580,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return id !== null && r ? { pane: this.panes.get(id)!, rect: r } : null;
   }
   rectOf(p: Pane): Rect | undefined { const id = this.idOf(p); return id === undefined ? undefined : this.hits.find(([t]) => t === id)?.[1]; }
-  folded(p: Pane): boolean { const id = this.idOf(p); return id !== undefined && this.collapsed.has(id); }
+  folded(p: Pane): boolean { const id = this.idOf(p); return id !== undefined && !!this.contentCover(id).fold; }
   isFloating(p: Pane): boolean { const id = this.idOf(p); return id !== undefined && this.isFloat(id); }
   sourceOf(container: string): string | undefined { return this.columnsIn().find(x => x.id === container)?.source; }
   followersOf(container: string): Pane[] {
@@ -2662,6 +2668,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const { from, to, verb } of this.layout.wires) if (verb === "select" && this.panes.get(to) instanceof ReaderPane) more.set(to, [...(more.get(to) ?? []), this.nameOf(from)]);
     return all.map((id, i) => {
       const p = this.panes.get(id)!, rd = p instanceof ReaderPane ? p : null, name = this.nameOf(id), aliases = more.get(id), mount = kindOf(p)?.dispatcher?.(p);
+      const { fold, cover } = this.contentCover(id);
       return {
         name, id: this.tileId(id), n: i + 1, kind: this.unregistered.get(id)?.kind ?? p.kind, shown: shown.has(id),
         ...(mount ? { mount } : {}),
@@ -2669,8 +2676,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         shows: this.showing(p)?.id ?? null, editing: !!rd?.editing,
         ...(rd ? { holds: (a: Actor) => rd.surface.heldBy(a) } : {}),
         // A note action doesn't change a note where the person can't see it: a spine, a reader in a shut dock.
-        ...(this.collapsed.has(id) ? { readOnly: `${name} is collapsed to a spine; tile.collapse on=false tile=${name} opens it first` }
-          : rd && !rd.editing && (this.coverNow(id) === "peek" || this.coverNow(id) === "spine") ? { readOnly: `${name} is a ${this.coverNow(id)} in its flow; a compressed column is a read-only view until it's full width · tile.widen tile=${name} or tile.hold tile=${name}; neither takes the person's keys` }
+        ...(fold ? { readOnly: `${name} is collapsed to a spine; tile.collapse on=false tile=${name} opens it first` }
+          : rd && !rd.editing && (cover === "peek" || cover === "spine") ? { readOnly: `${name} is a ${cover} in its flow; a compressed column is a read-only view until it's full width · tile.widen tile=${name} or tile.hold tile=${name}; neither takes the person's keys` }
           : rd && !shown.has(id) && dockOf(this.root, id) ? { readOnly: `${name} isn't on screen (its dock is shut); open it first (tile.slide open=true tile=${name})` } : {}),
         ...(aliases?.length ? { aliases } : {}),
         ...(this.agentOf(id).level !== "free" ? { agents: this.agentOf(id) } : {}),
@@ -2705,7 +2712,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The columns of the flow (or columns container) with key `key`, in order: each column's tiles (a stacked one has several). */
   columnsOf(key: string): Pane[][] { const n = node(this.root, key); return n && "kids" in n ? n.kids.map(k => leaves(k).map(id => this.panes.get(id)!)) : []; }
   /** How tile `p` shows in its flow now: full, peek or spine (undefined outside a flow, or off its strip). */
-  coverOf(p: Pane): "full" | "peek" | "spine" | undefined { const id = this.idOf(p); return id === undefined ? undefined : this.coverNow(id); }
+  coverOf(p: Pane): "full" | "peek" | "spine" | undefined { const id = this.idOf(p); return id === undefined ? undefined : this.contentCover(id).cover; }
+  /** The one answer for whether a tile's content is covered: a lift opens it without changing its home. */
+  private contentCover(id: number) {
+    return this.layout.lift?.tile === id
+      ? { fold: undefined, cover: undefined }
+      : { fold: this.collapsed.get(id), cover: this.coverNow(id) };
+  }
   /** How tile `id` shows in its flow in the layout as it is now (not as last painted: an action may have just pinned it). */
   private coverNow(id: number): "full" | "peek" | "spine" | undefined {
     if (this.coversAt?.state !== this.state || this.coversAt.area !== this.area) {
@@ -2746,7 +2759,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const name = viaId !== undefined ? this.nameOf(viaId) : f ? this.nameOf(this.focus) : null;
     const typing = !!f && (this.rawKeys() || !!this.personIn() || !!kindOf(f)?.takesKeys?.(f) || !!f.typing?.());
     const busy = this.holdsKeys();
-    const inner = f instanceof ScreenTile && !this.collapsed.has(this.focus) ? f.inner?.keys() : null;
+    const inner = f instanceof ScreenTile && !this.contentCover(this.focus).fold ? f.inner?.keys() : null;
     const address = inner?.address ?? (f ? this.tileId(this.focus) : null);
     const why = !busy ? undefined : this.rawKeys() ? `the person is typing in ${name}, a terminal tile on the ${this.title}`
       : `the person is typing on the ${this.title}: in an edit, a comment or the property panel (or a filter, a picker, a ^W command)`;
@@ -2813,7 +2826,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A hyper chord (PIE-699) is moving the keys: the edit, comment or panel the person is in is left as a click elsewhere leaves it (theirs stays open, PIE-812). False when it can't be left. */
   leaveTyping(): boolean { const w = this.personIn(); return w ? this.leaveSession(w) : true; }
   /** A reader whose step choice is open (PIE-472), wherever it is: it takes the keys (a click in a dock's preview opens one without focusing it). */
-  private choosingReader(): ReaderPane | undefined { return this.namedReaders().find(r => r.pane.surface.choosing && !this.collapsed.has(r.id))?.pane; }
+  private choosingReader(): ReaderPane | undefined { return this.namedReaders().find(r => r.pane.surface.choosing && !this.contentCover(r.id).fold)?.pane; }
 
   /** The person is in a terminal tile (its program running, or exited and waiting for ⏎ or ctrl+]): every key is the tile's, ctrl+c included. */
   rawKeys(): boolean { return !!this.ptyIn && this.panes.get(this.focus) === this.ptyIn; }
@@ -3485,8 +3498,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const focused = id === this.focus;
     // A flow's column squeezed to a spine, or a tile folded to one; a peek is drawn whole in its box, its right
     // side under its neighbour (drawn after it), like a dock (PIE-513).
-    const cover = this.layout.lift?.tile === id ? undefined : this.cover(id);
-    const fold = this.layout.lift?.tile === id ? undefined : this.collapsed.get(id);
+    const { cover, fold } = this.contentCover(id);
     if (fold?.dir === "h" ? r0.rows <= 1 : (fold || cover === "spine") && r0.cols <= SPINE) return this.drawSpineTile(canvas, id, r0, focused);
     const r = this.boxOf(id, r0);
     // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it (a dock's
@@ -3758,8 +3770,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * A tile folded to a spine: its title turned on its side (the tile's own `spine`, else its name), what it holds
    * marked above it. A click on it opens it (`expandSpine`).
    */
-  /** How tile `id` shows in its flow as last placed (full, peek, spine), if it's in one. */
-  private cover(id: number) { return this.placed.covers?.get(id) ?? this.slid.find(d => d.placed.covers?.has(id))?.placed.covers?.get(id); }
+  /** How tile `id` shows now, including its lift, if it is in a flow. */
+  private cover(id: number) { return this.contentCover(id).cover; }
 
   private drawSpineTile(canvas: Canvas, id: number, r: Rect, focused: boolean): Placement[] {
     const p = this.panes.get(id)!;
@@ -4011,7 +4023,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (typeof h === "string") return h;
     const f = this.panes.get(this.focus);
     if (!f) return h?.["*"] ?? null;
-    if (this.collapsed.has(this.focus)) {
+    if (this.contentCover(this.focus).fold) {
       const holds = f instanceof ReaderPane && f.holdsKeys ? ` · keeps ${sessionName(f)}` : "";
       return `|14 ${(f instanceof ReaderPane ? f.detailLabel() : null) ?? this.nameOf(this.focus)} · collapsed${holds}|08 · ${h?.spine ?? this.screenKeyHint()}`;
     }
@@ -4068,7 +4080,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
     // A refusal of the person's key on a tile folded to a spine (PIE-727): the spine has no edge to say it on, so the
     // screen's hint row under it says it, as the tile's frame would.
-    const spineNo = this.collapsed.has(this.focus) && this.keysHere() ? this.ctx?.refusal?.() ?? null : null;
+    const spineNo = !!this.contentCover(this.focus).fold && this.keysHere() ? this.ctx?.refusal?.() ?? null : null;
     if (spineNo) return line(refusalHint(spineNo));
     // A view's own mode (the board's composer, a card being dragged) says its keys first.
     const over = [...this.models.values()].map(m => m.hint?.() ?? null).find(h => h !== null) ?? null;
@@ -4083,7 +4095,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.linking) return line(fg(C.lmagenta) + "linking" + RESET);
     if (this.waitsOnExit()) return line(paint(`|12${this.exitedSay(this.nameOf(this.focus)).replace(" exited · ", " exited|08 · ")}`));
     if (this.rawKeys()) return line(paint(`|14in ${this.nameOf(this.focus)}|08 · every key goes to ${this.ptyIn!.title()} · |15${ESCAPE_CHORD}|08 back to the door (twice: send it)`));
-    if (!this.prefix && rd instanceof ReaderPane && rd.holdsKeys && !this.collapsed.has(this.focus)) {
+    if (!this.prefix && rd instanceof ReaderPane && rd.holdsKeys && !this.contentCover(this.focus).fold) {
       const where = `${this.readerLabel(this.focus)} · ${rd.surface.state()}`;
       // Attached surfaces say their bindings in the tile's hint row.
       if (rd.surface.sourcesMode || rd.surface.replyLinks || rd.surface.session?.mode === "compose" || rd.surface.draft?.preview) return line(paint(`|14 ${where}`));
@@ -4378,7 +4390,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           // it as any editor does (session.leave: saved, closed, or kept as unsent) and then does what it does.
           if (k.action !== "down" || this.topTileAt(k.x, k.y) === this.focus || !this.leaveSession(focused)) return;
         }
-      } else if (k.kind !== "mouse" && !this.prefix && !this.collapsed.has(this.focus)) {
+      } else if (k.kind !== "mouse" && !this.prefix && !this.contentCover(this.focus).fold) {
         // One they aren't in (and can see: a spine's is out of sight) (an agent's, or theirs after moving away): e or ⏎ enters it, j k PgDn scroll,
         // and the desk's keys keep working. None of its own keys get here.
         if (c === "e" || k.kind === "enter") { this.entered.enter(focused); ctx.flash(`in ${sessionName(focused)}`); return this.redraw(); }
@@ -4388,7 +4400,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (k.kind === "mouse") return this.mouse(k);
     if (this.prefix) return this.command(k);
     const mount = this.panes.get(this.focus);
-    if (mount instanceof ScreenTile && mount.inner && !this.collapsed.has(this.focus) &&
+    if (mount instanceof ScreenTile && mount.inner && !this.contentCover(this.focus).fold &&
       (k.kind === "alt" || k.kind === "char" && k.ctrl && k.ch === "w")) { mount.key(k); return; }
     if (k.kind === "char" && k.ctrl && k.ch === "w") { this.prefix = "wm"; return this.redraw(); }
     if (k.kind === "alt") {
@@ -4406,7 +4418,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     // A tile whose current element is a live figure's takes tab, shift+tab and ← → first: they switch its tabs.
     const claimer = this.panes.get(this.focus);
-    if (claimer?.claims?.(k) && !this.holdsKeys() && !this.collapsed.has(this.focus) && claimer.key(k, this)) return this.redraw();
+    if (claimer?.claims?.(k) && !this.holdsKeys() && !this.contentCover(this.focus).fold && claimer.key(k, this)) return this.redraw();
     if (k.kind === "tab" && claimer?.completing?.()) { claimer.key(k, this); return this.redraw(); }
     if (k.kind === "tab" || k.kind === "backtab") {
       const ids = this.zoom !== null ? [this.zoom] : this.tabStops();
@@ -4416,7 +4428,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pane = this.panes.get(this.focus);
     const c0 = ch(k);
     // A spine has the keys: ⏎ or space opens it; its own keys don't reach what it holds out of sight.
-    if (this.collapsed.has(this.focus)) {
+    if (this.contentCover(this.focus).fold) {
       // c too: it folded the tile (the board's c, ^W c), so it opens it again, as the spine's hint says.
       // - + = too (PIE-699): on a spine either one opens it.
       if (k.kind === "enter" || c0 === " " || c0 === "c" || FOLD_KEYS.has(c0)) return this.expandSpine(this.focus);
@@ -4456,7 +4468,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (FOLD_KEYS.has(c0) && !this.holdsKeys()) return this.run("tile.collapse", { on: c0 === "-" }, this.nameOf(this.focus));
     // ⏎ in a preview (a reader following another tile's selection: the board's), on none of its elements, opens the note
     // it shows where its opens land (PIE-794: the board's readers row, its link), as ⏎ on a list's row does; alt+⏎ fresh.
-    if ((k.kind === "enter" || k.kind === "alt-enter") && focused?.msg && !focused.holdsKeys && this.layout.wires.some(w => w.verb === "select" && w.to === this.focus) && this.routes(focused) && !this.collapsed.has(this.focus))
+    if ((k.kind === "enter" || k.kind === "alt-enter") && focused?.msg && !focused.holdsKeys && this.layout.wires.some(w => w.verb === "select" && w.to === this.focus) && this.routes(focused) && !this.contentCover(this.focus).fold)
       return this.run("open", { id: focused.msg.id, from: this.tileId(this.focus), ...(k.kind === "alt-enter" ? { fresh: true } : {}) });
     if (k.kind === "char" && !k.ctrl) {
       if (k.ch === "/") return this.run("search");
@@ -4516,7 +4528,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const r = d.hits.find(([i]) => i === id)?.[1];
         if (!r) return [];
         if (pane instanceof ScreenTile && pane.inner) {
-          if (d.collapsed.has(id) || d.cover(id) === "spine") return [];
+          if (d.contentCover(id).fold || d.cover(id) === "spine") return [];
           const origin = d.origin(id, r);
           return walk(pane.inner, { col: offset.col + origin.col, row: offset.row + origin.row });
         }
@@ -4546,7 +4558,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (hit) {
       const pane = desk.panes.get(hit[0])!;
       if (pane instanceof ScreenTile && pane.inner) {
-        if (desk.collapsed.has(hit[0]) || desk.cover(hit[0]) === "spine") return;
+        if (desk.contentCover(hit[0]).fold || desk.cover(hit[0]) === "spine") return;
         const origin = desk.origin(hit[0], hit[1]);
         return this.linkAt(pane.inner, x - origin.col, y - origin.row);
       }
@@ -6807,7 +6819,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const id = this.topTileAt(x, y);
     if (id === null || id === src) return this.leaveGroup(null);
     const p = this.panes.get(id), r = this.hits.find(([t]) => t === id)?.[1];
-    if (!(p instanceof ScreenTile) || !p.group || !p.inner || !r || this.collapsed.has(id)) return this.leaveGroup(null);
+    if (!(p instanceof ScreenTile) || !p.group || !p.inner || !r || this.contentCover(id).fold) return this.leaveGroup(null);
     const name = this.nameOf(id), moving = { name: this.nameOf(src), kind: (this.panes.get(src) as { kind?: string } | undefined)?.kind ?? "tile" };
     const o = this.origin(id, r), inside = x >= o.col && x < o.col + o.cols && y >= o.row && y < o.row + o.rows;
     const why = this.takeRefusal(moving.name, USER);

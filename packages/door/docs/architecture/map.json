@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "0ab34830", "outliner": "0ab34830", "on": "2026-10-23" },
+  "verified": { "door": "a4753739", "outliner": "a4753739", "on": "2026-10-24" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -381,7 +381,7 @@
         { "r": "door", "p": "src/whereabouts.ts", "l": 85, "m": "export function whereabouts" },
         { "r": "door", "p": "src/app.ts", "l": 1157, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 607, "m": "export function draftRule" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2511, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2517, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
       "questions": [
         { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" }
@@ -407,7 +407,7 @@
         { "r": "door", "p": "src/app.ts", "l": 784, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 491, "m": "private asPerson(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 7131, "m": "export function refusalHint" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 7143, "m": "export function refusalHint" }
       ]
     },
     {
@@ -498,11 +498,11 @@
       "built": "Desk in desk.ts with TILE_ACTIONS; what differs by kind it asks the tile-kind registry. It holds a LayoutState and changes it only by apply (PIE-513): it says what each tile is (facts) and where the person types (layoutCtx), commits the module's answer, and keeps the tile instances, gestures and painting. Its refusal functions are gone into the module. tile.* actions are the one name for each operation; pane.* are their older aliases (PIE-510).",
       "refs": [
         { "r": "door", "p": "src/desk/desk.ts", "l": 160, "m": "export class Desk" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 707, "m": "private apply(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 713, "m": "private apply(" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 665, "m": "private layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2757, "m": "  run(name: string, args" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1487, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6146, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2770, "m": "  run(name: string, args" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1493, "m": "async fillColumns" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6158, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 118, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 397, "m": "\"tile.widen\": def({" }
       ],
@@ -556,7 +556,7 @@
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
         { "r": "door", "p": "src/app.ts", "l": 659, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1621, "m": "private static kept" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1627, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -618,7 +618,7 @@
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 194, "m": "export class AgentDrawer" },
         { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 6416, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 6428, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1150, "m": "private take(id: I, heir?" }
       ]
     },
@@ -993,9 +993,9 @@
       "does": "A tile's link (a reader beside its tree) may end on a tile of another desk of the family: inside a group, outside it, in the holder or the drawer (PIE-696). The link is drawn and followed the same; moving a tile in or out of a group keeps it.",
       "built": "The layout tree holds links only between its own tiles, so a link whose far end is elsewhere is kept on the desk as ext, by the tile it starts from, naming the far tile by pane or path (`<group>/<tile>`, `../<tile>`); extTarget finds it, relink turns it back into the layout's own when both ends meet on one desk.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1086, "m": "private get ext()" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1228, "m": "extTarget(id: number," },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1116, "m": "pathTo(pane: Pane)" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1092, "m": "private get ext()" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1234, "m": "extTarget(id: number," },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1122, "m": "pathTo(pane: Pane)" }
       ]
     },
     {

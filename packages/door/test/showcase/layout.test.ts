@@ -88,6 +88,62 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     (app as any).lastInput = 0;
   }, 30_000);
 
+  for (const cover of ["vertical fold", "horizontal fold", "flow"] as const) {
+    test(`lift content: ${cover} accepts scrolling and editing while lifted`, async () => {
+      await sc.dispatch.press("section.leave");
+      await sc.dispatch.press("section", { name: "lift" });
+      screen();
+      const d = sc.tilesHere()!, original = d.layoutSpec();
+      const note = await board.request<any>("create", { parentId: null, text: "Lift log\n" + Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`).join("\n"), author: "agent" });
+      const kids = ["brief", "other"].map(name => ({ t: "leaf" as const, kind: "reader", name, note: note.id }));
+      (d as any).build({ root: cover === "flow" ? { t: "flow", kids, policy: { readable: 180 } } : { t: "split", dir: cover === "horizontal fold" ? "col" : "row", kids }, focus: "brief" }, false);
+      try {
+        await app.dispatch.press("host.toggle", { open: false });
+        await sc.dispatch.press("section.try");
+        if (cover !== "flow") await d.dispatch.act({ action: "tile.collapse", tile: "brief", args: { on: true, dir: cover === "horizontal fold" ? "h" : "v" } }, USER);
+        else await d.dispatch.act({ action: "tile.widen", tile: "other" }, USER);
+        await d.dispatch.act({ action: "tile.focus", tile: "brief" }, USER);
+        const reader = d.pane("brief") as any;
+        await until(() => !!reader.msg, "the folded note loaded");
+        if (cover === "flow") expect(d.coverOf(reader)).toMatch(/^(peek|spine)$/);
+        await d.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "full", on: true } }, USER);
+        (app as any).paint(true);
+        const line = reader.surface.readingSourceLine();
+        ch("j");
+        await until(() => reader.surface.readingSourceLine() > line, "moving the lifted reading line");
+        (app as any).lastInput = 0;
+        await d.dispatch.act({ action: "edit", tile: "brief" }, cover === "flow" ? { kind: "agent", id: "lift-editor" } : USER);
+        await until(() => reader.editing, "editing lifted content");
+        press({ kind: "esc" });
+        ch("e"); press({ kind: "enter" });
+        await until(() => !!d.keys().typingIn, "editing lifted content by key");
+        press({ kind: "esc" });
+      } finally {
+        d.dropLift();
+        (d as any).build(original, false);
+        await sc.dispatch.press("section.leave");
+      }
+    }, 30_000);
+  }
+
+  test("lift focus: an idle agent focus move preserves the person's lift", async () => {
+    await sc.dispatch.press("section.leave");
+    await sc.dispatch.press("section", { name: "lift" });
+    screen();
+    const d = sc.tilesHere()!;
+    await d.dispatch.act({ action: "tile.focus", tile: "brief" }, USER);
+    await d.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "full", on: true } }, USER);
+    try {
+      (app as any).lastInput = 0;
+      await d.dispatch.act({ action: "tile.focus", tile: "other" }, { kind: "agent", id: "lift-agent" });
+      expect(d.layoutGet().focus).toBe("other");
+      expect(d.lifted?.reach).toBe("full");
+    } finally {
+      d.dropLift();
+      await sc.dispatch.press("section.leave");
+    }
+  });
+
   for (const place of ["group", "drawer", "drawer group", "spines"] as const) {
     test(`lift: a tile in ${place} keeps its column above the drawer`, async () => {
       await app.dispatch.press("host.toggle", { open: false });
@@ -140,6 +196,12 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
         press({ kind: "esc" });
         expect(owner.lifted).toBeNull();
         expect(root.layoutSpec().root).toEqual(before);
+        if (grouped) {
+          await owner.dispatch.act({ action: "tile.collapse", tile: "brief", args: { on: true } }, USER);
+          await owner.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "full", on: true } }, USER);
+          await root.dispatch.act({ action: "tile.focus", tile: inDrawer ? "drawer.agent" : "left" }, USER);
+          expect(owner.lifted).toBeNull();
+        }
       } finally {
         if (transferred && app.drawer.made?.pane(transferred)) await app.drawer.made.dispatch.act({ action: "tile.drawer", tile: transferred }, USER);
         (d as any).build(original, false);

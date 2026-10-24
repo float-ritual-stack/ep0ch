@@ -355,7 +355,7 @@ export function apply<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): Result<I> {
   }
   if (renamed.length) { d.answer.renamed = renamed; d.changed = true; }
   neverBlank(d);
-  if (d.focus !== ctx.person.focus && d.lift && d.focus !== d.lift.tile) d.lift = null;
+  if (ctx.actor.kind === "user" && d.focus !== ctx.person.focus && d.lift && d.focus !== d.lift.tile) d.lift = null;
   return { ok: true, state: seal(d, s), focus: d.focus, changed: d.changed, answer: d.answer, base: s };
 }
 
