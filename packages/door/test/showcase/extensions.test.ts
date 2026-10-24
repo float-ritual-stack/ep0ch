@@ -72,6 +72,10 @@ describe.skipIf(!outliner)("the showcase screen: extensions, pages, forms, rules
     const hubText = (await board.get(listed.hub!))!.text;
     expect(hubText).toContain(`((${listed.pages!.notify}|Notifications hub))`);
     expect(listed.available!.map(a => a.id)).toContain("horoscope");
+    const make = await app.act({ action: "bar.open", args: { scope: "&", query: "make your own" }, as: "test-agent" }) as { rows: { label: string; detail: string }[] };
+    expect(make.rows).toContainEqual(expect.objectContaining({ label: "make your own", detail: expect.stringContaining("ep0ch docs extensions") }));
+    const picked = await app.act({ action: "bar.pick", args: { scope: "&", query: "make your own", n: 1 }, as: "test-agent" }) as { result: { message: string } };
+    expect(picked.result.message).toContain("ep0ch-extend");
     const rows = await app.act({ action: "bar.open", args: { scope: "&", query: "horoscope" }, as: "test-agent" }) as { rows: { label: string }[] };
     expect(rows.rows.map(r => r.label)).toContain("install Horoscope");
     // Installed by act: its page is written before the answer; removed again, the demo's fate said.

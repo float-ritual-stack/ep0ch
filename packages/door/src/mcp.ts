@@ -15,6 +15,7 @@ import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
 import { checkToolArgs, type ToolSchema } from "@ep0ch/outline-core/tool-args";
 import { briefFor } from "./library/brief";
+import { docResource, docResources } from "./docs";
 import { gatewayInstructions, gatewaySkills, skillPrompt, skillPrompts, skillResource, skillResources, withLoadHint, writeReading } from "./mcp-guide";
 import { inboxThreads, notesWithThreads, threadRows, threadSummary } from "./mcp-threads";
 import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailReceipt, type NetmailSummary } from "./mcp-netmail";
@@ -675,6 +676,8 @@ async function componentResources(outlines: McpOutlines): Promise<unknown[]> {
 }
 
 async function resourceRead(outlines: McpOutlines, uriValue: unknown): Promise<unknown> {
+  const doc = docResource(uriValue);
+  if (doc) return doc;
   const skill = typeof uriValue === "string" && uriValue.trim().startsWith("ep0ch://skills/") ? skillResource(gatewaySkills(), uriValue) : null;
   if (skill) return skill;
   const component = typeof uriValue === "string" ? COMPONENT_URI.exec(uriValue.trim()) : null;
@@ -1161,7 +1164,7 @@ function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller, s
       if (outlines.unavailable) return toolError(outlines.unavailable);
       return callTool(outlines, req.params, caller, scope);
     case "resources/list":
-      return componentResources(outlines).then(resources => ({ resources: [...resources, ...skillResources(gatewaySkills())] }));
+      return componentResources(outlines).then(resources => ({ resources: [...resources, ...skillResources(gatewaySkills()), ...docResources()] }));
     case "resources/templates/list": {
       const outline = outlines.kind === "local" ? outlines.defaultOutline! : "{outline}";
       const machine = outlines.kind === "local" ? outlines.machine : "{machine}";

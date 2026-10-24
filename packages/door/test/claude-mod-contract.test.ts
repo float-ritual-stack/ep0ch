@@ -51,6 +51,14 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
   });
   afterAll(() => scratch.dispose());
 
+  test("the session guide points agents to making the outline do new things", async () => {
+    const { GUIDE_ARGV, guideText } = await mod("outline-guide.ts");
+    const guide = await run(GUIDE_ARGV, { env });
+    expect(guide.exitCode).toBe(0);
+    expect(guideText(guide.stdout)).toContain("ep0ch-extend");
+    expect(guideText(guide.stdout)).toContain("ep0ch docs extensions");
+  });
+
   test("peer messages written by the mod can be excluded by plain property keys", async () => {
     const { entryOf, entryArgv } = await mod("peer-log.ts");
     const made = await run(entryArgv(note, entryOf("from", "gardener", Date.now(), "Bring seeds."), "test-agent"), { env });

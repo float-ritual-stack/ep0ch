@@ -81,6 +81,23 @@ describe("ep0ch command", () => {
     } finally { await host.dispose(); }
   }, 30_000);
 
+  test("docs lists the references and prints them without an outline or door", async () => {
+    const listed = await run(["docs"]);
+    expect(listed.code).toBe(0);
+    expect(listed.out).toContain("scripts");
+    expect(listed.out).toContain("extensions");
+    for (const name of ["scripts", "extensions"]) {
+      const read = await run(["docs", name]);
+      expect(read.code).toBe(0);
+      expect(read.out).toContain(name === "scripts" ? "## Globals" : "## Testing an extension");
+      expect(read.out).toContain(`ep0ch://docs/${name === "scripts" ? "extensions" : "scripts"}`);
+      expect(read.out).not.toMatch(/\]\((?:\.\.?\/|(?:extensions\/README|PROGRAMMABLE-NOTES)\.md)/);
+    }
+    const missing = await run(["docs", "missing"]);
+    expect(missing.code).toBe(2);
+    expect(missing.err).toContain("ep0ch docs");
+  });
+
   test("help prints the usage and exits 0", async () => {
     const r = await run(["help"]);
     expect(r.code).toBe(0);
