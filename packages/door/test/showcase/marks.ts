@@ -158,6 +158,7 @@ export const marks: Record<string, string[]> = {
   "rich-edit": ["Seed inventory", "Beans", "Packets"],
   asks: ["Keep writing while the answer arrives"],
   neat: ["A neat workbench", "[neat]"],
+  wyrm: ["Wyrmhold", "join the realm", "Dozing Gerald"],
   scripts: ["Seed report", "Press alt+S"],
   "button-sequences": ["One button, two tiles", "Fold the bottom", "Sugar"],
   "scripts-in-place": ["Scripts in place", "beds-table"],
