@@ -258,6 +258,7 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
   let done: (code: number) => void = () => {};
   const finished = new Promise<number>(r => { done = r; });
   let said = "";
+  let lastReceived: DaemonMsg | null = null;
   let over = false;
   /** Told to attach again (a handoff, new code): what to say as it does. */
   let again: string | null = null;
@@ -275,6 +276,7 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
       term.stop();
       if (again !== null) return reattach(again, o);
       if (message) (code ? console.error : console.log)(`ep0ch: ${message}`);
+      if (code && !said) console.error(`ep0ch: last received: ${JSON.stringify(lastReceived)}`);
       done(code);
     });
   };
@@ -288,6 +290,7 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
     let msgs: DaemonMsg[];
     try { msgs = frames.push(chunk); } catch (e) { leave(1, `the session sent something unreadable: ${(e as Error).message}`); return; }
     for (const m of msgs) {
+      lastReceived = m;
       if (m.t === "output") { if (!over && !handed) process.stdout.write(m.text); }
       else if (m.t === "ground") term.sessionGround = m.set;
       else if (m.t === "bye") {
@@ -314,7 +317,7 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
     }
   });
   sock.on("close", () => leave(said ? 0 : 1, said ? "" : "the session went away"));
-  sock.on("error", () => {});
+  sock.on("error", e => leave(1, `session socket error ${(e as NodeJS.ErrnoException).code ?? "unknown"}: ${e.message}`));
   await term.start();
   const hello: Hello = {
     proto: PROTOCOL, ...term.info, pid: process.pid, remote: !!(process.env.SSH_CONNECTION || process.env.SSH_CLIENT || process.env.SSH_TTY),

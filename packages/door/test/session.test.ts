@@ -493,6 +493,42 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect(JSON.parse(readFileSync(sessionFile(dir), "utf8")).place.outline).toBe(scratch.name);
   });
 
+  test("client losses and goodbyes say why in the session log", async () => {
+    const a = await RawClient.attach(sessionSocket(dir), 100, 30);
+    await until(() => a.got.some(m => m.t === "output"), "the client drawn");
+    const attached = (await infoOn(sessionSocket(dir)))!.clients.find(c => c.pid === 4242)!;
+    a.close();
+    await until(() => readFileSync(join(dir, "session.log"), "utf8").includes(`session client ${attached.id} (pid 4242): socket closed:`), "the lost client's reason logged");
+    const b = await RawClient.attach(sessionSocket(dir), 100, 30);
+    await until(() => b.got.some(m => m.t === "output"), "the second client drawn");
+    b.send({ t: "detach" });
+    await until(() => b.closed, "the goodbye");
+    expect(b.got.at(-1)).toMatchObject({ t: "bye", reason: "detached" });
+    expect(readFileSync(join(dir, "session.log"), "utf8")).toContain('bye sent: {"t":"bye","reason":"detached"');
+  });
+
+  test("a real terminal client prints its last received message when the daemon disappears", async () => {
+    let output = "";
+    const terminal = new Bun.Terminal({ cols: 100, rows: 30, data(_t, bytes) { output += Buffer.from(bytes).toString("utf8"); } });
+    const cli = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), "--ws", scratch.name], {
+      env: { ...process.env, EP0CH_DAEMON: "1", EP0CH_KITTY: "0", EP0CH_SIZED: "0" }, terminal, stderr: "pipe",
+    });
+    const stderr = new Response(cli.stderr).text();
+    try {
+      await until(() => output.includes("outline"), "the attached client's screen", 10_000);
+      process.kill(pid, "SIGKILL");
+      expect(await cli.exited).toBe(1);
+      const error = output + await stderr;
+      expect(error).toContain("the session went away");
+      expect(error).toContain('last received: {"t":"output","text":');
+    } finally {
+      if (cli.exitCode === null) { cli.kill(); await cli.exited; }
+      terminal.close();
+      expect(await startSession(dir, ["--screen", "desk"])).toEqual({ ok: true });
+      pid = JSON.parse(readFileSync(sessionFile(dir), "utf8")).pid;
+    }
+  }, 30_000);
+
   test("attaching with --screen <name> opens that screen in the running session and says so", async () => {
     const a = await RawClient.attach(sessionSocket(dir), 150, 44, { args: ["--screen", "library"] });
     await until(() => a.screen().includes("component library") || a.screen().includes("library ·"), "the library on the attached client", 10_000);
