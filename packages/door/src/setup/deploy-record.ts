@@ -1,7 +1,8 @@
 import { linkInstallSummary, type LinkDeploy, type LinkInstallResult } from "@ep0ch/outliner/link";
-import { sessionPersona, whichOutline } from "@ep0ch/outline-core/outline-location";
+import { sessionPersona } from "@ep0ch/outline-core/outline-location";
 import { configuredMachineName, hostMachineName } from "@ep0ch/outliner/machine-name";
-import { disk } from "../discover";
+import { disk, resolveTarget } from "../discover";
+import { forwardTo } from "../machine";
 import { hostRequest } from "../socket";
 import { writeRecord } from "../records";
 import { runningSessions } from "../session/place";
@@ -12,11 +13,15 @@ import type { Facts } from "./model";
 
 type Env = Record<string, string | undefined>;
 
-/** Install writes through its own host, even when the invoking folder names a different machine. */
+/** The destination is selected normally; deployment facts are observed on the machine being installed. */
 export async function startDeployRecord(f: Facts, env: Env, folder: string, when: Date, creating: () => void) {
-  const host = await hostRequest<{ defaultOutline?: string }>(f.host.socket, "outlines.list");
-  const which = whichOutline({ env: env.EP0CH_WS, machineEnv: env.EP0CH_MACHINE, folder, home: f.home, fs: disk });
-  const outline = which.kind === "named" && !which.machine ? which.name : host.defaultOutline;
+  const target = resolveTarget([], env, folder);
+  if ("error" in target) throw new Error(target.error);
+  const socket = "unnamed" in target ? f.host.socket : target.path;
+  const outline = "unnamed" in target
+    ? (await hostRequest<{ defaultOutline?: string }>(socket, "outlines.list")).defaultOutline
+    : target.outline;
+  if (!("unnamed" in target) && target.machine) await forwardTo(target.machine, env);
   if (!outline) throw new Error("no outline named here or by the host; run install with EP0CH_WS=<served outline>");
   const actor = sessionPersona({ env, folder, fs: disk })?.name;
   const sessionId = env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID || env.CODEX_THREAD_ID;
@@ -25,7 +30,7 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   const request = <T>(action: string, params: Record<string, unknown> = {}) => {
     // A schema refusal can be tried after restart; a lost create answer must never create twice.
     if (action === "create" || action === "template.stamp") creating();
-    return hostRequest<T>(f.host.socket, action, { outline, ...params });
+    return hostRequest<T>(socket, action, { outline, ...params });
   };
   const machine = f.machineName?.chosen || configuredMachineName(env, f.host.folder) || hostMachineName();
   const heading = `Deploy ${when.toISOString()} on ${machine}`;
@@ -38,7 +43,7 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   const board = { request };
   const who = { author: author as "agent" | "user", provenance };
   const append = async (previous?: string) => {
-    const ping = await request<{ protocolVersion: number; grammarVersion: number }>("ping");
+    const ping = await hostRequest<{ protocolVersion: number; grammarVersion: number }>(f.host.socket, "ping");
     const sessions = await runningSessions(env.EP0CH_STATE ?? defaultStateDir(env));
     return writeRecord(board, "deploy", {
       sha: to === "pending" ? f.repo.checkout.head ?? "unknown" : to,
@@ -52,7 +57,7 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   const save = async () => { note = await append(note.id); };
   return {
     id: first,
-    linkRecord: { socket: f.host.socket, outline, id: first },
+    linkRecord: { socket, outline, id: first },
     async local(outcome: string) {
       local = outcome;
       const head = await run(["git", "-C", f.repo.root, "rev-parse", "HEAD"], { env });

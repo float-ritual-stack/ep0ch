@@ -667,7 +667,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   const record = async (write: () => Promise<unknown>) => {
     try { await write(); }
     catch (e) {
-      const warning = `deploy record could not be saved through ${facts.host.socket}: ${(e as Error).message}`;
+      const warning = `deploy record could not be saved: ${(e as Error).message}`;
       plan.notes.push(warning);
       say(`    ! ${warning}`);
     }

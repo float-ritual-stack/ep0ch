@@ -1514,3 +1514,31 @@ test("install records a deploy in the host's default outline from an unnamed fol
     expect(other.blocks).toEqual([]);
   } finally { await h.dispose(); }
 }, 30_000);
+
+test("install sends records to the outline the folder names on another machine", async () => {
+  const { ScratchHost } = await import("./scratch");
+  const { startDeployRecord } = await import("../src/setup/deploy-record");
+  const { hostRequest } = await import("../src/socket");
+  const local = new ScratchHost(), receiver = new ScratchHost();
+  try {
+    await local.start("workshop"); await local.create("workshop");
+    await receiver.start("garden"); await receiver.create("garden");
+    const folder = local.folder("checkout");
+    writeFileSync(join(folder, ".ep0ch"), 'ws = "garden"\nmachine = "garden-host"\n');
+    const ssh = join(local.root, "fake-ssh");
+    writeFileSync(ssh, `#!/bin/sh\nexec ${process.execPath} ${join(import.meta.dir, "../../outliner/test/fake-ssh.ts")} "$@"\n`, { mode: 0o755 });
+    const env = { ...local.env, EP0CH_SSH: ssh, FAKE_SSH_HOME: receiver.root, FAKE_SSH_OUTLINES: receiver.outlines };
+    mkdirSync(join(local.outlines, ".remote"), { mode: 0o700 });
+    symlinkSync(receiver.sock, join(local.outlines, ".remote/garden-host.sock"));
+    const f = current();
+    f.home = local.env.HOME!;
+    f.host = { ...f.host, folder: local.outlines, socket: local.sock };
+    const record = await startDeployRecord(f, env, folder, now, () => {});
+    await record.local("finished");
+    const received = await hostRequest<{ blocks: { id: string; text: string }[] }>(receiver.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=record" } });
+    expect(received.blocks.some(b => b.id === record.id)).toBe(true);
+    expect(received.blocks.some(b => b.text.includes("Local: finished"))).toBe(true);
+    const stayed = await hostRequest<{ blocks: unknown[] }>(local.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=record" } });
+    expect(stayed.blocks).toEqual([]);
+  } finally { await local.dispose(); await receiver.dispose(); }
+}, 30_000);
