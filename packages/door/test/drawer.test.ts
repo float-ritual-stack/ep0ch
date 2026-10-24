@@ -104,10 +104,14 @@ describe("the drawer", () => {
       await wait(() => d.app.drawer.tile?.running === true);
       d.type("hello drawer\r");
       await wait(() => (d.app.drawer.tile?.text() ?? []).some(l => l.includes("hello drawer")));
-      // ctrl+] leaves it (it stays up), and Esc then puts it away.
+      // ctrl+] steps out of the program (the keys are the drawer tile's: `-` folds it), Esc leaves the drawer (it stays
+      // up), and Esc then puts it away.
       d.key(CTRL_RB);
-      expect(d.app.drawer.entered).toBe(false);
+      expect(d.app.drawer.entered).toBe(true);
       expect(d.term.rawSink()).toBeNull();
+      d.key(ESC);
+      expect(d.app.drawer.entered).toBe(false);
+      expect(d.app.drawer.open).toBe(true);
       d.key(ESC);
       expect(d.app.drawer.open).toBe(false);
       expect(d.app.drawer.tile?.running).toBe(true);            // put away, not ended
@@ -189,22 +193,25 @@ describe("the drawer", () => {
       d.app.push(d.screen("desk", { key: (k: Key) => got.push(k), rawKeys: () => raw }) as any);
       d.key(ALT("a")); d.paint();
       await wait(() => d.app.drawer.tile?.running === true);
-      d.key(CTRL_RB);
-      expect(d.app.drawer.entered).toBe(false);
-      expect(d.A.message).not.toContain("ctrl+]");
-      expect(d.paint().join("\n")).toContain("ctrl+] back to the door");
-      // Right away again: back in, and the agent gets the ctrl+] (the tty echoes it as ^]).
+      // Out of the program, still in the drawer (as a terminal tile's ctrl+] leaves the program, not the tile).
       d.key(CTRL_RB);
       expect(d.app.drawer.entered).toBe(true);
-      await wait(() => d.app.drawer.tile!.text().some(l => l.includes("^]")));
-      // Out, and later ctrl+] again: back in, nothing sent.
+      expect(d.A.message).not.toContain("ctrl+]");
+      expect(d.term.rawSink()).toBeNull();
+      // Right away again: the agent gets the ctrl+] (the tty echoes it as ^]).
       d.key(CTRL_RB);
+      expect(d.term.rawSink()).not.toBeNull();
+      await wait(() => d.app.drawer.tile!.text().some(l => l.includes("^]")));
+      // Out of the program, and Esc out of the drawer; later ctrl+] again: back in, nothing sent.
+      d.key(CTRL_RB);
+      d.key(ESC);
+      expect(d.app.drawer.entered).toBe(false);
       (d.app.drawer as any).leftAt = 0;
       d.key(CTRL_RB);
       expect(d.app.drawer.entered).toBe(true);
       expect(d.term.rawSink()).not.toBeNull();                 // the keys are the agent's again
       // The person in the screen's terminal tile: ctrl+] leaves the tile (the screen's), and its second is the tile's too.
-      d.key(CTRL_RB); (d.app.drawer as any).leftAt = 0;
+      d.key(CTRL_RB); d.key(ESC); (d.app.drawer as any).leftAt = 0;
       raw = true;
       d.key(CTRL_RB);
       raw = false;
@@ -516,7 +523,7 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
       expect(d.app.drawer.entered).toBe(true);
       await expect(d.app.act({ action: "agent.type", args: { text: "rm notes\\n" }, as: "claude-7" })).rejects.toThrow(/typing in claude in the drawer/);
       await expect(d.app.act({ action: "tile.type", tile: "claude", args: { text: "seed list" }, as: "claude-7" })).rejects.toThrow(/no tile claude|claude/);
-      d.key(CTRL_RB);                                            // out of it: an agent may type there again
+      d.key(CTRL_RB); d.key(ESC);                                // out of it: an agent may type there again
       const r: any = await d.app.act({ action: "agent.type", args: { text: "seed list" }, as: "claude-7" });
       expect(r).toMatchObject({ name: "claude" });
       await wait(() => d.app.drawer.tile!.text().some(l => l.includes("seed list")));

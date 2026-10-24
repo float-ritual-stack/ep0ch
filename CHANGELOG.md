@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### `-` folds the thing you're on to a spine, in the drawer too, and never hides the drawer (PIE-1254)
+
+In the drawer, `-`, `alt+h`, `^W c`, the tile menu and the frame's fold glyph hid the whole drawer for any tile that
+wasn't in a group. Now a drawer tile with a tile beside it folds in the drawer's own layout, as on a screen; a lone one
+folds the drawer to a strip at its edge with its title (`+`, `=`, `⏎`, space, `alt+h`, `^W c` or a click opens it as it
+was). Putting the drawer away stays `Esc` (step out, then away) and `alt+a`, and is its own row in a drawer tile's menu.
+`ctrl+]` in a drawer terminal now steps out of the program first, as on a screen, so `ctrl+]` then `-` folds the tile
+(then `Esc` leaves the drawer; a second `ctrl+]` soon after still sends one to the program). A terminal folded while
+you type in it stops taking your keys. No protocol change.
+
 ### Typing never lands in the wrong place while a note is opening in edit, and a failed open keeps what you typed (PIE-1153)
 
 The key that opens or resumes an edit (`e`, ⏎) is no longer typed into the draft, also when the door was restarted

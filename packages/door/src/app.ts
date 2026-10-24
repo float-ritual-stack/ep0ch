@@ -112,8 +112,14 @@ export interface HostLayer {
   openOnScreen(id: string, fresh: boolean, actor: Actor, from?: string, reveal?: import("./reveal").Reveal): Promise<{ tile: string | null; name?: string; id: string }>;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
-  /** Fold a drawer tab by putting the drawer away; unfold it by showing that tab. */
+  /** Fold the drawer to a strip at its edge (a tile in it with nothing beside it, folded: `tile.collapse`); on=false opens it as it was. */
   collapse(name: string, on: boolean | undefined, actor: Actor): TileDone;
+  /** The drawer is folded to a strip. */
+  readonly folded: boolean;
+  /** Why `actor` can't fold the drawer now (an agent, and the person is in it), or null. */
+  foldRefusal(actor: Actor): string | null;
+  /** Put the drawer away from its tile `name` (drawer.away, host.toggle open=false): its tiles stay as they are. */
+  away(name: string, actor: Actor): TileDone;
   /** Every agent session this door holds (PIE-737): the agent panel's rows. */
   sessions?(): AgentSession[];
 }

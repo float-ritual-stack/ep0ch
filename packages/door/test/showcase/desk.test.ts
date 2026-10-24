@@ -374,6 +374,29 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await drawer.dispatch.act({ action: "tile.drawer", tile: "kettle", args: { on: false } }, user);
   });
 
+  test("the drawer section folds: a terminal on the screen to a spine, a lone drawer tile to a strip of the drawer, both opened as they were (PIE-1254)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
+    const stage = S().stages.get(S().sel).top as Desk;
+    const user = { kind: "user" } as const;
+    const folded = () => stage.layoutGet().tiles.filter(t => t.collapsed).map(t => t.name);
+    await stage.dispatch.act({ action: "tile.collapse", tile: "kettle", args: { on: true } }, user);
+    expect(folded()).toEqual(["kettle"]);
+    await stage.dispatch.act({ action: "tile.collapse", tile: "kettle", args: { on: false } }, user);
+    expect(folded()).toEqual([]);
+    await app.act({ action: "tile.drawer", tile: "kettle", as: "test-agent" });
+    const drawer = app.drawer.desk!;
+    await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
+    await drawer.dispatch.act({ action: "tile.collapse", tile: "kettle", args: { on: true } }, user);
+    expect([app.drawer.open, app.drawer.folded, folded()]).toEqual([true, true, []]);
+    expect(app.drawer.render(160, 48, "").lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("a click opens it");
+    await drawer.dispatch.act({ action: "tile.collapse", tile: "kettle", args: { on: false } }, user);
+    expect([app.drawer.open, app.drawer.folded]).toEqual([true, false]);
+    await drawer.dispatch.act({ action: "tile.drawer", tile: "kettle", args: { on: false } }, user);
+    await app.dispatch.act({ action: "host.toggle", args: { open: false } }, user);
+  });
+
   test("drawer list wires select and open into a drawer detail", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });

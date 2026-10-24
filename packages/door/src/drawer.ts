@@ -163,8 +163,8 @@ const KNOWS_POLL_MS = 15_000;
 /** An agent's `agent.restart` waits this long after the person last typed into the agent. */
 const RESTART_IDLE_MS = 10_000;
 
-/** What drawer.json keeps: whether it's up, its height, and how many own programs have left it (`gen`, its key's). */
-export interface DrawerSaved { open: boolean; share: number; gen?: number; out?: string }
+/** What drawer.json keeps: whether it's up (folded to a strip or not), its height, and how many own programs have left it (`gen`, its key's). */
+export interface DrawerSaved { open: boolean; share: number; folded?: boolean; gen?: number; out?: string }
 /**
  * What the chip says: not started, working, idle, waiting on the person, done (a result the person hasn't seen),
  * failed, exited, or `watching`: the Herdr launcher found another door attached to the agent's pane and only watches it
@@ -232,6 +232,7 @@ export class AgentDrawer {
   constructor(private readonly host: DrawerHost, private readonly persist = true, private readonly herdr: HerdrRun | null = defaultHerdr()) {
     const s = persist ? readState<Partial<DrawerSaved>>("drawer.json") : null;
     const open = !!s && typeof s === "object" && s.open === true;
+    this.strip = open && s?.folded === true;
     const share = s && typeof s.share === "number" && Number.isFinite(s.share) ? clamp(s.share) : 0.5;
     this.gen = s && typeof s.gen === "number" && Number.isInteger(s.gen) && s.gen > 0 ? s.gen : 0;
     this.out = s && typeof s.out === "string" && s.out ? s.out : null;
@@ -751,6 +752,14 @@ export class AgentDrawer {
     const i = t.kids.findIndex(k => k.t === "dock"), sum = t.weights.reduce((a, w) => a + w, 0) || 1;
     return Math.round(((t.weights[i] ?? 0.5) / sum) * 1000) / 1000;
   }
+  /**
+   * Folded to a spine (PIE-1254): the drawer is up as a strip at its edge with its title, its tiles as they were; `+`,
+   * `=`, ⏎, space, alt+h, ^W c or a click opens it. A tile in it with nothing beside it folds the drawer this way.
+   */
+  get folded(): boolean { return this.strip && this.open; }
+  private strip = false;
+  /** ^W was pressed on the strip: the next key is the window chord's (c opens it). */
+  private foldPrefix = false;
   /** The person is in the drawer: every key but ctrl+], alt+a, alt+A, alt+s and alt+g is the drawer's tab's. Never set by an agent. */
   get entered(): boolean { return this.keys !== HOST_SCREEN && this.open && this.mode !== "none"; }
   /** Where the screen shown lets the host layer appear: its policy's `host` (a screen without a drawer: none). */
@@ -810,7 +819,7 @@ export class AgentDrawer {
   /** Drawn beside the screen (the screen shorter), not over it: the rows it takes from the screen, else 0. */
   besideRows(rows: number, cols: number): number {
     if (!this.shown || this.mode !== "beside") return 0;
-    const d = placeHost(this.layer, { col: 0, row: 0, cols, rows: rows - 1 }, "beside").dock;
+    const d = placeHost(this.layer, { col: 0, row: 0, cols, rows: rows - 1 }, "beside", this.folded).dock;
     return d?.rows ?? 0;
   }
 
@@ -994,6 +1003,7 @@ export class AgentDrawer {
   set(open: boolean, actor: Actor) {
     // An agent's pull of a drawer that's up already changes nothing; the person's goes into it.
     if (open && this.open && !this.ctx(actor).standing) return;
+    this.strip = false;
     if (open) this.pane();
     this.do({ op: "slide", tile: HOST_TILES, open }, actor);
     if (open && this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
@@ -1011,6 +1021,8 @@ export class AgentDrawer {
   private intoShown(send?: string) {
     const d = this.desk, t = this.shownTabOf();
     if (!d || !t) return;
+    // The person goes into a tab to type in it: a strip opens first.
+    if (this.strip) { this.strip = false; this.save(); }
     const p = d.pane(t.name);
     d.run("tile.focus", {}, t.name);
     // A terminal not started yet starts as it's first drawn: the keys go into it then (render).
@@ -1029,7 +1041,7 @@ export class AgentDrawer {
     this.host.redraw();
   }
 
-  private save() { if (this.persist) writeState("drawer.json", { open: this.open, share: this.share, ...(this.gen ? { gen: this.gen } : {}), ...(this.out ? { out: this.out } : {}) } satisfies DrawerSaved); }
+  private save() { if (this.persist) writeState("drawer.json", { open: this.open, share: this.share, ...(this.folded ? { folded: true } : {}), ...(this.gen ? { gen: this.gen } : {}), ...(this.out ? { out: this.out } : {}) } satisfies DrawerSaved); }
   /** The key (`home`) of the drawer's own program while it's out on a screen (PIE-892), kept across a handover; else null. */
   private out: string | null = null;
   /** How many own programs have left the drawer for a screen: the next one's key (`home`) says it. */
@@ -1070,12 +1082,43 @@ export class AgentDrawer {
     return { ...done, inDrawer: true, from: moved.from };
   }
 
+  /**
+   * `tile.collapse` of a drawer tile with nothing beside it (Desk.collapseTile): the drawer folds to a strip at its
+   * edge, or opens again as it was (on=false; left out it toggles). The person's keys stay on it (the strip is what
+   * has them, as a spine on a screen). A drawer put away is pulled up by opening it; folding it has nothing to fold.
+   */
   collapse(name: string, on: boolean | undefined, actor: Actor): TileDone {
-    const collapsed = on ?? (this.open && this.shownTab() === name);
-    this.set(!collapsed, actor);
-    if (!collapsed) this.desk!.focusTile(name, actor);
+    const done = (collapsed: boolean, changed = true): TileDone => ({ tile: this.desk!.tileInfo(name).tile, name, collapsed, drawer: true, ...(changed ? {} : { changed: false }) });
+    if (!this.open) {
+      if (on === true) throw new ActionRefused("the drawer is put away: nothing to fold · alt+a pulls it up (host.toggle open=true)");
+      this.set(true, actor);
+      if (this.ctx(actor).standing) this.desk!.focusTile(name, actor);
+      return done(false);
+    }
+    const want = on ?? !this.folded;
+    if (want === this.folded) return done(want, false);
+    const why = this.foldRefusal(actor);
+    if (why) throw new ActionRefused(why);
+    this.strip = want;
+    this.foldPrefix = false;
+    if (want) { this.d?.stopTyping(); this.wantIn = null; this.capture = null; this.dragging = false; }
+    else if (this.ctx(actor).standing) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.desk!.focusTile(name, actor); this.leftAt = 0; this.openedBy = null; }
+    this.save();
+    this.d?.shownAs(this.shown);
     this.host.redraw();
-    return { tile: this.desk!.tileInfo(name).tile, name, collapsed };
+    return done(want);
+  }
+
+  /** Why `actor` can't fold the drawer, or open its strip, now: an agent, with the person in the drawer. */
+  foldRefusal(actor: Actor): string | null {
+    return !this.ctx(actor).standing && this.entered ? "the person is in the drawer: an agent doesn't fold it or open it" : null;
+  }
+
+  /** `drawer.away` from a drawer tile's menu: the drawer put away (`host.toggle open=false`), its tiles as they are. */
+  away(name: string, actor: Actor): TileDone {
+    const tile = this.desk!.tileInfo(name).tile;
+    this.set(false, actor);
+    return { tile, name, open: false };
   }
 
   /**
@@ -1263,7 +1306,7 @@ export class AgentDrawer {
   place(cols: number, rows: number): Rect {
     this.rows = rows; this.cols = cols;
     const room = rows - 1;
-    const d = placeHost(this.layer, { col: 0, row: 0, cols, rows: room }, this.mode === "none" ? "over" : this.mode).dock;
+    const d = placeHost(this.layer, { col: 0, row: 0, cols, rows: room }, this.mode === "none" ? "over" : this.mode, this.folded).dock;
     return d ?? { col: 0, row: room, cols, rows: 0 };
   }
 
@@ -1276,6 +1319,12 @@ export class AgentDrawer {
     this.rect = r;
     const canvas = new Canvas(cols, r.rows);
     canvas.clear({ col: 0, row: 0, cols, rows: r.rows }, bg(C.black));
+    // Folded: the strip is the drawer's title and how it opens, as a spine says it; its tiles aren't drawn (and don't type).
+    if (this.folded) {
+      const edge = this.entered ? C.yellow : C.brown;
+      canvas.text(0, 0, `${fg(edge)}${"═".repeat(2)} ${fg(this.entered ? C.yellow : C.white)}${this.chipText()} ${fg(C.dark)}· + ⏎ or a click opens it · esc leaves ${fg(edge)}${"═".repeat(Math.max(0, cols))}${RESET}`, cols);
+      return { rect: r, lines: canvas.lines(), placements: [] };
+    }
     const pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
     const by = this.openedBy ? ` · ${fg(C.lmagenta)}pulled up by ${agentLabel(this.openedBy)}${fg(C.yellow)}` : "";
     const watching = this.state() === "watching";
@@ -1299,7 +1348,7 @@ export class AgentDrawer {
       if (this.wantIn && this.entered) { const w = this.wantIn; queueMicrotask(() => { if (this.wantIn === w) this.intoShown(w.send); }); }
       placements = (frame.placements ?? []).filter(pl => pl.row + pl.rows <= r.rows - 2).map(pl => ({ ...pl, row: pl.row + r.row + 1 }));
     }
-    canvas.text(1, r.rows - 1, fg(C.dark) + "drawer" + RESET, cols - 2);
+    canvas.text(1, r.rows - 1, fg(C.dark) + (this.entered ? "drawer · - folds it · esc steps out · esc again puts it away" : "drawer · esc puts it away") + RESET, cols - 2);
     return { rect: r, lines: canvas.lines(), placements };
   }
 
@@ -1307,7 +1356,7 @@ export class AgentDrawer {
 
   /** Raw input while the person is in the drawer and a terminal there runs: every byte is its, but alt+a, alt+A, alt+s and alt+g. */
   rawInput(run: DrawerRun): ((bytes: string) => void) | null {
-    if (!this.shown || !this.entered) return null;
+    if (!this.shown || !this.entered || this.folded) return null;
     const raw = this.d?.rawInput();
     if (!raw) return null;
     return (s: string) => {
@@ -1327,7 +1376,14 @@ export class AgentDrawer {
     if (!this.active) return false;
     if (k.kind === "mouse") return this.mouse(k, screen, rows, run);
     if (this.shown && this.entered) {
-      if (isEscapeChord(k)) { run("host.leave", {}); return true; }
+      if (isEscapeChord(k)) {
+        // Typing in a terminal there, the first steps out of the program as on a screen (the tile keeps the keys: `-` folds
+        // it), a second soon after goes to the program, and in a group it comes out of the group; with nothing to step
+        // out of, it leaves the drawer.
+        const d = this.desk, ctx = this.host.ctx?.();
+        if (d && ctx && !this.folded && d.chordSteps()) { d.key(k, ctx); return true; }
+        run("host.leave", {}); return true;
+      }
       if (isAlt(k, "a")) { run("host.toggle", { open: false }); return true; }
       if (isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
       if (isAlt(k, "s")) { run("host.shell", {}); return true; }
@@ -1340,6 +1396,7 @@ export class AgentDrawer {
       // Esc and q step back out of the drawer (to the screen) where its tab isn't using them; never the screen's back.
       // A terminal there that exited isn't using them either.
       if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !d.draggedTile() && !d.linkingFrom()) { run("host.leave", { quiet: true }); return true; }
+      if (this.folded) return this.stripKey(k, d);
       const ctx = this.host.ctx?.();
       if (ctx) d.key(k, ctx);
       return true;
@@ -1354,6 +1411,20 @@ export class AgentDrawer {
     // Esc puts it away when the screen isn't using it (an edit, a filter, a terminal the person is in).
     if (this.shown && k.kind === "esc" && !screen?.holdsKeys?.() && !screen?.rawKeys?.()) { run("host.toggle", { open: false }); return true; }
     return false;
+  }
+
+  /**
+   * A key with the drawer folded to a strip and the person on it: the keys that open a spine open it (+ = ⏎ space
+   * alt+h, ^W c), as `tile.collapse` on=false; the rest are nothing's (a tile out of sight takes no key).
+   */
+  private stripKey(k: Key, d: Desk): boolean {
+    const open = () => { d.run("tile.collapse", { on: false }, this.shownTab() ?? DRAWER_TILE_ID); };
+    const after = this.foldPrefix;
+    this.foldPrefix = false;
+    if (after) { if (k.kind === "char" && !k.ctrl && k.ch === "c") open(); return true; }
+    if (k.kind === "char" && k.ctrl && k.ch === "w") { this.foldPrefix = true; return true; }
+    if (isAlt(k, "h") || k.kind === "enter" || (k.kind === "char" && !k.ctrl && ["+", "=", " "].includes(k.ch))) open();
+    return true;
   }
 
   /**
@@ -1477,6 +1548,11 @@ export class AgentDrawer {
       // A click on the screen above hands the keys back to it; the drawer stays up.
       if (k.action === "down" && this.entered) run("host.leave", { quiet: true });
       return false;
+    }
+    // Folded: a click on the strip opens it, with the person's keys on it (it has no edge to drag).
+    if (this.folded) {
+      if (k.action === "down" && this.desk) { this.do({ op: "focus", tile: HOST_TILES }, USER); this.leftAt = 0; this.openedBy = null; this.desk.run("tile.collapse", { on: false }, this.shownTab() ?? DRAWER_TILE_ID); }
+      return true;
     }
     if (k.action === "down" && k.y === r.row) { this.dragging = true; return true; }
     if (k.y === r.row + r.rows - 1 && k.action === "down") return true;      // the drawer's key row

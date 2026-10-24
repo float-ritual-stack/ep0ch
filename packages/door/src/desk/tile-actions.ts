@@ -315,12 +315,12 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.collapse": def({
     hint: (_a, { d, reader }) => reader !== "all" && d.tileNow(reader, USER).collapsed ? { title: "Folded tile", lines: ["A spine keeps the tile and its contents. Click its title to open it again."], keys: [{ keys: "ctrl+w c", does: "fold or open" }] } : null,
-    summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. dir=v is a vertical spine (a column the title is written down, for a tile side by side with others), dir=h a horizontal one (one row with the title, for a tile stacked with others: its height goes to its neighbours); no dir takes the way its split runs. A tab set folds as one; opening a vertical spine shares the open group evenly and folds its least recently touched page below min-width (40 by default). In the drawer, put it away or show that tab again, keeping its whole group. Elsewhere only a tile in a row or a column of others folds (a lane, a reader in a row). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
+    summary: "fold tile=<tile> to a spine (on=true: a strip with its title, where it was; what's in it is kept exactly, a draft too), or open it again (on=false); default toggles. dir=v is a vertical spine (a column the title is written down, for a tile side by side with others), dir=h a horizontal one (one row with the title, for a tile stacked with others: its height goes to its neighbours); no dir takes the way its split runs. A tab set folds as one; opening a vertical spine shares the open group evenly and folds its least recently touched page below min-width (40 by default). Only a tile in a row or a column of others folds (a lane, a reader in a row), in the drawer's own layout too; a drawer tile with nothing beside it folds the drawer itself to a strip at its edge (its tiles kept as they were; putting the drawer away is drawer.away). On the board the preview and the details fold (a dock shuts instead), and tile=all opens every spine. Refused where its container can't collapse (collapsible off), and to an agent for the tile that has the person's keys",
     keys: "alt+h (alt+H a horizontal spine); bare - folds and + or = opens the focused tile where it takes no text (a tile's own - + = win: the tune inspector, an image, a figure), either opens a spine, ✦- ✦= (hyper); the frame card's fold row; ^W c; ⏎ space or a click on a spine opens it; board c on a reader, c ⏎ space on a spine, alt+c (every one)",
     // On the board, tile=all opens every spine (its own word for every one of them).
     places: ["all"],
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "folded" : "opened"} ${r.name ?? r.tile}`),
-    menu: { label: "fold to a spine", group: TILE, key: "ctrl+w c", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float ? { hide: true } : n.inDrawer ? { label: "put away in the drawer" } : { refused: n.refused("collapse") }; } },
+    menu: { label: "fold to a spine", group: TILE, key: "ctrl+w c", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float ? { hide: true } : { refused: n.refused("collapse") }; } },
     args: {
       on: { type: "boolean", optional: true, about: "true folds it, false opens it; default toggles" },
       dir: { type: "string", optional: true, choices: ["v", "h"], about: "v: a vertical spine (tiles side by side), h: a horizontal one (tiles stacked); default the way its split runs. Another way than it's folded refolds it" },
@@ -331,6 +331,17 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     ],
     run({ on, dir }, { d, reader }, actor) {
       return d.collapseTile(reader, on, actor, dir as "v" | "h" | undefined);
+    },
+  }),
+  "drawer.away": def({
+    summary: "put your drawer away from tile=<a tile in it>: the drawer goes down and the keys to the screen, every tile in it as it was (host.toggle open=false); alt+a or the status bar chip pulls it up again. Folding a drawer tile is tile.collapse and never puts the drawer away",
+    keys: "Esc in the drawer (step out first, then Esc puts it away), alt+a; the drawer tile's menu",
+    touches: "screen", host: true, replay: "safe",
+    menu: { label: "put away the drawer", group: TILE, key: "esc", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.inDrawer ? null : { hide: true }; } },
+    says: r => (r.changed === false ? null : "put away the drawer"),
+    args: {},
+    run(_a, { d, reader }, actor) {
+      return d.putDrawerAway(reader, actor);
     },
   }),
   "tile.expand": def({
