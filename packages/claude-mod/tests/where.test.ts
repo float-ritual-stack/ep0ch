@@ -119,10 +119,14 @@ describe('where helpers', () => {
     expect(envSummaryOf({ EP0CH_CONTROL: '/c' })).toContain('from a door older than EP0CH_NEST')
   })
 
-  test('the tile door-open names: EP0CH_TILE, else a desk tile id, else none', () => {
-    expect(doorTileOf({ EP0CH_TILE: 'claude', EP0CH_TILE_ID: 't3' })).toBe('claude')
-    expect(doorTileOf({ EP0CH_TILE: '', EP0CH_TILE_ID: 't21' })).toBe('t21')
-    expect(doorTileOf({ EP0CH_TILE: ' ', EP0CH_TILE_ID: 'drawer.agent' })).toBeNull()
+  test('the tile door-open names: the id the door gave, else EP0CH_TILE, else none', () => {
+    const id = 't-3f8eb08f-76b6-4acf-9f8c-346a5350b31a'
+    expect(doorTileOf({ EP0CH_TILE: 'claude', EP0CH_TILE_ID: id })).toBe(id)
+    expect(doorTileOf({ EP0CH_TILE: 'shell', EP0CH_TILE_ID: 'drawer.agent' })).toBe('drawer.agent')
+    expect(doorTileOf({ EP0CH_TILE: 'claude', EP0CH_TILE_ID: 't3' })).toBe('t3')
+    expect(doorTileOf({ EP0CH_TILE: 'claude', EP0CH_TILE_ID: 'whatever' })).toBe('claude')
+    expect(doorTileOf({ EP0CH_TILE: '', EP0CH_TILE_ID: id })).toBe(id)
+    expect(doorTileOf({ EP0CH_TILE: ' ', EP0CH_TILE_ID: ' ' })).toBeNull()
     expect(doorTileOf({})).toBeNull()
   })
 })

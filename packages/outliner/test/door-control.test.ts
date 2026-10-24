@@ -43,14 +43,14 @@ describe("showing a block in ep0ch-door", () => {
 
   test("a door without that tile is asked again without it: where its own open puts notes", async () => {
     door = await fakeDoor(request => (request.args.from ? { ok: false, error: "no tile claude; tiles: #1 tree (t1), or focused" } : { ok: true, result: { reader: "side" } }));
-    expect(await openInDoor(door.path, BLOCK, { actor: "claude-code", from: "claude" })).toEqual({ reader: "side" });
+    expect(await openInDoor(door.path, BLOCK, { actor: "claude-code", from: "claude" })).toEqual({ reader: "side", tileNotFound: "claude" });
     expect(door.requests.map(request => request.args.from ?? null)).toEqual(["claude", null]);
   });
 
   test("from alone (the Claude mod): the person on middle, a door without the tile lands it where its opens land, never naming middle", async () => {
     // The door refuses an agent that names the reader the person is on (ep0ch-door round 3); this caller never does.
     door = await fakeDoor(request => (request.args.from ? { ok: false, error: "no tile claude-gone; tiles: #1 tree, #2 middle, #3 side, focused, or a block id" } : { ok: true, result: { reader: "side", id: BLOCK } }));
-    expect(await openInDoor(door.path, BLOCK, { actor: "claude-code", from: "claude-gone" })).toEqual({ reader: "side", id: BLOCK });
+    expect(await openInDoor(door.path, BLOCK, { actor: "claude-code", from: "claude-gone" })).toEqual({ reader: "side", id: BLOCK, tileNotFound: "claude-gone" });
     expect(door.requests.map(request => request.args.from ?? null)).toEqual(["claude-gone", null]);
   });
 
@@ -124,6 +124,14 @@ describe("showing a block in ep0ch-door", () => {
     const gone = run(join(door.dir, "gone.sock"));
     expect(await new Response(gone.stderr).text()).toContain("error: no door at");
     expect(await gone.exited).toBe(3);
+  });
+
+  test("the CLI's door-open names the tile the door could not find, and still opens the note", async () => {
+    door = await fakeDoor(request => (request.args.from ? { ok: false, error: "no tile shell; tiles: #1 tree, or focused" } : { ok: true, result: { reader: "side", id: BLOCK } }));
+    const run = Bun.spawn([process.execPath, "src/cli.ts", "door-open", BLOCK, "--actor", "claude-code", "--from", "shell"], { env: { ...process.env, EP0CH_CONTROL: door.path }, stdout: "pipe", stderr: "pipe" });
+    expect(JSON.parse(await new Response(run.stdout).text())).toEqual({ reader: "side", id: BLOCK, tileNotFound: "shell" });
+    expect(await new Response(run.stderr).text()).toContain("no tile shell in the door; opened by the screen's open rule");
+    expect(await run.exited).toBe(0);
   });
 
   test("the CLI's door-open follows the tile's outline session when its own socket went stale; a --control naming another is taken as given (PIE-604)", async () => {

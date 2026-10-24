@@ -1212,13 +1212,22 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return hits[0]!.id?.startsWith("t-") ? hits[0]!.id : path;
   }
 
-  resolveTile(sel: string): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
+  resolveTile(sel: string, o: { program?: true } = {}): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
     const desks = this.relatives();
     const found = (desk: Desk, id: number) => ({ tile: desk.tiles().find(t => t.id === desk.tileId(id))!, dispatch: desk.dispatch, desk });
     for (const desk of desks) for (const id of desk.panes.keys()) if (desk.tileId(id) === sel) return found(desk, id);
+    // `program`: the tile a program runs in (`open from=`), which it names by what it was told. The id it was told (EP0CH_TILE_ID) beats a name: the drawer's own program keeps `drawer.agent` wherever it runs, and its
+    // tab holds a tile of that name while it is out on a screen.
+    const toldId = !o.program ? [] : desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && (p.toldId ?? p.tileId) === sel).map(([id]) => ({ desk, id })));
+    if (toldId.length === 1) return found(toldId[0]!.desk, toldId[0]!.id);
     const named = desks.flatMap(desk => [...desk.names].filter(([id, name]) => name === sel && desk.panes.has(id)).map(([id]) => ({ desk, id })));
     if (named.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${named.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
     if (named.length) return found(named[0]!.desk, named[0]!.id);
+    // A program names its tile by what it was told (EP0CH_TILE): the drawer's own program is told its own name (shell,
+    // claude), not the name its tile has on the desk.
+    const told = !o.program ? [] : desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && p.programTile === sel).map(([id]) => ({ desk, id })));
+    if (told.length > 1) throw new ActionRefused(`several programs were told ${sel}: ${told.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
+    if (told.length) return found(told[0]!.desk, told[0]!.id);
     if (sel === "focused") return this.resolveTile(this.ctx?.person?.().address ?? this.keys().address ?? "");
     const pane = sel.includes("/") ? this.paneAtPath(sel) : undefined;
     const desk = pane && desks.find(d => d.idOf(pane) !== undefined);
@@ -2402,7 +2411,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     const landed = d.placeNote(m, { from: source, fresh, note: m.id }, actor);
-    if (!landed) return d.land(m, actor);
+    // A tile of the drawer with no wire opens where the drawer's own landing says; with no reader to take it, the screen shown does, as for the drawer's lists (`setCurrent`).
+    if (!landed) {
+      const host = d.ctx?.hostLayer;
+      if (!host?.isDrawer(d.top())) return d.land(m, actor);
+      try { return d.land(m, actor); } catch (e) { if (e instanceof ActionRefused) return host.openOnScreen(m.id, fresh, actor); throw e; }
+    }
     this.redraw(); landed.desk.redraw();
     return { ...landed.desk.tileAnswer(landed.id), id: m.id };
   }
@@ -2576,7 +2590,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         ...d.overlays.top()?.bindings ?? [],
       ],
       tiles: () => d.tiles(),
-      resolveTile: (sel: string) => d.resolveTile(sel),
+      resolveTile: (sel: string, o?: { program?: true }) => d.resolveTile(sel, o),
       revision: (expected: unknown) => revisionRefusal(d.layout, expected),
       draftOf: (t: TileRef) => {
         const p = d.pane(t.name);
@@ -7502,12 +7516,12 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
   "open": def({
     answer: { tile: { type: "string|null", kind: "tile", about: "the destination tile's stable id, or null when no tile opened" }, name: { type: "string", about: "the destination's displayed name" }, id: { type: "string", kind: "note", about: "the note shown" } },
-    summary: "show a note only where it lands; only the person's own open moves the current note. Show it in tile=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it; fresh=true: a new tile there). On a screen whose opens land in a container (the board's readers row), tile=detail is the tile an open lands in there, new-detail a new one, float a new one floating. An agent's naming neither (`ep0ch open <id>`) lands where the focused tile's opens go, else a reader that follows, never one the person is typing in. A program in a tile passes from=$EP0CH_TILE, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: "enter in the outline, / search; ⏎ alt+⏎ in a reader that follows (where its opens land)",
+    summary: "show a note only where it lands; only the person's own open moves the current note. Show it in tile=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it; fresh=true: a new tile there). On a screen whose opens land in a container (the board's readers row), tile=detail is the tile an open lands in there, new-detail a new one, float a new one floating. An agent's naming neither (`ep0ch open <id>`) lands where the focused tile's opens go, else a reader that follows, never one the person is typing in. A program in a tile passes from=$EP0CH_TILE_ID (or $EP0CH_TILE), the tile it was told it runs in, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: "enter in the outline, / search; ⏎ alt+⏎ in a reader that follows (where its opens land)",
     // A reader named (tile=) is moved: an agent's is refused in the one the person has. Naming none (or a place word),
     // it lands where opens land: maybe the note they're reading, said on screen, never their keys or a reader they type in.
     touches: "tile", touchesWith: (_, tile) => (tile !== undefined ? "tile" : "nothing"), way: "opening a note there would move what they're reading · name another reader with tile=, or name none (ep0ch open <id>): it lands where opens land, never their keys or a reader they type in",
     replay: "safe", confirms: true, landing: true, places: ["detail", "new-detail", "float"],
-    args: { id: { type: "string", optional: true, about: "the block id (or file=)" }, from: { type: "string", optional: true, kind: "tile", about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎); alone: a new detail beside the tile with the keys" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" },
+    args: { id: { type: "string", optional: true, about: "the block id (or file=)" }, from: { type: "string", optional: true, kind: "tile", program: true, about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎); alone: a new detail beside the tile with the keys" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" },
       file: { type: "string", optional: true, conflicts: ["id", "from", "fresh", "resource", "fragment"], about: "a file on this machine (an absolute path) in place of id: Markdown drawn as a preview draws it, any other file through the file Resource reader (PIE-602)" },
       diff: { type: "boolean", optional: true, implies: [{ file: null }], about: "with file=: its changes (git's diff against its last commit, else against=)" },
       against: { type: "string", optional: true, implies: [{ file: null, diff: true }], about: "with file= diff=true: a copy of the file from before the change, for a file outside git" },
