@@ -6,6 +6,7 @@
 // their thresholds, so prose is never nagged. The same function is the write receipt's suggestion, the sweep's margin
 // note and the eval's subject (scripts/evals/figure-fit.ts), so what the eval scores is what agents are told.
 import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
+import { calloutBlocks, stripQuotes } from "@ep0ch/outline-core/callouts";
 import { componentGist, type ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { blockNameOf } from "@ep0ch/outline-core/component-warnings";
 import { loadFigureFitPrompt, type PromptRevision } from "./ai-prompts";
@@ -59,23 +60,53 @@ const figureWord = (s: ComponentSchema) => s.title.replace(/\s*\(.*$/, "").trim(
 
 /**
  * Whether the text has a shape a figure could draw, before anything is asked: at least three list items, table rows
- * or dated lines outside code and components, and no figure of its own (a note that has one chose already): a
+ * or dated lines outside code and components (plain callout bodies may also be rows), and no figure of its own
+ * (a note that has one chose already): a
  * `::graph-`, or with `schemas` any of the outline's figures by the name it is written with (an extension's too).
  */
 export function figureShape(text: string, schemas: readonly ComponentSchema[] = []): "shaped" | "no-shape" | "has-figure" {
-  const lines = text.split("\n");
   const figures = new Set(schemas.filter(s => s.group === "figures").map(blockNameOf));
-  if (componentBlocks(lines).some(b => b.name.startsWith("graph-") || figures.has(b.name))) return "has-figure";
+  const subjects = figureSubjects(text);
+  if (subjects.some(s => componentBlocks(s.text.split("\n")).some(b => b.name.startsWith("graph-") || figures.has(b.name)))) return "has-figure";
+  return subjects.some(s => shapedRows(s.text, !!s.callouts)) ? "shaped" : "no-shape";
+}
+
+function shapedRows(text: string, callout = false): boolean {
+  const lines = text.split("\n");
   const structure = noteStructure(lines);
-  const rows = lines.filter((line, i) => structure[i] === -1 && /^\s*(?:[-*+]\s+\S|\d+[.)]\s+\S|\|.*\||(?:[-*+]\s*)?\d{4}-\d{2}(?:-\d{2})?\b)/.test(line)).length;
-  return rows >= MIN_ROWS ? "shaped" : "no-shape";
+  const rows = lines.filter((line, i) => structure[i] === -1 && ((callout && !!line.trim() && !/^\s*(?:#|>)/.test(line)) || /^\s*(?:[-*+]\s+\S|\d+[.)]\s+\S|\|.*\||(?:[-*+]\s*)?\d{4}-\d{2}(?:-\d{2})?\b)/.test(line))).length;
+  return rows >= MIN_ROWS;
+}
+
+/** Keep callout addresses beside their bodies; sibling sections retain the context needed for a comparison. */
+function figureSubjects(text: string): { text: string; callouts?: string[] }[] {
+  const lines = text.split("\n"), structure = noteStructure(lines);
+  const callouts = calloutBlocks(lines).filter(c => structure[c.line] === -1);
+  const top = callouts.filter(c => c.depth === 1);
+  return [
+    ...(top.length > 1 ? [{
+      text: top.map(c => [`## ${c.title || c.type}`, ...lines.slice(c.line + 1, c.end).map(line => stripQuotes(line, c.depth))].join("\n")).join("\n\n"),
+      callouts: top.map(c => c.title || c.type),
+    }] : []),
+    ...[...callouts].sort((a, b) => b.depth - a.depth || a.line - b.line).map(c => ({
+      text: lines.slice(c.line + 1, c.end).map(line => stripQuotes(line, c.depth)).join("\n"),
+      callouts: callouts.filter(parent => parent.line <= c.line && parent.end >= c.end).map(parent => parent.title || parent.type),
+    })),
+    { text },
+  ];
+}
+
+function figureSubject(text: string) {
+  return figureSubjects(text).find(s => shapedRows(s.text, !!s.callouts)) ?? { text };
 }
 
 /** The request: the note as state, the Choice over the figures, the two gates. */
 export function figureFitRequest(text: string, options: Record<string, string>, prompt: { instructions: string; structured: string; prose: string }, title?: string) {
+  const subject = figureSubject(text);
+  text = subject.text;
   return {
     model: JEV_MODEL,
-    state: { title: title ?? text.split("\n", 1)[0]!.slice(0, 200), text: text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n…` : text },
+    state: { title: subject.callouts?.join(" / ") ?? title ?? text.split("\n", 1)[0]!.slice(0, 200), text: text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n…` : text },
     questions: {
       which: { type: "choice", instructions: prompt.instructions, criteria: options },
       "gate::structured": { type: "noul", instructions: prompt.structured },
@@ -100,7 +131,7 @@ export function readFigureFit(response: JevAnswers, options: Record<string, stri
 }
 
 /** The suggestion a reading makes at these thresholds, or why it makes none. */
-export function fitOf(reading: FigureFitReading, schemas: readonly ComponentSchema[], thresholds: FigureFitThresholds = FIGURE_FIT_THRESHOLDS): FigureFitAnswer {
+export function fitOf(reading: FigureFitReading, schemas: readonly ComponentSchema[], thresholds: FigureFitThresholds = FIGURE_FIT_THRESHOLDS): Exclude<FigureFitAnswer, { unavailable: string }> {
   if (reading.gate < thresholds.gate) return { fit: null, why: "below-gate", reading };
   if (reading.confidence < thresholds.confidence) return { fit: null, why: "unsure", reading };
   // A reading kept from before the outline's figures changed (the eval's cache) can name one that's gone.
@@ -155,5 +186,9 @@ export async function suggestFigure(text: string, schemas: readonly ComponentSch
   const shape = figureShape(text, schemas);
   if (shape !== "shaped") return { fit: null, why: shape };
   const reading = await askFigureFit(text, schemas, o);
-  return "unavailable" in reading ? reading : fitOf(reading, schemas, o.thresholds);
+  if ("unavailable" in reading) return reading;
+  const answer = fitOf(reading, schemas, o.thresholds);
+  const callouts = figureSubject(text).callouts;
+  if (answer.fit && callouts) answer.fit.said = `the callout ${callouts.map(title => `"${title}"`).join(" with ")} ${answer.fit.said.replace(/^this /, "")}`;
+  return answer;
 }

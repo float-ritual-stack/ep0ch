@@ -38,6 +38,8 @@ describe("a note's shape", () => {
 
   test("lines inside a code fence are the code's, not the note's", () => {
     expect(figureShape("How\n```\n- a\n- b\n- c\n```")).toBe("no-shape");
+    expect(figureShape("> [!note] Example\n> ```\n> - a\n> - b\n> - c\n> ```")).toBe("no-shape");
+    expect(figureShape("```\n> [!note] Example\n> - a\n> - b\n> - c\n```")).toBe("no-shape");
   });
 
   test("an extension's figure, by the name it is written with, is a figure the note chose", () => {
@@ -108,6 +110,15 @@ describe("suggestFigure", () => {
     const answer = await suggestFigure(SEASON, schemas, { apiKey: "fake", fetch: j.fetch });
     expect(answer).toMatchObject({ fit: { component: "graph-timeline" } });
     expect(j.sent).toHaveLength(1);
+  });
+
+  test("a nested callout names its enclosing callout and respects its own figure", async () => {
+    const j = jev(TIMELINE);
+    const text = "> [!summary] Garden\n> One season.\n> > [!note]+ Dates\n> > - 2026-03: seeds\n> > - 2026-05: flowers\n> > - 2026-08: harvest";
+    const answer = await suggestFigure(text, schemas, { apiKey: "fake", fetch: j.fetch });
+    expect(answer).toMatchObject({ fit: { component: "graph-timeline", said: expect.stringContaining('the callout "Garden" with "Dates" reads as a timeline') } });
+    expect(j.sent[0].state.text).toBe("- 2026-03: seeds\n- 2026-05: flowers\n- 2026-08: harvest");
+    expect(figureShape(`${text}\n> > ::graph-timeline\n> > ---\n> > ---\n> > ::`)).toBe("has-figure");
   });
 
   test("prose and a note with its own figure ask nothing", async () => {
