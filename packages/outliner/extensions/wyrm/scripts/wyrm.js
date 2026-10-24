@@ -72,6 +72,12 @@ const stats = note => ({
   foe: valueOf(note, "foe"), foeHp: numberOf(note, "foe-hp"), foeStr: numberOf(note, "foe-str"),
   foeGold: numberOf(note, "foe-gold"), foeXp: numberOf(note, "foe-xp"),
 });
+/** What a new day does to a note: turns and ambushes back, the dead risen whole. A move applies it to the player pressing,
+ *  an ambush to the defender, so both lazy resets are this one. {} when the note's day is today. */
+const morning = (note, s) => s.day === today ? {} : {
+  day: today, turns: DAY_TURNS, ambushes: DAY_AMBUSHES,
+  ...(valueOf(note, "dead") === "1" ? { dead: null, hp: s.maxhp } : {}),
+};
 const attack = s => s.str + WEAPONS[s.weapon][1];
 const defence = s => s.def + ARMOR[s.armor][1];
 
@@ -110,11 +116,8 @@ const change = {};
 const set = (key, value) => { change[key] = value; };
 
 // --- a new day: turns back, the dead rise ------------------------------------------------------------------------------
-if (me.day !== today) {
-  set("day", today); set("turns", DAY_TURNS); set("ambushes", DAY_AMBUSHES);
-  me.turns = DAY_TURNS; me.ambushes = DAY_AMBUSHES;
-  if (valueOf(here, "dead") === "1") { set("dead", null); set("hp", me.maxhp); me.hp = me.maxhp; }
-}
+const dawn = morning(here, me);
+if (dawn.day) { Object.assign(change, dawn); me.turns = DAY_TURNS; me.ambushes = DAY_AMBUSHES; } // me.hp: stats() already rose the dead
 // Every save restamps what the sheet shows but can't compute without these tables: gear names and the next level's xp.
 const finish = async message => {
   const final = key => change[key] ?? me[key];
@@ -285,17 +288,19 @@ switch (verb) {
     if (b <= 0) {
       const loot = them.gold, xp = Math.round(them.level * 50 * roll(0.8, 1.2));
       // Dead today: the victim's day is stamped so their next move doesn't count as a new morning.
-      await save(victimNote, { hp: 0, dead: 1, gold: 0, rest: null, day: today, ...(them.day !== today ? { turns: DAY_TURNS, ambushes: DAY_AMBUSHES } : {}) });
+      await save(victimNote, { ...morning(victimNote, them), hp: 0, dead: 1, gold: 0, rest: null, day: today });
       me.hp = Math.max(1, a); set("hp", me.hp);
+      // Both players saved before the news and the comment, which can fail without leaving the loot half moved.
+      const message = await finish(await gain(loot, xp, `you kill ${victimNote.title} in their sleep: +${fmt(loot)} gold, +${fmt(xp)} xp`));
       await news(world, `${name} found ${victimNote.title} asleep in the fields and killed them, taking ${fmt(loot)} gold.`);
       try { await tools.outline_comment({ ref: victimNote.id, whole: true, body: `${name} killed you in your sleep and took ${fmt(loot)} gold. Bank it next time.` }); } catch { /* the news has it */ }
-      return await finish(await gain(loot, xp, `you kill ${victimNote.title} in their sleep: +${fmt(loot)} gold, +${fmt(xp)} xp`));
+      return message;
     }
     // The attacker's purse goes first (the debit), then the sleeper's (the credit).
     const lost = me.gold;
     set("hp", 0); set("dead", 1); set("gold", 0);
     const answer = await finish(`${victimNote.title} wakes and kills you. They keep your ${fmt(lost)} gold`);
-    await save(victimNote, { hp: Math.max(1, b), gold: them.gold + lost });
+    await save(victimNote, { ...morning(victimNote, them), hp: Math.max(1, b), gold: them.gold + lost });
     await news(world, `${name} tried to kill ${victimNote.title} in their sleep. ${victimNote.title} woke up and won.`);
     return answer;
   }

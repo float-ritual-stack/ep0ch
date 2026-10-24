@@ -6,7 +6,9 @@ const players = (await q("type=wyrm-player", { under: this.id, limit: 200 })).bl
 const notes = await Promise.all(players.map(p => read(p.id)));
 const v = (note, key) => note.properties.find(p => p.key === key)?.values[0];
 const n = (note, key) => Number(v(note, key) ?? 0);
-const status = note => v(note, "dead") === "1" && v(note, "day") === today ? "dead" : v(note, "rest") === "inn" ? "at the inn" : v(note, "rest") === "fields" ? "in the fields" : "awake";
+// Death lasts the day it happened (the script's rule, as the player sheet states it).
+const deadToday = note => v(note, "dead") === "1" && v(note, "day") === today;
+const status = note => deadToday(note) ? "dead" : v(note, "rest") === "inn" ? "at the inn" : v(note, "rest") === "fields" ? "in the fields" : "awake";
 notes.sort((a, b) => n(b, "kills") - n(a, "kills") || n(b, "level") - n(a, "level") || n(b, "xp") - n(a, "xp"));
 
 // q promises no order: take them all, newest first, then the top 40.
