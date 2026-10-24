@@ -2,6 +2,7 @@
 //
 //   bun scripts/evals/figure-fit.ts <copy.sqlite> [--labels <file.json>] [--shaped <n>] [--gate <g>] [--confidence <c>]
 //                                                 [--out <report.json>] [--note]
+// For fictional callout cases: bun scripts/evals/figure-fit-callouts.ts <scratch-directory>, then its printed command.
 //
 // <copy.sqlite> is a copy of an outline (`ep0ch outline snapshot <name> --out <copy>`, or the gateway's outline_snapshot), opened
 // read-only; a file in the outlines folder (EP0CH_OUTLINES, else ~/outlines) is refused: an eval never touches a live

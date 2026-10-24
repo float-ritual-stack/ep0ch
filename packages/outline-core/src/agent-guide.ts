@@ -18,7 +18,7 @@ const HOUSE = [
   "Notes are Blockdown: Markdown-adjacent text plus the outline's own forms. Reach for those forms instead of prose:",
   "- A count, a status or a list that will change goes in a live figure or view with `query:` (the saved views' grammar), so it stays true: graph-stat (each tile counts its own `query:`), graph-tabs, graph-table, a `view` note or `::links` with a query. Never paste numbers a query can count.",
   "- A decision, a comparison, a plan or a history, a checklist: graph-decision, graph-compare, graph-timeline, graph-check, not paragraphs.",
-  "- An aside or a warning is a callout (`> [!tip]`). A look or a behaviour that should follow every matching note is a rule note, with no code.",
+  "- An aside or a warning is a callout (`> [!tip]`); never a section: sections are headings, and a callout inside a callout is a heading too. A look or a behaviour that should follow every matching note is a rule note, with no code.",
   "- Point with links, not directions: `((id|label))`, `[[page]]`, a Work ID. Properties are open: `[key::value]` on a note's first line, any key.",
   "- Before writing a component, `outline_components` with its id gives its properties and a working example. A write answers with `warnings` (a reference that leads nowhere, with a did-you-mean; a figure or fence left open): fix them in the same turn.",
   "- Read a note before you write it. What you write is attributed to you and can be undone from the record.",

@@ -12,6 +12,7 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import type { OutlinerEvent } from "../src/types";
+import { CALLOUT_CASES } from "../scripts/evals/figure-fit-callouts";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -727,6 +728,31 @@ test("a written note shaped like a timeline answers with a suggestion, once; pro
   const turned = await agent("edit", { ref: musing.id, expectedRevision: musing.revision, text: season.replace("Garden year", "Bed rotation") });
   expect(turned.json.suggestion.component).toBe("graph-timeline");
   expect(asked).toHaveLength(2);
+});
+
+test.each(CALLOUT_CASES)("callout-shaped write: $title", async c => {
+  const fake = Bun.serve({
+    port: 0, hostname: "127.0.0.1",
+    async fetch(request) {
+      const body = await request.json() as { state: { title: string; text: string } };
+      const c = CALLOUT_CASES.find(c => body.state.title.includes(c.title))!;
+      return Response.json({ model: "jev-1.13.0", answers: {
+        which: { type: "choice", choice: c.component === "none" ? "graph-check" : c.component, confidence: 0.9, probabilities: {} },
+        "gate::structured": { type: "noul", noul: 0.95 },
+        "gate::prose": { type: "noul", noul: 0.05 },
+      } });
+    },
+  });
+  cleanups.push(async () => { fake.stop(true); });
+  const { store, agent } = await setup({ OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` });
+  const saved = await agent("create", { parent: "root", text: c.text });
+  expect(saved.exitCode, saved.stderr).toBe(0);
+  expect(store.require(saved.json.id).text).toBe(c.text);
+  if (c.component === "none") expect(saved.json.suggestion).toBeUndefined();
+  else {
+    expect(saved.json.suggestion?.component, c.title).toBe(c.component);
+    expect(saved.json.suggestion.said).toContain(`the callout "${c.title}"`);
+  }
 });
 
 // PIE-721: the tidy pass's figure check: the notes under a note that read as a figure get one margin thread each, by
