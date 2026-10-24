@@ -2414,7 +2414,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile of the drawer with no wire opens where the drawer's own landing says; with no reader to take it, the screen shown does, as for the drawer's lists (`setCurrent`).
     if (!landed) {
       const host = d.ctx?.hostLayer;
-      if (!host?.isDrawer(d)) return d.land(m, actor);
+      if (!host?.isDrawer(d.top())) return d.land(m, actor);
       try { return d.land(m, actor); } catch (e) { if (e instanceof ActionRefused) return host.openOnScreen(m.id, fresh, actor); throw e; }
     }
     this.redraw(); landed.desk.redraw();

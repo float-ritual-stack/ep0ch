@@ -216,4 +216,18 @@ describe.skipIf(!outliner)("a link pressed in a terminal tile opens where the ti
       expect(names(d.desk)).toEqual(before.names);
     } finally { d.close(); }
   });
+
+  test("a terminal grouped in the drawer with no wire and no reader opens the note on the screen", async () => {
+    const prog = program("kettle");
+    const d = await door({ name: "kettle", cmd: prog.cmd });
+    try {
+      await until(() => { try { prog.seen(); return true; } catch { return false; } }, "the program saw its variables");
+      const note = await board.createBlock(null, "A letter from the glasshouse");
+      await d.desk.dispatch.act({ action: "tile.group", args: { with: "tree", name: "bundle" }, tile: "kettle" }, USER);
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "bundle" }, USER);
+      const r = await press(d.control.path, note.id, prog.seen());
+      expect({ code: r.code, stderr: r.stderr }).toEqual({ code: 0, stderr: "" });
+      expect(Object.values(shown(d.desk))).toContain(note.id);
+    } finally { d.close(); }
+  });
 });
