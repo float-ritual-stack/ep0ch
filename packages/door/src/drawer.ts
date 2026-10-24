@@ -875,7 +875,7 @@ export class AgentDrawer {
   /** The chip in two parts: what it's doing, and what it knows (drawn in yellow when it offers ⟳). */
   private chipParts(now: number): { head: string; knows: string } {
     // A drag that ended by a key (esc, f, p, a) leaves no mouse event here: the light goes out with it.
-    if (this.dropHover && !tilesOf(this.host.screen?.())?.draggedTile()) this.dropHover = null;
+    if (this.dropHover && !tilesOf(this.host.screen?.())?.draggedTile()) { this.dropHover = null; this.dropSays = DRAWER_DROP; this.d?.cancelDrag(); }
     const shown = this.d ? this.shownTab() : null, pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
     const s = this.state(now);
     if (p && s !== "off" && s !== "exited" && s !== "empty") this.pollKnows(now, p);
@@ -1063,7 +1063,10 @@ export class AgentDrawer {
     if (from === d) throw new ActionRefused(`${name} is in the drawer already`);
     this.dropHover = null;
     // The drawer's own program coming back (PIE-892): into its own tab again, in place of the one holding it.
-    if (this.isOwnOut(from.pane(name))) return this.reclaim(from, name, actor, keys);
+    if (this.isOwnOut(from.pane(name))) {
+      if (to !== undefined || where !== undefined) throw new ActionRefused(`${name} is the drawer's own program: it goes back into its own tab, in place (tile.drawer without to= and where=)`);
+      return this.reclaim(from, name, actor, keys);
+    }
     const kind = (from.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
     const out = from.takeRefusal(name, actor);
     if (out) throw new ActionRefused(out);
@@ -1515,7 +1518,7 @@ export class AgentDrawer {
       // Over the drawer's body it lands where the drawer desk's own drop zones say (an edge of a tile, its tab strip: the
       // ghost it draws), as a tile dragged onto a group does; over the chip, or where no zone is, it goes in as a tab.
       const kind = (screen!.pane(dragged) as { kind?: string } | undefined)?.kind ?? "tile";
-      const zone = inDrawer && !onChip && this.d && r!.rows >= 4 ? this.d.foreignAt(k.x, k.y - this.deskRow(), { name: dragged, kind }) : null;
+      const zone = inDrawer && !onChip && this.d && r!.rows >= 4 && !this.isOwnOut(screen!.pane(dragged)) ? this.d.foreignAt(k.x, k.y - this.deskRow(), { name: dragged, kind }) : null;
       if (!zone) this.d?.cancelDrag();
       const says = zone ? (zone.refused ? `✕ ${zone.refused}` : `into your drawer: ${zone.label}`) : DRAWER_DROP;
       const hover = over ? dragged : null;

@@ -114,6 +114,26 @@ describe.skipIf(!outliner)("a tile dragged onto the drawer lands where its drop 
     } finally { d.app.quit(); }
   });
 
+  test("a drag ended by a key leaves no ghost in the drawer", async () => {
+    const d = await door();
+    try {
+      const [x, y] = at(d, "right"), row = d.app.drawer.rect!.row + 1, head = (d.desk.describe().panes as any[]).find(p => p.name === "reader").rect;
+      d.key(mouse("down", head.col + 4, head.row)); d.key(mouse("drag", head.col + 9, head.row + 2)); d.key(mouse("drag", x, y + row));
+      expect((d.drawer() as any).foreign).not.toBeNull();
+      d.key({ kind: "char", ch: "f" });                              // f floats the dragged tile: the drag ends there
+      d.paint();
+      expect((d.drawer() as any).foreign).toBeNull();
+    } finally { d.app.quit(); }
+  });
+
+  test("the drawer's own program goes back into its own tab: a place for it is refused, not ignored", async () => {
+    const d = await door();
+    try {
+      const out: any = await d.drawer().dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
+      await expect(d.desk.dispatch.act({ action: "tile.drawer", args: { on: true, to: "activity", where: "right" }, tile: out.name }, USER)).rejects.toThrow(/own program/);
+    } finally { d.app.quit(); }
+  });
+
   test("a drawer holding only its own program takes the tile beside it, by the same zones", async () => {
     const d = await door();
     try {
