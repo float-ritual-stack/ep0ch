@@ -112,7 +112,7 @@ Script lookup uses the invoking note and its nearest ancestors first, then other
 script notes, outline files, then the scripts declared by installed extensions. An outline's
 `[script::neat]` therefore overrides the installed `neat`. Each extension's manifest lists
 `{ name, file, about }` in `scripts`; the folder reader checks that each file exists and opts in.
-Uninstalling removes its scripts; a button naming one says how to reinstall the extension.
+Uninstalling or disabling an extension removes its scripts; a button naming one says how to install the extension.
 Extension script files opt in with the same `// ep0ch-script` header as outline files;
 `effects=write` permits actions. They run through the same runtime and source-change checks.
 

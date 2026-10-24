@@ -27,7 +27,7 @@ An extension declares the scripts it ships in `extension.json`:
 Scripts count as something the extension provides; a scripts-only extension needs no `run`.
 Each script must declare a different file. Each declared `.js` or `.ts` file must exist in `scripts/` and start with `// ep0ch-script`
 (or `// ep0ch-script effects=write`). The folder reader names a missing file or header.
-Only declared scripts from installed extensions load. Outline script notes and outline files
+Only declared scripts from extensions the registry serves as active load (a disabled extension, or a copy another folder shadows, supplies none). Outline script notes and outline files
 precede extension scripts. The install row, `extensions.list` (`scripts` on installed and available
 entries), and the extension's page describe the same manifest list. Uninstall removes the scripts;
 a button naming one offers `ep0ch act extensions.install id=<extension>` to reinstall it. See [neat](../../extensions/neat/README.md)

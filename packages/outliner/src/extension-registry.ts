@@ -243,7 +243,8 @@ function builtInActions(extension: LoadedExtension): ExtensionActionEntry[] {
 }
 
 export interface ExtensionRegistryOptions {
-  readonly sources?: () => Promise<readonly ManifestSource[]>;
+  /** The script sources; given the extensions this pass serves as active, whose manifests may declare scripts. */
+  readonly sources?: (extensions: readonly LoadedExtension[]) => Promise<readonly ManifestSource[]>;
   readonly watchPaths?: readonly string[];
   readonly roots: readonly ExtensionRoot[];
   /** Called after a reload that changed what the registry serves. */
@@ -307,10 +308,9 @@ export class ExtensionRegistry {
   }
 
   private async loadOnce(): Promise<void> {
-    const slots: Slot[] = [];
+    const folderSlots: Slot[] = [];
     const seen = new Set<string>();
     const now = new Date().toISOString();
-    for (const source of await this.options.sources?.() ?? []) slots.push(this.sourceSlot(source, now));
     for (const root of this.options.roots) {
       let names: string[] = [];
       try {
@@ -327,7 +327,7 @@ export class ExtensionRegistry {
         }
         if (!existsSync(join(directory, "extension.json"))) continue;
         if (seen.has(name)) {
-          slots.push({ id: name, origin: root.origin, directory, state: "shadowed",
+          folderSlots.push({ id: name, origin: root.origin, directory, state: "shadowed",
             error: `the outline's own ${name} is used instead` });
           continue;
         }
@@ -338,11 +338,11 @@ export class ExtensionRegistry {
           const previous = this.lastGood.get(key);
           const loadedAt = previous && previous.extension.stamp === extension.stamp ? previous.loadedAt : now;
           this.lastGood.set(key, { extension, loadedAt });
-          slots.push({ id: name, origin: root.origin, directory, state: extension.enabled ? "active" : "disabled", serving: extension, loadedAt });
+          folderSlots.push({ id: name, origin: root.origin, directory, state: extension.enabled ? "active" : "disabled", serving: extension, loadedAt });
         } catch (error) {
           const message = error instanceof ExtensionLoadError ? error.message : `the folder could not be read (${error instanceof Error ? error.message : String(error)})`;
           const previous = this.lastGood.get(key);
-          slots.push({
+          folderSlots.push({
             id: name, origin: root.origin, directory, state: "failed",
             error: previous ? `${message}; still serving version ${previous.extension.version} loaded ${previous.loadedAt}` : message,
             ...(previous ? { serving: previous.extension, loadedAt: previous.loadedAt } : {}),
@@ -350,6 +350,11 @@ export class ExtensionRegistry {
         }
       }
     }
+    // Script sources come first (the outline's own before an extension's); only extensions that serve as active supply scripts.
+    const active = folderSlots.flatMap(slot => slot.state === "active" && slot.serving ? [slot.serving] : []);
+    const slots: Slot[] = [];
+    for (const source of await this.options.sources?.(active) ?? []) slots.push(this.sourceSlot(source, now));
+    slots.push(...folderSlots);
     // A folder that is gone takes its last good copy with it.
     const present = new Set(slots.map((slot) => `${slot.id}\0${slot.directory}`));
     for (const key of [...this.lastGood.keys()]) if (!present.has(key)) this.lastGood.delete(key);

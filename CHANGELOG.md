@@ -38,6 +38,13 @@ shares that start and end, `loki_lease`, `outline_new` and `outline_archive`, wh
 A write recorded as another persona than the session's says so once in the transcript. No protocol change. The gateway
 needs a restart to take `persona` on those tools (`ep0ch install --apply`); the mod loads with Claude Code.
 
+### A disabled or shadowed extension no longer supplies scripts, and a button names the plain install command (PIE-1240)
+
+An extension's declared scripts now come from the extension registry's own list: a disabled extension, or a copy another
+folder shadows (the outline's own `neat` beats the user's), supplies none, and enabling it brings them back on the next
+reload. A button whose script is not installed says `install with ep0ch act extensions.install id=<extension>` (it was
+"reinstall", wrong for a first install). No protocol change.
+
 ### Typing never lands in the wrong place while a note is opening in edit, and a failed open keeps what you typed (PIE-1153)
 
 The key that opens or resumes an edit (`e`, ⏎) is no longer typed into the draft, also when the door was restarted
