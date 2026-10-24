@@ -7,7 +7,7 @@ import { answerMcp, aboutListing, boundOutlines } from "../src/mcp";
 import { machineOutlines } from "../src/mcp-gateway";
 import { mcpRecord } from "../src/mcp";
 import type { McpOutlineAdmin } from "../src/mcp-outlines";
-import type { McpCaller } from "../src/mcp-writes";
+import { PERSONA_TOOLS, type McpCaller } from "../src/mcp-writes";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { SocketBoard, hostRequest } from "../src/socket";
 import { outliner, ScratchHost } from "./scratch";
@@ -187,6 +187,21 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
     expect(((await run("list_outlines", {})).json.outlines as { outline: string }[]).map(r => r.outline)).toEqual(["pie-like"]);
     expect((await run("outline_archive", { name: "stdio-pad", restore: true })).json.outcome).toBe("restored");
     expect(((await run("list_outlines", {})).json.outlines as { outline: string }[]).map(r => r.outline)).toEqual(["pie-like", "stdio-pad"]);
+    setEnv({});
+  }, 60_000);
+
+  test("every tool that records an actor takes persona, and the call's wins over the connection's (PIE-1256)", async () => {
+    const tools = ((await answerMcp(outlines, JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/list" }), code))!.reply as any).result.tools as { name: string; inputSchema: { properties: Record<string, unknown> } }[];
+    const missing = tools.filter(t => PERSONA_TOOLS.includes(t.name as any) && !t.inputSchema.properties.persona).map(t => t.name);
+    expect(missing).toEqual([]);
+    expect(tools.filter(t => !PERSONA_TOOLS.includes(t.name as any) && t.inputSchema.properties.persona).map(t => t.name)).toEqual([]);
+    const other = { sub: "stdio", clientId: "persona-fill" } satisfies McpCaller;
+    setEnv({ EP0CH_MCP_SCRATCH_CAP: "20", EP0CH_MCP_PERSONAS: "persona-fill@" + HERE + "=daddy" });
+    const made = await call(other, "outline_new", { name: "scout-tray", purpose: "scout's tray", persona: "scout" });
+    expect(made.json).toMatchObject({ outcome: "created", by: `scout (persona-fill@${HERE})` });
+    const refused = await call(other, "outline_archive", { name: "scout-tray", persona: "not a persona" });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("persona must match");
     setEnv({});
   }, 60_000);
 

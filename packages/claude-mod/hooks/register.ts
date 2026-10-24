@@ -32,7 +32,7 @@ import {
   outlinerUriOf,
 } from './references'
 import { replyBlocks, tableWidths, type LinePart, type ReplyBlock } from './reply-lines'
-import { CONNECTOR_WRITE_MATCH, personaFilled, slipOf } from './connector-persona'
+import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-persona'
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
@@ -706,7 +706,7 @@ export function register(on: On, options: PluginOptions): void {
   // is one principal with one default persona, so a write that names none is recorded as someone else's. A write
   // recorded as another persona than this session's says so once per name, in a dim transcript line.
   const slipped = new Set<string>()
-  on('tool.call', { tool: CONNECTOR_WRITE_MATCH }, async ($, e, next) => {
+  on('tool.call', { tool: CONNECTOR_PERSONA_MATCH }, async ($, e, next) => {
     const persona = await sessionPersona($)
     const filled = personaFilled(e as Record<string, unknown>, persona)
     const answered = await next((filled ?? e) as typeof e)

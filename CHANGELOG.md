@@ -32,8 +32,11 @@ you type in it stops taking your keys. No protocol change.
 The connector is one principal, and the gateway's `EP0CH_MCP_PERSONAS` gave every write through it the same default
 persona, so a patch from `loki`'s session was recorded as `daddy (claude.ai)` unless the call passed `persona`. The
 Claude mod now fills `persona` on the connector's write tools with the session's own (the "writes as" line's) when the
-call names none; one that names a persona keeps it. A write recorded as another persona than the session's says so
-once in the transcript. No protocol change; the mod loads with Claude Code, nothing to run.
+call names none; one that names a persona keeps it. This covers every connector tool that records an actor: the writes,
+`outline_write_status` (it only finds a queued write when its persona matches), `outline_snapshot`, `script_run`, the
+shares that start and end, `loki_lease`, `outline_new` and `outline_archive`, which now take `persona` at the gateway too.
+A write recorded as another persona than the session's says so once in the transcript. No protocol change. The gateway
+needs a restart to take `persona` on those tools (`ep0ch install --apply`); the mod loads with Claude Code.
 
 ### Typing never lands in the wrong place while a note is opening in edit, and a failed open keeps what you typed (PIE-1153)
 

@@ -1,15 +1,15 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
-import { CONNECTOR_WRITE_MATCH, CONNECTOR_WRITE_TOOLS, personaFilled, slipOf } from '../hooks/connector-persona'
+import { CONNECTOR_PERSONA_MATCH, CONNECTOR_PERSONA_TOOLS, personaFilled, slipOf } from '../hooks/connector-persona'
 
 tier('user')
 
 // Which connector calls get the session's persona, and when an answer says it was recorded as someone else.
 
 describe('which calls', () => {
-  test("the connector's write tools match; its reads, this mod's tools and other servers do not", () => {
-    for (const name of CONNECTOR_WRITE_TOOLS) expect(CONNECTOR_WRITE_MATCH.test(`mcp__claude_ai_ep0ch__${name}`)).toBe(true)
+  test("the connector's tools that record an actor match; its reads, this mod's tools and other servers do not", () => {
+    for (const name of CONNECTOR_PERSONA_TOOLS) expect(CONNECTOR_PERSONA_MATCH.test(`mcp__claude_ai_ep0ch__${name}`)).toBe(true)
     for (const name of ['mcp__claude_ai_ep0ch__outline_read', 'mcp__claude_ai_ep0ch__outline_patch_x', 'mcp__ep0ch__outline_patch', 'mcp__other__outline_patch', 'outline_patch'])
-      expect(CONNECTOR_WRITE_MATCH.test(name)).toBe(false)
+      expect(CONNECTOR_PERSONA_MATCH.test(name)).toBe(false)
   })
 })
 

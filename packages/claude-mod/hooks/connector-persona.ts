@@ -1,5 +1,5 @@
 /**
- * The claude.ai connector's writes from a Claude Code session (PIE-1256). The connector is one OAuth principal, and the
+ * The claude.ai connector's recorded calls from a Claude Code session (PIE-1256). The connector is one OAuth principal, and the
  * gateway's `EP0CH_MCP_PERSONAS` maps it to one default persona, so a write that names none is recorded as that
  * default, whoever in the session made it. The mod fills `persona` with the session's own (the one the "writes as"
  * line shows) on every write the call doesn't name one for, and says so when an answer was recorded as someone else.
@@ -12,16 +12,17 @@ import { outputJsonOf } from './tool-rows'
 export const CONNECTOR_PREFIX = 'mcp__claude_ai_ep0ch__'
 
 /**
- * The door's `MCP_WRITE_TOOLS` (packages/door/src/mcp-writes.ts), which a hooks module can't import: the door's
- * test/claude-mod-contract.test.ts fails when the two lists differ.
+ * The door's `PERSONA_TOOLS` (packages/door/src/mcp-writes.ts): every gateway tool that records an actor and so takes
+ * `persona`, which a hooks module can't import. The door's test/tool-args.test.ts fails when the two lists differ.
  */
-export const CONNECTOR_WRITE_TOOLS = [
+export const CONNECTOR_PERSONA_TOOLS = [
   'outline_create', 'outline_patch', 'outline_comment', 'outline_reply', 'outline_resolve_thread', 'outline_quote', 'outline_set_property',
   'outline_move', 'outline_trash', 'outline_restore', 'outline_assign_id', 'outline_proposal_apply', 'outline_proposal_dismiss', 'outline_proposal_resolve',
+  'outline_write_status', 'outline_snapshot', 'script_run', 'share_start', 'share_revoke', 'loki_lease', 'outline_new', 'outline_archive',
 ] as const
 
 /** The `tool.call` matcher for those tools. */
-export const CONNECTOR_WRITE_MATCH = new RegExp(`^${CONNECTOR_PREFIX}(${CONNECTOR_WRITE_TOOLS.join('|')})$`)
+export const CONNECTOR_PERSONA_MATCH = new RegExp(`^${CONNECTOR_PREFIX}(${CONNECTOR_PERSONA_TOOLS.join('|')})$`)
 
 /** The call with the session's persona in it: unchanged (null) when it names one already or the session has none. */
 export function personaFilled<I extends Record<string, unknown>>(input: I, persona: string | undefined): (I & { persona: string }) | null {
