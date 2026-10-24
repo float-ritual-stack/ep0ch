@@ -11,7 +11,7 @@ import { actionArgTables, inertDocument, unwrapParagraphs } from "../src/extensi
 import { figureProps, figureSource } from "@ep0ch/outline-core/figure-props";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import type { Block } from "../src/types";
+import type { Block, ChangeFeedPage } from "../src/types";
 import { codeBlocks } from "@ep0ch/outline-core/code-fence";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -86,7 +86,7 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   expect(listed.hub).toBeString();
   const hub = store.require(listed.hub!);
   expect(hub.text.split("\n")[0]).toBe("Extensions [page::extensions]");
-  expect(hub.author).toBe("system");
+  expect(hub).toMatchObject({ author: "agent", actorId: "ext:extension-pages" });
   // The hub: each installed one a link to its page; what the repo has that isn't installed, with how to install it.
   expect(hub.text).toContain(`((${listed.pages.notify}|Notifications hub)) \`notify\` v3`);
   expect(listed.available.map((entry) => entry.id)).toContain("moon");
@@ -103,6 +103,13 @@ test("installed extensions get a hub, a page each and their demo notes once, as 
   expect(page.text).toContain("- Action **Run this step** (`ext.runbook.run-step`, on a `run::` line, key `x`, writes)");
   expect(page.text).toContain("### 6 (2026-10-19)");
   expect(page.text).not.toContain("### 1 (2026-10-10)");
+  // Generated documentation is an extension write, so it never crowds out the person's unread changes.
+  const feed = await client.request<ChangeFeedPage>({ action: "changes.since", sequence: 0, limit: 1000 });
+  if (feed.kind !== "changes") throw new Error("expected changes");
+  const generated = new Set([hub.id, ...Object.values(listed.pages)]);
+  const documentation = feed.changes.filter(change => generated.has(change.blockId!));
+  expect(documentation.length).toBeGreaterThan(0);
+  for (const change of documentation) expect(change.actor).toMatchObject({ author: "agent", actorId: "ext:extension-pages" });
   const [runbook] = await children(page.id);
   expect(runbook!.text.split("\n")[0]).toBe("Ship the demo widget [type::runbook] [env::scratch]");
   expect(store.require(runbook!.id)).toMatchObject({ author: "agent", actorId: "ext:runbook" });

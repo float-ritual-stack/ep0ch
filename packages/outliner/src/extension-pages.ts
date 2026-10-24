@@ -33,6 +33,7 @@ import type { Block, MutationProvenance } from "./types";
 
 const STATE_KEY = "extensions.pages";
 const SYSTEM: MutationProvenance = { author: "system" };
+const PAGE_WRITER = { author: "agent", actorId: "ext:extension-pages" } as const;
 
 interface Seeded { id: string; revision: number }
 interface PagesState {
@@ -328,10 +329,10 @@ export class ExtensionPages {
       try { work(); } catch (error) { problems.push(`${what}: ${error instanceof Error ? error.message : String(error)}`); }
     };
     try {
-      this.store.changes.run(this.store.changes.attribution({ action: "extensions.pages", actor: SYSTEM }), () => {
+      this.store.changes.run(this.store.changes.attribution({ action: "extensions.pages", actor: PAGE_WRITER }), () => {
         let hub = this.live(state.hub);
         if (!hub) {
-          hub = this.createAddressed("Extensions [page::extensions]", null, "system");
+          hub = this.createAddressed("Extensions [page::extensions]", null, "agent", PAGE_WRITER);
           state.hub = hub.id;
         }
         const hubId = hub.id;
@@ -339,8 +340,8 @@ export class ExtensionPages {
           const demo = loaded ? readDemo(loaded.directory, loaded.manifest.demo) : { notes: [] };
           let page = this.live(state.pages[entry.id]?.block);
           const text = this.keepAddress(page, this.pageText(entry, loaded, demo));
-          if (!page) page = this.createAddressed(text, hubId, "system");
-          else if (page.text !== text) page = this.store.update(page.id, text, page.revision, SYSTEM, "text", [], page.updatedAt);
+          if (!page) page = this.createAddressed(text, hubId, "agent", PAGE_WRITER);
+          else if (page.text !== text) page = this.store.update(page.id, text, page.revision, PAGE_WRITER, "text", [], page.updatedAt);
           state.pages[entry.id] = { block: page.id, name: loaded?.name ?? entry.name ?? entry.id };
           if (demo.notes.length) this.seed(state, entry.id, page.id, demo, now);
         });
@@ -352,16 +353,16 @@ export class ExtensionPages {
             const block = this.live(page.block);
             if (block && this.store.children(block.id).length) {
               const text = this.keepAddress(block, this.removedText(id, page.name));
-              if (block.text !== text) this.store.update(block.id, text, block.revision, SYSTEM, "text", [], block.updatedAt);
+              if (block.text !== text) this.store.update(block.id, text, block.revision, PAGE_WRITER, "text", [], block.updatedAt);
               return;
             }
-            if (block) this.store.delete(block.id, SYSTEM);
+            if (block) this.store.delete(block.id, PAGE_WRITER);
             delete state.pages[id];
           });
         }
         const current = this.store.require(hubId);
         const hubText = this.keepAddress(current, this.hubText(state, installed.map(({ entry, loaded }) => ({ entry, loaded }))));
-        if (current.text !== hubText) this.store.update(hubId, hubText, current.revision, SYSTEM, "text", [], current.updatedAt);
+        if (current.text !== hubText) this.store.update(hubId, hubText, current.revision, PAGE_WRITER, "text", [], current.updatedAt);
       });
     } finally {
       this.write(state);
