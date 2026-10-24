@@ -1098,7 +1098,7 @@ export class Publisher {
     const policy = this.requirePolicy();
     // A block under a `[publish::never]` note is locked with it, whatever it says itself.
     const wanted = collection.blocks.filter((block) => requestedSlug(block) !== null);
-    const locked = await this.lockedIds(wanted.map((block) => block.id));
+    const locked = await this.lockedAgainstOutsiders(wanted.map((block) => block.id));
     const assigned = assignPaths(wanted.filter((block) => !locked.has(block.id)));
     const rawTitles = new Map(assigned.map(({ block }) => [block.id, block.title ?? ""]));
     // A public note's title links only other public notes, so it never names a tailnet-only one.
@@ -2071,18 +2071,26 @@ export class Publisher {
   }
 
   /**
-   * Which of `ids` are locked against this reader: the block or any ancestor carries
-   * `[publish::never]`, and the reader is not the signed-in owner. Walks up one level per request, all ids together. A
-   * chain it cannot finish counts as locked. A missing or trashed block isn't locked: `gone` says which those are.
+   * Which of `ids` are locked against the reader of this request: none for the signed-in owner (PIE-1265), else
+   * `lockedAgainstOutsiders`. The one place every read, list, search, embed and reply asks. A share link is read as an
+   * outsider (`answerShare`).
    */
   private async lockedIds(ids: readonly string[], gone?: Set<string>): Promise<Set<string>> {
-    // The signed-in owner is locked out of nothing (PIE-1265): the one place every read, list, search, embed and reply
-    // asks. A share link is read as an outsider (`answerShare`).
     if (this.signedInOwner() && !gone) return new Set();
+    const locked = await this.lockedAgainstOutsiders(ids, gone);
+    return this.signedInOwner() ? new Set() : locked;
+  }
+
+  /**
+   * Which of `ids` are locked against everyone outside: the block or any ancestor carries `[publish::never]`. Walks up
+   * one level per request, all ids together. A chain it cannot finish counts as locked. A missing or trashed block isn't
+   * locked: `gone` says which those are. Whatever is cached for several readers (the published index) asks this one, so
+   * it never depends on who happens to be reading.
+   */
+  private async lockedAgainstOutsiders(ids: readonly string[], gone?: Set<string>): Promise<Set<string>> {
     const known = await this.walkUp(ids);
     // `gone`, when asked for, collects those that are missing or in Trash.
     if (gone) for (const id of ids) if (known.get(id) === null) gone.add(id);
-    if (this.signedInOwner()) return new Set();
     const decided = new Map<string, boolean>();
     const isLocked = (id: string, depth = 0): boolean => {
       const cached = decided.get(id);

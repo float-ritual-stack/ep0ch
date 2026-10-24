@@ -136,3 +136,14 @@ test("a share link keeps the lock, whoever follows it", async () => {
   // And a share of a never note can't be started: never means never outside.
   await expect(client.request({ action: "shares.start", scope: ledger.id, ttl: "5m" })).rejects.toThrow(/publish::never/);
 });
+
+test("an index the owner's request rebuilds never names what an outsider may not see", async () => {
+  // The index is shared by every reader and rebuilt by whoever asks first after a change: here the owner.
+  store.create("Bat box map [publish::bat-boxes]", ledger.id, "user");
+  store.create("Marker note [publish::marker]", null, "user");
+  const listed = async (as: Reader) => ((await (await get("/pub/index.json", as, {})).json()) as { entries: { slug: string }[] }).entries.map((entry) => entry.slug);
+  for (let tries = 0; tries < 60 && !(await listed("owner")).includes("marker"); tries++) await Bun.sleep(50);
+  expect(await listed("owner")).toContain("marker");
+  // Not for the unsigned tailnet reader (the public listener has no index), and not for the owner: it is the same index.
+  for (const as of ["tailnet", "owner"] as const) expect(await listed(as)).not.toContain("bat-boxes");
+});
