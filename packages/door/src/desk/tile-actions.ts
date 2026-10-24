@@ -400,7 +400,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     examples: [
       { act: "tile.drawer on=true tile=activity", does: "puts the activity tile in your drawer, keeping its state" },
       { act: "tile.drawer on=false to=reader where=right tile=activity", does: "takes the tile out of the drawer to the right of the reader" },
-      { act: "tile.drawer to=activity where=right tile=reader", does: "puts the reader in your drawer, to the right of the drawer's activity tile (where a drag onto that side drops it), not as a tab" },
+      { act: "tile.drawer to=drawer.agent where=right tile=reader", does: "puts the reader in your drawer, to the right of the drawer's own program (where a drag onto that side drops it), not as a tab" },
     ],
     run({ on, to, where }, { d, reader }, actor) {
       return d.drawerTile(reader, on, to, where !== undefined ? whereOf(where, "tile.drawer", "right") : undefined, actor);
