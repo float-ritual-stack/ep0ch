@@ -809,7 +809,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "note.trash": def({
     summary: "move the note the tile points at (a reader's note, a list's or the tree's selected row; or ref=<block id>) and the notes under it to Trash, recorded as the actor's, where note.untrash (ctrl+z) brings it back. The person's first press says what would go in a two-row choice (d again, Delete or ⏎ trashes it, any other key or esc keeps it); an agent passes confirm=<the note's id>, the same note said twice. Refused with why: a system note (the Inbox, Trash, Bookmarks), a note already in the Trash, a note with a draft open on it",
-    keys: "d then d again (Delete the same), a click on the tile menu's row",
+    keys: "d then d ⏎ (either confirms), Delete then Delete ⏎ the same, a click on the tile menu's row",
     touches: "draft", draft: "write", replay: "ask",
     says: r => `trashed “${r.title}”`,
     menu: { label: "trash this note", group: "Trash", key: "d", now: ({ d, reader }: On) => (d.subjectOf(reader).id ? null : { hide: true }) },
