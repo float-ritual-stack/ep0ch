@@ -95,6 +95,26 @@ describe.skipIf(!outliner)("the gateway over stdio", () => {
     expect(resource!.result.contents[0].text).toBe(text);
   });
 
+  test("agents can discover and read the extension references without a checkout", async () => {
+    const [init, listed, ...read] = await ask([
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+      { jsonrpc: "2.0", id: 2, method: "resources/list" },
+      ...["scripts", "extensions"].map((name, i) => ({ jsonrpc: "2.0", id: i + 3, method: "resources/read", params: { uri: `ep0ch://docs/${name}` } })),
+    ]);
+    expect(init!.result.instructions).toContain("ep0ch-extend");
+    for (const [i, name] of ["scripts", "extensions"].entries()) {
+      expect(listed!.result.resources).toContainEqual(expect.objectContaining({ uri: `ep0ch://docs/${name}`, mimeType: "text/markdown" }));
+      const content = read[i]!.result.contents[0];
+      expect(content.uri).toBe(`ep0ch://docs/${name}`);
+      expect(content.text).toContain(name === "scripts" ? "## Globals" : "## Testing an extension");
+      expect(content.text).toContain(`ep0ch://docs/${name === "scripts" ? "extensions" : "scripts"}`);
+      const links = [...content.text.matchAll(/\]\((ep0ch:\/\/docs\/[^)]+)\)/g)].map(m => m[1]);
+      const followed = await ask(links.map((uri, id) => ({ jsonrpc: "2.0", id, method: "resources/read", params: { uri } })));
+      for (const answer of followed) expect(answer.result?.contents[0].text).toContain("# ");
+      expect(content.text).not.toMatch(/\]\((?:\.\.?\/|(?:extensions\/README|PROGRAMMABLE-NOTES)\.md)/);
+    }
+  });
+
   test("a write answers with the components the note holds and what won't draw, beside said, and saves it as written", async () => {
     const written = ["Seed beds", "::graph-stats", "---", "title: x", "---", "::", "::graph-stat", "---", "title: the beds", "items: [{ value: \"4\", label: raised }]", "---", "::"].join("\n");
     const [made] = await ask([{ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "outline_create", arguments: { ref: parent, text: written } } }]);

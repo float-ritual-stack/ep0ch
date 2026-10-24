@@ -22,6 +22,7 @@ export { UP_FRONT_TOOLS as UPFRONT_TOOLS } from './agent-tool-definitions'
 
 /** This session's own lines after the guide's: what the mod's tools do that the gateway's don't. */
 const MOD_LINES = [
+  'To make the outline do something new (a button, a rule, a script, an extension), use the ep0ch-extend skill (ep0ch --skill ep0ch-extend); ep0ch docs extensions is the reference.',
   '',
   'In this session: outline_edit rewrites a note whole or appends to it; a write that holds a figure comes back drawn as the door draws it (ep0ch show), with its `components` and `warnings`, so read the drawing before saying it is done.',
 ]

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { SocketBoard } from "./socket";
 import { Term } from "./term";
 import { clientRows, controlClient, formatClients } from "./control";
+import { DOCS_USAGE, docsCommand } from "./docs";
 import { skillCommand } from "./skills";
 import { resolveTarget } from "./discover";
 import { nameTheOutline, parseOutlineArgs, runOutlineCommand } from "./outlines";
@@ -154,6 +155,7 @@ ${SHARE_USAGE}
                                    The web client's /sessions page does the same
 ${EXPORT_USAGE}
 ${LIBRARY_USAGE}
+${DOCS_USAGE}
   ep0ch echo toss | nodelist | subscribe | areas …   (ep0ch echo help says each one's flags)
                                    EchoNet (PIE-779): run the echonet extension's tosser (copies in, netmail
                                    both ways, nodelist and toss log), write and print the nodelist, subscribe
@@ -266,6 +268,7 @@ if (args[0] === "view") process.exit(await viewCommand(args));
 if (args[0] === "artifact") { const { artifactCommand } = await import("./artifact-cli"); process.exit(await artifactCommand(args)); }
 if (args[0] === "share" || args[0] === "reader") { const { shareCommand } = await import("./share-cli"); process.exit(await shareCommand(args)); }
 if (args[0] === "export") { const { exportCommand } = await import("./export"); process.exit(await exportCommand(args)); }
+if (args[0] === "docs") process.exit(docsCommand(args.slice(1)));
 if (args[0] === "library") { const { libraryCommand } = await import("./library/cli"); process.exit(await libraryCommand(args)); }
 // The outline's extensions (PIE-754): ls (with each schedule's next and last run), add, remove, act and run, through
 // the outliner's own command (one implementation); --ws names the outline as for every command.

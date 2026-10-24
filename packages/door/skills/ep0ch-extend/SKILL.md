@@ -15,7 +15,7 @@ are long and exact; this page tells you which section to read. Reach them howeve
 |---|---|---|
 | Scripts (globals, `act`, `read`, `view.*`, slots, modes, lifecycle, traps, worked examples, `neat`) | resource `ep0ch://docs/scripts` | `ep0ch docs scripts` |
 | Extensions (the folder, `extension.json`, the four kinds, rules, actions, bar sources, agents, tiles, schedules, writes, secrets, testing) | resource `ep0ch://docs/extensions` | `ep0ch docs extensions` |
-| Every action the door has, with its arguments | — | `ep0ch actions` |
+| Actions on the connected door's current screen, with arguments | — | `ep0ch actions` |
 | Every component a note can hold, with an example | tool `outline_components` | `ep0ch library --brief` |
 
 For working in someone's notes, use `ep0ch-outline`; for driving their door, `ep0ch`; for changing ep0ch's own
@@ -63,8 +63,8 @@ Not in the table: read the extensions reference's *Not yet* section. If it's lis
 
 ## Writing it
 
-- **Use the real surface, never a guessed one.** Every action is listed by `ep0ch actions` (and `act` refuses an
-  unknown argument with the right call); every component's properties by `outline_components`. A name you made up
+- **Use the real surface, never a guessed one.** The connected door lists its current screen's actions with `ep0ch actions`; `ep0ch actions --doc <name>` reads a known action's page (built-ins also
+  work without a door). `act` refuses an unknown argument with the right call; every component's properties by `outline_components`. A name you made up
   fails loudly, as it should.
 - **Tiles by id, notes by id or `read(ref)`.** `read()` resolves an id, `((id))`, `[[page]]` or a Work ID.
 - **Attributed and undoable.** Whatever a script or extension writes is recorded as it; a press is one undo group.
@@ -76,7 +76,9 @@ Not in the table: read the extensions reference's *Not yet* section. If it's lis
 
 Never against a real outline, a real door or a real outside service.
 
-- A scratch outline: `outline_new` over MCP (a scratch outline of its own; `outline_archive` puts it away), or
+- A scratch outline: `outline_new { name, purpose }` over MCP (a scratch outline of its own;
+  `outline_archive { name }` puts it away). These are MCP server tools; in the Claude mod or a shell, use
+  `ep0ch outline create <scratch-name>` and `ep0ch outline archive <scratch-name>` instead. Or use
   `ep0ch try --ws <name> --copy` for a private copy of a real outline's shapes with no real writes. Inside ep0ch's own
   repository, `scripts/agent-env <your name> -- …` as its AGENTS.md says.
 - An extension: the extensions reference's *Testing an extension* (a scratch service, `OUTLINER_EXTENSIONS_DIR` at a temp folder, a

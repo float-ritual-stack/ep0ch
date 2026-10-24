@@ -385,7 +385,7 @@ const SCREENS: BarSource = {
   },
 };
 
-interface ExtRow { kind: "hub" | "page" | "install" | "remove"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string; scripts?: { name: string; about: string }[] }
+interface ExtRow { kind: "hub" | "page" | "install" | "remove" | "make"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string; scripts?: { name: string; about: string }[] }
 
 /**
  * The outline's extensions (the service's `extensions.list`, as the extension binding last read it): the Extensions hub,
@@ -400,7 +400,7 @@ const EXTENSIONS: BarSource = {
   rows(q, host) {
     const l = extensionList();
     if (!l) return [];
-    const rows: BarRow[] = [];
+    const rows: BarRow[] = [{ key: "make", label: "make your own", detail: "ep0ch-extend skill · ep0ch docs extensions", group: "make", data: { kind: "make", id: "" } satisfies ExtRow }];
     if (l.hub) rows.push({ key: "hub", label: "Extensions", detail: "the hub: what's installed and what you can add", group: "installed", data: { kind: "hub", id: "", block: l.hub } satisfies ExtRow });
     const installed = l.extensions.filter(e => e.state !== "shadowed");
     for (const e of installed) {
@@ -420,14 +420,20 @@ const EXTENSIONS: BarSource = {
   },
   preview(row) {
     const d = row.data as ExtRow;
+    if (d.kind === "make") return { markdown: "To make the outline do something new (a button, a rule, a script, an extension), use the **ep0ch-extend** skill.\n\nFrom a shell: `ep0ch --skill ep0ch-extend`, then read that file.\n\nThe reference: `ep0ch docs extensions`. Over MCP: `ep0ch://skills/ep0ch-extend` and `ep0ch://docs/extensions`." };
     if (d.block) return { note: d.block };
     if (d.kind === "install") return { markdown: [`**${row.label.replace(/^install /, "")}** \`${d.id}\``, "", d.about ?? "", "", ...(d.scripts ?? []).map(s => `Adds the script **${s.name}**: ${s.about}`), "", "⏎ installs it for every outline this host serves (`ep0ch ext add " + d.id + "`): its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes."].join("\n") };
     if (d.kind === "remove") return { markdown: [`**${row.label}**`, "", !d.notes ? "Its folder goes, and its lines and actions stop working. Its page goes with it." : d.demo === "keep" ? "Its folder goes, and its lines and actions stop working. Its demo notes stay under its page." : "Its folder goes, and its demo notes go to Trash: the ones nobody changed (the rest are kept, and named). Trash can restore them.", "", `The same from a shell: \`ep0ch ext remove ${d.id}${d.demo === "remove" ? " --demo remove" : ""}\``].join("\n") };
     return { lines: [row.label, "", row.refused ?? ""] };
   },
-  pick(row, host, how) {
+  async pick(row, host, how) {
     const d = row.data as ExtRow;
     if (row.refused) throw new ActionRefused(row.refused);
+    if (d.kind === "make") {
+      const message = "Use the ep0ch-extend skill: ep0ch --skill ep0ch-extend; reference: ep0ch docs extensions";
+      host.ctx.flash(message);
+      return { message };
+    }
     if (d.block) return openNote(d.block, host, how);
     const [action, args] = d.kind === "install" ? ["extensions.install", { id: d.id }] : ["extensions.uninstall", { id: d.id, demo: d.demo! }];
     return how.actor.kind === "agent" ? host.dispatch.act({ action, args }, how.actor) : host.dispatch.press(action, args);
