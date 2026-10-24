@@ -290,9 +290,11 @@ switch (verb) {
       // Dead today: the victim's day is stamped so their next move doesn't count as a new morning.
       await save(victimNote, { ...morning(victimNote, them), hp: 0, dead: 1, gold: 0, rest: null, day: today });
       me.hp = Math.max(1, a); set("hp", me.hp);
+      // Both players saved before the news and the comment, which can fail without leaving the loot half moved.
+      const message = await finish(await gain(loot, xp, `you kill ${victimNote.title} in their sleep: +${fmt(loot)} gold, +${fmt(xp)} xp`));
       await news(world, `${name} found ${victimNote.title} asleep in the fields and killed them, taking ${fmt(loot)} gold.`);
       try { await tools.outline_comment({ ref: victimNote.id, whole: true, body: `${name} killed you in your sleep and took ${fmt(loot)} gold. Bank it next time.` }); } catch { /* the news has it */ }
-      return await finish(await gain(loot, xp, `you kill ${victimNote.title} in their sleep: +${fmt(loot)} gold, +${fmt(xp)} xp`));
+      return message;
     }
     // The attacker's purse goes first (the debit), then the sleeper's (the credit).
     const lost = me.gold;

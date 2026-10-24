@@ -63,9 +63,10 @@ test("installing the wyrm seeds a town; joining, the forest, the healer and the 
       expect((await play(ash.id, { do: "forest" })).message).toBe("Ash Quill is dead until tomorrow");
     } else {
       expect(Number(after.xp)).toBeGreaterThan(0);
+      const purse = chips(ash.id).gold;
       const bank = await play(ash.id, { do: "deposit" });
       expect(bank.message).toMatch(/^deposited [\d,]+ gold/);
-      expect(chips(ash.id)).toMatchObject({ gold: "0" });
+      expect(chips(ash.id)).toMatchObject({ gold: "0", bank: purse });
     }
     // A verb it doesn't know names the ones it does.
     const wrong = await play(ash.id, { do: "dance" });
@@ -178,6 +179,13 @@ test("the sheet and the town board draw the chips, and uninstalling keeps the no
     expect(sheet).toContain("Dozing Gerald"); // asleep in the fields, so on everyone's sheet
     expect(sheet).toContain("Yester Rue"); // died yesterday: has risen, so can be found
     expect(sheet).not.toContain("Tonight Vale"); // died today: nothing to ambush
+    // Yesterday's dead player, opening their own sheet before they move, is whole and has the moves.
+    const rue = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Yester Rue"))!;
+    await draw(rue.id);
+    const own = await until("the risen sheet", () => output(rue.id).find(o => o?.includes("Yester Rue")));
+    expect(own).toContain("20/20");
+    expect(own).toContain("forest");
+    expect(own).not.toContain("dead.");
     await draw(town.id);
     const board = await until("the town board", () => output(town.id).find(o => o?.includes("Daily News")));
     expect(board).toContain("Ember");

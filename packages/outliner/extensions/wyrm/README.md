@@ -35,7 +35,7 @@ Install from the power bar (ctrl+k, `&wyrm`, pick **install Legend of the Ep0ch 
 - `ambush target=<note>`: three a day, on a player asleep in the same town's fields. The whole fight happens at once;
   the loser is dead until tomorrow, the news says so, and the victim gets a comment on their note. A defender whose
   last death was on an earlier day has risen first (full hp, a new morning's turns), and keeps what's left of that if they win.
-  Both notes are checked for changes before either is written; the loser's side is saved first, so a refusal between the two saves loses gold rather than minting it.
+  Both notes are checked for changes before either is written, and gold is debited before it is credited, so a refusal between the two saves loses gold rather than minting it.
 - `wyrm`: at level 12, go up the mountain. Kill it and you start again at level 1, with a kill to your name.
 
 `wyrm do=join name=…` on the town makes a player (without `name=`, a Stranger; rename by editing the title).

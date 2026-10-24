@@ -9,7 +9,9 @@ const n = key => Number(v(key) ?? 0);
 const deadToday = note => of(note, "dead") === "1" && of(note, "day") === today;
 const fresh = v("day") !== today;
 const dead = deadToday(this);
-const level = n("level") || 1, hp = n("hp"), maxhp = n("maxhp") || 1;
+const level = n("level") || 1, maxhp = n("maxhp") || 1;
+// A dead player from an earlier day has risen whole, though their note says so only at their next move.
+const hp = v("dead") === "1" && !dead ? maxhp : n("hp");
 const press = (label, line, tone) => view.button({ label, act: `wyrm ${line}`, tone });
 
 const parts = [
