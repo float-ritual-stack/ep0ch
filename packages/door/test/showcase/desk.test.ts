@@ -416,6 +416,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
     const stage = S().stages.get(S().sel).top as Desk;
     await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
+    await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, { kind: "user" });
     await until(() => (app.drawer.desk?.pane("drawer.agent") as any)?.running === true, "the drawer's program runs");
     const drawer = app.drawer.desk!, user = { kind: "user" } as const;
     await drawer.dispatch.act({ action: "tile.link", tile: "drawer.agent", args: { to: drawer.pathTo(stage.pane("reader")!) } }, user);
