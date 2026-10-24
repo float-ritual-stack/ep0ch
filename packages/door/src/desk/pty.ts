@@ -197,6 +197,11 @@ export class PtyPane implements Pane {
   tileId: string | null = null;
   /** The tile's name on the desk, for a tile opened without one (`^W o s`: the desk names it): EP0CH_TILE. */
   tileName: string | null = null;
+  /**
+   * The name its program is given as EP0CH_TILE: its label (a drawer program's own name), else its tile's name. It is the
+   * program's word for where it runs, so the door answers to it (`Desk.resolveTile`) when it names no tile by that name.
+   */
+  get programTile(): string { return this.run.label || this.tileName || basename(this.run.cmd[0] ?? "") || "tile"; }
   /** The layout (or view) the tile was started in, for its EP0CH_NEST layer. */
   place: string | null = null;
   /** The state file its screen's layout is saved in (desk.json, the drawer's): with its id, what it's known by across daemons. */
@@ -423,7 +428,7 @@ export class PtyPane implements Pane {
     }
     // The program's pane isn't the door's Herdr pane: an agent in it mustn't report itself as the door. This
     // door's control socket: `ep0ch act` from the program reaches the door it runs in.
-    const env = tileEnv(process.env, this.run.label || this.tileName || basename(this.run.cmd[0] ?? "") || "tile", controlPath, this.tileId, this.place);
+    const env = tileEnv(process.env, this.programTile, controlPath, this.tileId, this.place);
     if (keep) env.EP0CH_AGENT_CONTINUE = "1";
     // The service's variables for its program (an extension's tile); the door's own (EP0CH_*) stay the door's.
     for (const [k, v] of Object.entries(this.run.env ?? {})) if (!k.startsWith("EP0CH_")) env[k] = v;

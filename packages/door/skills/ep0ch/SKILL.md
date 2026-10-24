@@ -92,8 +92,8 @@ only when the person asked for it.
 - **Inside a door** (a terminal tile, the drawer, the daily agent's Herdr pane, the door's drop shell),
   `EP0CH_CONTROL` is already that door's socket, `EP0CH_TILE` your tile's name and `EP0CH_NEST` the layers
   you run in. Run `ep0ch where` first: it checks each layer and says whether the person is typing in your
-  tile. Open notes with `ep0ch open <block> from=$EP0CH_TILE` (the same as `ep0ch act open id=<block>
-  from=$EP0CH_TILE`: there is one open), so they land where your tile's opens go, on the desk and the board
+  tile. Open notes with `ep0ch open <block> from=$EP0CH_TILE_ID` (the same as `ep0ch act open id=<block>
+  from=$EP0CH_TILE_ID`: there is one open; `$EP0CH_TILE` names the same tile when the id is empty), so they land where your tile's opens go, on the desk and the board
   alike; never name a reader you guessed.
 - Otherwise the control commands talk to the door on `EP0CH_CONTROL`, else the one on the outline the folder
   names (its `door.sock` in `~/.local/state/ep0ch-door/sessions/<local or machine>/<name>/`), else the only door

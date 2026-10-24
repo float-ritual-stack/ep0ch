@@ -1210,6 +1210,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const named = desks.flatMap(desk => [...desk.names].filter(([id, name]) => name === sel && desk.panes.has(id)).map(([id]) => ({ desk, id })));
     if (named.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${named.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
     if (named.length) return found(named[0]!.desk, named[0]!.id);
+    // A program names its tile by what it was told (EP0CH_TILE, EP0CH_TILE_ID): the drawer's own program is told its own
+    // name (shell, claude) and the id it keeps wherever it runs, neither the name its tile has on the desk.
+    const told = desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && (p.programTile === sel || p.tileId === sel)).map(([id]) => ({ desk, id })));
+    if (told.length > 1) throw new ActionRefused(`several programs were told ${sel}: ${told.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
+    if (told.length) return found(told[0]!.desk, told[0]!.id);
     if (sel === "focused") return this.resolveTile(this.ctx?.person?.().address ?? this.keys().address ?? "");
     const pane = sel.includes("/") ? this.paneAtPath(sel) : undefined;
     const desk = pane && desks.find(d => d.idOf(pane) !== undefined);
@@ -2375,7 +2380,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     const landed = d.placeNote(m, { from: source, fresh, note: m.id }, actor);
-    if (!landed) return d.land(m, actor);
+    // A tile of the drawer with no wire has no reader to open into: the screen shown takes it, as the drawer's lists do (`setCurrent`).
+    if (!landed) { const host = d.ctx?.hostLayer; return host?.isDrawer(d) ? host.openOnScreen(m.id, fresh, actor) : d.land(m, actor); }
     this.redraw(); landed.desk.redraw();
     return { ...landed.desk.tileAnswer(landed.id), id: m.id };
   }
@@ -7463,7 +7469,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
   }),
   "open": def({
     answer: { tile: { type: "string|null", kind: "tile", about: "the destination tile's stable id, or null when no tile opened" }, name: { type: "string", about: "the destination's displayed name" }, id: { type: "string", kind: "note", about: "the note shown" } },
-    summary: "show a note only where it lands; only the person's own open moves the current note. Show it in tile=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it; fresh=true: a new tile there). On a screen whose opens land in a container (the board's readers row), tile=detail is the tile an open lands in there, new-detail a new one, float a new one floating. An agent's naming neither (`ep0ch open <id>`) lands where the focused tile's opens go, else a reader that follows, never one the person is typing in. A program in a tile passes from=$EP0CH_TILE, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: "enter in the outline, / search; ⏎ alt+⏎ in a reader that follows (where its opens land)",
+    summary: "show a note only where it lands; only the person's own open moves the current note. Show it in tile=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it; fresh=true: a new tile there). On a screen whose opens land in a container (the board's readers row), tile=detail is the tile an open lands in there, new-detail a new one, float a new one floating. An agent's naming neither (`ep0ch open <id>`) lands where the focused tile's opens go, else a reader that follows, never one the person is typing in. A program in a tile passes from=$EP0CH_TILE_ID (or $EP0CH_TILE), the tile it was told it runs in, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: "enter in the outline, / search; ⏎ alt+⏎ in a reader that follows (where its opens land)",
     // A reader named (tile=) is moved: an agent's is refused in the one the person has. Naming none (or a place word),
     // it lands where opens land: maybe the note they're reading, said on screen, never their keys or a reader they type in.
     touches: "tile", touchesWith: (_, tile) => (tile !== undefined ? "tile" : "nothing"), way: "opening a note there would move what they're reading · name another reader with tile=, or name none (ep0ch open <id>): it lands where opens land, never their keys or a reader they type in",
