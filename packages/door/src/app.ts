@@ -1,4 +1,4 @@
-import { Canvas } from "./canvas";
+import { Canvas, type Rect } from "./canvas";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { StatusBarNote, STATUS_BAR_ACTIONS, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
 import { OSC8, OSC8_CLOSE } from "./hyperlink";
@@ -116,6 +116,8 @@ export interface HostLayer {
   collapse(name: string, on: boolean | undefined, actor: Actor): TileDone;
   /** The drawer is folded to a strip. */
   readonly folded: boolean;
+  /** Where the drawer is drawn now (its strip while folded), or null when it is put away: what `peek` reports. */
+  drawnRect(): Rect | null;
   /** Why `actor` can't fold the drawer now (an agent, and the person is in it), or null. */
   foldRefusal(actor: Actor): string | null;
   /** Put the drawer away from its tile `name` (drawer.away, host.toggle open=false): its tiles stay as they are. */

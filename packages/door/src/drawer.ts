@@ -1278,13 +1278,15 @@ export class AgentDrawer {
     return panes;
   }
 
+  /** Where the drawer is drawn now (its strip while folded), or null when it is put away. */
+  drawnRect(): Rect | null { return this.shown ? this.rect : null; }
   describe() {
     const pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
     const shown = this.tabs().find(t => t.name === this.shownTab());
     const known = p ? this.knowledge.get(p) : null;
     return {
       open: this.open, shown: this.shown, entered: this.entered, share: Math.round(this.share * 100) / 100, host: this.mode,
-      rect: this.shown ? this.rect : null, state: this.state(), tile: shown ? { tile: shown.id, name: shown.name === DRAWER_TILE_ID ? this.name : shown.name } : null,
+      rect: this.drawnRect(), state: this.state(), tile: shown ? { tile: shown.id, name: shown.name === DRAWER_TILE_ID ? this.name : shown.name } : null,
       runs: { cmd: this.prog.cmd, cwd: this.prog.cwd, why: { program: this.prog.programWhy, folder: this.prog.folderWhy } },
       tiles: this.tabs().map(({ id, ...tab }) => ({ tile: id, ...tab })),
       sessions: this.sessions().map(s => sessionFacts(s)),

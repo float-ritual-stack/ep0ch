@@ -42,6 +42,11 @@ export interface DeskApi {
   tileLooks?: TileLooks;
   /** The screens held one inside the next down to this desk (a mount is checked against it). */
   mountChain?(): string[];
+  /**
+   * Tile `p` is drawn at a size that isn't its own now: folded to a spine, or in flight between two places (the layout
+   * glides, PIE-958). A terminal keeps the size its program has then; it is told the one it ends at, once.
+   */
+  holdsSize?(p: Pane): boolean;
   current: Msg | null;
   /** `link`, `fresh`, `agent`: how a reader opened it (OpenHow, PIE-441), for where it goes. */
   setCurrent(m: Msg | null, opts?: { reveal?: boolean; from?: Pane; to?: Pane; keys?: false } & OpenHow): void;
