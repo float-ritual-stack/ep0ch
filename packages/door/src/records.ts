@@ -3,14 +3,14 @@ import type { BlockAuthor } from "@ep0ch/outline-core/protocol";
 export const RECORD_FIELDS = {
   "run-start": ["ticket", "harness", "branch", "worktree", "pid", "host", "summary"],
   "run-end": ["run", "exit", "pr", "duration", "report"],
-  deploy: ["when", "who", "session", "from", "to", "local", "clients", "sha", "host", "sessions", "protocol", "grammar", "failed", "observed", "previous", "details"],
+  deploy: ["sha", "host", "protocol", "grammar", "observed", "previous", "when", "who", "session", "from", "to", "local", "clients", "sessions", "failed", "details"],
   finding: ["ticket", "pr", "source", "failure", "likelihood", "cost"],
   "finding-closed": ["finding", "fixed", "dismissed"],
 } as const;
 export type RecordKind = keyof typeof RECORD_FIELDS;
 interface Note { id: string }
 
-export const DEPLOYS_NOTE = [
+const DEPLOYS_NOTE = [
   "Deploys [system-view::deploys] [machine::install] [type::virtual-branch] [query::type=deploy machine=install] [sort::created] [direction::desc]", "",
   "Install runs, newest first. Copy this figure into the build log for the latest five:", "",
   "::graph-table", "---", "query: type=deploy machine=install", "sort: created", "direction: desc", "limit: 5", "columns: [title, created]", "---", "::",

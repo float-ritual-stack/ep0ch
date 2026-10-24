@@ -248,7 +248,7 @@ test("install control returns a receipt, survives an offline connector, and hono
   const messages: string[] = [];
   const sha = "a".repeat(40);
   const receipts = async (previous: string) => {
-    const result = await board.request<{ blocks: { text: string }[] }>("blocks.query", { query: { where: "type=deploy machine=install" } });
+    const result = await board.request<{ blocks: { text: string }[] }>("blocks.query", { query: { where: "type=deploy machine=install host=travel" } });
     return result.blocks.filter(b => b.text.includes(`[previous::((${previous}))]`));
   };
   const target = { sha, record: { socket: here.sock, outline: "garden", id: note.id } };
