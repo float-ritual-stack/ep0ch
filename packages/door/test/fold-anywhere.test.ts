@@ -38,23 +38,24 @@ describe.skipIf(!outliner)("fold anywhere: the fold keys reach the tile that has
   afterEach(() => { delete process.env.EP0CH_STATE; delete process.env.EP0CH_DAILY_AGENT; rmSync(state, { recursive: true, force: true }); });
 
   /** A door on the desk (tree, reader, a `cat` terminal named kettle, replies, activity) on a fake 250x40 terminal (wide enough that opening a spine folds no other). */
-  async function door() {
+  async function door(o: { again?: boolean } = {}) {
     let key: (k: Key) => void = () => {};
     let painted: string[] = [];
     const term: any = { info: { cols: 250, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, paintRow() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     const app = new App(term, board, Date.now(), () => {});
-    const desk = new Desk(undefined, { layout: "desk" });
+    // The next door reads the desk as the last one saved it (a named layout in the options would build it afresh).
+    const desk = o.again ? new Desk() : new Desk(undefined, { layout: "desk" });
     app.push(desk);
-    await desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle" }, tile: "reader" }, USER);
+    if (!o.again) await desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle" }, tile: "reader" }, USER);
     const paint = () => { (app as any).paint(); return painted.map(plain); };
     paint();
-    await until(() => (desk.pane("kettle") as PtyPane | undefined)?.running === true, "kettle runs");
+    if (!o.again) await until(() => (desk.pane("kettle") as PtyPane | undefined)?.running === true, "kettle runs");
     const press = (keys: Key[]) => { for (const k of keys) key(k); paint(); };
     const click = (x: number, y: number) => { key(mouse("down", x, y)); key(mouse("up", x, y)); paint(); };
     const foldedIn = (d: Desk) => d.layoutGet().tiles.filter((t: any) => t.collapsed).map((t: any) => t.name).sort();
     /** Everything a fold could move: the screen's spines, the drawer's, the drawer itself, and where the keys are. */
     const snap = () => ({
-      screen: foldedIn(desk), drawerTiles: app.drawer.made ? foldedIn(app.drawer.made) : [], strip: app.drawer.folded, up: app.drawer.open,
+      screen: foldedIn(desk), drawerTiles: app.drawer.made ? foldedIn(app.drawer.made) : [], strip: !!app.drawer.folded, up: app.drawer.open,
       keys: app.drawer.entered ? "drawer" : "screen", focus: (app.drawer.entered ? app.drawer.made! : desk).focusName(),
     });
     return { app, desk, press, click, paint, snap, drawer: () => app.drawer.made! };
@@ -97,40 +98,84 @@ describe.skipIf(!outliner)("fold anywhere: the fold keys reach the tile that has
     : place === "drawer, lone tab" ? { ...was, strip: true }
       : { ...was, drawerTiles: [...new Set([...was.drawerTiles, kind, "drawer.agent"])].sort() };
 
-  describe("every input folds the tile that has the keys, + opens it again as it was", () => {
+  const FOLDS = ["-", "alt+h", "ctrl+w c", "act", "menu row", "title-bar fold click"] as const;
+  const OPENS = ["+", "=", "alt+h", "click on the spine"] as const;
+  type Fold = (typeof FOLDS)[number];
+  type Open = (typeof OPENS)[number];
+
+  /** One way to fold `kind` where the keys are (`on`: the desk it is in; `prefix`: out of its program first). */
+  async function foldWith(d: Door, how: Fold, on: Desk, kind: Kind, prefix: Key[]) {
+    if (how === "-" || how === "alt+h" || how === "ctrl+w c") return d.press([...prefix, ...KEYS[how]!]);
+    if (how === "act") return void await on.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: kind }, USER);
+    if (how === "menu row") {
+      const row = on.dispatch.menu(kind, USER).find(r => r.action === "tile.collapse")!;
+      expect(row.label).toBe("fold to a spine");
+      expect(row.refused).toBeUndefined();
+      return void await on.dispatch.act({ action: row.action, args: row.args, tile: kind }, USER);
+    }
+    // The glyph on the tile's frame, as the desk last drew it (cells of its own desk: the drawer's start below its bar).
+    d.paint();
+    const b = (on as any).foldButtons.find((x: any) => x.id === (on as any).idNamed(kind));
+    if (!b) throw new Error(`no fold glyph on ${kind}'s frame`);
+    d.press(prefix);
+    d.click(b.from, b.row + (on === d.desk ? 0 : d.app.drawer.rect!.row + 1));
+  }
+  /** One way to open it again: the folded tile has the keys (or, folded drawer, the strip). */
+  function openWith(d: Door, how: Open, on: Desk, kind: Kind, place: Place) {
+    if (how === "click on the spine") {
+      if (place === "drawer, lone tab") return d.click(10, d.app.drawer.rect!.row);
+      const r = (on.layoutGet().tiles.find((t: any) => t.name === kind) as any).rect;
+      return d.click(r.col + 1, r.row + Math.min(3, r.rows - 1) + (on === d.desk ? 0 : d.app.drawer.rect!.row + 1));
+    }
+    d.press([how === "alt+h" ? alt("h") : char(how)]);
+  }
+
+  describe("every way to fold lands on the tile that has the keys and moves nothing else; + opens it as it was", () => {
     for (const place of PLACES) {
       for (const kind of KINDS) {
-        test(`${kind}, ${place}`, async () => {
+        for (const how of FOLDS) {
+          if (how === "title-bar fold click" && place === "drawer, lone tab") continue;      // no frame glyph on a lone tab: the strip is what a click opens
+          test(`${kind}, ${place}: ${how}`, async () => {
+            const d = await door();
+            try {
+              const { on, prefix } = await arrive(d, place, kind);
+              const was = d.snap();
+              await foldWith(d, how, on, kind, prefix);
+              expect(d.snap()).toEqual(afterFold(was, place, kind));
+              openWith(d, "+", on, kind, place);
+              expect(d.snap()).toEqual(was);
+            } finally { d.app.quit(); }
+          });
+        }
+        for (const how of OPENS.filter(o => o !== "+")) {
+          // The drawer up covers a stacked tile's spine, which sits at the foot of its column: nothing there to click.
+          if (how === "click on the spine" && place === "screen, drawer up" && kind === "activity") continue;
+          test(`${kind}, ${place}: opened by ${how}`, async () => {
+            const d = await door();
+            try {
+              const { on, prefix } = await arrive(d, place, kind);
+              const was = d.snap();
+              await foldWith(d, "-", on, kind, prefix);
+              d.paint();
+              openWith(d, how, on, kind, place);
+              expect(d.snap()).toEqual(was);
+            } finally { d.app.quit(); }
+          });
+        }
+        test(`${kind}, ${place}: a fold is saved and the next door comes up with it`, async () => {
           const d = await door();
+          let was: ReturnType<Door["snap"]>;
           try {
             const { on, prefix } = await arrive(d, place, kind);
-            const was = d.snap();
-            const inputs: [string, () => Promise<void> | void][] = [
-              ...Object.entries(KEYS).map(([how, keys]) => [how, () => d.press([...prefix, ...keys])] as [string, () => void]),
-              ["act", async () => { await on.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: kind }, USER); }],
-              ["menu row", async () => {
-                const row = on.dispatch.menu(kind, USER).find(r => r.action === "tile.collapse")!;
-                expect(row.label).toBe("fold to a spine");
-                expect(row.refused).toBeUndefined();
-                await on.dispatch.act({ action: row.action, args: row.args, tile: kind }, USER);
-              }],
-            ];
-            // The glyph on the tile's frame (a lone drawer tab has none: the strip is what a click opens).
-            if (place !== "drawer, lone tab") inputs.push(["title-bar fold click", () => {
-              const b = (on as any).foldButtons.find((x: any) => x.id === (on as any).idNamed(kind));
-              if (!b) throw new Error(`no fold glyph on ${kind}'s frame`);
-              d.press(prefix);
-              d.click(b.from, b.row + (on === d.desk ? 0 : d.app.drawer.rect!.row + 1));
-            }]);
-            for (const [how, run] of inputs) {
-              await run();
-              expect({ how, ...d.snap() }).toEqual({ how, ...afterFold(was, place, kind) });
-              d.press([char("+")]);
-              expect({ how: `${how}, then +`, ...d.snap() }).toEqual({ how: `${how}, then +`, ...was });
-              // The keys are on the tile again for the next input (a terminal's program has them back).
-              if (kind === "kettle") await on.dispatch.act({ action: "tile.enter", tile: kind }, USER);
-            }
+            was = d.snap();
+            await foldWith(d, "-", on, kind, prefix);
+            d.paint();
           } finally { d.app.quit(); }
+          const next = await door({ again: true });
+          try {
+            const { screen, drawerTiles, strip, up } = afterFold(was, place, kind);
+            expect({ screen: next.snap().screen, drawerTiles: next.snap().drawerTiles, strip: next.snap().strip, up: next.snap().up }).toEqual({ screen, drawerTiles, strip, up });
+          } finally { next.app.quit(); }
         });
       }
     }
