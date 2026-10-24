@@ -21,8 +21,12 @@ async function realm() {
     const answer = await until(`wyrm ${JSON.stringify(args)}`, () => ended.get(run.undo));
     return answer;
   };
+  const today = new Date().toISOString().slice(0, 10);
+  /** A made-up player with exactly these chips, so a fight's outcome isn't left to the dice. */
+  const player = (name: string, chipsOf: Record<string, string | number>, parent: string) =>
+    h.store.create(`${name} [type::wyrm-player] ${Object.entries({ level: 1, maxhp: 20, str: 10, def: 1, gold: 0, turns: 15, ambushes: 3, day: today, ...chipsOf }).map(([k, v]) => `[${k}::${v}]`).join(" ")}\nwyrm-sheet::`, parent, "user").id;
   const chips = (id: string) => Object.fromEntries(h.store.require(id).properties.map(p => [p.key, p.value]));
-  return { ...h, installed, one, play, chips, stop: () => watcher.stop() };
+  return { ...h, installed, one, play, chips, today, player, stop: () => watcher.stop() };
 }
 
 test("installing the wyrm seeds a town; joining, the forest, the healer and the bank play on the player's chips", async () => {
@@ -62,7 +66,6 @@ test("installing the wyrm seeds a town; joining, the forest, the healer and the 
       const bank = await play(ash.id, { do: "deposit" });
       expect(bank.message).toMatch(/^deposited [\d,]+ gold/);
       expect(chips(ash.id)).toMatchObject({ gold: "0" });
-      expect((await play(ash.id, { do: "heal" })).message).toMatch(/nothing to mend|costs \d+ gold a point/);
     }
     // A verb it doesn't know names the ones it does.
     const wrong = await play(ash.id, { do: "dance" });
@@ -71,7 +74,7 @@ test("installing the wyrm seeds a town; joining, the forest, the healer and the 
 }, 60_000);
 
 test("a player asleep in the fields can be ambushed; the news says so and the inn keeps you safe", async () => {
-  const { one, play, chips, store, stop } = await realm();
+  const { one, play, chips, store, today, player, stop } = await realm();
   try {
     const town = one("type=wyrm-world");
     const gerald = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Dozing Gerald" + " ["))!;
@@ -95,15 +98,13 @@ test("a player asleep in the fields can be ambushed; the news says so and the in
       expect(chips(brick.id).gold).toBe("0");
       expect(chips(gerald.id).gold).toBe("170");
     }
-    // A death from an earlier day doesn't count: they've risen, so an ambush finds them.
-    const ghost = store.create("Old Wren [type::wyrm-player] [level::1] [hp::0] [maxhp::20] [str::10] [def::1] [gold::5] [dead::1] [day::2001-02-03] [rest::fields]\nwyrm-sheet::", town.id, "user");
-    await play(town.id, { do: "join", name: "Fen" });
-    const fen = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Fen ["))!;
-    // She has risen whole, so it's a real fight: her 20 hp take more than one blow from a level 1 fist.
-    const wren = await play(fen.id, { do: "ambush", target: ghost.id });
-    expect(wren.message).not.toBe("Old Wren is already dead");
-    if (chips(ghost.id).dead === "1") expect(Number(chips(fen.id).hp)).toBeLessThanOrEqual(20);
-    else expect(chips(fen.id).dead).toBe("1");
+    // A death from an earlier day doesn't count: they've risen whole, so the ambush is a real fight and the kill is new.
+    const ghost = player("Old Wren", { hp: 0, maxhp: 20, gold: 5, dead: 1, day: "2001-02-03", rest: "fields" }, town.id);
+    const fen = player("Fen", { hp: 20, str: 200, gold: 0 }, town.id);
+    const wren = await play(fen, { do: "ambush", target: ghost });
+    expect(wren.message).toStartWith("you kill Old Wren in their sleep: +5 gold");
+    expect(chips(ghost)).toMatchObject({ hp: "0", gold: "0", dead: "1", day: today });
+    expect(chips(fen).gold).toBe("5");
     // The revision check before the two writes passes on an untouched pair: the ambush runs and spends one.
     await play(town.id, { do: "join", name: "Gnat" });
     const gnat = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Gnat ["))!;
@@ -126,17 +127,57 @@ test("a player asleep in the fields can be ambushed; the news says so and the in
   } finally { stop(); }
 }, 60_000);
 
+test("a defender who died yesterday and wins the ambush has risen: the fight is saved with their morning, and the healer mends what's left", async () => {
+  const { one, play, chips, today, player, stop } = await realm();
+  try {
+    const town = one("type=wyrm-world");
+    const wren = player("Old Wren", { hp: 0, maxhp: 500, str: 100, def: 50, gold: 5, dead: 1, day: "2001-02-03", rest: "fields", turns: 2, ambushes: 0 }, town.id);
+    const pip = player("Pip", { hp: 150, str: 100, gold: 40 }, town.id);
+    expect((await play(pip, { do: "ambush", target: wren })).message).toBe("Old Wren wakes and kills you. They keep your 40 gold");
+    expect(chips(pip)).toMatchObject({ dead: "1", gold: "0", hp: "0" });
+    // She rose whole (500 hp) before the fight, took the blows, and keeps what's left: alive today, with a new morning's turns.
+    const after = chips(wren);
+    expect(after.dead).toBeUndefined();
+    expect(after).toMatchObject({ gold: "45", day: today, turns: "15", ambushes: "3" });
+    expect(Number(after.hp)).toBeGreaterThan(100); // Pip lands two to four blows of 25 to 75
+    expect(Number(after.hp)).toBeLessThanOrEqual(450);
+    // Her next move doesn't heal her to full: it's the same day, and the damage stands.
+    const before = Number(after.hp);
+    expect((await play(wren, { do: "heal" })).message).toBe(`healed 22 hp for 44 gold (${before + 22}/500)`);
+    expect(chips(wren)).toMatchObject({ hp: String(before + 22), gold: "1" });
+    expect(chips(wren).dead).toBeUndefined();
+  } finally { stop(); }
+}, 60_000);
+
+test("the healer sells hp a point at a time, two gold a level", async () => {
+  const { one, play, chips, player, stop } = await realm();
+  try {
+    const town = one("type=wyrm-world");
+    const hurt = player("Bruise", { hp: 5, gold: 10 }, town.id);
+    expect((await play(hurt, { do: "heal" })).message).toBe("healed 5 hp for 10 gold (10/20)");
+    expect(chips(hurt)).toMatchObject({ hp: "10", gold: "0" });
+    expect((await play(hurt, { do: "heal" })).message).toBe("healing costs 2 gold a point; you have 0");
+    const flush = player("Coin", { hp: 18, gold: 100 }, town.id);
+    expect((await play(flush, { do: "heal" })).message).toBe("healed 2 hp for 4 gold (20/20)");
+    expect(chips(flush)).toMatchObject({ hp: "20", gold: "96" });
+  } finally { stop(); }
+}, 60_000);
+
 test("the sheet and the town board draw the chips, and uninstalling keeps the notes and refuses the moves", async () => {
-  const { one, play, store, client, draw, output, stop } = await realm();
+  const { one, play, store, client, draw, output, player, stop } = await realm();
   try {
     const town = one("type=wyrm-world");
     await play(town.id, { do: "join", name: "Ember" });
     const ember = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Ember" + " ["))!;
+    player("Yester Rue", { hp: 0, dead: 1, day: "2001-02-03", rest: "fields" }, town.id);
+    player("Tonight Vale", { hp: 0, dead: 1, rest: "fields" }, town.id);
     await draw(ember.id);
     const sheet = await until("the sheet", () => output(ember.id).find(o => o?.includes("Ember")));
     expect(sheet).toContain("level 1");
     expect(sheet).toContain("forest");
     expect(sheet).toContain("Dozing Gerald"); // asleep in the fields, so on everyone's sheet
+    expect(sheet).toContain("Yester Rue"); // died yesterday: has risen, so can be found
+    expect(sheet).not.toContain("Tonight Vale"); // died today: nothing to ambush
     await draw(town.id);
     const board = await until("the town board", () => output(town.id).find(o => o?.includes("Daily News")));
     expect(board).toContain("Ember");

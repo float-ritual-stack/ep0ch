@@ -1,11 +1,14 @@
 Player sheet [script::wyrm-sheet] [mode::render]
 Draws a player's note: the chips the `wyrm` script keeps, and a press for every move. Each press is `wyrm do=…` on the note it's drawn in.
 ```js
-const v = key => this.properties.find(p => p.key === key)?.values[0];
-const n = key => Number(v(key) ?? 0);
 const today = (await resolve("now.date")).values[0];
+const of = (note, key) => note.properties.find(p => p.key === key)?.values[0];
+const v = key => of(this, key);
+const n = key => Number(v(key) ?? 0);
+// Death lasts the day it happened (the script's rule): an earlier day's dead player has risen.
+const deadToday = note => of(note, "dead") === "1" && of(note, "day") === today;
 const fresh = v("day") !== today;
-const dead = v("dead") === "1" && !fresh;
+const dead = deadToday(this);
 const level = n("level") || 1, hp = n("hp"), maxhp = n("maxhp") || 1;
 const press = (label, line, tone) => view.button({ label, act: `wyrm ${line}`, tone });
 
@@ -42,10 +45,10 @@ if (dead) {
   // The fields: who's asleep out there, and a press to find them.
   const sleepers = this.parent ? (await q("type=wyrm-player rest=fields", { under: this.parent, limit: 50 })).blocks.filter(b => b.id !== this.id) : [];
   const notes = await Promise.all(sleepers.map(b => read(b.id)));
-  const alive = notes.filter(note => note.properties.find(p => p.key === "dead")?.values[0] !== "1");
+  const alive = notes.filter(note => !deadToday(note));
   if (alive.length) parts.push(view.box({ title: "asleep in the fields", children: [view.table({
     columns: ["who", "level"],
-    rows: alive.map(note => [note.title, note.properties.find(p => p.key === "level")?.values[0] ?? "1"]),
+    rows: alive.map(note => [note.title, of(note, "level") ?? "1"]),
     acts: alive.map(note => `wyrm do=ambush target=${note.id}`),
   })] }));
 }
