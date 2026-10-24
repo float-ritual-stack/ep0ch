@@ -289,7 +289,7 @@ describe("what a running agent knows", () => {
       const sink = d.term.rawSink();
       sink("hello");                                                    // the person types in it
       await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/typing in claude in the drawer/);
-      d.key({ kind: "char", ch: "]", ctrl: true });                     // they leave the drawer, just now
+      d.key({ kind: "char", ch: "]", ctrl: true }); d.key({ kind: "esc" });   // they step out of the program and leave the drawer, just now
       await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/typed into the agent/);
       d.app.drawer.tile!.personKeyAt = Date.now() - 60_000;
       const r: any = await d.app.act({ action: "agent.restart", args: {}, as: "helper" });
@@ -310,7 +310,7 @@ describe("what a running agent knows", () => {
       d.key(ALT("a")); d.paint();
       await until(() => d.app.drawer.tile?.running === true && starts().length === 1, "the drawer's agent");
       await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
-      d.key({ kind: "char", ch: "]", ctrl: true });
+      d.key({ kind: "char", ch: "]", ctrl: true }); d.key({ kind: "esc" });
       d.app.drawer.tile!.personKeyAt = 0;
       // The fake Herdr lists no pane labelled door-claude.
       await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/couldn't find the agent's process in Herdr pane door-claude/);
