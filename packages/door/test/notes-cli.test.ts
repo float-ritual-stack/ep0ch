@@ -137,7 +137,9 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
   writeFileSync(process.env.BUILDER_FIXTURE_WAIT, String(child.pid));
   await child.exited;
 } else {
-  writeFileSync(args[args.indexOf("--output-last-message") + 1], "The hinge turns freely.");
+  const config = Bun.TOML.parse(args.flatMap((a, i) => a === "-c" ? [args[i + 1]] : []).join("\\n"));
+  const writer = config.mcp_servers?.ep0ch?.env?.EP0CH_AGENT ?? "unconfigured";
+  writeFileSync(args[args.indexOf("--output-last-message") + 1], "The hinge turns freely. MCP writer: " + writer);
   if (process.env.BUILDER_FIXTURE_REPORT) writeFileSync(process.env.BUILDER_FIXTURE_REPORT, "The fresh report file for this run.");
   process.exit(7);
 }
@@ -160,8 +162,9 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
       expect(code, err).toBe(7);
       const ended = JSON.parse(out.trim());
       expect((await board.get(ended.id))!.text).toContain("[exit::7]");
+      expect((await board.get(ended.id))!.text).toContain(`MCP writer: builder-${ticket.id}`);
       const reports = await board.request<{ text: string; actorId: string }[]>("children", { parentId: ticket.id });
-      expect(reports.some(r => r.text.includes("The hinge turns freely.") && r.actorId === "builder")).toBe(true);
+      expect(reports.some(r => r.text.includes("The hinge turns freely.") && r.actorId === `builder-${ticket.id}`)).toBe(true);
       const fresh = spawn({ BUILDER_FIXTURE_REPORT: staleReport });
       const freshOut = new Response(fresh.stdout).text();
       const freshErr = new Response(fresh.stderr).text();
