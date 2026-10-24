@@ -215,7 +215,10 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - **The drawer** (every screen; the host layer's, PIE-498, PIE-513): `host.toggle [open=true|false]`, `host.size
   share=0.2…0.9`, `agent.type text=…` (to its own program), `agent.knows`, `agent.restart`. `tile.drawer tile=<t>`
   moves a tile into it whole (its program keeps running), `tile.drawer on=false tile=<t> to=<tile> where=<side>` back
-  out into the screen shown; `tile=` naming a tile in the drawer reaches it there (`tile.type tile=kettle`). Put your own
+  out into the screen shown; `tile=` naming a tile in the drawer reaches it there (`tile.type tile=kettle`). `tile.collapse`
+  on a drawer tile folds it in the drawer's layout when a tile sits beside it, and folds the drawer itself to a strip
+  when it is alone (`on=false` opens it; never while the person is in the drawer); putting the drawer away is only
+  `host.toggle open=false` (or `drawer.away tile=<t>`). Put your own
   tile in: `tile.drawer tile=<id>` with the id `ep0ch where` gives (it finds your tile by your program, even after it
   moved; `$EP0CH_TILE_ID` is only where it started). Tiles in the drawer have ids `k<n>`. Its own first tab can leave too: `tile.drawer on=false tile=drawer.agent` puts it
   on the screen as an ordinary terminal tile, still running, and the drawer starts a fresh one the next time it's pulled

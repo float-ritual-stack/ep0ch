@@ -1322,7 +1322,7 @@ export class AgentDrawer {
     // Folded: the strip is the drawer's title and how it opens, as a spine says it; its tiles aren't drawn (and don't type).
     if (this.folded) {
       const edge = this.entered ? C.yellow : C.brown;
-      canvas.text(0, 0, `${fg(edge)}${"═".repeat(2)} ${fg(this.entered ? C.yellow : C.white)}▴ ${this.chipText()} ${fg(C.dark)}· + ⏎ or a click opens it · esc leaves ${fg(edge)}${"═".repeat(Math.max(0, cols))}${RESET}`, cols);
+      canvas.text(0, 0, `${fg(edge)}${"═".repeat(2)} ${fg(this.entered ? C.yellow : C.white)}${this.chipText()} ${fg(C.dark)}· + ⏎ or a click opens it · esc leaves ${fg(edge)}${"═".repeat(Math.max(0, cols))}${RESET}`, cols);
       return { rect: r, lines: canvas.lines(), placements: [] };
     }
     const pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
