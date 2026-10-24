@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Signed in, the site never locks a note against its owner (PIE-1265)
+
+`[publish::never]` now means "never share this outside". Signed in as yourself, the published site draws every note as
+it is: a never note opens, is a row in its parent's folder (no more "locked note" rows), turns up in search, embeds on
+pages and lists its replies, in every outline the host serves. An unsigned reader, the public listener and every share
+link keep the lock exactly as before, and a note under `[publish::never]` still can't be shared. No protocol change.
+
 ### A terminal folded to a spine keeps its size, and so does one the layout glides (PIE-1254)
 
 Folding a terminal drew it at every width on the way to its spine, so its shell re-wrapped the line you were typing at 3

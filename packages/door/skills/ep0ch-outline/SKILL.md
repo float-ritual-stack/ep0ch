@@ -326,7 +326,9 @@ one when they say which areas they want to see; a session reads them again withi
 Publish only when they asked for that page. `[publish::true]` (or `[publish::<slug>]`) serves the note and
 its subtree at `/p/<address>` on their network. **An embed shows the embedded note's text whether or not
 that note is published:** lock private material first with `[publish::never]` (it and everything under it
-stay off every page, embed and link). `[publish::false]` just leaves one note out. Check with
+stay off every page, embed and link). **Publish decides what outsiders see, not what the person sees:**
+signed in, they read every note as it is, and `never` means "never share this outside", not a sensitivity
+or a hide-from-me flag (use focus filters for that). `[publish::false]` just leaves one note out. Check with
 `outliner --ws <name> publish list`. The outline's guide has a Publishing section.
 
 **Anyone with the link.** `[publish::public]` (or `[publish::public:<slug>]`) also opens the note to anyone
