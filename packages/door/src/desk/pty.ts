@@ -423,6 +423,7 @@ export class PtyPane implements Pane {
       });
       this.socket = kept.meta.socket ?? null;
       this.herdrPane = kept.meta.herdr ?? null;
+      this.toldId = kept.meta.toldId ?? this.tileId;
       if (this.socket) this.attach(this.socket);
       if (kept.exited !== null) { this.ended(kept.proc, kept.exited, this.socket); return; }
       this.watch(this.proc);
@@ -522,7 +523,7 @@ export class PtyPane implements Pane {
   /** Start the emulator over from what the program wrote (a host's resync). */
   private resync: ((replay: Uint8Array) => void) | null = null;
   /** What the terminal host keeps with the program for the next daemon: its command, nvim's socket, a Herdr attach. */
-  private meta(): PtyMeta { return { cmd: this.run.cmd, socket: this.socket, herdr: this.herdrPane }; }
+  private meta(): PtyMeta { return { cmd: this.run.cmd, socket: this.socket, herdr: this.herdrPane, toldId: this.toldId }; }
   private remember() { const k = this.keptAs; if (k && this.running) ptyBackend().meta(k, this.meta()); }
 
   /** Connect to nvim's socket and ask it to report its view. A failure leaves the tile a plain terminal. */

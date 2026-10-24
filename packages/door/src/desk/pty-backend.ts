@@ -26,6 +26,8 @@ export interface PtyMeta {
   cmd?: string[];
   /** nvim's socket (`--listen`), which the door reconnects to. */
   socket?: string | null;
+  /** The EP0CH_TILE_ID the program was started with: the id it names its tile by, whichever tile holds it now. */
+  toldId?: string | null;
   /** The Herdr pane an attach shows (`tile.herdr`). */
   herdr?: { pane: string; name?: string } | null;
 }
