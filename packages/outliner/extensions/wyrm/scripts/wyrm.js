@@ -60,8 +60,10 @@ async function save(note, changes) {
   if (text !== note.text) await tools.outline_edit({ ref: note.id, expectedRevision: note.revision, text });
 }
 
+/** A death from an earlier day is over: that player has risen, whole, though their note says so only at their next move. */
+const risen = note => valueOf(note, "dead") === "1" && valueOf(note, "day") !== today;
 const stats = note => ({
-  level: numberOf(note, "level") || 1, hp: numberOf(note, "hp"), maxhp: numberOf(note, "maxhp") || 20,
+  level: numberOf(note, "level") || 1, hp: risen(note) ? (numberOf(note, "maxhp") || 20) : numberOf(note, "hp"), maxhp: numberOf(note, "maxhp") || 20,
   str: numberOf(note, "str") || 10, def: numberOf(note, "def"), gold: numberOf(note, "gold"), bank: numberOf(note, "bank"),
   gems: numberOf(note, "gems"), xp: numberOf(note, "xp"), weapon: numberOf(note, "weapon"), armor: numberOf(note, "armor"),
   turns: numberOf(note, "turns"), ambushes: numberOf(note, "ambushes"), kills: numberOf(note, "kills"),
@@ -262,7 +264,8 @@ switch (verb) {
     if (me.ambushes <= 0) return await finish("you've ambushed enough for one day");
     const victimNote = await read(target);
     if (victimNote.id === here.id) return await finish("you can't ambush yourself");
-    if (typeOf(victimNote) !== "wyrm-player" || (await worldOf(victimNote)).id !== world.id) return await finish("that isn't a player in this town");
+    const victimWorld = typeOf(victimNote) === "wyrm-player" ? await worldOf(victimNote).catch(() => null) : null;
+    if (victimWorld?.id !== world.id) return await finish("that isn't a player in this town");
     const them = stats(victimNote);
     if (them.dead) return await finish(`${victimNote.title} is already dead`);
     if (them.rest !== "fields") return await finish(`${victimNote.title} isn't sleeping in the fields`);

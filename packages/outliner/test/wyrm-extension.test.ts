@@ -95,7 +95,11 @@ test("a player asleep in the fields can be ambushed; the news says so and the in
     const ghost = store.create("Old Wren [type::wyrm-player] [level::1] [hp::0] [maxhp::20] [str::10] [def::1] [gold::5] [dead::1] [day::2001-02-03] [rest::fields]\nwyrm-sheet::", town.id, "user");
     await play(town.id, { do: "join", name: "Fen" });
     const fen = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Fen ["))!;
-    expect((await play(fen.id, { do: "ambush", target: ghost.id })).message).not.toBe("Old Wren is already dead");
+    // She has risen whole, so it's a real fight: her 20 hp take more than one blow from a level 1 fist.
+    const wren = await play(fen.id, { do: "ambush", target: ghost.id });
+    expect(wren.message).not.toBe("Old Wren is already dead");
+    if (chips(ghost.id).dead === "1") expect(Number(chips(fen.id).hp)).toBeLessThanOrEqual(20);
+    else expect(chips(fen.id).dead).toBe("1");
     // Asleep at the inn, nobody reaches you.
     await play(town.id, { do: "join", name: "Cinder" });
     const cinder = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Cinder" + " ["))!;
@@ -104,13 +108,15 @@ test("a player asleep in the fields can be ambushed; the news says so and the in
     await play(town.id, { do: "join", name: "Dusk" });
     const dusk = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Dusk" + " ["))!;
     expect((await play(dusk.id, { do: "ambush", target: cinder.id })).message).toBe("Cinder isn't sleeping in the fields");
-    // A new day: Gerald's day is long past, so his first move gives his turns back.
-    await play(gerald.id, { do: "sleep", where: "fields" });
-    expect(Number(chips(gerald.id).turns)).toBe(15);
+    // A new day: a player whose day is long past, never ambushed, gets turns back at their first move.
+    const sleeper = store.create("Moth Wick [type::wyrm-player] [level::1] [hp::12] [maxhp::20] [str::10] [def::1] [gold::0] [turns::0] [ambushes::0] [day::2002-03-04]\nwyrm-sheet::", town.id, "user");
+    await play(sleeper.id, { do: "sleep", where: "fields" });
+    expect(chips(sleeper.id)).toMatchObject({ turns: "15", ambushes: "3", rest: "fields" });
+    expect(chips(sleeper.id).day).not.toBe("2002-03-04");
   } finally { stop(); }
 }, 60_000);
 
-test("the sheet and the town board draw the chips, and uninstalling refuses the moves with the reinstall command", async () => {
+test("the sheet and the town board draw the chips, and uninstalling keeps the notes and refuses the moves", async () => {
   const { one, play, store, client, draw, output, stop } = await realm();
   try {
     const town = one("type=wyrm-world");
@@ -129,7 +135,7 @@ test("the sheet and the town board draw the chips, and uninstalling refuses the 
     const removed = await client.request<{ removed: boolean }>({ action: "extensions.uninstall", extension: "wyrm", demo: "keep" });
     expect(removed.removed).toBe(true);
     expect(store.require(ember.id).text).toContain("wyrm-sheet::");
-    await expect(client.request({ action: "extensions.act", extension: "script:wyrm", extensionAction: "run", blockId: ember.id, args: { do: "forest" } }))
-      .rejects.toThrow();
+    await expect(client.request({ action: "extensions.act", extension: "script:wyrm", extensionAction: "run", blockId: ember.id, args: { do: "forest" }, clientId: "wyrm-player" }))
+      .rejects.toThrow("No extension script:wyrm is active here");
   } finally { stop(); }
 }, 60_000);
