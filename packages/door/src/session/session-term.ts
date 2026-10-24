@@ -168,7 +168,7 @@ export class SessionTerm implements Display {
     this.last.lines = [...this.last.lines];
     this.last.lines[r] = line;
     for (const c of this.clients) {
-      if (this.sameSize(c) && !c.watch) { if (!c.away && !c.behind) c.painter.showRow(r, line); }
+      if (this.sameSize(c) && !c.watch) { if (!c.away && !c.behind) this.drawing(c, () => c.painter.showRow(r, line)); }
       else this.paintClient(c);
     }
     this.mirrorPainter.showRow(r, line);
@@ -338,8 +338,20 @@ export class SessionTerm implements Display {
 
   private sameSize(c: SessionClient) { return c.info.cols === this.info.cols && c.info.rows === this.info.rows; }
 
-  /** The last frame, as `c` can show it: cut or padded to its size, and its bottom row saying why when it isn't the session's. */
+  private drawing(c: SessionClient, run: () => void): void {
+    try { run(); }
+    catch (e) {
+      console.error(`${new Date().toISOString()} session client ${c.id} (pid ${c.hello.pid}): exception drawing: ${e instanceof Error ? e.stack : String(e)}`);
+      throw e;
+    }
+  }
+
   private paintClient(c: SessionClient): void {
+    this.drawing(c, () => this.drawClient(c));
+  }
+
+  /** The last frame, as `c` can show it: cut or padded to its size, and its bottom row saying why when it isn't the session's. */
+  private drawClient(c: SessionClient): void {
     if (!this.last || c.away) return;
     if (c.link.backlog() > BACKLOG_LIMIT) { c.behind = true; return; }
     if (c.behind) return;

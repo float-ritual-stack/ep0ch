@@ -255,23 +255,41 @@ export async function serve(args: string[]): Promise<never> {
     sockets.add(sock);
     const frames = new Frames<ClientMsg>();
     let client: SessionClient | null = null;
+    let closeReason = "peer closed without bye";
+    const logClient = (reason: string) => console.error(`${new Date().toISOString()} session client ${client?.id ?? "unattached"} (pid ${client?.hello.pid ?? "unknown"}): ${reason}`);
     const link: Link & { sock: Socket } = {
       sock,
       send: m => { if (!sock.destroyed) sock.write(encode(m)); },
       backlog: () => sock.writableLength,
       onDrain: f => { sock.on("drain", f); },
-      close: bye => { if (sock.destroyed) return; if (bye) sock.end(encode(bye)); else sock.end(); },
+      close: bye => {
+        if (sock.destroyed) return;
+        closeReason = bye ? `bye sent: ${JSON.stringify(bye)}` : "closed after response (no bye)";
+        logClient(closeReason);
+        if (bye) sock.end(encode(bye)); else sock.end();
+      },
     };
-    const gone = () => { sockets.delete(sock); if (client) { const c = client; client = null; term.detach(c); if (!over) app.redraw(); } };
+    const gone = () => { logClient(`socket closed: ${closeReason}`); sockets.delete(sock); if (client) { const c = client; client = null; term.detach(c); if (!over) app.redraw(); } };
     sock.on("close", gone);
-    sock.on("error", () => sock.destroy());
+    sock.on("error", e => {
+      closeReason = `socket error ${(e as NodeJS.ErrnoException).code ?? "unknown"}: ${e.stack ?? e.message}`;
+      logClient(closeReason);
+      sock.destroy();
+    });
     sock.on("data", (chunk: Buffer) => {
       let msgs: ClientMsg[];
       try { msgs = frames.push(chunk); } catch (e) { link.close({ t: "bye", reason: "refused", message: (e as Error).message, code: 2 }); return; }
       for (const m of msgs) {
         // The session is ending: nothing more is taken, and a new terminal is told so.
         if (over) { if (m.t === "hello") link.close({ t: "bye", reason: "ended", message: "the session is ending" }); continue; }
-        try { handle(m); } catch (e) { if (e instanceof Offline) app.flash(e.message, undefined, errorDetails(e)); else throw e; }
+        try { handle(m); }
+        catch (e) {
+          if (e instanceof Offline) app.flash(e.message, undefined, errorDetails(e));
+          else {
+            logClient(`exception in handle(${m.t}): ${e instanceof Error ? e.stack : String(e)}`);
+            throw e;
+          }
+        }
       }
     });
     function handle(m: ClientMsg) {
