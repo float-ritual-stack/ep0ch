@@ -12,7 +12,7 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import type { OutlinerEvent } from "../src/types";
-import { CALLOUT_CASES } from "../scripts/evals/figure-fit-callouts";
+import { CALLOUT_CASES, REFERENCE_CASES } from "../scripts/evals/figure-fit-callouts";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -730,12 +730,10 @@ test("a written note shaped like a timeline answers with a suggestion, once; pro
   expect(asked).toHaveLength(2);
 });
 
-test.each(CALLOUT_CASES)("callout-shaped write: $title", async c => {
+test.each([...REFERENCE_CASES, ...CALLOUT_CASES])("callout-shaped write: $title", async c => {
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
-    async fetch(request) {
-      const body = await request.json() as { state: { title: string; text: string } };
-      const c = CALLOUT_CASES.find(c => body.state.title.includes(c.title))!;
+    fetch() {
       return Response.json({ model: "jev-1.13.0", answers: {
         which: { type: "choice", choice: c.component === "none" ? "graph-check" : c.component, confidence: 0.9, probabilities: {} },
         "gate::structured": { type: "noul", noul: 0.95 },
@@ -751,7 +749,8 @@ test.each(CALLOUT_CASES)("callout-shaped write: $title", async c => {
   if (c.component === "none") expect(saved.json.suggestion).toBeUndefined();
   else {
     expect(saved.json.suggestion?.component, c.title).toBe(c.component);
-    expect(saved.json.suggestion.said).toContain(`the callout "${c.title}"`);
+    const callout = /^> \[![^\]]+\][+-]? ?(.*)$/m.exec(c.text);
+    expect(saved.json.suggestion.said).toContain(callout ? `the callout "${callout[1]}"` : "this reads as");
   }
 });
 

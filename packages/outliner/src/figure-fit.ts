@@ -60,28 +60,34 @@ const figureWord = (s: ComponentSchema) => s.title.replace(/\s*\(.*$/, "").trim(
 
 /**
  * Whether the text has a shape a figure could draw, before anything is asked: at least three list items, table rows
- * or dated lines outside code and components, and no figure of its own (a note that has one chose already): a
+ * or dated lines outside code and components (plain callout bodies may also be rows), and no figure of its own
+ * (a note that has one chose already): a
  * `::graph-`, or with `schemas` any of the outline's figures by the name it is written with (an extension's too).
  */
 export function figureShape(text: string, schemas: readonly ComponentSchema[] = []): "shaped" | "no-shape" | "has-figure" {
   const figures = new Set(schemas.filter(s => s.group === "figures").map(blockNameOf));
   const subjects = figureSubjects(text);
   if (subjects.some(s => componentBlocks(s.text.split("\n")).some(b => b.name.startsWith("graph-") || figures.has(b.name)))) return "has-figure";
-  return subjects.some(s => shapedRows(s.text)) ? "shaped" : "no-shape";
+  return subjects.some(s => shapedRows(s.text, !!s.callouts)) ? "shaped" : "no-shape";
 }
 
-function shapedRows(text: string): boolean {
+function shapedRows(text: string, callout = false): boolean {
   const lines = text.split("\n");
   const structure = noteStructure(lines);
-  const rows = lines.filter((line, i) => structure[i] === -1 && /^\s*(?:[-*+]\s+\S|\d+[.)]\s+\S|\|.*\||(?:[-*+]\s*)?\d{4}-\d{2}(?:-\d{2})?\b)/.test(line)).length;
+  const rows = lines.filter((line, i) => structure[i] === -1 && ((callout && !!line.trim() && !/^\s*(?:#|>)/.test(line)) || /^\s*(?:[-*+]\s+\S|\d+[.)]\s+\S|\|.*\||(?:[-*+]\s*)?\d{4}-\d{2}(?:-\d{2})?\b)/.test(line))).length;
   return rows >= MIN_ROWS;
 }
 
-/** Keep the callout's address beside its body; nested callouts are considered before their enclosing aside. */
+/** Keep callout addresses beside their bodies; sibling sections retain the context needed for a comparison. */
 function figureSubjects(text: string): { text: string; callouts?: string[] }[] {
   const lines = text.split("\n"), structure = noteStructure(lines);
   const callouts = calloutBlocks(lines).filter(c => structure[c.line] === -1);
+  const top = callouts.filter(c => c.depth === 1);
   return [
+    ...(top.length > 1 ? [{
+      text: top.map(c => [`## ${c.title || c.type}`, ...lines.slice(c.line + 1, c.end).map(line => stripQuotes(line, c.depth))].join("\n")).join("\n\n"),
+      callouts: top.map(c => c.title || c.type),
+    }] : []),
     ...[...callouts].sort((a, b) => b.depth - a.depth || a.line - b.line).map(c => ({
       text: lines.slice(c.line + 1, c.end).map(line => stripQuotes(line, c.depth)).join("\n"),
       callouts: callouts.filter(parent => parent.line <= c.line && parent.end >= c.end).map(parent => parent.title || parent.type),
@@ -91,7 +97,7 @@ function figureSubjects(text: string): { text: string; callouts?: string[] }[] {
 }
 
 function figureSubject(text: string) {
-  return figureSubjects(text).find(s => shapedRows(s.text)) ?? { text };
+  return figureSubjects(text).find(s => shapedRows(s.text, !!s.callouts)) ?? { text };
 }
 
 /** The request: the note as state, the Choice over the figures, the two gates. */

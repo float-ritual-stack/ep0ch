@@ -155,11 +155,10 @@ revision, so concurrent edits rarely collide.
   Blockdown (code spans, links, emphasis) as a line of the note does. A live check with `done: "key=value"` is
   marked by writing that property on each row's note.
 - **Readable.** Short sections, bold leads, one fact per bullet, a summary callout on long notes, history
-  labelled as history. A callout body past about four lines, or one saying more than one thing, is a blob: nest
-  titled callouts inside it, one per thing (`> > [!quote]+ The ask`, `> > [!success]+ What changed` as bold-lead
-  bullets, `> > [!info]- Context`, `> > [!warning]- Caveat`), one level deep, four or fewer; one thing said at length
-  becomes bold-lead bullets inside the callout; a summary callout stays under five lines. Fictional example of the
-  shape:
+  labelled as history. An aside or warning is a callout; sections are headings. Worked example:
+  [[callouts-to-figures]] in pie (`ep0ch show --ws pie --machine float-2 41280a8e`). Plan -> graph-check;
+  today/route/rules -> graph-compare; superseded choices/rules -> graph-decision; edges -> graph-table;
+  code -> a code fence; the untested warning stays a callout and history folds.
 
   ```text
   Shed repairs [project::garden-club] [type::plan]
@@ -549,8 +548,8 @@ deeper, to any depth:
 > The body, hidden at first.
 ```
 
-Nest when one callout would otherwise hold several things: a note's abstract that carries the ask, what changed, the
-context and a caveat is four titled callouts inside one, the later two folded.
+Use headings for sections and figures for structured content; reserve callouts for asides and warnings.
+See [[callouts-to-figures]] in pie for the worked before/after example above.
 
 - **A type of the outline's own:** write a note declaring it, `Recipe callouts [callout-type::recipe]
   [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]` (icon one glyph one column wide; tone blue, green,
