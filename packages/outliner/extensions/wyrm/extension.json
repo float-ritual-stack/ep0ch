@@ -1,0 +1,15 @@
+{
+  "contract": 2,
+  "id": "wyrm",
+  "version": 1,
+  "name": "Legend of the Ep0ch Wyrm",
+  "description": "A BBS door game in the outline: players are notes, stats are chips, fifteen forest fights a day, and the town's Daily News.",
+  "demo": "demo",
+  "scripts": [
+    {
+      "name": "wyrm",
+      "file": "scripts/wyrm.js",
+      "about": "Plays one move for the player whose sheet you press from: wyrm do=forest, hit, run, heal, train, buy, deposit, withdraw, sleep, ambush, wyrm, join."
+    }
+  ]
+}

@@ -1164,6 +1164,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "wyrm", need: "play a door game whose state is notes", part: "script runtime, render scripts, view presses and demo notes", files: "outliner/extensions/wyrm/scripts/wyrm.js, outliner/extensions/wyrm/demo/",
+    aside: "Legend of the Ep0ch Wyrm, installed with its demo. Press join the realm on the town board for a player, open it and press forest, hit it, healer, inn or fields · every stat is a chip on the player's first line, so ctrl+z takes a move back · Dozing Gerald sleeps in the fields: his row on your sheet ambushes him · today's Daily News draws on the town · the two screens are render scripts under Wyrm screens: edit one and every sheet redraws",
+    stage(n, show) {
+      const a = new ReaderPane(true), b = new ReaderPane(true);
+      return deskOf({ title: "showcase · wyrm", panes: [a, b], names: ["town", "player"] }, show, [[a, n.wyrm], [b, n.wyrmSleeper]]);
+    },
+  },
+  {
     key: "scripts", need: "bind scripts to keys, names, rules and asks without waiting", part: "the dispatcher, action lines, QuickJS and run undo", files: "outliner/src/script-runs.ts, src/extensions.ts",
     aside: "alt+S runs seed-report · ^K or / then seed-report runs by name · slots are name=value · @seed-count runs in a note; rule-on::script:seed-count uses the same trigger path · alt+Q or click ⇧⌥Q starts recording · open a query tile with ^K tile.open kind=query query=\"#beans\" · alt+Q or REC stop saves a [script::] note · edit #beans to #{tag}; Run recording from ^K asks for tag · agent actions stay out · Run seed-report streams results below its source; ext.undo takes back its writes together",
     stage(n, show) {

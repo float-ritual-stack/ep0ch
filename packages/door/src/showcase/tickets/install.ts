@@ -65,7 +65,7 @@ export const EXAMPLE_EXTENSIONS = ["moon", "horoscope", "fancy-horror", "tarot",
 /** The outliner's example rules (PIE-600): one that decorates, one that runs, one on a text pattern. */
 export const RULE_EXAMPLES = ["meeting-card", "done-stamp", "shout"] as const;
 /** The outliner's extensions that ship demo notes: their pages under the Extensions hub, the demo under each. Installed with the rules. */
-export const DEMO_EXAMPLES = ["notify", "runbook", "structure"] as const;
+export const DEMO_EXAMPLES = ["notify", "runbook", "structure", "wyrm"] as const;
 /** The outliner's example programs: a scheduled almanac and the installable neat layout script. Installed with the rules. */
 export const PROGRAM_EXAMPLES = ["almanac", "neat"] as const;
 /**
