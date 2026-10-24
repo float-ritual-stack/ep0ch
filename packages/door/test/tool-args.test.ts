@@ -8,6 +8,7 @@ import { ActionRefused, actionSet, def } from "../src/surface/actions";
 import type { Actor } from "../src/socket";
 import { tmpdir } from "node:os";
 import { controlClient } from "../src/control";
+import { MCP_WRITE_TOOLS } from "../src/mcp-writes";
 
 const AGENT: Actor = { kind: "agent", id: "claude-7" };
 const BLOCK = "0f3c2a1b-1111-4222-8333-444455556666";
@@ -25,6 +26,11 @@ describe("the mod's copies are one file in two places", () => {
     const after = (path: string) => readFileSync(join(import.meta.dir, path), "utf8").split(mark)[1];
     expect(after("../../claude-mod/hooks/agent-tool-definitions.ts")).toBe(after("../../outline-core/src/agent-tool-definitions.ts"));
     expect(after("../../outline-core/src/agent-tool-definitions.ts")?.length).toBeGreaterThan(1000);
+  });
+  test("and the connector's write tools the mod fills a persona into are the gateway's MCP_WRITE_TOOLS (PIE-1256)", async () => {
+    // A computed path: the door's type check does not follow into the mod, whose imports need Claude Code's types.
+    const mod = await import(join(import.meta.dir, "../../claude-mod/hooks/connector-persona.ts"));
+    expect([...mod.CONNECTOR_WRITE_TOOLS]).toEqual([...MCP_WRITE_TOOLS]);
   });
 });
 

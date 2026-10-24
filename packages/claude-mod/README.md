@@ -466,6 +466,12 @@ code as `packages/outline-core/src/tool-args.ts` (hooks can't import it); the do
   `ep0ch where` reads it; ADR 0003), else none (`claude-code@<machine>` alone).
   The workboard and door tools use the same actor id, so one agent's writes are
   one actor. The binding card's "writes as" line says which persona and from where.
+- The claude.ai connector (`mcp__claude_ai_ep0ch__*`) is one principal whose default persona the gateway's
+  `EP0CH_MCP_PERSONAS` names, so a write through it from this session would be recorded as that default. The mod fills
+  `persona` on each of its write tools (`outline_create`, `outline_patch`, `outline_comment` and the rest of the
+  gateway's `MCP_WRITE_TOOLS`) with the session's persona, the one the "writes as" line shows, when the call names none;
+  a call that names one keeps it, and a session with no persona changes nothing. When a write's answer says it was
+  recorded as another persona, the transcript says so once for each name (`hooks/connector-persona.ts`).
 
 ### Tool rows in the transcript
 

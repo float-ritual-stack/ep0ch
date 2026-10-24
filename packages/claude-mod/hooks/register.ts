@@ -32,7 +32,8 @@ import {
   outlinerUriOf,
 } from './references'
 import { replyBlocks, tableWidths, type LinePart, type ReplyBlock } from './reply-lines'
-import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, SHOW_TOOL } from './outline-tools'
+import { CONNECTOR_WRITE_MATCH, personaFilled, slipOf } from './connector-persona'
+import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
 import { type StatusInput } from './program-status'
@@ -701,6 +702,22 @@ export function register(on: On, options: PluginOptions): void {
     })
   }
 
+  // The claude.ai connector's writes carry this session's persona unless the call names one (PIE-1256): the connector
+  // is one principal with one default persona, so a write that names none is recorded as someone else's. A write
+  // recorded as another persona than this session's says so once per name, in a dim transcript line.
+  const slipped = new Set<string>()
+  on('tool.call', { tool: CONNECTOR_WRITE_MATCH }, async ($, e, next) => {
+    const persona = await sessionPersona($)
+    const filled = personaFilled(e as Record<string, unknown>, persona)
+    const answered = await next((filled ?? e) as typeof e)
+    const slip = slipOf('result' in answered ? answered.result : undefined, persona)
+    if (slip && !slipped.has(slip.by)) {
+      slipped.add(slip.by)
+      $.ui.log(slip.line)
+    }
+    return answered
+  })
+
   // Each file an Edit or Write changed, recorded in the session's outline after the call ran (PIE-602): off the call, so
   // the tool's answer never waits for the outline, and one at a time, so a file's touches count up in order.
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
@@ -1175,8 +1192,19 @@ async function runWorkCommand(
  * session id goes beside it as provenance. The door tools act as the same id.
  */
 async function actorFor($: EngineInterface, input: Record<string, unknown>): Promise<string> {
-  const [OUTLINER_ACTOR, EP0CH_AGENT, machine, folder] = await Promise.all([$.env.get('OUTLINER_ACTOR'), $.env.get('EP0CH_AGENT'), machineName($), folderPersona($)])
-  return actorOf(input, { ...(OUTLINER_ACTOR ? { OUTLINER_ACTOR } : {}), ...(EP0CH_AGENT ? { EP0CH_AGENT } : {}) }, machine, folder)
+  const [env, machine, folder] = await Promise.all([personaEnv($), machineName($), folderPersona($)])
+  return actorOf(input, env, machine, folder)
+}
+
+/** The persona this session writes as, with no tool call's `actor` in it: the "writes as" line's name, undefined when none. */
+async function sessionPersona($: EngineInterface): Promise<string | undefined> {
+  const [env, folder] = await Promise.all([personaEnv($), folderPersona($)])
+  return sessionPersonaOf({}, env, folder)
+}
+
+async function personaEnv($: EngineInterface): Promise<{ OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }> {
+  const [OUTLINER_ACTOR, EP0CH_AGENT] = await Promise.all([$.env.get('OUTLINER_ACTOR'), $.env.get('EP0CH_AGENT')])
+  return { ...(OUTLINER_ACTOR ? { OUTLINER_ACTOR } : {}), ...(EP0CH_AGENT ? { EP0CH_AGENT } : {}) }
 }
 
 /** The persona the session folder's `.ep0ch` names (`agent = "<name>"`), as `ep0ch where` read it; undefined: none, or not known. */

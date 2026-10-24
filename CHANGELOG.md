@@ -27,6 +27,14 @@ was). Putting the drawer away stays `Esc` (step out, then away) and `alt+a`, and
 (then `Esc` leaves the drawer; a second `ctrl+]` soon after still sends one to the program). A terminal folded while
 you type in it stops taking your keys. No protocol change.
 
+### A Claude Code session's writes through the claude.ai connector carry its own persona (PIE-1256)
+
+The connector is one principal, and the gateway's `EP0CH_MCP_PERSONAS` gave every write through it the same default
+persona, so a patch from `loki`'s session was recorded as `daddy (claude.ai)` unless the call passed `persona`. The
+Claude mod now fills `persona` on the connector's write tools with the session's own (the "writes as" line's) when the
+call names none; one that names a persona keeps it. A write recorded as another persona than the session's says so
+once in the transcript. No protocol change; the mod loads with Claude Code, nothing to run.
+
 ### Typing never lands in the wrong place while a note is opening in edit, and a failed open keeps what you typed (PIE-1153)
 
 The key that opens or resumes an edit (`e`, ⏎) is no longer typed into the draft, also when the door was restarted
