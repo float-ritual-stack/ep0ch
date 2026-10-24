@@ -6,6 +6,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../../src/app";
+import { openScreen } from "../../src/desk/screen-specs";
 import { type Seeded } from "../../src/showcase/seed";
 import { SECTIONS, Showcase } from "../../src/showcase/showcase";
 import { USER, SocketBoard } from "../../src/socket";
@@ -33,6 +34,127 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   const { scratch, written, press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
   beforeAll(() => { ({ board, app, sc, seeded } = h); });
+
+  test("lift mouse: the covered Welcome band cannot take a click", async () => {
+    await app.dispatch.press("host.toggle", { open: false });
+    const d = openScreen("welcome") as any;
+    app.push(d);
+    try {
+      (app as any).paint(true);
+      const welcome = d.pane("welcome"), logo = welcome.tabs.find((t: any) => t.logo);
+      expect(logo).toBeDefined();
+      const before = welcome.logo;
+      await d.dispatch.act({ action: "tile.zoom", tile: "preview", args: { reach: "full", on: true } }, USER);
+      (app as any).paint(true);
+      const decoder = new KeyDecoder((app as any).term.info);
+      decoder.keyHandler = press;
+      decoder.feed(`\x1b[<0;${logo.from + 1};${logo.y0 + 1}M\x1b[<0;${logo.from + 1};${logo.y0 + 1}m`);
+      expect(welcome.logo).toBe(before);
+      expect(d.lifted?.reach).toBe("full");
+    } finally { d.dropLift(); app.pop(); }
+  });
+
+  for (const place of ["screen", "group", "drawer", "drawer group"] as const) {
+    const withLift = async (run: (owner: any, mouse: (button: number, x: number, y: number, release?: boolean) => void) => Promise<void>) => {
+      await app.dispatch.press("host.toggle", { open: false });
+      await sc.dispatch.press("section.leave");
+      await sc.dispatch.press("section", { name: "lift" });
+      screen();
+      const d = sc.tilesHere()!, original = d.layoutSpec();
+      (d as any).build({ root: { t: "split", dir: "row", kids: [{ t: "split", dir: "col", kids: ["brief", "peer"].map(name => ({ t: "leaf", kind: "reader", name, note: seeded.notes.hub.id })) }, { t: "leaf", kind: "reader", name: "outside", note: seeded.notes.hub.id }] }, focus: "brief" }, true);
+      let target = "brief", transferred: string | undefined, owner: any;
+      const grouped = place.includes("group"), inDrawer = place.includes("drawer");
+      try {
+        if (grouped) target = (await d.dispatch.act({ action: "tile.group", tile: "brief", args: { with: "peer" } }, USER) as { name: string }).name;
+        if (inDrawer) {
+          await d.dispatch.act({ action: "tile.drawer", tile: target }, USER);
+          transferred = target;
+          await app.dispatch.press("host.enter");
+        } else await sc.dispatch.press("section.try");
+        (app as any).paint(true);
+        const root = inDrawer ? app.drawer.made! : d;
+        owner = grouped ? (root.pane(target) as any).inner : root;
+        // Keep a covered header and a divider below the lifted tile's new header.
+        if (grouped || inDrawer) {
+          const spec = owner.layoutSpec();
+          if (grouped) (owner as any).build({ ...spec, root: { ...spec.root, dir: "col" } }, true);
+          if (inDrawer && !grouped) await owner.dispatch.act({ action: "tile.open", tile: "brief", args: { kind: "reader", name: "mouse-peer", where: "down" } }, USER);
+        }
+        if (inDrawer) await root.dispatch.act({ action: "tile.open", tile: target, args: { kind: "reader", name: "mouse-side", where: "left" } }, USER);
+        (app as any).paint(true);
+        const decoder = new KeyDecoder((app as any).term.info);
+        decoder.keyHandler = press;
+        const mouse = (button: number, x: number, y: number, release = false) => decoder.feed(`\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`);
+        await run(owner, mouse);
+      } finally {
+        app.toast = null;
+        if (owner?.holdsKeys()) owner.key({ kind: "esc" }, owner.ctx);
+        for (const overlay of owner?.overlays.all() ?? []) overlay.close(owner);
+        for (const desk of app.drawer.desks()) desk.liftedDesk?.dropLift();
+        if (inDrawer && app.drawer.made?.pane("mouse-side")) await app.drawer.made.dispatch.act({ action: "tile.close", tile: "mouse-side" }, USER);
+        if (inDrawer && !grouped && app.drawer.made?.pane("mouse-peer")) await app.drawer.made.dispatch.act({ action: "tile.close", tile: "mouse-peer" }, USER);
+        if (transferred && app.drawer.made?.pane(transferred)) await app.drawer.made.dispatch.act({ action: "tile.drawer", tile: transferred }, USER);
+        for (const pane of (d as any).panes.values()) pane.dispose?.();
+        (d as any).build(original, false);
+        if (inDrawer) await app.drawer.made!.dispatch.act({ action: "tile.focus", tile: "drawer.agent" }, USER);
+        await app.dispatch.press("host.toggle", { open: false });
+        await sc.dispatch.press("section.leave");
+      }
+    };
+
+    for (const covered of ["menu", "divider", "hint"] as const) test(`lift mouse: covered ${covered} in ${place} cannot take input`, () => withLift(async (owner, mouse) => {
+      const menu = owner.menuButtons.find((b: any) => b.id === owner.tile(place === "drawer" ? "mouse-peer" : "peer").id);
+      expect(menu).toBeDefined();
+      const divider = owner.dividers.find((d: any) => d.node.dir === "col");
+      expect(divider).toBeDefined();
+      const hint = owner.keySpots[0];
+      const before = owner.layoutGet().tree;
+      await owner.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "full", on: true } }, USER);
+      (app as any).paint(true);
+      if (covered === "menu") {
+        mouse(0, menu.from, menu.row); mouse(0, menu.from, menu.row, true);
+        expect(owner.overlaid()).toBe(false);
+      } else if (covered === "hint") {
+        expect(hint).toBeDefined();
+        mouse(0, hint.from, hint.y); mouse(0, hint.from, hint.y, true);
+        expect(owner.holdsKeys()).toBe(false);
+      } else {
+        const x = divider.area.col + 3, y = divider.at;
+        mouse(0, x, y); mouse(32, x, y + 3); mouse(0, x, y + 3, true);
+      }
+      expect(owner.layoutGet().tree).toEqual(before);
+      expect(owner.lifted?.reach).toBe("full");
+    }), 30_000);
+
+    test(`lift mouse: the hint row outside the column in ${place} receives its click`, () => withLift(async (owner, mouse) => {
+      await owner.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "column", on: true } }, USER);
+      (app as any).paint(true);
+      const hint = owner.keySpots.find((s: any) => s.key.kind === "char" && s.key.ctrl && s.key.ch === "w");
+      expect(hint).toBeDefined();
+      expect(hint.from).toBeLessThan(owner.liftedRect.col);
+      mouse(0, hint.from, hint.y); mouse(0, hint.from, hint.y, true);
+      expect(owner.lifted?.reach).toBe("column");
+      expect(owner.holdsKeys()).toBe(true);
+      press({ kind: "esc" });
+      expect(owner.lifted?.reach).toBe("column");
+    }), 30_000);
+
+    test(`lift mouse: an overlay outside the column in ${place} owns its clicks`, () => withLift(async (owner, mouse) => {
+      await owner.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "column", on: true } }, USER);
+      (app as any).paint(true);
+      const r = owner.liftedRect;
+      const x = r.col > 10 ? 2 : r.col + r.cols + 2;
+      expect(x).toBeLessThan(190);
+      await owner.dispatch.act({ action: "tile.menu", tile: "brief", args: { at: `${x},8` } }, USER);
+      (app as any).paint(true);
+      mouse(0, x, 8); mouse(0, x, 8, true);
+      expect(owner.overlaid()).toBe(true);
+      expect(owner.lifted?.reach).toBe("column");
+      mouse(0, x, 58); mouse(0, x, 58, true);
+      expect(owner.overlaid()).toBe(false);
+      expect(owner.lifted?.reach).toBe("column");
+    }), 30_000);
+  }
 
 
   test("lift: the host draws above the drawer, drops on outside work, and keeps the layout", async () => {

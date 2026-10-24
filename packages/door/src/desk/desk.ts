@@ -3202,7 +3202,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A view built on the desk may keep rows above the tiles for its own art (the welcome's logo band).
     const band = this.band();
     const top = band ? Math.max(0, Math.min(rows - 6, band.kind.rows(band.pane, cols, rows, this))) : 0;
-    this.bandTop = top;
+    this.bandHits = top ? [{ col: 0, row: 0, cols, rows: top }] : [];
     const area: Rect = { col: 0, row: top, cols, rows: rows - 2 - top };
     this.area = area;
     this.slid = [];
@@ -3311,6 +3311,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   private finishFrame(canvas: Canvas, area: Rect, cols: number, rows: number, placements: Placement[]): Frame {
+    this.overlayHits = [];
     this.syncModeHint();
     for (const card of this.hintCards()) {
       const id = card.anchor, anchor = this.hits.find(([i]) => i === id)?.[1];
@@ -3318,6 +3319,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const look = this.lookAt(this.panes.get(id)!, anchor.cols).values;
       if (hintSetting(card.id, look.hints) !== "card") { card.clearHits(); continue; }
       const rect = card.draw(canvas, anchor, area, look.hints === "brief", this.hintPointer, TONE[look.tone], look);
+      this.overlayHits.push(rect);
       placements = uncover(placements, rect);
     }
     this.completionFloat = null;
@@ -3333,6 +3335,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       canvas.clear(rect);
       lines.forEach((line, i) => canvas.text(rect.col, rect.row + i, line, rect.cols));
       this.completionFloat = { completer: completion, rect, origin };
+      this.overlayHits.push(rect);
       placements = uncover(placements, rect);
     }
     // Images would bleed through an overlay.
@@ -3341,10 +3344,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
       placements = [];
     }
+    this.hintRow = rows - 2;
     const hint = this.hints(cols);
     if (!this.hintFull) this.hintMoreOpen = false;            // the row fits again: nothing is left to show
     if (this.hintBox || (this.hintFull && (this.hintMoreOpen || this.prefix))) { this.drawHintMore(canvas, cols, rows); placements = []; }
     canvas.text(0, rows - 2, hint, cols);
+    this.overlayHits.push({ col: 0, row: this.hintRow, cols, rows: 1 });
     return { lines: canvas.lines(), placements };
   }
 
@@ -3479,8 +3484,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pane = id !== undefined ? this.panes.get(id) : undefined, kind = pane ? kindOf(pane)?.band : undefined;
     return pane && kind ? { pane, kind } : null;
   }
-  /** The rows the band took as last drawn: a press above them is the band's. */
-  private bandTop = 0;
+  private bandHits: Rect[] = [];
+  private hintRow = 0;
 
   /** The person's keys are on this desk (a screen's: not in your drawer, nor elsewhere in a frame around it; the drawer's: in it): its focused tile has them. */
   private keysHere(): boolean {
@@ -3981,6 +3986,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const lines = this.hintBox ? this.hintBox.flatMap(l => wrapHint(paint(l), Math.max(10, cols - 4))) : wrapHint(this.hintFull!, Math.max(10, cols - 4));
     const h = Math.min(lines.length + 2, Math.max(3, rows - 4));
     const r: Rect = { col: 0, row: rows - 3 - h, cols: cols - 1, rows: h };
+    this.overlayHits.push(r);
     canvas.float(r, "keys", this.prefix ? "" : fg(C.dark) + "any key closes", () => {
       lines.slice(0, h - 2).forEach((l, i) => {
         canvas.text(r.col + 2, r.row + 1 + i, l, r.cols - 4);
@@ -4075,7 +4081,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const line = (s: string) => {
       const t = fit(decorate(s));
       // Its keys, but "? more" (its own chip: ? would be typed into a draft).
-      this.keySpots = hintSpots(t, keyStyles()).filter(p => !this.moreChip || p.from < this.moreChip.from).map(p => ({ ...p, y: this.area.row + this.area.rows }));
+      this.keySpots = hintSpots(t, keyStyles()).filter(p => !this.moreChip || p.from < this.moreChip.from).map(p => ({ ...p, y: this.hintRow }));
       return pad(t, room) + tail;
     };
     // A refusal of the person's key on a tile folded to a spine (PIE-727): the spine has no edge to say it on, so the
@@ -4268,7 +4274,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (k.kind === "esc" && this.runningScripts().length && !this.prefix && !this.holdsKeys() && !this.dragging && !this.floatDrag && ![...this.overlays.all()].length) return void this.run("layout.stop");
     // The band (the spec's): a press on it is its kind's. Only presses: a release or drag over it is the desk's, so a
     // border or tile drag still ends.
-    if (k.kind === "mouse" && k.action === "down" && k.y < this.bandTop) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }
+    if (k.kind === "mouse" && k.action === "down" && this.bandHits.some(r => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows)) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }
     // A click on a key in the hint row or its keys box: that key, as typed, wherever the keys are (an edit, a chord).
     // Not under an overlay of the desk's (the search, a picker): the row's keys aren't its.
     // While linking (alt+l), a click picks the tile, wherever in it: a tile's own spot (+ New note) doesn't take it.
@@ -4290,7 +4296,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // terminal, a ^W chord); the next key or click puts it away again and does what it does, but Esc only that.
     if (ch(k) === "?" && this.hintFull && !this.holdsKeys()) { this.run("keys.more"); return; }
     if (this.hintMoreOpen) {
-      const chip = k.kind === "mouse" && this.moreChip && k.y === this.area.row + this.area.rows && k.x >= this.moreChip.from && k.x < this.moreChip.to;
+      const chip = k.kind === "mouse" && this.moreChip && k.y === this.hintRow && k.x >= this.moreChip.from && k.x < this.moreChip.to;
       if (k.kind !== "mouse" || (k.action === "down" && !chip)) { this.hintMoreOpen = false; this.redraw(); if (k.kind === "esc") return; }
     }
     // A source's model holds the keys while its own overlay is open (the board's composer, pickers), before the screen's.
@@ -6102,6 +6108,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   get lifted() { return this.layout.lift; }
   get liftedDesk() { return this.descend().find(d => d.lifted); }
   private liftedRect: Rect | null = null;
+  // Cards, completion and hints can extend beyond a column lift.
+  private overlayHits: Rect[] = [];
 
   dropLift(actor: Actor = USER) {
     const lift = this.layout.lift;
@@ -6117,6 +6125,46 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!home || !this.panes.has(lift.tile)) { this.dropLift(); return { lines: canvas.lines(), covered: { ...area, cols: 0, rows: 0 } }; }
     const r = lift.reach === "full" ? area : { ...area, col: home.col + offset, cols: home.cols };
     this.liftedRect = r;
+    // The lift repaints these cells; none of their old controls or borders remains clickable.
+    const outside = (box: Rect): Rect[] => {
+      if (!overlaps(box, r)) return [box];
+      const left = Math.max(box.col, r.col), right = Math.min(box.col + box.cols, r.col + r.cols);
+      const top = Math.max(box.row, r.row), bottom = Math.min(box.row + box.rows, r.row + r.rows);
+      return [
+        { ...box, rows: top - box.row },
+        { ...box, row: bottom, rows: box.row + box.rows - bottom },
+        { col: box.col, row: top, cols: left - box.col, rows: bottom - top },
+        { col: right, row: top, cols: box.col + box.cols - right, rows: bottom - top },
+      ].filter(b => b.cols > 0 && b.rows > 0);
+    };
+    const rowsOutside = <T extends { from: number; to: number; row: number }>(hits: T[]): T[] => hits.flatMap(h =>
+      outside({ col: h.from, row: h.row, cols: h.to - h.from, rows: 1 }).map(b => ({ ...h, from: b.col, to: b.col + b.cols })));
+    this.heads = rowsOutside(this.heads);
+    this.markHits = rowsOutside(this.markHits);
+    this.dockLabels = rowsOutside(this.dockLabels);
+    this.agentChips = rowsOutside(this.agentChips);
+    this.pointerHits = rowsOutside(this.pointerHits);
+    this.floatButtons = rowsOutside(this.floatButtons);
+    this.liftButtons = rowsOutside(this.liftButtons);
+    this.foldButtons = rowsOutside(this.foldButtons);
+    this.holdButtons = rowsOutside(this.holdButtons);
+    this.closeButtons = rowsOutside(this.closeButtons);
+    this.wireChips = rowsOutside(this.wireChips);
+    this.menuButtons = rowsOutside(this.menuButtons);
+    this.dockCloses = rowsOutside(this.dockCloses);
+    this.headPresses = rowsOutside(this.headPresses);
+    const spotsOutside = <T extends { y: number; from: number; to: number }>(hits: T[]): T[] =>
+      rowsOutside(hits.map(h => ({ ...h, row: h.y }))).map(h => ({ ...h, y: h.row }));
+    this.keySpots = spotsOutside(this.keySpots);
+    this.tileSpots = spotsOutside(this.tileSpots);
+    this.bandHits = this.bandHits.flatMap(outside);
+    const bordersOutside = (ds: Divider<number>[]) => ds.flatMap(d => outside(d.area).map(area => ({ ...d, area })));
+    this.dividers = bordersOutside(this.dividers);
+    for (const slid of this.slid) {
+      const [border, ...rest] = bordersOutside(slid.divider ? [slid.divider] : []);
+      slid.divider = border ?? null;
+      slid.placed.dividers = [...rest, ...bordersOutside(slid.placed.dividers)];
+    }
     this.hits = [[lift.tile, r], ...this.hits.filter(([id]) => id !== lift.tile)];
     const placements = this.drawTile(canvas, lift.tile, r);
     return { ...this.finishFrame(canvas, area, area.cols, area.rows + 1, placements), covered: this.overlays.all().length ? area : r };
@@ -6131,7 +6179,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const lift = this.layout.lift, r = this.liftedRect;
     if (!lift || !r) return false;
     if (k.kind === "mouse") {
-      if (k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows) { if (k.action === "down") { this.run("tile.focus", {}, this.nameOf(lift.tile)); enter(); } this.key(k, this.ctx); return true; }
+      if (this.overlays.top()) {
+        if (k.action === "down") enter();
+        this.overlays.key(k, this);
+        this.redraw(); return true;
+      }
+      if ([r, ...this.overlayHits].some(box => k.x >= box.col && k.x < box.col + box.cols && k.y >= box.row && k.y < box.row + box.rows)) { if (k.action === "down") { this.run("tile.focus", {}, this.nameOf(lift.tile)); enter(); } this.key(k, this.ctx); return true; }
       if (k.action === "down" || k.action === "wheel-up" || k.action === "wheel-down") this.run("tile.zoom", { reach: lift.reach, on: false }, this.nameOf(lift.tile));
     } else if (this.keysHere() && this.focus === lift.tile) {
       if (k.kind === "esc") { this.key(k, this.ctx); return true; }
@@ -6675,7 +6728,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private floatDock(id: number, x: number, y: number): Drop<number> | null {
     const refuse = (to: Place<number>) => refusal(this.layout, { op: "move", tile: id, to }, this.layoutCtx(USER));
-    const handles = this.handles.map(h => ({ from: h.from, to: h.to, row: this.area.row + this.area.rows, shows: shown(h.dock.kid)[0] ?? h.id, edge: h.dock.edge }));
+    const handles = this.handles.map(h => ({ from: h.from, to: h.to, row: this.hintRow, shows: shown(h.dock.kid)[0] ?? h.id, edge: h.dock.edge }));
     const onHandle = handleDrop(handles, this.area, x, y, id, refuse);
     if (onHandle) return onHandle;
     const d = dropAt(this.dropTiles(), this.area, x, y, id, true, refuse);
@@ -6934,7 +6987,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (!this.dragging && Math.abs(k.x - h.x) + Math.abs(k.y - h.y) < 1) return;
         // Where it would land (a dock's handle on the hint row first), with the reason policy refuses it, if any.
         const refuse = (to: Place<number>) => refusal(this.layout, { op: "move", tile: h.id, to }, this.layoutCtx(USER));
-        const handles = this.handles.map(x => ({ from: x.from, to: x.to, row: this.area.row + this.area.rows, shows: shown(x.dock.kid)[0] ?? x.id, edge: x.dock.edge }));
+        const handles = this.handles.map(x => ({ from: x.from, to: x.to, row: this.hintRow, shows: shown(x.dock.kid)[0] ?? x.id, edge: x.dock.edge }));
         // Over a group (PIE-696): its own drop zones say where it would land inside; the tile moves in whole.
         const into = handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ? null : this.groupDropAt(k.x, k.y, h.id);
         if (into) { this.dragging = { src: h.id, drop: null, x: k.x, y: k.y, into }; return this.redraw(); }
@@ -6965,7 +7018,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     if (k.action === "down") {
       // A shut dock's handle, at the end of the hint row; the lock chip after them.
-      if (k.y === this.area.row + this.area.rows) {
+      if (k.y === this.hintRow) {
         const h = this.handles.find(h => k.x >= h.from && k.x < h.to);
         if (h) this.run("tile.slide", { open: true, container: h.dock.id }, this.nameOf(h.id));
         else if (this.lockChip && k.x >= this.lockChip.from && k.x < this.lockChip.to) this.run("layout.lock");
