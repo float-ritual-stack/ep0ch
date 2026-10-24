@@ -154,10 +154,10 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     expect(await act("view.scrollTo", { text: "parsnips" }, "middle")).toMatchObject({ line: 43, viewport: { first: 43 } });
     await until(() => f.of("viewport").some(e => e.tile === tile("middle")!.tile && (e.viewport as { first?: number }).first === 43), "the viewport event");
     await expect(act("view.scrollTo", { line: 3, block: notes.shed.id }, "middle")).rejects.toThrow(/open it there first/);
-    expect(await act("block.mark", { reason: "needs your call" }, "middle")).toMatchObject({ showing: ["middle"] });
+    expect(await act("block.mark", { reason: "your call" }, "middle")).toMatchObject({ showing: ["middle"] });
     await until(() => f.of("marks.changed").length > 0, "marks.changed");
     render();
-    const label = "◆ needs your call · by watcher-7";
+    const label = "◆ your call · by watcher-7";
     expect(drawn().join("\n")).toContain(label);
     expect(person().focus).toBe(focus);
     // view.get says the same, per tile.

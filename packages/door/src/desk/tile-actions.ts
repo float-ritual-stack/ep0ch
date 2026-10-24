@@ -1,4 +1,6 @@
 import { canonSpec } from "./tiles";
+import { HYPER_KEYS } from "../hyper";
+import { W_KEYS, wCaption, ZOOM_WHEEL } from "./wkeys";
 import { FRAME_GLYPHS } from "./frame-controls";
 import { GATHER_HINT } from "../surface/hint-card";
 import { SPINES, ALT_RULES, type AltRule } from "./layout";
@@ -227,17 +229,18 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.zoom": def({
-    summary: "zoom tile=<tile> to fill the screen (on=false, or again, unzooms). An agent zooms only the tile that has the person's keys, never one that would hide it",
-    keys: "^W z, ✦z (hyper)",
-    touches: "shape", replay: "safe", says: r => `${r.zoomed ? "zoomed" : "unzoomed"} ${r.name ?? r.tile}`,
+    summary: "zoom a tile to fill the screen, or lift it above the drawer with reach=column|full; on=false drops it. An agent may lift another tile, never replace the person's lift",
+    keys: [...W_KEYS.filter(k => k.action === "tile.zoom").map(k => wCaption(k.key)), ...HYPER_KEYS.filter(k => k.action === "tile.zoom").map(k => `✦${k.key}`), ZOOM_WHEEL.key].join(", "),
+    touches: "shape", touchesWith: a => a.reach && a.reach !== "screen" ? "tile" : "shape", replay: "safe", says: (r, a) => `${r.zoomed ? a.reach && a.reach !== "screen" ? `lifted (${a.reach})` : "zoomed" : "dropped"} ${r.name ?? r.tile}`,
     menu: { label: "zoom", group: TILE, key: "ctrl+w z", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.zoomed ? { label: "unzoom" } : { refused: n.refused("zoom") }; } },
-    args: { on: { type: "boolean", optional: true, about: "true zooms, false unzooms; default toggles" } },
+    args: { on: { type: "boolean", optional: true, about: "true zooms, false unzooms; default toggles" }, reach: { type: "string", optional: true, about: "screen (default), column, or full" } },
     examples: [
       { act: "tile.zoom tile=reader", does: "fills the screen with the reader, or unzooms it if it is zoomed" },
       { act: "tile.zoom on=false tile=reader", does: "returns a zoomed reader to its place in the layout" },
     ],
-    run({ on }, { d, reader }, actor) {
-      return d.zoomTile(reader, on, actor);
+    run({ on, reach }, { d, reader }, actor) {
+      if (reach !== undefined && reach !== "screen" && reach !== "column" && reach !== "full") throw new ActionRefused("reach is screen, column or full");
+      return d.zoomTile(reader, on, actor, reach);
     },
   }),
   "tile.float": def({

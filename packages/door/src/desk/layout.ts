@@ -540,6 +540,7 @@ export interface Grab<I = number> { d: Divider<I>; side: 0 | 1 }
 export function dividerAt<I>(dividers: Divider<I>[], x: number, y: number): Grab<I> | null {
   for (const d of dividers) {
     const r = d.area;
+    if (x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows) continue;
     if (d.node.dir === "row" && (x === d.at || x === d.at - 1) && y >= r.row && y < r.row + r.rows) return { d, side: x === d.at ? 1 : 0 };
     if (d.node.dir === "col" && (y === d.at || y === d.at - 1) && x >= r.col && x < r.col + r.cols) return { d, side: y === d.at ? 1 : 0 };
   }

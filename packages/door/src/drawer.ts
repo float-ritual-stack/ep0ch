@@ -735,9 +735,9 @@ export class AgentDrawer {
     return tiles.map(t => { const p = d.pane(t.name), pid = p instanceof PtyPane ? p.pid : undefined; return { name: t.name, id: t.id, kind: t.kind, title: t.label, shown: d.shownNow(p!), focused: this.entered && t.focused, ...(pid ? { pid } : {}) }; });
   }
   /** The tab the drawer shows now. */
-  private shownTabOf(): { name: string; kind: string } | null { const t = this.tabs().find(x => x.shown); return t ? { name: t.name, kind: t.kind } : null; }
+  private shownTabOf(): { name: string; kind: string } | null { const name = this.shownTab(), t = this.tabs().find(x => x.name === name); return t ? { name: t.name, kind: t.kind } : null; }
   /** The tile the drawer shows now (^W A brings it to the screen, its own tab too), else the last put in. */
-  shownTab(): string | null { const t = this.tabs(); return (t.find(x => x.shown) ?? t.at(-1))?.name ?? null; }
+  shownTab(): string | null { const t = this.tabs(); return (t.find(x => x.shown && x.focused) ?? t.find(x => x.shown) ?? t.at(-1))?.name ?? null; }
   private shownPane(): Pane | null { return this.d ? this.d.pane(this.shownTab() ?? "") ?? null : this.p; }
 
   // ── the host layer, on the layout engine ──
@@ -771,8 +771,10 @@ export class AgentDrawer {
   private do(op: Op<string>, actor: Actor) {
     const r = applyLayout(this.layer, op, this.ctx(actor, this.rows, this.cols));
     if (!r.ok) throw new ActionRefused(r.refused);
+    const moved = this.keys !== r.focus;
     this.layer = r.state;
     this.keys = r.focus;
+    if (moved) for (const d of this.desks()) d.liftedDesk?.dropLiftElsewhere();
     return r;
   }
   /** The terminal's size as last drawn (the host layer's room). */

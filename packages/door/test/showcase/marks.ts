@@ -35,6 +35,7 @@ export const marks: Record<string, string[]> = {
   // EchoNet's message areas on the mini network: the band's rail, both areas, the nodelist's down node and the one that dials in.
   echonet: ["MESSAGE AREAS", "PLOT.CHAT", "SEED.SWAP", "society@box-a", ",DOWN", ",DIAL", "last tosses"],
   terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
+  lift: ["Allotment notebook", "Our plot at the Elm Row allotments."],
   drawer: ["the kettle: a terminal tile to put in your drawer", "kettle"],
   // A fake deploy reporting its status (OSC 7501) beside the waiting-on-you list that follows it.
   status: ["a fake deploy, saying what it does with OSC 7501", "waiting on you"],

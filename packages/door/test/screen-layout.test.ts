@@ -51,6 +51,32 @@ const floated = (s: LayoutState) => names(s, s.floats.map(f => f.id));
 /** The state with tile `id` popped out as a float, by the person. */
 const withFloat = (s: LayoutState, id: number) => ok(s, { op: "float", tile: id }).state;
 
+test("a lift keeps the layout and keys, and an agent cannot replace the person's lift", () => {
+  const before = fresh();
+  let s = before;
+  for (let i = 0; i < 10; i++) {
+    s = ok(s, { op: "zoom", tile: 3, reach: "column" }).state;
+    expect(s.lift).toEqual({ tile: 3, reach: "column", by: PERSON });
+    expect(s.tree).toEqual(before.tree);
+    expect(s.rev).toBe(before.rev);
+    no(s, { op: "zoom", tile: 4, reach: "full" }, /person.*lift/, AGENT);
+    s = ok(s, { op: "zoom", tile: 3, reach: "column", on: false }).state;
+  }
+  expect(s).toEqual(before);
+  const lifted = ok(s, { op: "zoom", tile: 4, reach: "full" }, AGENT);
+  expect(lifted.focus).toBe(2);
+  expect(lifted.state.lift?.by).toEqual(AGENT);
+  no(s, { op: "zoom", tile: 2, reach: "column" }, /person.*keys/, AGENT);
+});
+
+test("focus leaving a lifted tile drops it through apply", () => {
+  const s = ok(fresh(), { op: "zoom", tile: 2, reach: "full" }).state;
+  expect(ok(s, { op: "focus", tile: 2 }).state.lift).toEqual(s.lift);
+  const moved = ok(s, { op: "focus", tile: 3 });
+  expect(moved.focus).toBe(3);
+  expect(moved.state.lift).toBeNull();
+});
+
 describe("one operation, one transaction", () => {
   test("the last tile closes to an empty home and another tile can open there (PIE-1119)", () => {
     extra = {};

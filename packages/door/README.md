@@ -1278,6 +1278,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Ctrl+W` then `[ ]` | previous / next tab |
 | `Ctrl+W` then `< > + -`, `=` | resize, even out |
 | `Ctrl+W` then `z` / `x` / `s` | zoom, close, swap with next |
+| `Ctrl+W` then `Z` / `F`; frame ⇡/⇣; Ctrl+wheel on a frame | lift above the drawer to column / full terminal reach, or drop. The wheel steps screen → column → full and back. Work elsewhere drops it; Esc closes inner modes first. The layout stays unchanged (`tile.zoom reach=column\|full`). |
 | `Ctrl+W` then `o` + a kind | open a tile beside: `t` outline, `r` reader, `d` detail, `p` preview of this tile, `e` editor (on the daily draft), `s` shell, `k` board, `v` river, `f` brief, `h` children (the replies: a links tile with Children alone), `a` activity, `w` who, `b` bulletin, `l` backlinks of this tile, `q` the cards of the view this tile shows (a query tile) |
 | `Ctrl+W` then `O` + a kind | the same, as a tab of this tile |
 | `Ctrl+W` then `v` / `V`, `O` in a reader | open a preview beside / below the tile, connected by a select wire (`tile.preview`). Again reveals that select target. `alt+l` sets the separate open wire. The tree with a select target leaves the current note alone while browsing; without one its selection moves the current note. |

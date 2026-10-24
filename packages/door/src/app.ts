@@ -1,3 +1,4 @@
+import { Canvas } from "./canvas";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "./surface/note";
 import { StatusBarNote, STATUS_BAR_ACTIONS, separated, statusHits, statusText, type StatusItem, type StatusHit } from "./status-bar";
 import { OSC8, OSC8_CLOSE } from "./hyperlink";
@@ -381,6 +382,8 @@ export interface Screen {
   hostMode?(): HostMode;
   /** The tiles shown here, when they're a desk inside this screen (the showcase's stage): where a tile taken out of the drawer lands. */
   tilesHere?(): Desk | undefined;
+  /** A click in a tile lifted out of this screen enters its existing tile host. */
+  enterTiles?(): void;
 }
 
 /**
@@ -542,6 +545,7 @@ export class App implements Ctx {
   private readonly barOn: BarOn = {
     bar: () => this.bar,
     open: o => {
+      for (const d of this.drawer.desks()) d.liftedDesk?.dropLift();
       this.bar?.close();
       const b = new PowerBar(this.barHost(), (n, alt) => { void this.dispatch.press("bar.pick", { n, alt }); }, o);
       this.bar = b;
@@ -584,7 +588,13 @@ export class App implements Ctx {
     // Raw input while the person types in the drawer or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
-    (term as { rawSink?: unknown }).rawSink = () => (this.probing ? null : this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
+    (term as { rawSink?: unknown }).rawSink = () => {
+      const sink = this.probing ? null : this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
+      return sink ? (bytes: string) => {
+        this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
+        sink(bytes);
+      } : null;
+    };
     connectFigures(board, () => this.redraw());
     // Every line typed in completes outline text from this connection by default (PIE-626: LineInput, src/surface/line.ts).
     useCompletion(board, () => this.redraw(), () => this.barHost());
@@ -1271,6 +1281,7 @@ export class App implements Ctx {
       return;
     }
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1 && k.action === "down") {
+      for (const d of this.drawer.desks()) d.liftedDesk?.dropLift();
       const hit = this.statusBoxes.find(h => k.x >= h.from && k.x < h.to);
       const alt = k.button === 2 || ((k.mods ?? 0) & 8) !== 0;
       const req = hit ? (alt ? hit.item.alt ?? hit.item.click : k.x === hit.to - 1 && hit.item.lastCell ? hit.item.lastCell : hit.item.click) : { action: alt ? "status.bar.edit" : "status.log" };
@@ -1280,6 +1291,14 @@ export class App implements Ctx {
     // The hyper layer (PIE-699): ⌃⌥⇧⌘ and a key, before any tile's own keys (a draft's and a terminal tile's too). Each chord
     // presses an action that has other keys and a click (src/hyper.ts); the layer is off unless turned on.
     if (k.kind === "hyper") { this.hyper(k.ch); return; }
+    const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
+    if (lifted?.liftInput(k, () => {
+      if (this.drawer.made?.liftedDesk === lifted) this.drawerRun("host.enter", {});
+      else {
+        this.stack.at(-1)?.enterTiles?.();
+        if (this.drawer.entered) this.drawerRun("host.leave", { quiet: true });
+      }
+    })) return;
     // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1) {
@@ -1485,6 +1504,14 @@ export class App implements Ctx {
       // One running down under it is cut short at its edge (a spine's long title, PIE-794), not dropped whole.
       placements = [...uncover(placements, { col: 0, row: d.rect.row, cols, rows: rows - d.rect.row }), ...(this.graphics ? d.placements : [])];
     } else { this.drawer.rect = null; this.drawer.made?.shownAs(false); }
+    const lifted = this.drawer.desks().map(d => d.liftedDesk).find(Boolean);
+    if (lifted) {
+      const canvas = new Canvas(cols, rows - 1);
+      lines.forEach((line, row) => canvas.text(0, row, line, cols));
+      const lift = lifted.paintLift(canvas, { col: 0, row: 0, cols, rows: rows - 1 });
+      lines = lift.lines;
+      placements = [...uncover(placements, lift.covered), ...(lift.placements ?? [])];
+    }
     // The power bar over the screen and the drawer; images under it would show through it.
     if (this.bar) {
       const b = this.bar.draw(cols, rows - 1), r = b.rect;

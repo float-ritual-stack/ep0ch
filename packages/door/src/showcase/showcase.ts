@@ -408,6 +408,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "lift", need: "lift a tile above the drawer, then return to work", part: "tile.zoom reach=column|full, the layout's transient lift and the host composition", files: "src/desk/screen-layout.ts, src/desk/desk.ts, src/app.ts",
+    aside: "The frame's lift chip raises the briefing over the drawer. Work in the other tile or drawer to drop it. The tree stays exactly where it was. The power bar lists lift and the tile keys show its two reaches.",
+    stage(n, show) {
+      const brief = new ReaderPane(true), other = new ReaderPane(true);
+      return deskOf({ title: "showcase · lift", panes: [brief, other], names: ["brief", "other"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+    },
+  },
+  {
     key: "drawer", need: "carry a tile across screens (a terminal, a reader, the tree)", part: "your drawer: the host layer's tabs, above every screen, on a desk of its own; tile.drawer moves a tile in or out whole", files: "src/drawer.ts, src/desk/drawer-program.ts",
     aside: "The drawer holds linkbox, a group with a links tile. Click its list, press alt+l then o, and click the screen reader: the wire starts at the links tile inside the group. Each verb has one destination: wiring it again replaces that destination. The group refuses a wire and names its inner tile. Press b on reader to pin its note in the links tile; opening another note into reader keeps those links until b re-aims them. The links hint names the same open and alt destinations as the wire chips. Its id stays the same when moved or renamed; layout.get and peek list every layer. Move kettle into the drawer with ^W a, then alt+l: the card lists screen tiles by number and name. Wire its open to reader, and open a note from kettle through act (as a chat link does). The landing wears a star in its title and a bright frame; click or focus it to clear, or leave it visible for 10 seconds. Use ids when two desks have the same name. Close every tile with ^W x, its menu, or its frame x. The last closes too: the screen or drawer shows home, with the power bar and New note / Shell / Agent buttons. Nothing starts itself; alt+s always opens a shell. In the drawer, ^W o d makes an empty detail; click New note to write in that same tile, then ctrl+s saves. Click the drawer agent chip every time you want its picker; choose a program to replace its one agent tab. Tab switches this outline / every outline, and the folder is editable. An EP0CH_DAILY_AGENT override is named on the chip and explained in the picker. Switch twice: no extra agent tab. alt+g with no agents shows New Agent and Shell buttons and Getting about. ^W a or a drag still carries a tile whole between the screen and drawer.",
     stage(n, show) {
@@ -1372,6 +1380,7 @@ export class Showcase implements Screen {
   }
 
   /** Screen.tilesHere: the section shown is a desk: a tile taken out of the drawer here (tile.drawer on=false) lands in it. */
+  enterTiles() { void this.dispatch.pressIn(SHOWCASE_ACTIONS, "section.try", {}); }
   tilesHere(): Desk | undefined { const t = this.stage(this.sel)?.top; return t instanceof Desk ? t : undefined; }
   /** Screen.holdsKeys: the person is in the stage and its screen holds their keys (an edit, a comment, a panel). */
   holdsKeys(): boolean { return this.focus === "stage" && !!this.stages.get(this.sel)?.top.holdsKeys?.(); }
