@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -uo pipefail
+export EP0CH_AGENT="${EP0CH_AGENT:-builder}"
 repo=$(cd "$(dirname "$0")/.." && pwd)
 ticket=${1:?usage: scripts/builder <ticket> [--model <model>] -- <brief file>}
 shift
@@ -10,6 +11,7 @@ brief=${1:?brief file required}
 [ -f "$brief" ] || { echo "builder: no brief at $brief" >&2; exit 2; }
 mkdir -p "/tmp/ep0ch-agent-$(id -u)"
 run_dir=$(mktemp -d "/tmp/ep0ch-agent-$(id -u)/builder-XXXXXX") || exit 1
+touch "$run_dir/started"
 record() { bun "$repo/packages/door/src/main.ts" record "$@"; }
 branch=$(git rev-parse --abbrev-ref HEAD) || exit 1
 started=$(date +%s)
@@ -28,7 +30,7 @@ finish() {
     kill -KILL -- "-$child" 2>/dev/null || true
   fi
   local report_args=() pr_args=()
-  if [ -n "$report" ] && [ -f "$report" ]; then report_args=(--report-file "$report")
+  if [ -n "$report" ] && [ -f "$report" ] && [ "$report" -nt "$run_dir/started" ]; then report_args=(--report-file "$report")
   elif [ -f "$run_dir/last-message.md" ]; then report_args=(--report-file "$run_dir/last-message.md"); fi
   local pr
   pr=$(gh pr view --json url --jq .url 2>/dev/null) && pr_args=(--pr "$pr")

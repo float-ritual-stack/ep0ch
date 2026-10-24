@@ -35,8 +35,10 @@ export async function recordCommand(args: string[]): Promise<number> {
   }
   const board = await boardFor(args);
   if ("error" in board) { console.error(`ep0ch record: ${board.error}`); return 1; }
-  const actor = sessionPersona({ env: process.env, folder: process.cwd(), fs: disk })?.name ?? "builder";
-  const who = { author: "agent" as const, provenance: { actorId: actor, sessionId: process.env.CODEX_THREAD_ID ?? process.env.CLAUDE_CODE_SESSION_ID } };
+  const actor = sessionPersona({ env: process.env, folder: process.cwd(), fs: disk })?.name;
+  const who = actor
+    ? { author: "agent" as const, provenance: { actorId: actor, sessionId: process.env.CODEX_THREAD_ID ?? process.env.CLAUDE_CODE_SESSION_ID } }
+    : { author: "user" as const };
   try {
     if (reportFile) props.report = readFileSync(reportFile, "utf8");
     if (observed) {

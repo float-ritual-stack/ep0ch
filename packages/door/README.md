@@ -601,29 +601,33 @@ never edits Herdr's config or registry or Claude's settings, and never writes a 
 asks one to restart, start or stop the host): a missing unit, a unit to change, the keys and the Claude mod are reported.
 It stops at the first failure, with the recovery. `--json` gives agents the same report or plan.
 
-Each `--apply` run writes an attributed note through the host it serves, under a **Deploys** virtual branch
-created on first use. It uses this folder's named local outline (`EP0CH_WS` or `.ep0ch`), else the host's default.
-The note records the time, machine, actor (`OUTLINER_ACTOR`, `EP0CH_AGENT`, or `.ep0ch`'s `agent`), session id when
-available, from/to commits, protocol, local result and each registered client's outcome. `--as-client` contributes
-to its caller's record rather than creating another. `[machine::install]` keeps these notes out of everyday lists;
-`ep0ch find --query "type=deploy machine=install" --json` finds them explicitly. The Deploys view sorts newest first.
+Each `--apply` run appends attributed machinery records under **Records**, created on first use. The usual
+outline selector (`--ws`, `EP0CH_WS`, `.ep0ch`) names the receiver, including an outline on another machine;
+an unnamed folder uses the local host's default. Deployment facts come from the machine being installed:
+its commit, host PROTOCOL/GRAMMAR, sessions and their code, and what failed. `--as-client` records those facts
+too. Progress, outcomes and late client receipts are new records naming earlier ones, never edits to them.
+`[machine::record]` folds the bookkeeping; `ep0ch find --query "type=deploy machine=record" --json` finds it.
+Existing Deploys notes and their old records stay as history; new records land under Records.
+See [Records](../../docs/agents/records.md) for the other kinds, templates and builder wrapper.
 
-The view's note includes a live table to copy into the build log:
+A live table to copy into a note:
 
 ```blockdown
 ::graph-table
-query: type=deploy machine=install
+---
+query: type=deploy machine=record
 sort: created
 direction: desc
 limit: 5
 columns: [title, created]
+---
 ::
 ```
 
-A record starts before the update and checkpoints before a migration stops the host. If the host stays stopped,
-the unfinished record remains and the install report (including JSON `notes`) says its final update could not be
-saved. A host that starts during install gets its record then. Recording failures are reported without blocking
-recovery of the stack; records require a reachable host and a served outline, and never use a separate store.
+The first record precedes the update; later records capture progress and the outcome. If a host stays stopped,
+the last saved fact remains and the install report (including JSON `notes`) says the outcome record could not
+be saved. A host that starts during install gets its record then. Recording failures are reported without
+blocking recovery of the stack; records require a reachable host and a served outline.
 
 At a terminal, both show progress while they work: checking the stack (the fetches among it) spins with
 what it's waiting on, and a running step's line spins with its elapsed time, the latest line of what it
@@ -649,7 +653,7 @@ Connected machine links carry the installed origin/main SHA to their laptops;
 after restarting the link server, install waits up to 60 seconds for previously
 connected machines to return. Those still away queue the install for their next
 connection without failing the deploy. Install prints the exit code,
-unfinished work and session outcomes, also saved in Deploys. On the laptop,
+unfinished work and session outcomes, also appended under Records. On the laptop,
 `ep0ch link auto-install off` leaves an update prompt in the door;
 `ep0ch link auto-install on` resumes it without restarting the link.
 See [machine-link installation](../outliner/docs/machine-link.md#installing-over-the-link).

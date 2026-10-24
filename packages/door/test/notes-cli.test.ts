@@ -138,6 +138,7 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
   await child.exited;
 } else {
   writeFileSync(args[args.indexOf("--output-last-message") + 1], "The hinge turns freely.");
+  if (process.env.BUILDER_FIXTURE_REPORT) writeFileSync(process.env.BUILDER_FIXTURE_REPORT, "The fresh report file for this run.");
   process.exit(7);
 }
 `);
@@ -145,20 +146,29 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
     writeFileSync(join(bin, "gh"), "#!/usr/bin/env bun\nconsole.log('https://example.test/pull/7');\n");
     chmodSync(join(bin, "gh"), 0o755);
     const brief = join(scratch.root, "builder-brief.md");
-    writeFileSync(brief, "Repair the hinge.\n");
+    const staleReport = join(scratch.root, "previous-report.md");
+    writeFileSync(staleReport, "The old run never checked this hinge.");
+    writeFileSync(brief, `Repair the hinge.\nReport: ${staleReport}\n`);
     const ticket = await board.request<{ id: string }>("create", { text: "Repair the hinge", author: "agent" });
     const builder = join(import.meta.dir, "../../../scripts/builder");
     const spawn = (extra: Record<string, string> = {}) => Bun.spawn([builder, ticket.id, "--model", "fixture-model", "--", brief], {
       cwd: join(import.meta.dir, "../../.."), env: { ...process.env, ...scratch.env, EP0CH_SOCKET: sock, EP0CH_AGENT: "fixture-builder", PATH: `${bin}:${process.env.PATH}`, ...extra }, stdout: "pipe", stderr: "pipe",
     });
     try {
-      const p = spawn();
+      const p = spawn({ EP0CH_AGENT: "", OUTLINER_ACTOR: "" });
       const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
       expect(code, err).toBe(7);
       const ended = JSON.parse(out.trim());
       expect((await board.get(ended.id))!.text).toContain("[exit::7]");
       const reports = await board.request<{ text: string; actorId: string }[]>("children", { parentId: ticket.id });
-      expect(reports.some(r => r.text.includes("The hinge turns freely."))).toBe(true);
+      expect(reports.some(r => r.text.includes("The hinge turns freely.") && r.actorId === "builder")).toBe(true);
+      const fresh = spawn({ BUILDER_FIXTURE_REPORT: staleReport });
+      const freshOut = new Response(fresh.stdout).text();
+      const freshErr = new Response(fresh.stderr).text();
+      expect(await fresh.exited, await freshErr).toBe(7);
+      const freshEnd = JSON.parse((await freshOut).trim());
+      expect((await board.get(freshEnd.id))!.text).toContain("The fresh report file for this run.");
+      expect((await board.request<{ actorId: string }>("get", { blockId: freshEnd.id })).actorId).toBe("fixture-builder");
       const pidFile = join(scratch.root, "builder-child.pid");
       const waiting = spawn({ BUILDER_FIXTURE_WAIT: pidFile });
       const output = new Response(waiting.stdout).text();
@@ -169,6 +179,7 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
       expect(await waiting.exited, await errors).toBe(143);
       const stopped = JSON.parse((await output).trim());
       expect((await board.get(stopped.id))!.text).toContain("[exit::143]");
+      expect((await board.get(stopped.id))!.text).not.toContain("The fresh report file for this run.");
       const running = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
       await until(() => !running(), "builder's process group stopped");
     } finally { board.close(); }
@@ -178,11 +189,12 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
     const ticketBoard = new SocketBoard(sock, undefined, scratch.name);
     const ticket = await ticketBoard.request<{ id: string }>("create", { text: "Oil the hinge [work-id::SHED-18]", author: "agent" });
     ticketBoard.close();
-    const start = await run(["record", "run-start", "--ticket", ticket.id, "--harness", "codex", "--summary", "Oil the hinge"], env);
+    const recordEnv = { ...env, EP0CH_AGENT: "fixture-builder" };
+    const start = await run(["record", "run-start", "--ticket", ticket.id, "--harness", "codex", "--summary", "Oil the hinge"], recordEnv);
     expect(start.code, start.err).toBe(0);
     const id = JSON.parse(start.out).id;
     const before = await run(["show", id, "--source"], env);
-    const end = await run(["record", "run-end", "--run", id, "--exit", "0", "--duration", "12", "--report", "Hinge turns freely."], env);
+    const end = await run(["record", "run-end", "--run", id, "--exit", "0", "--duration", "12", "--report", "Hinge turns freely."], recordEnv);
     expect(end.code, end.err).toBe(0);
     expect((await run(["show", id, "--source"], env)).out).toBe(before.out);
     const ended = await run(["show", JSON.parse(end.out).id, "--source"], env);
@@ -197,9 +209,10 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
       expect((await board.get(stamp.stamped[0]!.id))!.text).toContain("Check the gate");
       const visible = await run(["find", "--query", "type=run-start", "--json"], env);
       expect(visible.out).not.toContain(id);
-      const finding = await run(["record", "finding", "--ticket", ticket.id, "--source", "person", "--failure", "Gate sticks", "--likelihood", "Every morning", "--cost", "One minute"], env);
+      const finding = await run(["record", "finding", "--ticket", ticket.id, "--source", "person", "--failure", "Gate sticks", "--likelihood", "Every morning", "--cost", "One minute"], { ...env, EP0CH_AGENT: "", OUTLINER_ACTOR: "" }, scratch.root);
       expect(finding.code, finding.err).toBe(0);
       const findingId = JSON.parse(finding.out).id;
+      expect((await board.request<{ author: string }>("get", { blockId: findingId })).author).toBe("user");
       const closed = await run(["record", "finding-closed", "--finding", findingId, "--fixed", "abc123"], env);
       expect(closed.code, closed.err).toBe(0);
       expect((await board.get(findingId))!.text).toContain("Gate sticks");
