@@ -22,6 +22,7 @@
 // already made), a new block already under its parent with that text is taken as made, and a patch that landed meets
 // the note's new revision and becomes a proposal, never a second change. A failure the service didn't answer (a
 // timeout, a closed socket) leaves the entry waiting; only the service's own refusal settles it as refused.
+import { parseActor } from "@ep0ch/outline-core/attribution";
 import { parseEnvFile } from "@ep0ch/outliner/env-file";
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
@@ -182,10 +183,15 @@ export class Netmail {
   /**
    * A caller's entries about one block of one machine's outline, oldest first (the order they were queued): those not in
    * the mirror yet (`queued`, or applied there at a revision, which a copy older than it doesn't show), or all of them.
+   * Persona labels share their principal's writes; the authenticated principal and subject still isolate callers.
    */
   forBlock(machine: string, outline: string, blockId: string, who: { actorId: string; subject: string }, pending = true): NetmailReceipt[] {
-    return (this.db.query(`SELECT * FROM entries WHERE machine = ? AND outline = ? AND block_id = ? AND actor_id = ? AND (subject = ? OR substr(subject, 1, ?) = ?)${pending ? " AND (state = 'queued' OR (state = 'applied' AND result_revision IS NOT NULL))" : ""} ORDER BY queued_at, rowid`)
-      .all(machine, outline, blockId, who.actorId, who.subject, who.subject.length + 1, `${who.subject}#`) as Record<string, unknown>[]).map(receiptOf);
+    const principal = parseActor(who.actorId).principal;
+    return (this.db.query(`SELECT * FROM entries WHERE machine = ? AND outline = ? AND block_id = ? AND (subject = ? OR substr(subject, 1, ?) = ?)${pending ? " AND (state = 'queued' OR (state = 'applied' AND result_revision IS NOT NULL))" : ""} ORDER BY queued_at, rowid`)
+      .all(machine, outline, blockId, who.subject, who.subject.length + 1, `${who.subject}#`) as Record<string, unknown>[]).map(receiptOf).filter(entry => {
+        const other = parseActor(entry.actorId).principal;
+        return principal !== undefined && other !== undefined ? other === principal : entry.actorId === who.actorId;
+      });
   }
 
   /** Records what the machine's entries became; an id it doesn't hold waiting is skipped. Returns how many settled. */

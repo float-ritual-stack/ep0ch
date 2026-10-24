@@ -25,7 +25,7 @@ import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, Respo
 import { recordUsage, usageShape, usageCommand } from "./mcp-usage";
 import { CAP_KEY, gatherMatrix, hostSourceFor, matrixLines, setPathCap } from "./mcp-access-matrix";
 import { callRegistry, callShown } from "./mcp-calls";
-import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, PERSONA_PROPERTY, personaRefusal, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp usage [--since 24h] [--by tool|actor|outline] [--json]
   ep0ch mcp usage --census [--ws <name>] [--machine <ssh-name>] [--json]
@@ -461,7 +461,7 @@ async function writeStatusTool(outlines: McpOutlines, args: Record<string, unkno
   const id = stringField(args, "queueId")?.trim();
   if (!id) return toolError("Give the queueId a queued write answered.");
   const queue = outlines.netmail;
-  const mine = actorOf(caller);
+  const mine = actorOf(caller, undefined, undefined, args.persona as string | undefined);
   const receipt = queue?.receipt(id);
   // Not found and not yours read the same: another caller's writes are not for this one to list.
   if (!queue || !receipt || parseSessionId(receipt.subject).subject !== caller.sub || receipt.actorId !== mine.actorId) return toolError(`No queued write ${JSON.stringify(id)} of yours (a queueId is what a queued write answered).`);
@@ -938,7 +938,7 @@ const adminTools = (outlines: McpOutlines, caller: McpCaller | undefined) => cal
 
 /** The tools a caller is offered: the reads, the writes and shares where the outline takes writes, and the outline admin. */
 const toolList = (outlines: McpOutlines, writes: boolean, caller: McpCaller | undefined, loki: boolean) =>
-  [...artifactToolDefinitions(outlineProperty(outlines)).filter(t => writes || t.name !== "artifact_put"), snapshotDefinition(outlineProperty(outlines)), ...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller), ...(loki && caller && outlines.admin ? [lokiDefinition] : [])];
+  [...artifactToolDefinitions(outlineProperty(outlines)).filter(t => writes || t.name !== "artifact_put"), snapshotDefinition(outlineProperty(outlines)), ...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), { ...writeStatusDefinition, inputSchema: { ...writeStatusDefinition.inputSchema, properties: { ...writeStatusDefinition.inputSchema.properties, persona: PERSONA_PROPERTY } } }, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller), ...(loki && caller && outlines.admin ? [lokiDefinition] : [])];
 
 /** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
 const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
@@ -1005,6 +1005,10 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   let caller = callerIn;
   const params = objectFields(paramsValue);
   if (!params || typeof params.name !== "string") throw invalidParams("tools/call needs a tool name.");
+  if (isWriteTool(params.name) || params.name === "outline_write_status") {
+    const refusal = personaRefusal(objectFields(params.arguments)?.persona);
+    if (refusal) return toolError(refusal);
+  }
   const checked = checkedMcpArgs(outlines, params.name, params.arguments, caller);
   if (checked && "error" in checked) return toolError(checked.error);
   const args = checked?.args ?? objectFields(params.arguments) ?? {};
@@ -1071,6 +1075,7 @@ const writeRefusal = (outlines: McpOutlines, { board, served }: McpBoard, level:
 async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record<string, unknown>, caller: McpCaller): Promise<ToolResult> {
   const shape = writeInput(tool, args);
   if ("error" in shape) return toolError(shape.error);
+  const actor = actorOf(caller, undefined, undefined, args.persona as string | undefined);
   const resourceRef = tool === "outline_comment" ? refArg(args) : undefined;
   if (resourceRef && await isResourceRef(resourceRef)) {
     const target = await resourceBoard(outlines, args);
@@ -1079,8 +1084,8 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
     if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
     if (target.home) return toolError(`${target.board.address.outline} lives on ${target.home.machine}: a comment on a Resource isn't queued; make it there.`);
     try {
-      const done = await commentOnResourceOn(target.board, resourceRef, shape.input, actorOf(caller));
-      return toolText({ outcome: done.outcome, uri: done.uri, outline: target.board.address.outline, machine: target.board.address.machine, said: done.said, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
+      const done = await commentOnResourceOn(target.board, resourceRef, shape.input, actor);
+      return toolText({ outcome: done.outcome, uri: done.uri, by: actorLabel(actor.actorId), outline: target.board.address.outline, machine: target.board.address.machine, said: done.said, ...(done.deduped ? { deduped: true } : {}), detail: done.detail });
     } catch (e) { return toolError((e as Error).message); }
   }
   const target = await addressedBlock(outlines, refArg(args), args.outline);
@@ -1098,7 +1103,6 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
   if (!found && tool === "outline_restore" && target.home) return toolError(`${board.address.outline} lives on ${target.home.machine}: a trashed note isn't in its mirror, so outline_restore isn't queued; restore it there.`);
   const record = found ?? (tool === "outline_restore" || (tool === "outline_trash" && !target.home) ? { id: target.id, text: "", revision: undefined } : undefined);
   if (!record) return toolError(`No block ${target.id} in ${board.address.outline}${target.served.source === "mirror" ? `'s mirror (as of ${target.served.asOf})` : ""}.`);
-  const actor = actorOf(caller);
   // How old the base a write was made against is: a mirror lags the laptop, so a revision read from it may be behind.
   const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(target.served.asOf)) / 60_000));
   const base = { source: target.served.source, asOf: target.served.asOf, ageMinutes: target.served.source === "mirror" ? ageMin : 0 };
@@ -1115,7 +1119,7 @@ async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record
       const seen = q?.lastPull ? `${target.home.machine} last pulled ${q.lastPull}` : `${target.home.machine} hasn't pulled yet`;
       outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) client=${caller.clientId ?? "-"} call=${caller.call ?? "-"}${caller.call ? ` (${callShown(caller.call).handle ?? "no handle"})` : ""} ${tool} ${target.uri}: queued ${entry.id}`);
       return toolText({
-        outcome: "queued", id: entry.id, queueId: entry.id, uri: target.uri, ...where, queuedFor: `${where.outline}@${target.home.machine}`, queuedAt: entry.queuedAt,
+        outcome: "queued", by: actorLabel(actor.actorId), id: entry.id, queueId: entry.id, uri: target.uri, ...where, queuedFor: `${where.outline}@${target.home.machine}`, queuedAt: entry.queuedAt,
         waiting: q?.waiting ?? 1, lastPull: q?.lastPull ?? null, base,
         said: `queued for ${where.outline}@${target.home.machine} (${seen}); it lands when ${target.home.machine} pulls it (outline_write_status ${entry.id} follows it), ${status.level === "full" ? "applied, or proposed if the note changed meanwhile" : "as a proposal"}, and the mirror shows it after that; the base you wrote against is the mirror as of ${base.asOf} (~${base.ageMinutes} min old)`,
       });

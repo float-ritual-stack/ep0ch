@@ -61,17 +61,17 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const source = new Database(join(far.outlines, `${name}.sqlite`), { readonly: true });
     try { source.run("VACUUM INTO ?", [target]); } finally { source.close(); }
   };
-  const token = async (aud = RESOURCE) => new SignJWT({ client_id: CLIENT, scope: "profile" })
-    .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(PERSON).setAudience(aud)
+  const token = async (aud = RESOURCE, who = { sub: PERSON, clientId: CLIENT }) => new SignJWT({ client_id: who.clientId, scope: "profile" })
+    .setProtectedHeader({ alg: "RS256", kid: "test-key", typ: "at+jwt" }).setIssuer(ISSUER).setSubject(who.sub).setAudience(aud)
     .setIssuedAt().setExpirationTime("5m").sign(signing);
   /** A request at the gateway's `/mcp`, or at `/<persona>/mcp` (`at`), with a token for that path's resource. */
-  const rpc = async (method: string, params?: unknown, at?: string) => {
+  const rpc = async (method: string, params?: unknown, at?: string, who?: { sub: string; clientId: string }) => {
     const url = at ? `${new URL(gateway.url).origin}/${at}/mcp` : gateway.url;
-    const res = await fetch(url, { method: "POST", headers: { Host: HOST, "Content-Type": "application/json", Authorization: `Bearer ${await token(at ? `https://mcp.example.test/${at}/mcp` : RESOURCE)}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params ? { params } : {}) }) });
+    const res = await fetch(url, { method: "POST", headers: { Host: HOST, "Content-Type": "application/json", Authorization: `Bearer ${await token(at ? `https://mcp.example.test/${at}/mcp` : RESOURCE, who)}` }, body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, ...(params ? { params } : {}) }) });
     return await res.json() as { result?: any; error?: { message: string } };
   };
-  const tool = async (name: string, args: Record<string, unknown>, at?: string) => {
-    const r = await rpc("tools/call", { name, arguments: args }, at);
+  const tool = async (name: string, args: Record<string, unknown>, at?: string, who?: { sub: string; clientId: string }) => {
+    const r = await rpc("tools/call", { name, arguments: args }, at, who);
     if (r.error) return { isError: true, text: r.error.message, json: null as any };
     const text = (r.result as { content: { text: string }[] }).content[0]!.text;
     let json: any = null;
@@ -129,7 +129,7 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
       FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: join(dir, "hub-home"), FAKE_SSH_OUTLINES: join(dir, "hub-outlines"), FAKE_SSH_BIN: join(dir, "bin"), FAKE_SSH_LOG: join(dir, "ssh.log"),
     });
 
-    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: PERSON });
+    const config = gatewayConfig({ EP0CH_MCP_RESOURCE: RESOURCE, EP0CH_MCP_ISSUER: ISSUER, EP0CH_MCP_ALLOWED_SUBJECTS: `${PERSON},user_fictional_other` });
     if ("error" in config) throw new Error(config.error);
     const mirror = new OutlineMirror("attic-notes", FAR, mirrors, line => logs.push(line), Date.now, async () => null);
     const outlines = machineOutlines(undefined, line => logs.push(line), async name => ["garden-notes", "pond-notes", "quiet-notes"].includes(name) ? boardOn(here, name, HERE) : { error: "no such outline" },
@@ -851,10 +851,71 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     expect(remoteWrite({ domain: "content", action: "update", sequence: 1, change, catchUp: true })).toBeNull();
     expect(remoteWrite({ domain: "content", action: "update", sequence: 1, change: { ...change, actor: { author: "agent", actorId: "claude-code" } } })).toBeNull();
   });
+  test("long-hostname clients on one subject read only their own pending writes", async () => {
+    const remote = { uri: formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.trunk! }) };
+    const host = `${"a".repeat(60)}.${"b".repeat(60)}`;
+    const callers = ["first", "second"].map(name => ({ sub: PERSON, clientId: `https://${host}.${name}.example.test/client` }));
+    const queued = [];
+    for (const [i, caller] of callers.entries()) {
+      const write = await tool("outline_comment", { ...remote, whole: true, body: `Private inventory ${i}`, persona: "scout" }, undefined, caller);
+      expect(write.json.outcome).toBe("queued");
+      queued.push(write.json.queueId);
+    }
+    for (const [i, caller] of callers.entries()) {
+      const read = await tool("outline_read", remote, undefined, caller);
+      expect(read.json.pending.comments).toEqual([{ queueId: queued[i], body: `Private inventory ${i}` }]);
+    }
+    await pull();
+  });
+
+  test("a per-write persona records its principal and leaves the named path's cap in place", async () => {
+    const parent = formatEp0chBlockUri({ outline: "garden-notes", machine: HERE, blockId: ids.seeds! });
+    const made = await tool("outline_create", { uri: parent, text: "Persona's seed tray", persona: "scout" });
+    expect(made.isError).toBe(false);
+    expect(made.json.by).toBe("scout (chat.example.test)");
+    const child = await textOf(here, "garden-notes", HERE, made.json.uri.split("/b/")[1]);
+    expect(child.actor).toBe("mcp:scout/chat.example.test");
+    const capped = await tool("outline_set_property", { uri: parent, key: "keeper", value: "scout", revision: (await textOf(here, "garden-notes", HERE, ids.seeds!)).revision, persona: "scout" }, "gpty");
+    expect(capped.json.outcome).toBe("proposed");
+    expect(capped.json.by).toBe("scout (chat.example.test)");
+    expect((await textOf(here, "garden-notes", HERE, ids.seeds!)).text).not.toContain("keeper::scout");
+    for (const persona of ["not/a-persona", "", "x".repeat(65), 42, null]) {
+      const invalid = await tool("outline_create", { uri: parent, text: "Invalid persona's tray", persona });
+      expect(invalid.isError).toBe(true);
+      expect(invalid.text).toContain("^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$");
+      expect(invalid.text).toContain("loki");
+    }
+    const queued = await tool("outline_comment", { uri: formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.trunk! }), whole: true, body: "A scout's inventory", persona: "scout" });
+    expect(queued.json.outcome).toBe("queued");
+    expect(queued.json.by).toBe("scout (chat.example.test)");
+    const remote = { uri: formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.trunk! }) };
+    expect((await tool("outline_read", remote)).json.pending.comments).toContainEqual({ queueId: queued.json.queueId, body: "A scout's inventory" });
+    expect((await tool("outline_read", remote, undefined, { sub: PERSON, clientId: "https://other.example.test/client" })).json.pending).toBeUndefined();
+    expect((await tool("outline_read", remote, undefined, { sub: "user_fictional_other", clientId: CLIENT })).json.pending).toBeUndefined();
+    expect((await tool("outline_write_status", { queueId: queued.json.queueId, persona: "scout" })).json).toMatchObject({ state: "queued", by: "scout (chat.example.test)" });
+    expect((await pull()).settled).toMatchObject([{ state: "applied" }]);
+    expect((await boardOn(far, "attic-notes", FAR).comments(ids.trunk!)).find(t => t.body === "A scout's inventory")?.author).toBe("mcp:scout/chat.example.test");
+  }, 60_000);
 });
 
 describe("personas: who a connection writes as", () => {
   const caller = { sub: "user_fictional_a", clientId: "https://chat.example.test/oauth/client-metadata" };
+  test("a queue actor without a principal sees only its exact actor's writes", () => {
+    const dir = scratchDir("ep0ch-actor-queue-");
+    const queue = new Netmail(join(dir, "queue.sqlite"));
+    try {
+      const actors = ["mcp:scout/invalid:one", "mcp:scout/invalid:two", "mcp:chat.example.test"];
+      const entries = actors.map(actorId => queue.enqueue({
+        machine: FAR, outline: "attic-notes", blockId: "fictional-trunk", uri: "ep0ch://attic-notes@far-box/b/fictional-trunk",
+        tool: "outline_comment", input: { body: actorId, whole: true }, actorId, subject: `${PERSON}#fictional-call`, clientId: null,
+        level: "full", revision: null, mirrorRevision: null, textHash: null, instanceId: null,
+      }));
+      for (const [i, actorId] of actors.entries()) {
+        expect(queue.forBlock(FAR, "attic-notes", "fictional-trunk", { actorId, subject: PERSON }).map(e => e.id)).toEqual([entries[i]!.id]);
+      }
+    } finally { queue.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test("a client or subject maps to a name; none keeps the client's; a bad name is ignored; the file works too", () => {
     expect(actorOf(caller, {}).actorId).toBe("mcp:chat.example.test");
     expect(actorOf(caller, { EP0CH_MCP_PERSONAS: "chat.example.test=daddy" })).toEqual({ actorId: "mcp:daddy/chat.example.test", sessionId: "user_fictional_a" });

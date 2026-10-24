@@ -327,7 +327,9 @@ var posix = ((p) => (p.posix = p, p))({ resolve, normalize, isAbsolute, join, re
 // packages/outline-core/src/attribution.ts
 var NAME = "[A-Za-z0-9][A-Za-z0-9._-]";
 var PERSONA_PATTERN = new RegExp(`^${NAME}{0,63}$`);
-var PRINCIPAL_PATTERN = new RegExp(`^${NAME}{0,63}(@${NAME}{0,31})?$`);
+var CLIENT = `${NAME}{0,252}`;
+var CLIENT_PATTERN = new RegExp(`^${CLIENT}$`);
+var PRINCIPAL_PATTERN = new RegExp(`^${CLIENT}(@${NAME}{0,31})?$`);
 
 // packages/outline-core/src/outline-location.ts
 function isOutlineName(name) {

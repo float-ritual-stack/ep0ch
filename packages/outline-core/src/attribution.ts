@@ -35,7 +35,10 @@ export const isViaYolo = (taskId: string | undefined | null): boolean => taskId 
 
 const NAME = "[A-Za-z0-9][A-Za-z0-9._-]";
 export const PERSONA_PATTERN = new RegExp(`^${NAME}{0,63}$`);
-export const PRINCIPAL_PATTERN = new RegExp(`^${NAME}{0,63}(@${NAME}{0,31})?$`);
+// OAuth client names include URL hostnames, whose full name can span several DNS labels.
+const CLIENT = `${NAME}{0,252}`;
+export const CLIENT_PATTERN = new RegExp(`^${CLIENT}$`);
+export const PRINCIPAL_PATTERN = new RegExp(`^${CLIENT}(@${NAME}{0,31})?$`);
 
 export interface Attribution {
   /** The declared persona, when there is one. */
