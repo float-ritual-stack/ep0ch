@@ -18,7 +18,7 @@ export class RiverView {
   /** The column titled `t` (the Library, a note's title, #value). */
   byTitle(t: string): RiverColumn | undefined { return this.tiles.find(c => c.titleOf() === t); }
   /** The column showing note `id` (opened on it). */
-  byNote(id: string): RiverColumn | undefined { return this.tiles.find(c => c.source.kind === "block" && c.source.id === id); }
+  byNote(id: string): RiverColumn | undefined { return this.tiles.find(c => c.noteOf()?.id === id); }
   /** The column tile with the keys. */
   get focused(): RiverColumn { return this.b.focusedPane() as RiverColumn; }
   /** Its place in the flow, from 0. */

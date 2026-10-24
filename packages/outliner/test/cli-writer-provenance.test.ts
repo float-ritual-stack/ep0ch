@@ -132,7 +132,8 @@ test("--author agent without --actor is refused for every write, before anything
   }
   const after = store.get(gloves.id)!;
   expect([after.text, after.parentId, Boolean(after.deletedAt)]).toEqual(["Gloves", null, false]);
-  expect(store.recentEditActivity({ author: "agent", kinds: ["text", "properties", "move", "delete", "restore"] }).entries).toEqual([]);
+  // Extensions' own writes (the Extensions pages) aren't what a refused CLI call could have written.
+  expect(store.recentEditActivity({ author: "agent", extensions: "exclude", kinds: ["text", "properties", "move", "delete", "restore"] }).entries).toEqual([]);
 });
 
 test("delete --expected trashes only the block at that revision: a changed one is refused and stays", async () => {

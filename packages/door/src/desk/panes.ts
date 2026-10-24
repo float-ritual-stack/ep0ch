@@ -49,6 +49,7 @@ export interface DeskApi {
   redraw(): void;
   /** Save the screen's layout now (a reader's history changed, PIE-643). */
   keepLayout?(): void;
+  historyLanded?(p: ReaderPane, by: Actor): void;
   /** The layout permits closing this tile, including the container that keeps it. */
   canClose?(p: Pane): boolean;
   holdReader?(pane: ReaderPane, actor: Actor): void;
@@ -177,6 +178,8 @@ export interface DeskApi {
 }
 
 export interface Pane {
+  /** Made on purpose: retained with this instance across groups, spills and the drawer. */
+  deliberate?: boolean;
   readonly bindings?: readonly ModeKey[];
   /** Whether its host currently draws the tile (also reaches nested screens). */
   shownAs?(on: boolean): void;
@@ -486,6 +489,7 @@ export class ReaderPane implements Pane {
       get entered() { return desk.isIn ? desk.isIn(pane) : undefined; },
       enterMode: () => desk.enterSession?.(pane),
       redraw: () => desk.redraw(),
+      ...(desk.historyLanded ? { historyLanded: (by: Actor) => desk.historyLanded!(this, by) } : {}),
       ...(desk.keepLayout ? { keptChanged: () => desk.keepLayout!() } : {}),
       ...(desk.layoutUndoSeq ? { layoutUndoSeq: () => desk.layoutUndoSeq!() } : {}),
       // A link followed in it lands where its opens land (PIE-794, the desk's one landing path): a held reader with no

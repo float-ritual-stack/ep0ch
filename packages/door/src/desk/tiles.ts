@@ -66,6 +66,7 @@ export interface TileSpec {
   inner?: unknown;
   /** Where this tile's opens land: another tile's name (PIE-473). */
   altReader?: boolean;
+  deliberate?: boolean;
   wires?: { verb: "select" | "open" | "alt"; to: string; rule?: import("./layout").AltRule }[];
   selectFrom?: string;
   link?: string;
@@ -140,6 +141,7 @@ export function makeTile(given: Partial<TileSpec> & { kind: TileKindName }): Pan
   const k = tileKind(s.kind);
   if (!k) return new UnavailableTile(s.kind, missingKind(s.kind), s.state ?? {});
   const p = k.make(s);
+  p.deliberate = s.deliberate;
   p.writtenTitle = s.writtenTitle;
   p.systemTitle = s.systemTitle;
   return p;

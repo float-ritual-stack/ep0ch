@@ -199,7 +199,7 @@ describe.skipIf(!outliner)("neat probe: the seams one button hit", () => {
       expect(after.tiles.find(t => t.tile === original.tile)?.showing?.id).toBe(note.id);
       expect((s.d as any).layoutGet().floats).toEqual(floats);
       await app.dispatch.act({ action: "back", tile: "other" }, USER);
-      await until(() => shows(s.d, "other") === s.testing.id, "back restores the replaced note");
+      await until(() => (s.d.pane("other") as ReaderPane)?.msg?.id === s.testing.id, "back restores the replaced note");
     } finally { s.done(); }
   });
 

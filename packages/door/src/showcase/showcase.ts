@@ -117,7 +117,7 @@ function stageDesk(st: Stage): Desk {
   st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p instanceof ReaderPane && p.kind === "reader" && p.holding ? "detail" : p.kind)));
   const ids = st.panes.map((_, i) => i);
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
-  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.panes[i] instanceof PreviewPane && "tile" in st.panes[i].source ? { source: `tile:${st.panes[i].source.tile}` } : {}), ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
+  const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.panes[i] instanceof PreviewPane && "tile" in st.panes[i].source ? { source: `tile:${st.panes[i].source.tile}` } : {}), ...(st.panes[i]!.deliberate ? { deliberate: true } : {}), ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
   return new Desk({ name: "showcase", title: st.title, layout: { root, focus: names.get(0) } }, { given: new Map(st.panes.map((p, i) => [names.get(i)!, p])) });
 }
 /** A stage whose readers show `notes` (one each, in order) once it opens. */
@@ -236,7 +236,7 @@ export const SECTIONS: Section[] = [
     aside: "four readers on one note, each writing a comment in another place: inline (top left, under its line), floating (top right), split (bottom left) and popup (bottom right) · select words with the mouse and press C: the box opens where you are, the note still scrolls around it · ctrl+o (or a click on the chip) moves it · drag a floating box's ≡ top edge to move it and its ◢ corner to size it, or ctrl+g then the arrows (shift: size); opened again, it's in its usual place · click another tile and back: the box is there as you left it · click a link while it's unsent: the power bar asks, save and continue, keep writing, or discard · ctrl+s saves and the thread sits in place, references and embeds drawn · an agent's comment lands as a thread, never in your box",
     stage(n, show) {
       const places = ["inline", "floating", "split", "popup"] as const;
-      const readers = places.map(() => new ReaderPane());
+      const readers = places.map(() => Object.assign(new ReaderPane(), { deliberate: true }));
       return deskOf({ title: "showcase · composer", panes: readers, names: [...places],
         layout: ([a, b, c, d]) => pair("col", 0.5, row(0.5, a!, b!), row(0.5, c!, d!)) }, show, readers.map(r => [r, n.margin] as [ReaderPane, Msg | undefined]), d => {
         // The person's own keys would do these: a comment on each reader's line, through the stage's dispatcher, then its place.
@@ -356,11 +356,12 @@ export const SECTIONS: Section[] = [
     key: "book-spines", need: "keep open pages together, with spines gathered like an open book",
     part: "the container's spines and min-width policy, placement(), the shared unfold path and layout.gather; the same layout tree on a screen or in a group",
     files: "src/desk/screen-layout.ts, src/desk/layout.ts, src/desk/tile-actions.ts, src/desk/wkeys.ts",
-    aside: "Two pages open in the spread, page edges at the sides. Click a spine: it joins the spread with an even share. Below min-width (40), the page touched longest ago folds to its own side. A hand fold stays where it is. The container menu offers align left (^W {), centre (^W |) and right (^W }). Centre splits spines evenly, with an odd one on the right. The alignment sticks as spines=end, centre or start; sides keeps book placement. invoker keeps the old placement toward the tile an open came from.",
+    aside: "Two pages open in the spread, page edges at the sides. Click a spine: it joins the spread with an even share. Below min-width (40), the page touched longest ago folds to its own side. A hand fold stays where it is. The container menu offers align left (^W {), centre (^W |) and right (^W }). Centre splits spines evenly, with an odd one on the right. Follow a link with alt+Enter, go back with alt+Left, then alt-open again three times: the note has one tile, never another copy in the spines. A split, tile.open or pinned reader stays yours. The alignment sticks as spines=end, centre or start; sides keeps book placement. invoker keeps the old placement toward the tile an open came from.",
     stage(n, show) {
       const readers = Array.from({ length: 16 }, () => { const r = new ReaderPane(true); r.holdOn(); return r; });
       const names = ["birch", "cedar", "elm", "fir", "oak", ...Array.from({ length: 11 }, (_, i) => `page-${i + 1}`)];
-      const notes = readers.map((_, i) => [n.notebook, n.shed, n.whiteboard][i % 3]);
+      const first = [n.whiteboard, n.shed, n.heap, n.notebook];
+      const notes = [...first, ...Object.values(n).filter(m => !first.includes(m))].slice(0, readers.length);
       return deskOf({ title: "showcase · book spines", panes: readers, names,
         layout: ids => ({ t: "split", dir: "row", key: "spread", kids: ids.map(leaf), weights: ids.map(() => 1), policy: { spines: "book", "min-width": 40 } }),
       }, show, readers.map((r, i) => [r, notes[i]]), d => {

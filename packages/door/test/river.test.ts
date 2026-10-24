@@ -480,6 +480,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   });
 
   test("in a note column f and ( ) fold and [ ] move between its elements, as in every reader", async () => {
+    await mine("open", { id: notes.peas.id, from: lib() });
     const r = readerOf(notes.peas.id)!;
     await mine("tile.focus", {}, r);
     await mine("tile.widen", {}, r);

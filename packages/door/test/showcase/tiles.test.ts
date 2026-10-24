@@ -48,6 +48,17 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
       screen();
       await until(() => !!S().stages.get(S().sel), "the desk");
       const d = S().stages.get(S().sel).top;
+      const followForeign = async (action: string, args: Record<string, unknown>, tile: string) => {
+        for (const p of d.panes.values()) if (p.msg?.address?.outline === "showcase-orchard") {
+          await d.dispatch.press("tile.collapse", { on: true }, d.nameOfPane(p));
+        }
+        await app.act({ action, tile, args, as: "test-agent" });
+        const tiles = d.layoutGet().tiles;
+        const shown = [...d.panes.values()].find((p: any) => p.msg?.address?.outline === "showcase-orchard" && !tiles.find((t: any) => t.name === d.nameOfPane(p)).collapsed) as any;
+        expect(shown).toBeDefined();
+        expect(d.layoutGet().tiles.find((t: any) => t.name === d.nameOfPane(shown)).collapsed).not.toBe(true);
+        return shown.msg;
+      };
       await until(() => d.pane("orchard-note")?.msg?.id === note.id, "the foreign note", 2000);
       expect(d.pane("orchard-note").msg.text).toContain("Water the pear tree.");
       await app.act({ action: "edit", tile: "orchard-note", as: "test-agent" });
@@ -82,8 +93,7 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
         expect({ exit: await cli.exited, err }).toEqual({ exit: 0, err: "" });
       } finally { ctl.close(); }
       await app.act({ action: "open", tile: "guide", args: { id: seeded.notes.crossOutline.id }, as: "test-agent" });
-      await app.act({ action: "link.follow", tile: "guide", args: { n: 1 }, as: "test-agent" });
-      expect(d.pane("guide").msg.id).toBe(note.id);
+      expect((await followForeign("link.follow", { n: 1 }, "guide")).id).toBe(note.id);
       await app.act({ action: "open", tile: "guide", args: { id: seeded.notes.crossOutline.id }, as: "test-agent" });
       await app.act({ action: "links", tile: "guide", as: "test-agent" });
       const links = () => [...d.panes.values()].find((p: any) => p.kind === "backlinks") as any;
@@ -91,14 +101,12 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
       await until(() => links()?.rows().some((r: any) => r.kind === "resource"), "the guide's link row");
       const row = links().rows().findIndex((r: any) => r.kind === "resource");
       const linksName = d.nameOfPane(links());
-      await app.act({ action: "backlinks.open", tile: linksName, args: { n: row + 1 }, as: "test-agent" });
-      expect(d.pane("guide").msg.id).toBe(note.id);
+      expect((await followForeign("backlinks.open", { n: row + 1 }, linksName)).id).toBe(note.id);
       for (const n of [2, 3, 4]) {
         await app.act({ action: "open", tile: "guide", args: { id: seeded.notes.crossOutline.id }, as: "test-agent" });
         screen();
-        await app.act({ action: "link.follow", tile: "guide", args: { n }, as: "test-agent" });
-        expect(d.pane("guide").msg.address?.outline).toBe("showcase-orchard");
-        expect(d.pane("guide").msg.text).toContain(n === 3 ? "Orchard journal" : "Water deeply");
+        const opened = await followForeign("link.follow", { n }, "guide");
+        expect(opened.text).toContain(n === 3 ? "Orchard journal" : "Water deeply");
       }
       await app.act({ action: "open", tile: "guide", args: { id: seeded.notes.crossOutline.id }, as: "test-agent" });
       const outlines = await app.act({ action: "complete", tile: "guide", args: { text: "[[showcase-or" }, as: "test-agent" }) as any;
@@ -140,14 +148,15 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
     expect(d.current.id).toBe(before);
     await act("tree.pick", { id: seeded.notes.root.id, open: true });
     await until(() => d.pane("detail").msg?.id === seeded.notes.root.id, "Enter in the linked detail");
-    const destination = d.layoutGet().tiles.find((t: any) => t.name === "detail");
     let previous = seeded.notes.root.id;
     for (let i = 0; i < 10; i++) {
       const note = i % 2 ? seeded.notes.notebook : seeded.notes.shed;
       await act("tree.pick", { id: note.id, fresh: true });
       const tiles = d.layoutGet().tiles;
-      expect(tiles.find((t: any) => t.id === destination.id).showing.id).toBe(note.id);
-      expect(tiles.some((t: any) => t.collapsed && t.showing?.id === previous)).toBe(true);
+      const opened = tiles.filter((t: any) => t.kind === "reader" && t.showing?.id === note.id);
+      expect(opened).toHaveLength(1);
+      expect(opened[0].collapsed).not.toBe(true);
+      expect(tiles.some((t: any) => t.kind === "reader" && t.showing?.id === previous)).toBe(true);
       expect(tiles.find((t: any) => t.name === "tree-preview").collapsed).not.toBe(true);
       previous = note.id;
     }

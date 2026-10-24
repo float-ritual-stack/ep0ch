@@ -311,7 +311,7 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
   }, 20_000);
 
   test("the board: ⏎ on a link in a detail follows in place; alt+← comes back with [ ] on it, alt+⏎ opens it at once; alt+→ goes again", async () => {
-    const d = await detail();
+    let d = await detail();
     stepTo(d, "Paint the shed");
     key({ kind: "enter" });
     await whole(d, n.shed.id);
@@ -325,6 +325,8 @@ describe.skipIf(!outliner)("back and forward in the board's and the desk's reade
     await whole(d, n.shed.id);
     await b.dispatch.act({ action: "tile.focus", tile: "detail1" }, { kind: "user" });
     key({ kind: "alt-left" });
+    await until(() => b.layoutGet().tiles.some(t => t.showing?.id === n.jobs.id && !t.collapsed && t.focused), "Back focuses the existing jobs spine");
+    d = B().details.find((p: ReaderPane) => p.msg?.id === n.jobs.id);
     await whole(d, n.jobs.id);
     expect(d.surface.msg?.id).toBe(n.jobs.id);
     key({ kind: "alt-right" });

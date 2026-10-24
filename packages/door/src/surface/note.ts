@@ -159,6 +159,8 @@ export interface TagList { tag?: string; query: string; tile?: string; notes: { 
 
 /** What a surface needs from whatever hosts it. */
 export interface SurfaceHost {
+  /** A history landing uses the host's usual note placement. */
+  historyLanded?(by: Actor): void;
   contextFor?(note: Msg | null): Ctx;
   ctx: Ctx;
   redraw(): void;
@@ -6078,7 +6080,7 @@ export class NoteSurface {
   }
 
   /** Reveal the fragment a follow left on `m`, unless it's an agent's and this is the person's focused reader. */
-  private takeReveal(m: Msg, host: SurfaceHost) {
+  takeReveal(m: Msg, host: SurfaceHost) {
     const r = revealOn.get(m);
     if (!r) return;
     if (!standsAsPerson(r.by, host.ctx.person?.() ?? NOBODY, "tile") && host.focused !== false) return;
@@ -7444,10 +7446,8 @@ export class NoteSurface {
     if (!this.show(note, host)) return "the reader is holding an edit or a comment";
     stack.pop();
     if (here) (dir < 0 ? this.aheads : this.backs).push(here);
-    Object.assign(this.position, structuredClone(to.position)); this.cur = to.cur; this.link = to.link;
-    this.folded = new Set(to.folded); this.previewLists = new Map(to.previewLists); this.previewOpen = new Set(to.previewOpen); this.expanded = new Set(to.expanded); this.foldedThreads = new Set(to.foldedThreads); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures);
-    // The element comes into view if the history row now under the note would hide it (only that far).
-    this.reveal = to.cur !== null;
+    this.restorePlace(to);
+    host.historyLanded?.(actor);
     // A redraw may paint synchronously; the host must keep the destination before its view reads it.
     this.keptChanged?.();
     host.redraw();
@@ -7476,11 +7476,24 @@ export class NoteSurface {
     this.backs = nav.backs.map(placeOf); this.aheads = nav.aheads.map(placeOf);
     const here = nav.here;
     if (here && this.msg?.id === here.id) {
-      Object.assign(this.position, structuredClone(here.position)); this.cur = here.cur; this.link = here.link;
-      this.folded = new Set(here.folded); this.previewLists = new Map(here.previewLists); this.previewOpen = new Set(here.previewOpen); this.expanded = new Set(here.expanded); this.foldedThreads = new Set(here.foldedThreads); this.foldSeen = new Set(here.seen); this.figureUI = new Map(here.figures);
-      this.reveal = here.cur !== null;
+      this.restorePlace(placeOf(here));
     }
     return true;
+  }
+
+  private restorePlace(to: Place) {
+    Object.assign(this.position, structuredClone(to.position)); this.cur = to.cur; this.link = to.link;
+    this.folded = new Set(to.folded); this.previewLists = new Map(to.previewLists); this.previewOpen = new Set(to.previewOpen); this.expanded = new Set(to.expanded); this.foldedThreads = new Set(to.foldedThreads); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures);
+    // The element comes into view if the history row now under the note would hide it (only that far).
+    this.reveal = to.cur !== null;
+  }
+
+  /** Keep both trails when automatic placement folds another reader into this one. */
+  takeHistory(from: NoteSurface) {
+    const here = from.place();
+    if (here) this.restorePlace(here);
+    this.backs = [...this.backs, ...from.backs].slice(-HISTORY);
+    this.aheads = [...this.aheads, ...from.aheads].slice(-HISTORY);
   }
 
   /** The history as `peek` shows it: the titles back and forward go to, nearest first. */

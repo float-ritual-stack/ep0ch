@@ -141,7 +141,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
       await app.dispatch.act({ action: "tile.focus", tile }, { kind: "user" });
       press({ kind: "esc" });
       expect((await elements()).some((e: any) => e.current)).toBe(false);
-      for (const added of desk.layoutGet().tiles.filter((t: any) => !originalTiles.includes(t.name)))
+      for (const added of desk.layoutGet().tiles.filter((t: any) => !originalTiles.map((name: string) => desk.nameOfPane(desk.pane(name))).includes(t.name)))
         await app.dispatch.act({ action: "tile.close", tile: added.name }, { kind: "user" });
       await app.dispatch.act({ action: "open", tile, args: { id: seeded.notes.plotJobs.id } }, { kind: "user" });
       for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
@@ -211,7 +211,8 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     ch("j");
     press({ kind: "enter" });
     await untilAsync(async () => (await board.get(before.id))!.text.includes('density: "comfortable"'), "density saved from its schema choices");
-    await until(() => !screen().includes("[cancel]"), "the saved density field closes");
+    // The buttons can be clipped while the field still owns the keys; its footer says when the save finished.
+    await until(() => screen().includes("close sources"), "the saved density field closes");
     press({ kind: "char", ch: "z", ctrl: true });
     await untilAsync(async () => (await board.get(before.id))!.text === before.text, "one ctrl+z restores the figure");
     expect((await board.get(before.id))!.text).toBe(before.text);
@@ -331,7 +332,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     (app as any).lastInput = 0;
   }, 20_000);
 
-  test("PIE-1100: Result rows select, Enter opens, alt+Enter opens beside, and g reveals the figure", async () => {
+  test("PIE-1100: Result rows select, Enter opens, alt+Enter reuses the result, and g reveals the figure", async () => {
     await app.dispatch.act({ action: "section", args: { name: "live" } }, { kind: "user" });
     screen();
     press({ kind: "enter" });
@@ -360,7 +361,9 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     await app.dispatch.act({ action: "sources.focus", tile, args: { on: true } }, { kind: "user" });
     const opened = desk.layoutGet().tiles.length;
     press({ kind: "alt-enter" });
-    await until(() => desk.layoutGet().tiles.length > opened, "result opened beside");
+    await until(() => desk.layoutGet().tiles.some((t: any) => t.showing?.id === id && !t.collapsed), "the existing result tile is revealed");
+    expect(desk.layoutGet().tiles.length).toBe(opened);
+    expect(desk.layoutGet().tiles.filter((t: any) => t.showing?.id === id)).toHaveLength(1);
     expect(pane.msg.id).toBe(seeded.notes.plotJobs.id);
     await app.dispatch.act({ action: "open", tile, args: { id: seeded.notes.plotJobs.id } }, { kind: "user" });
     await app.dispatch.act({ action: "sources.at", tile, args: { line: 5 } }, { kind: "user" });
@@ -368,7 +371,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     await until(() => !pane.surface.holdsKeys, "jump returns keys to reader");
     expect(pane.surface.describe().focus).toBeTruthy();
     await app.dispatch.act({ action: "sources.close", tile }, { kind: "user" });
-    for (const added of desk.layoutGet().tiles.filter((t: any) => !originalTiles.includes(t.name))) await app.dispatch.act({ action: "tile.close", tile: added.name }, { kind: "user" });
+    for (const added of desk.layoutGet().tiles.filter((t: any) => !originalTiles.map((name: string) => desk.nameOfPane(desk.pane(name))).includes(t.name))) await app.dispatch.act({ action: "tile.close", tile: added.name }, { kind: "user" });
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     (app as any).lastInput = 0;
   }, 20_000);
@@ -610,7 +613,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     // drawNote listened for the door's answers: it never took the door's live connection.
     expect(liveBoard()).toBe((app as any).board);
     // The left reader scrolls: read every element's label instead of the screen for what's below it.
-    const els = async () => ((await app.act({ action: "elements", tile: "reader", as: "test-agent" })) as any).elements as { n: number; kind: string; label: string; current?: boolean }[];
+    const els = async () => { screen(); return ((await app.act({ action: "elements", tile: "reader", as: "test-agent" })) as any).elements as { n: number; kind: string; label: string; current?: boolean }[]; };
     for (let end = Date.now() + 8000; !(await els()).some(e => e.kind === "row" && e.label.includes("plant out")); await Bun.sleep(50))
       if (Date.now() > end) throw new Error("timed out waiting for the figure block's child rows as elements");
     const rows = (await els()).filter(e => e.kind === "row");

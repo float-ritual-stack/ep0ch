@@ -115,7 +115,11 @@ export interface TileFacts {
   tabs?: readonly string[];
   /** It takes notes: a link or an opens-into may name it. */
   notes?: boolean;
+  /** This tile keeps a NoteSurface reading trail that can receive another reader's history. */
+  history?: boolean;
   held?: boolean;
+  /** Made explicitly with split or tile.open; moves keep this fact on the tile. */
+  deliberate?: boolean;
   /** Close clears the content, leaving the slot in place. */
   clearsOnClose?: boolean;
   /** Why it stays: a tile source supplies it (the board's lanes), so a close would come back. */
@@ -186,7 +190,7 @@ export type At<I = number> = Place<I>
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
 export type Op<I = number> =
   | { op: "open"; placement: PlacementRequest<I>; tile: I; name?: string; kind?: string }
-  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[] }
+  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; alt?: boolean; deliberate?: boolean; at: At<I>; keys?: false; link?: I; verb?: WireVerb; selectFrom?: I[] }
   | { op: "close"; tile: I; gone?: boolean }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
   | { op: "replace"; tile: I; with: I; kind: string; name?: string; link?: I; verb?: WireVerb; selectFrom?: I[] }
@@ -471,6 +475,7 @@ export interface PlacementRequest<I = number> {
   rule?: AltRule;
   keep?: boolean;
   note: string;
+  history?: true;
   at?: At<I>;
   container?: string;
   newNote?: "tab" | "float";
@@ -481,6 +486,8 @@ export interface PlacementRequest<I = number> {
 export type NotePlacement<I = number> = {
   destination: { kind: "swap"; tile: I } | { kind: "new"; at: At<I> } | { kind: "into"; key: string } | { kind: "across"; target: string; rule: AltRule; source?: true } | { kind: "none"; reason: string };
   keep?: { tile: I; at: At<I> };
+  merge?: I;
+  reuse?: { reveal: boolean };
   why?: string;
   current: boolean;
   route: ReturnType<typeof landing<I>>;
@@ -496,6 +503,8 @@ export type NotePlacement<I = number> = {
  * back to a visible reader only for the person. An unlinked reader takes its own open. A busy named destination
  * refuses an agent; the person's open keeps the edit and uses a reader beside it. An unwired held note is kept as a spine
  * at its container policy's stack front; a wire aimed at a tile replaces its note with history. New-note tabs that cannot fit float instead.
+ * Automatic opens reuse the note already here; a history landing folds its duplicate into that tile, keeping the trail.
+ * Explicitly made tiles and pinned readers stay independent.
  * Floats, tabs, docks and shapes that cannot take a spine swap with reader history only.
  * Only the person's standing moves the current note or keys; an invitation is already resolved by the dispatcher.
  */
@@ -511,6 +520,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     const available = request.rule === "first-unheld" ? leaves(s.tree).find(id => { const f = ctx.tile(id); return f.notes && !f.held && !f.editing && !f.holds && !f.follower; }) : undefined;
     route = available !== undefined ? { to: available } : request.rule === "tab" ? { tab: to } : { beside: to };
   }
+  if (request.history) route = null;
   if (request.container) route = { into: request.container };
   if (request.default && to === undefined && (!route || ctx.tile(from).notes)) {
     const readers = leaves(s.tree).filter(id => { const f = ctx.tile(id); return !s.collapsed.has(id) && f.notes && !f.follower && !f.editing && !f.holds && !f.pinned && f.available !== false; });
@@ -528,6 +538,32 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
     if (request.newNote === "tab" && !tab) result.why = "not a tab here: it floats instead";
     return result;
   }
+  const deliberateTarget = s.wires.some(w => w.from === from && w.verb === verb)
+    || route && "to" in route && (ctx.tile(route.to).deliberate || ctx.tile(route.to).pinned);
+  if (to === undefined && !request.at && !deliberateTarget && !(route && "across" in route)) {
+    const source = ctx.tile(from);
+    const existing = allTiles(s).find(id => {
+      const f = ctx.tile(id);
+      return id !== from && f.notes && !f.lists && !f.follower && f.showing === note && (!request.history || f.history && !f.pinned);
+    });
+    const removable = policyAt(s, from, source);
+    const flow = flowHolding(s.tree, from);
+    const held = flow?.flow.held?.some(id => columnOf(flow.flow, id) === flow.ci);
+    if (existing !== undefined && (!request.history || !source.deliberate && !held && !source.pinned && !source.clearsOnClose && removable.closable && (!removable.locked || ctx.person.yolo) && !s.wires.some(w => w.from === from))) {
+      result.destination = { kind: "swap", tile: existing };
+      result.reuse = { reveal: !ctx.protectTyping || ctx.person.typingIn === null };
+      if (route && "next" in route && flow && leaves(flow.flow).includes(existing)) result.nextFrom = from;
+      if (route && "into" in route) {
+        const container = node(s.tree, route.into);
+        if (container?.t === "flow" && leaves(container).includes(existing)) result.nextFrom = leaves(container).includes(from) ? from : leaves(container).at(-1);
+      }
+      if (ctx.standing && request.keys !== false && !ctx.person.busy) result.keys = existing;
+      if (request.history) result.merge = from;
+      return result;
+    }
+  }
+  // History already restored this reader's place; showing it again would clear its selected link.
+  if (request.history) return result;
   if (request.container && !node(s.tree, request.container)) {
     const why = `the ${request.container} row is gone (its tiles were moved out of it): opening a detail needs it · the screen comes back whole when it's opened again`;
     const target = ctx.standing ? visible(s.tree).find(id => {
@@ -597,7 +633,7 @@ export function placement<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "wires"
       if (result.giveNewKeys) result.keys = target;
       const chain = chainOf(s.tree, target);
       const space = effective([{ by: "screen", policy: s.policy }, ...chain.map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
-      if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held || request.keep) && facts.showing && facts.showing !== note && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
+      if (request.keep !== false && !s.wires.some(w => w.from === from && w.verb === verb && w.to === target) && (!space.locked || ctx.person.yolo) && space.droppable && (!space.accepts || space.accepts.includes("reader")) && (facts.held || request.keep) && facts.showing && facts.showing !== note && !allTiles(s).some(id => id !== target && ctx.tile(id).notes && !ctx.tile(id).follower && !ctx.tile(id).lists && ctx.tile(id).showing === facts.showing) && has(s.tree, target) && !chainOf(s.tree, target).some(c => c.t === "tabs" || c.t === "dock")) {
         const order = leaves(s.tree), before = from === target ? order.indexOf(target) > 0 : order.indexOf(from) < order.indexOf(target);
         const row = parentOf(s.tree, target)?.parent;
         const flowCovers = row?.t === "flow" ? coversOf(s, row, ctx.area, id => !!ctx.tile(id).holds) : undefined;
@@ -997,14 +1033,14 @@ class Step<I> {
     this.d.tree = normalise(this.d.tree);
   }
 
-  private open(op: Extract<Op<I>, { op: "open" }>) {
+  private open(op: Extract<Op<I>, { op: "open" }>, automatic = false) {
     if ("placement" in op) {
       const plan = placement(this.d, op.placement, this.ctx);
       const dest = plan.destination;
       if (dest.kind === "none") refuse(dest.reason);
       if (plan.keep) {
         const before = rects({ ...this.d, zoom: null }, this.ctx.area);
-        this.open({ op: "open", tile: op.tile, name: op.name, kind: "reader", at: plan.keep.at, keys: false });
+        this.open({ op: "open", tile: op.tile, name: op.name, kind: "reader", at: plan.keep.at, keys: false }, true);
         this.d.collapsed.set(op.tile, byOf(this.ctx.actor));
         const parent = parentOf(this.d.tree, plan.keep.tile)?.parent;
         if (parent && isLine(parent) && parent.t !== "flow") {
@@ -1016,12 +1052,19 @@ class Step<I> {
           });
         }
       }
-      if (dest.kind === "new") this.open({ op: "open", tile: op.tile, name: op.name, kind: op.kind ?? "reader", at: dest.at, ...(!plan.giveNewKeys ? { keys: false as const } : {}) });
+      if (dest.kind === "new") this.open({ op: "open", tile: op.tile, name: op.name, kind: op.kind ?? "reader", at: dest.at, ...(!plan.giveNewKeys ? { keys: false as const } : {}) }, true);
+      if (plan.merge !== undefined) {
+        this.guard(plan.merge, "merge");
+        const focused = this.d.focus === plan.merge;
+        this.lift(plan.merge);
+        this.forget(plan.merge);
+        if (focused && dest.kind === "swap") this.d.focus = dest.tile;
+      }
       if (dest.kind === "swap") {
         this.present(dest.tile);
         this.guard(dest.tile, "open into");
         if (plan.nextFrom !== undefined) this.reach(dest.tile, plan.nextFrom, plan.keys !== undefined);
-        else this.reveal(dest.tile);
+        else if (plan.reuse?.reveal !== false) this.reveal(dest.tile);
         if (plan.keys !== undefined) this.give(plan.keys);
       }
       if (plan.keep || dest.kind === "new") {
@@ -1067,7 +1110,7 @@ class Step<I> {
     // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
     if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, op.verb);
     for (const from of op.selectFrom ?? []) this.linkTo(from, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind, "select");
-    this.d.answer = { tile: this.d.names.get(op.tile), ...(op.link !== undefined ? { link: this.name(op.link) } : {}) };
+    this.d.answer = { tile: this.d.names.get(op.tile), ...(!automatic ? { deliberate: op.deliberate ?? true } : {}), ...(op.link !== undefined ? { link: this.name(op.link) } : {}) };
   }
   /** The person's open found the column already open: back from there returns to where they opened it from. */
   private reach(id: I, from: I, keys = true) {

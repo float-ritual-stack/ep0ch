@@ -137,9 +137,10 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await until(() => links().target?.id === log.id && links().rows().some(r => r.kind === "outlink"), "the log's outlinks");
     const out = links().rows().findIndex(r => r.kind === "outlink");
     await act("backlinks.open", { n: out + 1 });
-    await until(() => reader("reader").msg?.id === target.id, "the plan in the detail");
-    await until(() => (reader("reader").surface as any).focusMark?.fragment === true, "the anchor marked");
-    expect((reader("reader").surface as any).focusMark.label).toBe("^butt");
+    const showing = (id: string) => reader(get().tiles.find(t => t.showing?.id === id && !t.collapsed)?.name);
+    await until(() => showing(target.id).msg?.id === target.id, "the plan in the detail");
+    await until(() => (showing(target.id).surface as any).focusMark?.fragment === true, "the anchor marked");
+    expect((showing(target.id).surface as any).focusMark.label).toBe("^butt");
     expect(linkTargetOf(links().rows()[out]!)).toMatchObject({ block: target.id, fragment: "butt" });
     // A note edited since the list read it (lines added above the reference) still opens on the reference, not the old offset.
     await act("tile.focus", {}, "links");
@@ -148,9 +149,9 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     const current = (await board.get(log.id))!;
     await board.update(log.id, current.text.replace("Plot log\n", "Plot log\nAdded one.\nAdded two.\nAdded three.\n"), current.revision!);
     await act("backlinks.open", { n: rowOf(log.id) + 1 });
-    await until(() => reader("reader").msg?.id === log.id, "the edited log opens");
+    await until(() => showing(log.id).msg?.id === log.id, "the edited log opens");
     const edited = (await board.get(log.id))!.text.split("\n").findIndex(l => l.startsWith("Check ((")) + 1;
-    await until(() => (reader("reader").surface as any).focusMark?.line === true && (reader("reader").surface as any).focusMark.spec.line === edited, "the reference's line marked, not the old offset's");
+    await until(() => (showing(log.id).surface as any).focusMark?.line === true && (showing(log.id).surface as any).focusMark.spec.line === edited, "the reference's line marked, not the old offset's");
     // The inline ::links / ::backlinks rows are links tagged with the same target: the line rides along (the reader's follow marks it).
     expect(linkTargetOf(row)).toMatchObject({ block: log.id, role: "row", at: expect.any(Number) });
   }, 30_000);

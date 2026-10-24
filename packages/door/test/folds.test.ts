@@ -531,7 +531,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     expect(p.surface.describe().folds.selected).toBe("## Beds");
     key(char("j"));
     key({ kind: "enter" });
-    await until(() => opened() === was + 1, "⏎ to open a detail");
+    await until(() => opened() === Math.max(1, was) && BV.where(b).startsWith("detail"), "⏎ opens or reuses the note in a detail");
     await mine("open", { id: card.id }, "preview");
     frame();
     key(char(")"));

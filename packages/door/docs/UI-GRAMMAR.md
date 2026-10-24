@@ -285,6 +285,7 @@ A row or flow keeps its open tiles together and stacks the rest as spines (PIE-1
 |---|---|
 | An open pushes a tile out of the open group (`spines: book`, the default) | Its own side's stack, newest nearest the open tiles; it never crosses the open tiles (a page slides, it doesn't flip). |
 | You fold a tile by hand (click its fold, `^W` fold) | Where it is, even between two open tiles: nothing moves. |
+| An open whose note already has a tile here | that tile, unfolded; never a copy |
 | You open a spine | It joins the open group with an even share. Below `min-width` (40 columns by default; 0 never folds) the open tile touched longest ago folds instead. |
 | Align left / centre / right (the container's menu, `^W`, `layout.gather side=left\|centre\|right`) | Every spine to one edge, or split evenly around the open tiles (an odd one to the right). It sticks as the `spines` policy until changed. |
 
@@ -304,6 +305,9 @@ A row or flow keeps its open tiles together and stacks the rest as spines (PIE-1
  (14) |||||||||||||| │     A      ││     B      │
                      └────────────┘└────────────┘
 ```
+
+The reuse rule applies to automatic opens. Explicit split and `tile.open` readers, pinned readers and wired
+destinations stay independent; a fixed slot is never removed by a history landing.
 
 Which side and how many is `placement()`'s spine rule (`src/desk/screen-layout.ts`), the one owner; the showcase's
 book-spines section runs all of it.
