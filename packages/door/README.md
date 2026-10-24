@@ -607,7 +607,7 @@ an unnamed folder uses the local host's default. Deployment facts come from the 
 its commit, host PROTOCOL/GRAMMAR, sessions and their code, and what failed. `--as-client` records those facts
 too. Progress, outcomes and late client receipts are new records naming earlier ones, never edits to them.
 `[machine::record]` folds the bookkeeping; `ep0ch find --query "type=deploy machine=record" --json` finds it.
-Existing Deploys notes and their old records stay as history; new records land under Records.
+Deploy records use the existing Deploys note and its install template; other record kinds land under Records.
 See [Records](../../docs/agents/records.md) for the other kinds, templates and builder wrapper.
 
 A live table to copy into a note:

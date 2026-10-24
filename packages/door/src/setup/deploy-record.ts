@@ -43,11 +43,15 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
   const board = { request };
   const who = { author: author as "agent" | "user", provenance };
   const append = async (previous?: string) => {
-    const ping = await hostRequest<{ protocolVersion: number; grammarVersion: number }>(f.host.socket, "ping");
+    const ping = f.host.running
+      ? await hostRequest<{ protocolVersion: number; grammarVersion: number }>(f.host.socket, "ping")
+      : undefined;
     const sessions = await runningSessions(env.EP0CH_STATE ?? defaultStateDir(env));
     return writeRecord(board, "deploy", {
+      when: when.toISOString(), who: actor || "person", session: sessionId ?? "unknown",
+      from: f.repo.checkout.head ?? "unknown", to, local, clients: [...legs.values()].join("\n") || "none configured",
       sha: to === "pending" ? f.repo.checkout.head ?? "unknown" : to,
-      host: machine, protocol: String(ping.protocolVersion), grammar: String(ping.grammarVersion),
+      host: machine, protocol: String(ping?.protocolVersion ?? "unknown"), grammar: String(ping?.grammarVersion ?? "unknown"),
       sessions: JSON.stringify(sessions.map(s => ({ pid: s.info.pid, place: s.info.place, code: s.info.code }))),
       failed: [local.startsWith("failed") || local.includes("needs attention") ? local : "", ...[...legs.values()].filter(line => line.startsWith("!"))].filter(Boolean).join("\n") || "none", details: text(), ...(previous ? { previous } : {}),
     }, who);
@@ -65,7 +69,11 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
       protocol = (await pluginCode(f.repo.outliner)).protocol;
       await save();
     },
-    async link(name: string, line: string) { links.set(name, line); await save(); },
+    async link(name: string, line: string, receipt?: LinkInstallResult) {
+      links.set(name, line); await save();
+      // A same-SHA install can use its saved receipt without another link callback.
+      if (receipt) await recordLinkInstall({ sha: receipt.sha, record: { socket, outline, id: first } }, name, receipt);
+    },
     async client(name: string, line: string) { legs.set(name, line); await save(); },
   };
 }

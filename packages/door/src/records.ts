@@ -3,12 +3,18 @@ import type { BlockAuthor } from "@ep0ch/outline-core/protocol";
 export const RECORD_FIELDS = {
   "run-start": ["ticket", "harness", "branch", "worktree", "pid", "host", "summary"],
   "run-end": ["run", "exit", "pr", "duration", "report"],
-  deploy: ["sha", "host", "sessions", "protocol", "grammar", "failed", "observed", "previous", "details"],
+  deploy: ["sha", "host", "protocol", "grammar", "observed", "previous", "when", "who", "session", "from", "to", "local", "clients", "sessions", "failed", "details"],
   finding: ["ticket", "pr", "source", "failure", "likelihood", "cost"],
   "finding-closed": ["finding", "fixed", "dismissed"],
 } as const;
 export type RecordKind = keyof typeof RECORD_FIELDS;
 interface Note { id: string }
+
+const DEPLOYS_NOTE = [
+  "Deploys [system-view::deploys] [machine::install] [type::virtual-branch] [query::type=deploy machine=install] [sort::created] [direction::desc]", "",
+  "Install runs, newest first. Copy this figure into the build log for the latest five:", "",
+  "::graph-table", "---", "query: type=deploy machine=install", "sort: created", "direction: desc", "limit: 5", "columns: [title, created]", "---", "::",
+].join("\n");
 export interface RecordWriter { request<T>(action: string, params?: Record<string, unknown>): Promise<T> }
 export interface RecordWho { author: BlockAuthor; provenance?: { actorId?: string; sessionId?: string } }
 
@@ -17,27 +23,30 @@ function recordTemplate(kind: RecordKind): string {
   return [
     `${kind} template [type::template] [template-for::${kind}]`,
     ...RECORD_FIELDS[kind].map(key => `[form-field::${key} text default=unknown]`),
-    "[machine::record]",
+    kind === "deploy" ? "[machine::install]" : "[machine::record]",
     "[recorded::{{now.iso}}]",
-    ...RECORD_FIELDS[kind].map(key => ["run", "finding", "previous"].includes(key)
+    ...RECORD_FIELDS[kind].map(key => kind === "deploy" && ["when", "who", "session", "from", "to", "local", "clients"].includes(key)
+      ? `\n${key === "clients" ? "Client legs" : key[0]!.toUpperCase() + key.slice(1)}: {{props.${key}}}`
+      : ["run", "finding", "previous"].includes(key)
       ? `[${key}::(({{props.${key}}}))]`
-      : ["summary", "report", "failure", "likelihood", "cost", "dismissed", "sessions", "failed", "details"].includes(key)
+      : ["clients", "local", "summary", "report", "failure", "likelihood", "cost", "dismissed", "sessions", "failed", "details"].includes(key)
         ? `\n${key}:\n{{props.${key}}}` : `[${key}::{{props.${key}}}]`),
   ].join("\n");
 }
 
 export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho) {
   const find = async (where: string) => (await board.request<{ blocks: Note[] }>("blocks.query", { query: { where, machinery: "show" } })).blocks[0];
-  let root = await find("system-records=true");
-  if (!root) root = await board.request<Note>("create", { text: "Records [page::Records] [machine::record] [system-records::true]", parentId: null, ...who });
+  const deploy = kind === "deploy";
+  let root = await find(deploy ? "system-view=deploys" : "system-records=true");
+  if (!root) root = await board.request<Note>("create", { text: deploy ? DEPLOYS_NOTE : "Records [page::Records] [machine::record] [system-records::true]", parentId: null, ...who });
   let template: Note | undefined;
-  for (const name of Object.keys(RECORD_FIELDS) as RecordKind[]) {
-    let found = await find(`template-for=${name}`);
+  for (const name of (deploy ? ["deploy"] : Object.keys(RECORD_FIELDS).filter(name => name !== "deploy")) as RecordKind[]) {
+    let found = await find(`template-for=${name}${name === "deploy" ? " machine=install" : ""}`);
     if (!found) found = await board.request<Note>("create", { text: recordTemplate(name), parentId: root.id, ...who });
     if (name === kind) template = found;
   }
   const result = await board.request<{ stamped: Note[]; warnings: string[] }>("template.stamp", {
-    of: template!.id, parent: root.id, title: `${kind} ${new Date().toISOString()}`, props, ...who,
+    of: template!.id, parent: root.id, title: deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`, props, ...who,
   });
   return { id: result.stamped[0]!.id, warnings: result.warnings };
 }

@@ -10,7 +10,7 @@ import { hostRequest } from "./socket";
 
 export const RECORD_USAGE = [
   ...Object.entries(RECORD_FIELDS).map(([kind, fields]) => `  ep0ch record ${kind} ${fields.map(k => ` [--${k} <value>]`).join("")}`),
-  "                                   append a machinery note under Records, filled through its use template;",
+  "                                   append a machinery note under Deploys (deploy) or Records, filled through its use template;",
   "                                   --ws <name> and --machine <ssh-name> name the outline as usual.",
   "                                   --observed on deploy reads this machine's git HEAD, sessions and host versions.",
   "                                   run-end --report-file <path> saves the report and posts it on the start's ticket.",
