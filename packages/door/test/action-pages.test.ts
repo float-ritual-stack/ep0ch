@@ -179,6 +179,8 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
       }
     } finally {
       process.chdir(cwd);
+      // What an example put in the drawer comes out again: the drawer outlives the example's screen, and its tiles answer to the next example's names.
+      if (page.name === "tile.drawer") for (const t of h.app.drawer.made?.tileOutline() ?? []) if (t.name !== "drawer.agent") await h.app.drawer.made!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: t.name }, USER).catch(() => undefined);
       while (h.app.screens().at(-1) !== h.sc) h.app.pop();
       d.dispose();
       if (page.name !== "note.trash") await h.board.trash(note.id);
