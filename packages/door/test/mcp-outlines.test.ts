@@ -199,6 +199,11 @@ describe.skipIf(!outliner)("agents make outlines of their own", () => {
     setEnv({ EP0CH_MCP_SCRATCH_CAP: "20", EP0CH_MCP_PERSONAS: "persona-fill@" + HERE + "=daddy" });
     const made = await call(other, "outline_new", { name: "scout-tray", purpose: "scout's tray", persona: "scout" });
     expect(made.json).toMatchObject({ outcome: "created", by: `scout (persona-fill@${HERE})` });
+    // A named path (/gpty/mcp) writes as gpty; one call names another, the next call is gpty again.
+    const named = { sub: "stdio", clientId: "persona-fill", persona: "gpty" } satisfies McpCaller;
+    expect((await call(named, "outline_new", { name: "gpty-tray", purpose: "gpty's tray" })).json.by).toBe(`gpty (persona-fill@${HERE})`);
+    expect((await call(named, "outline_new", { name: "scout-tray-2", purpose: "scout's other tray", persona: "scout" })).json.by).toBe(`scout (persona-fill@${HERE})`);
+    expect((await call(named, "outline_new", { name: "gpty-tray-2", purpose: "gpty's other tray" })).json.by).toBe(`gpty (persona-fill@${HERE})`);
     const refused = await call(other, "outline_archive", { name: "scout-tray", persona: "not a persona" });
     expect(refused.isError).toBe(true);
     expect(refused.text).toContain("persona must match");
