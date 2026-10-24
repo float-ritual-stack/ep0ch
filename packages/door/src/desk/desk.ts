@@ -6496,7 +6496,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!shown) throw new ActionRefused("the drawer shows nothing to bring here");
       return host.take(shown, to ?? t.name, where, actor);
     }
-    return host.put(this, t.name, actor);
+    return host.put(this, t.name, actor, false, to, where);
   }
 
   /** Why tile `sel` can't leave this screen now, or null (nothing is done). `heir`: a new tile would take its place. */

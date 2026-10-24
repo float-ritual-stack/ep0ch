@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A tile dragged onto the drawer lands where you drop it, not always as a tab (PIE-1263)
+
+Drop a tile's title on a side of a drawer tile, its tab strip or the drawer's edge and it lands there, with the drawer's
+own ghost and the landing said on the chip (`into your drawer: right of activity`); before, every drop joined the tabs and
+you pulled it out and split it by hand. The chip still takes a tab. `tile.drawer` takes `to=` and `where=` going in, as it
+does coming out, so act places a tile the same way. No protocol change.
+
 ### `-` folds the thing you're on to a spine, in the drawer too, and never hides the drawer (PIE-1254)
 
 In the drawer, `-`, `alt+h`, `^W c`, the tile menu and the frame's fold glyph hid the whole drawer for any tile that

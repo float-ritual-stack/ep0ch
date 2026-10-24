@@ -397,6 +397,19 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await app.dispatch.act({ action: "host.toggle", args: { open: false } }, user);
   });
 
+  test("the drawer section: a tile goes in beside the drawer's own tile where it is dropped, not as a tab (PIE-1263)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
+    const user = { kind: "user" } as const;
+    await app.act({ action: "tile.drawer", tile: "kettle", args: { to: "drawer.agent", where: "right" }, as: "test-agent" });
+    const drawer = app.drawer.desk!;
+    const kettle = drawer.layoutGet().tiles.find(t => t.name === "kettle") as any;
+    expect(kettle).toBeDefined();
+    expect(kettle.tabs ?? []).not.toContain("drawer.agent");              // beside the drawer's own tile, not one of its tabs
+    await drawer.dispatch.act({ action: "tile.drawer", tile: "kettle", args: { on: false } }, user);
+  });
+
   test("drawer list wires select and open into a drawer detail", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });

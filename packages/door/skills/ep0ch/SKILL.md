@@ -214,7 +214,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `peek` and `layout.get` always read the settled layout; `layout.stop` (the person's Esc while a script run is rearranging the screen) stops the run and puts its layout changes back; a script `act()` with no door refused names the doors (`door=<client>` picks one).
 - **The drawer** (every screen; the host layer's, PIE-498, PIE-513): `host.toggle [open=true|false]`, `host.size
   share=0.2…0.9`, `agent.type text=…` (to its own program), `agent.knows`, `agent.restart`. `tile.drawer tile=<t>`
-  moves a tile into it whole (its program keeps running), `tile.drawer on=false tile=<t> to=<tile> where=<side>` back
+  moves a tile into it whole (its program keeps running), as a tab or, with `to=<drawer tile> where=<side>`, beside one (what a drag onto that side does), `tile.drawer on=false tile=<t> to=<tile> where=<side>` back
   out into the screen shown; `tile=` naming a tile in the drawer reaches it there (`tile.type tile=kettle`). `tile.collapse`
   on a drawer tile folds it in the drawer's layout when a tile sits beside it, and folds the drawer itself to a strip
   when it is alone (`on=false` opens it; never while the person is in the drawer); putting the drawer away is only

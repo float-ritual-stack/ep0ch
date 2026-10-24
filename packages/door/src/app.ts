@@ -94,8 +94,8 @@ export interface HostLayer {
   isDrawer(d: unknown): boolean;
   /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. */
   desks(): Desk[];
-  /** Tile `name` of screen `from` into the drawer, whole; `keys`: the person's go into it there (a new note to write). */
-  put(from: Desk, name: string, actor: Actor, keys?: boolean): TileDone;
+  /** Tile `name` of screen `from` into the drawer, whole, as a tab unless `to`/`where` place it in the drawer's layout; `keys`: the person's go into it there (a new note to write). */
+  put(from: Desk, name: string, actor: Actor, keys?: boolean, to?: string, where?: Where): TileDone;
   /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. */
   keep(moved: MovedTile[]): Pane[];
   /** Why tiles like these couldn't be kept in the drawer now, or null. */
