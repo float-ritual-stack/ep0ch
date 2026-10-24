@@ -211,7 +211,8 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
     ch("j");
     press({ kind: "enter" });
     await untilAsync(async () => (await board.get(before.id))!.text.includes('density: "comfortable"'), "density saved from its schema choices");
-    await until(() => !screen().includes("[cancel]"), "the saved density field closes");
+    // The buttons can be clipped while the field still owns the keys; its footer says when the save finished.
+    await until(() => screen().includes("close sources"), "the saved density field closes");
     press({ kind: "char", ch: "z", ctrl: true });
     await untilAsync(async () => (await board.get(before.id))!.text === before.text, "one ctrl+z restores the figure");
     expect((await board.get(before.id))!.text).toBe(before.text);
