@@ -188,7 +188,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private transition: Transition | null = null;
   /** The tiles drawn in flight this frame (not at their place yet): DeskApi.holdsSize. */
   private inFlight = new Set<number>();
-  holdsSize(p: Pane): boolean { const id = this.idOf(p); return id !== undefined && (this.collapsed.has(id) || this.inFlight.has(id)); }
+  holdsSize(p: Pane): boolean {
+    const id = this.idOf(p);
+    // A tile of a group or a mounted screen is held with the tile that holds it (that one folding or gliding resizes the inner desk).
+    return (id !== undefined && (this.collapsed.has(id) || this.inFlight.has(id))) || !!this.holder?.desk()?.holdsSize(this.holder.tile);
+  }
   /** The clock motion runs on (a test injects its own). */
   clock: () => number = () => Date.now();
   /** The layout as the module last answered it: read it; it changes by `apply`. */

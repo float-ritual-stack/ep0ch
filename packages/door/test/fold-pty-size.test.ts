@@ -93,6 +93,13 @@ describe.skipIf(!outliner)("a folded terminal keeps the size its program has", (
       const k = inner.pane("kettle") as PtyPane;
       const was = size(k).join("x");
       expect(await seen(k, d.paint, () => inner.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: "kettle" }, USER))).toEqual([was]);
+      // The group itself folded and opened: its inner desk is drawn at every width between too.
+      await inner.dispatch.act({ action: "tile.collapse", args: { on: false }, tile: "kettle" }, USER);
+      d.paint();
+      const whole = size(k).join("x");
+      // A neighbour folding makes the group glide wider: its inner desk is drawn at every width between too, and lands once.
+      const got = await seen(k, d.paint, () => d.desk.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: "tree" }, USER));
+      expect(got.length).toBeLessThanOrEqual(2);
     } finally { d.app.quit(); }
   });
 
