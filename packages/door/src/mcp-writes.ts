@@ -40,6 +40,16 @@ export type WriteBoard = SocketBoard & { address?: BoardAddress };
 /** The write tools, in the order tools/list offers them. */
 export const MCP_WRITE_TOOLS = ["outline_create", "outline_patch", "outline_comment", "outline_reply", "outline_resolve_thread", "outline_quote", "outline_set_property", "outline_move", "outline_trash", "outline_restore", "outline_assign_id", "outline_proposal_apply", "outline_proposal_dismiss", "outline_proposal_resolve"] as const;
 export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
+/**
+ * Every tool whose answer or record names who made it (an actor id from `actorOf`, shown as `by`, stored on a mutation,
+ * or logged as the sharer): these take `persona`, and a Claude Code session's mod fills it in on each
+ * (packages/claude-mod/hooks/connector-persona.ts; a test keeps the two lists equal). The writes, their status,
+ * outline_snapshot, script_run, the shares that start and end (share_start, share_revoke), loki_lease and the outline
+ * admin. Left out because their answer and record name no actor: the reads, share_list, reader_view and artifact_put (the
+ * usage log names the connection's actor for every tool, and is not attribution).
+ */
+export const PERSONA_TOOLS = [...MCP_WRITE_TOOLS, "outline_write_status", "outline_snapshot", "script_run", "share_start", "share_revoke", "loki_lease", "outline_new", "outline_archive"] as const;
+export const takesPersona = (name: string): boolean => (PERSONA_TOOLS as readonly string[]).includes(name);
 export const isWriteTool = (name: string): name is McpWriteTool => (MCP_WRITE_TOOLS as readonly string[]).includes(name);
 
 /** Who asked, from the access token. */
@@ -59,6 +69,8 @@ export interface McpCaller {
    * like any persona, is recorded and never checked (ADR 0003 §2).
    */
   persona?: string;
+  /** The persona this one call names (`persona` in its arguments, PERSONA_TOOLS): it wins over the connection's. Set per call, never kept. */
+  callPersona?: string;
   /**
    * The most this connection may do in an outline, whatever the outline's setting lets it (a named path's, `propose` by
    * default; `pathCap`). Asked with the outline, or with none for the connection's own default.
@@ -133,6 +145,7 @@ export { mcpEnvFile, mcpSetting };
  */
 export function personaClaim(caller: McpCaller, env: Record<string, string | undefined> = process.env, machine?: string): { persona?: string } {
   // The connection's own name for itself (the gateway's path): what this caller writes as.
+  if (caller.callPersona && PERSONAS.test(caller.callPersona)) return { persona: caller.callPersona };
   if (caller.persona && PERSONAS.test(caller.persona)) return { persona: caller.persona };
   if (caller.sub === STDIO_SUBJECT) {
     const own = sessionPersona({ env, folder: caller.folder ?? "", fs: caller.folder ? DISK : NO_DISK });

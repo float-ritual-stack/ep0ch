@@ -240,8 +240,16 @@ export function machineNameOf(raw: string): string | undefined {
  */
 export function actorOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }, machine?: string, folder?: string): string {
   const principal = machine ? `claude-code@${machine}` : 'claude-code'
-  const persona = personaOf(input, env) ?? personaOf({}, { OUTLINER_ACTOR: folder })
+  const persona = sessionPersonaOf(input, env, folder)
   return persona ? `${persona}/${principal}` : principal
+}
+
+/**
+ * The persona a session writes as, `actorOf`'s first-match rule without the principal: what the "writes as" line
+ * shows, and what the claude.ai connector's writes are filled with (hooks/connector-persona.ts).
+ */
+export function sessionPersonaOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }, folder?: string): string | undefined {
+  return personaOf(input, env) ?? personaOf({}, { OUTLINER_ACTOR: folder })
 }
 
 function personaOf(input: Record<string, unknown>, env: { OUTLINER_ACTOR?: string; EP0CH_AGENT?: string }): string | undefined {

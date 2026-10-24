@@ -230,8 +230,11 @@ and Resource comments. Omission keeps the existing connection, session or `EP0CH
 The optional label never changes the principal, outline access, or the named path's cap: a call through
 `/gpty/mcp` stays capped by gpty's entries even with `persona: "loki"`. Pass the same persona to
 `outline_write_status` when following that queued write. A normal `outline_read` includes pending writes
-from every persona of the same principal and subject, so the agent can read its writes back. This option belongs to the shared note write
-tools, not scripts, artifacts, sharing or outline administration.
+from every persona of the same principal and subject, so the agent can read its writes back. The same option is taken by every tool that
+records an actor (`PERSONA_TOOLS` in `src/mcp-writes.ts`): the note writes, `outline_write_status`, `outline_snapshot`,
+`script_run`, `share_start`, `share_revoke`, `loki_lease`, `outline_new` and `outline_archive`. Tools that record none
+(the reads, `share_list`, `reader_view`, `artifact_put`) don't. The Claude mod fills it in for a Claude Code session's calls
+through the claude.ai connector (PIE-1256).
 
 
 ## The shell: screens and lists

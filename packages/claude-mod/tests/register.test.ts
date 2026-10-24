@@ -1103,6 +1103,79 @@ describe('register', () => {
     expect(run.argv[run.argv.indexOf('--actor') + 1]).toBe('testbot/claude-code@garden-host')
   })
 
+  describe('the claude.ai connector (PIE-1256)', () => {
+    const NOTE = '0f3c2a1b-1111-4222-8333-444455556666'
+    const FOLDER_PERSONA = { name: 'testbot', source: 'file', file: `${WORKSPACE}/.ep0ch` }
+    /** A session whose folder names `persona`, with the connector's tools answered by `by`, recording what they were called with and what was logged. */
+    function connectorSession(on: On, by: string, persona: object | null = FOLDER_PERSONA, blocks = false, env: Record<string, string> = {}) {
+      const session = sessionIn(on, WORKSPACE, run =>
+        run.argv[0] === 'ep0ch' && run.argv[1] === 'where' ? result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona } }), '') : succeeding(run),
+        '', env,
+      )
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
+      const seen: Record<string, unknown>[] = []
+      const logged: string[] = []
+      on('tool.call', { tool: /^mcp__claude_ai_ep0ch__/ }, ($, e) => {
+        seen.push(e as Record<string, unknown>)
+        const answer = JSON.stringify({ outcome: 'applied', by })
+        return { result: blocks ? [{ type: 'text', text: answer }] : answer, ref: 'r', text: 'ok' } as any
+      })
+      on('tool.call', { tool: 'mcp__other__outline_patch' }, () => ({ result: '{}', ref: 'r', text: 'ok' } as any))
+      on('ui.log', ($, e) => { logged.push(e.text); return { value: undefined } })
+      return { session, seen, logged }
+    }
+
+    test("a write that names no persona carries the session's, as the \"writes as\" line has it", async ($, on) => {
+      const c = connectorSession(on, 'testbot (claude.ai)')
+      await c.session.begin(() => $.session.start(START))
+      await $.tool.call({ tool: 'mcp__claude_ai_ep0ch__outline_patch', ref: NOTE, revision: 2, patches: [] } as any)
+      expect(c.seen[0]).toMatchObject({ ref: NOTE, persona: 'testbot' })
+      expect(c.logged).toEqual([])
+    })
+
+    test('a call that names a persona keeps it', async ($, on) => {
+      const c = connectorSession(on, 'daddy (claude.ai)')
+      await c.session.begin(() => $.session.start(START))
+      await $.tool.call({ tool: 'mcp__claude_ai_ep0ch__outline_comment', ref: NOTE, text: 'hm', persona: 'daddy' } as any)
+      expect(c.seen[0]).toMatchObject({ persona: 'daddy' })
+    })
+
+    test("a read and another server's tool are left as they are", async ($, on) => {
+      const c = connectorSession(on, 'testbot (claude.ai)')
+      await c.session.begin(() => $.session.start(START))
+      await $.tool.call({ tool: 'mcp__claude_ai_ep0ch__outline_read', ref: NOTE } as any)
+      expect(c.seen[0]).not.toHaveProperty('persona')
+      const other = await $.tool.call({ tool: 'mcp__other__outline_patch', ref: NOTE } as any)
+      expect(other).toMatchObject({ result: '{}' })
+      expect(c.seen).toHaveLength(1)
+    })
+
+    test('a session with no persona leaves the call alone', async ($, on) => {
+      const c = connectorSession(on, 'claude.ai', null)
+      await c.session.begin(() => $.session.start(START))
+      await $.tool.call({ tool: 'mcp__claude_ai_ep0ch__outline_patch', ref: NOTE, revision: 2, patches: [] } as any)
+      expect(c.seen[0]).not.toHaveProperty('persona')
+      expect(c.logged).toEqual([])
+    })
+
+    test("a write recorded as another persona says so, once for each name, and its answer comes back as it was", async ($, on) => {
+      const c = connectorSession(on, 'daddy (claude.ai)', FOLDER_PERSONA, true)
+      await c.session.begin(() => $.session.start(START))
+      const answered = await $.tool.call({ tool: 'mcp__claude_ai_ep0ch__outline_patch', ref: NOTE, revision: 2, patches: [] } as any)
+      await $.tool.call({ tool: 'mcp__claude_ai_ep0ch__outline_patch', ref: NOTE, revision: 2, patches: [] } as any)
+      expect(answered).toMatchObject({ result: [{ type: 'text', text: JSON.stringify({ outcome: 'applied', by: 'daddy (claude.ai)' }) }] })
+      expect(c.logged).toHaveLength(1)
+      expect(c.logged[0]).toContain('recorded as daddy (claude.ai), not testbot')
+    })
+
+    test("EP0CH_AGENT in the session's environment is its persona before the folder's", async ($, on) => {
+      const c = connectorSession(on, 'loki (claude.ai)', FOLDER_PERSONA, false, { EP0CH_AGENT: 'loki' })
+      await c.session.begin(() => $.session.start(START))
+      await $.tool.call({ tool: 'mcp__claude_ai_ep0ch__outline_set_property', ref: NOTE, key: 'k', value: 'v' } as any)
+      expect(c.seen[0]).toMatchObject({ persona: 'loki' })
+    })
+  })
+
   test('a workboard tool runs the installed CLI in the workspace as this Claude session', async ($, on) => {
     const session = sessionIn(on, `${WORKSPACE}/projects/mod`, run =>
       run.argv.includes('work') ? result(0, '{"workId":"PIE-008","workStage":"review","revision":4}\n', '') : succeeding(run),

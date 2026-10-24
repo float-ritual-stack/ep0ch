@@ -26,7 +26,7 @@ import { derivedPointer, parseFields, parseSeen, parseSort, projectRecord, Respo
 import { recordUsage, usageShape, usageCommand } from "./mcp-usage";
 import { CAP_KEY, gatherMatrix, hostSourceFor, matrixLines, setPathCap } from "./mcp-access-matrix";
 import { callRegistry, callShown } from "./mcp-calls";
-import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, PERSONA_PROPERTY, personaRefusal, type McpCaller, type McpWriteTool } from "./mcp-writes";
+import { actorOf, sessionIdOf, withCall, levelFor, STDIO_SUBJECT, applyWrite, assignIdRefusal, restoreRefusal, proposalSettlementRefusal, commentOnResourceOn, isResourceRef, isWriteTool, takesPersona, readResourceOn, MCP_WRITE_TOOLS, resolveBoardRef, writeInput, writesAt, writeToolDefinitions, gatewayExample, CALL_PROPERTY, PERSONA_PROPERTY, personaRefusal, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp usage [--since 24h] [--by tool|actor|outline] [--json]
   ep0ch mcp usage --census [--ws <name>] [--machine <ssh-name>] [--json]
@@ -939,9 +939,15 @@ async function artifactTool(outlines: McpOutlines, name: string, args: Record<st
 /** outline_new and outline_archive: offered to a caller when the server can reach its machine's outline host. */
 const adminTools = (outlines: McpOutlines, caller: McpCaller | undefined) => caller && outlines.admin ? outlineAdminDefinitions(outlines.admin.machine) : [];
 
+/** Each tool in PERSONA_TOOLS takes `persona`, one property for all of them (the writes' own definitions already carry it). */
+const withPersona = <T extends { name: string; inputSchema: unknown }>(tools: T[]): T[] => tools.map(tool => {
+  const schema = tool.inputSchema as { properties?: Record<string, unknown> };
+  return takesPersona(tool.name) && schema.properties && !schema.properties.persona ? { ...tool, inputSchema: { ...schema, properties: { ...schema.properties, persona: PERSONA_PROPERTY } } } : tool;
+});
+
 /** The tools a caller is offered: the reads, the writes and shares where the outline takes writes, and the outline admin. */
 const toolList = (outlines: McpOutlines, writes: boolean, caller: McpCaller | undefined, loki: boolean) =>
-  [...artifactToolDefinitions(outlineProperty(outlines)).filter(t => writes || t.name !== "artifact_put"), snapshotDefinition(outlineProperty(outlines)), ...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), { ...writeStatusDefinition, inputSchema: { ...writeStatusDefinition.inputSchema, properties: { ...writeStatusDefinition.inputSchema.properties, persona: PERSONA_PROPERTY } } }, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller), ...(loki && caller && outlines.admin ? [lokiDefinition] : [])];
+  withPersona([...artifactToolDefinitions(outlineProperty(outlines)).filter(t => writes || t.name !== "artifact_put"), snapshotDefinition(outlineProperty(outlines)), ...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller), ...(loki && caller && outlines.admin ? [lokiDefinition] : [])]);
 
 /** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
 const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
@@ -1008,7 +1014,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   let caller = callerIn;
   const params = objectFields(paramsValue);
   if (!params || typeof params.name !== "string") throw invalidParams("tools/call needs a tool name.");
-  if (isWriteTool(params.name) || params.name === "outline_write_status") {
+  if (takesPersona(params.name)) {
     const refusal = personaRefusal(objectFields(params.arguments)?.persona);
     if (refusal) return toolError(refusal);
   }
@@ -1018,6 +1024,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
   // The call a request names (PIE-685) is its call; the connection's is what it had before. A write with none gets a call
   // of its own, which its answer returns (the gateway keeps nothing between requests that could tie it to a later one).
   if (caller) caller = withCall(caller, args.call);
+  if (caller && takesPersona(params.name) && typeof args.persona === "string") caller = { ...caller, callPersona: args.persona };
   if (caller && !caller.call && isWriteTool(params.name)) caller = { ...caller, call: mintCallId(), freshCall: true };
   if (params.name === "list_outlines") return listOutlines(outlines, caller);
   if (params.name === "script_run" && caller) {
