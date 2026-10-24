@@ -117,6 +117,7 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
     for (const extension of extensions) {
       if (extension.manifest.scripts?.length) folders.push({ folder: extension.directory, opted: true, origin: extension.origin, directory: extension.directory, scripts: extension.manifest.scripts });
     }
+    const claimed = new Set<string>();
     for (const { folder, opted, origin, directory, scripts } of folders) {
       let found: { name: string; file: string }[];
       try {
@@ -128,8 +129,9 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
       for (const { name: scriptName, file: relative } of found) {
         if (!/\.(ts|js)$/.test(relative)) continue;
         const file = join(folder, relative);
-        // A declaration is a name and a file: each name its own source, even if a manifest ever lets two share one file.
-        const identity = scripts ? `${file}:${scriptName}` : file;
+        // A declaration is a name and a file. The file keeps its id; a second name on the same file gets its own.
+        const identity = claimed.has(file) ? `${file}:${scriptName}` : file;
+        claimed.add(file);
         let code = "";
         if (opted) {
           try { code = await Bun.file(file).text(); } catch (error) {

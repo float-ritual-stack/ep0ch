@@ -4,6 +4,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
+import { scriptSourceId } from "../src/script-sources";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import { setup, until } from "./script-harness";
 
@@ -23,6 +24,8 @@ test("a disabled extension's scripts are not listed or runnable, and enabling it
   plant(join(root, "outline/extensions"), "garden", "water");
   const entry = async () => (await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true })).extensions.find(e => e.script && e.name === "water");
   const id = (await entry())!.id;
+  // A script keeps the id its file always had, so saved buttons and sequences still find it.
+  expect(id).toBe(scriptSourceId(join(root, "outline/extensions/garden/scripts/water.js")));
   expect((await client.request<{ written: string[] }>({ action: "extensions.act", extension: id, extensionAction: "run" })).written).toBeDefined();
   writeFileSync(config, JSON.stringify({ enabled: false }));
   expect(await entry()).toBeUndefined();
