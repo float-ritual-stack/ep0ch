@@ -25,7 +25,7 @@ An extension declares the scripts it ships in `extension.json`:
 ```
 
 Scripts count as something the extension provides; a scripts-only extension needs no `run`.
-Each declared `.js` or `.ts` file must exist in `scripts/` and start with `// ep0ch-script`
+Each script must declare a different file. Each declared `.js` or `.ts` file must exist in `scripts/` and start with `// ep0ch-script`
 (or `// ep0ch-script effects=write`). The folder reader names a missing file or header.
 Only declared scripts from installed extensions load. Outline script notes and outline files
 precede extension scripts. The install row, `extensions.list` (`scripts` on installed and available

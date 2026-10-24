@@ -688,9 +688,13 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
   if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, bar sources and rules that decorate with code need run (the program each call starts)");
   if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, bar sources, rules, tiles, components or scripts");
   const scripts = new Set<string>();
+  const scriptFiles = new Map<string, string>();
   for (const script of manifest.scripts ?? []) {
     if (scripts.has(script.name)) throw new ExtensionLoadError(`extension.json: script ${script.name} is declared twice`);
     scripts.add(script.name);
+    const previous = scriptFiles.get(script.file);
+    if (previous) throw new ExtensionLoadError(`extension.json: scripts ${previous} and ${script.name} both declare ${script.file}; give each script a different file`);
+    scriptFiles.set(script.file, script.name);
   }
 }
 
@@ -761,7 +765,7 @@ export interface ManifestSource {
  * Checks a manifest and its config, wherever they were read from. Throws an `ExtensionLoadError` that names the
  * file and what is wrong with it; never a secret value (none are read here). Pure: no I/O.
  */
-export function loadExtensionManifest(source: ManifestSource, options: { checkConfig?: boolean } = {}): LoadedExtension {
+export function loadExtensionManifest(source: ManifestSource, options: { checkConfig?: boolean; idFrom?: "manifest" } = {}): LoadedExtension {
   const { manifestRaw, configRaw, origin, directory } = source;
   const json = parseJson(manifestRaw, "extension.json");
   if (json && typeof json === "object" && (json as { contract?: unknown }).contract === 1) {
@@ -772,7 +776,8 @@ export function loadExtensionManifest(source: ManifestSource, options: { checkCo
   const manifest = cleanShown(json) as ExtensionManifest;
   if (!manifest.name) throw new ExtensionLoadError("extension.json: name is only control characters");
   checkManifest(manifest, !!source.script);
-  if (manifest.id !== source.expectedId) {
+  const expectedId = options.idFrom === "manifest" ? manifest.id : source.expectedId;
+  if (manifest.id !== expectedId) {
     throw new ExtensionLoadError(`extension.json: id ${manifest.id} must match ${source.idFrom} (${source.expectedId})`);
   }
   const folderJson = parseJson(configRaw, "config.json");
@@ -838,7 +843,7 @@ export interface ScriptSource {
 export async function readExtensionFolder(
   directory: string,
   origin: ExtensionOrigin,
-  options: { checkConfig?: boolean } = {},
+  options: { checkConfig?: boolean; idFrom?: "manifest" } = {},
 ): Promise<LoadedExtension> {
   const manifestPath = join(directory, "extension.json");
   if (!(await Bun.file(manifestPath).exists())) throw new ExtensionLoadError("no extension.json in the folder");
