@@ -130,7 +130,7 @@ describe("showing a block in ep0ch-door", () => {
     door = await fakeDoor(request => (request.args.from ? { ok: false, error: "no tile shell; tiles: #1 tree, or focused" } : { ok: true, result: { reader: "side", id: BLOCK } }));
     const run = Bun.spawn([process.execPath, "src/cli.ts", "door-open", BLOCK, "--actor", "claude-code", "--from", "shell"], { env: { ...process.env, EP0CH_CONTROL: door.path }, stdout: "pipe", stderr: "pipe" });
     expect(JSON.parse(await new Response(run.stdout).text())).toEqual({ reader: "side", id: BLOCK, tileNotFound: "shell" });
-    expect(await new Response(run.stderr).text()).toContain("the door has no tile shell");
+    expect(await new Response(run.stderr).text()).toContain("no tile shell in the door; opened by the screen's open rule");
     expect(await run.exited).toBe(0);
   });
 

@@ -247,7 +247,7 @@ if (process.argv[2] === "door-open") {
   try {
     const opened = await openInDoor(control, blockId, { actor: values.actor ?? "agent", ...(values.from ? { from: values.from } : {}) });
     console.log(JSON.stringify(opened));
-    if (opened.tileNotFound) console.error(`door-open: the door has no tile ${opened.tileNotFound} (--from); opened it where the door's own open puts notes. \`ep0ch act layout.get\` lists the tiles.`);
+    if (opened.tileNotFound) console.error(`door-open: no tile ${opened.tileNotFound} in the door; opened by the screen's open rule. \`ep0ch act layout.get\` lists the tiles.`);
     process.exit(0);
   } catch (error) {
     console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
