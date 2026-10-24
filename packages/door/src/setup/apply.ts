@@ -676,12 +676,15 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   say(`ep0ch install · ${facts.platform} · applying`);
   let deploy: Awaited<ReturnType<typeof startDeployRecord>> | undefined;
   let creatingRecord = false;
+  const recordWarnings = new Set<string>();
   const record = async (write: () => Promise<unknown>) => {
     try { await write(); }
     catch (e) {
       const warning = `deploy record could not be saved: ${(e as Error).message}`;
-      plan.notes.push(warning);
-      say(`    ! ${warning}`);
+      if (recordWarnings.has(warning)) return;
+      recordWarnings.add(warning);
+      if (json) plan.notes.push(warning);
+      else say(`    ! ${warning}`);
     }
   };
   const beginRecord = () => record(async () => {
@@ -689,7 +692,8 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     say(`    deploy record: ${deploy.id}`);
     if (json) plan.notes.push(`deploy record: ((${deploy.id}))`);
   });
-  if (facts.host.running) await beginRecord();
+  const recordTarget = resolveTarget(selectors, env, io.cwd ?? process.cwd());
+  if (facts.host.running || (!("error" in recordTarget) && !("unnamed" in recordTarget))) await beginRecord();
   const results: (Step & { done?: string[]; error?: string; recover?: string })[] = [];
   let current = facts;
   const sessionFailures: string[] = [];
