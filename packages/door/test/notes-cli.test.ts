@@ -2,13 +2,13 @@
 // scratch host. find lists every note (newest first) or the service's ranked matches; show draws a note as the
 // reader does, at the width asked for. Fictional notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { canonicalLocalMachineName, everyNote, foundLine, treeLine, treeOf } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
 import { visible, width } from "../src/style";
-import { outliner, Scratch } from "./scratch";
+import { outliner, Scratch, until } from "./scratch";
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
 const run = async (args: string[], env: Record<string, string> = {}, cwd?: string) => {
@@ -123,6 +123,167 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     board.close();
   });
   afterAll(async () => { await scratch.dispose(); });
+
+  test("builder posts its last message even on failure and stops its own process group", async () => {
+    const board = new SocketBoard(sock, undefined, scratch.name);
+    const bin = join(scratch.root, "builder-bin");
+    mkdirSync(bin);
+    const fake = join(bin, "codex");
+    writeFileSync(fake, `#!/usr/bin/env bun
+import { writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+if (process.env.BUILDER_FIXTURE_WAIT) {
+  const child = Bun.spawn(["sleep", "300"]);
+  writeFileSync(process.env.BUILDER_FIXTURE_WAIT, String(child.pid));
+  await child.exited;
+} else {
+  const config = Bun.TOML.parse(args.flatMap((a, i) => a === "-c" ? [args[i + 1]] : []).join("\\n"));
+  const writer = config.mcp_servers?.ep0ch?.env?.EP0CH_AGENT ?? "unconfigured";
+  writeFileSync(args[args.indexOf("--output-last-message") + 1], "The hinge turns freely. MCP writer: " + writer);
+  if (process.env.BUILDER_FIXTURE_REPORT) writeFileSync(process.env.BUILDER_FIXTURE_REPORT, "The fresh report file for this run.");
+  process.exit(7);
+}
+`);
+    chmodSync(fake, 0o755);
+    writeFileSync(join(bin, "gh"), "#!/usr/bin/env bun\nconsole.log('https://example.test/pull/7');\n");
+    chmodSync(join(bin, "gh"), 0o755);
+    const brief = join(scratch.root, "builder-brief.md");
+    const staleReport = join(scratch.root, "previous-report.md");
+    writeFileSync(staleReport, "The old run never checked this hinge.");
+    writeFileSync(brief, `Repair the hinge.\nReport: ${staleReport}\n`);
+    const ticket = await board.request<{ id: string }>("create", { text: "Repair the hinge", author: "agent" });
+    const builder = join(import.meta.dir, "../../../scripts/builder");
+    const spawn = (extra: Record<string, string> = {}) => Bun.spawn([builder, ticket.id, "--model", "fixture-model", "--", brief], {
+      cwd: join(import.meta.dir, "../../.."), env: { ...process.env, ...scratch.env, EP0CH_SOCKET: sock, EP0CH_AGENT: "fixture-builder", PATH: `${bin}:${process.env.PATH}`, ...extra }, stdout: "pipe", stderr: "pipe",
+    });
+    try {
+      const p = spawn({ EP0CH_AGENT: "", OUTLINER_ACTOR: "" });
+      const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      expect(code, err).toBe(7);
+      const ended = JSON.parse(out.trim());
+      expect((await board.get(ended.id))!.text).toContain("[exit::7]");
+      expect((await board.get(ended.id))!.text).toContain(`MCP writer: builder-${ticket.id}`);
+      const reports = await board.request<{ text: string; actorId: string }[]>("children", { parentId: ticket.id });
+      expect(reports.some(r => r.text.includes("The hinge turns freely.") && r.actorId === `builder-${ticket.id}`)).toBe(true);
+      const fresh = spawn({ BUILDER_FIXTURE_REPORT: staleReport });
+      const freshOut = new Response(fresh.stdout).text();
+      const freshErr = new Response(fresh.stderr).text();
+      expect(await fresh.exited, await freshErr).toBe(7);
+      const freshEnd = JSON.parse((await freshOut).trim());
+      expect((await board.get(freshEnd.id))!.text).toContain("The fresh report file for this run.");
+      expect((await board.request<{ actorId: string }>("get", { blockId: freshEnd.id })).actorId).toBe("fixture-builder");
+      const pidFile = join(scratch.root, "builder-child.pid");
+      const waiting = spawn({ BUILDER_FIXTURE_WAIT: pidFile });
+      const output = new Response(waiting.stdout).text();
+      const errors = new Response(waiting.stderr).text();
+      await until(() => existsSync(pidFile), "builder's child starts");
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      waiting.kill("SIGTERM");
+      expect(await waiting.exited, await errors).toBe(143);
+      const stopped = JSON.parse((await output).trim());
+      expect((await board.get(stopped.id))!.text).toContain("[exit::143]");
+      expect((await board.get(stopped.id))!.text).not.toContain("The fresh report file for this run.");
+      const running = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+      await until(() => !running(), "builder's process group stopped");
+    } finally { board.close(); }
+  }, 30_000);
+
+  test("builder preserves Codex's exit when the host stops and prints a working recovery command", async () => {
+    const h = new Scratch();
+    const socket = await h.start();
+    const board = new SocketBoard(socket, undefined, h.name);
+    try {
+      const ticket = await board.request<{ id: string }>("create", { text: "Repair the garden gate" });
+      const bin = join(h.root, "bin");
+      mkdirSync(bin);
+      const ready = join(h.root, "ready"), release = join(h.root, "release");
+      writeFileSync(join(bin, "codex"), `#!${process.execPath}
+const args = process.argv.slice(2);
+await Bun.write(args[args.indexOf("--output-last-message") + 1], "The gate swings freely.");
+await Bun.write(process.env.BUILDER_READY, "ready");
+while (!(await Bun.file(process.env.BUILDER_RELEASE).exists())) await Bun.sleep(20);
+process.exit(Number(process.env.BUILDER_CODE));
+`, { mode: 0o755 });
+      writeFileSync(join(bin, "gh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+      const brief = join(h.root, "brief.md");
+      writeFileSync(brief, "Repair the gate.\n");
+      for (const code of [0, 7]) {
+        const readyFile = ready + code, releaseFile = release + code;
+        const childEnv = { ...process.env, ...h.env, EP0CH_SOCKET: socket, EP0CH_WS: h.name, EP0CH_AGENT: "gate-builder", PATH: `${bin}:${process.env.PATH}`, BUILDER_READY: readyFile, BUILDER_RELEASE: releaseFile, BUILDER_CODE: String(code) };
+        const p = Bun.spawn([join(import.meta.dir, "../../../scripts/builder"), ticket.id, "--", brief], { env: childEnv, stdout: "pipe", stderr: "pipe" });
+        const out = new Response(p.stdout).text(), err = new Response(p.stderr).text();
+        await until(() => existsSync(readyFile), "Codex starts after the run-start write");
+        await h.stop();
+        writeFileSync(releaseFile, "go");
+        const status = await p.exited, errors = await err;
+        await out;
+        await h.start();
+        expect(status, errors).toBe(code);
+        const recovery = errors.split("\n").find(line => line.startsWith("builder: record later: "));
+        expect(recovery, errors).toBeDefined();
+        const script = join(h.root, `recover-${code}.sh`);
+        writeFileSync(script, recovery!.slice("builder: record later: ".length) + "\n");
+        const retry = Bun.spawn(["bash", script], { env: childEnv, stdout: "pipe", stderr: "pipe" });
+        const result = new Response(retry.stdout).text(), failure = new Response(retry.stderr).text();
+        expect(await retry.exited, await failure).toBe(0);
+        const ended = JSON.parse((await result).trim());
+        const note = await board.get(ended.id);
+        expect(note!.text).toContain(`[exit::${code}]`);
+        expect(note!.text).toContain("The gate swings freely.");
+        expect((await board.request<{ actorId: string }>("get", { blockId: ended.id })).actorId).toBe("gate-builder");
+      }
+    } finally { board.close(); await h.dispose(); }
+  }, 30_000);
+
+  test("work records append later facts and share a stampable template", async () => {
+    const ticketBoard = new SocketBoard(sock, undefined, scratch.name);
+    const ticket = await ticketBoard.request<{ id: string }>("create", { text: "Oil the hinge [work-id::SHED-18]", author: "agent" });
+    ticketBoard.close();
+    const recordEnv = { ...env, EP0CH_AGENT: "fixture-builder" };
+    const start = await run(["record", "run-start", "--ticket", ticket.id, "--harness", "codex", "--summary", "Oil the hinge"], recordEnv);
+    expect(start.code, start.err).toBe(0);
+    const id = JSON.parse(start.out).id;
+    const before = await run(["show", id, "--source"], env);
+    const end = await run(["record", "run-end", "--run", id, "--exit", "0", "--duration", "12", "--report", "Hinge turns freely."], recordEnv);
+    expect(end.code, end.err).toBe(0);
+    expect((await run(["show", id, "--source"], env)).out).toBe(before.out);
+    const ended = await run(["show", JSON.parse(end.out).id, "--source"], env);
+    expect(ended.out).toContain(`((${id}))`);
+    expect(ended.out).toContain("Hinge turns freely.");
+    const board = new SocketBoard(sock, undefined, scratch.name);
+    try {
+      const reports = await board.request<{ text: string; author: string }[]>("children", { parentId: ticket.id });
+      expect(reports.some(b => b.text.includes("Hinge turns freely.") && b.author === "agent")).toBe(true);
+      const templates = await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "template-for=run-start", machinery: "show" } });
+      const stamp = await board.request<{ stamped: { id: string }[] }>("template.stamp", { of: templates.blocks[0]!.id, props: { ticket: "SHED-19", summary: "Check the gate" }, author: "agent" });
+      expect((await board.get(stamp.stamped[0]!.id))!.text).toContain("Check the gate");
+      const records = await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-records=true", machinery: "show" } });
+      expect((await board.get(stamp.stamped[0]!.id))!.parentId).toBe(records.blocks[0]!.id);
+      const elsewhere = await board.request<{ stamped: { id: string }[] }>("template.stamp", { of: templates.blocks[0]!.id, parent: ticket.id });
+      expect((await board.get(elsewhere.stamped[0]!.id))!.parentId).toBe(ticket.id);
+      const inbox = await board.request<{ stamped: { id: string }[] }>("template.stamp", { of: templates.blocks[0]!.id, parent: "inbox" });
+      const inboxParent = (await board.get(inbox.stamped[0]!.id))!.parentId!;
+      expect((await board.get(inboxParent))!.text).toContain("Inbox");
+      const visible = await run(["find", "--query", "type=run-start", "--json"], env);
+      expect(visible.out).not.toContain(id);
+      const finding = await run(["record", "finding", "--ticket", ticket.id, "--source", "person", "--failure", "Gate sticks", "--likelihood", "Every morning", "--cost", "One minute"], { ...env, EP0CH_AGENT: "", OUTLINER_ACTOR: "" }, scratch.root);
+      expect(finding.code, finding.err).toBe(0);
+      const findingId = JSON.parse(finding.out).id;
+      expect((await board.request<{ author: string }>("get", { blockId: findingId })).author).toBe("user");
+      const closed = await run(["record", "finding-closed", "--finding", findingId, "--fixed", "abc123"], env);
+      expect(closed.code, closed.err).toBe(0);
+      expect((await board.get(findingId))!.text).toContain("Gate sticks");
+      expect((await board.get(JSON.parse(closed.out).id))!.text).toContain(`((${findingId}))`);
+      const deploy = await run(["record", "deploy", "--observed"], { ...scratch.env, ...env });
+      expect(deploy.code, deploy.err).toBe(0);
+      const deployed = (await board.get(JSON.parse(deploy.out).id))!.text;
+      expect(deployed).toContain("[observed::true]");
+      expect(deployed).not.toContain("[protocol::unknown]");
+      expect(deployed).not.toContain("[grammar::unknown]");
+
+    } finally { board.close(); }
+  });
+
 
   test("find --lines: every live note, id, title and path; a trashed one isn't there", async () => {
     const r = await run(["find", "--lines"], env);

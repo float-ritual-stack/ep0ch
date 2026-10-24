@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -uo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+ticket=${1:?usage: scripts/builder <ticket> [--model <model>] -- <brief file>}
+shift
+export EP0CH_AGENT="${EP0CH_AGENT:-builder-$ticket}"
+model=()
+if [ "${1:-}" = --model ]; then model=(--model "${2:?model required}"); shift 2; fi
+[ "${1:-}" = -- ] && shift
+brief=${1:?brief file required}
+[ -f "$brief" ] || { echo "builder: no brief at $brief" >&2; exit 2; }
+mkdir -p "/tmp/ep0ch-agent-$(id -u)"
+run_dir=$(mktemp -d "/tmp/ep0ch-agent-$(id -u)/builder-XXXXXX") || exit 1
+touch "$run_dir/started"
+record() { bun "$repo/packages/door/src/main.ts" record "$@"; }
+branch=$(git rev-parse --abbrev-ref HEAD) || exit 1
+mcp_config=$(bun -e '
+  const q = JSON.stringify;
+  const names = Object.keys(process.env).filter(k => k.startsWith("EP0CH_") || k === "OUTLINER_ACTOR");
+  console.log(`mcp_servers.ep0ch={command="ep0ch",args=["mcp"],cwd=${q(process.cwd())},env={EP0CH_AGENT=${q(process.env.EP0CH_AGENT)}},env_vars=${q(names)}}`);
+') || exit 1
+started=$(date +%s)
+start=$(record run-start --ticket "$ticket" --harness codex --branch "$branch" --worktree "$PWD" --pid "$$" --host "$(hostname)" --summary "$(head -n 1 "$brief")") || exit 1
+run_id=$(printf '%s' "$start" | bun -e 'console.log((await Bun.stdin.json()).id)') || exit 1
+report=$(sed -nE 's/^Report(-file)?:[[:space:]]*(.*)$/\2/p' "$brief" | head -n 1)
+if [ -z "$report" ]; then report=$(rg -o '/[^[:space:]`]*report\.md' "$brief" | head -n 1); fi
+child=0
+finish() {
+  local code=$1
+  trap - EXIT INT TERM
+  if [ "$child" != 0 ]; then
+    # Only this run's setsid group; a child that ignores TERM must still stop.
+    kill -TERM -- "-$child" 2>/dev/null || true
+    for ((i=0; i<10; i++)); do kill -0 -- "-$child" 2>/dev/null || break; sleep 0.5; done
+    kill -KILL -- "-$child" 2>/dev/null || true
+  fi
+  local report_args=() pr_args=()
+  if [ -n "$report" ] && [ -f "$report" ] && [ "$report" -nt "$run_dir/started" ]; then report_args=(--report-file "$report")
+  elif [ -f "$run_dir/last-message.md" ]; then report_args=(--report-file "$run_dir/last-message.md"); fi
+  local pr
+  pr=$(gh pr view --json url --jq .url 2>/dev/null) && pr_args=(--pr "$pr")
+  local end_args=(run-end --run "$run_id" --exit "$code" --duration "$(( $(date +%s) - started ))" "${pr_args[@]}" "${report_args[@]}")
+  if ! record "${end_args[@]}"; then
+    echo "builder: could not record the end/report of $run_id; output is in $run_dir" >&2
+    printf 'builder: record later: ' >&2
+    printf '%q ' env "EP0CH_AGENT=$EP0CH_AGENT" bun "$repo/packages/door/src/main.ts" record "${end_args[@]}" >&2
+    printf '\n' >&2
+  fi
+  echo "builder: $run_id exited $code; output: $run_dir" >&2
+  exit "$code"
+}
+trap 'finish $?' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+setsid nice -n 15 codex exec "${model[@]}" -c "$mcp_config" --output-last-message "$run_dir/last-message.md" - < "$brief" &
+child=$!
+echo "builder: run $run_id; wrapper $$; process group $child (stop: kill -TERM $$)" >&2
+wait "$child"
+code=$?
+exit "$code"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { RECORD_USAGE } from "./record-cli";
 // ep0ch-door: a BBS door into a pi-herdr-outliner outline, over its socket.
 import { join } from "node:path";
 import { SocketBoard } from "./socket";
@@ -137,6 +138,7 @@ ${BACKUP_USAGE}
   ep0ch try --showcase [--reset]
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
 ${NOTES_USAGE}
+${RECORD_USAGE}
 ${NEW_USAGE}
 ${VIEW_USAGE}
   ep0ch artifact put <file-or-folder> [--name <name>] [--machine <ssh-name>]
@@ -254,6 +256,7 @@ if (tryArgs) {
   const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...tryArgs], { stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await run.exited);
 }
+if (args[0] === "record") process.exit(await (await import("./record-cli")).recordCommand(args));
 if (args[0] === "find") process.exit(await findCommand(args));
 if (args[0] === "show") process.exit(await showCommand(args));
 if (args[0] === "revisions") process.exit(await revisionsCommand(args));
