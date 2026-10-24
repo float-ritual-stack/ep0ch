@@ -64,7 +64,7 @@ import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
   neighbour, node, nodeById, parentNode, parentOf, place as placeLayout, serializeTree, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Dock, type Effective, type Float, type Flow,
-  type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
+  foldsBeside, type Fold, type Grab, type HostMode, type LayoutState, type WireVerb, type Wire as TileWire, type LNode, type Op, type Place, type Placed, type PlacedDock, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawHSpine, drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone } from "./pane-actions";
@@ -6358,10 +6358,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * it beside, so a fold of it folds the drawer (the host layer) to a spine. A drawer tile with a neighbour, and a
    * tile in a group in the drawer (a desk of its own), fold in their layout as on any screen.
    */
-  private foldsDrawer(id: number): boolean {
-    if (!this.ctx?.hostLayer?.isDrawer(this)) return false;
-    const p = parentOf(this.root, id);
-    return !p || p.parent.t === "flow";
+  private foldsDrawer(id: number, on?: boolean): boolean {
+    const host = this.ctx?.hostLayer;
+    // The strip opens from any of its tiles, also one a neighbour has come beside since it folded.
+    return !!host?.isDrawer(this) && (!foldsBeside(this.root, id) || (on === false && host.folded));
   }
 
   /**
@@ -6384,7 +6384,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const via = !sel || sel === "focused" ? this.readerOfFocus() : undefined;
     const t = via ? { id: this.idOf(via)!, name: this.nameOfPane(via) } : this.tile(sel);
     // A drawer tile with nothing beside it has nothing to fold beside: the drawer folds, to a strip at its edge.
-    if (this.foldsDrawer(t.id)) return this.ctx.hostLayer!.collapse(t.name, on, actor);
+    if (this.foldsDrawer(t.id, on)) return this.ctx.hostLayer!.collapse(t.name, on, actor);
     // A fold asked for the way it already is, or a toggle of one folded: opens. A fold of the other way refolds it.
     const r = this.apply({ op: "collapse", tile: t.id, ...(on !== undefined ? { on } : dir && this.collapsed.has(t.id) && (this.collapsed.get(t.id)!.dir ?? "v") !== dir ? { on: true } : {}), ...(dir ? { dir } : {}) }, actor);
     if (r.changed) this.save();

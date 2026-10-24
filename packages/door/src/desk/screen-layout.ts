@@ -58,6 +58,8 @@ export type Lift<I> = { tile: I; reach: Exclude<ZoomReach, "screen">; by: Actor 
 export type Fold = { by?: string; dir?: "h" };
 /** Whether a fold fits a split along `axis`: a vertical spine needs tiles side by side (row), a horizontal one stacked (col). */
 export const foldFits = (fold: Fold, axis: string | undefined): boolean => (fold.dir === "h" ? axis === "col" : axis === "row");
+/** Whether tile `id` has others beside it in a row or a column of `tree` to fold beside (not alone, not a column of a flow). */
+export const foldsBeside = <I,>(tree: LNode<I>, id: I): boolean => { const p = parentOf(tree, id); return !!p && p.parent.t !== "flow"; };
 
 /** A screen's layout: everything about where its tiles are, and nothing about what they show. */
 export interface LayoutState<I = number> {
@@ -1519,7 +1521,7 @@ class Step<I> {
     if (was && (was.dir ?? "v") === (fold.dir ?? "v")) { this.d.changed = false; this.d.answer = { collapsed: true, changed: false }; return; }
     this.notFloat(id, "a spine");
     this.shape(id, `folding ${name}`);
-    if (!p || p.parent.t === "flow" || !foldFits(fold, axis)) {
+    if (!foldsBeside(this.d.tree, id) || !foldFits(fold, axis)) {
       refuse(p?.parent.t === "flow" ? `${name} is a column of a flow: it squeezes to a spine by itself as it recedes (^W W widens it)`
         : !p ? `${name} isn't side by side with other tiles (nor stacked with any): only a tile in a row or a column folds to a spine`
         : fold.dir === "h" ? `${name} isn't stacked with other tiles: a horizontal spine needs a tile above or below it (dir=v folds it to a vertical one)`

@@ -1356,7 +1356,7 @@ export class AgentDrawer {
 
   /** Raw input while the person is in the drawer and a terminal there runs: every byte is its, but alt+a, alt+A, alt+s and alt+g. */
   rawInput(run: DrawerRun): ((bytes: string) => void) | null {
-    if (!this.shown || !this.entered) return null;
+    if (!this.shown || !this.entered || this.folded) return null;
     const raw = this.d?.rawInput();
     if (!raw) return null;
     return (s: string) => {
@@ -1381,7 +1381,7 @@ export class AgentDrawer {
         // it), a second soon after goes to the program, and in a group it comes out of the group; with nothing to step
         // out of, it leaves the drawer.
         const d = this.desk, ctx = this.host.ctx?.();
-        if (d && ctx && d.chordSteps()) { d.key(k, ctx); return true; }
+        if (d && ctx && !this.folded && d.chordSteps()) { d.key(k, ctx); return true; }
         run("host.leave", {}); return true;
       }
       if (isAlt(k, "a")) { run("host.toggle", { open: false }); return true; }

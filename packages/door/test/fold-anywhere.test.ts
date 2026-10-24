@@ -248,6 +248,24 @@ describe.skipIf(!outliner)("fold anywhere: the fold keys reach the tile that has
       } finally { d.app.quit(); }
     });
 
+    test("a strip stays a strip: ctrl+] just after folding a terminal doesn't type into it, and a neighbour added meanwhile doesn't strand it", async () => {
+      const d = await door();
+      try {
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+        d.paint();
+        d.click(20, d.app.drawer.rect!.row + 3);
+        d.press([ctrl("]"), char("-"), ctrl("]")]);                      // out of the program, fold, and the chord again within its window
+        expect([d.app.drawer.folded, d.app.drawer.entered, d.drawer().rawKeys(), d.app.drawer.rawInput(() => {})]).toEqual([true, false, false, null]);
+        await d.app.act({ action: "tile.open", args: { kind: "who", name: "beside", where: "right" }, tile: "kettle", as: "fold-agent" });
+        d.paint();
+        d.click(10, d.app.drawer.rect!.row);                             // a click on the strip opens it, though kettle has a neighbour now
+        expect([d.app.drawer.folded, d.app.drawer.entered]).toEqual([false, true]);
+        d.press([char("-")]);
+        expect(d.drawer().layoutGet().tiles.filter((t: any) => t.collapsed).map((t: any) => t.name)).toContain("kettle");
+        expect(d.app.drawer.folded).toBe(false);
+      } finally { d.app.quit(); }
+    });
+
     test("ctrl+] inside a group there comes out of the group first, as on a screen; the next leaves the drawer", async () => {
       const d = await door();
       try {
