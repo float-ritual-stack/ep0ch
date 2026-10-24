@@ -1057,23 +1057,34 @@ export class AgentDrawer {
    * person's drawer pulls the drawer up on it (their keys with it when they had them); an agent's adds the tab behind
    * the one shown and leaves the drawer and the keys as they are.
    */
+  /**
+   * Why tile `name` of screen `from` can't go into the drawer (there, if `to`/`where` say where), or null: the screen
+   * keeps it (its last tile, a fixed shape), the drawer's layout won't take it, or it is the drawer's own program asked
+   * to a place. `put` refuses with it, and a drag over the drawer shows it before the release.
+   */
+  putRefusal(from: Desk, name: string, actor: Actor, to?: string, where?: Where): string | null {
+    const d = this.desk;
+    if (!d) return "the drawer isn't ready (no screen is shown yet)";
+    if (from === d) return `${name} is in the drawer already`;
+    if (this.isOwnOut(from.pane(name))) {
+      if (to !== undefined || where !== undefined) return `${name} is the drawer's own program: it goes back into its own tab, in place (tile.drawer without to= and where=)`;
+      return from.takeRefusal(name, actor);
+    }
+    const out = from.takeRefusal(name, actor);
+    if (out) return out;
+    const kind = (from.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
+    // As a tab of the one shown, unless the drop says where in the drawer's layout (`to`, `where`: its drop zones').
+    const into = d.bringRefusal({ name, spec: { t: "leaf" as const, kind } }, to, where ?? "tabs", actor);
+    return into ? `the drawer doesn't take ${name}: ${into}` : null;
+  }
+
   put(from: Desk, name: string, actor: Actor, keys = false, to?: string, where?: Where): TileDone {
     const d = this.desk;
-    if (!d) throw new ActionRefused("the drawer isn't ready (no screen is shown yet)");
-    if (from === d) throw new ActionRefused(`${name} is in the drawer already`);
+    const no = this.putRefusal(from, name, actor, to, where);
+    if (no || !d) throw new ActionRefused(no ?? "the drawer isn't ready (no screen is shown yet)");
     this.dropHover = null;
     // The drawer's own program coming back (PIE-892): into its own tab again, in place of the one holding it.
-    if (this.isOwnOut(from.pane(name))) {
-      if (to !== undefined || where !== undefined) throw new ActionRefused(`${name} is the drawer's own program: it goes back into its own tab, in place (tile.drawer without to= and where=)`);
-      return this.reclaim(from, name, actor, keys);
-    }
-    const kind = (from.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
-    const out = from.takeRefusal(name, actor);
-    if (out) throw new ActionRefused(out);
-    const spec = { name, spec: { t: "leaf" as const, kind } };
-    // As a tab of the one shown, unless the drop says where in the drawer's layout (`to`, `where`: its drop zones').
-    const into = d.bringRefusal(spec, to, where ?? "tabs", actor);
-    if (into) throw new ActionRefused(`the drawer doesn't take ${name}: ${into}`);
+    if (this.isOwnOut(from.pane(name))) return this.reclaim(from, name, actor, keys);
     const moved = from.takeOut(name, actor);
     const done = this.bring(d, moved, to, where ?? "tabs", actor, a => from.bringIn(moved, undefined, undefined, a));
     if (this.ctx(actor).standing) {
@@ -1522,7 +1533,9 @@ export class AgentDrawer {
       const kind = (screen!.pane(dragged) as { kind?: string } | undefined)?.kind ?? "tile";
       const zone = inDrawer && !onChip && this.d && r!.rows >= 4 && !this.isOwnOut(screen!.pane(dragged)) ? this.d.foreignAt(k.x, k.y - this.deskRow(), { name: dragged, kind }) : null;
       if (!zone) this.d?.cancelDrag();
-      const says = zone ? (zone.refused ? `✕ ${zone.refused}` : `into your drawer: ${zone.label}`) : DRAWER_DROP;
+      // What the release will do is what `tile.drawer` will do: the screen keeping its last tile, the drawer's layout refusing the place, the zone's own refusal.
+      const why = over ? this.putRefusal(screen!, dragged, USER, zone?.to, zone?.where ?? undefined) ?? zone?.refused ?? null : null;
+      const says = why ? `✕ ${why}` : zone ? `into your drawer: ${zone.label}` : DRAWER_DROP;
       const hover = over ? dragged : null;
       if (hover !== this.dropHover || says !== this.dropSays) { this.dropHover = hover; this.dropSays = says; screen!.drawerHover(hover ? `⤓ ${says}` : null); this.host.redraw(); }
       if (!over) return false;
@@ -1530,7 +1543,7 @@ export class AgentDrawer {
         this.dropHover = null; this.dropSays = DRAWER_DROP;
         this.d?.cancelDrag();
         screen!.cancelDrag();
-        if (zone?.refused) this.host.flash(`not moved: ${zone.refused}`);
+        if (why) this.host.flash(`not moved: ${why}`);
         else void screen!.perform("tile.drawer", { on: true, ...(zone ? { ...(zone.to ? { to: zone.to } : {}), where: zone.where } : {}) }, USER, dragged);
       }
       return true;
