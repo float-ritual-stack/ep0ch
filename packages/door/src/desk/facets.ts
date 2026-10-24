@@ -16,7 +16,7 @@ import { ActionRefused, actionSet, def } from "../surface/actions";
 import { C, fg, pad, RESET, selectedRow } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
 import { ago, rowLines } from "../text";
-import { RowView, wheelRows, type RowPress } from "../scroll";
+import { RowView, wheelRows, clamp, type RowPress } from "../scroll";
 import { LineInput } from "../surface/line";
 import { findBoards } from "./query";
 import type { DeskApi, Pane, PaneView } from "./panes";
@@ -26,8 +26,8 @@ import type { KindHost, TileKind } from "./tile-kinds";
 export const FACET_SORTS = ["uses", "name", "last"] as const;
 export type FacetSort = (typeof FACET_SORTS)[number];
 
-/** A picked value: `mode` says whether the notes must carry it or must not; `path`: it stands for everything below it too. */
-export interface Clause { key: string; value: string; mode: "include" | "exclude"; path?: boolean }
+/** A pick (no value means the whole key): `mode` says whether the notes must carry it or must not; `path`: it stands for everything below it too. */
+export interface Clause { key: string; value?: string; mode: "include" | "exclude"; path?: boolean }
 interface Value { value: string; count: number; last: number }
 /** A node of a facet's tree of path-shaped values: its own value's figures (when a note carries exactly it) and what is below. */
 interface Node { path: string; label: string; depth: number; value?: Value; kids: Node[]; open: boolean }
@@ -45,6 +45,7 @@ const SAFE_VALUE = /^[\w./@*-]+$/u;
 /** One clause as the views' grammar writes it: `#tag` for a tag, `key=value` (quoted when it needs it, `/*` for a path). */
 export function clauseText(c: Clause): string {
   // A path's `/*` goes inside the quotes with it: `"back garden/*"` (the grammar takes nothing after a closing quote).
+  if (c.value === undefined) return c.mode === "exclude" ? `NOT ${c.key}` : c.key;
   const value = c.value + (c.path ? "/*" : "");
   const term = c.key === "tag" ? `#${c.value}` : `${c.key}=${SAFE_VALUE.test(value) ? value : `"${value.replace(/[\\"]/g, "\\$&")}"`}`;
   return c.mode === "exclude" ? `NOT ${term}` : term;
@@ -57,8 +58,8 @@ export function selectionQuery(clauses: readonly Clause[], raw: string): string 
   const keys = [...new Set(clauses.map(c => c.key))];
   const terms = keys.flatMap(key => {
     const mine = clauses.filter(c => c.key === key);
-    const inc = mine.filter(c => c.mode === "include").map(clauseText);
-    return [...(inc.length > 1 ? [`(${inc.join(" OR ")})`] : inc), ...mine.filter(c => c.mode === "exclude").map(clauseText)];
+    const inc = mine.filter(c => c.mode === "include" && c.value !== undefined).map(clauseText);
+    return [...mine.filter(c => c.mode === "include" && c.value === undefined).map(clauseText), ...(inc.length > 1 ? [`(${inc.join(" OR ")})`] : inc), ...mine.filter(c => c.mode === "exclude").map(clauseText)];
   });
   return [raw.trim() ? (terms.length && /\b(?:OR|AND|NOT)\b/.test(raw) ? `(${raw.trim()})` : raw.trim()) : "", ...terms].filter(Boolean).join(" ");
 }
@@ -82,6 +83,12 @@ export class FacetsPane implements Pane {
   /** The cursor: an index into the rows. */
   at = 0;
   private view = new RowView();
+  private matches = new RowView();
+  share = 0.4;
+  private divider = -1;
+  private bodyRoom = 0;
+  private noteRoom = 0;
+  private dragging = false;
   private lineRows: number[] = [];
   private width = 0;
   private asked = 0;
@@ -89,7 +96,8 @@ export class FacetsPane implements Pane {
   /** The query being typed (`e`): applied on ⏎, dropped on esc. */
   draft: LineInput | null = null;
 
-  constructor(public readonly kind: "facets" | "tags" = "facets", o: { query?: string; open?: readonly string[]; sort?: FacetSort; zero?: boolean } = {}) {
+  constructor(public readonly kind: "facets" | "tags" = "facets", o: { query?: string; open?: readonly string[]; sort?: FacetSort; zero?: boolean; share?: number } = {}) {
+    this.share = o.share ?? 0.4;
     this.raw = o.query ?? ""; this.sort = o.sort ?? "uses"; this.zero = o.zero ?? false;
     this.open = new Set(o.open ?? (kind === "tags" ? ["tag"] : []));
   }
@@ -97,14 +105,14 @@ export class FacetsPane implements Pane {
   /** The selection as the query the service is asked. */
   query(): string { return selectionQuery(this.clauses, this.raw); }
   title() { const q = this.query(); return q ? `${this.kind} ${q}` : this.kind; }
-  hint() { return this.draft ? "type the query (the views' grammar: #tag key=value NOT … OR …) · ⏎ apply · esc undo" : HINT; }
+  hint() { return this.draft ? "type the query (the views' grammar: #tag key=value NOT … OR …) · ⏎ apply · esc undo" : `${HINT} · ${FACETS_ACTIONS.def("facets.resize")!.keys}`; }
   headLabel() { return fg(C.dark) + (this.error ? "failed" : this.answer ? String(this.answer.facets.length) : "…") + RESET; }
   spine() { return { title: this.title() }; }
   typing() { return this.draft !== null; }
   blur() { this.draft = null; }
   spec() {
     const q = this.query();
-    return { ...(q ? { query: q } : {}), args: { sort: this.sort, ...(this.zero ? { zero: true } : {}), ...(this.open.size ? { open: [...this.open] } : {}) } };
+    return { ...(q ? { query: q } : {}), args: { share: this.share, sort: this.sort, ...(this.zero ? { zero: true } : {}), ...(this.open.size ? { open: [...this.open] } : {}) } };
   }
 
   init(desk: DeskApi) { if (!this.answer) void this.refresh(desk); }
@@ -121,7 +129,7 @@ export class FacetsPane implements Pane {
   async load(desk: DeskApi): Promise<boolean> {
     const n = ++this.asked, board = desk.ctx.board, q = this.query();
     try {
-      const [now, all] = await Promise.all([board.facetList(q, q ? 200 : 0), this.zero && q ? board.facetList("", 0) : null]);
+      const [now, all] = await Promise.all([board.facetList(q), q ? board.facetList("", 0) : null]);
       if (n !== this.asked) return true;
       const was = this.rowKey(this.current());
       this.answer = now; this.all = all ?? now; this.error = null;
@@ -185,7 +193,7 @@ export class FacetsPane implements Pane {
     const listed = this.zero && this.all ? this.all.facets.map(f => f.key) : this.answer.facets.map(f => f.key);
     // The facets in use (opened, or with a pick) come first, so what is being looked at is never far down a long list.
     const using = (k: string) => this.open.has(k) || this.clauses.some(c => c.key === k);
-    const keys = [...listed.filter(using), ...listed.filter(k => !using(k))];
+    const keys = [...new Set([...listed.filter(using), ...this.clauses.map(c => c.key), ...listed.filter(k => !using(k))])];
     for (const key of keys) {
       const f = here.get(key), open = this.open.has(key);
       rows.push({ kind: "facet", key, count: f?.count ?? 0, open, more: f?.more ?? 0 });
@@ -220,30 +228,40 @@ export class FacetsPane implements Pane {
     const rows = this.rows();
     this.at = Math.min(this.at, Math.max(0, rows.length - 1));
     this.width = w;
-    const lines: string[] = [], lineRows: number[] = [];
-    const push = (text: string, row = -1) => { lines.push(text); lineRows.push(row); };
+    const lines: string[] = [];
+    this.lineRows = [];
+    const push = (text: string, row = -1) => { lines.push(text); this.lineRows.push(row); };
     const cell = (sort: FacetSort, label: string) => (this.sort === sort ? fg(C.white) + `\x1b[1m${label}▾\x1b[22m` : fg(C.dark) + label + " ") + RESET;
     const a = this.answer, q = this.query();
-    push(pad(` ${fg(C.dark)}${q ? `${a?.matched ?? 0} notes · ` : ""}${a ? a.facets.length : "…"} facets`, Math.max(0, w - USES - 1 - LAST)) + cell("uses", "uses") + " " + cell("last", "last"));
-    // The selection as the views' grammar writes it: what is asked, shown as text.
+    push(pad(` ${fg(C.dark)}${a?.matched ?? "…"} of ${this.all?.matched ?? "…"} notes`, Math.max(0, w - USES - 1 - LAST)) + cell("uses", "uses") + " " + cell("last", "last"));
     if (this.draft) push(fg(C.yellow) + ` ? ${this.draft.plain()}` + RESET);
-    else push(fg(C.dark) + pad(q ? ` ? ${q}` : " ? every note · e types a query, a click on a value picks it", w) + RESET);
+    else push(fg(C.dark) + pad(q ? ` ? ${q}` : " ? every note · e types a query", w) + RESET);
     if (this.error) push(fg(C.lred) + " " + this.error + RESET);
     else if (!a) push(fg(C.dark) + " loading…" + RESET);
-    else if (!a.facets.length && !this.clauses.length) push(fg(C.dark) + " No properties yet: write [key::value] or #tag in a note and it is listed here." + RESET);
-    let notesAt = -1;
-    rows.forEach((r, i) => {
-      if (r.kind === "note" && notesAt < 0) {
-        notesAt = i;
-        push(fg(C.dark) + pad(` ── ${a?.truncated ? `${a.notes.length} of ${a.matched}` : a?.notes.length ?? 0} note${a?.notes.length === 1 ? "" : "s"} ${q ? "match" : ""}`, w).replace(/ +$/, "") + RESET);
-      }
-      for (const text of this.line(r, i === this.at, focused, w)) push(text, i);
-    });
     if (a?.hint) push(fg(C.yellow) + " " + a.hint + RESET);
-    const line = Math.max(0, lineRows.indexOf(this.at));
-    this.view.place(line, lines.length, h, [line, lineRows.lastIndexOf(this.at)]);
-    this.lineRows = lineRows;
-    return { lines: lines.slice(this.view.top, this.view.top + h) };
+    this.bodyRoom = Math.max(0, h - lines.length - 1);
+    const noteRoom = this.bodyRoom > 1 ? clamp(Math.round(this.bodyRoom * this.share), 1, this.bodyRoom - 1) : this.bodyRoom;
+    this.noteRoom = noteRoom;
+    const keyRoom = this.bodyRoom - noteRoom;
+    const draw = (notes: boolean, room: number, view: RowView) => {
+      const body: { text: string; row: number }[] = [];
+      rows.forEach((r, i) => {
+        if ((r.kind === "note") !== notes) return;
+        for (const text of this.line(r, i === this.at, focused, w)) body.push({ text, row: i });
+      });
+      if (!body.length) body.push({ text: fg(C.dark) + (notes ? " No matching notes." : " No properties.") + RESET, row: -1 });
+      const first = body.findIndex(l => l.row === this.at), last = body.findLastIndex(l => l.row === this.at);
+      view.place(first < 0 ? null : first, body.length, room, first < 0 ? null : [first, last]);
+      for (let i = 0; i < room; i++) {
+        const l = body[view.top + i];
+        push(l?.text ?? "", l?.row ?? -1);
+      }
+    };
+    draw(false, keyRoom, this.view);
+    this.divider = lines.length;
+    push(fg(C.dark) + pad(` ── Matches [less] [more] · drag to resize${a?.truncated ? ` · first ${a.notes.length}` : ""}`, w) + RESET);
+    draw(true, noteRoom, this.matches);
+    return { lines: lines.slice(0, h) };
   }
 
   private line(r: Row, on: boolean, focused: boolean, w: number): string[] {
@@ -252,7 +270,8 @@ export class FacetsPane implements Pane {
     if (r.kind === "note") return style(` ${subject(r.note)} · ${ago(r.note.updatedAt)}`, fg(C.grey));
     if (r.kind === "clause") return style(` ${r.clause.mode === "include" ? "+" : "−"} ${clauseText({ ...r.clause, mode: "include" })}`, r.clause.mode === "include" ? fg(C.lgreen) : fg(C.lred));
     if (r.kind === "facet") {
-      const text = ` ${r.open ? "▾" : "▸"} ${r.key === "tag" ? "#tags" : r.key}  ${r.count}${r.more ? ` +${r.more}` : ""}`;
+      const state = this.clauses.find(c => c.key === r.key && c.value === undefined)?.mode;
+      const text = ` ${r.open ? "▾" : "▸"} [+] [-] ${r.key === "tag" ? "#tags" : r.key}  ${state === "include" ? "+" : state === "exclude" ? "−" : ""} ${r.count}${r.more ? ` +${r.more}` : ""}`;
       return style(text, fg(C.lcyan));
     }
     const v = r.node.value, mark = r.state === "include" ? "+" : r.state === "exclude" ? "−" : r.zero ? "○" : " ";
@@ -264,7 +283,7 @@ export class FacetsPane implements Pane {
 
   /** What a click at column `x`, line `y` hits: a sort word of the header, or a row. */
   private hit(x: number, y: number): { sort?: FacetSort; row?: number } {
-    const line = this.view.top + y;
+    const line = y;
     if (line === 0) {
       const usesAt = this.width - (USES + 1 + LAST);
       if (x >= usesAt && x < usesAt + USES) return { sort: "uses" };
@@ -302,6 +321,7 @@ export class FacetsPane implements Pane {
     if (c === "-") { this.act(desk, "facets.set", { mode: "exclude" }); return true; }
     if (c === "0" || k.kind === "backspace") { this.act(desk, "facets.set", { mode: "off" }); return true; }
     if (c === "e") { this.draft = new LineInput(this.query(), false, { complete: false }); desk.redraw(); return true; }
+    if (c === "[" || c === "]") { this.act(desk, "facets.resize", { by: c === "[" ? -0.1 : 0.1 }); return true; }
     if (c === "v") { this.act(desk, "facets.save"); return true; }
     if (c === "s") { this.act(desk, "facets.sort"); return true; }
     if (c === "z") { this.act(desk, "facets.zero"); return true; }
@@ -312,7 +332,22 @@ export class FacetsPane implements Pane {
 
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
     if (this.draft !== null) return true;
-    if (k.action === "wheel-up" || k.action === "wheel-down") { if (this.rows().length) this.act(desk, "facets.pick", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
+    if (k.action === "up") { this.dragging = false; return true; }
+    if (this.dragging && k.action === "drag") {
+      this.act(desk, "facets.resize", { share: (this.divider + this.noteRoom - y) / Math.max(1, this.bodyRoom) });
+      return true;
+    }
+    if (k.action === "down" && y === this.divider) {
+      if (x >= 12 && x < 18) this.act(desk, "facets.resize", { by: -0.1 });
+      else if (x >= 19 && x < 25) this.act(desk, "facets.resize", { by: 0.1 });
+      else this.dragging = true;
+      return true;
+    }
+    if (k.action === "wheel-up" || k.action === "wheel-down") {
+      const part = y > this.divider ? "matches" : "keys";
+      if (this.rows().some(r => (r.kind === "note") === (part === "matches"))) this.act(desk, "facets.pick", { by: wheelRows(k.action === "wheel-up" ? -1 : 1), part });
+      return true;
+    }
     if (k.action !== "down") return true;
     const hit = this.hit(x, y);
     if (hit.sort) { this.act(desk, "facets.sort", { by: hit.sort }); return true; }
@@ -322,7 +357,11 @@ export class FacetsPane implements Pane {
     this.act(desk, "facets.pick", { n: hit.row + 1 });
     // A click on a value includes it (again excludes it, again drops it); alt- or ctrl-click excludes it at once.
     if (r?.kind === "value") this.act(desk, "facets.set", { n: hit.row + 1, ...((k.mods ?? 0) & (1 | 4) ? { mode: "exclude" } : {}) });
-    else if (r?.kind === "facet") this.act(desk, "facets.fold", { n: hit.row + 1 });
+    else if (r?.kind === "facet") {
+      if (x >= 3 && x <= 5) this.act(desk, "facets.set", { key: r.key, mode: "include" });
+      else if (x >= 7 && x <= 9) this.act(desk, "facets.set", { key: r.key, mode: "exclude" });
+      else this.act(desk, "facets.fold", { n: hit.row + 1 });
+    }
     else if (r?.kind === "clause") this.act(desk, "facets.set", { key: r.clause.key, value: r.clause.value, mode: "off" });
     else if (r?.kind === "note" && (g === "open" || g === "fresh")) this.act(desk, "facets.open", { n: hit.row + 1, ...(g === "fresh" ? { fresh: true } : {}) });
     return true;
@@ -331,7 +370,7 @@ export class FacetsPane implements Pane {
   describe() {
     const rows = this.rows();
     return {
-      query: this.query(), clauses: this.clauses, raw: this.raw, sort: this.sort, zero: this.zero, matched: this.answer?.matched ?? 0,
+      query: this.query(), clauses: this.clauses, raw: this.raw, sort: this.sort, zero: this.zero, share: this.share, total: this.all?.matched ?? 0, matched: this.answer?.matched ?? 0,
       facets: rows.flatMap(r => (r.kind === "facet" ? [{ key: r.key, notes: r.count, open: r.open, values: rows.filter((v): v is Extract<Row, { kind: "value" }> => v.kind === "value" && v.key === r.key).map(v => ({ value: v.node.path, uses: v.node.value?.count ?? null, last: v.node.value?.last ? new Date(v.node.value.last).toISOString() : null, ...(v.state ? { state: v.state } : {}), ...(v.zero ? { zero: true } : {}) })) }] : [])),
       notes: (this.answer?.notes ?? []).map(m => ({ id: m.id, title: subject(m) })), ...(this.error ? { error: this.error } : {}), ...(this.draft ? { typing: this.draft.text } : {}),
     };
@@ -349,33 +388,41 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     summary: "move the cursor in the facets tile (tile=<its name>): n (from 1), or by=<rows> from where it is",
     keys: "j k ↑ ↓ PgUp PgDn, the wheel",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't move the person's cursor (facets.list reads the rows, facets.set picks a value by name)",
-    args: { n: { type: "number", optional: true, about: "the row, from 1" }, by: { type: "number", optional: true, about: "rows on from the cursor (negative: up)" } },
+    args: { n: { type: "number", optional: true, about: "the row, from 1" }, by: { type: "number", optional: true, about: "rows on from the cursor (negative: up)" }, part: { type: "string", optional: true, about: "keys or matches; left out, both" } },
     examples: [
       { act: "facets.pick n=4 tile=facets", does: "moves the cursor to the fourth row of the facets tile" },
       { act: "facets.pick by=-2 tile=facets", does: "moves the cursor up two rows" },
     ],
-    run({ n, by }, { pane, desk }) {
+    run({ n, by, part }, { pane, desk }, actor) {
       const p = pane as FacetsPane, rows = p.rows();
       if (!rows.length) throw new ActionRefused("the facets tile lists nothing yet");
       if ((n === undefined) === (by === undefined)) throw new ActionRefused("facets.pick takes n or by");
-      const i = by !== undefined ? Math.min(rows.length - 1, Math.max(0, p.at + Math.trunc(by))) : n! - 1;
+      if (part !== undefined && part !== "keys" && part !== "matches") throw new ActionRefused("part is keys or matches");
+      const walk = rows.flatMap((r, i) => part === undefined || (r.kind === "note") === (part === "matches") ? [i] : []);
+      if (!walk.length) throw new ActionRefused(`no ${part} rows are listed`);
+      const at = walk.indexOf(p.at);
+      const i = by !== undefined ? walk[clamp((at < 0 ? (by > 0 ? -1 : walk.length) : at) + Math.trunc(by), 0, walk.length - 1)]! : n! - 1;
       if (!(i >= 0 && i < rows.length)) throw new ActionRefused(`the tile has ${rows.length} rows; n is 1-${rows.length}`);
-      p.at = i; desk.redraw();
+      p.at = i;
+      const row = rows[i];
+      if (row?.kind === "note") desk.showFrom?.(p, row.note, actor);
+      desk.redraw();
       return { n: i + 1 };
     },
   }),
   "facets.set": def({
-    summary: "include a value (the notes must carry it), exclude it (they must not), or drop it: key= and value= (a tag is key=tag), n (its row), or the row the cursor is on; mode= include, exclude or off, left out it steps include → exclude → off. Several included values of a facet are ORed, facets are ANDed; a value with values below it (a path) includes them too",
+    summary: "include a key (any value) or a value (the notes must carry it), exclude it (they must not), or drop it: key= (value= narrows it; a tag is key=tag), n (its row), or the row the cursor is on; mode= include, exclude or off, left out it steps include → exclude → off. Several included values of a facet are ORed, whole keys and facets are ANDed; a value with values below it (a path) includes them too",
     keys: "⏎, space, a click (steps); + include, - exclude, 0 or backspace drop; alt- or ctrl-click excludes",
-    touches: "tile", while: "typing", replay: "safe", way: "an agent picks by key= and value=: the person's selection moves with it",
+    touches: "tile", while: "typing", replay: "safe", way: "an agent picks by key=, with value= to narrow it: the person's selection moves with it",
     says: r => `${r.mode === "off" ? "dropped" : r.mode === "include" ? "included" : "excluded"} ${r.clause}`,
     args: {
       key: { type: "string", optional: true, about: "the property (`tag` for a tag, with or without #)" },
       value: { type: "string", optional: true, about: "its value (a path such as x/y/z includes what is below it)" },
-      n: { type: "number", optional: true, about: "the value's row, from 1" },
+      n: { type: "number", optional: true, about: "the key, value or pick's row, from 1" },
       mode: { type: "string", optional: true, about: "include, exclude or off; left out: the next step" },
     },
     examples: [
+      { act: "facets.set key=project mode=include tile=facets", does: "keeps notes with any project; mode=exclude keeps notes without one" },
       { act: "facets.set key=tag value=garden tile=facets", does: "includes the #garden tag, so the notes left must carry it" },
       { act: "facets.set key=project value=seed-swap mode=exclude tile=facets", does: "leaves out the notes whose project is seed-swap" },
     ],
@@ -386,20 +433,20 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
       let k = key, v = value;
       if (k === undefined && v === undefined) {
         const row = n !== undefined ? p.rows()[n - 1] : p.current();
-        if (!row || (row.kind !== "value" && row.kind !== "clause")) throw new ActionRefused("the cursor isn't on a value or a pick (a facet opens with facets.fold, a note with facets.open)");
-        [k, v] = row.kind === "value" ? [row.key, row.node.path] : [row.clause.key, row.clause.value];
+        if (!row || (row.kind !== "value" && row.kind !== "clause" && row.kind !== "facet")) throw new ActionRefused("the cursor isn't on a key, value or pick (a note opens with facets.open)");
+        [k, v] = row.kind === "facet" ? [row.key, undefined] : row.kind === "value" ? [row.key, row.node.path] : [row.clause.key, row.clause.value];
       }
-      if (k === undefined || v === undefined) throw new ActionRefused("facets.set takes key= and value= together (a tag: key=tag value=<tag>), or n");
-      const name = k.toLowerCase() === "#" ? "tag" : k.toLowerCase(), val = name === "tag" ? bare(v) : v;
+      if (k === undefined) throw new ActionRefused("facets.set takes key= (value= narrows it), or n");
+      const name = k.toLowerCase() === "#" ? "tag" : k.toLowerCase(), val = name === "tag" && v !== undefined ? bare(v) : v;
       return p.serial(async () => {
         const before = [...p.clauses], was = p.clauses.find(c => c.key === name && c.value === val);
         const next = mode ?? (!was ? "include" : was.mode === "include" ? "exclude" : "off");
         p.clauses = p.clauses.filter(c => c !== was);
         // A path stays one (its clause says so), and a value is one when values lie below it in the answers.
-        if (next !== "off") p.clauses.push({ key: name, value: val, mode: next, ...(name !== "tag" && (was?.path || pathy(p, name, val)) ? { path: true } : {}) } as Clause);
+        if (next !== "off") p.clauses.push({ key: name, value: val, mode: next, ...(val !== undefined && name !== "tag" && (was?.path || pathy(p, name, val)) ? { path: true } : {}) } as Clause);
         // The service didn't answer: the selection is what the rows describe, as it was.
-        if (!(await p.load(desk))) { p.clauses = before; throw new ActionRefused(`${name}=${val}: the service couldn't answer · r asks again`); }
-        if (standing) { const at = p.rows().findIndex(r => (r.kind === "value" && r.key === name && r.node.path === val) || (r.kind === "clause" && r.clause.key === name && r.clause.value === val)); if (at >= 0) p.at = at; }
+        if (!(await p.load(desk))) { p.clauses = before; throw new ActionRefused(`${clauseText({ key: name, value: val, mode: "include" })}: the service couldn't answer · r asks again`); }
+        if (standing) { const at = p.rows().findIndex(r => val === undefined ? r.kind === "facet" && r.key === name : (r.kind === "value" && r.key === name && r.node.path === val) || (r.kind === "clause" && r.clause.key === name && r.clause.value === val)); if (at >= 0) p.at = at; }
         desk.keepLayout?.(); desk.redraw();
         return { clause: clauseText({ key: name, value: val, mode: "include" }), mode: next, query: p.query(), notes: p.describe().matched };
       });
@@ -526,6 +573,23 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
     summary: "ask the service for the facets and notes again", keys: "r", touches: "nothing", replay: "safe", args: {},
     async run(_, { pane, desk }) { const p = pane as FacetsPane; await p.refresh(desk); return p.describe(); },
   }),
+  "facets.resize": def({
+    summary: "resize the matching notes' share of the tile: share= (0.15 to 0.85), or by= (a change in share)",
+    keys: "[ less, ] more; Matches less/more buttons or drag its divider",
+    touches: "tile", while: "typing", replay: "safe", way: "an agent names share= or by=",
+    args: {
+      share: { type: "number", optional: true, about: "the matching notes' share, 0.15 to 0.85" },
+      by: { type: "number", optional: true, about: "change in share" },
+    },
+    examples: [{ act: "facets.resize share=0.6 tile=facets", does: "gives matching notes sixty percent of the tile's body" }],
+    run({ share, by }, { pane, desk }) {
+      const p = pane as FacetsPane;
+      if ((share === undefined) === (by === undefined)) throw new ActionRefused("facets.resize takes share= or by=");
+      p.share = clamp(share ?? p.share + by!, 0.15, 0.85);
+      desk.keepLayout?.(); desk.redraw();
+      return { share: p.share };
+    },
+  }),
   "facets.list": def({
     summary: "read the tile: the query, the picks, the sort, every facet with its notes and (opened) its values with uses and last use, and the notes the selection leaves",
     touches: "nothing", replay: "safe", args: {},
@@ -536,7 +600,8 @@ export const FACETS_ACTIONS = actionSet<KindHost>()("facets", {
 const SORTS = FACET_SORTS as readonly string[];
 const makeFacets = (kind: "facets" | "tags") => (s: { query?: string; args?: Record<string, unknown> }) => {
   const a = s.args ?? {};
-  return new FacetsPane(kind, { query: s.query, sort: SORTS.includes(String(a.sort)) ? (a.sort as FacetSort) : undefined, zero: a.zero === true, ...(Array.isArray(a.open) ? { open: a.open.map(String) } : {}) });
+  if (a.share !== undefined && (typeof a.share !== "number" || !Number.isFinite(a.share) || a.share < 0.15 || a.share > 0.85)) throw new ActionRefused("facets: args.share must be a number from 0.15 to 0.85; edit the screen's tile args to share: 0.4");
+  return new FacetsPane(kind, { query: s.query, sort: SORTS.includes(String(a.sort)) ? (a.sort as FacetSort) : undefined, zero: a.zero === true, share: a.share as number | undefined, ...(Array.isArray(a.open) ? { open: a.open.map(String) } : {}) });
 };
 const kindOf = (kind: "facets" | "tags", about: string, key: string): TileKind => ({
   kind, about, noun: kind === "tags" ? "a tags tile" : "a facets tile",

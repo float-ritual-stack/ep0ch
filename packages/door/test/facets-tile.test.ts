@@ -105,7 +105,7 @@ describe.skipIf(!outliner)("the facets tile, against a scratch outline", () => {
     expect(titles()).toEqual(["Fence plan", "Retro"]);
     await act("facets.clear");
     expect(tile().query).toBe("");
-    expect(tile().notes).toEqual([]);
+    expect(titles()).toEqual(expect.arrayContaining(["Fence plan", "Retro", "Shed audit", "Standup"]));
   }, 20_000);
 
   test("the selection is text: typed with e (⏎ applies, esc undoes) or set by facets.query; a query the service refuses keeps the selection; saved as a view in one action", async () => {

@@ -135,6 +135,82 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
   }, 20_000);
 
 
+  test("facets keep the count and matching notes visible while opened keys overflow (PIE-1220)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "facets" }, as: "test-agent" });
+    screen();
+    const act = (action: string, args = {}) => app.act({ action, args, tile: "tags", as: "test-agent" }) as Promise<any>;
+    await board.createBlock(null, "Overflow tray [facet-overflow::yes] " + Array.from({ length: 8 }, (_, i) => `[tray-slot-${i}::ready]`).join(" "));
+    await act("facets.query", { text: "facet-overflow=yes" });
+    const before = await act("facets.list");
+    for (const f of before.facets) if (!f.open) await act("facets.fold", { key: f.key });
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "facets")).top;
+    const pane = stage.pane("tags");
+    const drawn = () => pane.render(70, 14, false, stage).lines.map(plain);
+    expect(drawn()[0]).toMatch(/1 of \d+ notes/);
+    expect(drawn().join("\n")).toContain(before.notes[0].title);
+    const divider = () => drawn().findIndex((l: string) => l.includes("Matches [less]"));
+    const was = divider();
+    await act("facets.resize", { share: 0.7 });
+    expect(divider()).toBeLessThan(was);
+    await act("tile.link", { to: "reader", verb: "select" });
+    await app.dispatch.press("facets.pick", { n: pane.rows().length }, "tags");
+    await until(() => stage.pane("reader").render(70, 14, false, stage).lines.map(plain).join("\n").includes("Overflow tray"), "the picked match in its wired reader");
+    expect(drawn()[0]).toMatch(/1 of \d+ notes/);
+    expect(drawn().join("\n")).toContain(before.notes[0].title);
+    const y = divider();
+    pane.mouse({ kind: "mouse", action: "down", button: 0, x: 2, y }, 2, y, stage);
+    pane.mouse({ kind: "mouse", action: "drag", button: 0, x: 2, y: y + 2 }, 2, y + 2, stage);
+    pane.mouse({ kind: "mouse", action: "drag", button: 0, x: 2, y: y + 2 }, 2, y + 2, stage);
+    pane.mouse({ kind: "mouse", action: "up", button: 0, x: 2, y: y + 2 }, 2, y + 2, stage);
+    expect(divider()).toBe(y + 2);
+    pane.key({ kind: "char", ch: "]" }, stage);
+    expect(divider()).toBeLessThan(y + 2);
+    await act("facets.resize", { share: 0.4 });
+    await act("facets.set", { key: "facet-overflow", mode: "exclude" });
+    expect(drawn().join("\n")).toContain("No matching notes.");
+    const message = (app as any).message;
+    pane.mouse({ kind: "mouse", action: "wheel-down", button: 0, x: 2, y: 13 }, 2, 13, stage);
+    await app.dispatch.press("facets.list", {}, "tags");
+    expect((app as any).message).toBe(message);
+    await act("facets.clear");
+  }, 20_000);
+
+  test("whole-key picks work by act, mouse and keys, narrow with values and save as a view (PIE-1220)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "facets" }, as: "test-agent" });
+    screen();
+    const act = (action: string, args = {}) => app.act({ action, args, tile: "tags", as: "test-agent" }) as Promise<any>;
+    const a = await board.createBlock(null, "Copper tray [tray-zone::warm]");
+    const b = await board.createBlock(null, "Clay tray [tray-zone::cool]");
+    await act("facets.clear");
+    await act("facets.reload");
+    const has = await act("facets.set", { key: "tray-zone", mode: "include" });
+    expect(has).toMatchObject({ query: "tray-zone", notes: 2 });
+    expect((await act("facets.list")).notes.map((n: any) => n.id).sort()).toEqual([a.id, b.id].sort());
+    await act("facets.set", { key: "tray-zone", value: "warm", mode: "include" });
+    expect((await act("facets.list")).notes.map((n: any) => n.id)).toEqual([a.id]);
+    const saved = await act("facets.save", { name: "Warm trays" });
+    expect((await board.get(saved.id))!.text).toContain("[query::tray-zone tray-zone=warm]");
+    await act("facets.clear");
+    const stage = S().stage(SECTIONS.findIndex(s => s.key === "facets")).top;
+    const pane = stage.pane("tags");
+    // Bring the new key into view without needing to know its position among the seed's keys.
+    const rows = pane.rows();
+    await app.dispatch.press("facets.pick", { n: rows.findIndex((r: any) => r.kind === "facet" && r.key === "tray-zone") + 1 }, "tags");
+    const drawn = pane.render(70, 18, true, stage).lines.map(plain);
+    const y = drawn.findIndex((l: string) => l.includes("tray-zone"));
+    const x = drawn[y]!.indexOf("[+]");
+    expect(x).toBeGreaterThanOrEqual(0);
+    pane.mouse({ kind: "mouse", action: "down", button: 0, x, y }, x + 1, y, stage);
+    await until(() => pane.describe().query === "tray-zone" && pane.describe().matched === 2, "the key included by click");
+    expect(pane.describe().notes.map((n: any) => n.id).sort()).toEqual([a.id, b.id].sort());
+    pane.key({ kind: "char", ch: "-" }, stage);
+    await until(() => pane.describe().query === "NOT tray-zone" && pane.describe().matched > 2, "the key excluded by minus");
+    expect(pane.describe().notes.some((n: any) => n.id === a.id || n.id === b.id)).toBe(false);
+    await act("facets.clear");
+  }, 20_000);
+
   test("the headings section (PIE-599): the wide reader bands its headings, the narrow one beside it draws them as written; ) stops on a styled heading and f folds its section", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "headings" }, as: "test-agent" })).toMatchObject({ key: "headings" });
