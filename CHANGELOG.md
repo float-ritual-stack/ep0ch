@@ -10,6 +10,13 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A terminal folded to a spine keeps its size, and so does one the layout glides (PIE-1254)
+
+Folding a terminal drew it at every width on the way to its spine, so its shell re-wrapped the line you were typing at 3
+columns and kept what it cut (`$ echabc def` after opening). A terminal now keeps the size its program has while it is
+folded or moving, and is told the size it lands at once. `layout.get` reports the drawer layer's rect as `peek` does
+(the strip while folded). No protocol change.
+
 ### A tile dragged onto the drawer lands where you drop it, not always as a tab (PIE-1263)
 
 Drop a tile's title on a side of a drawer tile, its tab strip or the drawer's edge and it lands there, with the drawer's

@@ -572,13 +572,14 @@ export class PtyPane implements Pane {
   /** A paste, whole: bracketed (mode 2004) when the program asked for that, so it arrives as one paste, not typed lines. */
   paste(text: string) { this.sel = null; this.picking = null; this.personKeyAt = Date.now(); this.sawIt(); this.input(this.term?.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text); }
 
-  render(w: number, h: number, focused: boolean, _desk: DeskApi, cursor = focused): PaneView {
+  render(w: number, h: number, focused: boolean, desk: DeskApi, cursor = focused): PaneView {
     if (w < 2 || h < 1) return { lines: [] };
     if (!this.term) this.start(w, h);
     // While a resize goes on (src/resize.ts) the program keeps its size, and the tile shows it cut or padded: one size
     // a frame each meant a SIGWINCH a frame, and a program's output made for one width arriving after the emulator had
     // moved to the next was wrapped mid-word at that width, for good. The size it ends at is sent once, when it ends.
-    else if ((w !== this.cols || h !== this.rows) && !inResize()) {
+    // Folded, or on its way between two places, it keeps its size too (desk.holdsSize): its program never sees the fold or the glide.
+    else if ((w !== this.cols || h !== this.rows) && !inResize() && !desk.holdsSize?.(this)) {
       this.cols = w; this.rows = h;
       this.term.resize(w, h);
       if (this.running) try { this.proc?.resize(w, h); } catch { /* exiting */ }

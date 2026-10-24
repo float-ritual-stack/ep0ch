@@ -150,3 +150,39 @@ describe.skipIf(!outliner)("a tile dragged onto the drawer lands where its drop 
     } finally { d.app.quit(); }
   });
 });
+
+describe.skipIf(!outliner)("a drop the screen won't give up", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard;
+  let state = "";
+  beforeAll(async () => { board = new SocketBoard(await scratch.start()); await board.info(); }, 30_000);
+  afterAll(async () => { board?.close(); await scratch.dispose(); });
+  beforeEach(() => { state = mkdtempSync(join(tmpdir(), "ep0ch-drop-")); process.env.EP0CH_STATE = state; process.env.EP0CH_DAILY_AGENT = "cat"; });
+  afterEach(() => { delete process.env.EP0CH_STATE; delete process.env.EP0CH_DAILY_AGENT; rmSync(state, { recursive: true, force: true }); });
+
+  test("the last tile of a screen dragged onto the drawer says it stays, in the chip before the release and on the status line after; nothing moves", async () => {
+    let key: (k: Key) => void = () => {};
+    let painted: string[] = [];
+    const term: any = { info: { cols: 250, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, paintRow() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const app = new App(term, board, Date.now(), () => {});
+    const only = new Desk({ name: "one", title: "one", layout: { focus: "only", root: { t: "leaf", kind: "reader", name: "only", mode: "held" } } as any });
+    app.push(only);
+    const paint = () => { (app as any).paint(); return painted.map(plain); };
+    try {
+      paint();
+      await app.dispatch.act({ action: "host.toggle", args: { open: true } }, USER);
+      paint();
+      const why = only.takeRefusal("only", USER);
+      expect(why).not.toBeNull();
+      const head = (only.describe().panes as any[]).find(p => p.name === "only").rect, r = app.drawer.rect!;
+      key(mouse("down", head.col + 4, head.row)); key(mouse("drag", head.col + 9, head.row + 2)); key(mouse("drag", 30, r.row + 1));
+      // The tab strip: the chip says what the release will do, and it is the refusal.
+      expect(paint().at(-1)).toContain(`✕ ${why}`);
+      key(mouse("up", 30, r.row + 1));
+      paint();
+      expect(only.pane("only")).toBeDefined();
+      expect(app.drawer.tabs().map(t => t.name)).not.toContain("only");
+      expect(((app as any).message as string)).toContain(why!);
+    } finally { app.quit(); }
+  });
+});

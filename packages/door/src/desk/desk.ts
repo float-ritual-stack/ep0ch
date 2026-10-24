@@ -186,6 +186,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private pendingMotion: { from: Map<number, Rect>; plan: MotionPlan; floated: Set<number> } | null = null;
   private transition: Transition | null = null;
+  /** The tiles drawn in flight this frame (not at their place yet): DeskApi.holdsSize. */
+  private inFlight = new Set<number>();
+  holdsSize(p: Pane): boolean {
+    const id = this.idOf(p);
+    // A tile of a group or a mounted screen is held with the tile that holds it (that one folding or gliding resizes the inner desk).
+    return (id !== undefined && (this.collapsed.has(id) || this.inFlight.has(id))) || !!this.holder?.desk()?.holdsSize(this.holder.tile);
+  }
   /** The clock motion runs on (a test injects its own). */
   clock: () => number = () => Date.now();
   /** The layout as the module last answered it: read it; it changes by `apply`. */
@@ -3265,6 +3272,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const flying = this.transition && !this.transition.done(this.clock()) ? this.transition : null;
     if (this.transition && !flying) this.transition = null;
     const ghosts: [number, Rect][] = [];
+    this.inFlight.clear();
     this.tileSpots = [];
     this.pointerHits = [];
     this.heads = []; this.markHits = []; this.spines = []; this.dockLabels = []; this.agentChips = []; this.dockCloses = []; this.floatButtons = []; this.foldButtons = []; this.liftButtons = []; this.holdButtons = []; this.closeButtons = []; this.wireChips = []; this.menuButtons = []; this.headPresses = []; this.headCtl.clear();
@@ -3274,7 +3282,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const lay = (id: number, r: Rect, dock = false, float = false) => {
       if (this.layout.lift?.tile === id) return;
       const at = flying ? flying.at(id, this.clock(), area) : "settled";
-      if (at !== "settled") { ghosts.push([id, at]); return; }
+      if (at !== "settled") { ghosts.push([id, at]); this.inFlight.add(id); return; }
       const box = this.boxOf(id, r);
       placements = uncover(placements, box);
       this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, box));
@@ -5802,7 +5810,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   layouts() { return { current: this.layoutName, layouts: layoutNames() }; }
   layoutAll() {
     const root = this.ctx?.hostLayer?.desks().find(d => !this.ctx.hostLayer!.isDrawer(d)) ?? this.top();
-    const layers = root.relatives().map(d => { const rects = d.rectsNow(); return { screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()),
+    // The drawer's layer reads its rect where `peek` does (the host layer's); folded to a strip, its tiles are not drawn, so none has a rect.
+    const host = this.ctx?.hostLayer;
+    const layers = root.relatives().map(d => { const rects = host?.isDrawer(d.top()) && host.folded ? new Map<number, Rect>() : d.rectsNow(); return { screen: d.spec.name, focus: d.panes.has(d.focus) ? d.tileId(d.focus) : null, zoom: d.zoom !== null ? d.tileId(d.zoom) : null, drawer: !!this.ctx?.hostLayer?.isDrawer(d.top()), ...(host?.isDrawer(d.top()) ? { rect: host.drawnRect() } : {}),
       tree: describeLayout(d.layout, id => d.nameOf(id), id => d.tileId(id)),
       tiles: d.all().map(id => ({ ...d.tileView(id, undefined, rects), path: root.pathTo(d.panes.get(id)!) })) }; });
     return { ...root.layoutGet(), layers, tiles: layers.flatMap(l => l.tiles) };
