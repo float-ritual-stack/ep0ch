@@ -269,6 +269,12 @@ switch (verb) {
     const them = stats(victimNote);
     if (them.dead) return await finish(`${victimNote.title} is already dead`);
     if (them.rest !== "fields") return await finish(`${victimNote.title} isn't sleeping in the fields`);
+    // Two notes change and a script has no batch write (PIE-1264): check both are as read before writing either,
+    // then always save the loser's debit before the winner's credit, so a refusal between the saves loses gold
+    // instead of minting it.
+    const [mineNow, theirsNow] = await Promise.all([read(here.id), read(victimNote.id)]);
+    if (mineNow.revision !== here.revision || theirsNow.revision !== victimNote.revision)
+      return `${theirsNow.revision !== victimNote.revision ? victimNote.title : name} changed while you crept up: try again`;
     me.ambushes -= 1; set("ambushes", me.ambushes);
     // A whole fight at once: they wake mid-swing.
     let a = me.hp, b = them.hp;
@@ -285,10 +291,13 @@ switch (verb) {
       try { await tools.outline_comment({ ref: victimNote.id, whole: true, body: `${name} killed you in your sleep and took ${fmt(loot)} gold. Bank it next time.` }); } catch { /* the news has it */ }
       return await finish(await gain(loot, xp, `you kill ${victimNote.title} in their sleep: +${fmt(loot)} gold, +${fmt(xp)} xp`));
     }
+    // The attacker's purse goes first (the debit), then the sleeper's (the credit).
+    const lost = me.gold;
     set("hp", 0); set("dead", 1); set("gold", 0);
-    await save(victimNote, { hp: Math.max(1, b), gold: them.gold + me.gold });
+    const answer = await finish(`${victimNote.title} wakes and kills you. They keep your ${fmt(lost)} gold`);
+    await save(victimNote, { hp: Math.max(1, b), gold: them.gold + lost });
     await news(world, `${name} tried to kill ${victimNote.title} in their sleep. ${victimNote.title} woke up and won.`);
-    return await finish(`${victimNote.title} wakes and kills you. They keep your ${fmt(me.gold)} gold`);
+    return answer;
   }
   case "wyrm": {
     if (me.level < MAX_LEVEL) return await finish(`only a level ${MAX_LEVEL} fool hunts ${WYRM.name}`);

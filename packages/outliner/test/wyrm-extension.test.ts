@@ -90,6 +90,10 @@ test("a player asleep in the fields can be ambushed; the news says so and the in
     } else {
       expect(chips(brick.id).dead).toBe("1");
       expect(news).toContainEqual(expect.stringContaining("Dozing Gerald woke up and won"));
+      // Gold moves, it isn't minted: Brick's 50 went to Gerald's 120.
+      expect(ambush.message).toBe("Dozing Gerald wakes and kills you. They keep your 50 gold");
+      expect(chips(brick.id).gold).toBe("0");
+      expect(chips(gerald.id).gold).toBe("170");
     }
     // A death from an earlier day doesn't count: they've risen, so an ambush finds them.
     const ghost = store.create("Old Wren [type::wyrm-player] [level::1] [hp::0] [maxhp::20] [str::10] [def::1] [gold::5] [dead::1] [day::2001-02-03] [rest::fields]\nwyrm-sheet::", town.id, "user");
@@ -100,6 +104,12 @@ test("a player asleep in the fields can be ambushed; the news says so and the in
     expect(wren.message).not.toBe("Old Wren is already dead");
     if (chips(ghost.id).dead === "1") expect(Number(chips(fen.id).hp)).toBeLessThanOrEqual(20);
     else expect(chips(fen.id).dead).toBe("1");
+    // The revision check before the two writes passes on an untouched pair: the ambush runs and spends one.
+    await play(town.id, { do: "join", name: "Gnat" });
+    const gnat = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Gnat ["))!;
+    const mark = store.create("Pale Ivy [type::wyrm-player] [level::1] [hp::20] [maxhp::20] [str::10] [def::1] [gold::9] [day::2001-02-03] [rest::fields]\nwyrm-sheet::", town.id, "user");
+    expect((await play(gnat.id, { do: "ambush", target: mark.id })).reason).toBe("done");
+    expect(Number(chips(gnat.id).ambushes)).toBe(2);
     // Asleep at the inn, nobody reaches you.
     await play(town.id, { do: "join", name: "Cinder" });
     const cinder = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Cinder" + " ["))!;
