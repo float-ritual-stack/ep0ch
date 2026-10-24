@@ -71,6 +71,10 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
   my notes, accidentally"). A switch over kinds that writes literal descriptions is a finding (PIE-1152).
 - **A user-visible feature gets a kitchen-sink demo** (`ep0ch --showcase`) in the same PR, which is also its
   end-to-end test, or the PR says why not (details in the door's rules).
+- **Anything distributed through the extensions screen is installed and uninstalled before it's done** (an extension,
+  a bundled script, a kit, a built-in one too): on a fresh scratch outline, install it the way a person does (the
+  power bar's install row, by click and through `act`), use it once, uninstall it, and see what's left say so. Running
+  it as a bundled part in a test isn't that (Evan, Oct 24: neat shipped as a built-in and refused to install).
 - For AI feature design, semantic judgments, or TypeSafe/Jev integration, use the `typesafe-ai` skill (from the skill
   catalog) and follow its live-documentation workflow before choosing primitives or writing API calls. Without it,
   start at the [TypeSafe documentation index](https://docs.typesafe.ai/llms.txt) and read the current API/SDK and

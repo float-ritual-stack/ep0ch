@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { extensionList } from "../../src/extensions";
 import type { Desk } from "../../src/desk/desk";
 import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
 import { useShowcaseScreen } from "./harness";
 
-describe.skipIf(!outliner)("the showcase screen: built-in neat", () => {
+describe.skipIf(!outliner)("the showcase screen: installable neat", () => {
   const h = useShowcaseScreen();
 
   const press = async (note: string, expected = "links wired", actor: Actor = USER, extra: Record<string, string | boolean> = {}) => {
@@ -17,7 +18,7 @@ describe.skipIf(!outliner)("the showcase screen: built-in neat", () => {
     h.screen();
   };
 
-  test("the bundled button arranges its pages and wires their drawer links", async () => {
+  test("the installed button arranges its pages and wires their drawer links", async () => {
     const { app, seeded } = h;
     await app.dispatch.act({ action: "section", args: { name: "neat" } }, USER);
     h.screen();
@@ -70,7 +71,44 @@ describe.skipIf(!outliner)("the showcase screen: built-in neat", () => {
     expect(home.rect!.col).toBeLessThan(layout.tiles.find(t => t.tile === tile.tile)!.rect!.col);
   }, 30_000);
 
-  test("an outline's own neat script overrides the bundled arrangement", async () => {
+  test("neat installs by act and the power bar, runs its button, and refuses after uninstall with a reinstall command", async () => {
+    const { app, board, seeded } = h;
+    await app.dispatch.act({ action: "section", args: { name: "neat" } }, USER);
+    await app.dispatch.act({ action: "extensions.uninstall", args: { id: "neat", demo: "keep" } }, USER);
+    await app.loadExtensions(true);
+    await until(() => !extensionList()?.extensions.some(e => e.id === "neat"), "neat removed from the door");
+    const rows = await app.dispatch.act({ action: "bar.open", args: { scope: "&", query: "neat" } }, { kind: "agent", id: "test-agent" }) as { rows: { label: string; detail?: string }[] };
+    expect(rows.rows.find(r => r.label === "install Neat")?.detail).toContain("adds the script neat");
+    const installed = await app.dispatch.act({ action: "extensions.install", args: { id: "neat" } }, { kind: "agent", id: "test-agent" }) as { state?: string; page?: string };
+    expect(installed.state).toBe("active");
+    expect((await board.get(installed.page!))!.text).toContain("Script **neat**");
+    const listed = await board.listExtensions(true);
+    expect(listed.extensions.find(e => e.id === "neat")?.scripts?.[0]?.name).toBe("neat");
+    await app.loadExtensions(true);
+    await until(() => !!extensionList()?.extensions.some(e => e.id === "neat"), "neat installed in the door");
+    await press(seeded.notes.neat.id);
+    await app.dispatch.act({ action: "extensions.uninstall", args: { id: "neat", demo: "keep" } }, USER);
+    await app.loadExtensions(true);
+    await until(() => !extensionList()?.extensions.some(e => e.id === "neat"), "neat removed from the door");
+    await expect(app.dispatch.act({ action: "button.press", args: { note: seeded.notes.neat.id, label: "neat" } }, { kind: "agent", id: "test-agent" })).rejects.toThrow("ep0ch act extensions.install id=neat");
+    await app.dispatch.press("bar.open", { scope: "&", query: "neat" });
+    await until(() => !!app.bar?.items.some(i => i.row.key === "install:neat"), "neat's install row");
+    (app as any).paint();
+    const plain = (s: string) => s.replace(/\x1b\[[\d;:]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
+    const y = h.painted.findIndex(l => plain(l).includes("install Neat"));
+    expect(y).toBeGreaterThanOrEqual(0);
+    const x = plain(h.painted[y]!).indexOf("install Neat") + 2;
+    for (let i = 0; i < 2; i++) {
+      h.press({ kind: "mouse", action: "down", button: 0, x, y });
+      h.press({ kind: "mouse", action: "up", button: 0, x, y });
+    }
+    await until(() => !app.bar || app.bar.ended(), "the install pick closes the bar");
+    await app.loadExtensions(true);
+    expect((await board.listExtensions(true)).extensions.find(e => e.id === "neat")?.state).toBe("active");
+    await press(seeded.notes.neat.id);
+  }, 40_000);
+
+  test("an outline's own neat script overrides the installed arrangement", async () => {
     const { app, board, seeded } = h;
     await board.createBlock(null, "My neat [script::neat]\n```js\nreturn 'neat: outline wins ' + props.page[0];\n```");
     await app.loadExtensions(true);

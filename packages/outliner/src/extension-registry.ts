@@ -16,6 +16,7 @@ import {
   loadExtensionManifest,
   type ManifestSource,
   type ScriptSource,
+  type ExtensionManifest,
   type ExtensionAction,
   type ExtensionAgent,
   type ExtensionHandler,
@@ -145,6 +146,7 @@ export interface ExtensionEntry {
   readonly error?: string;
   /** When the version it serves was loaded. */
   readonly loadedAt?: string;
+  readonly scripts?: ExtensionManifest["scripts"];
   readonly runsCode: boolean;
   readonly handlers: readonly ExtensionHandlerEntry[];
   readonly actions: readonly ExtensionActionEntry[];
@@ -524,6 +526,7 @@ export class ExtensionRegistry {
         ...(slot.error ? { error: slot.error } : {}),
         ...(slot.loadedAt ? { loadedAt: slot.loadedAt } : {}),
         ...(script ? { script: { keys: script.keys ?? [], blockId: script.blockId, line: script.line, file: script.file, code: script.code } } : {}),
+        ...(serving && extension.manifest.scripts?.length ? { scripts: extension.manifest.scripts } : {}),
         runsCode: !!extension?.script || !!extension?.command || !!extension?.manifest.tiles?.length,
         handlers: serving ? (extension.manifest.handlers ?? [])
           .filter((handler) => this.bound.get(handler.key)?.extension === extension)

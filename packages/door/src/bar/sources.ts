@@ -385,7 +385,7 @@ const SCREENS: BarSource = {
   },
 };
 
-interface ExtRow { kind: "hub" | "page" | "install" | "remove"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string }
+interface ExtRow { kind: "hub" | "page" | "install" | "remove"; id: string; block?: string; demo?: "keep" | "remove"; notes?: number; about?: string; scripts?: { name: string; about: string }[] }
 
 /**
  * The outline's extensions (the service's `extensions.list`, as the extension binding last read it): the Extensions hub,
@@ -407,7 +407,7 @@ const EXTENSIONS: BarSource = {
       const page = l.pages?.[e.id];
       rows.push({ key: `page:${e.id}`, label: e.name ?? e.id, detail: [`${e.id}${e.version !== undefined ? ` v${e.version}` : ""}`, e.state === "active" ? "" : e.state, e.description ?? ""].filter(Boolean).join(" · "), group: "installed", ...(page ? {} : { refused: "its page isn't written yet" }), data: { kind: "page", id: e.id, ...(page ? { block: page } : {}), about: e.description } satisfies ExtRow });
     }
-    for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: [`${a.id} v${a.version}`, a.description ?? ""].filter(Boolean).join(" · "), group: "not installed", data: { kind: "install", id: a.id, about: a.description } satisfies ExtRow });
+    for (const a of l.available ?? []) rows.push({ key: `install:${a.id}`, label: `install ${a.name}`, detail: [`${a.id} v${a.version}`, ...(a.scripts ?? []).map(s => `adds the script ${s.name}: ${s.about}`), a.description ?? ""].filter(Boolean).join(" · "), group: "not installed", data: { kind: "install", id: a.id, about: a.description, scripts: a.scripts } satisfies ExtRow });
     // Removing one is offered once its name is typed, both ways, so the demo notes never go by a stray ⏎.
     if (q.trim()) for (const e of installed) {
       const notes = l.demos?.[e.id] ?? 0, name = e.name ?? e.id;
@@ -421,7 +421,7 @@ const EXTENSIONS: BarSource = {
   preview(row) {
     const d = row.data as ExtRow;
     if (d.block) return { note: d.block };
-    if (d.kind === "install") return { markdown: [`**${row.label.replace(/^install /, "")}** \`${d.id}\``, "", d.about ?? "", "", "⏎ installs it for every outline this host serves (`ep0ch ext add " + d.id + "`): its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes."].join("\n") };
+    if (d.kind === "install") return { markdown: [`**${row.label.replace(/^install /, "")}** \`${d.id}\``, "", d.about ?? "", "", ...(d.scripts ?? []).map(s => `Adds the script **${s.name}**: ${s.about}`), "", "⏎ installs it for every outline this host serves (`ep0ch ext add " + d.id + "`): its page goes under the outline's Extensions hub, with its README, what it adds and its demo notes."].join("\n") };
     if (d.kind === "remove") return { markdown: [`**${row.label}**`, "", !d.notes ? "Its folder goes, and its lines and actions stop working. Its page goes with it." : d.demo === "keep" ? "Its folder goes, and its lines and actions stop working. Its demo notes stay under its page." : "Its folder goes, and its demo notes go to Trash: the ones nobody changed (the rest are kept, and named). Trash can restore them.", "", `The same from a shell: \`ep0ch ext remove ${d.id}${d.demo === "remove" ? " --demo remove" : ""}\``].join("\n") };
     return { lines: [row.label, "", row.refused ?? ""] };
   },

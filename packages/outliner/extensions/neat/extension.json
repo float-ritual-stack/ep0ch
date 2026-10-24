@@ -3,5 +3,12 @@
   "id": "neat",
   "version": 1,
   "name": "Neat",
-  "description": "Two pages side by side, the other tiles as spines, and the left page's links wired from the drawer."
+  "description": "Two pages side by side, the other tiles as spines, and the left page's links wired from the drawer.",
+  "scripts": [
+    {
+      "name": "neat",
+      "file": "scripts/neat.js",
+      "about": "Two pages side by side, other tiles as spines, and drawer links wired to the readers."
+    }
+  ]
 }

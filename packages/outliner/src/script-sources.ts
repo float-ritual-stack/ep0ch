@@ -3,9 +3,9 @@ import { codeBlocks, codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/cod
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { durationMs, MAX_DEADLINE_MS, type ManifestSource, type ScriptSource, type ExtensionOrigin } from "./extension-manifest";
+import { SCRIPT_HEADER, readExtensionFolder, durationMs, MAX_DEADLINE_MS, type ManifestSource, type ScriptSource, type ExtensionOrigin } from "./extension-manifest";
 import type { OutlinerStore } from "./store";
-import { BUILT_IN_EXTENSIONS, extensionRoots, type ExtensionEntry } from "./extension-registry";
+import { extensionRoots, type ExtensionEntry } from "./extension-registry";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import { bind } from "./site-answer";
 import type { SiteAnswerRequest } from "@ep0ch/outline-core/site";
@@ -105,38 +105,44 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
     }
   }
   if (!draft) {
-    const folders: { folder: string; opted: boolean; origin: ExtensionOrigin; directory: string }[] = [];
+    const folders: { folder: string; opted: boolean; origin: ExtensionOrigin; directory: string; scripts?: { name: string; file: string }[] }[] = [];
     if (store.workspaceRoot) {
       folders.push({ folder: join(store.workspaceRoot, "scripts"), opted: false, origin: "outline", directory: store.workspaceRoot },
         { folder: join(store.workspaceRoot, ".ep0ch", "scripts"), opted: true, origin: "outline", directory: store.workspaceRoot });
     }
-    // Notes and outline files win; installed extension copies precede the bundled source.
-    for (const root of [...extensionRoots(store.workspaceRoot), { path: BUILT_IN_EXTENSIONS, origin: "user" as const }]) {
+    // Only installed extensions supply scripts; removing their folder removes their scripts too.
+    for (const root of extensionRoots(store.workspaceRoot)) {
       for (const name of await readdir(root.path).catch(() => [])) {
-        if (await Bun.file(join(root.path, name, "extension.json")).exists())
-          folders.push({ folder: join(root.path, name, "scripts"), opted: true, origin: root.origin, directory: join(root.path, name) });
+        const directory = join(root.path, name);
+        try {
+          const { manifest } = await readExtensionFolder(directory, root.origin);
+          if (manifest.scripts?.length) folders.push({ folder: directory, opted: true, origin: root.origin, directory, scripts: manifest.scripts });
+        } catch {
+          // The extension registry reports invalid folders; they supply no scripts.
+        }
       }
     }
-    for (const { folder, opted, origin, directory } of folders) {
+    for (const { folder, opted, origin, directory, scripts } of folders) {
       let names: string[];
-      try { names = await readdir(folder); } catch (error) {
+      try { names = scripts ? scripts.map(s => s.file) : await readdir(folder); } catch (error) {
         if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
         names = [];
       }
       for (const name of names.sort()) {
         if (!/\.(ts|js)$/.test(name)) continue;
         const file = join(folder, name);
+        const scriptName = scripts?.find(s => s.file === name)!.name ?? name.replace(/\.(ts|js)$/, "");
         let code = "";
         if (opted) {
           try { code = await Bun.file(file).text(); } catch (error) {
-            add(file, name.replace(/\.(ts|js)$/, ""), { code, file, revision: hash(code), effects: "read", author: { author: "user" } }, `${file}: cannot read script: ${error instanceof Error ? error.message : String(error)}`, { origin, directory });
+            add(file, scriptName, { code, file, revision: hash(code), effects: "read", author: { author: "user" } }, `${file}: cannot read script: ${error instanceof Error ? error.message : String(error)}`, { origin, directory });
             continue;
           }
         }
-        const header = /^\s*\/\/ ep0ch-script(?: effects=(read|write))?\s*$/.exec(code.split(/\r?\n/)[0] ?? "");
+        const header = SCRIPT_HEADER.exec(code.split(/\r?\n/)[0] ?? "");
         const error = !opted ? `${file}: ignored; scripts load only from .ep0ch/scripts/. Move it there only if you intend to run it, and opt in with // ep0ch-script.`
           : !header ? `${file}: ignored; opt in with a first line of // ep0ch-script (or // ep0ch-script effects=write).` : undefined;
-        add(file, name.replace(/\.(ts|js)$/, ""), { code, file, revision: hash(code), effects: header?.[1] === "write" ? "write" : "read", author: { author: "user" } }, error, { origin, directory });
+        add(file, scriptName, { code, file, revision: hash(code), effects: header?.[1] === "write" ? "write" : "read", author: { author: "user" } }, error, { origin, directory });
       }
     }
   }

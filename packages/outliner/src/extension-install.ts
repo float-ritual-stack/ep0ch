@@ -7,7 +7,7 @@ import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { ExtensionLoadError, readExtensionFolder } from "./extension-manifest";
+import { readExtensionFolder } from "./extension-manifest";
 import { cleanExtensionText } from "./extension-records";
 import { BUILT_IN_EXTENSIONS, extensionRoots, type ExtensionsListResult } from "./extension-registry";
 import { type CopyUpdate, copyLine, copyRoots, INSTALL_RECORD, installedCopies, type InstalledCopy, newsWords, whereWords, writeInstallRecord } from "./extension-update";
@@ -95,14 +95,10 @@ export async function addExtension(nameOrPath: string, options: { from?: string;
   }
   let id: string;
   try {
-    // The copy keeps the folder's name as its id: check it under that name.
-    id = (await readExtensionFolder(source, "user", { checkConfig: false })).id;
+    // Downloads may have any folder name; the validated manifest id names the installed copy.
+    id = (await readExtensionFolder(source, "user", { checkConfig: false, idFrom: "manifest" })).id;
   } catch (error) {
-    if (error instanceof ExtensionLoadError && /must match the folder's name/.test(error.message)) {
-      id = JSON.parse(await Bun.file(join(source, "extension.json")).text()).id;
-    } else {
-      throw new Error(`${source} isn't an extension the service can load: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    throw new Error(`${source} isn't an extension the service can load: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) throw new Error("ext add expects an extension whose id is a name such as jira");
   const root = options.root ?? targetRoot(options.outlineFolder);
@@ -278,6 +274,7 @@ function columns(raw: readonly (readonly string[])[]): string[] {
 /** What an extension serves, in a few words: `moon::`, `tile moon`, `action shout`. */
 function serves(entry: ExtensionsListResult["extensions"][number]): string[] {
   return [
+    ...(entry.scripts ?? []).map(script => `script ${script.name}`),
     ...entry.handlers.map((handler) => `${handler.key}::`),
     ...entry.tiles.map((tile) => `tile ${tile.kind}`),
     ...entry.actions.filter((action) => !action.builtIn).map((action) => `action ${action.name}`),

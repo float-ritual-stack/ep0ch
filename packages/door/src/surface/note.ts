@@ -4453,7 +4453,10 @@ export class NoteSurface {
       if (!d.takes(d.requestIn(req, messageContext.getStore()?.tile))) {
         const listed = await host.ctx.board.listExtensions(false, { blockId: p.block || this.msg?.id, line: p.line });
         const scripts = listed.extensions.filter(e => e.script && e.name === action && (e.state === "active" || e.state === "failed"));
-        if (!scripts.length) throw new ActionRefused(d.unknownAction(action));
+        if (!scripts.length) {
+          const provider = listed.available?.find(e => e.scripts?.some(s => s.name === action));
+          throw new ActionRefused(provider ? `Script ${action} is not installed; reinstall with ep0ch act extensions.install id=${provider.id}` : d.unknownAction(action));
+        }
         if (scripts[0]!.state === "failed") throw new ActionRefused(scripts[0]!.error!);
         if (scripts.length > 1) host.ctx.flash(scripts[0]!.description ?? "");
         action = scripts[0]!.actions.find(a => a.id === "run")!.name;
