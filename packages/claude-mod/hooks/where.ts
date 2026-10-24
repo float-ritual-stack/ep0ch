@@ -74,16 +74,13 @@ export function reachText(reach: { rule: string; text: string; control: string |
 }
 
 /**
- * The tile `door-open --from` names: EP0CH_TILE, the name the door's links and
- * the daily layout use (it survives a door restart for an agent kept in its
- * Herdr pane), else the tile's id (`t<n>`) when the name is empty. The door
- * takes either; one it doesn't know falls back to where its own open puts
- * notes (src/door-control.ts), which never takes the person's keys.
+ * The tile `door-open --from` names: EP0CH_TILE_ID when the door gave one (`t-<uuid>`, or `drawer.agent` for the drawer's
+ * own program), which names one tile; else EP0CH_TILE, the name the door's links and the daily layout use. The name alone
+ * can be a program's own (`shell`, `claude` in the drawer) or shared by two tiles. The door takes either.
  */
 export function doorTileOf(env: { EP0CH_TILE?: string; EP0CH_TILE_ID?: string }): string | null {
-  const name = env.EP0CH_TILE?.trim()
-  if (name) return name
   const id = env.EP0CH_TILE_ID?.trim()
-  return id && /^t\d+$/.test(id) ? id : null
+  if (id && /^(?:t-[0-9a-f-]{36}|t\d+|drawer\.agent)$/.test(id)) return id
+  return env.EP0CH_TILE?.trim() || null
 }
 

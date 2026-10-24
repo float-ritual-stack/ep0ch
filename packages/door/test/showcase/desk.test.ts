@@ -410,6 +410,21 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await drawer.dispatch.act({ action: "tile.drawer", tile: "kettle", args: { on: false } }, user);
   });
 
+  test("a link pressed in the drawer's own chat opens in the reader its wire names, by the name the program was given (PIE-1257)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
+    const stage = S().stages.get(S().sel).top as Desk;
+    await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
+    await until(() => (app.drawer.desk?.pane("drawer.agent") as any)?.running === true, "the drawer's program runs");
+    const drawer = app.drawer.desk!, user = { kind: "user" } as const;
+    await drawer.dispatch.act({ action: "tile.link", tile: "drawer.agent", args: { to: drawer.pathTo(stage.pane("reader")!) } }, user);
+    const told = (drawer.pane("drawer.agent") as any).programTile as string;
+    await drawer.dispatch.act({ action: "open", args: { from: told, id: seeded.notes.callouts.id } }, { kind: "agent", id: "chat-helper" });
+    expect(stage.layoutGet().tiles.find(t => t.name === "reader")).toMatchObject({ arrival: { by: "chat-helper" }, showing: { id: seeded.notes.callouts.id } });
+    await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" });
+  });
+
   test("drawer list wires select and open into a drawer detail", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
