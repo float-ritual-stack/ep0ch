@@ -258,3 +258,18 @@ test("ep0ch route says each note's words, the rules that can't be used and the c
     expect(await runRouteCommand([], { ...process.env, EP0CH_SOCKET: socket, EP0CH_WS: "scratch", EP0CH_OUTLINES: directory })).toBe(2);
   } finally { console.log = log; }
 });
+
+test("a person's rule routes a note the service wrote (a snapshot record); the Inbox, Trash and guides stay put", async () => {
+  const { store, inbox, create, route, parentOf } = await startService();
+  const snapshots = await create("Snapshots");
+  await create(`Snapshots go to their page [type::route] [query::type=snapshot] [route-to::((${snapshots.id}))]`);
+  // The service writes the record itself, as the snapshot tool does.
+  const record = store.create("Snapshot of garden [type::snapshot] [machine::snapshot] [publish::never]\n\nWho: you\nOutline: garden", null, "system");
+  await until("the record routed on create", () => parentOf(record.id) === snapshots.id);
+  // A rule that would catch the Inbox never moves it: the service finds it by its place.
+  const elsewhere = await create("Elsewhere");
+  await create(`Grab the inbox [type::route] [query::system-view=inbox] [route-to::((${elsewhere.id}))] [route-when::command]`);
+  const run = await route({ all: true });
+  expect(run.results.some(r => r.blockId === inbox.id && r.outcome === "moved")).toBe(false);
+  expect(parentOf(inbox.id)).toBe(null);
+});

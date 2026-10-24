@@ -38,9 +38,13 @@ export interface PlacementReads {
 /** One rule: a placement, or null to let the next rule decide. */
 export type PlacementRule = (intent: NewNoteIntent, reads: PlacementReads) => Placement | null;
 
-/** A note the service keeps (the Inbox, Trash, Bookmarks, a seeded guide): placement and agents' moves leave it alone. */
+/**
+ * A note the service finds by what it is (the Inbox, Trash, Bookmarks, the Deploys record, a seeded guide): placement,
+ * routing and agents' moves leave it alone. A note the service merely wrote (a snapshot record, a workspace page) is the
+ * person's like any other: their rules and their agents may file it (Evan, Oct 23: "blocked by a rule I never asked for").
+ */
 export const isSystemNote = (block: Block): boolean =>
-  block.author === "system" || block.properties.some(p => p.key === "system-view" || p.key === "system-doc");
+  block.properties.some(p => p.key === "system-view" || p.key === "system-doc");
 
 const propertyValue = (block: Block, key: string): string | undefined => block.properties.find(p => p.key === key)?.value.trim().toLowerCase();
 
