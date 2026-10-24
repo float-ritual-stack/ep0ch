@@ -2028,11 +2028,18 @@ export function hostDock<I>(s: Pick<LayoutState<I>, "tree">): Dock<I> | null { r
  * Where the two layers go in `area`, as the screen shown lets the host layer appear (`mode`, its policy's `host`):
  * `over`, the dock slides over the screen's edge and the screen keeps all its room; `beside`, the dock takes its
  * room and the screen is drawn narrower (or shorter); `none`, the screen has it all and the host layer isn't drawn.
+ * `spine`: the dock folded (the drawer's `tile.collapse`), a one-row strip at its edge.
  */
-export function placeHost<I>(s: LayoutState<I>, area: Rect, mode: HostMode = "over"): { screen: Rect; dock: Rect | null; tiles: Map<I, Rect> } {
+export function placeHost<I>(s: LayoutState<I>, area: Rect, mode: HostMode = "over", spine = false): { screen: Rect; dock: Rect | null; tiles: Map<I, Rect> } {
   const dr = hostDock(s);
   const slot = HOST_SCREEN as unknown as I;
   if (mode === "none" || !dr || !dr.open) return { screen: area, dock: null, tiles: new Map() };
+  // Folded to a spine (PIE-1254): the dock is a strip one row thick at its edge (the drawer's: the top or the bottom),
+  // holding no tile; beside the screen it takes that row from it, over it the screen keeps all of its own.
+  if (spine) {
+    const top = dr.edge === "up";
+    return { screen: mode === "beside" ? { ...area, row: top ? area.row + 1 : area.row, rows: Math.max(1, area.rows - 1) } : area, dock: { col: area.col, row: top ? area.row : area.row + area.rows - 1, cols: area.cols, rows: 1 }, tiles: new Map() };
+  }
   // The screen's policy, not the stored dock's, says whether it slides over or takes its room.
   const tree = clone(s.tree);
   const d = docks(tree)[0]!;

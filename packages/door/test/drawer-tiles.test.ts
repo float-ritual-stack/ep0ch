@@ -175,8 +175,12 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(d.app.drawer.open).toBe(false);
       await d.app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Bundle" } }, USER);
       expect(d.app.drawer.open).toBe(true);
+      // The drawer folds to a strip like any tile (PIE-1254) and the button opens it again.
       await d.app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Bundle" } }, USER);
-      expect(d.app.drawer.open).toBe(false);
+      expect(d.app.drawer.folded).toBe(true);
+      await d.app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Bundle" } }, USER);
+      expect(d.app.drawer.folded).toBe(false);
+      await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
       await d.app.act({ action: "tile.drawer", args: { on: false }, tile: "bundle", as: AS });
       expect(next.pane("bundle")).toBe(group);
       expect(group.inner).toBe(inner);
@@ -542,10 +546,12 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       d.key(ctrl("w")); d.key(char("a"));
       await until(() => d.inDrawer("kettle"), "kettle in");
       d.paint();
-      // Into the drawer: typing in the kettle (^W is the program's there); ctrl+] back to the desk.
+      // Into the drawer: typing in the kettle (^W is the program's there); ctrl+] out of it, Esc back to the desk.
       d.key({ kind: "alt", ch: "a" }); d.key({ kind: "alt", ch: "a" }); d.paint();
       expect(d.app.drawer.entered).toBe(true);
       d.key({ kind: "char", ch: "]", ctrl: true });
+      expect(d.app.drawer.entered).toBe(true);
+      d.key({ kind: "esc" });
       expect(d.app.drawer.entered).toBe(false);
       d.key(ctrl("w")); d.key({ kind: "char", ch: "A" });
       await until(() => !d.inDrawer("kettle") && !!d.desk.pane("kettle"), "^W A brings it back");

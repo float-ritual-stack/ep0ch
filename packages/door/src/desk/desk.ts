@@ -4339,7 +4339,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return;
     }
     // ctrl+] twice: the second goes to the program (a literal ctrl+], telnet's own escape).
-    if (isEscapeChord(k) && this.chord && Date.now() - this.chord.at < 1500 && this.panes.get(this.focus) === this.chord.pane && this.chord.pane.running) {
+    if (isEscapeChord(k) && this.chordArmed()) {
       this.chord = null;
       return this.run("tile.enter", { send: "\x1d" }, this.nameOf(this.focus));
     }
@@ -5553,6 +5553,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...this.tileAnswer(this.tile(name).id), typing: true };
   }
 
+  /**
+   * A ctrl+] now steps out of something in this desk instead of leaving it: the program the person types in (not one
+   * that exited), a second one soon after (it goes to the program), or the group they are inside.
+   */
+  chordSteps(): boolean {
+    const p = this.panes.get(this.focus);
+    return (this.rawKeys() && !this.waitsOnExit()) || this.chordArmed() || (p instanceof ScreenTile && p.inside);
+  }
+
+  /** A ctrl+] left a terminal a moment ago: another now goes to its program, not to the door. */
+  chordArmed(): boolean { return !!this.chord && Date.now() - this.chord.at < 1500 && this.panes.get(this.focus) === this.chord.pane && this.chord.pane.running; }
+
   /** The person's keys leave this screen's terminal without a word (the drawer's keys went back to the screen shown). */
   stopTyping() { this.ptyIn = null; }
 
@@ -6280,7 +6292,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const ask = (op: Op<number>) => { const r = this.ask(op, actor); return r.ok ? null : r.refused; };
     const inDrawer = !!this.ctx?.hostLayer?.isDrawer(this);
     return {
-      altReader: this.layout.altReaders.has(id), float: this.isFloat(id), zoomed: this.zoom === id, collapsed: this.collapsed.has(id), dock: !!dockOf(this.root, id),
+      altReader: this.layout.altReaders.has(id), float: this.isFloat(id), zoomed: this.zoom === id, collapsed: this.collapsed.has(id) || (this.foldsDrawer(id) && !!this.ctx.hostLayer?.folded), dock: !!dockOf(this.root, id),
       shuts: chainOf(this.root, id).some(c => c.policy?.shuts), inDrawer, flow: !!flow,
       held: !!flow?.held?.some(h => columnOf(flow, h) === columnOf(flow, id)),
       listHeld: p && kindOf(p)?.hold ? kindOf(p)!.hold!.held(p) : null,
@@ -6290,7 +6302,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           case "close": return ask({ op: "close", tile: id });
           case "float": return inDrawer ? `${t.name} is in the drawer: it doesn't float there` : ask({ op: "float", tile: id });
           case "zoom": return ask({ op: "zoom", tile: id });
-          case "collapse": return ask({ op: "collapse", tile: id, on: !this.collapsed.has(id) });
+          case "collapse": return this.foldsDrawer(id) ? this.ctx.hostLayer!.foldRefusal(actor) : ask({ op: "collapse", tile: id, on: !this.collapsed.has(id) });
           case "pin": return ask({ op: "pin", tile: id });
           case "drawer": return !this.ctx?.hostLayer ? "this door has no drawer here" : inDrawer ? null : this.takeRefusal(t.name, actor);
           case "widen": return ask({ op: "flow.widen", tile: id });
@@ -6334,12 +6346,29 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { ...r.answer, ...this.tileAnswer(this.tile(String(r.answer.tile)).id) };
   }
 
+  /** `drawer.away`: the drawer put away, from one of its tiles (the same as `host.toggle open=false`). */
+  putDrawerAway(sel: string | undefined, actor: Actor): TileDone {
+    const host = this.ctx?.hostLayer;
+    if (!host?.isDrawer(this)) throw new ActionRefused(`${this.tile(sel).name} isn't in the drawer · host.toggle open=false puts the drawer away`);
+    return host.away(this.tile(sel).name, actor);
+  }
+
+  /**
+   * Tile `id` is in the drawer's own layout with no tile beside it (a lone tab or tab set): there is nothing to fold
+   * it beside, so a fold of it folds the drawer (the host layer) to a spine. A drawer tile with a neighbour, and a
+   * tile in a group in the drawer (a desk of its own), fold in their layout as on any screen.
+   */
+  private foldsDrawer(id: number): boolean {
+    if (!this.ctx?.hostLayer?.isDrawer(this)) return false;
+    const p = parentOf(this.root, id);
+    return !p || p.parent.t === "flow";
+  }
+
   /**
    * `tile.collapse`: fold tile `sel` to a spine where it is, or open it again. It folds only side by side with
    * others (a row or columns), where its container's policy lets it; an agent never folds the tile the person has.
    */
   collapseTile(sel: string | undefined, on: boolean | undefined, actor: Actor, dir?: "v" | "h"): TileDone | { reopened: string[]; kept?: string[] } {
-    if (sel !== "all" && this.ctx?.hostLayer?.isDrawer(this)) return this.ctx.hostLayer.collapse(this.tile(sel).name, on, actor);
     // tile=all opens every spine (alt+c on the board): each its own step, one the layout keeps folded (and why) said.
     if (sel === "all") {
       if (on !== false) throw new ActionRefused("tile=all only reopens every spine (on=false); fold tiles one by one");
@@ -6354,9 +6383,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // No tile named while the keys are in columns (the board's lanes): the reader following them, as reader.collapse took it.
     const via = !sel || sel === "focused" ? this.readerOfFocus() : undefined;
     const t = via ? { id: this.idOf(via)!, name: this.nameOfPane(via) } : this.tile(sel);
+    // A drawer tile with nothing beside it has nothing to fold beside: the drawer folds, to a strip at its edge.
+    if (this.foldsDrawer(t.id)) return this.ctx.hostLayer!.collapse(t.name, on, actor);
     // A fold asked for the way it already is, or a toggle of one folded: opens. A fold of the other way refolds it.
     const r = this.apply({ op: "collapse", tile: t.id, ...(on !== undefined ? { on } : dir && this.collapsed.has(t.id) && (this.collapsed.get(t.id)!.dir ?? "v") !== dir ? { on: true } : {}), ...(dir ? { dir } : {}) }, actor);
     if (r.changed) this.save();
+    // A terminal folded while the person types in it stops taking their keys: a spine has nothing to show them going in.
+    const typing = this.ptyIn ? this.idOf(this.ptyIn) : undefined;
+    if (typing !== undefined && this.collapsed.has(typing)) this.ptyIn = null;
     // The person's fold says what it kept (an agent's is said by the action's own words).
     const p = this.panes.get(t.id);
     if (this.dispatch.standing(actor) && r.changed && r.answer.collapsed && p instanceof ReaderPane) {
