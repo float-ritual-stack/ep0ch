@@ -12,7 +12,7 @@ import { databases, depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, ou
 import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
 import { type Facts, type OutlineSchema, PLUGIN_SOURCE, short, staleness } from "./model";
 import { withSecretsStep, backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Migration, type Plan, type PlanOptions, repoStep, sshInstallClients, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
-import { hostLive } from "../discover";
+import { resolveTarget, hostLive } from "../discover";
 import type { Handover, UpgradeResult } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
 import { programStatusEmitter, type StatusEmitter } from "@ep0ch/outliner/program-status-emit";
@@ -25,7 +25,7 @@ import { prepareInstallBackups, pruneInstallBackups } from "./install-backups";
 import { startDeployRecord } from "./deploy-record";
 
 type Env = Record<string, string | undefined>;
-export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--machine-name <name>] [--dials-in | --no-dials-in] [--no-allow] [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client] [--sha <origin-main-sha>]";
+export const SETUP_USAGE = "ep0ch doctor [--fix [--move-scripts]] [--backups] [--json] | ep0ch install [--apply] [--json] [--ws <outline>] [--machine <ssh-name>] [--machine-name <name>] [--dials-in | --no-dials-in] [--no-allow] [--add-client <ssh-name> | --remove-client <ssh-name>] [--as-client] [--sha <origin-main-sha>]";
 
 const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" };
 
@@ -582,6 +582,18 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
     if (args[0] !== "install" || !sha || !/^[a-f0-9]{40}$/.test(sha)) { io.err("ep0ch: --sha takes a full origin/main commit sha"); return 2; }
     rest = rest.filter((_, i) => i !== shaAt && i !== shaAt + 1);
   }
+  const selectors: string[] = [];
+  for (const flag of ["--ws", "--machine"]) {
+    const i = rest.indexOf(flag);
+    if (i < 0) continue;
+    selectors.push(...rest.slice(i, i + 2));
+    rest = rest.filter((_, n) => n !== i && n !== i + 1);
+  }
+  if (selectors.length) {
+    if (args[0] !== "install") { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
+    const target = resolveTarget(selectors, env, io.cwd ?? process.cwd());
+    if ("error" in target) { io.err(`ep0ch: ${target.error}`); return 2; }
+  }
   // `--dials-in`: this machine calls the others for EchoNet and is never called; `--no-dials-in` undoes it.
   const dials = rest.includes("--dials-in") ? true : rest.includes("--no-dials-in") ? false : undefined;
   const unknown = rest.slice(1).filter(a => !["--json", "--apply", "--no-allow", "--fix", "--move-scripts", "--backups", "--dials-in", "--no-dials-in", "--as-client"].includes(a));
@@ -601,7 +613,7 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
     process.exit(130);
   };
   if (io.terminal) process.on("SIGINT", interrupted);
-  try { return await setup(rest, io, env, json, progress, status, machineName, dials, clientChange, sha); }
+  try { return await setup(rest, io, env, json, progress, status, machineName, dials, clientChange, sha, selectors); }
   catch (error) {
     if (json) io.out(JSON.stringify({ ok: false, steps: [], notDone: ["install"], error: (error as Error).message }));
     else io.err(`ep0ch ${args[0]}: ${(error as Error).message}`);
@@ -613,7 +625,7 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
   }
 }
 
-async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null, machineName?: string, dials?: boolean, clientChange?: { name: string; add: boolean }, sha?: string): Promise<number> {
+async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null, machineName?: string, dials?: boolean, clientChange?: { name: string; add: boolean }, sha?: string, selectors: readonly string[] = []): Promise<number> {
   // Checking the stack (git fetches among it) can take a while on a slow link: a phase, gone once it's done.
   const checking = progress.task({ mark: "·", title: "Checking the stack", transient: true });
   const facts = await gatherFacts({ env, repoRoot: io.repoRoot, platform: io.platform, cwd: io.cwd, sha,
@@ -673,7 +685,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     }
   };
   const beginRecord = () => record(async () => {
-    deploy = await startDeployRecord(facts, env, io.cwd ?? process.cwd(), options.now, () => { creatingRecord = true; });
+    deploy = await startDeployRecord(facts, env, io.cwd ?? process.cwd(), options.now, () => { creatingRecord = true; }, selectors);
     say(`    deploy record: ${deploy.id}`);
     if (json) plan.notes.push(`deploy record: ((${deploy.id}))`);
   });

@@ -47,7 +47,7 @@ export interface TemplateStampRequest {
   as?: string;
   /** Write into an anchored output region through the draft router. */
   into?: string;
-  /** The note it is made under (a reference); left out, the top of the Inbox, as any new note. */
+  /** The note it is made under (a reference); left out, beside the template (or Inbox for a root template). */
   parent?: string;
   /** The stamped note's title, in place of the template's first line's words. May hold `{{ }}` of the stamp (`now`, `props`). */
   title?: string;
@@ -230,7 +230,8 @@ function prepareStamp(store: StampStore, request: TemplateStampRequest, clock: (
     if (rows.length > MAX_FOR) throw new Error(`for=${request.for} matches more than ${MAX_FOR} notes; a stamp makes at most ${MAX_FOR} at once. Narrow the query`);
     matches = rows;
   }
-  const parent = request.parent === undefined || request.parent === "inbox" ? null : store.resolveBlockRef(request.parent);
+  const parentRef = request.parent ?? template.parentId;
+  const parent = parentRef === null || parentRef === "inbox" ? null : store.resolveBlockRef(parentRef);
   const given = Object.entries(request.props ?? {}).map(([key, value]) => ({ key, value: String(value) }));
   const checked = checkProps(declared.spec, given, title, request.of);
   if (checked.problems.length) {

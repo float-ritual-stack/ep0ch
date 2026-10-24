@@ -14,8 +14,8 @@ import type { Facts } from "./model";
 type Env = Record<string, string | undefined>;
 
 /** The destination is selected normally; deployment facts are observed on the machine being installed. */
-export async function startDeployRecord(f: Facts, env: Env, folder: string, when: Date, creating: () => void) {
-  const target = resolveTarget([], env, folder);
+export async function startDeployRecord(f: Facts, env: Env, folder: string, when: Date, creating: () => void, selectors: readonly string[] = []) {
+  const target = resolveTarget(selectors, env, folder);
   if ("error" in target) throw new Error(target.error);
   const socket = "unnamed" in target ? f.host.socket : target.path;
   const outline = "unnamed" in target

@@ -39,7 +39,13 @@ finish() {
   elif [ -f "$run_dir/last-message.md" ]; then report_args=(--report-file "$run_dir/last-message.md"); fi
   local pr
   pr=$(gh pr view --json url --jq .url 2>/dev/null) && pr_args=(--pr "$pr")
-  record run-end --run "$run_id" --exit "$code" --duration "$(( $(date +%s) - started ))" "${pr_args[@]}" "${report_args[@]}" || { echo "builder: could not record the end/report of $run_id; output is in $run_dir" >&2; [ "$code" = 0 ] && code=1; }
+  local end_args=(run-end --run "$run_id" --exit "$code" --duration "$(( $(date +%s) - started ))" "${pr_args[@]}" "${report_args[@]}")
+  if ! record "${end_args[@]}"; then
+    echo "builder: could not record the end/report of $run_id; output is in $run_dir" >&2
+    printf 'builder: record later: ' >&2
+    printf '%q ' env "EP0CH_AGENT=$EP0CH_AGENT" bun "$repo/packages/door/src/main.ts" record "${end_args[@]}" >&2
+    printf '\n' >&2
+  fi
   echo "builder: $run_id exited $code; output: $run_dir" >&2
   exit "$code"
 }

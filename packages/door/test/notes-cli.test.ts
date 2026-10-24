@@ -188,6 +188,53 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
     } finally { board.close(); }
   }, 30_000);
 
+  test("builder preserves Codex's exit when the host stops and prints a working recovery command", async () => {
+    const h = new Scratch();
+    const socket = await h.start();
+    const board = new SocketBoard(socket, undefined, h.name);
+    try {
+      const ticket = await board.request<{ id: string }>("create", { text: "Repair the garden gate" });
+      const bin = join(h.root, "bin");
+      mkdirSync(bin);
+      const ready = join(h.root, "ready"), release = join(h.root, "release");
+      writeFileSync(join(bin, "codex"), `#!${process.execPath}
+const args = process.argv.slice(2);
+await Bun.write(args[args.indexOf("--output-last-message") + 1], "The gate swings freely.");
+await Bun.write(process.env.BUILDER_READY, "ready");
+while (!(await Bun.file(process.env.BUILDER_RELEASE).exists())) await Bun.sleep(20);
+process.exit(Number(process.env.BUILDER_CODE));
+`, { mode: 0o755 });
+      writeFileSync(join(bin, "gh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+      const brief = join(h.root, "brief.md");
+      writeFileSync(brief, "Repair the gate.\n");
+      for (const code of [0, 7]) {
+        const readyFile = ready + code, releaseFile = release + code;
+        const childEnv = { ...process.env, ...h.env, EP0CH_SOCKET: socket, EP0CH_WS: h.name, EP0CH_AGENT: "gate-builder", PATH: `${bin}:${process.env.PATH}`, BUILDER_READY: readyFile, BUILDER_RELEASE: releaseFile, BUILDER_CODE: String(code) };
+        const p = Bun.spawn([join(import.meta.dir, "../../../scripts/builder"), ticket.id, "--", brief], { env: childEnv, stdout: "pipe", stderr: "pipe" });
+        const out = new Response(p.stdout).text(), err = new Response(p.stderr).text();
+        await until(() => existsSync(readyFile), "Codex starts after the run-start write");
+        await h.stop();
+        writeFileSync(releaseFile, "go");
+        const status = await p.exited, errors = await err;
+        await out;
+        await h.start();
+        expect(status, errors).toBe(code);
+        const recovery = errors.split("\n").find(line => line.startsWith("builder: record later: "));
+        expect(recovery, errors).toBeDefined();
+        const script = join(h.root, `recover-${code}.sh`);
+        writeFileSync(script, recovery!.slice("builder: record later: ".length) + "\n");
+        const retry = Bun.spawn(["bash", script], { env: childEnv, stdout: "pipe", stderr: "pipe" });
+        const result = new Response(retry.stdout).text(), failure = new Response(retry.stderr).text();
+        expect(await retry.exited, await failure).toBe(0);
+        const ended = JSON.parse((await result).trim());
+        const note = await board.get(ended.id);
+        expect(note!.text).toContain(`[exit::${code}]`);
+        expect(note!.text).toContain("The gate swings freely.");
+        expect((await board.request<{ actorId: string }>("get", { blockId: ended.id })).actorId).toBe("gate-builder");
+      }
+    } finally { board.close(); await h.dispose(); }
+  }, 30_000);
+
   test("work records append later facts and share a stampable template", async () => {
     const ticketBoard = new SocketBoard(sock, undefined, scratch.name);
     const ticket = await ticketBoard.request<{ id: string }>("create", { text: "Oil the hinge [work-id::SHED-18]", author: "agent" });
@@ -210,6 +257,13 @@ if (process.env.BUILDER_FIXTURE_WAIT) {
       const templates = await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "template-for=run-start", machinery: "show" } });
       const stamp = await board.request<{ stamped: { id: string }[] }>("template.stamp", { of: templates.blocks[0]!.id, props: { ticket: "SHED-19", summary: "Check the gate" }, author: "agent" });
       expect((await board.get(stamp.stamped[0]!.id))!.text).toContain("Check the gate");
+      const records = await board.request<{ blocks: { id: string }[] }>("blocks.query", { query: { where: "system-records=true", machinery: "show" } });
+      expect((await board.get(stamp.stamped[0]!.id))!.parentId).toBe(records.blocks[0]!.id);
+      const elsewhere = await board.request<{ stamped: { id: string }[] }>("template.stamp", { of: templates.blocks[0]!.id, parent: ticket.id });
+      expect((await board.get(elsewhere.stamped[0]!.id))!.parentId).toBe(ticket.id);
+      const inbox = await board.request<{ stamped: { id: string }[] }>("template.stamp", { of: templates.blocks[0]!.id, parent: "inbox" });
+      const inboxParent = (await board.get(inbox.stamped[0]!.id))!.parentId!;
+      expect((await board.get(inboxParent))!.text).toContain("Inbox");
       const visible = await run(["find", "--query", "type=run-start", "--json"], env);
       expect(visible.out).not.toContain(id);
       const finding = await run(["record", "finding", "--ticket", ticket.id, "--source", "person", "--failure", "Gate sticks", "--likelihood", "Every morning", "--cost", "One minute"], { ...env, EP0CH_AGENT: "", OUTLINER_ACTOR: "" }, scratch.root);

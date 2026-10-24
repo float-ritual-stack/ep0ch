@@ -69,7 +69,7 @@ A new note (with the template's subtree) whose text is the person's from then on
 - `freeze=all` writes the others too, for a scaffold with no braces left. A value that can't be read is left as
   written and listed in `warnings`.
 - `title=` replaces the first line's words and may use the stamp's own values (`{{now.date}}`, `{{props.for.title}}`).
-- `parent=` is the note it goes under (`[[page]]`, `((id))`, a Work ID); left out, the top of the Inbox, like any new note.
+- `parent=` is the note it goes under (`[[page]]`, `((id))`, a Work ID); left out, beside the template (the top of Inbox when the template has no parent). `parent=inbox` explicitly chooses Inbox.
 - `for=<query>` (the views' grammar) stamps once per match, at most 50; each match is `props.for`
   (`{{props.for.number}}`, `{{props.for.title}}`). A match already stamped from this template is skipped, so running it
   again adds only what is new.

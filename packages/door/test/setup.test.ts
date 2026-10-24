@@ -1515,28 +1515,34 @@ test("install records a deploy in the host's default outline from an unnamed fol
   } finally { await h.dispose(); }
 }, 30_000);
 
-test("install sends records to the outline the folder names on another machine", async () => {
+for (const explicit of [false, true]) test(`install sends records to the ${explicit ? "explicitly selected" : "folder named"} outline on another machine`, async () => {
   const { ScratchHost } = await import("./scratch");
-  const { startDeployRecord } = await import("../src/setup/deploy-record");
   const { hostRequest } = await import("../src/socket");
   const local = new ScratchHost(), receiver = new ScratchHost();
   try {
     await local.start("workshop"); await local.create("workshop");
     await receiver.start("garden"); await receiver.create("garden");
     const folder = local.folder("checkout");
-    writeFileSync(join(folder, ".ep0ch"), 'ws = "garden"\nmachine = "garden-host"\n');
+    writeFileSync(join(folder, ".ep0ch"), explicit ? 'ws = "workshop"\n' : 'ws = "garden"\nmachine = "garden-host"\n');
     const ssh = join(local.root, "fake-ssh");
     writeFileSync(ssh, `#!/bin/sh\nexec ${process.execPath} ${join(import.meta.dir, "../../outliner/test/fake-ssh.ts")} "$@"\n`, { mode: 0o755 });
     const env = { ...local.env, EP0CH_SSH: ssh, FAKE_SSH_HOME: receiver.root, FAKE_SSH_OUTLINES: receiver.outlines };
     mkdirSync(join(local.outlines, ".remote"), { mode: 0o700 });
     symlinkSync(receiver.sock, join(local.outlines, ".remote/garden-host.sock"));
-    const f = current();
-    f.home = local.env.HOME!;
-    f.host = { ...f.host, folder: local.outlines, socket: local.sock };
-    const record = await startDeployRecord(f, env, folder, now, () => {});
-    await record.local("finished");
+    const repo = local.folder("empty-repo");
+    mkdirSync(join(repo, "packages/door"), { recursive: true });
+    symlinkSync(join(import.meta.dir, "../scripts"), join(repo, "packages/door/scripts"));
+    mkdirSync(join(repo, "packages/outliner/scripts"), { recursive: true });
+    writeFileSync(join(repo, "packages/outliner/scripts/install-claude-mod.ts"), "process.exit(0);\n");
+    const lines: string[] = [];
+    const code = await setupCommand(["install", "--apply", "--json", ...(explicit ? ["--ws", "garden", "--machine", "garden-host"] : [])], {
+      env: { ...env, PATH: dirname(process.execPath) + ":/usr/bin:/bin", ...(explicit ? { EP0CH_WS: "workshop" } : {}) },
+      platform: "darwin", repoRoot: repo, cwd: folder,
+      out: s => lines.push(s), err: s => lines.push(s),
+    });
+    expect(code, lines.join("\n")).not.toBe(2);
     const received = await hostRequest<{ blocks: { id: string; text: string }[] }>(receiver.sock, "blocks.query", { outline: "garden", query: { where: "type=deploy machine=record" } });
-    expect(received.blocks.some(b => b.id === record.id)).toBe(true);
+    expect(received.blocks.length, lines.join("\n")).toBeGreaterThan(0);
     expect(received.blocks.some(b => b.text.includes("Local: finished"))).toBe(true);
     const stayed = await hostRequest<{ blocks: unknown[] }>(local.sock, "blocks.query", { outline: "workshop", query: { where: "type=deploy machine=record" } });
     expect(stayed.blocks).toEqual([]);
