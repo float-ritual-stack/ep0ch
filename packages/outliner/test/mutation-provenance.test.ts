@@ -46,8 +46,10 @@ async function changesSince(client: OutlinerClient, sequence: number): Promise<O
   return page.changes;
 }
 
+// These tests are about what the garden agent and the person did; the Extensions pages the host writes as agent /
+// `ext:extension-pages` on start are extension writes, which `extensions: "exclude"` leaves out.
 const activity = (client: OutlinerClient, request: Record<string, unknown>) =>
-  client.request<BlockEditActivityPage>({ action: "activity.recent", limit: 50, ...request } as never);
+  client.request<BlockEditActivityPage>({ action: "activity.recent", limit: 50, extensions: "exclude", ...request } as never);
 
 test("an agent's move, trash and restore are attributed to the agent in the change feed and activity", async () => {
   const { store, client } = await service();
