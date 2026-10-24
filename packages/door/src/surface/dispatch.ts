@@ -162,7 +162,7 @@ export interface DispatchHost {
   where?(): Whereabouts;
   /** The tiles `tile=` names, in order on screen. */
   tiles?(): TileRef[];
-  resolveTile?(sel: string): { tile: TileRef; dispatch: Dispatcher } | null;
+  resolveTile?(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null;
   /** `expected=`: why it's refused (the layout changed since that revision), or null. Absent: the screen has none. */
   revision?(expected: unknown): string | null;
   /** A tile's draft for the draft rule: the note it shows and the session it holds. */
@@ -686,7 +686,7 @@ export class Dispatcher {
     const out = { ...raw };
     for (const [k, s] of Object.entries(spec)) {
       if (s.kind !== "tile" || typeof out[k] !== "string" || s.choices?.includes(out[k] as string) || !tiles.length) continue;
-      const resolved = this.host.resolveTile?.(String(out[k]));
+      const resolved = this.host.resolveTile?.(String(out[k]), s.program ? { program: true } : undefined);
       if (resolved) { out[k] = resolved.tile.id ?? resolved.tile.name; continue; }
       if (isTilePath(String(out[k]))) continue;
       const hit = this.named(String(out[k]), tiles);

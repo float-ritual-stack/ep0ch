@@ -43,6 +43,8 @@ export type ArgKind = "outline" | "tile" | "note" | "page" | "screen" | "view" |
 export interface ArgSpec {
   type: ArgType; optional?: boolean; about: string;
   kind?: ArgKind;
+  /** `kind: "tile"`: the tile a program runs in (`open from=`), which a program names by what it was told (EP0CH_TILE, EP0CH_TILE_ID), not only by `tile=`'s grammar. */
+  program?: true;
   choices?: readonly string[];
   /** At least one combination must hold; null means the argument is present. */
   implies?: readonly Readonly<Record<string, string | number | boolean | null>>[];

@@ -1212,20 +1212,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return hits[0]!.id?.startsWith("t-") ? hits[0]!.id : path;
   }
 
-  resolveTile(sel: string): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
+  resolveTile(sel: string, o: { program?: true } = {}): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
     const desks = this.relatives();
     const found = (desk: Desk, id: number) => ({ tile: desk.tiles().find(t => t.id === desk.tileId(id))!, dispatch: desk.dispatch, desk });
     for (const desk of desks) for (const id of desk.panes.keys()) if (desk.tileId(id) === sel) return found(desk, id);
-    // The id it was told (EP0CH_TILE_ID) beats a name: the drawer's own program keeps `drawer.agent` wherever it runs, and its
+    // `program`: the tile a program runs in (`open from=`), which it names by what it was told. The id it was told (EP0CH_TILE_ID) beats a name: the drawer's own program keeps `drawer.agent` wherever it runs, and its
     // tab holds a tile of that name while it is out on a screen.
-    const toldId = desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && (p.toldId ?? p.tileId) === sel).map(([id]) => ({ desk, id })));
+    const toldId = !o.program ? [] : desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && (p.toldId ?? p.tileId) === sel).map(([id]) => ({ desk, id })));
     if (toldId.length === 1) return found(toldId[0]!.desk, toldId[0]!.id);
     const named = desks.flatMap(desk => [...desk.names].filter(([id, name]) => name === sel && desk.panes.has(id)).map(([id]) => ({ desk, id })));
     if (named.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${named.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
     if (named.length) return found(named[0]!.desk, named[0]!.id);
     // A program names its tile by what it was told (EP0CH_TILE): the drawer's own program is told its own name (shell,
     // claude), not the name its tile has on the desk.
-    const told = desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && p.programTile === sel).map(([id]) => ({ desk, id })));
+    const told = !o.program ? [] : desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && p.programTile === sel).map(([id]) => ({ desk, id })));
     if (told.length > 1) throw new ActionRefused(`several programs were told ${sel}: ${told.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
     if (told.length) return found(told[0]!.desk, told[0]!.id);
     if (sel === "focused") return this.resolveTile(this.ctx?.person?.().address ?? this.keys().address ?? "");
@@ -2590,7 +2590,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         ...d.overlays.top()?.bindings ?? [],
       ],
       tiles: () => d.tiles(),
-      resolveTile: (sel: string) => d.resolveTile(sel),
+      resolveTile: (sel: string, o?: { program?: true }) => d.resolveTile(sel, o),
       revision: (expected: unknown) => revisionRefusal(d.layout, expected),
       draftOf: (t: TileRef) => {
         const p = d.pane(t.name);
@@ -7521,7 +7521,7 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     // it lands where opens land: maybe the note they're reading, said on screen, never their keys or a reader they type in.
     touches: "tile", touchesWith: (_, tile) => (tile !== undefined ? "tile" : "nothing"), way: "opening a note there would move what they're reading · name another reader with tile=, or name none (ep0ch open <id>): it lands where opens land, never their keys or a reader they type in",
     replay: "safe", confirms: true, landing: true, places: ["detail", "new-detail", "float"],
-    args: { id: { type: "string", optional: true, about: "the block id (or file=)" }, from: { type: "string", optional: true, kind: "tile", about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎); alone: a new detail beside the tile with the keys" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" },
+    args: { id: { type: "string", optional: true, about: "the block id (or file=)" }, from: { type: "string", optional: true, kind: "tile", program: true, about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎); alone: a new detail beside the tile with the keys" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" },
       file: { type: "string", optional: true, conflicts: ["id", "from", "fresh", "resource", "fragment"], about: "a file on this machine (an absolute path) in place of id: Markdown drawn as a preview draws it, any other file through the file Resource reader (PIE-602)" },
       diff: { type: "boolean", optional: true, implies: [{ file: null }], about: "with file=: its changes (git's diff against its last commit, else against=)" },
       against: { type: "string", optional: true, implies: [{ file: null, diff: true }], about: "with file= diff=true: a copy of the file from before the change, for a file outside git" },
