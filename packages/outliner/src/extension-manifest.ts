@@ -46,6 +46,7 @@ import { SECRET_GROUP_PATTERN, SECRET_KEY_PATTERN } from "./extension-secrets";
 
 export const EXTENSION_ID_PATTERN = "^[a-z][a-z0-9-]{0,31}$";
 const ID = Type.String({ pattern: EXTENSION_ID_PATTERN });
+export const SCRIPT_HEADER = /^\s*\/\/ ep0ch-script(?: effects=(read|write))?\s*$/;
 /** `30s`, `15m`, `24h`. */
 const Duration = Type.String({ pattern: "^[1-9][0-9]{0,4}[smh]$" });
 
@@ -379,6 +380,11 @@ const ManifestV2 = Type.Object(
      */
     env: Type.Optional(Type.Array(Type.String({ pattern: "^[A-Za-z_][A-Za-z0-9_]{0,63}$" }), { maxItems: 32 })),
     handlers: Type.Optional(Type.Array(Handler, { maxItems: 16 })),
+    scripts: Type.Optional(Type.Array(Type.Object({
+      name: ID,
+      file: Type.String({ pattern: "^scripts/[a-zA-Z0-9_-][a-zA-Z0-9._-]*\\.(js|ts)$" }),
+      about: Type.String({ minLength: 1 }),
+    }, { additionalProperties: false }))),
     actions: Type.Optional(Type.Array(Action, { maxItems: 32 })),
     tiles: Type.Optional(Type.Array(Tile, { maxItems: 8 })),
     agents: Type.Optional(Type.Array(Agent, { maxItems: 8 })),
@@ -515,7 +521,7 @@ function checkPattern(pattern: string | undefined, where: string): void {
 }
 
 /** Words a manifest shows people (names, labels, descriptions): one clean line each, no terminal escapes. */
-const SHOWN = new Set(["name", "label", "description"]);
+const SHOWN = new Set(["name", "label", "description", "about"]);
 
 function cleanShown(value: unknown, key = ""): unknown {
   if (typeof value === "string") return SHOWN.has(key) ? cleanExtensionText(value.replace(/[\r\n\t]+/g, " ")).trim() : value;
@@ -680,7 +686,12 @@ function checkManifest(manifest: ExtensionManifest, script = false): void {
   }
   const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0 || barIds.size > 0;
   if (needsRun && !manifest.run && !script) throw new ExtensionLoadError("extension.json: handlers, actions, agents, bar sources and rules that decorate with code need run (the program each call starts)");
-  if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, bar sources, rules, tiles or components");
+  if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size && !manifest.scripts?.length) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, bar sources, rules, tiles, components or scripts");
+  const scripts = new Set<string>();
+  for (const script of manifest.scripts ?? []) {
+    if (scripts.has(script.name)) throw new ExtensionLoadError(`extension.json: script ${script.name} is declared twice`);
+    scripts.add(script.name);
+  }
 }
 
 /** `bun` in an argv means the service's own Bun, so a folder works wherever the service runs. */
@@ -834,5 +845,12 @@ export async function readExtensionFolder(
   const manifestRaw = await boundedText(manifestPath);
   const configPath = join(directory, "config.json");
   const configRaw = (await Bun.file(configPath).exists()) ? await boundedText(configPath) : "{}";
-  return loadExtensionManifest({ manifestRaw, configRaw, origin, directory, expectedId: basename(directory), idFrom: "the folder's name" }, options);
+  const loaded = loadExtensionManifest({ manifestRaw, configRaw, origin, directory, expectedId: basename(directory), idFrom: "the folder's name" }, options);
+  for (const script of loaded.manifest.scripts ?? []) {
+    const file = join(directory, script.file);
+    if (!(await Bun.file(file).exists())) throw new ExtensionLoadError(`extension.json: script ${script.name} is missing ${script.file}; restore that file before installing`);
+    const code = await Bun.file(file).text();
+    if (!SCRIPT_HEADER.test(code.split(/\r?\n/)[0] ?? "")) throw new ExtensionLoadError(`extension.json: script ${script.name} (${script.file}) needs a first line of // ep0ch-script (or // ep0ch-script effects=write)`);
+  }
+  return loaded;
 }

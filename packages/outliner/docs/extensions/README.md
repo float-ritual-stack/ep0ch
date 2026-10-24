@@ -18,9 +18,19 @@ extensions. Files load only from `<outline folder>/.ep0ch/scripts/` (`.js` or `.
 first line is `// ep0ch-script`. The filename supplies the name. Files without that header, and files in the
 old `scripts/` folder, remain inactive; `ep0ch ext ls` explains why. Discovery never executes the file.
 
-An extension may ship opted-in `.js` or `.ts` scripts in its `scripts/` folder. Installed
-copies precede the bundled source, and outline script notes and outline files precede both.
-The bundled folders supply their scripts to every outline. See [neat](../../extensions/neat/README.md)
+An extension declares the scripts it ships in `extension.json`:
+
+```json
+"scripts": [{ "name": "neat", "file": "scripts/neat.js", "about": "Arranges two pages and their drawer links" }]
+```
+
+Scripts count as something the extension provides; a scripts-only extension needs no `run`.
+Each declared `.js` or `.ts` file must exist in `scripts/` and start with `// ep0ch-script`
+(or `// ep0ch-script effects=write`). The folder reader names a missing file or header.
+Only declared scripts from installed extensions load. Outline script notes and outline files
+precede extension scripts. The install row, `extensions.list` (`scripts` on installed and available
+entries), and the extension's page describe the same manifest list. Uninstall removes the scripts;
+a button naming one offers `ep0ch act extensions.install id=<extension>` to reinstall it. See [neat](../../extensions/neat/README.md)
 for a complete layout script using the existing actions and drawer links.
 
 Scripts default to read-only. A file declares writes with `// ep0ch-script effects=write`; a block uses
@@ -317,11 +327,11 @@ CHANGELOG or demo changed.
 
 - **The hub** lists what's installed (each a link to its page, its version and description), what was removed but left
   notes behind, and what the repo's `extensions/` has that isn't installed, each with its description. `extensions.list`
-  says `hub`, `pages` (extension id to its page) and `available` (`{ id, name, version, description }`).
+  says `hub`, `pages` (extension id to its page) and `available` (`{ id, name, version, description, scripts? }`).
 - **A page** (`<name> [ext.page::<id>] [page::ext-<id>]`, under the hub) holds the description, the version and state,
   the README as the note's body (its first `# ` heading is the page's title, its hard-wrapped paragraphs joined), **What
   it adds** from the manifest (handlers, actions with their keys, schedules, tiles, rules, agents, bar sources,
-  component schemas, secrets by group, settings), each action's `args` as a `::graph-props` table (the properties table
+  component schemas, scripts with their `about`, secrets by group, settings), each action's `args` as a `::graph-props` table (the properties table
   the door's action pages and the library draw, PIE-1032), and the newest section of `CHANGELOG.md`. The README stays words: a
   `key::` line or an `@name` in it is drawn, never run (a code fence is as you wrote it). The page's text is the
   service's, written again when what it's made from changes: change the README, not the page.

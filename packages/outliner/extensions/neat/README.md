@@ -2,7 +2,8 @@
 
 `neat` puts two notes side by side, folds the other shown main-screen tiles to spines, and opens the left note's links in the drawer. Selecting or opening a link targets the right reader; alt-open targets the left.
 
-Run `neat` from the power bar, or press a button in a note:
+Install from the power bar: ctrl+k, type `&neat`, and pick **install Neat** (Enter or a double click).
+An agent runs `ep0ch act extensions.install id=neat`. Then run `neat` from the power bar, or press a button in a note:
 
 ```text
 ::button{label="neat" of=neat page=[[Garden plan]] page=[[Shed repairs]]}
@@ -10,7 +11,9 @@ Run `neat` from the power bar, or press a button in a note:
 
 Each `page=` is a reference `read` understands: a page, block reference, id or Work ID. The first slot chooses the left reader, the second the right. Without the first slot, it uses this outline's `[welcome::1]` note, then `[page::home]`, then the current note's top ancestor. Without the second slot, it uses the reader with the person's keys. Press from a reader when using these defaults.
 
-Every outline has this bundled script. An outline's own `[script::neat]` note wins over it. Edit that note to customize your arrangement; no setting or copied layout engine is needed.
+The manifest declares `scripts/neat.js` as the script `neat`. An outline's own `[script::neat]` note wins over it. Edit that note to customize your arrangement; no setting or copied layout engine is needed.
+
+Remove it with `ep0ch act extensions.uninstall id=neat demo=keep`, or the power bar's remove row. The button stays in your note and names the reinstall command when pressed.
 
 ## Follow the script
 

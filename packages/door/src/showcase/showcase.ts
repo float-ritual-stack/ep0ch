@@ -1147,8 +1147,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "neat", need: "arrange two notes with one built-in script", part: "script runtime, layout actions and drawer links", files: "outliner/extensions/neat/scripts/neat.js",
-    aside: "Press neat: two readers side by side, the other tiles as spines, and links in the drawer wired select/open to the right and alt to the left. Use page= twice to choose your own notes; without slots it uses this outline's welcome and the reader with your keys.",
+    key: "neat", need: "install a script extension and arrange two notes", part: "script runtime, layout actions and drawer links", files: "outliner/extensions/neat/scripts/neat.js",
+    aside: "The showcase installs neat. In the power bar, &neat removes or reinstalls it; its button names the reinstall command while absent. Press neat: two readers side by side, the other tiles as spines, and links in the drawer wired select/open to the right and alt to the left. Use page= twice to choose your own notes; without slots it uses this outline's welcome and the reader with your keys.",
     stage(n, show) {
       const a = new ReaderPane(true), b = new ReaderPane(true), c = new ReaderPane(true);
       return deskOf({ title: "showcase · neat", panes: [a, b, c], names: ["notes", "source", "extra"], layout: ([x, y, z]) => pair("col", 0.5, row(0.5, x!, y!), leaf(z!)) }, show, [[a, n.neat], [b, n.shed], [c, n.heap]]);

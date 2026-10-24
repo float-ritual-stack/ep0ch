@@ -312,7 +312,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   notes.shed = await make(notes.root.id, shedText(notes.whiteboard.id));
   notes.neat = await make(notes.root.id, [
     `${SEED.neat}`,
-    'Two pages side by side, other tiles folded to spines, and the left page\'s links wired from the drawer.',
+    'Two pages side by side, other tiles folded to spines, and the left page\'s links wired from the drawer. Installed here for the demo. Try removing it in the power bar (&neat), press the button for its reinstall command, then pick install Neat there.',
     `::button{label="neat" of=neat page=((${notes.shed.id})) page=((${notes.scriptTarget.id}))}`,
   ].join("\n"));
   await make(notes.shed.id, "Puncture kit\nPatches, glue, two tyre levers.");

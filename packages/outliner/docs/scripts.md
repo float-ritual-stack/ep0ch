@@ -99,17 +99,20 @@ A script's arguments are `slot=value` words (`week=42`). The power bar offers th
 **Find the action:** `ep0ch ext ls --ws <ws>` lists each name and ID; a script ID is `script-` plus the first 24 SHA-256 hex characters of its identity (note ID or file path), not its name.
 **Example:** copy the ID beside `weekly`, then `ep0ch act ext.<id>.run block=<note-id> --as <actor>`.
 
-## Bundled layout script: neat
+## Installable layout script: neat
 
 [neat's worked example](../extensions/neat/README.md) follows a complete layout script:
 `props.page` and `read`, tile ids from `layout.get`, the shared layout actions,
 drawer links and their wires, and the `step`/`failed` pattern for reporting refusals.
-Try `::button{label="neat" of=neat page=[[Garden plan]] page=[[Shed repairs]]}`.
+Install it from the power bar (ctrl+k, `&neat`, pick **install Neat**) or
+`ep0ch act extensions.install id=neat`. Then try `::button{label="neat" of=neat page=[[Garden plan]] page=[[Shed repairs]]}`.
 Without slots it arranges this outline's welcome/home and the reader with the person's keys.
 
 Script lookup uses the invoking note and its nearest ancestors first, then other outline
-script notes, outline files, installed extensions' `scripts/` files, and bundled extensions'
-`scripts/` files. An outline's `[script::neat]` therefore overrides the bundled `neat`.
+script notes, outline files, then the scripts declared by installed extensions. An outline's
+`[script::neat]` therefore overrides the installed `neat`. Each extension's manifest lists
+`{ name, file, about }` in `scripts`; the folder reader checks that each file exists and opts in.
+Uninstalling removes its scripts; a button naming one says how to reinstall the extension.
 Extension script files opt in with the same `// ep0ch-script` header as outline files;
 `effects=write` permits actions. They run through the same runtime and source-change checks.
 

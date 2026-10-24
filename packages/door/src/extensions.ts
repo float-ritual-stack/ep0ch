@@ -73,6 +73,7 @@ export interface ExtensionArgChoice extends ExtensionActionArg {
 export interface ExtensionHandler { key: string; kind: string; effects: string; description?: string; fields?: string[] }
 export interface ExtensionAgent { name: string; description?: string; effects?: string; threads?: boolean }
 export interface ExtensionEntry {
+  scripts?: { name: string; file: string; about: string }[];
   script?: { keys: readonly string[]; line?: number; blockId?: string; file?: string; code: string };
   /** `name` and `version` are absent for a folder that never loaded (it serves nothing; `error` says why). */
   id: string; name?: string; version?: number; description?: string; origin?: string;
@@ -118,7 +119,7 @@ export interface RuleEntry {
 }
 export type { ExtensionBarResult, ExtensionBarRow, ExtensionBarSource };
 /** One of the repo's extensions that isn't installed here (`extensions.list`'s `available`): what installing would add. */
-export interface AvailableExtension { id: string; name: string; version: number; description?: string }
+export interface AvailableExtension { id: string; name: string; version: number; description?: string; scripts?: { name: string; file: string; about: string }[] }
 export interface ExtensionList {
   generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; barSources?: ExtensionBarSource[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[];
   /** The outline's Extensions hub, and each extension's page (README, what it adds, demo notes under it), by id. */

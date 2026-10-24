@@ -278,6 +278,7 @@ function columns(raw: readonly (readonly string[])[]): string[] {
 /** What an extension serves, in a few words: `moon::`, `tile moon`, `action shout`. */
 function serves(entry: ExtensionsListResult["extensions"][number]): string[] {
   return [
+    ...(entry.scripts ?? []).map(script => `script ${script.name}`),
     ...entry.handlers.map((handler) => `${handler.key}::`),
     ...entry.tiles.map((tile) => `tile ${tile.kind}`),
     ...entry.actions.filter((action) => !action.builtIn).map((action) => `action ${action.name}`),

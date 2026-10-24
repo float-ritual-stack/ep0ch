@@ -4,7 +4,7 @@ import { replacePropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { namesDemoIds, readDemo, rewriteDemoReferences, type Demo } from "./extension-demo";
-import type { ExtensionManifest, LoadedExtension } from "./extension-manifest";
+import { loadExtensionManifest, type ExtensionManifest, type LoadedExtension } from "./extension-manifest";
 import { cleanExtensionText, extensionActorId } from "./extension-records";
 import type { ExtensionEntry, ExtensionRegistry } from "./extension-registry";
 import type { OutlinerStore } from "./store";
@@ -49,6 +49,7 @@ export interface AvailableExtension {
   readonly name: string;
   readonly version: number;
   readonly description?: string;
+  readonly scripts?: ExtensionManifest["scripts"];
 }
 
 export interface ExtensionPagesOptions {
@@ -147,6 +148,7 @@ const scheduleWords = (schedule: { every?: string; cron?: string; once?: "host" 
 /** What a manifest adds, as list lines (the page's "What it adds"). */
 export function whatItAdds(manifest: ExtensionManifest): string[] {
   const out: string[] = [];
+  for (const script of manifest.scripts ?? []) out.push(`- Script **${words(script.name)}** (\`${script.file}\`): ${words(script.about)}`);
   for (const handler of manifest.handlers ?? []) {
     out.push(`- \`${handler.key}::\` lines: ${handler.kind === "data" ? "a record kept as a block" : handler.kind === "output" ? "output drawn under the line" : handler.kind === "component" ? "a component drawn under the line" : "a Resource"} (${handler.effects})${scheduleWords(handler.schedule)}${handler.description ? `. ${words(handler.description)}` : ""}`);
   }
@@ -299,11 +301,11 @@ export class ExtensionPages {
       const text = readText(join(root, name, "extension.json"));
       if (!text) continue;
       try {
-        const manifest = JSON.parse(text) as { id?: unknown; name?: unknown; version?: unknown; description?: unknown };
-        if (manifest.id !== name || typeof manifest.name !== "string") continue;
+        const { manifest } = loadExtensionManifest({ manifestRaw: text, configRaw: "{}", origin: "user", directory: join(root, name), expectedId: name, idFrom: "the folder's name" }, { checkConfig: false });
         out.push({
-          id: name, name: cleanExtensionText(manifest.name).trim(), version: typeof manifest.version === "number" ? manifest.version : 1,
-          ...(typeof manifest.description === "string" ? { description: cleanExtensionText(manifest.description).trim() } : {}),
+          id: name, name: manifest.name, version: manifest.version,
+          ...(manifest.scripts?.length ? { scripts: manifest.scripts } : {}),
+          ...(manifest.description ? { description: manifest.description } : {}),
         });
       } catch {
         // A built-in that doesn't parse isn't offered.
@@ -531,6 +533,7 @@ export class ExtensionPages {
     if (!this.available.length) lines.push("Every extension in the repo's folder is installed.");
     for (const extension of this.available) {
       lines.push(`- **${words(extension.name)}** \`${extension.id}\` v${extension.version}${extension.description ? `: ${words(extension.description)}` : ""}`);
+      for (const script of extension.scripts ?? []) lines.push(`  - Adds the script **${words(script.name)}**: ${words(script.about)}`);
     }
     lines.push("", "Install one with its demo notes: in the door, the power bar's extensions (ctrl+k then &; ⏎ or a click installs the row); an agent `act extensions.install id=<id>`; a shell `ep0ch ext add <id>`.");
     return lines.join("\n");

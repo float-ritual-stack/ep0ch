@@ -521,3 +521,23 @@ process.stdout.write(JSON.stringify({ ok: true, value: { rows } }));`);
   // An action on a bar row runs with no block, with the row's args.
   expect((await ask("hello")).rows).toEqual([{ id: "d", label: "waves", action: "wave", args: { to: "you" } }]);
 });
+
+
+test("a script extension names missing files and opt-in headers, and exposes only its declared scripts", async () => {
+  const { extensionsFolder, list } = await setup();
+  const folder = join(extensionsFolder, "garden-script");
+  mkdirSync(join(folder, "scripts"), { recursive: true });
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "garden-script", version: 1, name: "Garden script", scripts: [{ name: "water", file: "scripts/steps.js", about: "Counts the watering cans" }] }));
+  let listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "garden-script")?.error).toContain("script water is missing scripts/steps.js");
+  writeFileSync(join(folder, "scripts/steps.js"), "return 3;");
+  listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "garden-script")?.error).toContain("scripts/steps.js) needs a first line of // ep0ch-script");
+  writeFileSync(join(folder, "scripts/steps.js"), "// ep0ch-script\nreturn 3;");
+  writeFileSync(join(folder, "scripts/unused.js"), "// ep0ch-script\nreturn 4;");
+  listed = await list(true);
+  expect(listed.extensions.find(e => e.id === "garden-script")?.state).toBe("active");
+  expect(listed.extensions.find(e => e.script && e.name === "water")?.state).toBe("active");
+  expect(listed.extensions.some(e => e.script && e.name === "steps")).toBe(false);
+  expect(listed.extensions.some(e => e.script && e.name === "unused")).toBe(false);
+});
