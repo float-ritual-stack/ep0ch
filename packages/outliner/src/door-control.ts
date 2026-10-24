@@ -59,13 +59,14 @@ export function doorRequest(path: string, request: Record<string, unknown>, time
  * that tile's opens land, its link (PIE-491: the daily layout links the claude
  * tile to its middle detail), so the caller never names a reader. When the door
  * doesn't know that tile ("no tile <name> …") it is asked again without it:
- * where the door's own open puts notes. Any other refusal (the reader holds an
+ * where the door's own open puts notes, and the answer says `tileNotFound: <name>` so the caller can tell the
+ * person which tile the program named (PIE-1257: the silent landing hid a name the door could not resolve). Any other refusal (the reader holds an
  * edit, the screen can't open notes) is the answer, so the note never lands in
  * whatever reader the person has focused instead.
  */
-export async function openInDoor(path: string, blockId: string, options: { actor: string; from?: string }): Promise<{ reader?: string | null; id?: string }> {
+export async function openInDoor(path: string, blockId: string, options: { actor: string; from?: string }): Promise<{ reader?: string | null; id?: string; tileNotFound?: string }> {
   const request = { cmd: "act", action: "open", args: { id: blockId }, as: options.actor };
-  type Opened = { reader?: string | null; id?: string };
+  type Opened = { reader?: string | null; id?: string; tileNotFound?: string };
   if (options.from) {
     const from = options.from;
     try {
@@ -75,7 +76,8 @@ export async function openInDoor(path: string, blockId: string, options: { actor
       if (error instanceof DoorUnreachable || error instanceof DoorSilent || !(message.startsWith(`no tile ${from};`) || message.startsWith(`no tile ${from} `))) throw error;
     }
   }
-  return (await doorRequest(path, request)) as Opened;
+  const landed = (await doorRequest(path, request)) as Opened;
+  return options.from ? { ...landed, tileNotFound: options.from } : landed;
 }
 
 /** Whether a door answers on the socket (a connect that succeeds; nothing is sent). */

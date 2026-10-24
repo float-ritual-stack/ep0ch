@@ -27,7 +27,8 @@ new reader on the screen, whatever its `open` wire said: the program names its t
 `claude`), which the door didn't know for that tile, and the mod then asked again without a tile. The door now finds a
 tile by what its program was told (`EP0CH_TILE`, `EP0CH_TILE_ID`) when no tile has that name, and the Claude mod names
 its tile by the id the door gave it (`EP0CH_TILE_ID`), which names one tile where a name can be shared. A tile of the
-drawer with no wire opens the note on the screen shown, as before, instead of refusing. Hyperlinks the outer terminal
+drawer with no wire opens the note on the screen shown, as before, instead of refusing. `door-open` still lands a note for a tile the door can't find on the screen, but now says which tile it named
+(`tileNotFound` in its answer, a line on stderr). Hyperlinks the outer terminal
 opens itself (ctrl/cmd-click on an OSC 8 link) never reach the door, so they don't use the wire. No protocol change.
 
 ### Typing never lands in the wrong place while a note is opening in edit, and a failed open keeps what you typed (PIE-1153)
