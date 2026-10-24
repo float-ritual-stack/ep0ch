@@ -1207,12 +1207,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const desks = this.relatives();
     const found = (desk: Desk, id: number) => ({ tile: desk.tiles().find(t => t.id === desk.tileId(id))!, dispatch: desk.dispatch, desk });
     for (const desk of desks) for (const id of desk.panes.keys()) if (desk.tileId(id) === sel) return found(desk, id);
+    // The id it was told (EP0CH_TILE_ID) beats a name: the drawer's own program keeps `drawer.agent` wherever it runs, and its
+    // tab holds a tile of that name while it is out on a screen.
+    const toldId = desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && (p.toldId ?? p.tileId) === sel).map(([id]) => ({ desk, id })));
+    if (toldId.length === 1) return found(toldId[0]!.desk, toldId[0]!.id);
     const named = desks.flatMap(desk => [...desk.names].filter(([id, name]) => name === sel && desk.panes.has(id)).map(([id]) => ({ desk, id })));
     if (named.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${named.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
     if (named.length) return found(named[0]!.desk, named[0]!.id);
-    // A program names its tile by what it was told (EP0CH_TILE, EP0CH_TILE_ID): the drawer's own program is told its own
-    // name (shell, claude) and the id it keeps wherever it runs, neither the name its tile has on the desk.
-    const told = desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && (p.programTile === sel || p.tileId === sel)).map(([id]) => ({ desk, id })));
+    // A program names its tile by what it was told (EP0CH_TILE): the drawer's own program is told its own name (shell,
+    // claude), not the name its tile has on the desk.
+    const told = desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && p.programTile === sel).map(([id]) => ({ desk, id })));
     if (told.length > 1) throw new ActionRefused(`several programs were told ${sel}: ${told.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
     if (told.length) return found(told[0]!.desk, told[0]!.id);
     if (sel === "focused") return this.resolveTile(this.ctx?.person?.().address ?? this.keys().address ?? "");
@@ -2380,8 +2384,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const m = this.onScreenBlock(id) ?? await readNote(this.ctx, id);
     if (!m) throw new ActionRefused(`no block ${id}`);
     const landed = d.placeNote(m, { from: source, fresh, note: m.id }, actor);
-    // A tile of the drawer with no wire has no reader to open into: the screen shown takes it, as the drawer's lists do (`setCurrent`).
-    if (!landed) { const host = d.ctx?.hostLayer; return host?.isDrawer(d) ? host.openOnScreen(m.id, fresh, actor) : d.land(m, actor); }
+    // A tile of the drawer with no wire opens where the drawer's own landing says; with no reader to take it, the screen shown does, as for the drawer's lists (`setCurrent`).
+    if (!landed) {
+      const host = d.ctx?.hostLayer;
+      if (!host?.isDrawer(d)) return d.land(m, actor);
+      try { return d.land(m, actor); } catch (e) { if (e instanceof ActionRefused) return host.openOnScreen(m.id, fresh, actor); throw e; }
+    }
     this.redraw(); landed.desk.redraw();
     return { ...landed.desk.tileAnswer(landed.id), id: m.id };
   }

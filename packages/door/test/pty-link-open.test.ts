@@ -173,4 +173,47 @@ describe.skipIf(!outliner)("a link pressed in a terminal tile opens where the ti
       } finally { d.close(); }
     });
   }
+
+  test("the drawer's own terminal with no wire opens in a reader of the drawer when there is one", async () => {
+    const prog = program("potting-agent");
+    process.env.EP0CH_DAILY_AGENT = prog.cmd[0]!;
+    const d = await door(null);
+    try {
+      await d.app.dispatch.act({ action: "host.toggle", args: { open: true } }, USER);
+      (d.app as any).paint();
+      await until(() => !!d.app.drawer.desk, "the drawer's desk");
+      await until(() => { try { prog.seen(); return true; } catch { return false; } }, "the drawer's program saw its variables");
+      const note = await board.createBlock(null, "A letter from the seed drill");
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "tile.open", args: { kind: "detail", name: "det" } }, USER);
+      await drawer.dispatch.act({ action: "tile.focus", tile: "drawer.agent" }, USER);
+      const screen = shown(d.desk);
+      const r = await press(d.control.path, note.id, prog.seen());
+      expect({ code: r.code, stderr: r.stderr }).toEqual({ code: 0, stderr: "" });
+      expect(shown(drawer)).toEqual({ det: note.id });
+      expect(shown(d.desk)).toEqual(screen);
+    } finally { d.close(); }
+  });
+
+  test("the drawer's own terminal put on the screen keeps its wire, while its tab holds a tile of the old name", async () => {
+    const prog = program("potting-agent");
+    process.env.EP0CH_DAILY_AGENT = prog.cmd[0]!;
+    const d = await door(null);
+    try {
+      await d.app.dispatch.act({ action: "host.toggle", args: { open: true } }, USER);
+      (d.app as any).paint();
+      await until(() => !!d.app.drawer.desk, "the drawer's desk");
+      await until(() => { try { prog.seen(); return true; } catch { return false; } }, "the drawer's program saw its variables");
+      const note = await board.createBlock(null, "A letter from the cold store");
+      const out = await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false, to: "reader", where: "right" }, tile: "drawer.agent" }, USER) as any;
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", name: "det" }, tile: "reader" }, USER);
+      await d.desk.dispatch.act({ action: "tile.link", tile: out.name, args: { to: "det" } }, USER);
+      const before = { names: names(d.desk), shown: shown(d.desk) };
+      const r = await press(d.control.path, note.id, prog.seen());
+      expect({ code: r.code, stderr: r.stderr }).toEqual({ code: 0, stderr: "" });
+      expect(r.answer).toMatchObject({ name: "det" });
+      expect(shown(d.desk)).toEqual({ ...before.shown, det: note.id });
+      expect(names(d.desk)).toEqual(before.names);
+    } finally { d.close(); }
+  });
 });
