@@ -69,7 +69,11 @@ export async function startDeployRecord(f: Facts, env: Env, folder: string, when
       protocol = (await pluginCode(f.repo.outliner)).protocol;
       await save();
     },
-    async link(name: string, line: string) { links.set(name, line); await save(); },
+    async link(name: string, line: string, receipt?: LinkInstallResult) {
+      links.set(name, line); await save();
+      // A same-SHA install can use its saved receipt without another link callback.
+      if (receipt) await recordLinkInstall({ sha: receipt.sha, record: { socket, outline, id: first } }, name, receipt);
+    },
     async client(name: string, line: string) { legs.set(name, line); await save(); },
   };
 }

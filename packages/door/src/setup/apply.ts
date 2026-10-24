@@ -774,7 +774,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       const connected = new Set(linkStates(facts.host.folder).map(l => l.machine));
       for (const machine of facts.linkConfig.machines) if (deploy) {
         const receipt = linkInstallResult(facts.host.folder, machine, head.out);
-        await record(() => deploy!.link(machine, receipt ? linkInstallSummary(machine, receipt) : `${machine}: ${connected.has(machine) ? "install pending over the link" : "away; install queued for its next connection"}`));
+        await record(() => deploy!.link(machine, receipt ? linkInstallSummary(machine, receipt) : `${machine}: ${connected.has(machine) ? "install pending over the link" : "away; install queued for its next connection"}`, receipt));
       }
       publishLinkInstall(facts.host.folder, { sha: head.out, record: deploy?.linkRecord });
       for (const machine of facts.linkConfig.machines) {
