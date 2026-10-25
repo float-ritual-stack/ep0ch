@@ -523,7 +523,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
           continue;
         }
         dirty = true;
-        // A finding is made only from the state built again: the keys before this one may have moved it on.
+        // What the key ran names it: nothing to confirm. A finding is made only from the state built again (the keys before this one
+        // may have moved it on), so it is a suspect that is built again, as the first keys' findings are made from the first look.
+        if (runs.length && declares(tokens(runs), k2, k1)) continue;
         const problem = await second(label, make, setup, k1, k2);
         if (problem) findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem });
       }
