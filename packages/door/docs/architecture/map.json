@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "1d13d25a", "outliner": "1d13d25a", "on": "2026-10-25" },
+  "verified": { "door": "341a3806", "outliner": "341a3806", "on": "2026-10-25" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -579,7 +579,7 @@
       "id": "kept.herdr", "name": "Herdr", "group": "kept", "chapter": "terminal", "ladder": "stable", "dependsOn": [],
       "does": "The terminal multiplexer the outliner's panes run in. A Herdr pane outlives the door; the door attaches to it.",
       "built": "Called through its CLI with a timeout.",
-      "refs": [ { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 345, "m": "export function herdrRunner" } ]
+      "refs": [ { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 346, "m": "export function herdrRunner" } ]
     },
     {
       "id": "door.pty", "name": "Terminal tile", "group": "door", "chapter": "terminal", "ladder": "recognised", "dependsOn": ["kept.xterm", "door.desk"],
@@ -602,8 +602,8 @@
       "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches. The App owns that one tile (PIE-498), the first tab of your drawer, on the host layer (PIE-513): a layout on the one layout engine above every screen, pulled up from the status bar's chip over or beside a screen, as the screen's policy says. No screen has a copy of it.",
       "built": "scripts/door-agent-herdr.ts finds or creates the pane under a lock, attaches, and tells the door with tile.herdr over the control socket, as its tile. No title matching.",
       "refs": [
-        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 442, "m": "export async function main" },
-        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 369, "m": "export function tellDoor" },
+        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 443, "m": "export async function main" },
+        { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 370, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 88, "m": "\"tile.herdr\": def({" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 193, "m": "get herdr(): { pane: string; name?: string } | null" },
         { "r": "door", "p": "src/drawer.ts", "l": 195, "m": "export class AgentDrawer" },
