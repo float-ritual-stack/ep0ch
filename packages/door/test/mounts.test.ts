@@ -226,3 +226,67 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     void t;
   }, 20_000);
 });
+
+// PIE-1283 and PIE-1305: a mounted screen acts and looks like one screen with the one around it. The person's click
+// addresses the tile it landed on by its id (a name two layers share is only an agent's refusal), a mount is named for the
+// screen it mounts, a rename changes the name and the title together, and a mount draws a header with no second box,
+// no hint row of its own and no status line.
+describe.skipIf(!outliner)("a mounted screen is one screen with the one around it", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard, app: App, desk: Desk;
+  const AS = "mount-agent-1305";
+  const D = () => desk as any;
+  const act = (action: string, args: Record<string, unknown> = {}, tile?: string) => app.act({ action, args, tile, as: AS }) as Promise<any>;
+  const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
+  const frame = () => desk.render(D().ctx).lines.map(plain);
+  const settle = async (n = 4) => { for (let i = 0; i < n; i++) { frame(); await new Promise(r => setTimeout(r, 80)); } };
+  const focusId = () => D().layoutGet().tiles.find((x: any) => x.name === D().layoutGet().focus).tile as string;
+  const mountPane = (name: string) => { const id = [...D().names].find(([, n]: [number, string]) => n === name)?.[0]; return { id: id as number, pane: D().panes.get(id) }; };
+
+  beforeAll(async () => {
+    process.env.EP0CH_STATE = join(scratch.root, "door");
+    board = new SocketBoard(await scratch.start());
+    await board.info();
+    await scratch.seedShowcase();
+    const term = { info: { cols: 242, rows: 68, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    app = new App(term as any, board, Date.now(), () => {});
+    app.push(new MainMenu());
+    desk = new Desk();
+    app.push(desk);
+    frame();
+  }, 30_000);
+  afterAll(async () => { D().dispose(); board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+
+  test("a mount of a screen is named for it, and a second one is numbered", async () => {
+    const a = await act("tile.open", { kind: "screen", screen: "who" }, focusId());
+    expect(a.name).toBe("who");
+    const b = await act("tile.open", { kind: "screen", screen: "who" }, focusId());
+    expect(b.name).toBe("who2");
+    const c = await act("tile.open", { kind: "screen", screen: "lastcall", part: undefined }, focusId());
+    expect(c.name).toBe("lastcall");
+    await act("tile.close", {}, b.tile);
+    await act("tile.close", {}, a.tile);
+    await act("tile.close", {}, c.tile);
+  }, 20_000);
+
+  test("the person's click on a tile whose name another layer shares opens that tile's menu", async () => {
+    // The desk has a reader; the last callers' screen has one too.
+    expect(D().layoutGet().tiles.some((t: any) => t.name === "reader")).toBe(true);
+    const m = await act("tile.open", { kind: "screen", screen: "lastcall" }, focusId());
+    await D().dispatch.press("tile.focus", {}, m.tile);
+    await act("tile.zoom", { on: true }, m.tile);             // wide enough to draw the tile's ⋯
+    await settle();
+    const { id, pane } = mountPane(m.name);
+    const inner = pane.inner as any, box = D().contents.get(id);
+    expect([...inner.names.values()]).toContain("reader");
+    const b = inner.menuButtons.find((x: any) => inner.names.get(x.id) === "reader");
+    expect(b).toBeDefined();
+    D().key({ kind: "mouse", action: "down", button: 0, x: box.col + b.from, y: box.row + b.row }, D().ctx);
+    await settle();
+    expect(D().ctx.refusal?.() ?? null).toBeNull();
+    expect(inner.overlays.top()).toBeTruthy();
+    inner.overlays.top()?.key?.({ kind: "esc" }, inner);
+    await D().dispatch.press("tile.zoom", { on: false }, m.tile);
+    await D().dispatch.press("tile.close", {}, m.tile);
+  }, 20_000);
+});

@@ -449,7 +449,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       id = this.idNamed(made.tile);
       if (id !== undefined) (this.panes.get(id) as Pane & { besideShort: boolean }).besideShort = short;
     }
-    if (id !== undefined && this.dispatch.standing(actor)) await this.dispatch.act({ action: "tile.focus", tile: this.nameOf(id) }, actor);
+    if (id !== undefined && this.dispatch.standing(actor)) await this.dispatch.act({ action: "tile.focus", tile: this.tileId(id) }, actor);
     this.redraw();
     return { tile: id !== undefined ? this.nameOf(id) : null, tunes: target };
   }
@@ -1595,7 +1595,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   pressAction(set: ActionSet<any, any>, name: string, args: Record<string, unknown> = {}, p?: Pane, quiet: boolean | ((why: string) => string | null) = false, given?: unknown): Promise<unknown> {
     const id = this.idOf(p);
-    return this.dispatch.pressIn(set, name, args, id === undefined ? undefined : this.nameOf(id), quiet, given);
+    return this.dispatch.pressIn(set, name, args, id === undefined ? undefined : this.tileId(id), quiet, given);
   }
   paneAt(x: number, y: number): { pane: Pane; rect: Rect } | null {
     const id = this.topTileAt(x, y), r = id === null ? undefined : this.hits.find(([t]) => t === id)?.[1];
@@ -1610,6 +1610,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return c ? [...new Set(leaves(c).flatMap(id => this.followers(id)))] : [];
   }
   nameOfPane(p: Pane): string { const id = this.idOf(p); return id === undefined ? "" : this.nameOf(id); }
+  /** `p`'s door-wide tile id on this desk: what the person's own steps hand the dispatcher, never its name (two layers can share one). */
+  tileIdOfPane(p: Pane): string | undefined { const id = this.idOf(p); return id === undefined ? undefined : this.tileId(id); }
   enterSession(p: ReaderPane) { this.entered.enter(p); this.ctx.flash(`in ${sessionName(p)}`); this.redraw(); }
   leave() { this.shell("screen.back"); }
   /** The tiles a columns container's source supplied, in its order (wherever they are now). */
@@ -2863,7 +2865,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A tile's own key or click (its kind's set, a reader's note actions), as the person, in that tile. */
   press(p: Pane, set: ActionSet<any, any>, name: string, args: Record<string, unknown> = {}, quiet: boolean | ((why: string) => string | null) = false, given?: unknown): Promise<unknown> {
     const id = this.idOf(p);
-    return this.dispatch.pressIn(set, name, args, id === undefined ? undefined : this.nameOf(id), quiet, given);
+    return this.dispatch.pressIn(set, name, args, id === undefined ? undefined : this.tileId(id), quiet, given);
   }
 
   /** The reader panes with their numbers on screen (the ones `peek` shows), for a screen built on the desk. */
@@ -3917,7 +3919,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (actor.kind !== "user") throw new ActionRefused("tile.title needs text=<title>; text= clears it");
       this.overlay(linePrompt<Desk>({ name: "tile title", title: "Rename tile", text: p.writtenTitle ?? "", prefilled: true, verbatim: true,
         doing: () => "⏎ saves · empty uses the system title · {{this.title}} follows the note",
-        done: (text, d) => { d.run("tile.title", { text }, t.name); },
+        done: (text, d) => { d.run("tile.title", { text }, d.tileId(t.id)); },
       }));
       return { ...this.tileAnswer(t.id), prompt: true };
     }
@@ -4866,7 +4868,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         run: () => set({ spines: spines[(spines.indexOf(at.spines) + 1) % spines.length] }) });
       rows.push({ label: "min-width · open page width (0 keeps all open)", value: String(at["min-width"]),
         run: () => set({ clear: "min-width" }), adjust: by => set({ "min-width": Math.max(0, at["min-width"] + by) }) });
-      for (const entry of this.dispatch.menu(tname, USER).filter(m => m.action === "layout.gather")) rows.push({
+      for (const entry of this.dispatch.menu(this.tileId(tile), USER).filter(m => m.action === "layout.gather")) rows.push({
         label: entry.label, value: "", run: () => this.run(entry.action, { ...entry.args, node: id }, tname),
       });
     }
@@ -5018,7 +5020,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
     const empty = !this.all().length;
     const base = empty ? { id: this.focus, name: "home" } : this.tile(under !== undefined ? this.nameOf(under) : at);
-    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...this.mountFields(t) };
+    let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (t.mode ? this.autoName(this.wordFor(t)) : t.screen ? this.autoName(t.part ?? t.screen) : k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.mode ? { mode: t.mode } : {}), ...(t.cmd ? { cmd: lineWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.selectFrom ? { selectFrom: t.selectFrom } : {}), ...(t.outline ? { outline: t.outline, ...(t.machine ? { machine: t.machine } : {}) } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}), ...(t.query ? { query: t.query } : {}), ...(t.label ? { label: t.label } : {}), ...this.mountFields(t) };
     // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
     const wrong = k.check?.(spec);
     // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
@@ -5113,7 +5115,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const into: [number, WireVerb, string, AltRule | undefined][] = [];
     for (const { from: z, to, verb, rule } of this.layout.wires) if (inside.has(to) && !inside.has(z)) into.push([z, verb, this.tileId(to), rule]);
     const gid = this.nextId;
-    const r = this.ask({ op: "group", ...(target ? { node: o.node! } : { tile: t.id }), ...(w ? { take: [w.id] } : ids.length > 1 && !target ? { take: ids.filter(i => i !== t.id) } : {}), with: gid, kind: "screen", ...(o.name ? { name: o.name } : {}) }, actor);
+    const r = this.ask({ op: "group", ...(target ? { node: o.node! } : { tile: t.id }), ...(w ? { take: [w.id] } : ids.length > 1 && !target ? { take: ids.filter(i => i !== t.id) } : {}), with: gid, kind: "screen", name: o.name ?? this.autoName("group") }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
     const given = new Map(ids.map(id => [this.nameOf(id), this.panes.get(id)!] as const));
     const gathered = ids.map(id => [id, this.panes.get(id)!] as const);
@@ -5920,7 +5922,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
     if (pane.startError) throw new Error(pane.startError);
     p.ready?.({
-      focus: actor => this.dispatch.act({ action: "tile.focus", tile: this.nameOf(id) }, actor),
+      focus: actor => this.dispatch.act({ action: "tile.focus", tile: this.tileId(id) }, actor),
       start: (cmd, env, output, finished) => {
         pane.onExit = code => finished(this.panes.has(id) ? code : null);
         pane.replaceProgram(cmd, env, output);
@@ -6334,7 +6336,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   tileMenu(sel: string | undefined, at: string | undefined, actor: Actor, q = ""): TileDone {
     const t = this.tile(sel);
-    const every: MenuRow[] = this.dispatch.menu(t.name, actor);
+    const every: MenuRow[] = this.dispatch.menu(this.tileId(t.id), actor);
     // q= is what typing in the menu does: the rows that match, the power bar's matcher over label, group and key.
     const rows = q.trim() ? filtered(every, q, r => [r.label, r.group, r.key ? keyCaption(r.key) : ""]) : every;
     if (!this.dispatch.standing(actor)) return { ...this.tileAnswer(t.id), rows, ...(q.trim() ? { of: every.length } : {}) };
