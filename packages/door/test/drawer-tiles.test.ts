@@ -799,6 +799,8 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         const at = (sel: string) => screen.dispatch.tile(sel);
         expect([name, at(DRAWER_TILE_ID)?.id]).toEqual([name, own.id]);
         for (const t of ids.filter(x => x.drawer)) expect([name, t.name, at(t.id)?.name]).toEqual([name, t.name, t.name]);
+        // The screen shown is a layer of the host layer too: its own tile ids resolve from its own dispatcher, as they did.
+        for (const t of (screen as any).layoutGet?.().tiles ?? []) expect([name, t.name, at(t.tile)?.name]).toEqual([name, t.name, t.name]);
         // By act through the screen's own dispatcher, the lift and the drop.
         const lifted = () => d.app.drawer.desks().map(x => x.liftedDesk?.lifted?.tile ?? null).find(t => t !== null) ?? null;
         await screen.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: DRAWER_TILE_ID }, USER).catch((e: Error) => { throw new Error(`${name}: ${e.message}`); });
