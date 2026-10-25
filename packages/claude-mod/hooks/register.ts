@@ -1762,7 +1762,7 @@ async function runSettle($: EngineInterface, option: PluginOptions, config: Sett
     if (!bound) return
     // The settings live on the settle capability note in the outlines (the folder's .ep0ch/config.toml holds names only and is never read for them).
     // The option and the env var come first; the note is looked up in the outlines they name, else in pie and gurgle on the bound outline's machine.
-    const override = String(option.settleOutlines ?? '').trim() || (await $.env.get('EP0CH_SETTLE_OUTLINES')) || undefined
+    const override = String(option.settleOutlines ?? '').trim() || (await $.env.get('EP0CH_SETTLE_OUTLINES'))?.trim() || undefined
     const boundOutline = bound.outline ? { outline: bound.outline, ...(bound.machine ? { machine: bound.machine } : {}) } : null
     let named = outlinesOf(override, boundOutline)
     if (named.problems.length) settleToast($, `settleOutlines: ${named.problems.join('; ')}`)
