@@ -78,17 +78,16 @@ test("script blocks and outline script files load through the extension registry
   expect(listed.extensions.find(e => e.name === "labels")?.state).toBe("active");
 });
 
-test("a block script starts at once, writes as the script, and its complete run undoes in one step", async () => {
+test("a block script writes as the script, and its complete run undoes in one step", async () => {
   const { client, store } = await setup();
   const api = hostApi(client, { actorId: "seed-author" });
   const source = await api.call("outline_create", { parent: "root", text: "Seed report [script::seed-report] [results::keep] [effects::write]\n```js\nconst a = await tools.outline_create({ parent: 'root', text: 'Labels [type::supply]' });\nawait tools.outline_patch({ ref: a.id, revision: a.revision, patches: [{observed: 'Labels', replacement: 'Paper labels'}] });\nreturn 'Ready for planting';\n```" }) as { id: string };
   const listed = await client.request<{ extensions: { id: string; name?: string }[] }>({ action: "extensions.list", reload: true });
   const extension = listed.extensions.find(e => e.name === "seed-report")!;
-  const run = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
+  const run = await client.request<{ written: string[]; undo: string; message: string; state: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
   const log = run.written[0]!;
-  expect(store.get(log)?.text).toContain("working");
-  const deadline = Date.now() + 4000;
-  while (store.get(log)?.text.includes("· working") && Date.now() < deadline) await Bun.sleep(10);
+  // The act answers when the run has ended (PIE-1264), with the run's last word.
+  expect(run).toMatchObject({ message: "Ready for planting", state: "done" });
   expect(store.get(log)?.text).toContain("· done");
   expect(store.get(log)?.text).toContain("Ready for planting");
   const made = store.queryBlocks({ where: "type=supply" }).blocks[0]!;

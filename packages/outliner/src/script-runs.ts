@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
 import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
@@ -24,6 +25,9 @@ import type { Address, SiteAnswerRequest } from "@ep0ch/outline-core/site";
 import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
+const ANSWER_MS = 3000;
+/** Lets go of the connection's request queue (the server's `accept` sets it per request): a request that waits can call it. */
+export const queueRelease = new AsyncLocalStorage<() => void>();
 const RENDER_ERROR = "render scripts draw; use an action script (a button or of=) to change things";
 
 /**
@@ -83,7 +87,27 @@ export class ScriptRuns {
     private readonly inverse: (run: string) => Promise<import("./draft-patch").DraftPatchEdit[]>,
     private readonly act: (clientId: string | undefined, name: string, args: Record<string, unknown>, actor: MutationProvenance, signal: AbortSignal, meta: { requestedBy: MutationProvenance; invitation?: string }) => Promise<unknown>,
     /** A run ended (PIE-957): done, stopped or failed. The door holding its layout transaction closes it by that. */
-    private readonly ended?: (e: import("@ep0ch/outline-core/protocol").ScriptEnded) => void) {}
+    private readonly ended?: (e: import("@ep0ch/outline-core/protocol").ScriptEnded) => void,
+    /** How long `answered` waits for a run to end before it says the run is still going. */
+    private readonly answerMs = ANSWER_MS) {}
+
+  /**
+   * A run's answer for the one who asked (PIE-1264): `start` returns at once, but a caller of `act` or `script_run` has
+   * no `scripts.ended` to hear, so it waits here, a few seconds, for what the run says last (its returned line, the
+   * refusal it threw, "done"). A run still going after that answers `running` and how to stop it; its end is still
+   * broadcast. A background run (an agent's answer) or a rule's trigger never waits: nobody asked for words. Nor does a
+   * person's press: the door they pressed in hears the end (`scripts.ended`) and says it.
+   */
+  async answered(started: ExtensionActResult, request: ExtensionActRequest): Promise<ExtensionActResult> {
+    const task = started.undo ? this.tasks.get(started.undo) : undefined;
+    if (!task || request.background || request.trigger || request.requestedBy?.author === "user" || this.answerMs <= 0) return started;
+    queueRelease.getStore()?.();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([task, new Promise<void>(resolve => { timer = setTimeout(resolve, this.answerMs); })]);
+    clearTimeout(timer);
+    if (started.state !== "running") return { ...started };
+    return { ...started, message: `${started.message?.replace(/ working$/, "")} is still running after ${Math.round(this.answerMs / 100) / 10}s · its end is told when it comes; script.stop run=${started.undo} ends it` };
+  }
 
   /**
    * The Site a run reads (`this`, `self`, `caller`, `props`) and answers `resolve` from: `this` is the note the run is
@@ -270,7 +294,9 @@ export class ScriptRuns {
     if (source.blockId && this.store.get(source.blockId)?.properties.some(p => p.key === "results" && p.value === "keep")) keep();
     const title = source.blockId ? firstLineWithoutPropertyTokens(this.store.get(source.blockId)?.text ?? "")?.trim() : undefined;
     let message = `${title || extension.name} done`;
-    const result = { extension: extension.id, action: "run", message: `${extension.name} working`, written, undo, undoOn: request.blockId ?? source.blockId, writtenAs: actor.actorId ?? actor.author } satisfies ExtensionActResult;
+    // Its words are the run's to change as it goes: the answer (`answered`) is what stands when it ends.
+    const result: { -readonly [K in keyof ExtensionActResult]: ExtensionActResult[K] } = { extension: extension.id, action: "run", message: `${extension.name} working`, state: "running", written, undo, undoOn: request.blockId ?? source.blockId, writtenAs: actor.actorId ?? actor.author };
+    let returned: string | undefined;
     const update = () => captured(() => {
       if (!log) return;
       const now = this.store.require(log.id);
@@ -422,6 +448,7 @@ export class ScriptRuns {
         if (result.ok) {
           if (result.value !== undefined) {
             const text = scriptText(result.value);
+            returned = text;
             lines.push(text);
             if (!text.includes("\n") && (result.value === null || typeof result.value !== "object")) message = text || message;
             else keep();
@@ -457,6 +484,8 @@ export class ScriptRuns {
           this.runs.delete(undo);
           result.message = failure !== undefined ? `${failure || "Script failed"} · check the script and run it again`
             : reason === "done" ? message : "Script stopped; run it again when ready";
+          result.state = reason;
+          if (returned !== undefined && returned !== result.message) result.answer = returned;
           if (trace && failure) { trace.problem = failure; trace.result.text += `\n${failure}`; }
           this.ended?.({ run: undo, reason, ...(sequence ? { sequence: true } : {}), message: result.message, written, requestedBy, undo: (sequence !== undefined || reason === "done") && undoAvailable,
             ...(request.clientId && !request.background ? { targetClientId: request.clientId } : {}) });
