@@ -186,6 +186,12 @@ watchers. Its session id may change: say the new one to Evan.
 A Claude Code update is the same restart: `scripts/agent-restart --all --if-update --bg` restarts each background
 session running an older version than the installed `claude`, one at a time, each at a safe moment (between turns, its
 builders done), and leaves current ones alone. Evan fires it and forgets it; so can you after `claude update`.
+`ep0ch agent ls [--machine <ssh-name>]` shows each session's version beside the installed one (background and interactive
+ones, `behind` marked), and `ep0ch agent restart <name | short id | --all> [--if-update] [--fresh-daemon] [--check-env VAR]
+[--machine <ssh-name>]` is the person-facing form of the script (detached, from a laptop too, a name that matches nothing
+is refused at once). An interactive session (a `claude --continue` in a door terminal tile) isn't the daemon's: the
+command refuses it and says to `/exit`, then `claude --continue` in its tile; restarting a tile's program from the door is
+a follow-up.
 
 ## Infrastructure
 
