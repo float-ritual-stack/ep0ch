@@ -67,7 +67,7 @@ import { realTileDeps, tileOf, type TileOfAnswer, type TileProc } from "./tile-o
 import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
-import { ActionRefused, actionSet, def, agentLabel, type ActRequest } from "./surface/actions";
+import { ActionRefused, actionSet, def, preset, agentLabel, type ActRequest, type Again } from "./surface/actions";
 import { standsAsPerson, actorRule, type TileRef } from "./surface/dispatch";
 import { HOST_AGENT, NOBODY, type Whereabouts } from "./whereabouts";
 import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
@@ -1214,36 +1214,24 @@ export class AgentDrawer {
   }
   /** Whether the drawer's own program is out on a screen, its tab holding the place. */
   isAway(): boolean { return !!this.out; }
-
   /**
-   * agent.lift: the drawer's own program lifted above everything (a column, or across the terminal) wherever it is: the
-   * drawer pulled up on its tab, or the screen tile it went out to (goTo finds it, raising its screen for the person).
-   * Not running yet, the drawer comes up and starts it first, as alt+a does. Lifted already (or on=false), it drops.
+   * Out on a screen the tile grammar can't see from here (not the one shown), or closed there: `drawer.agent` names no
+   * running program, only the tab holding its place. agent.lift brings it back first (agent.back, which also frees the tab
+   * of a program that is gone).
    */
-  lift(on: boolean | undefined, reach: ZoomReach, actor: Actor): { tile: string; name: string; lifted: ZoomReach | null; in?: "drawer" | "screen" } {
-    // Out, but its program has since closed: the tab is the drawer's own again (as bringBack finds), and starts as any does.
-    if (this.out && !this.awayPane() && !this.outAlive()) this.free();
-    if (!this.p && !this.out && on !== false) this.set(true, actor);
-    // Out on a screen (take), the own tab only holds its place: the program is the tile that left, or after a handover
-    // the one with its key, on the screen it went to or the one shown.
-    const p = this.out ? this.awayPane() : this.p;
-    if (!p) throw new ActionRefused(this.out ? `${this.name} is out on a screen that isn't shown · go to it, or agent.back brings it home` : `${this.name} isn't running · alt+a pulls it up and starts it`);
-    const holder = [this.d, this.left?.screen, tilesOf(this.host.screen?.())].find(d => !!d?.nameOfPane(p)) ?? null;
-    const up = !!holder?.liftsPane(p);
-    if (on ?? !up) { const went = this.goTo(p, actor, { zoom: reach }); return { tile: went.tile, name: went.name, in: went.in, lifted: reach }; }
-    if (holder && up) { holder.zoomTile(holder.nameOfPane(p), false, actor, reach); this.host.redraw(); }
-    return { tile: DRAWER_TILE_ID, name: this.name, lifted: null };
+  awayUnseen(): boolean {
+    if (!this.out) return false;
+    const t = this.d?.resolveTile(DRAWER_TILE_ID), p = t?.desk.pane(t.tile.name);
+    return !(p instanceof PtyPane && p.running);
   }
-  /** The drawer's own program while it's out: the tile that left, else (after a handover) the one with its key, where it's shown. */
-  private awayPane(): PtyPane | null {
-    if (this.left && [this.left.screen, tilesOf(this.host.screen?.())].some(s => !!s?.nameOfPane(this.left!.pane))) return this.left.pane;
-    for (const s of [this.left?.screen, tilesOf(this.host.screen?.())]) {
-      if (!s || s === this.desk) continue;
-      const name = s.layoutGet().tiles.map((t: { name: string }) => t.name).find((n: string) => this.isOwnOut(s.pane(n)));
-      if (name) return s.pane(name) as PtyPane;
-    }
-    return null;
+  /** The drawer's own program is the tile lifted now (the tile grammar's `drawer.agent`, wherever it is). */
+  liftsOwn(): boolean {
+    const t = this.d?.resolveTile(DRAWER_TILE_ID), p = t?.desk.pane(t.tile.name);
+    return !!t && !!p && t.desk.liftsPane(p);
   }
+  /** Whether `actor` acts as the person here (their press, or an agent on it): only then do the keys move with a lift. */
+  standsFor(actor: Actor): boolean { return this.ctx(actor).standing; }
+
   /** Whether the drawer's program that's out still runs somewhere (on a screen not shown now): the tile that left, else one with its key. */
   private outAlive(): boolean {
     if (this.left) return this.left.pane.running;
@@ -1661,7 +1649,7 @@ function defaultHerdr(): HerdrRun | null {
   return bin ? herdrRunner(bin, 2000) : null;
 }
 
-export interface DrawerOn { drawer: AgentDrawer; ctx: Ctx; here: Screen | undefined }
+export interface DrawerOn extends Again { drawer: AgentDrawer; ctx: Ctx; here: Screen | undefined }
 
 /** The drawer's actions: on every screen, as the shell's are. */
 export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
@@ -1903,11 +1891,14 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       return drawer.bringBack(actor) ?? { tile: null };
     },
   }),
-  "agent.lift": def({
-    summary: "lift the drawer's own program (▲ claude, its first tab) above everything as a column (reach=full: across the terminal), wherever it is: the drawer pulled up on its tab, or the screen tile it went out to; not running yet, it starts first, as alt+a does. Again, or on=false, drops it. The person's keys go to it; an agent's lift never replaces the person's",
+  // A preset (PIE-1279): tile.zoom on the drawer's agent, so which tile that is has one answer, the tile grammar's
+  // (`drawer.agent`), and its toggle is tile.zoom's own. Its own steps first: a program out on a screen not shown (or
+  // closed there) comes back first (agent.back), and a drawer that never ran its program comes up and starts it (alt+a).
+  "agent.lift": preset({
+    summary: "lift the drawer's own program (▲ claude, its first tab) above everything as a column (reach=full: across the terminal), wherever it is: tile.zoom on tile=drawer.agent, which starts first when it isn't running, as alt+a does. Again, or on=false, drops it. The person's keys go to it; an agent's lift never replaces the person's",
     keys: "✦a; a status-bar button (::button{label=\"▲ lift\" act=\"agent.lift\"} in your bar note); ^W Z on its tile does the same where it is",
     touches: "screen", host: true, replay: "safe",
-    says: (out: { name?: string; lifted?: string | null }) => ({ text: out?.lifted ? `· lifted ${out.name ?? "the drawer's program"} (${out.lifted})` : `· dropped ${out?.name ?? "the drawer's program"}`, ms: 4000 }),
+    says: (out: { zoomed?: boolean }) => ({ text: out?.zoomed ? "· lifted the drawer's program" : "· dropped the drawer's program", ms: 4000 }),
     args: {
       on: { type: "boolean", optional: true, about: "true lifts, false drops; left out, it toggles" },
       reach: { type: "string", optional: true, choices: ["column", "full"], about: "column (default) or full" },
@@ -1916,10 +1907,15 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       { act: "agent.lift", does: "lifts the drawer's agent as a column wherever it is, or drops it when it's lifted" },
       { act: "agent.lift reach=full", does: "lifts it across the whole terminal" },
     ],
-    run({ on, reach }, { drawer }, actor) {
-      if (reach !== undefined && reach !== "column" && reach !== "full") throw new ActionRefused("reach is column or full");
-      return drawer.lift(on, (reach ?? "column") as ZoomReach, actor);
-    },
+    to: { action: "tile.zoom", tile: DRAWER_TILE_ID, args: { reach: "column" } },
+    // A lift of it (not a drop) comes with the person's keys, as alt+a gives them: the program in the drawer pulls it up and
+    // goes into it (host.enter is the person's own), one on a screen takes the focus there.
+    first: [
+      { action: "agent.back", when: ({ on }, { drawer }) => on !== false && !drawer.liftsOwn() && drawer.awayUnseen() },
+      { action: "host.toggle", args: { open: true }, when: ({ on }, { drawer }) => on !== false && !drawer.liftsOwn() && !drawer.isAway() && !drawer.shown },
+      { action: "tile.focus", tile: DRAWER_TILE_ID, when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsOwn() && drawer.standsFor(actor) },
+      { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsOwn() && actor.kind === "user" && !drawer.isAway() && !drawer.entered },
+    ],
   }),
   "agent.restart": def({
     summary: "restart the drawer's own program (▲ claude, its first tab) so it starts with the door's environment (EP0CH_CONTROL, EP0CH_NEST …) and the installed Claude mod: that agent alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (a bare claude gets --continue on this restart). In Herdr it comes back in the session's own pane. An agent's restart is refused while the person types in it, and is said on screen",

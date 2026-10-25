@@ -182,6 +182,32 @@ export type ArgsOf<S> = [keyof S] extends [never] ? Record<string, never>
 /** An action whose arguments are typed from its `args` schema (ArgsOf), its host from the set it's in (actionSet). */
 // The cast only says what TS can't prove generically: ArgsOf<S>'s keys are S's.
 export const def = <const S extends Record<string, ArgSpec>, H>(d: { args: S } & Omit<ActionDef<ArgsOf<S>, H>, "args">) => d as unknown as ActionDef<ArgsOf<S>, H>;
+/** A host that can run another action as the actor it is running for: the door's dispatcher (a `preset`'s way to its action). */
+export interface Again { again(action: string, args: Record<string, unknown>, tile?: string): Promise<unknown> }
+/**
+ * A preset (PIE-1279): a named action that is another action with arguments bound, as a keymap row binds `{ action, args }`:
+ * `agent.lift` is `tile.zoom` on `drawer.agent` at `reach=column`. It runs through the dispatcher, so the target's own
+ * rules, its tile grammar and the attribution hold and nothing is decided twice; what it adds is its own name and
+ * summary (a row in `actions` and the power bar), the arguments it lets a caller change (they override the bound ones,
+ * an unset one leaves them) and the steps it composes first, each an action run before it when `when` says so
+ * (`agent.lift` starts the drawer's program before zooming it).
+ */
+export function preset<const S extends Record<string, ArgSpec>, H extends Again>(d: {
+  summary: string; keys?: string; touches: Touches; host?: true; replay: Replay; args: S;
+  says?: ActionDef<ArgsOf<S>, H>["says"]; examples?: readonly ActionExample[];
+  to: { action: string; tile?: string; args?: Record<string, unknown> };
+  first?: readonly { action: string; args?: Record<string, unknown>; tile?: string; when?(args: ArgsOf<S>, host: H, actor: Actor): boolean }[];
+}): ActionDef<ArgsOf<S>, H> {
+  const { to, first = [], ...rest } = d;
+  return def({
+    ...rest,
+    async run(args: ArgsOf<S>, host: H, actor: Actor) {
+      for (const step of first) if (step.when?.(args, host, actor) ?? true) await host.again(step.action, step.args ?? {}, step.tile);
+      const given = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
+      return host.again(to.action, { ...to.args, ...given }, to.tile);
+    },
+  } as never) as ActionDef<ArgsOf<S>, H>;
+}
 /** Each action's arguments in a set, by name. */
 export type ArgsOfSet<S> = S extends ActionSet<infer M, any> ? M : never;
 /** A set of `def` actions over host `H`, in scope `scope`: `actionSet<On>()("tile", { … })`. */

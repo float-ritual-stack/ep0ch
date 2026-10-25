@@ -1137,7 +1137,7 @@ export class App implements Ctx {
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },
-    { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1) }) },
+    { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.hostLayer.desks()[0]?.focusedDesk() ?? this.stack.at(-1) : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },
     { set: MACRO_ACTIONS, takes: "none", on: () => ({ ctx: this, recording: this.recording }) },
@@ -1289,11 +1289,16 @@ export class App implements Ctx {
       return;
     }
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1 && k.action === "down") {
-      for (const d of this.drawer.desks()) d.liftedDesk?.dropLift();
+      // The bar is chrome over the screen, not "elsewhere" (PIE-1189): work that moves to it must not land under a lift, so
+      // a lift the click's action left as it found it drops. One an action itself lifted, dropped or moved (agent.lift,
+      // tile.zoom: a bar button that toggles the lift) is that action's; dropping it first made the second click lift again.
+      const lifts = this.drawer.desks().flatMap(d => d.liftedDesk ? [{ desk: d.liftedDesk, was: d.liftedDesk.lifted }] : []);
+      const dropUntouched = () => { for (const l of lifts) if (l.desk.lifted === l.was) l.desk.dropLift(); };
       const hit = this.statusBoxes.find(h => k.x >= h.from && k.x < h.to);
       const alt = k.button === 2 || ((k.mods ?? 0) & 8) !== 0;
       const req = hit ? (alt ? hit.item.alt ?? hit.item.click : k.x === hit.to - 1 && hit.item.lastCell ? hit.item.lastCell : hit.item.click) : { action: alt ? "status.bar.edit" : "status.log" };
-      if (req) void this.dispatch.press(req.action, req.args, req.tile);
+      if (req) void this.dispatch.press(req.action, req.args, req.tile).finally(dropUntouched);
+      else dropUntouched();
       return;
     }
     // The hyper layer (PIE-699): ⌃⌥⇧⌘ and a key, before any tile's own keys (a draft's and a terminal tile's too). Each chord
