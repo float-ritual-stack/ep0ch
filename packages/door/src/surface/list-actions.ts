@@ -24,6 +24,8 @@ export interface ListHost {
   enter(list: ListHandle, on: boolean): void;
   /** The person starts typing a filter. */
   type(list: ListHandle): void;
+  /** The person's filter set by `list.filter words=`, when the host keeps it itself (its model narrows by it); else the view keeps it. */
+  keep?(list: ListHandle, words: string): void;
   redraw(): void;
 }
 
@@ -78,7 +80,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
             ...(mine ? { selected: mine.id } : {}),
             ...(who !== PERSON ? { yours: { ...(yours ? { picked: yours.id } : {}), ...(l.view.filter(who) ? { filter: l.view.filter(who), rows: l.view.pickable(who).length } : {}) } } : {}),
             agents: l.view.others().filter(o => o.who !== who).map(o => ({ by: o.who, ...(o.row ? { picked: o.row.id } : {}), ...(o.filter ? { filter: o.filter } : {}) })),
-            rows: l.view.describe(PERSON, l.describeRow),
+            rows: l.view.describe(who, l.describeRow, PERSON),
           };
         }),
       };
@@ -110,7 +112,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
   }),
   "list.step": def({
     summary: "move the pick `by` rows (1 the next, -1 the one before) among the rows that can be picked, as j and k do; list= which list. The person's moves their selection and the [ ] position; an agent's is its own, in its tint",
-    keys: "j k ↑ ↓ in the list",
+    keys: "j k ↑ ↓ Home End in the list, the wheel over a links tile",
     touches: "nothing", replay: "safe", says: r => (r.moved ? null : `stepped to row ${r.row} of ${r.title}`),
     args: {
       list: LIST_ARG,
@@ -168,8 +170,9 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
         host.redraw();
         return { list: l.n, title: l.title, typing: true, filter: l.view.filter(PERSON) };
       }
-      l.view.stopTyping(false);
-      l.view.setFilter(who, words);
+      // The person's own filter is the host's to keep (a links tile narrows through its model); an agent's is the view's.
+      if (who === PERSON) { l.view.stopTyping(false); if (host.keep) host.keep(l, words); else l.view.setFilter(who, words); }
+      else l.view.setFilter(who, words);
       host.redraw();
       return { list: l.n, title: l.title, filter: l.view.filter(who), rows: l.view.visible(who).length };
     },

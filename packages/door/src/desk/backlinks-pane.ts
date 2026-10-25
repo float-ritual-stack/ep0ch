@@ -373,7 +373,10 @@ export class BacklinksPane implements Pane {
     this.controls = st.segs.filter(s => s.control);
     this.head = st.rows;
     const fit = Math.max(1, h - this.head);
-    this.sel = Math.max(0, Math.min(this.sel, rows.length - 1));
+    // The selection kept within the rows (one pass over them: `sel` asks the model again each time it is read).
+    const kept = rows.findIndex(r => r.key === this.list.pickedId(PERSON));
+    const sel = Math.max(0, Math.min(kept < 0 ? 0 : kept, rows.length - 1));
+    if (rows[sel]) this.list.setPick(PERSON, rows[sel].key);
     // The look's list rows (PIE-673): gaps between rows, a divider between groups (dots by default), zebra on every other.
     const v = desk.lookOf?.(this)?.values ?? BASE_STYLE;
     this.syncList(rows);
@@ -547,6 +550,7 @@ export class BacklinksPane implements Pane {
       },
       enter: () => { throw new ActionRefused("a links tile's list has the keys whenever the tile does: focus the tile (tile.focus) rather than going into it"); },
       type: () => this.run(desk, "backlinks.view", { step: "filter" }),
+      keep: (_l, words) => this.run(desk, "backlinks.view", { filter: words }),
       redraw: () => desk.redraw(),
     };
   }

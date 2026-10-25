@@ -37,6 +37,24 @@ describe("ListView", () => {
     expect(() => v.pick(PERSON, "g")).toThrow("header");
   });
 
+  test("a host that narrows for the person doesn't lose the others' picks; rows are numbered as each actor sees them; the room is a bound", () => {
+    const v = new ListView("links", false);
+    v.set(rows());
+    v.pick("rhea", "spade");
+    v.set(rows().filter(r => r.id === "pea"));                 // the person filtered to one row: the model gave only it
+    v.set(rows());
+    expect(v.picked("rhea")?.id).toBe("spade");
+    v.setFilter("rhea", "bean");
+    expect(v.describe("rhea").map(r => [r.n, r.id])).toEqual([[1, "bean"]]);
+    for (const who of ["a", "b", "c"]) v.pick(who, "bean");
+    expect(v.draw({ cols: 40, focused: false, selection: false, room: 2, filterLine: false }).lines).toHaveLength(2);
+    // A producer's row id can't be a generated header's.
+    const odd = listRowsOf({ rows: [{ id: "§group:g", label: "Odd", group: "g", do: { copy: "x" } }], groups: [{ name: "g", label: "G", count: 1 }] });
+    const w = new ListView("#1");
+    w.set(odd);
+    expect(w.pick(PERSON, "§group:g").label).toBe("Odd");
+  });
+
   test("a view that narrows its own rows keeps a header while a row of its group matches; ⏎ keeps what was typed, esc goes back", () => {
     const v = new ListView("#1");
     v.set(rows());
@@ -72,7 +90,7 @@ describe("ListView", () => {
     const view = { type: "list", groups: [{ name: "sow", label: "Sow now", count: 1 }], rows: [{ id: "pea", label: "Pea trellis", detail: "next", group: "sow", do: { open: "x" } }, { id: "tip", label: "Dig first" }] };
     expect(primitiveLines(view, 40).map(plain).map(l => l.trimEnd())).toEqual(["■ Dig first", "▾ Sow now (1)", "  · Pea trellis · next"]);
     expect(primitiveLines({ type: "list", rows: [], empty: "no seeds yet" }, 40).map(plain)).toEqual(["no seeds yet"]);
-    expect(listRowsOf(view as never).map(r => r.id)).toEqual(["tip", "§group:sow", "pea"]);
+    expect(listRowsOf(view as never).map(r => r.id)).toEqual(["tip", "\u0000group:sow", "pea"]);
     expect(listRowLines({ id: "a", label: "A long label that wraps over the width of a narrow tile", detail: "and more", mark: "→" }, { cols: 20, lines: 2 }).length).toBe(2);
   });
 });

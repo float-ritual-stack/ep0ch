@@ -79,7 +79,7 @@ export function listRowLines<S>(r: ListViewRow<S>, o: RowDraw<S>): string[] {
  */
 export function listRowsOf(node: Pick<ListPrimitive, "rows" | "groups">): ListViewRow[] {
   return listSections(node).flatMap(({ head, rows }) => [
-    ...(head ? [{ id: `§group:${head.name ?? head.label}`, label: listHead(head), mark: "▾", tone: "warn" as const, pick: false, group: head.name ?? head.label, ...(head.note ? { detail: head.note } : {}) }] : []),
+    ...(head ? [{ id: `\u0000group:${head.name ?? head.label}`, label: listHead(head), mark: "▾", tone: "warn" as const, pick: false, group: head.name ?? head.label, ...(head.note ? { detail: head.note } : {}) }] : []),
     ...rows.map((r): ListViewRow => ({ ...r, mark: r.mark ?? (r.do ? "·" : "■"), depth: head ? 1 : 0 })),
   ]);
 }
@@ -142,14 +142,16 @@ export class ListView<S = unknown> {
    * `narrows`: whether this view narrows its rows by a typed filter. A host whose model narrows its own (the links
    * model: its counts, kinds and sorts follow the filter) says false, reads `filter()` and gives the rows narrowed.
    */
+  /** What kind of component draws here: a positional key (`#2`) keeps its state only while the component there is the same kind of thing. */
+  signature = "";
+
   constructor(readonly key: string, readonly narrows = true) {}
 
-  /** The rows as the host gave them; a pick on a row that is gone is dropped (the person's falls to the first row that can be selected). */
-  set(rows: readonly ListViewRow<S>[]) {
-    this.all = [...rows];
-    const ids = new Set(rows.map(r => r.id));
-    for (const [who, id] of this.picks) if (!ids.has(id)) this.picks.delete(who);
-  }
+  /**
+   * The rows as the host gave them. A pick on a row that is not among them is kept: a host that narrows for the person
+   * leaves out rows other actors have picked, and they come back with the filter cleared. `picked` only answers a row that is listed.
+   */
+  set(rows: readonly ListViewRow<S>[]) { this.all = [...rows]; }
   get rows(): readonly ListViewRow<S>[] { return this.all; }
 
   // ── filters ──────────────────────────────────────────────────────────────
@@ -191,7 +193,11 @@ export class ListView<S = unknown> {
   /** `who`'s pick as kept: a row id, whether or not it is listed now (null: none made). */
   pickedId(who: string = PERSON): string | null { return this.picks.get(who) ?? null; }
   /** Keep `id` as `who`'s pick without checking it against the rows (a host that moves its own selection by row, then draws). */
-  setPick(who: string, id: string | null) { if (id === null) this.picks.delete(who); else this.picks.set(who, id); this.view.reveal(); }
+  setPick(who: string, id: string | null) {
+    if ((this.picks.get(who) ?? null) === id) return;
+    if (id === null) this.picks.delete(who); else this.picks.set(who, id);
+    this.view.reveal();
+  }
   /** The rows `who` can pick among those they see, numbered from 1 by `list.blocks` and `list.pick n=`. */
   pickable(who: string = PERSON): ListViewRow<S>[] { return this.visible(who).filter(selectable); }
   /** Whether `who` has picked anything of their own (the person's default first row isn't one). */
@@ -227,8 +233,8 @@ export class ListView<S = unknown> {
 
   // ── what a list says it holds ────────────────────────────────────────────
 
-  describe(who: string = PERSON, describeRow?: (row: ListViewRow<S>, n: number) => Partial<ListRowInfo>): ListRowInfo[] {
-    const rows = this.pickable(who), mine = this.picked(who)?.id;
+  describe(who: string = PERSON, describeRow?: (row: ListViewRow<S>, n: number) => Partial<ListRowInfo>, marked: string = PERSON): ListRowInfo[] {
+    const rows = this.pickable(who), mine = this.picked(marked)?.id;
     return rows.map((r, i) => ({
       n: i + 1, id: r.id, text: r.label, ...(r.detail ? { detail: r.detail } : {}), ...(r.group ? { group: r.group } : {}),
       ...(describeRow?.(r, i + 1) ?? {}),
@@ -261,8 +267,9 @@ export class ListView<S = unknown> {
     const push = (line: string, row: number | null) => { lines.push(line); at.push(row); };
     const kept = this.filter();
     if (o.filterLine !== false && (this.typing || kept)) push(fg(C.yellow) + pad(`/ ${this.typing ? this.typing.plain() : kept}`, lw) + RESET, null);
-    // The rows an agent's say-so takes at the bottom come out of the viewport, never past the tile.
-    const says = others.filter(a => a.row || a.filter).length;
+    // The rows an agent's say-so takes at the bottom come out of the viewport, never past the tile: as many as fit beside one row.
+    const sayers = others.filter(a => a.row || a.filter).slice(0, o.room === undefined ? undefined : Math.max(0, o.room - 1 - lines.length));
+    const says = sayers.length;
     const drawn = rows.map((r, i) => listRowLines(r, { cols: lw, lines: o.lines, selected: r.id === mine?.id, focused: o.focused, agent: agentRows.has(r.id), ...(o.tag ? { tag: o.tag } : {}) }));
     if (!rows.length) push(fg(C.dark) + (o.empty ?? "nothing here yet") + RESET, null);
     else if (o.look) {
@@ -283,9 +290,9 @@ export class ListView<S = unknown> {
       for (const [l, i] of flat.slice(top, top + room)) push(l, i);
     }
     // Each agent's own pick and filter, in its tint: it never moved the person's.
-    for (const a of others) {
-      const says = [a.row ? `◆ ${a.row.label}` : "", a.filter ? `/ ${a.filter}` : ""].filter(Boolean).join("  ");
-      if (says) push(paintRange(pad(` ${a.who.replace(/^.*:/, "")}: ${says}`, lw), 0, lw, tint("agent")) + RESET, null);
+    for (const a of sayers) {
+      const said = [a.row ? `◆ ${a.row.label}` : "", a.filter ? `/ ${a.filter}` : ""].filter(Boolean).join("  ");
+      if (said) push(paintRange(pad(` ${a.who.replace(/^.*:/, "")}: ${said}`, lw), 0, lw, tint("agent")) + RESET, null);
     }
     // The selected row's note, beside the list or under it.
     let pv: string[] = [];
@@ -300,7 +307,9 @@ export class ListView<S = unknown> {
       return { lines: out, rowAt: outAt, previewed: mine, beside, listCols: lw };
     }
     if (pv.length) return { lines: [...lines, fg(C.dark) + "─".repeat(Math.min(o.cols, 40)) + RESET, ...pv], rowAt: [...at, null, ...pv.map(() => null)], previewed: mine, beside, listCols: lw };
-    return { lines, rowAt: at, previewed: mine, beside, listCols: lw };
+    // `room` bounds what is drawn, whatever the filter line and the say-so lines took of it.
+    const cut = o.room === undefined ? lines.length : Math.max(1, o.room);
+    return { lines: lines.slice(0, cut), rowAt: at.slice(0, cut), previewed: mine, beside, listCols: lw };
   }
 }
 

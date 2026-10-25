@@ -655,7 +655,7 @@ export interface LinkBlocksEnv {
   /** Counted as the components are drawn (one env for a layout): a component's key is its `^name`, else its place among them. */
   drawn?: { n: number };
   /** The list the reader keeps for component `key` (its selections, filters and scroll are the viewers'); without it a draw is a one-off. */
-  list?(key: string): ListView<LinkRow>;
+  list?(key: string, signature: string): ListView<LinkRow>;
   /** The person is in component `key` (its keys are the list's). */
   entered?(key: string): boolean;
   /** Tag a row, its target `to`, as row `row` of component `key`. */
@@ -701,7 +701,7 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
       ...wrap("edit query= in this block and it asks again", inner).map(l => fg(C.dark) + l + RESET),
     ], W, "live · query not read");
   }
-  const view = blocks?.list?.(key) ?? new ListView<LinkRow>(key, false), entered = !!blocks?.entered?.(key);
+  const view = blocks?.list?.(key, `links:${spec.kind}:${spec.query ?? ""}:${spec.of ?? ""}:${(spec.groups ?? []).join()}`) ?? new ListView<LinkRow>(key, false), entered = !!blocks?.entered?.(key);
   const filter = [spec.filter, view.filter()].filter(Boolean).join(" ");
   const kinds = data.backlinks.kind === "ready" ? new Set(backlinkView(data.backlinks.value, DEFAULT_BACKLINK_VIEW_OPTIONS).kinds.map(k => k.kind)) : new Set<string>();
   const rows = linkRows(data, { shut: new Set(), kinds, backlinks: { ...DEFAULT_BACKLINK_VIEW_OPTIONS, filter, ...(spec.stages ? { stages: spec.stages } : {}) }, only: new Set(groups) });

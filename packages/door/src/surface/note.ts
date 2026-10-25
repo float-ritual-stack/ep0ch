@@ -2422,7 +2422,7 @@ export class NoteSurface {
     ]);
     // What the inline lists (a ::links component, an extension's list view) are lent: their lists, the person in one, how a row and the control are tagged.
     this.listEnv = this.printed ? undefined : {
-      list: key => this.listFor(key),
+      list: (key, signature) => this.listFor(key, false, signature),
       entered: key => this.listIn === key,
       row: (key, row, to, x) => tagged(drawn, { ...to, listRow: { key, row } }, x),
       control: (key, x) => tagged(drawn, { role: "control", label: key, listRow: { key } }, x),
@@ -3781,7 +3781,7 @@ export class NoteSurface {
   private viewList(node: ListPrimitive, width: number, run: (act: string) => LinkTarget, lb: LinkBlocksEnv | undefined, drawn: Link[], markdown: (text: string) => string[]): string[] {
     if (!lb) return listRowsOf(node).flatMap(r => listRowLines(r, { cols: width, lines: 2 }));
     const n = ++(lb.drawn ??= { n: 0 }).n, key = `#${n}`;
-    const view = this.listFor(key, true), entered = this.listIn === key;
+    const view = this.listFor(key, true, "list"), entered = this.listIn === key;
     view.set(listRowsOf(node));
     const previewing = node.preview !== undefined && node.preview !== "none" && view.rows.some(r => r.preview);
     const tag = (row: ListViewRow, x: string): string => {
@@ -3807,9 +3807,11 @@ export class NoteSurface {
   }
 
   /** The list the reader keeps for component `key`, made when first drawn. `narrows`: whether the view narrows its rows by a typed filter (a links component's model does that itself). */
-  listFor<S = unknown>(key: string, narrows = false): ListView<S> {
+  listFor<S = unknown>(key: string, narrows = false, signature = ""): ListView<S> {
     let v = this.listViews.get(key);
-    if (!v) this.listViews.set(key, v = new ListView<S>(key, narrows));
+    // A `#n` key is a place: the component drawn there now is the same list only while it is the same kind of thing.
+    if (v && (v.narrows !== narrows || (key.startsWith("#") && v.signature !== signature))) { if (this.listIn === key) this.leaveList(key); v = undefined; }
+    if (!v) { this.listViews.set(key, v = new ListView<S>(key, narrows)); v.signature = signature; }
     return v as ListView<S>;
   }
 
@@ -5021,7 +5023,7 @@ export class NoteSurface {
    * ⏎ (or a click) on an element. The person's (`select`, the default) becomes their `[ ]` position; an
    * agent's leaves it where it was (a fold it toggles isn't selected, a thread list is its own session).
    */
-  private async enterElement(e: Element, host: SurfaceHost, { fresh = false, select = true }: { fresh?: boolean; select?: boolean } = {}): Promise<unknown> {
+  private async enterElement(e: Element, host: SurfaceHost, { fresh = false, select = true, actor = USER }: { fresh?: boolean; select?: boolean; actor?: Actor } = {}): Promise<unknown> {
     if (select) this.setElem(e);
     if (e.kind === "fold") {
       const p = this.msg ? this.foldsIn(this.msg).points.find(p => `fold:${p.key}` === e.key) : undefined;
@@ -5049,7 +5051,7 @@ export class NoteSurface {
     if (e.region && !e.link?.ext && !e.link?.block) { host.redraw(); return null; }
     if (e.kind === "control") return this.useControl(e, host);
     // A list row whose activation is text (PIE-747): ⏎ copies it, or puts it in the person's draft.
-    if (e.link?.listText) return this.activateListText(e.link.listText, host, select);
+    if (e.link?.listText) return this.activateListText(e.link.listText, host, actor);
     // A code block or a quote has nothing to open: ⏎ copies it, as y does.
     if (e.kind === "block") return this.runKey("block.copy", { n: e.block! + 1 }, host);
     // A step's box opens its status choice under it (the person's; an agent sets a status by task.status).
@@ -5063,12 +5065,14 @@ export class NoteSurface {
   }
 
   /** A list row's `copy` or `insert` (PIE-747): the person's copy goes to their clipboard (an agent's is returned to it); `insert` goes only into the person's own draft. */
-  private activateListText(t: NonNullable<Link["listText"]>, host: SurfaceHost, person: boolean): unknown {
+  private activateListText(t: NonNullable<Link["listText"]>, host: SurfaceHost, actor: Actor): unknown {
+    const person = actor.kind === "user";
     if ("copy" in t) {
       if (person && host.ctx.copy?.(t.copy) === false) throw new ActionRefused(`not copied: ${[...t.copy].length} chars is more than the clipboard takes`);
       host.ctx.flash(person ? `copied ${[...t.copy].length} char${[...t.copy].length === 1 ? "" : "s"}` : "copied for itself · your clipboard is untouched");
       return { copied: t.copy, clipboard: person };
     }
+    // An insert is the person's own draft's (ADR 0004): an agent, invited or not, writes with outline_edit.
     if (!person) throw new ActionRefused("an agent writes with outline_edit, not into the person's draft");
     const s = this.draftSession();
     if (!s) { host.ctx.flash("no draft is open to put that in · e edits the note"); return { inserted: null }; }
@@ -5809,7 +5813,7 @@ export class NoteSurface {
     this.laid = null;
   }
   /** `element.open`: ⏎ on element `e` (see enterElement). */
-  openElement(e: Element, host: SurfaceHost, fresh: boolean, select: boolean) { return this.enterElement(e, host, { fresh, select }); }
+  openElement(e: Element, host: SurfaceHost, fresh: boolean, select: boolean, actor: Actor = USER) { return this.enterElement(e, host, { fresh, select, actor }); }
 
   /**
    * A click in the last render (`x`, `y` in the surface's cells). While an edit, a comment or a value
@@ -10045,7 +10049,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         host.redraw();
         return { thread: e.thread, ...r };
       }
-      const r = await surface.openElement(e, host, !!fresh, standing);
+      const r = await surface.openElement(e, host, !!fresh, standing, actor);
       // Outside the door, an agent's was given the address (openOutside said so); it opened nothing.
       if (!(r && typeof r === "object" && "outside" in r)) surface.noteAgent(actor, `${e.kind === "fold" ? "toggled" : "opened"} ${e.label}`);
       host.redraw();

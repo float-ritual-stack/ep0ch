@@ -493,7 +493,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "list-view" }, as: "test-agent" })).toMatchObject({ key: "list-view" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "list-view")).top; };
-    const reader = () => stage().pane("reader") as any;
+    const reader = () => stage().pane("reader") as any, links = () => stage().pane("links") as any;
     const person = (action: string, args: Record<string, unknown> = {}, tile = "reader") => stage().dispatch.act({ action, tile, args }, { kind: "user" }) as Promise<any>;
     const blocks = async (tile = "reader") => ((await app.act({ action: "list.blocks", tile, as: "test-agent" })) as any).lists as any[];
     await until(() => reader()?.surface.listsDrawn.length === 2 && reader().surface.listsDrawn.every((l: any) => l.view.rows.length > 0), "the block's rows and the shelf's", 8000);
@@ -502,7 +502,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(outbox).toMatchObject({ n: 1, key: "^outbox", title: "Outbox", query: "type=letter mail=waiting", entered: false });
     expect(shelf).toMatchObject({ n: 2, key: "#2" });
     expect(outbox.rows.map((r: any) => r.text).sort()).toEqual(["Ask Ana about the bean seed", "Order the fruit-cage netting", "Write to the allotment society about the gate"]);
-    expect(shelf.rows.map((r: any) => r.text)).toEqual(["Ask Ana about the bean seed", "Write to the allotment society about the gate", "Order the fruit-cage netting", "Copy the letters' titles", "Copy this note"]);
+    expect(shelf.rows.map((r: any) => r.text)).toEqual(["Ask Ana about the bean seed", "Write to the allotment society about the gate", "Order the fruit-cage netting", "Copy the letters' titles", "Copy this note", "Put a link to this shelf in my draft"]);
     // The links tile's rows are the same set of actions: by tile.
     expect((await blocks("links"))[0].rows.map((r: any) => r.text)).toEqual(expect.arrayContaining(["Wash the seed trays", "Label the dahlia tubers"]));
     // An agent's pick and filter are its own: drawn in its tint on the list, never moving the person's selection.
@@ -514,11 +514,13 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(after[0].rows.find((r: any) => r.selected).n).toBe(was);
     expect(after[0].yours).toEqual({ picked: expect.any(String) });
     expect(after[1].yours).toEqual({ filter: "titles", rows: 1 });
-    expect(after[1].rows).toHaveLength(5);          // the person's shelf is not narrowed by an agent's filter
+    // Its rows are numbered as it sees them: row 1 of its narrowed list is the one its filter leaves.
+    expect(after[1].rows.map((r: any) => [r.n, r.text])).toEqual([[1, "Copy the letters' titles"]]);
     // What the person sees of it: each list says who else has picked or filtered.
     const seen = (await person("list.blocks")).lists as any[];
     expect(seen[0].agents).toEqual([{ by: "test-agent", picked: expect.any(String) }]);
     expect(seen[1].agents).toEqual([{ by: "test-agent", filter: "titles" }]);
+    expect(seen[1].rows).toHaveLength(6);           // the person's shelf is not narrowed by an agent's filter
     await until(() => screen().includes("test-agent: ◆ ") && screen().includes("test-agent: / titles"), "the agent's say-so lines on the lists", 5000);
     // Going in is the person's.
     await expect(app.act({ action: "list.enter", tile: "reader", args: { list: "2" }, as: "test-agent" })).rejects.toThrow(/the person's/);
@@ -532,15 +534,40 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     press({ kind: "esc" }); press({ kind: "esc" });
     expect(reader().surface.listIn).toBeNull();
     press({ kind: "esc" });          // back from the stage to the sections
+    // An insert row goes only into the person's own draft: an agent is refused, with no draft open the person is told so.
+    await app.act({ action: "list.filter", tile: "reader", args: { list: "2", words: "" }, as: "test-agent" });
+    await expect(app.act({ action: "list.open", tile: "reader", args: { list: "2", n: 6 }, as: "test-agent" })).rejects.toThrow(/outline_edit/);
+    expect(await person("list.open", { list: "2", n: 6 })).toMatchObject({ inserted: null });
     // Each row does one thing, as the person: a copy row copies, a run row runs its action.
     const copied = await person("list.open", { list: "2", n: 4 });
     expect(copied).toMatchObject({ copied: "Ask Ana about the bean seed\nWrite to the allotment society about the gate\nOrder the fruit-cage netting", clipboard: true });
     await person("list.open", { list: "2", n: 5 });
     await until(() => String((app as any).message).includes("copied the note"), "the run row's action ran as the person", 5000);
+    // The same list.open, two tiles: with the person in the reader an agent's open there is refused (it would move what they read); from the links tile it lands in the reader and is allowed.
+    press({ kind: "enter" });
+    await expect(app.act({ action: "list.open", tile: "reader", args: { list: "^outbox", n: 1 }, as: "test-agent" })).rejects.toThrow(/person's keys/);
+    for (let i = 0; i < 3 && S().focus !== "index"; i++) press({ kind: "esc" });
+    // The person's filter on the links tile is the tile's own (its model narrows by it): list.filter keeps it there too.
+    await person("list.filter", { words: "Wash" }, "links");
+    await until(() => (links().options.filter === "Wash"), "the tile's filter kept", 5000);
+    const narrowed = (await blocks("links"))[0].rows.map((r: any) => r.text);
+    expect(narrowed).toContain("Wash the seed trays");
+    expect(narrowed).not.toContain("Label the dahlia tubers");
+    await person("list.filter", { words: "" }, "links");
     // An open row opens its note where opens land: here, the reader itself.
     await person("list.open", { list: "^outbox", n: 3 });
     await until(() => reader().surface.msg?.id !== seeded.notes.listDemo.id, "the letter in the reader", 5000);
     expect(S().focus).toBe("index");
+    // From the links tile the same open is an agent's to make even with the person's keys in that tile: it lands in the home reader, never their keys.
+    await person("back");
+    await until(() => reader().surface.msg?.id === seeded.notes.listDemo.id, "back on the list note", 5000);
+    press({ kind: "enter" });
+    press({ kind: "tab" });
+    expect(stage().layoutGet().focus).toBe("links");
+    const wash = (await board.children(seeded.notes.listDemo.id)).find(m => m.text.startsWith("Wash"))!;
+    await app.act({ action: "list.open", tile: "links", args: { id: wash.id }, as: "test-agent" });
+    await until(() => reader().surface.msg?.id === wash.id, "the agent's open from the links tile landing in the reader", 5000);
+    for (let i = 0; i < 3 && S().focus !== "index"; i++) press({ kind: "esc" });
   }, 30_000);
 
 
