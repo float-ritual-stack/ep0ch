@@ -1,12 +1,12 @@
-# The whole suite on Blacksmith runners: a merge gate, not a per-push loop (agents iterate on float-box for free).
-# Runs on: a push to main (main never goes red silently), a PR marked ready or labelled `ci`, and by hand.
+# The whole suite on Blacksmith runners, billed per minute: about 700 vCPU-minutes a run. The gate is box-test on
+# float-box (free); this runs only by hand (`gh workflow run test.yml --ref <branch>`, when float-box can't answer)
+# and once a week on main, so a red main is still seen. Evan, Oct 25: ~$500 in a month from running it on every
+# push to main, every PR marked ready and by hand per PR head ("insane for a personal project of 1 person").
 # Each package's results go out as JUnit XML, which Blacksmith's test analytics reads (per-test history across runs).
 name: test
 on:
-  push:
-    branches: [main]
-  pull_request:
-    types: [ready_for_review, labeled]
+  schedule:
+    - cron: "0 6 * * 0"
   workflow_dispatch:
 concurrency:
   group: test-${{ github.event.pull_request.number || github.ref }}
