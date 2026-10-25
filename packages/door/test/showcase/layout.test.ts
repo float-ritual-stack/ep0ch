@@ -107,7 +107,9 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
       expect(menu).toBeDefined();
       const divider = owner.dividers.find((d: any) => d.node.dir === "col");
       expect(divider).toBeDefined();
-      const hint = owner.keySpots[0];
+      // The hint row is the outermost screen's (a mounted screen draws none); a full lift covers it.
+      const outermost = (x: any): any => (x.holder?.desk() ? outermost(x.holder.desk()) : x);
+      const hint = outermost(owner).keySpots[0];
       const before = owner.layoutGet().tree;
       await owner.dispatch.act({ action: "tile.zoom", tile: "brief", args: { reach: "full", on: true } }, USER);
       (app as any).paint(true);
@@ -298,7 +300,7 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
         const owner = grouped ? (root.pane(target) as any).inner : root;
         const home = owner.layoutGet().tiles.find((t: any) => t.name === "brief")!.rect;
         const container = grouped ? root.layoutGet().tiles.find(t => t.name === target)!.rect : null;
-        const col = home.col + (container ? root.screenOrigin.col + container.col + 1 : root.screenOrigin.col);
+        const col = home.col + (container ? root.screenOrigin.col + container.col : root.screenOrigin.col);   // a group has no frame of its own to step in
         if (place !== "spines") {
           await sc.dispatch.press("section.try");
           await app.dispatch.press("host.leave", { quiet: true });

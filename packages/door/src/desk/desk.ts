@@ -3409,8 +3409,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       placements = [];
     }
     // A screen mounted in a tile has no hint row of its own: the outermost screen's says the focused tile's keys (PIE-1305).
-    // It still works its own chord box out (the person is in it), which draws in its rectangle.
-    if (this.holder) {
+    // It still works its own chord box out (the person is in it), which draws in its rectangle. A tile lifted out of it
+    // is painted over the whole screen (paintLift), and that is the screen's one row.
+    if (this.holder && !this.layout.lift) {
       this.hintRow = -1;
       this.hintFull = null; this.moreChip = null; this.keySpots = []; this.handles = []; this.lockChip = null; this.hyperChip = null;
       this.hintBox = null;
