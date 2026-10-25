@@ -47,8 +47,12 @@ export const BACKLOG_LIMIT = 4 << 20;
 export const FRAMES_IN_FLIGHT = 2;
 /** A frame unanswered this long is given up on (a terminal that swallowed the answer): the window opens, and it's counted. */
 export const ACK_STALE_MS = 5000;
-/** A program given the terminal waits this long for the frames in flight to be answered: an answer arriving after would be typed into it. */
-export const HANDOVER_SETTLE_MS = 500;
+/**
+ * A program given the terminal waits this long for the frames in flight to be answered: an answer arriving after would be
+ * typed into it. On a link stalled for longer than this the program still gets a stray `ESC [ 0 n` (the program's own output
+ * can't cross that link either, so nobody is looking at it yet).
+ */
+export const HANDOVER_SETTLE_MS = 2000;
 
 /** One attached client: its terminal, its rows and images, its keys. */
 /** How long the client with the keys may go untouched before a terminal attaching takes the session from it. */
@@ -441,8 +445,9 @@ export class SessionTerm implements Display {
       if (!this.clients.includes(c) || !c.inflight.length) return;
       if (performance.now() - c.inflight[0]! < this.ackStaleMs) return this.watchStale(c);
       c.ackTimeouts++;
+      const skipped = c.waiting;
       this.forgetWindow(c);
-      if (c.waiting) { c.waiting = false; this.paintClient(c); }
+      if (skipped) this.paintClient(c);
     }, wait);
     c.staleTimer.unref?.();
   }

@@ -540,7 +540,7 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     term.attach(a.link, hello(80, 24, { acks: true }));
     make(5);
     expect(numbers(a)).toEqual([0, 1]);
-    await until(() => numbers(a).length === 3, "the latest frame to go after the stale time", 1000);
+    await until(() => numbers(a).length === 3, "the latest frame to go after the stale time, with no other paint to bring it", 400);
     expect(numbers(a)).toEqual([0, 1, 5]);
     expect(term.speed()[0]).toMatchObject({ ackTimeouts: 1 });
   });
