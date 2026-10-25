@@ -253,6 +253,33 @@ describe.skipIf(!outliner)("bare - + = on the desk, and the hyper layer, against
     expect(message()).toContain("✦q isn't bound");
   });
 
+  test("on, ✦u lifts the focused tile's column and drops it; ✦a lifts the drawer's agent from the screen, starting it, and drops it", async () => {
+    useHyper(true);
+    const t = names()[0]!;
+    focus(t);
+    key({ kind: "hyper", ch: "u" });
+    expect(desk.lifted?.reach).toBe("column");
+    key({ kind: "hyper", ch: "u" });
+    expect(desk.lifted).toBeNull();
+    const drawer = (app as any).drawer;
+    key({ kind: "hyper", ch: "a" });
+    await until(() => !!drawer.made?.lifted, "the drawer's agent lifted");
+    expect(drawer.open).toBe(true);
+    expect(drawer.made.lifted.reach).toBe("column");
+    expect(drawer.made.liftsPane(drawer.tile)).toBe(true);
+    key({ kind: "hyper", ch: "a" });
+    await until(() => !drawer.made.lifted, "the lift dropped");
+    // The person's press of the same action, as a status-bar button runs it.
+    await (app as any).dispatch.press("agent.lift", { reach: "full" });
+    expect(drawer.made.lifted?.reach).toBe("full");
+    await (app as any).dispatch.press("agent.lift", { on: false });
+    expect(drawer.made.lifted).toBeNull();
+    // An agent's lift never takes the person's keys: refused while they're in the drawer, said why.
+    await expect((app as any).act({ action: "agent.lift" })).rejects.toThrow(/typing in the drawer/);
+    await (app as any).dispatch.press("host.toggle", { open: false });
+    await until(() => !drawer.open, "the drawer put away");
+  });
+
   test("on, ✦- works while typing in a draft (the draft is kept on the spine), and ✦h moves away with the edit kept open (PIE-812)", async () => {
     useHyper(true);
     const { id, rd, name } = await editing("Mend the cold frame\nlid");

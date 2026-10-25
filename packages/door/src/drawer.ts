@@ -38,6 +38,7 @@ import { ESCAPE_CHORD, isEscapeChord, livePrograms, PtyPane, type PtySpec } from
 import { rawKey } from "./kbd";
 import { choiceFile, detectAgents, drawerProgram, HERDR_LAUNCHER, sessionLabel, shellQuote, type DrawerAgent, type DrawerProgram } from "./desk/drawer-program";
 import { sessionSlug } from "./desk/herdr-agent";
+import type { ZoomReach } from "./desk/screen-layout";
 import { readPlace } from "./session/place";
 import { outlineState, stateDir } from "./state";
 import { LineInput } from "./surface/line";
@@ -449,9 +450,10 @@ export class AgentDrawer {
    * Go to tile `p` (the waiting-on-you list's status.go, the power bar's tiles): in the drawer, it's pulled up with that
    * tab shown and the keys in it; on the screen shown, the drawer goes away and the keys go to it; on a screen under
    * this one or kept in the background, that screen comes to the top first (`Ctx.raise`; the person's only: an agent
-   * never moves their screen this way). A spine opens first (`tile.expand`); `zoom` zooms it after.
+   * never moves their screen this way). A spine opens first (`tile.expand`); `zoom` zooms it after (a reach, `column` or
+   * `full`, lifts it instead: agent.lift).
    */
-  goTo(p: Pane, actor: Actor, o: { zoom?: boolean } = {}): { tile: string; name: string; in: "drawer" | "screen"; raised?: string } {
+  goTo(p: Pane, actor: Actor, o: { zoom?: boolean | ZoomReach } = {}): { tile: string; name: string; in: "drawer" | "screen"; raised?: string } {
     const d = this.d, inDrawer = d?.nameOfPane(p) ?? "";
     if (d && inDrawer) {
       if (!this.open) { this.offered = true; this.set(true, actor); }
@@ -459,7 +461,7 @@ export class AgentDrawer {
       d.focusTile(inDrawer, actor);
       this.intoShown();
       p.focused?.(d, actor);
-      if (o.zoom) d.zoomTile(inDrawer, true, actor);
+      if (o.zoom) d.zoomTile(inDrawer, true, actor, o.zoom === true ? "screen" : o.zoom);
       this.host.redraw();
       const { tile, name } = d.tileInfo(inDrawer);
       return { tile, name, in: "drawer" };
@@ -481,7 +483,7 @@ export class AgentDrawer {
     screen!.focusPane(p, actor);
     // Already the focused tile, the focus didn't move: the person is back in it all the same.
     p.focused?.(screen!, actor);
-    if (o.zoom) screen!.zoomTile(name, true, actor);
+    if (o.zoom) screen!.zoomTile(name, true, actor, o.zoom === true ? "screen" : o.zoom);
     this.host.redraw();
     return { tile: screen!.tileInfo(name).tile, name, in: "screen", ...(raised ? { raised } : {}) };
   }
@@ -1212,6 +1214,22 @@ export class AgentDrawer {
   }
   /** Whether the drawer's own program is out on a screen, its tab holding the place. */
   isAway(): boolean { return !!this.out; }
+
+  /**
+   * agent.lift: the drawer's own program lifted above everything (a column, or across the terminal) wherever it is: the
+   * drawer pulled up on its tab, or the screen tile it went out to (goTo finds it, raising its screen for the person).
+   * Not running yet, the drawer comes up and starts it first, as alt+a does. Lifted already (or on=false), it drops.
+   */
+  lift(on: boolean | undefined, reach: ZoomReach, actor: Actor): { tile: string; name: string; lifted: ZoomReach | null; in?: "drawer" | "screen" } {
+    if (!this.p && on !== false) this.set(true, actor);
+    const p = this.p;
+    if (!p) throw new ActionRefused(`${this.name} isn't running · alt+a pulls it up and starts it`);
+    const holder = [this.d, tilesOf(this.host.screen?.())].find(d => !!d?.nameOfPane(p)) ?? null;
+    const up = !!holder?.liftsPane(p);
+    if (on ?? !up) { const went = this.goTo(p, actor, { zoom: reach }); return { tile: went.tile, name: went.name, in: went.in, lifted: reach }; }
+    if (holder && up) { holder.zoomTile(holder.nameOfPane(p), false, actor, reach); this.host.redraw(); }
+    return { tile: DRAWER_TILE_ID, name: this.name, lifted: null };
+  }
   /** Whether the drawer's program that's out still runs somewhere (on a screen not shown now): the tile that left, else one with its key. */
   private outAlive(): boolean {
     if (this.left) return this.left.pane.running;
@@ -1869,6 +1887,24 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     run(_, { drawer }, actor) {
       if (!drawer.isAway()) throw new ActionRefused(`${drawer.name} is in its tab already`);
       return drawer.bringBack(actor) ?? { tile: null };
+    },
+  }),
+  "agent.lift": def({
+    summary: "lift the drawer's own program (▲ claude, its first tab) above everything as a column (reach=full: across the terminal), wherever it is: the drawer pulled up on its tab, or the screen tile it went out to; not running yet, it starts first, as alt+a does. Again, or on=false, drops it. The person's keys go to it; an agent's lift never replaces the person's",
+    keys: "✦a; a status-bar button (::button{label=\"▲ lift\" act=\"agent.lift\"} in your bar note); ^W Z on its tile does the same where it is",
+    touches: "screen", host: true, replay: "safe",
+    says: (out: { name?: string; lifted?: string | null }) => ({ text: out?.lifted ? `· lifted ${out.name ?? "the drawer's program"} (${out.lifted})` : `· dropped ${out?.name ?? "the drawer's program"}`, ms: 4000 }),
+    args: {
+      on: { type: "boolean", optional: true, about: "true lifts, false drops; left out, it toggles" },
+      reach: { type: "string", optional: true, choices: ["column", "full"], about: "column (default) or full" },
+    },
+    examples: [
+      { act: "agent.lift", does: "lifts the drawer's agent as a column wherever it is, or drops it when it's lifted" },
+      { act: "agent.lift reach=full", does: "lifts it across the whole terminal" },
+    ],
+    run({ on, reach }, { drawer }, actor) {
+      if (reach !== undefined && reach !== "column" && reach !== "full") throw new ActionRefused("reach is column or full");
+      return drawer.lift(on, (reach ?? "column") as ZoomReach, actor);
     },
   }),
   "agent.restart": def({

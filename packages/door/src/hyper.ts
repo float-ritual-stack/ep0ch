@@ -31,6 +31,8 @@ export const HYPER_KEYS: readonly HyperBinding[] = [
   { key: "-", action: "tile.collapse", args: { on: true }, label: "fold the tile to a spine" },
   { key: "=", action: "tile.collapse", args: { on: false }, label: "open the tile from its spine" },
   { key: "z", action: "tile.zoom", label: "zoom the tile" },
+  { key: "u", action: "tile.zoom", args: { reach: "column" }, label: "lift or drop this column" },
+  { key: "a", action: "agent.lift", label: "lift or drop the drawer's agent, wherever it is" },
   { key: "n", action: "note.new", label: "a new note" },
   ...Array.from({ length: 9 }, (_, i): HyperBinding => ({ key: String(i + 1), action: "tile.focus", tile: `#${i + 1}`, label: `focus tile ${i + 1}`, leaves: true })),
 ];

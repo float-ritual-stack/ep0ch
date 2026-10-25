@@ -272,6 +272,8 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     'Put [ ] on Collapse and open the tile menu: pin to status bar appends this line to your bar note. Or run button.pin label="Collapse" here.',
     '<!-- Evan\'s layout: ::button{label="Collapse" act="tile.collapse tile=screen"} -->',
     '::button{label="Collapse" act="tile.collapse tile=extra"}',
+    'A button can reach past this screen: Lift lifts the drawer\'s agent as a column wherever it is (its tab, or the screen it went out to), starting it first; press it again to drop it. ✦a does the same with the hyper layer on.',
+    '::button{label="▲ Lift" act="agent.lift"}',
     'Right-click or alt+click an empty part of the bar, or ^K status bar: edit. The first edit makes a note seeded with today\'s built-ins. Order them with - <id> lines; leave an id out to hide it. A ::button line puts the same button on the bar, and alt="theme.cycle" gives it an alternate click.',
     'At 80 columns, pin eight differently named buttons: later items give way to +N, which opens this bar note. The clock and drawer chip stay whole. A duplicate label is refused when pinned; if written into the note, the first button stays and the later line is warned about once in the message log.',
     'status.bar.items describes the built-ins and their actions. Changes are live; malformed lines stay saved, say why in the message log, and keep the default bar until fixed.',
