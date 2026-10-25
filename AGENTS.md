@@ -112,7 +112,7 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
 - **Agents act, nodes mail, readers read** ([ADR 0005](docs/adr/0005-agents-act-nodes-mail.md)): agents (MCP, the mod)
   are gated by the MCP access level (`ep0ch mcp access`) and nothing else; EchoNet nodes never write another outline's
   blocks (they hand over a packet; the receiving outline's subscription notes are the consent, and EchoNet never reads
-  the MCP access level); readers see only what `[publish::…]`, shares and sign-in allow. They share how a change is
+  the MCP access level); readers see only what `[publish::…]`, shares and sign-in allow (the signed-in owner is no reader: publish decides what outsiders see, never what he sees, and `[publish::never]` means "never share outside", not sensitivity). They share how a change is
   recorded (attribution, `[from::]`, revisions, undo), never what permits it.
 - **Mouse and agents are first-class.** Every action works by mouse, keys and `act` (one `ActionSet` action). An
   agent's action never takes the person's focus, selection or keys, and is always attributed (`author: agent` with its

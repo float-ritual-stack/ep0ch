@@ -211,7 +211,8 @@ source evidence or distinguish authored glyphs from controls.
   is its shadcn/ui. Embeds on a published page are projected by the service's
   `transclusions.read` (its limits and cycle rules), never re-derived; the
   `[publish::never]` lock (`blockPublishIntent`) is checked for every page,
-  embed and link. The public listener (`[publish::public]`, PIE-518) is the
+  embed and link, for everyone but the signed-in owner (PIE-1265: `lockedIds` and `signedInOwner` are the one
+  place, so add no per-call check). The public listener (`[publish::public]`, PIE-518) is the
   same `Publisher` seen by the `public` audience (`handle(request, "public")`,
   `audienceIndex`), never a second publisher: add an audience rule there, and
   keep its stricter embed rule (`EmbedExpansion.shareable`) in `renderEmbed`.

@@ -20,6 +20,7 @@ import { ARTIFACT_PATH, drawNoteMedia, fileName, MEDIA_PATH, MEDIA_STYLE, mediaH
 import { artifactPagePath, artifactTitle, imagePrimitiveSpec, MEDIA_ATTRS, type MediaSpec } from "@ep0ch/outline-core/media-line";
 import { renderComponent, validatePrimitive, viewImages } from "./component-primitives";
 import { isVirtualBranchDefinition } from "./virtual-branches";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { hostname, networkInterfaces } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
@@ -237,7 +238,8 @@ export type PublishIntent = "off" | "never" | { slug?: string; public: boolean }
  * `true`/`yes` publish at the page address or block id; `<slug>` at that slug;
  * `public` and `public:<slug>` do the same and also open the note to anyone
  * with the link; `false`/`no`/`off`/`0` or empty do not publish; `never` locks
- * the block and everything under it (see `blockPublishIntent`).
+ * the block and everything under it against every outsider (see `blockPublishIntent`). The signed-in owner is no
+ * outsider: publishing decides what others see, never what he sees (PIE-1265).
  */
 export function publishIntent(value: string | undefined): PublishIntent {
   let trimmed = value?.trim() ?? "";
@@ -319,10 +321,10 @@ export const EXTENSION_HIDDEN = (extensionId: string) => `${extensionId} data, n
 
 /** Said on the index: what a published page may show besides the published blocks. */
 export const EMBED_NOTICE = "Embeds (!((note))) show the embedded note's text even when that note is not published: " +
-  "this publisher is for the tailnet. Mark a note [publish::never] to lock it and everything under it. " +
+  "this publisher is for the tailnet. Mark a note [publish::never] to keep it and everything under it from every outsider (signed in, you still read it). " +
   "A note marked [publish::public] is also open to anyone with its public link, where embeds show only public notes.";
 
-/** What a locked note shows in its place on a published page. */
+/** What a locked note shows in its place on a page an outsider reads (never the signed-in owner's). */
 export const LOCKED_NOTE = "locked note";
 
 /** What an embed of a note that isn't public shows in its place on a public page. */
@@ -773,6 +775,11 @@ export class Publisher {
   private generation = 0;
   /** Pages' script polls waiting for the next change. */
   private waiting = new Set<() => void>();
+  /**
+   * Who is reading the request being answered (PIE-1265): the signed-in owner is locked out of nothing. Kept per request
+   * (not threaded through the dozens of reads that ask `lockedIds`), so the one decision stays in `signedInOwner`.
+   */
+  private readonly reading = new AsyncLocalStorage<{ owner: boolean }>();
   private readonly marginalia: PageMarginalia;
   /** The outline's name, the top of a tailnet page's breadcrumbs. */
   private outlineName: string | undefined;
@@ -805,7 +812,7 @@ export class Publisher {
       report: (view) => this.options.presence === false ? Promise.resolve({}) : this.client.request({ action: "reader.report", view }),
       writes: (fresh) => this.options.writes?.(fresh) ?? Promise.resolve(null),
       basePath: this.basePath,
-      locks: (properties) => blockPublishIntent(properties) === "never",
+      locks: (properties) => !this.signedInOwner() && blockPublishIntent(properties) === "never",
       generation: () => this.generation,
       changed: (since, ms) => this.changed(since, ms),
       linkable: (ids, share) => this.linkableNotes(ids, share),
@@ -815,6 +822,11 @@ export class Publisher {
       complete: async (text, at, near, share) => completeAt(this.searchHost(share ? await this.shareIndex(share) : await this.readIndex(), share), text, at, near, !share),
       log: this.log,
     });
+  }
+
+  /** Whether this request came with the owner's signed-in session on the tailnet: publish decides what outsiders see, not what he sees. */
+  private signedInOwner(): boolean {
+    return this.reading.getStore()?.owner === true;
   }
 
   /** Resolves at the next content change after `since`, or after `ms`. */
@@ -845,9 +857,10 @@ export class Publisher {
     if (!whole) return undefined;
     // A mark's own page (its id is a page like any block's) shows the mark itself; the marks on it are its threads.
     const mark = (block: { id: string; properties?: readonly BlockProperty[] }) => block.id !== entry.blockId && isAnnotationBlock(block);
-    const rows = shownSubtree({ ...whole, blocks: whole.blocks.filter((block) => !mark(block)) }, !share).filter((row) => !row.locked);
+    const unlocked = !share && this.signedInOwner();
+    const rows = shownSubtree({ ...whole, blocks: whole.blocks.filter((block) => !mark(block)) }, !share, unlocked).filter((row) => !row.locked);
     const shown = new Set(rows.map((row) => row.block.id));
-    const annotations = new Map(shownSubtree(whole, !share)
+    const annotations = new Map(shownSubtree(whole, !share, unlocked)
       .filter((row) => !row.locked && row.block.id !== entry.blockId && getProperty(row.block.properties ?? [], "type") === ANNOTATION_TYPE && shown.has(row.block.parentId ?? ""))
       .map((row) => [row.block.id, row.block.parentId!] as const));
     const blocks = rows.map((row) => ({ id: row.block.id, revision: row.block.revision ?? 0, text: row.block.text ?? "" }));
@@ -1085,7 +1098,7 @@ export class Publisher {
     const policy = this.requirePolicy();
     // A block under a `[publish::never]` note is locked with it, whatever it says itself.
     const wanted = collection.blocks.filter((block) => requestedSlug(block) !== null);
-    const locked = await this.lockedIds(wanted.map((block) => block.id));
+    const locked = await this.lockedAgainstOutsiders(wanted.map((block) => block.id));
     const assigned = assignPaths(wanted.filter((block) => !locked.has(block.id)));
     const rawTitles = new Map(assigned.map(({ block }) => [block.id, block.title ?? ""]));
     // A public note's title links only other public notes, so it never names a tailnet-only one.
@@ -1127,7 +1140,7 @@ export class Publisher {
    * sees only public notes and takes no writes.
    */
   async handle(request: Request, audience: PublishAudience = "tailnet", tunnel?: string, signedIn?: SignedIn): Promise<Response> {
-    const response = await this.answer(request, audience, tunnel, signedIn);
+    const response = await this.reading.run({ owner: !!signedIn && audience === "tailnet" && tunnel === undefined }, () => this.answer(request, audience, tunnel, signedIn));
     return audience === "public" ? withHeaders(response, PUBLIC_HEADERS) : response;
   }
 
@@ -1317,7 +1330,12 @@ export class Publisher {
     return new Response(body, { headers });
   }
 
-  private async answerShare(request: Request, token: string, rest: string, mount: string, tunnel?: string): Promise<Response> {
+  /** A share link is read as an outsider, whoever follows it. */
+  private answerShare(request: Request, token: string, rest: string, mount: string, tunnel?: string): Promise<Response> {
+    return this.reading.run({ owner: false }, () => this.shareAnswer(request, token, rest, mount, tunnel));
+  }
+
+  private async shareAnswer(request: Request, token: string, rest: string, mount: string, tunnel?: string): Promise<Response> {
     if (rest === "/snapshot.sqlite") return this.snapshotDownload(request, token);
     const found = await this.client.request<ShareResolution>({ action: "shares.resolve", token });
     if (found.status === "unknown") return notFound();
@@ -1664,7 +1682,8 @@ export class Publisher {
       this.linkableNotes(named, share),
     ]);
     const links = new Map(notes.map((note) => [note.id, note]));
-    const rows = listed.map((child) => folderRow(child, titles.get(child.id) ?? "", index, base, counts.get(child.id), links));
+    const unlocked = !share && this.signedInOwner();
+    const rows = listed.map((child) => folderRow(child, titles.get(child.id) ?? "", index, base, counts.get(child.id), links, unlocked));
     const more = children.length > MAX_LISTED_CHILDREN ? `<p class="dim">and ${children.length - MAX_LISTED_CHILDREN} more (open it in the door to see them all)</p>\n` : "";
     const inside = children.length
       ? `<section class="inside"><h2>Inside <span class="dim">${children.length}</span></h2>\n<ul class="kids">\n${rows.join("\n")}\n</ul>\n${more}</section>\n`
@@ -2052,11 +2071,23 @@ export class Publisher {
   }
 
   /**
-   * Which of `ids` are locked: the block or any ancestor carries
-   * `[publish::never]`. Walks up one level per request, all ids together. A
-   * chain it cannot finish counts as locked. A missing or trashed block isn't locked: `gone` says which those are.
+   * Which of `ids` are locked against the reader of this request: none for the signed-in owner (PIE-1265), else
+   * `lockedAgainstOutsiders`. The one place every read, list, search, embed and reply asks. A share link is read as an
+   * outsider (`answerShare`).
    */
   private async lockedIds(ids: readonly string[], gone?: Set<string>): Promise<Set<string>> {
+    if (this.signedInOwner() && !gone) return new Set();
+    const locked = await this.lockedAgainstOutsiders(ids, gone);
+    return this.signedInOwner() ? new Set() : locked;
+  }
+
+  /**
+   * Which of `ids` are locked against everyone outside: the block or any ancestor carries `[publish::never]`. Walks up
+   * one level per request, all ids together. A chain it cannot finish counts as locked. A missing or trashed block isn't
+   * locked: `gone` says which those are. Whatever is cached for several readers (the published index) asks this one, so
+   * it never depends on who happens to be reading.
+   */
+  private async lockedAgainstOutsiders(ids: readonly string[], gone?: Set<string>): Promise<Set<string>> {
     const known = await this.walkUp(ids);
     // `gone`, when asked for, collects those that are missing or in Trash.
     if (gone) for (const id of ids) if (known.get(id) === null) gone.add(id);
@@ -2267,6 +2298,8 @@ export class Publisher {
     const { share } = options;
     // The owner's own pages (the tailnet, signed in): `[publish::false]` and extensions' data aren't held back there.
     const owner = !!options.owner && !share;
+    // Signed in as the owner, `[publish::never]` locks nothing either (PIE-1265).
+    const unlocked = !share && this.signedInOwner();
     const base = options.base ?? share?.base ?? this.basePathFor(audience);
     const whole = options.whole ?? await this.client.request<ProjectedBlockCollection>({
       action: "blocks.query",
@@ -2275,9 +2308,9 @@ export class Publisher {
     });
     // A mark's own page shows the mark (its id opens like any block's); the marks on it are drawn on its words.
     const mark = (block: { id: string; properties?: readonly BlockProperty[] }) => block.id !== entry.blockId && isAnnotationBlock(block);
-    const annotationRows = shownSubtree(whole, owner).filter((row) => !row.locked && mark(row.block));
+    const annotationRows = shownSubtree(whole, owner, unlocked).filter((row) => !row.locked && mark(row.block));
     const subtree = { ...whole, blocks: whole.blocks.filter((block) => !mark(block)) };
-    const rows = shownSubtree(subtree, owner).filter((row) => !row.locked);
+    const rows = shownSubtree(subtree, owner, unlocked).filter((row) => !row.locked);
     const shown = rows.map((row) => row.block.text ?? "");
     const pages = await this.resolvePages(shown);
     const marksReadable = share ? share.comments : audience === "tailnet";
@@ -2349,7 +2382,7 @@ export class Publisher {
       { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec));
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;
-    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse, values);
+    const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse, values, unlocked);
     return { markdown, subtitle: subtitleOf({ text: subtree.blocks.find(b => b.id === entry.blockId)?.text ?? "" }), marks: order, index: linked, components, anchors: anchors ?? [], steps, drawn };
   }
 
@@ -2864,8 +2897,8 @@ function metaValue(value: string, links: ReadonlyMap<string, LinkedNote>): strin
  * One child in a folder: its title and a summary line (the row's link), then what's inside, when it changed and its
  * first properties. The meta line is outside the row's link, so a reference in it can be a link of its own.
  */
-function folderRow(child: Block, serviceTitle: string, index: PublishedIndex, basePath: string, count: number | undefined, links: ReadonlyMap<string, LinkedNote>): string {
-  if (blockPublishIntent(child.properties) === "never") return `<li class="locked">${escapeHtml(LOCKED_NOTE)}</li>`;
+function folderRow(child: Block, serviceTitle: string, index: PublishedIndex, basePath: string, count: number | undefined, links: ReadonlyMap<string, LinkedNote>, unlocked = false): string {
+  if (!unlocked && blockPublishIntent(child.properties) === "never") return `<li class="locked">${escapeHtml(LOCKED_NOTE)}</li>`;
   // `data-block`: the page's script finds the row by its note (ep0ch.view(), ep0ch.reveal()).
   // A note that is an image line names its picture by its alt text or its file's name, never its path.
   const image = noteMediaLines(child.text.split("\n")[0] ?? "").get(0);
@@ -2980,9 +3013,10 @@ function isAnnotationBlock(block: { properties?: readonly BlockProperty[] }): bo
  * is a locked row (its place says "locked note") and its subtree is left out.
  * A block whose chain to the root is not in the result is left out. Decided
  * per block, not by result order. For the `owner` (his own pages on the tailnet or signed in) only the `never` lock
- * holds: a `[publish::false]` block and an extension's records are shown as any other.
+ * holds: a `[publish::false]` block and an extension's records are shown as any other. For the signed-in owner
+ * (`unlocked`) that lock is open too: `[publish::never]` is "never share this outside", not "hide it from me".
  */
-export function shownSubtree(subtree: ProjectedBlockCollection, owner = false): Array<{ block: ProjectedVisibleBlock; locked: boolean }> {
+export function shownSubtree(subtree: ProjectedBlockCollection, owner = false, unlocked = false): Array<{ block: ProjectedVisibleBlock; locked: boolean }> {
   const [root, ...descendants] = subtree.blocks;
   if (!root) return [];
   const byId = new Map(subtree.blocks.map((block) => [block.id, block]));
@@ -3003,7 +3037,7 @@ export function shownSubtree(subtree: ProjectedBlockCollection, owner = false): 
     const value: Decision = parent === undefined || decide(parent) !== "shown" || (intent === "off" && !owner) ? "hidden"
       // An extension's annotation (marginalia's highlight) is a mark on the words, not a record the extension keeps.
       : extension && !owner && !isAnnotationBlock(block) && !optedIn(block.id) ? "hidden"
-      : intent === "never" ? "locked" : "shown";
+      : intent === "never" && !unlocked ? "locked" : "shown";
     decided.set(block.id, value);
     return value;
   };
@@ -3034,8 +3068,9 @@ export function renderSubtreeMarkdown(
   steps?: PublishedStep[],
   blockAnchors = true,
   values: ReadonlyMap<string, readonly SiteValue[]> = new Map(),
+  unlocked = false,
 ): string {
-  const [rootRow, ...rows] = shownSubtree(subtree, owner);
+  const [rootRow, ...rows] = shownSubtree(subtree, owner, unlocked);
   if (!rootRow) return "";
   const root = rootRow.block;
   const context: TextContext = { index, basePath, pages, ...(embeds ? { embeds } : {}) };

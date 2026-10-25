@@ -122,7 +122,7 @@ No shared user host is used.
 - Fresh databases seed version 6 of the Documentation hub: an addressable feature tour, the agent documentation guide, native transclusions, a working virtual branch, and authored block, page, file, web, SSH-application, and Jira reference examples. Existing workspaces keep their customized content.
 - Agent-created blocks retain immutable creator provenance. Every later text or property mutation, and every move, trash and restore, records its own `user`, `agent`, or `system` identity plus available actor, session, and task IDs, so edit attribution never depends on the creator. CLI writes take `--author`/`--actor`, and `bun run cli activity` reads the record.
 - Clients catch up after a disconnect with `changes.since`, read many blocks at once with field projection (`blocks.read`), and preview how a draft's properties will parse (`properties.preview`).
-- `outliner publish serve` gives blocks with `[publish::…]` a read-only URL, including attached HTML, claude.ai React artifacts, SVG, Mermaid and Markdown; `[publish::never]` locks a subtree. See [Publishing blocks](#publishing-blocks).
+- `outliner publish serve` gives blocks with `[publish::…]` a read-only URL, including attached HTML, claude.ai React artifacts, SVG, Mermaid and Markdown; `[publish::never]` keeps a subtree from every outsider. See [Publishing blocks](#publishing-blocks).
 - Recoverable deletion preserves canonical structure and identity, excludes Trash content from normal queries/completions, and requires explicit identifier-confirmed purge.
 - Idempotent quick capture retains drafts and writes ordinary canonical children under one workspace Inbox without moving selection or navigation history.
 - Canonical bookmarks use one strict record per target beneath the durable Bookmarks system view; Tree and Detail toggle them optimistically, and the generic split navigator resolves each record back to its live target without rewriting target text.
@@ -817,7 +817,7 @@ the showcase or tests.
 | `[publish::<slug>]` | `/p/<slug>`; `/` makes folders, e.g. `[publish::field-notes/moths]` |
 | `[publish::public]`, `[publish::public:<slug>]` | as `true` or `<slug>`, and **also open to anyone with the link** ([Anyone with the link](#anyone-with-the-link)) |
 | `[publish::false]`, `no`, `off`, `0` | not published, even when the block has another `[publish::…]` |
-| `[publish::never]` | **locked**: never published, embedded or linked, and neither is anything under it |
+| `[publish::never]` | **locked** against outsiders: never published, embedded or linked, and neither is anything under it (the signed-in owner still reads it) |
 
 Page addresses and slugs are lower-cased, and anything other than letters,
 digits, `.`, `_`, `~` and `-` becomes `-` (`[page::Moth Garden]` →
@@ -871,6 +871,13 @@ it, however deep. A published page shows "locked note" in its place (as an
 embed, or as a child in a published subtree). The lock wins over every other
 `[publish::…]`, on the block and on anything under it, and it is checked on
 every request, so it holds before the index is rebuilt.
+
+**Signed in, nothing is locked** (PIE-1265). Publishing decides what outsiders see, never what the owner sees: a
+request that came with the owner's signed-in session reads a `[publish::never]` note, lists it in its parent's folder,
+searches it, embeds it and sees the replies on it, in every outline the host serves. The lock still holds for an
+unsigned tailnet reader, the public listener and every share link (a share of a `never` note can't be started).
+To focus, use the site's outline and tag filters, not a lock. `lockedIds` in `src/publish.ts` is the one place
+that asks.
 
 **Extension data.** A block an extension wrote (its writer is `ext:<id>`, such
 as a Jira ticket kept as a block) is left off a published page, in a subtree
@@ -946,7 +953,7 @@ listener is untouched (below): read-only, marked notes only.
 - **A page is a folder that is also a file** (PIE-775): breadcrumbs up to the outline, the note's own text (the
   file), then its children as links (the folder), each with its title, a summary line (its first line of text), how
   many notes it holds, when it changed and its first properties. A `[publish::never]` child is a "locked note" row
-  with no link, and the lock wins on its own address too. Annotations are drawn on their words, never listed.
+  with no link (signed in as the owner, a row like any other), and the lock wins on its own address too. Annotations are drawn on their words, never listed.
   `?view=full` is the whole subtree on one page, as a published page always was; `?view=md` is the Markdown. A
   browser (`Accept: text/html`) gets the page at `/p/<address>`; anything else (curl, an agent) gets the Markdown, as
   before.
