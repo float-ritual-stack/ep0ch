@@ -183,6 +183,10 @@ running one holds the restart), and touch `~/.local/state/ep0ch/agent-restart.ho
 after) so the restart can't cut one. The new session reads the log, checks its `env ok` line, reorients and re-arms its
 watchers. Its session id may change: say the new one to Evan.
 
+A Claude Code update is the same restart: `scripts/agent-restart --all --if-update --bg` restarts each background
+session running an older version than the installed `claude`, one at a time, each at a safe moment (between turns, its
+builders done), and leaves current ones alone. Evan fires it and forgets it; so can you after `claude update`.
+
 ## Infrastructure
 
 Before setting up or changing anything about machines, services, domains, tunnels, DNS, TLS, backups or public
