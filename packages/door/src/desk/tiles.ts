@@ -28,6 +28,8 @@ export interface TileSpec {
   slot?: string;
   /** What the tile is for (`agent`, `reader`), set by what made it and kept with its id; absent, its kind's (`tileRole`). */
   role?: string;
+  /** The tile that opened this one (`t-<uuid>`): `^` names it. */
+  openedFrom?: string;
   writtenTitle?: string;
   systemTitle?: boolean;
   /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. */
@@ -145,6 +147,7 @@ export function makeTile(given: Partial<TileSpec> & { kind: TileKindName }): Pan
   const p = k.make(s);
   p.deliberate = s.deliberate;
   if (s.role) p.role = s.role;
+  if (s.openedFrom) p.openedFrom = s.openedFrom;
   p.writtenTitle = s.writtenTitle;
   p.systemTitle = s.systemTitle;
   return p;

@@ -85,7 +85,7 @@ import { tileMenu } from "./tile-menu";
 import { filtered } from "../bar/filter";
 import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
-import { parseTileAddress, resolveAddress, type AddressCandidate } from "./tile-address";
+import { parseTileAddress, resolveAddress, resolveRelative, type AddressCandidate, type ResolveOpts } from "./tile-address";
 import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { W_KEYS, wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileRole, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
@@ -1230,7 +1230,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const host = this.ctx?.hostLayer;
     return [...new Set(roots ? roots.flatMap(r => r.descend()) : this.relatives())].flatMap(desk => {
       const screen = host?.isDrawer(desk.top()) ? "drawer" : desk.spec.name, slots = desk.slotsFilled();
-      return [...desk.panes].map(([id, pane]) => ({ value: { desk, id, pane }, id: desk.tileId(id), name: desk.nameOf(id), role: tileRole(pane), slots: slots.get(id) ?? [], screen, where: this.pathTo(pane) ?? desk.nameOf(id) }));
+      return [...desk.panes].map(([id, pane]) => ({ value: { desk, id, pane }, id: desk.tileId(id), name: desk.nameOf(id), role: tileRole(pane), ...(pane.openedFrom ? { from: pane.openedFrom } : {}), slots: slots.get(id) ?? [], screen, where: this.pathTo(pane) ?? desk.nameOf(id) }));
     });
   }
 
@@ -1239,10 +1239,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * of it), a role (`role:agent`, `drawer.agent`), a slot (`reader@library`), then the typed name. The first three are the
    * tile's identity and never fall to a name; none matching is null, and `hostLayer.unnamed` says why.
    */
-  resolveTile(sel: string, o: { program?: true } = {}): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
+  resolveTile(sel: string, o: ResolveOpts = {}): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
     const desks = this.relatives();
     const found = (desk: Desk, id: number) => desk.answerFor(desk.panes.get(id)!)!;
     const address = parseTileAddress(sel);
+    if (address.kind === "relative") {
+      const origin = o.from === undefined ? undefined : this.resolveTile(o.from)?.tile.id;
+      const hit = resolveRelative(address, this.addressable(), origin).value;
+      return found(hit.desk, hit.id);
+    }
     if (address.kind !== "name") {
       const hit = resolveAddress(address, this.addressable())?.value;
       return hit ? found(hit.desk, hit.id) : null;
@@ -1406,6 +1411,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       t: "leaf", kind: kept?.kind ?? p.kind, name: this.nameOf(id), id: this.tileId(id), ...(kept ? {} : (k?.save ? k.save(p) : p.spec?.()) ?? {}),
       ...(slot ? { slot } : {}),
       ...(p.role ? { role: p.role } : {}),
+      ...(p.openedFrom ? { openedFrom: p.openedFrom } : {}),
       ...(p.writtenTitle !== undefined ? { writtenTitle: p.writtenTitle, systemTitle: p.systemTitle ?? false } : {}),
       ...this.sourceAcross(p),
       ...(this.selectSeeds.has(id) ? { selectFrom: this.selectSeeds.get(id) } : {}),
@@ -2623,7 +2629,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         ...d.overlays.top()?.bindings ?? [],
       ],
       tiles: () => d.tiles(),
-      resolveTile: (sel: string, o?: { program?: true }) => d.resolveTile(sel, o),
+      resolveTile: (sel: string, o?: ResolveOpts) => d.resolveTile(sel, o),
       revision: (expected: unknown) => revisionRefusal(d.layout, expected),
       draftOf: (t: TileRef) => {
         const p = d.pane(t.name);
@@ -5114,7 +5120,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return { ...this.tileAnswer(base.id), picking: t.kind };
     }
     if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
-    spec = canonSpec({ ...spec, ...(!empty ? k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) ?? {} : {}) });
+    spec = canonSpec({ ...spec, ...(!empty ? { openedFrom: this.tileId(base.id), ...k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) } : {}) });
     // The layout says yes (or why not) before the tile is made: a refused open starts no program.
     const id = this.nextId;
     const source = spec.selectFrom ? this.selectSource(spec.selectFrom) : undefined;

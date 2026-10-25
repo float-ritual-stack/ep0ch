@@ -51,7 +51,7 @@ import type { DeskApi, Pane, PaneView } from "./desk/panes";
 import type { ScreenSpec } from "./desk/screen-spec";
 import type { TileDone, Where } from "./desk/tile-actions";
 import { registerTileKind, tileKind, tileRole, UnavailableTile } from "./desk/tile-kinds";
-import { parseTileAddress, resolveAddress, ROLE_AGENT, whyNone } from "./desk/tile-address";
+import { parseTileAddress, resolveAddress, ROLE_AGENT, whyNone, type ResolveOpts } from "./desk/tile-address";
 import { statusMark, waitingOnYou } from "./desk/program-status";
 import { rowFacts, WAITING_YOU_KIND_NAME } from "./desk/waiting-you";
 import { ACCESS_MATRIX_KIND_NAME, sourceOf } from "./desk/access-matrix";
@@ -720,7 +720,7 @@ export class AgentDrawer {
     return [...(this.d ? [this.d] : []), ...(screen && screen !== this.d ? [screen] : [])];
   }
   /** What `tile=` names across layers (HostLayer.resolveTile): an id, `drawer.agent`, a path, a drawer tab's name; a bare name on a screen is that screen's own. */
-  resolveTile(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
+  resolveTile(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
     // An id, a role (`role:agent`, `drawer.agent`) and a slot are the tile's identity: the one resolver (Desk.resolveTile),
     // asked from any desk of the family, answers them. A bare name is a drawer tab's, never a screen's.
     const asking = this.asking();
@@ -734,7 +734,7 @@ export class AgentDrawer {
   unnamed(sel: string): string | null {
     const address = parseTileAddress(sel), asking = this.asking();
     if (!asking || address.kind === "name") return null;
-    if (address.kind !== "role" || address.role !== ROLE_AGENT) return whyNone(address, asking.addressable());
+    if (address.kind !== "role" || address.role !== ROLE_AGENT || (address.scope !== undefined && address.scope !== "drawer")) return whyNone(address, asking.addressable());
     if (!this.d) return `the drawer's own program is closed · host.agent (alt+g) opens one as drawer.agent`;
     if (this.out) return `${this.p instanceof DrawerTile && this.p.away ? this.p.away.says : "the drawer's own program is out on a screen"} · agent.back brings it into its tab, or go to that screen`;
     return `the drawer's own program is closed · host.agent (alt+g) opens one as drawer.agent`;

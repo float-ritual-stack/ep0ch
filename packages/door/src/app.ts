@@ -47,7 +47,7 @@ import { stateDir, writeState } from "./state";
 import { alertMark, readAlert } from "./backup/alert";
 import type { AgentSession } from "./desk/agent-sessions";
 import { AgentDrawer, DRAWER_ACTIONS, DRAWER_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
-import { namesAgent } from "./desk/tile-address";
+import { namesAgent, type ResolveOpts } from "./desk/tile-address";
 import type { HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
 import type { Pane } from "./desk/panes";
@@ -101,7 +101,7 @@ export interface HostLayer {
    * id, `drawer.agent`, an `@screen/tile` path, a program's told id (`program`). Never a screen's own names. The drawer's
    * desk answers (it reads every layer); none made yet, nothing.
    */
-  resolveTile(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null;
+  resolveTile(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null;
   /** Why `sel` names no tile in the host layer, in words and with the command to run (the drawer's own program closed, or out on a screen not shown), or null: the dispatcher's refusal says it. */
   unnamed(sel: string): string | null;
   /** Tile `name` of screen `from` into the drawer, whole, as a tab unless `to`/`where` place it in the drawer's layout; `keys`: the person's go into it there (a new note to write). */

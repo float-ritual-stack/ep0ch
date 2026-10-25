@@ -195,6 +195,8 @@ export class PtyPane implements Pane {
   private herdrPane: { pane: string; name?: string } | null = null;
   /** What the tile is for (Pane.role): the drawer's own program is `agent`. */
   role?: string;
+  /** Pane.openedFrom. */
+  openedFrom?: string;
   /** The tile's id on the desk (`t<n>`): the program gets it as EP0CH_TILE_ID. */
   tileId: string | null = null;
   /** The tile's name on the desk, for a tile opened without one (`^W o s`: the desk names it): EP0CH_TILE. */

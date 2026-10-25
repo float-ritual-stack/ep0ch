@@ -1,3 +1,4 @@
+import type { ResolveOpts } from "../desk/tile-address";
 import { fromPress } from "../session/session-term";
 import { modeActionKeys } from "./modes";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
@@ -161,7 +162,7 @@ export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req:
    * The host layer (the drawer, above every screen): the one place that resolves what `tile=` names across layers (a tile's
    * id, `drawer.agent`, an `@screen/tile` path), for every screen host, a desk or not. A screen's own names are its own.
    */
-  hostLayer?: { resolveTile?(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null; /** Why `sel` names no tile in the host layer (the drawer's program closed, say), with what to run: a refusal says it. */ unnamed?(sel: string): string | null } }
+  hostLayer?: { resolveTile?(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null; /** Why `sel` names no tile in the host layer (the drawer's program closed, say), with what to run: a refusal says it. */ unnamed?(sel: string): string | null } }
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
@@ -179,7 +180,7 @@ export interface DispatchHost {
   where?(): Whereabouts;
   /** The tiles `tile=` names, in order on screen. */
   tiles?(): TileRef[];
-  resolveTile?(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null;
+  resolveTile?(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null;
   /** `expected=`: why it's refused (the layout changed since that revision), or null. Absent: the screen has none. */
   revision?(expected: unknown): string | null;
   /** A tile's draft for the draft rule: the note it shows and the session it holds. */
@@ -402,7 +403,9 @@ export class Dispatcher {
    * everything below), else the host layer's (PIE-1285), which every screen host is asked, a desk or not. One place decides
    * `drawer.agent`, a tile's id and a path, so no screen keeps a copy of the rule.
    */
-  private resolve(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null {
+  private resolve(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null {
+    // `^` is relative to the tile the request acts from: the one with the keys, never a guess when nothing has them.
+    if (/^\^+$/.test(sel) && o?.from === undefined) o = { ...o, from: this.where().address ?? undefined };
     if (this.host.resolveTile) return this.host.resolveTile(sel, o) ?? this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
     // A host that reads no tiles across layers keeps its own names: the host layer answers only what they don't.
     return this.named(sel, this.tilesNow()) ? null : this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;

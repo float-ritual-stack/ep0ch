@@ -190,6 +190,8 @@ export interface Pane {
    * made the tile, saved with its id, so a restart, a handover or a restore keeps it; absent, its kind's role (`tileRole`).
    */
   role?: string;
+  /** The tile that opened this one (its `t-<uuid>`), kept with it: `^` follows it (PIE-1286). */
+  openedFrom?: string;
   readonly bindings?: readonly ModeKey[];
   /** Whether its host currently draws the tile (also reaches nested screens). */
   shownAs?(on: boolean): void;
