@@ -6,9 +6,13 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { App } from "../src/app";
+import { App, type Screen } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { hostSpec } from "../src/drawer";
+import { openScreen } from "../src/desk/screen-specs";
+import { screenNames } from "../src/desk/screen-spec";
+import { ArtViewer, MainMenu } from "../src/screens";
+import { DRAWER_TILE_ID } from "../src/desk/agent-env";
 import { PtyPane } from "../src/desk/pty";
 import { outlineState } from "../src/state";
 import { SocketBoard } from "../src/socket";
@@ -741,6 +745,99 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       } finally { d.app.quit(); }
     }, 45_000);
   }
+
+  // PIE-1285 (Evan, Oct 25): `lift` on the component library said "no tile drawer.agent on the component library" with the
+  // drawer's Claude open below. The drawer is the host layer, above every screen, so tile=drawer.<name> names it from any
+  // screen host (the library, the board's desk, a screen pushed on top), by the status bar, a button and act alike.
+  for (const screen of ["library", "board"] as const) {
+    test(`agent.lift and a tile.zoom tile=drawer.agent bar button lift and drop the drawer's agent on the ${screen} screen; a tile name that does not exist is still refused`, async () => {
+      const d = await door();
+      try {
+        const bar = await board.createBlock(null, 'Your status bar [status-bar::true]\n::button{label="lift" act="agent.lift"}\n::button{label="popit" act="tile.zoom tile=drawer.agent reach=column"}');
+        d.key({ kind: "alt", ch: "a" }); d.paint();
+        await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+        d.app.push(openScreen(screen)); d.paint();
+        await d.A.statusNote.refresh(d.A.statusItems());
+        const click = (label: string) => {
+          const lines = d.paint(), row = lines.length - 1, x = lines[row]!.indexOf(label);
+          expect(x).toBeGreaterThanOrEqual(0);
+          d.key(mouse("down", x, row)); d.key(mouse("up", x, row));
+        };
+        const lifted = () => d.app.drawer.desks().map(x => x.liftedDesk?.lifted?.tile ?? null).find(t => t !== null) ?? null;
+        const settle = async (want: "up" | null, what: string) => { await until(() => (lifted() !== null) === (want === "up"), what); await Bun.sleep(30); expect(lifted() !== null).toBe(want === "up"); };
+        for (const label of ["lift", "popit"]) {
+          click(label); await settle("up", `${label}: the first click lifts the drawer's agent`);
+          click(label); await settle(null, `${label}: the second click drops it`);
+        }
+        const r = await d.app.dispatch.press("agent.lift", {}) as any;
+        expect(r).toMatchObject({ zoomed: true });
+        await d.app.dispatch.press("agent.lift", {}); await settle(null, "act drops it");
+        const why = await d.app.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: "drawer.nothing" }, USER).then(() => "", (e: Error) => e.message);
+        expect(why).toMatch(/no tile drawer\.nothing/);
+        await board.trash(bar.id);
+      } finally { d.app.quit(); }
+    }, 45_000);
+  }
+
+  // PIE-1285 (loki's root cause): what `tile=` names across layers (a tile's id, drawer.agent) is one rule of the host
+  // layer that every screen host's dispatcher asks, a desk or not: from each registered screen and each screen that is
+  // not a desk, the drawer's agent and every tile id of the drawer resolve to the same tile the host layer names.
+  test("every screen host resolves drawer.agent and the host layer's tile ids to the same tiles, and acts on them", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      const ids = d.app.drawer.desks().flatMap(x => x.layoutGet().tiles.map((t: { tile: string; name: string }) => ({ id: t.tile, name: t.name, drawer: d.app.hostLayer.isDrawer(x) })));
+      expect(ids.filter(t => t.drawer).map(t => t.name)).toContain("kettle");
+      const own = d.app.drawer.desk!.dispatch.tile(DRAWER_TILE_ID)!;
+      const hosts: [string, Screen & { dispatch: any }][] = [["main menu", new MainMenu() as any], ["art viewer", new ArtViewer([]) as any]];
+      for (const name of screenNames()) { try { hosts.push([name, openScreen(name) as any]); } catch { /* needs a target */ } }
+      expect(hosts.length).toBeGreaterThan(8);
+      for (const [name, screen] of hosts) {
+        d.app.push(screen as any); d.paint();
+        const at = (sel: string) => screen.dispatch.tile(sel);
+        expect([name, at(DRAWER_TILE_ID)?.id]).toEqual([name, own.id]);
+        for (const t of ids.filter(x => x.drawer)) expect([name, t.name, at(t.id)?.name]).toEqual([name, t.name, t.name]);
+        // The screen shown is a layer of the host layer too: its own tile ids resolve from its own dispatcher, as they did.
+        for (const t of (screen as any).layoutGet?.().tiles ?? []) expect([name, t.name, at(t.tile)?.name]).toEqual([name, t.name, t.name]);
+        // By act through the screen's own dispatcher, the lift and the drop.
+        const lifted = () => d.app.drawer.desks().map(x => x.liftedDesk?.lifted?.tile ?? null).find(t => t !== null) ?? null;
+        await screen.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: DRAWER_TILE_ID }, USER).catch((e: Error) => { throw new Error(`${name}: ${e.message}`); });
+        expect([name, lifted() !== null]).toEqual([name, true]);
+        await screen.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: DRAWER_TILE_ID }, USER);
+        expect([name, lifted()]).toEqual([name, null]);
+        await expect(screen.dispatch.act({ action: "tile.zoom", args: {}, tile: "drawer.nothing" }, USER)).rejects.toThrow(/no tile drawer\.nothing|answers to tile\.zoom/);
+        d.app.pop(); d.paint();
+      }
+    } finally { d.app.quit(); }
+  }, 60_000);
+
+  // PIE-1285 (Evan, Oct 25): a note's button `agent.lift`, pressed in a reader on the library screen with the drawer up and its
+  // program running, lifts that program and starts nothing: no new shell tile, no second process.
+  test("a note's agent.lift button, clicked in a reader on the library screen, lifts the drawer's running program and starts nothing", async () => {
+    const d = await door();
+    try {
+      const note = await board.createBlock(null, 'Fold bottom\n::box{bg=sunken border=round tone=amber pad=1}\n::button{label="Fold the bottom" act="agent.lift"}\n::');
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
+      const own = d.app.drawer.tile!, pid = own.pid;
+      const lib = openScreen("library") as any; d.app.push(lib); d.paint();
+      await lib.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "note" }, tile: "library" }, USER);
+      await lib.dispatch.act({ action: "open", args: { id: note.id }, tile: "note" }, USER);
+      const procs = () => d.app.drawer.desks().flatMap(x => x.layoutGet().tiles.map((t: { name: string; kind: string }) => `${t.name}:${t.kind}`)).sort();
+      const before = procs();
+      const lines = d.paint(), row = lines.findIndex(l => l.includes("Fold the bottom")), x = lines[row]!.indexOf("Fold the bottom") + 2;
+      expect(row).toBeGreaterThanOrEqual(0);
+      d.key(mouse("down", x, row)); d.key(mouse("up", x, row));
+      await until(() => d.app.drawer.desks().some(k => k.liftedDesk?.lifted), "the drawer's program is lifted");
+      expect(procs()).toEqual(before);
+      expect(d.app.drawer.tile).toBe(own);
+      expect(d.app.drawer.tile!.pid).toBe(pid);
+      expect(d.app.drawer.desks().flatMap(k => k.liftedDesk?.lifted ? [k.liftedDesk.liftsPane(own)] : [])).toEqual([true]);
+    } finally { d.app.quit(); }
+  }, 30_000);
 
   // PIE-892: the drawer's own program leaves whole. Its tab holds the place and starts nothing (a second client of a
   // Herdr session was a mirror nobody could type in or close), says where it went, and ⏎ or a click brings it back.

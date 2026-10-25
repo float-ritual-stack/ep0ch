@@ -68,7 +68,7 @@ import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, placeHost, type
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, preset, agentLabel, type ActRequest, type Again } from "./surface/actions";
-import { standsAsPerson, actorRule, type TileRef } from "./surface/dispatch";
+import { standsAsPerson, actorRule, type Dispatcher, type TileRef } from "./surface/dispatch";
 import { HOST_AGENT, NOBODY, type Whereabouts } from "./whereabouts";
 import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
 import type { Key } from "./term";
@@ -716,6 +716,11 @@ export class AgentDrawer {
   desks(): Desk[] {
     const screen = [...(this.host.ctx?.()?.screens?.() ?? [])].reverse().map(tilesOf).find(Boolean) ?? tilesOf(this.host.screen?.());
     return [...(this.d ? [this.d] : []), ...(screen && screen !== this.d ? [screen] : [])];
+  }
+  /** What `tile=` names across layers (HostLayer.resolveTile): an id, `drawer.agent`, a path, a drawer tab's name; a bare name on a screen is that screen's own. */
+  resolveTile(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
+    const hit = this.d?.resolveTile(sel, o) ?? null;
+    return hit && (o?.program || sel === DRAWER_TILE_ID || sel.includes("/") || hit.tile.id === sel || this.isDrawer(hit.desk)) ? hit : null;
   }
   /** The terminal tile a process is drawn in, on the drawer or the screen shown (`host.tileOf`, PIE-1043). */
   tileOf(q: { pid?: number; port?: number }): TileOfAnswer {

@@ -22,7 +22,7 @@ import { uncover, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
-import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS } from "./surface/dispatch";
+import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, type TileRef } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
@@ -94,6 +94,12 @@ export interface HostLayer {
   isDrawer(d: unknown): boolean;
   /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. */
   desks(): Desk[];
+  /**
+   * What `tile=` names across layers, asked first by every screen host's dispatcher (PIE-1285), a desk or not: a tile's
+   * id, `drawer.agent`, an `@screen/tile` path, a program's told id (`program`). Never a screen's own names. The drawer's
+   * desk answers (it reads every layer); none made yet, nothing.
+   */
+  resolveTile(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null;
   /** Tile `name` of screen `from` into the drawer, whole, as a tab unless `to`/`where` place it in the drawer's layout; `keys`: the person's go into it there (a new note to write). */
   put(from: Desk, name: string, actor: Actor, keys?: boolean, to?: string, where?: Where): TileDone;
   /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. */
@@ -1148,7 +1154,6 @@ export class App implements Ctx {
       open: (id: string, actor: Actor) => this.hostLayer.openOnScreen(id, true, actor),
     }) },
     { set: BAR_ACTIONS, takes: "none", on: (_, how) => ({ on: this.barOn, standing: how.standing }) },
-    { claims: req => !!req.tile && !!this.hostLayer.desks()[0]?.resolveTile(req.tile), delegate: req => req?.tile ? this.hostLayer.desks()[0]?.resolveTile(req.tile)?.dispatch : undefined, request: req => ({ ...req, tile: this.hostLayer.desks()[0]?.resolveTile(req.tile!)?.tile.id ?? req.tile }), listed: false },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
     { set: RUNBOOK_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },
     { set: EXTENSION_INSTALL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx }) },

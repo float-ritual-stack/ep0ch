@@ -156,7 +156,12 @@ export interface Delegation {
 }
 
 /** What a dispatcher's messages and repaints go through, and where it asks where the person is. */
-export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown): unknown; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number }
+export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown): unknown; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number;
+  /**
+   * The host layer (the drawer, above every screen): the one place that resolves what `tile=` names across layers (a tile's
+   * id, `drawer.agent`, an `@screen/tile` path), for every screen host, a desk or not. A screen's own names are its own.
+   */
+  hostLayer?: { resolveTile?(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null } }
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
@@ -393,13 +398,23 @@ export class Dispatcher {
   }
 
   /**
+   * What `tile=` names beyond this screen's own tiles: the screen host's own reading (a desk's: names, numbers, the focus and
+   * everything below), else the host layer's (PIE-1285), which every screen host is asked, a desk or not. One place decides
+   * `drawer.agent`, a tile's id and a path, so no screen keeps a copy of the rule.
+   */
+  private resolve(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null {
+    if (this.host.resolveTile) return this.host.resolveTile(sel, o) ?? this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
+    // A host that reads no tiles across layers keeps its own names: the host layer answers only what they don't.
+    return this.named(sel, this.tilesNow()) ? null : this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
+  }
+  /**
    * A tile's name from anything `tile=` takes (a name, an id, a number, an alias, `focused`, a block id it shows), or
    * null: for an argument that may name something that isn't a tile here (`open from=`, the host layer's agent).
    */
   name(sel: string): string | null { return this.tile(sel)?.name ?? null; }
   /** The tile `sel` names, by the same grammar, as the dispatcher sees it (what it shows, whether it's on screen). */
   tile(sel: string): TileRef | null {
-    const resolved = this.host.resolveTile?.(sel);
+    const resolved = this.resolve(sel);
     if (resolved) return resolved.tile;
     const tiles = this.tilesNow();
     if (sel === "focused") return this.focusedOf(tiles) ?? null;
@@ -425,6 +440,8 @@ export class Dispatcher {
 
   /** The set that owns a request's action: the first registered that claims it. */
   private owner(req: ActRequest, actor?: Actor): Registration | Delegation | null {
+    const own = this.claimedOutright(req);
+    if (own) return own;
     req = this.mountedRequest(req);
     const defaultAddress = req.tile === undefined ? this.where().address : null;
     const defaultTarget = defaultAddress ? this.host.resolveTile?.(defaultAddress) : null;
@@ -618,7 +635,7 @@ export class Dispatcher {
    * would be refused. Nothing runs; nothing is drawn.
    */
   menu(sel: string, actor: Actor): MenuRow[] {
-    const resolved = this.host.resolveTile?.(sel);
+    const resolved = this.resolve(sel);
     if (resolved && resolved.dispatch.host.pointerScope !== this.host.pointerScope) return resolved.dispatch.menu(resolved.tile.id!, actor);
     const tiles = this.tilesNow(), tile = this.tile(sel);
     if (!tile) throw new ActionRefused(`no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
@@ -652,11 +669,23 @@ export class Dispatcher {
     return out;
   }
 
+  /**
+   * A host that reads no tiles itself (the door's shell, a menu) hands a request naming a tile of another layer to that
+   * layer's dispatcher, except where one of its sets that takes a tile claims the request outright (the host layer's own `tile.herdr
+   * tile=drawer.agent`): that set's.
+   */
+  private claimedOutright(req: ActRequest): Registration | null {
+    if (this.host.resolveTile) return null;
+    return (this.regs.find(r => "set" in r && r.takes !== "none" && r.claims?.(req)) as Registration | undefined) ?? null;
+  }
+
   /** Ownership discovery and execution must resolve the same mounted target. Local tiles keep their scope. */
   private mountedRequest(req: ActRequest): ActRequest {
-    if (this.host.resolveTile && req.tile) {
-      const hit = this.host.resolveTile(req.tile);
-      return hit ? { ...req, tile: hit.tile.id ?? hit.tile.name } : req;
+    if (this.claimedOutright(req)) return req;
+    if (req.tile) {
+      const hit = this.resolve(req.tile);
+      if (hit) return { ...req, tile: hit.tile.id ?? hit.tile.name };
+      if (this.host.resolveTile) return req;
     }
     const sel = req.tile;
     if (!sel || isTilePath(sel) || sel === "focused" || NUMBER.test(sel)) return req;
@@ -675,8 +704,8 @@ export class Dispatcher {
   }
 
   private addressed(req: ActRequest): Delegation | null {
-    if (!this.host.resolveTile || !req.tile) return null;
-    const hit = this.host.resolveTile(req.tile);
+    if (!req.tile) return null;
+    const hit = this.resolve(req.tile);
     if (!hit || hit.dispatch.host.pointerScope === this.host.pointerScope) return null;
     return { delegate: () => hit.dispatch, request: r => ({ ...r, tile: hit.tile.id ?? hit.tile.name }), listed: false };
   }
@@ -698,7 +727,7 @@ export class Dispatcher {
     const out = { ...raw };
     for (const [k, s] of Object.entries(spec)) {
       if (s.kind !== "tile" || typeof out[k] !== "string" || s.choices?.includes(out[k] as string) || !tiles.length) continue;
-      const resolved = this.host.resolveTile?.(String(out[k]), s.program ? { program: true } : undefined);
+      const resolved = this.resolve(String(out[k]), s.program ? { program: true } : undefined);
       if (resolved) { out[k] = resolved.tile.id ?? resolved.tile.name; continue; }
       if (isTilePath(String(out[k]))) continue;
       const hit = this.named(String(out[k]), tiles);
