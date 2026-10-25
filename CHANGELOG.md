@@ -14,6 +14,14 @@ are its record. The outliner's entries from then are kept below, under
 
 - **`lift` on the component library said "no tile drawer.agent on the component library".** The drawer is above every screen, so `tile=drawer.agent`, a tile's id and an `@screen/tile` path are read once, by the host layer (`HostLayer.resolveTile`), and every screen's dispatcher asks it when its own tiles name nothing. `agent.lift`, a `tile.zoom tile=drawer.agent` button and `✦a` lift and drop the drawer's agent from any screen; a tile name that doesn't exist is still refused.
 
+### Settle tuning lives on its capability note, not in the folder config (PIE-1299)
+
+#918 let the settle check read a `settle-tuning` line from `.ep0ch/config.toml`, but that file holds names only, so the
+line made every session in the folder lose its outline. The check now reads the tuning from the outline: a
+`[settle-tuning::…]` property on a `type=capability` note (pie's settle note has it), the newest edited one winning,
+read at every check. The `settleTuning` option and `EP0CH_SETTLE_TUNING` still override it. The folder config is never
+read for it. No protocol change.
+
 ### One list, drawn the same everywhere: the `list` primitive and the door's ListView (PIE-747)
 
 Asked Oct 25 ("i want it"): a real list in every client without a door feature. An extension (marginalia's notebook, a

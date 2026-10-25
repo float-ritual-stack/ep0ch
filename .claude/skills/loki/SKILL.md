@@ -123,7 +123,7 @@ each move into or out of settled or shaped is already a line under the day's bui
 5. **Gate only taste and direction** (`[needs::sysop]`, about three open). Evan does not have to say go for the rest.
 
 The check is off in every session but yours: `EP0CH_SETTLE=on|off` (or the mod's `settle` option) overrides, and
-`settle-outlines` in the folder's `.ep0ch/config.toml` (default `pie` and `gurgle` on the outline's machine; `EP0CH_SETTLE_OUTLINES` overrides), `settleTuning` (`chirps=3; quiet=60; within=4320; wake-max=5`) tune
+`settle-outlines` in the folder's `.ep0ch/config.toml` (default `pie` and `gurgle` on the outline's machine; `EP0CH_SETTLE_OUTLINES` overrides), the `[settle-tuning::chirps=3; quiet=60; within=4320; wake-max=5; base=…]` property on the settle capability note (the newest edited one; `settleTuning` or `EP0CH_SETTLE_TUNING` overrides it) tunes
 it. The first check only records what was already settled (one baseline line in the build log). Thresholds are guesses: tune them from a week of real threads.
 
 ## Draining Up next

@@ -45,7 +45,7 @@
     "settleTuning": {
       "type": "string",
       "title": "Settle check thresholds",
-      "description": "key=value pairs separated by ';': chirps=3; evan=1; quiet=60 (minutes without a touch); within=4320 (minutes after which a quiet thread is dormant); every=30; wake-max=5; base, evan-query, shaped-query (queries in the views' grammar). Empty: EP0CH_SETTLE_TUNING applies.",
+      "description": "key=value pairs separated by ';': chirps=3; evan=1; quiet=60 (minutes without a touch); within=4320 (minutes after which a quiet thread is dormant); every=30; wake-max=5; base, evan-query, shaped-query (queries in the views' grammar). Empty: EP0CH_SETTLE_TUNING applies; neither set: the settle-tuning property on the newest type=capability note that has one, else the defaults.",
       "required": false,
       "default": ""
     }

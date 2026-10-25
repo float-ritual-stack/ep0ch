@@ -383,8 +383,8 @@ has the steps for a wake.
   nothing invented. An outline that can't be read leaves the whole check undone.
 - **Who and where:** a session whose persona is `loki`; `settle` (option) or `EP0CH_SETTLE` = `on` or `off` decides
   outright. The outlines are, first match wins, `settleOutlines` or `EP0CH_SETTLE_OUTLINES` (`gurgle@float-2, pie@float-2`), then
-  `settle-outlines = "…"` in the folder's `.ep0ch/config.toml`, else `pie` and `gurgle` on the bound outline's machine. `settleTuning` or `EP0CH_SETTLE_TUNING` is `chirps=3; evan=1; quiet=60; within=4320; every=30;
-  wake-max=5; base=…; evan-query=…; shaped-query=…` (minutes; the queries are in the views' grammar). The defaults are
+  `settle-outlines = "…"` in the folder's `.ep0ch/config.toml`, else `pie` and `gurgle` on the bound outline's machine. The tuning is a property on the settle capability note in the outlines it reads: `[settle-tuning::…]` on a `type=capability` note, the newest edited one winning, read on every check so an edit counts at the next (`every` applies from the next load). `settleTuning` or `EP0CH_SETTLE_TUNING` beats the note. The form is `chirps=3; evan=1; quiet=60; within=4320; every=30;
+  wake-max=5; base=…; evan-query=…; shaped-query=…` (minutes; the queries are in the views' grammar). A tuning that does not read is one toast naming the note, and the defaults stand. The folder's `.ep0ch/config.toml` holds names only and is never read for it. The defaults are
   guesses to tune from a week of real threads.
 - A host older than `list --facets` is one toast naming `ep0ch install --apply`; the check changes nothing until it
   can read.

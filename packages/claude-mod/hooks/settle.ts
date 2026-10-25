@@ -1,4 +1,4 @@
-import { listArgs } from './workboard-now'
+import { listArgs, listedOf } from './workboard-now'
 import { MACHINE_NAME, OUTLINE_NAME } from './mention-message'
 
 /**
@@ -123,19 +123,35 @@ export function outlinesOf(text: string | undefined, bound: SettleOutline | null
 export const DEFAULT_OUTLINES = ['pie', 'gurgle'] as const
 
 /** `settle-outlines = "gurgle@float-2, pie"` in a folder's `.ep0ch/config.toml` (or an old `.ep0ch` file), or undefined. */
-/** One string key of `.ep0ch/config.toml` (`key = "…"` or `key = '…'`, a trailing `#` comment allowed). */
-function configString(text: string | null | undefined, key: string): string | undefined {
-  const m = new RegExp(`^\\s*${key}\\s*=\\s*(?:"([^"\\n]*)"|'([^'\\n]*)')\\s*(?:#.*)?$`, 'm').exec(text ?? '')
+export function settleOutlinesOfConfig(text: string | null | undefined): string | undefined {
+  const m = /^\s*settle-outlines\s*=\s*(?:"([^"\n]*)"|'([^'\n]*)')\s*(?:#.*)?$/m.exec(text ?? '')
   return (m?.[1] ?? m?.[2])?.trim() || undefined
 }
 
-export function settleOutlinesOfConfig(text: string | null | undefined): string | undefined {
-  return configString(text, 'settle-outlines')
+/** The property the settle capability note carries its tuning on: the `settleTuning` form (TUNING_FORM), edited in the outline. */
+export const TUNING_KEY = 'settle-tuning'
+
+/** `list`'s argv for the notes carrying the tuning: any outline's capability notes with the property, rows with their update time. */
+export function tuningNoteArgs(): string[] {
+  return listArgs(`type=capability AND ${TUNING_KEY}`, 20, 'id,title,properties,timestamps')
 }
 
-/** The folder's `settle-tuning` in `.ep0ch/config.toml`: the `settleTuning` form (TUNING_FORM), read on every check so an edit counts at the next one; the option and EP0CH_SETTLE_TUNING come first. `every` applies from the next load. */
-export function settleTuningOfConfig(text: string | null | undefined): string | undefined {
-  return configString(text, 'settle-tuning')
+export type TuningNote = { id: string; tuning: string; updatedAt: number }
+
+/** The tuning notes in one `list` answer, or null when it isn't one. A note with an empty property or no update time is no tuning. */
+export function tuningNotesOf(stdout: string): TuningNote[] | null {
+  const listed = listedOf(stdout)
+  if (!listed) return null
+  return listed.blocks.flatMap(b => {
+    const tuning = b.properties.find(p => p.key === TUNING_KEY)?.value.trim()
+    const updatedAt = Date.parse(b.updatedAt ?? '')
+    return tuning && Number.isFinite(updatedAt) ? [{ id: b.id, tuning, updatedAt }] : []
+  })
+}
+
+/** The newest tuning note across the outlines read: the one edited last wins, wherever it lives. */
+export function newestTuning(notes: readonly TuningNote[]): TuningNote | null {
+  return notes.reduce<TuningNote | null>((best, n) => (!best || n.updatedAt > best.updatedAt ? n : best), null)
 }
 
 /** The outline as the store and the wake name it: `gurgle@float-2`, or `pie` here. */

@@ -1,5 +1,5 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
-import { baselineOf, facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleOutlinesOfConfig, settleTuningOfConfig, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
+import { baselineOf, facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleOutlinesOfConfig, settleDiff, settlesFor, newestTuning, threadsOf, told, tuningNoteArgs, tuningNotesOf, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
 
 tier('user')
 
@@ -98,10 +98,7 @@ describe('the settings', () => {
     expect(outlinesOf('', { outline: 'garden' }).outlines).toEqual([{ outline: 'pie' }, { outline: 'gurgle' }])
     expect(settleOutlinesOfConfig('ws = "pie"\nsettle-outlines = "gurgle@float-2, pie@float-2" # both\n')).toBe('gurgle@float-2, pie@float-2')
     expect(settleOutlinesOfConfig('ws = "pie"\n')).toBeUndefined()
-    const toml = "ws = 'pie'\nsettle-tuning = 'base=thread AND NOT type=quote AND NOT thread=pie-requests; quiet=90' # channels are not threads\n"
-    expect(settleTuningOfConfig(toml)).toBe('base=thread AND NOT type=quote AND NOT thread=pie-requests; quiet=90')
-    expect(tuningOf(settleTuningOfConfig(toml)).config.base).toBe('thread AND NOT type=quote AND NOT thread=pie-requests')
-    expect(settleTuningOfConfig('ws = "pie"\n')).toBeUndefined()
+    expect(tuningOf('base=thread AND NOT type=quote AND NOT thread=pie-requests; quiet=90').config.base).toBe('thread AND NOT type=quote AND NOT thread=pie-requests')
     expect(outlinesOf('Not A Name', null).problems.at(-1)).toContain('write it like: gurgle@float-2')
   })
   test('the deployer\'s persona runs it unless on or off says otherwise', () => {
@@ -122,5 +119,23 @@ describe('the service\'s answer', () => {
   })
   test('the question asks for one row and every value', () => {
     expect(facetArgs('thread')).toEqual(['list', '--query', 'thread', '--fields', 'id', '--limit', '1', '--facets', 'thread', '--facet-values', '1000'])
+  })
+})
+
+describe('the tuning on the capability note', () => {
+  const row = (id: string, tuning: string | null, updatedAt: string) => ({ id, title: 'Settle', properties: tuning === null ? [] : [{ key: 'settle-tuning', value: tuning }], updatedAt })
+  test('asks for capability notes carrying the property, with their update times', () => {
+    const argv = tuningNoteArgs()
+    expect(argv[argv.indexOf('--query') + 1]).toBe('type=capability AND settle-tuning')
+    expect(argv[argv.indexOf('--fields') + 1]).toContain('timestamps')
+  })
+  test('the newest edited note wins, and a note with an empty property is no tuning', () => {
+    const notes = tuningNotesOf(JSON.stringify({ blocks: [
+      row('a', 'chirps=9', '2026-10-24T10:00:00Z'), row('b', 'chirps=2', '2026-10-25T10:00:00Z'), row('c', '  ', '2026-10-26T10:00:00Z'), row('d', null, '2026-10-27T10:00:00Z'),
+    ] }))
+    expect(notes?.map(n => n.id)).toEqual(['a', 'b'])
+    expect(newestTuning(notes!)?.tuning).toBe('chirps=2')
+    expect(newestTuning([])).toBeNull()
+    expect(tuningNotesOf('not json')).toBeNull()
   })
 })

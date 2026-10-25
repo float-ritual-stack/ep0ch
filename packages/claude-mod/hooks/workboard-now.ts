@@ -34,7 +34,7 @@ export function listArgs(query: string, limit: number, fields = 'id,title,proper
 export const PRS_ARGV = ['gh', 'pr', 'list', '--state', 'open', '--limit', '20', '--json', 'number,title,headRefName,isDraft'] as const
 
 /** A row of `list`: its properties as the service sends them, one entry per occurrence (never a key → value map). */
-export type ListedBlock = { id: string; title: string; properties: { key: string; value: string }[]; createdAt?: string }
+export type ListedBlock = { id: string; title: string; properties: { key: string; value: string }[]; createdAt?: string; updatedAt?: string }
 /** A property's first value on a row, if it has one. */
 const valueOf = (item: ListedBlock, key: string): string | undefined => item.properties.find(p => p.key === key)?.value
 export type OpenPr = { number: number; title: string; branch: string; draft: boolean }
@@ -56,7 +56,7 @@ export function listedOf(stdout: string): Listed | null {
   return { complete: completeness?.kind === 'complete', blocks: blocks.flatMap((b): ListedBlock[] => {
     if (!b || typeof b.id !== 'string') return []
     const properties = (Array.isArray(b.properties) ? b.properties : []).flatMap((p: { key?: unknown; value?: unknown }) => (typeof p?.key === 'string' && typeof p.value === 'string' ? [{ key: p.key, value: p.value }] : []))
-    return [{ id: b.id, title: typeof b.title === 'string' ? b.title : '', properties, ...(typeof b.createdAt === 'string' ? { createdAt: b.createdAt } : {}) }]
+    return [{ id: b.id, title: typeof b.title === 'string' ? b.title : '', properties, ...(typeof b.createdAt === 'string' ? { createdAt: b.createdAt } : {}), ...(typeof b.updatedAt === 'string' ? { updatedAt: b.updatedAt } : {}) }]
   }) }
 }
 

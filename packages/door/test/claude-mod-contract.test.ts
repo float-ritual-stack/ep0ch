@@ -219,6 +219,28 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     expect(Object.fromEntries(threads.map((t: { thread: string; state: string }) => [t.thread, t.state]))).toEqual({ squash: "settled", netting: "shaped" });
   });
 
+  test("the settle tuning: the capability note's settle-tuning property reads back through the real CLI, the newest edit winning (PIE-1299)", async () => {
+    const { tuningNoteArgs, tuningNotesOf, newestTuning, tuningOf } = await mod("settle.ts");
+    const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
+    try {
+      for (const text of [
+        "Settle, then shape [type::capability] [settle-tuning::chirps=9]",
+        "Another capability [type::capability] [settle-tuning::chirps=2; base=thread AND NOT thread=lounge]",
+        "A capability with no tuning [type::capability]",
+        "A plain note [settle-tuning::chirps=7]",
+      ]) await board.request("create", { parentId: null, text, author: "agent" });
+    } finally { board.close(); }
+    const p = Bun.spawn(["bun", OUTLINER_CLI, ...tuningNoteArgs()], { cwd: scratch.workspace, stdout: "pipe", stderr: "pipe", env: { ...clean, ...env, FORCE_COLOR: "3" } });
+    const [stdout, exitCode] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+    expect(exitCode).toBe(0);
+    const notes = tuningNotesOf(stdout);
+    expect(notes.map((n: { tuning: string }) => n.tuning).sort()).toEqual(["chirps=2; base=thread AND NOT thread=lounge", "chirps=9"]);
+    const newest = newestTuning(notes);
+    // The service stamps the update time; the reader must have taken it (a note edited last wins, whichever it is).
+    expect(newest.updatedAt).toBe(Math.max(...notes.map((n: { updatedAt: number }) => n.updatedAt)));
+    expect(tuningOf("chirps=2; base=thread AND NOT thread=lounge").problems).toEqual([]);
+  });
+
   test("outline_comment's kind lands on the thread through the real CLI, as kind and as properties.kind (PIE-871)", async () => {
     const { checkedInput, OUTLINE_TOOLS } = await mod("outline-tools.ts");
     const tool = OUTLINE_TOOLS.find((t: { name: string }) => t.name === "outline_comment");
