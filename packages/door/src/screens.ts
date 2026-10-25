@@ -523,6 +523,21 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       return { opened: "message log" };
     },
   }),
+  "status.speed": def({
+    summary: "how fast the door settles: the time from the last input of a burst to the frame that shows it (p50, p95, worst, over the latest bursts), said on the status line; the same object is `peek speed`. The status bar's `slow: N ms to settle` chip is a click on this",
+    keys: "click the status bar's slow chip",
+    touches: "nothing", replay: "safe",
+    args: {},
+    answer: { since: { type: "string", about: "when the counts began" }, frames: { type: "number", about: "frames painted" }, reports: { type: "number", about: "input reports handled" }, motionCoalesced: { type: "number", about: "hover reports folded into a newer one" }, settle: { type: "object", about: "p50, p95, worst (ms, null before the first burst) and n, the bursts kept" } },
+    examples: [{ act: "status.speed", does: "says how fast the door has settled lately and returns the counts" }],
+    run(_, { ctx }) {
+      const speed = ctx.speed?.describe();
+      if (!speed) throw new ActionRefused("this door keeps no speed counts");
+      const s = speed.settle;
+      ctx.flash(s.n ? `settles in ${s.p50} ms (p50), ${s.p95} ms (p95), ${s.worst} ms (worst) over ${s.n} bursts · ${speed.frames} frames for ${speed.reports} reports · ep0ch peek speed` : `no burst measured yet · ${speed.frames} frames for ${speed.reports} reports`, 8000);
+      return speed;
+    },
+  }),
   "agents.yolo": def({
     summary: "hand the door to your agents (on=true) or take it back (on=false); left out, it toggles. In yolo no person guard holds an agent back: not your typing, focus or idle, not a tile's limit or a lock, not the drawer. What keeps state valid (revisions, the layout's shape) still holds, and every agent action is still attributed and said. Loud on the status bar (YOLO; a click takes it back). Kept across an update of the same session; off after the door ends or crashes. Turning it on is the person's; an agent may turn it off",
     keys: "> agents.yolo in the power bar (ctrl+k); a click on the status bar's YOLO turns it off",

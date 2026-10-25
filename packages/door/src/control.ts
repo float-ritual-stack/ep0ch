@@ -17,6 +17,7 @@ import { sessionPersona } from "@ep0ch/outline-core/outline-location";
 import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { App } from "./app";
+import { VALUE_FLAGS } from "./discover";
 import { parseActArgs } from "./surface/actions";
 import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
@@ -238,7 +239,7 @@ export function peekAsk(args: readonly string[]): PeekAsk | { error: string } {
   const section: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
-    if (a === "--ws" || a === "--machine" || a === "--as") { i++; continue; }
+    if ((VALUE_FLAGS as readonly string[]).includes(a)) { i++; continue; }
     if (a.startsWith("--")) continue;
     section.push(a);
   }
@@ -259,12 +260,14 @@ function peekHead(screen: Record<string, any>): string[] {
 /** What `ep0ch peek` prints for `ask`, from the door's answer; an error names the sections there are. */
 export function peekOutput(result: { screen: Record<string, any>; text: string[] }, ask: PeekAsk): { out: string; error?: undefined } | { error: string; out?: undefined } {
   const { screen, text } = result;
+  // The state and the screen's text are one object: a section is a key of it, and `text` alone is plain lines unless --json asks.
+  const whole = { ...screen, text };
   if (ask.section) {
-    if (ask.section === "text") return { out: text.join("\n") + "\n" };
-    if (!(ask.section in screen)) return { error: `peek has no section ${ask.section} · its sections: ${Object.keys(screen).concat("text").join(", ")} · \`ep0ch peek --json\` gives them all` };
-    return { out: JSON.stringify(screen[ask.section], null, 2) + "\n" };
+    if (ask.section === "text" && !ask.json) return { out: text.join("\n") + "\n" };
+    if (!Object.hasOwn(whole, ask.section)) return { error: `peek has no section ${ask.section} · its sections: ${Object.keys(whole).join(", ")} · \`ep0ch peek --json\` gives them all` };
+    return { out: JSON.stringify(whole[ask.section as keyof typeof whole], null, 2) + "\n" };
   }
-  if (ask.json || ask.xray) return { out: JSON.stringify({ ...screen, text }, null, 2) + "\n" };
+  if (ask.json || ask.xray) return { out: JSON.stringify(whole, null, 2) + "\n" };
   let last = text.length;
   while (last > 0 && !text[last - 1]) last--;
   return { out: [...peekHead(screen), "─".repeat(20), ...text.slice(0, last), "─".repeat(20), "more: `ep0ch peek --json` (all of the state, and this text), `ep0ch peek <section>` (layout, drawer, speed, state, …)"].join("\n") + "\n" };

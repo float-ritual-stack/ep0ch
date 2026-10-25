@@ -367,24 +367,27 @@ describe("the status bar says when the door settles slowly (PIE-1309)", () => {
     const screen = { title: "board", render: () => { now += paintMs(); return { lines: ["a screen"] }; }, key() { app.redraw(); } };
     app.push(screen as any);
     const bar = () => plain((app as any).statusBar(screen, 120));
-    /** One burst: a key, the frame it draws, and a pause longer than a burst. */
-    const burst = async () => { now += 2000; (app as any).key({ kind: "char", ch: "x" }); await Bun.sleep(30); };
+    /** One burst: a key, the frame it draws (slow: the bar is read while it draws, as the real one is), and a pause. */
+    const burst = async (every = 5000) => { now += every; (app as any).key({ kind: "char", ch: "x" }); await Bun.sleep(30); bar(); };
     return { app, bar, burst, wait: (ms: number) => { now += ms; } };
   }
 
-  test("a minute of slow bursts puts the number in the bar; a minute of fast ones takes it away; one slow paint says nothing", async () => {
+  test("a slow minute puts the number in the bar; a brief slowdown says nothing; a quiet minute takes it away", async () => {
     let slow = 150;
     const d = door(() => slow);
-    await d.burst();
-    expect(d.bar()).not.toContain("slow");
-    for (let i = 0; i < 6; i++) await d.burst();
-    expect(d.app.speed.describe().settle).toMatchObject({ n: 7, p95: 150, worst: 150 });
+    for (let i = 0; i < 8; i++) await d.burst();
+    expect(d.app.speed.describe().settle).toMatchObject({ n: 8, p95: 150, worst: 150 });
+    expect(d.bar()).not.toContain("slow:");                         // slow for 40 s so far
+    for (let i = 0; i < 14; i++) await d.burst();
     expect(d.bar()).toContain("slow: 150 ms to settle");
-    // Nothing is slow once a minute passes without a slow burst.
+    // The chip is a click on status.speed, which says it and gives the numbers (the same object as `peek speed`).
+    const said = await d.app.dispatch.act({ action: "status.speed" }, { kind: "agent", id: "test" }) as ReturnType<typeof d.app.speed.describe>;
+    expect(said.settle).toMatchObject({ p95: 150, worst: 150 });
+    expect((d.app as any).message).toContain("150 ms (p95)");
+    // Fast again: the minute's p95 comes down once the slow ones age out of it.
     slow = 5;
-    d.wait(61_000);
-    for (let i = 0; i < 6; i++) await d.burst();
-    expect(d.bar()).not.toContain("slow");
+    for (let i = 0; i < 24; i++) await d.burst();
+    expect(d.bar()).not.toContain("slow:");
     expect(d.app.speed.describe().settle.worst).toBe(150);
   });
 });

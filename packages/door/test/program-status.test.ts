@@ -240,6 +240,58 @@ describe("the door as a program: what it reports to the terminal it runs in", ()
     expect(records(tree).some(r => r.id !== "")).toBe(true);
   });
 
+  test("a program rewording its ask is one nudge, sent once; a different tile asking is another", () => {
+    const reporter = new DoorReporter(() => "garden", () => clock.t);
+    const out: string[] = [];
+    const painter = new Painter(termOf(out, false));
+    const a = holder("scribe"), b = holder("weeder");
+    const step = (ms: number) => { clock.t += ms; painter.programStatus(reporter.report([a, b])); };
+    step(0);
+    say(a, { state: "blocked", id: "", kind: "permission", msg: "Allow Edit: one.ts?" });
+    // Reworded every three seconds, longer than the hold: it never lets the hold run out, and never sends twice.
+    for (let i = 0; i < 12; i++) { step(3000); say(a, { state: "blocked", id: "", kind: "permission", msg: `Allow Edit: file${i}.ts?` }); }
+    for (let i = 0; i < 12; i++) { step(5000); say(a, { state: "blocked", id: "", kind: "permission", msg: `Allow Edit: other${i}.ts?` }); }
+    const told = records(out);
+    expect(told.map(r => r.state)).toEqual(["idle", "blocked"]);
+    expect(told[1]!.msg).toMatch(/^scribe in garden · approve: Allow Edit: file\d+\.ts\?$/);
+    // Another tile now asks too: the first still leads, nothing new; when it is answered the second is a new ask.
+    say(b, { state: "blocked", id: "", kind: "question", msg: "Which bed?" });
+    step(5000); step(5000);
+    expect(records(out)).toHaveLength(2);
+    say(a, { state: "working", id: "" });
+    step(0); step(5000);
+    expect(records(out).at(-1)).toMatchObject({ state: "blocked", kind: "question", msg: "weeder in garden · asks: Which bed?" });
+  });
+
+  test("a nested record finishing earlier doesn't end the job of the one that reports the whole run", () => {
+    const h = holder("scribe");
+    say(h, { state: "working", id: "" });
+    clock.t += 10_000;
+    say(h, { state: "working", id: "helper" });
+    clock.t += 5_000;
+    say(h, { state: "done", id: "helper", msg: "a small thing" });
+    clock.t += 3 * 60_000;
+    say(h, { state: "done", id: "", msg: "the whole run" });
+    expect(h.status.ranOf("")).toBe(3 * 60_000 + 15_000);
+    expect(h.status.ranOf("helper")).toBe(5_000);
+    expect(doorReport([h], "garden").get("")).toMatchObject({ state: "done", msg: "scribe in garden · 3 min: the whole run" });
+    h.status.seen();
+    expect(h.status.ranOf("")).toBeNull();
+  });
+
+  test("the time a job waited on the person isn't the job's: a run that sat blocked for ten minutes took what it worked", () => {
+    const h = holder("scribe");
+    say(h, { state: "working", id: "" });
+    clock.t += 30_000;
+    say(h, { state: "blocked", id: "", kind: "permission", msg: "Allow Edit: one.ts?" });
+    clock.t += 10 * 60_000;
+    say(h, { state: "working", id: "" });
+    clock.t += 5_000;
+    say(h, { state: "done", id: "", msg: "edited" });
+    expect(h.status.ranOf("")).toBe(35_000);
+    expect(doorReport([h], "garden").get("")).toEqual({ state: "idle", app: "ep0ch" });
+  });
+
   test("a flap within the hold sends nothing; a change that lasts is sent once, a long job's done included", () => {
     const reporter = new DoorReporter(() => "garden", () => clock.t);
     const out: string[] = [];

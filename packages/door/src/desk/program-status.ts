@@ -52,11 +52,12 @@ export class TileStatus {
   readonly records = new StatusRecords();
   /** When its records last changed (the clock's now). */
   at = 0;
-  /** Since when the tile has been working on one job: set when its most urgent record turns `working`, kept through a `blocked` ask, ended by a `done`, a failure or idle. */
-  workSince: number | null = null;
-  /** How long the job that ended in the tile's `done` or `error` ran, by the clock; null when the door never saw it work. */
-  ranMs: number | null = null;
-  private lastTop: ProgramState | null = null;
+  /**
+   * How long each record's job has run, by the record's id: `since` is when it turned `working` (kept through a `blocked`
+   * ask, whose wait is taken out), and a `done` or `error` closes it into `ran`. A record's own clock: a child finishing
+   * never ends its parent's.
+   */
+  private readonly runs = new Map<string, { since: number | null; ran: number | null; state: ProgramState; blockedAt: number | null }>();
   constructor(private readonly now: () => number = Date.now) {}
   /**
    * Who runs here, by what the program says (the `app` of the latest root report): the one answer to "which
@@ -79,6 +80,7 @@ export class TileStatus {
   /** One report as read, whoever wrote it: the escape sequence above, or a test. */
   report(r: StatusReport): void {
     const applied = this.records.apply(r);
+    this.track(r);
     // Only the root record names who runs here: a door's child records name its tiles' programs, not the door's.
     if (r.state === "clear") { if (this.records.size === 0) this.app = null; }
     else if (r.id === "") this.app = r.app ?? null;
@@ -94,18 +96,26 @@ export class TileStatus {
   seen(): boolean { const gone = this.records.seen(); if (gone) this.changed(); return gone; }
   /** The record asking most of the person, or null. */
   urgent(): StatusRecord | null { return this.records.urgent(); }
-  private changed() { this.track(); this.at = this.now(); notify(this); }
-  /** How long a job ran, from the most urgent record's states: working starts it, done or failed ends it and keeps its length for the report. */
-  private track() {
-    const top = this.records.urgent()?.state ?? null, now = this.now();
-    if (top === "working") this.workSince ??= now;
-    else if (top === "done" || top === "error") {
-      if (this.workSince !== null) this.ranMs = now - this.workSince;
-      else if (this.lastTop !== top) this.ranMs = null;
-      this.workSince = null;
-    } else if (top !== "blocked") { this.workSince = null; this.ranMs = null; }
-    this.lastTop = top;
+  private changed() { this.prune(); this.at = this.now(); notify(this); }
+  /** How long `id`'s job ran, once it is `done` or `failed`; null when the door never saw it work. */
+  ranOf(id: string): number | null { return this.runs.get(id)?.ran ?? null; }
+  private track(r: StatusReport) {
+    if (r.state === "clear") return;
+    const now = this.now(), run = this.runs.get(r.id) ?? { since: null, ran: null, state: r.state, blockedAt: null };
+    // Time spent waiting on the person is theirs, not the job's: a run that sat blocked for ten minutes and then took five seconds took five seconds.
+    if (r.state === "blocked") run.blockedAt ??= now;
+    else if (run.blockedAt !== null) { if (run.since !== null) run.since += now - run.blockedAt; run.blockedAt = null; }
+    if (r.state === "working") run.since ??= now;
+    else if (r.state === "done" || r.state === "error") {
+      if (run.since !== null) run.ran = now - run.since;
+      else if (run.state !== r.state) run.ran = null;
+      run.since = null;
+    } else if (r.state !== "blocked") { run.since = null; run.ran = null; }
+    run.state = r.state;
+    this.runs.set(r.id, run);
   }
+  /** A record that went (cleared, seen, its program exited) takes its clock with it. */
+  private prune() { for (const id of this.runs.keys()) if (!this.records.get(id)) this.runs.delete(id); }
 }
 
 const HOLDERS = new Set<StatusHolder>();
@@ -240,9 +250,12 @@ export function nudgeOf(h: StatusHolder, r: StatusRecord, where: string): Status
         : words ? `${who} needs you: ${words}` : `${who} needs you`;
       return { state: "blocked", app: "ep0ch", ...(r.kind ? { kind: r.kind } : {}), msg };
     }
-    case "error": return { state: "error", app: "ep0ch", msg: words ? `${who} failed: ${words}` : h.status.ranMs !== null ? `${who} failed after ${minutes(h.status.ranMs)}` : `${who} failed` };
+    case "error": {
+      const ran = h.status.ranOf(r.id);
+      return { state: "error", app: "ep0ch", msg: words ? `${who} failed: ${words}` : ran !== null ? `${who} failed after ${minutes(ran)}` : `${who} failed` };
+    }
     case "done": {
-      const ran = h.status.ranMs;
+      const ran = h.status.ranOf(r.id);
       if (ran === null || ran < LONG_JOB_MS) return null;
       return { state: "done", app: "ep0ch", msg: words ? `${who} · ${minutes(ran)}: ${words}` : `${who} finished after ${minutes(ran)}` };
     }
@@ -258,7 +271,13 @@ export function nudgeOf(h: StatusHolder, r: StatusRecord, where: string): Status
  * program's app and words, the tile's name as its title, for a terminal that shows the tree (Herdr's sidebar; the
  * painter leaves them out for the rest). `where` is the outline the door is on.
  */
-export function doorReport(holders: readonly StatusHolder[], where: string): Map<string, StatusInput> {
+export function doorReport(holders: readonly StatusHolder[], where: string): Map<string, StatusInput> { return doorReportOf(holders, where).want; }
+
+/**
+ * `doorReport` and the root's identity: which nudge it is (its state, its kind and the tile it is about, "" for none),
+ * so that a program rewording itself is the same nudge, and a different tile asking is a new one.
+ */
+export function doorReportOf(holders: readonly StatusHolder[], where: string): { want: Map<string, StatusInput>; key: string } {
   const want = new Map<string, StatusInput>();
   // Most urgent first, at most CHILDREN of them: with the root, within the 64 records every terminal must keep.
   const shown = holders.map(h => ({ h, r: h.status.urgent() })).filter((x): x is { h: StatusHolder; r: StatusRecord } => !!x.r)
@@ -272,9 +291,13 @@ export function doorReport(holders: readonly StatusHolder[], where: string): Map
     want.set(id, { state: r.state, id, ...(r.kind ? { kind: r.kind } : {}), ...(progress !== undefined ? { progress } : {}), ...(r.app ? { app: r.app } : {}), title: name, ...(r.msg ? { msg: statusDisplayText(r.msg) } : {}) });
   }
   // The root: the first tile (in that order) with something to say. A tile's own most urgent record is the one told.
-  const nudge = shown.map(x => nudgeOf(x.h, x.r, where)).find((n): n is StatusInput => !!n);
+  let nudge: StatusInput | null = null, key = "";
+  for (const x of shown) {
+    nudge = nudgeOf(x.h, x.r, where);
+    if (nudge) { key = `${nudge.state}|${nudge.kind ?? ""}|${x.h.statusKey}`; break; }
+  }
   want.set("", nudge ?? QUIET);
-  return want;
+  return { want, key };
 }
 
 /** The root with nothing to say. */
@@ -282,29 +305,30 @@ const QUIET: StatusInput = { state: "idle", app: "ep0ch" };
 
 /**
  * What the door says to its terminal, as a policy over `doorReport`: the children as they are, and the root only
- * once a change has held for `settleMs` (a tile that asked and was answered within it, or a flap of any kind, sends
- * nothing). Leaving a nudge sends an idle that says what is no longer waiting. One per door, with the door's clock;
+ * once a change of nudge has held for `settleMs` (a tile that asked and was answered within it, or a flap of any kind,
+ * sends nothing; a program rewording its ask is the same nudge, sent once). Leaving a nudge sends an idle that says what
+ * is no longer waiting. One per door, with the door's clock;
  * the App asks `report` when something changed and `due` from its tick, so a held change goes out on time.
  */
 export class DoorReporter {
-  /** The root the terminals have, and the one wanted when it was sent (the leave says more than the quiet idle it answers). */
+  /** The root the terminals have, and which nudge it is (`doorReportOf`'s key; "" for none): the same nudge reworded is not a new one. */
   private told: StatusInput = QUIET;
-  private toldWanted = encodeProgramStatus(QUIET);
-  /** A change waiting out its hold: what's wanted, and since when. */
-  private held: { seq: string; at: number } | null = null;
+  private toldKey = "";
+  /** A change waiting out its hold: which nudge, and since when. */
+  private held: { key: string; at: number } | null = null;
   constructor(private readonly where: () => string, private readonly now: () => number, private readonly settleMs = NUDGE_SETTLE_MS) {}
 
   report(holders: readonly StatusHolder[]): Map<string, StatusInput> {
     const where = this.where();
-    const want = doorReport(holders, where);
-    const root = want.get("")!, seq = encodeProgramStatus(root), now = this.now();
-    if (seq === this.toldWanted) this.held = null;
+    const { want, key } = doorReportOf(holders, where);
+    const now = this.now();
+    if (key === this.toldKey) this.held = null;
     else {
-      if (this.held?.seq !== seq) this.held = { seq, at: now };
+      if (this.held?.key !== key) this.held = { key, at: now };
       if (now - this.held.at >= this.settleMs) {
         this.held = null;
-        this.toldWanted = seq;
-        this.told = seq === encodeProgramStatus(QUIET) ? { state: "idle", app: "ep0ch", msg: `nothing waits on you in ${where}` } : root;
+        this.toldKey = key;
+        this.told = key === "" ? { state: "idle", app: "ep0ch", msg: `nothing waits on you in ${where}` } : want.get("")!;
       }
     }
     want.set("", this.told);

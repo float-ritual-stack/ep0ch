@@ -217,11 +217,14 @@ export function doorActArgv(
 }
 
 /** What a `door_peek` call asks `ep0ch peek` for: the compact text (`text`), one `section` of the state, or the `full` state as one JSON object. */
-export type PeekAsk = { argv: string[]; reads: 'text' | 'section' | 'full' }
-export function peekArgv(input: Json): PeekAsk | string {
+export type PeekCall = { argv: string[]; reads: 'text' | 'section' | 'full' }
+export function peekArgv(input: Json): PeekCall | string {
   const section = typeof input.section === 'string' ? input.section.trim() : ''
   if (section && !/^[A-Za-z][A-Za-z0-9_-]*$/.test(section)) return 'section is the name of one part of the state: speed, person, layout, drawer, state, text.'
-  if (section) return { argv: ['ep0ch', 'peek', section], reads: section === 'text' ? 'text' : 'section' }
+  if (section) {
+    if (input.full === true || input.xray === true) return 'section is one part of the state; full and xray are the whole of it: give one or the other.'
+    return { argv: ['ep0ch', 'peek', section], reads: section === 'text' ? 'text' : 'section' }
+  }
   const full = input.full === true || input.xray === true
   return { argv: ['ep0ch', 'peek', ...(full ? ['--json'] : []), ...(input.xray === true ? ['--xray'] : [])], reads: full ? 'full' : 'text' }
 }
@@ -230,7 +233,7 @@ export function peekArgv(input: Json): PeekAsk | string {
  * What `ep0ch peek` printed, as one compact value: the compact text as `{ text }`; the full state (`--json`: one object
  * holding the screen's `text` lines) as `{ screen, text }`; a section (JSON alone) as `{ section }`.
  */
-export function peekOf(stdout: string, reads: PeekAsk['reads'] = 'text'): { screen?: unknown; section?: unknown; text?: string } {
+export function peekOf(stdout: string, reads: PeekCall['reads'] = 'text'): { screen?: unknown; section?: unknown; text?: string } {
   if (reads !== 'text') {
     try {
       const value = JSON.parse(stdout) as Json

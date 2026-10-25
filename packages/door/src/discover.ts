@@ -64,6 +64,9 @@ export type Target =
   | { path: string; unnamed: string; folder: string; guess?: { name: string; folder: string }; remote: boolean; machine?: string }
   | { error: string };
 
+/** The flags a command line gives a value to, which no positional word is: the target's (an outline, a machine) and the screen's. */
+export const VALUE_FLAGS = ["--ws", "--layout", "--machine", "--screen", "--as"] as const;
+
 /** A flag's value: absent, the value, or why it's missing. */
 function flagValue(args: readonly string[], flag: string, what: string): string | undefined | { error: string } {
   const at = args.indexOf(flag);
@@ -85,7 +88,7 @@ export function resolveTarget(args: readonly string[], env: Env = process.env, c
   if (typeof ws === "object") return ws;
   if (ws?.includes("/")) return { error: `--ws takes an outline's name, not a folder (${ws}); a folder names its outline in its .ep0ch (ep0ch init there)` };
   // A socket path as an argument named a host once; EP0CH_SOCKET does now. Refused, never read as "this machine's".
-  const path0 = args.find((a, i) => a.includes("/") && !a.startsWith("--") && !["--ws", "--layout", "--machine"].includes(args[i - 1] ?? "") && args[i - 2] !== "--screen" && args[i - 1] !== "--screen");
+  const path0 = args.find((a, i) => a.includes("/") && !a.startsWith("--") && !(VALUE_FLAGS as readonly string[]).includes(args[i - 1] ?? "") && args[i - 2] !== "--screen" && args[i - 1] !== "--screen");
   if (path0) return { error: `${path0}: a host's socket is named by EP0CH_SOCKET=${path0} (or the machine it is on by --machine <ssh-name>), not as an argument` };
   const machineFlag = flagValue(args, "--machine", "a machine: an ssh config name (a Host in ~/.ssh/config)");
   if (typeof machineFlag === "object") return machineFlag;

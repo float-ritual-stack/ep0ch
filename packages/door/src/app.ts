@@ -181,6 +181,8 @@ export interface Ctx {
   redraw(): void;
   readonly overflow?: Overflow;
   readonly messages?: StatusLog;
+  /** How fast the door keeps up (src/speed.ts): `status.speed` and `peek` read it. */
+  readonly speed?: SpeedMeter;
   readonly dispatch?: Dispatcher;
   flash(msg: string, ms?: number, details?: MessageDetails): void;
   /**
@@ -1632,7 +1634,7 @@ export class App implements Ctx {
       { ...right("drawer", this.drawer.active ? this.drawer.chip() : "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}) },
       right("waiting", waiting.styled, "host.waiting"),
       right("offline", this.offline ? `${fg(C.lred)}offline` : "", "status.log"),
-      right("slow", slow ? `${fg(C.yellow)}${slow}` : "", "status.log"),
+      right("slow", slow ? `${fg(C.yellow)}${slow}` : "", "status.speed"),
       right("backup", backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text}` : "", "backups.alert"),
       right("new", count ? `${fg(C.yellow)}+${count} new` : "", "changes.open"),
       right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"),

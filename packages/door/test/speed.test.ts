@@ -32,6 +32,15 @@ describe("the settle", () => {
     expect(m.settle()).toEqual({ p50: null, p95: null, worst: null, n: 0 });
   });
 
+  test("a redraw asked long after an input nothing was drawn for isn't that input's frame", () => {
+    const { m, clock } = meter();
+    m.input();
+    clock.t += 5 * 60_000;                                                              // a timer, minutes on
+    m.asked();
+    m.frame();
+    expect(m.settle().n).toBe(0);
+  });
+
   test("reading the meter while a slow frame draws doesn't end the burst it is measuring", () => {
     const { m, clock } = meter();
     m.input(); m.asked();
@@ -57,19 +66,37 @@ describe("the settle", () => {
 });
 
 describe("slow", () => {
-  test("only the bursts of the last minute count, and only once there are enough of them", () => {
-    const { m, clock, press } = meter();
-    for (let i = 0; i < SETTLE_MIN_BURSTS - 1; i++) { press(300); clock.t += 1000; }
-    expect(m.slow()).toBeNull();
-    press(300); clock.t += 1000;
+  /** `run(n, ms)`: a burst every 5 s, `n` of them, each taking `ms`, the meter asked as a tick would. */
+  const bursts = (every = 5000) => {
+    const k = meter();
+    const run = (count: number, took: number) => { for (let i = 0; i < count; i++) { k.press(took); k.clock.t += every; k.m.slow(); } };
+    return { ...k, run };
+  };
+
+  test("a minute of slow bursts, not a few: the bar says the number once the last minute's p95 has stayed over", () => {
+    const { m, run } = bursts();
+    run(SETTLE_MIN_BURSTS - 1, 300);
+    expect(m.slow()).toBeNull();                                     // too few to say
+    run(8, 300);
+    expect(m.slow()).toBeNull();                                     // over the budget for less than a minute
+    run(8, 300);
     expect(m.slow()).toBe("slow: 300 ms to settle");
-    clock.t += 60_000;
+  });
+
+  test("a slowdown that ends within the minute says nothing, and a quiet minute takes the word away", () => {
+    const { m, clock, run } = bursts();
+    run(8, 300);
+    run(30, 20);                                                     // fast again
+    expect(m.slow()).toBeNull();
+    run(30, 300);
+    expect(m.slow()).toBe("slow: 300 ms to settle");
+    clock.t += 61_000;                                               // nothing at all for a minute
     expect(m.slow()).toBeNull();
   });
 
   test("a budget the bursts stay under says nothing", () => {
-    const { m, clock, press } = meter();
-    for (let i = 0; i < 10; i++) { press(40); clock.t += 1000; }
+    const { m, run } = bursts();
+    run(40, 40);
     expect(m.slow()).toBeNull();
   });
 });

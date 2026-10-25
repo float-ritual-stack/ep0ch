@@ -374,6 +374,11 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       const speed = await run(["ep0ch", "peek", "speed"], { env });
       expect(JSON.parse(speed.stdout)).toEqual({ ...whole.speed, ...JSON.parse(speed.stdout) });
       expect(Object.keys(JSON.parse(speed.stdout))).toEqual(["since", "frames", "reports", "motionCoalesced", "settle"]);
+      // `text` is the screen's lines, plain by default and an array with --json; --json with a section is still JSON.
+      const lines = await run(["ep0ch", "peek", "text"], { env });
+      expect(lines.stdout.trimEnd().split("\n").length).toBe(whole.text.length - (whole.text.at(-1) === "" ? 1 : 0));
+      expect(JSON.parse((await run(["ep0ch", "peek", "text", "--json"], { env })).stdout)).toEqual(whole.text);
+      expect(JSON.parse((await run(["ep0ch", "peek", "--json", "speed"], { env })).stdout)).toEqual(JSON.parse(speed.stdout));
       // The default is text a few KB long, not the state.
       const compact = await run(["ep0ch", "peek"], { env });
       expect(compact.exitCode).toBe(0);
@@ -392,6 +397,11 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       expect(full.screen).toMatchObject({ outline: whole.outline, speed: whole.speed });
       expect(typeof full.text).toBe("string");
       expect(peekOf(speed.stdout, "section")).toEqual({ section: JSON.parse(speed.stdout) });
+      expect(peekArgv({ section: "speed", full: true })).toContain("one part of the state");
+      // A name every object has is no section.
+      const proto = await run(["ep0ch", "peek", "constructor"], { env });
+      expect(proto.exitCode).toBe(1);
+      expect(proto.stderr).toContain("peek has no section constructor");
     } finally { ctl.close(); }
   });
 });

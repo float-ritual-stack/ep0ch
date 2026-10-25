@@ -292,6 +292,8 @@ describe('door tools', () => {
     expect(JSON.parse(String((part as { result: unknown }).result))).toEqual({ section: { frames: 7 } })
     const bad = await $.tool.call({ tool: 'mcp__ep0ch__door_peek', section: '--json' })
     expect(bad.deny).toContain('section is the name of one part')
+    const both = await $.tool.call({ tool: 'mcp__ep0ch__door_peek', section: 'speed', full: true })
+    expect(both.deny).toContain('full and xray are the whole of it')
 
     await $.tool.call({ tool: 'mcp__ep0ch__door_act', action: 'block.mark', args: { reason: 'needs your call', line: 3 }, tile: 'middle' })
     const act = session.runs.findLast(run => run.argv[1] === 'act')!

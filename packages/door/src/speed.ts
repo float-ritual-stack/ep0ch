@@ -8,11 +8,13 @@
 
 /** Inputs closer together than this are one burst: the settle is measured from the last of them. */
 export const BURST_GAP_MS = 100;
+/** An input older than this is no longer being handled: a redraw asked now is not for it. */
+const STALE_MS = 1000;
 /** The bursts kept. */
 export const SETTLE_RING = 200;
 /** A settle slower than this is slow. */
 export const SETTLE_BUDGET_MS = 100;
-/** The bursts of this long a window decide whether the door has been slow (and so whether the status bar says it). */
+/** The bursts of this long a window decide whether the door is slow, and it must stay so this long before the status bar says it. */
 export const SETTLE_WINDOW_MS = 60_000;
 /** Fewer bursts than this in the window say nothing: one slow paint is not a slow door. */
 export const SETTLE_MIN_BURSTS = 5;
@@ -53,8 +55,11 @@ export class SpeedMeter {
     // The newest input is the one the frame has to show: what was shown of the burst before it no longer counts.
     this.burst = { last: t, asked: this.burst?.asked ?? false, shown: null };
   }
-  /** A redraw was asked while an input was being handled: a frame will show it. */
-  asked(): void { if (this.burst && this.burst.shown === null) this.burst.asked = true; }
+  /**
+   * A redraw was asked while an input was being handled: a frame will show it. Only for an input that is still being
+   * handled: a burst nothing was drawn for stays unshown, and a later redraw (a batch of replies, a timer) is not its.
+   */
+  asked(): void { if (this.burst && this.burst.shown === null && this.now() - this.burst.last <= STALE_MS) this.burst.asked = true; }
   /** A frame was drawn. */
   frame(): void {
     this.frames++;
@@ -72,7 +77,11 @@ export class SpeedMeter {
    * A burst that has been shown and quiet for its gap is over. One not yet shown is not: a slow paint is itself longer than
    * the gap, and reading the meter while it draws (the status bar does) must not end the burst it is measuring.
    */
-  private settled(): void { if (this.burst && this.burst.shown !== null && this.now() - this.burst.last > BURST_GAP_MS) this.close(); }
+  private settled(): void {
+    if (!this.burst) return;
+    const quiet = this.now() - this.burst.last;
+    if (this.burst.shown !== null ? quiet > BURST_GAP_MS : quiet > STALE_MS) this.close();
+  }
 
   /** The settle over the bursts kept. */
   settle(): Settle { this.settled(); return settleOf(this.ring.map(b => b.ms)); }
@@ -82,14 +91,19 @@ export class SpeedMeter {
     return { since: new Date(this.since).toISOString(), frames: this.frames, reports: this.reports, motionCoalesced: this.motionCoalesced, settle: this.settle() };
   }
 
+  /** Since when the last minute's bursts have been over the budget, while they have been (asked for by `slow`). */
+  private overSince: number | null = null;
   /**
-   * The status bar's word when the door has been slow: the p95 of the bursts of the last minute, once there are enough of
-   * them and it is over the budget. Null while it is fine, and again once a minute passes without a slow one.
+   * The status bar's word when the door has been slow for a minute: the p95 of the bursts of the last minute (at least
+   * SETTLE_MIN_BURSTS of them) has been over the budget since a minute ago. Asked for on every tick, so a slowdown that
+   * ends sooner says nothing, and null again once the minute's bursts are fast or there are too few to say.
    */
   slow(budgetMs = SETTLE_BUDGET_MS): string | null {
     this.settled();
-    const from = this.now() - SETTLE_WINDOW_MS;
+    const now = this.now(), from = now - SETTLE_WINDOW_MS;
     const s = settleOf(this.ring.filter(b => b.at >= from).map(b => b.ms));
-    return s.n >= SETTLE_MIN_BURSTS && s.p95! > budgetMs ? `slow: ${s.p95} ms to settle` : null;
+    if (s.n < SETTLE_MIN_BURSTS || s.p95! <= budgetMs) { this.overSince = null; return null; }
+    this.overSince ??= now;
+    return now - this.overSince >= SETTLE_WINDOW_MS ? `slow: ${s.p95} ms to settle` : null;
   }
 }
