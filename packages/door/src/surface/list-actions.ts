@@ -77,7 +77,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
             n: l.n, key: l.key, title: l.title, ...(l.about ? { query: l.about } : {}), ...(l.detail ?? {}), entered: l.entered,
             ...(l.view.filter(PERSON) ? { filter: l.view.filter(PERSON) } : {}),
             ...(mine ? { selected: mine.id } : {}),
-            ...(who !== PERSON ? { yours: { ...(yours ? { picked: yours.id } : {}), ...(l.view.filter(who) ? { filter: l.view.filter(who) } : {}) } } : {}),
+            ...(who !== PERSON ? { yours: { ...(yours ? { picked: yours.id } : {}), ...(l.view.filter(who) ? { filter: l.view.filter(who), rows: l.view.pickable(who).length } : {}) } } : {}),
             agents: l.view.others().filter(o => o.who !== who).map(o => ({ by: o.who, ...(o.row ? { picked: o.row.id } : {}), ...(o.filter ? { filter: o.filter } : {}) })),
             rows: l.view.describe(PERSON, l.describeRow),
           };

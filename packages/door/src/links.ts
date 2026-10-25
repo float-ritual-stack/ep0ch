@@ -664,13 +664,8 @@ export interface LinkBlocksEnv {
   control?(key: string, text: string): string;
   /** Block `id` drawn `width` wide, as the reader draws an embed of it. */
   preview?(id: string, width: number): string[];
-  seen?(info: LinkBlockInfo): void;
+  seen?(info: ListHandle<any>): void;
 }
-/** One inline component as drawn: the list it is (the one `list.*` actions run over) and what only a links component knows. */
-export interface LinkBlockInfo extends ListHandle<LinkRow> {
-  previewId: string | null; previews: boolean; query: string | null; groups: LinkGroupName[];
-}
-
 /**
  * An inline component drawn `W` wide: the rows of its groups (`spec.of`'s, else `note`'s, the note it's in, and a
  * query's matches) in a figure's frame (src/graphs.ts `frame`), every backlink kind open, each row tagged by `tag`
@@ -736,8 +731,9 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   const what = spec.query ? `${counted} match${counted === 1 ? "" : "es"}` : `${counted} link${counted === 1 ? "" : "s"}`;
   const word = entered ? "esc out" : "⏎ in";
   const control = blocks?.control ? blocks.control(key, word) : "";
+  // The list it is, for the actions that name it: its question, its groups and the block its preview shows.
   blocks?.seen?.({
-    n, key, title, view, entered, previewId, previews: previewing, query: spec.query, groups,
+    n, key, title, view, entered,
     ...(spec.query ? { about: spec.query } : {}),
     detail: { groups, preview: previewId },
     describeRow: (row, i) => ({ kind: row.source!.kind, ...(linkBlock(row.source) ? { id: linkBlock(row.source)! } : {}), n: i }),

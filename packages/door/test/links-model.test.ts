@@ -277,7 +277,7 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     desk.setCurrent(plan);
     D().focus = D().idNamed("reader");
     const s = () => reader().surface, b = () => s().linkBlocksDrawn[0], rows = () => b()?.view.pickable() ?? [], opens = (r: any) => r.do?.open as string;
-    await until(() => rows().length === 2 && b()!.previewId !== null, "the two jobs, the first previewed");
+    await until(() => rows().length === 2 && b()!.detail!.preview !== null, "the two jobs, the first previewed");
     const firstId = opens(rows()[0]);
     // ] steps onto the first row of the list: it's the selection, and the reader keeps the keys (j scrolls the reader).
     for (let i = 0; i < 10 && !s().inView()?.link?.listRow?.row; i++) key({ kind: "char", ch: "]" });
@@ -285,14 +285,14 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     expect(s().listIn).toBeNull();
     // ] again onto the second row: the preview follows.
     key({ kind: "char", ch: "]" });
-    await until(() => b()!.previewId === opens(rows()[1]), "the preview following [ ]");
+    await until(() => b()!.detail!.preview === opens(rows()[1]), "the preview following [ ]");
     // ⏎ on the frame's ⏎ in goes in.
     const ctl = s().describeElements().find((e: any) => e.links?.control);
     expect(ctl).toMatchObject({ links: { block: 1 } });
     await D().dispatch.act({ action: "element.open", args: { n: ctl!.n }, tile: "reader" }, { kind: "user" });
     expect(s().listIn).toBe(b()!.key);
     key({ kind: "char", ch: "k" });
-    await until(() => { lines(); return b()!.view.picked()?.id === rows()[0]!.id && b()!.previewId === firstId; }, "k moves the selection up, the preview following");
+    await until(() => { lines(); return b()!.view.picked()?.id === rows()[0]!.id && b()!.detail!.preview === firstId; }, "k moves the selection up, the preview following");
     // / filters the rows as it's typed; esc clears the filter, esc again comes out.
     key({ kind: "char", ch: "/" });
     for (const c of "peas") { key({ kind: "char", ch: c }); }
@@ -304,7 +304,7 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     // Mouse: a click on a row selects it (its preview follows), a second click on it opens it in the reader.
     const ls = lines(), y = ls.findIndex(l => l.includes("∙ Stake the peas")), x = ls[y]!.indexOf("Stake the peas") + 2;
     key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
-    await until(() => b()?.previewId === peas.id, "a click selecting the row");
+    await until(() => b()?.detail?.preview === peas.id, "a click selecting the row");
     expect(desk.current?.id).toBe(plan.id);
     key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => reader().msg?.id === peas.id, "a double click opening it");

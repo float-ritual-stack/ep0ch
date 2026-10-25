@@ -21,7 +21,8 @@ import { outlineBoards, readNote, type NoteAddress } from "../desk/outline-board
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
 import { InlineList, inlineRowKey } from "./inline-list";
 import { LISTVIEW_ACTIONS, listNamed, type ListHost } from "./list-actions";
-import { ListView, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
+import { ListView, listRowLines, listRowsOf, PERSON, selectable, type ListHandle, type ListViewRow } from "./list-view";
+import { activationOf, type ListPrimitive } from "@ep0ch/outline-core/list-row";
 import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -107,7 +108,7 @@ import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFl
 import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
 import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, scriptInstallWords, threadAgents } from "../extensions";
-import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
+import { actionLine, actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, type ButtonCall } from "@ep0ch/outline-core/button-call";
 import { componentsOf, componentsReady } from "../component-schemas";
@@ -131,7 +132,7 @@ import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow, type ValueRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
-import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLines, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlockInfo } from "../links";
+import { isAnnotationBlock, readReplies, readThread, threadRows, type ThreadData, linkRows, SEP, linkRowLines, linkTargetOf, describeLinkRow, type LinkData, type LinkGroupName, type LinkRow, type LinkBlocksEnv } from "../links";
 import { DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { MOUSE_ALT, RowPresses } from "../scroll";
 import { readState, writeState } from "../state";
@@ -833,8 +834,10 @@ export class NoteSurface {
    * `figureUI`, this reader's reading state, never written into the note, cleared when the reader shows another note.
    */
   listViews = new Map<string, ListView<any>>();
+  /** What the inline lists of the layout being drawn are lent (set by `body`, read by the extension views drawn inside it). */
+  private listEnv: LinkBlocksEnv | undefined;
   /** The inline components the last layout drew (their lists, the selection, the preview): what `list.*` name. */
-  linkBlocksDrawn: LinkBlockInfo[] = [];
+  linkBlocksDrawn: ListHandle<any>[] = [];
   /** Presses on an inline component's rows: a second soon after on the same row opens it (RowPresses). */
   private linkPresses = new RowPresses();
   /** The person is typing a filter into an inline list: p, e and the rest are letters then, not the screen's keys (a pane's `typing`). */
@@ -2227,6 +2230,8 @@ export class NoteSurface {
       image: (node: ImagePrimitive, width: number) => pictureRows(node, width, env, drawn),
       // A view's link names a block, or (PIE-754) a Resource the extension wants opened.
       row: (block: string, text: string) => tagged(drawn, isResourceRef(block) ? { resourceRef: block, label: block, role: "row" } : { block, role: "row" }, text),
+      // A view's `list` (PIE-747): the one ListView, its state this reader's, its rows the reader's elements.
+      ...(this.printed ? {} : { list: (node: ListPrimitive, width: number, run: (act: string) => LinkTarget) => this.viewList(node, width, run, this.listEnv, drawn, text => extDraw.markdown(text, Math.max(8, width))) }),
       hostKeys: host?.ownKeys ?? "",
     };
     const { doc: rendered, points, lines: noteLines } = this.body(m, env, src, drawn, tokens, (source, noteLines) => {
@@ -2386,7 +2391,7 @@ export class NoteSurface {
 
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
   private body(m: Msg, env: DocEnv, src: Source | null, drawn: Link[], tokens?: ReturnType<typeof resourceTokensOf>, more?: (text: string, lines: readonly number[]) => Partial<DocEnv>) {
-    let { text, points, lines, literal } = this.foldsIn(m);
+    let { text, points, lines, literal, anchors } = this.foldsIn(m);
     const form = !this.raw ? this.formOf(m) : null;
     if (form) {
       const body = text.split("\n");
@@ -2396,12 +2401,15 @@ export class NoteSurface {
       }
       text = body.join("\n");
     }
+    // A component's `^name` (PIE-747) is the key its view state is kept under: read mode hides an anchor, so it is put back on
+    // the component's first line for the renderer, which doesn't draw it.
+    if (anchors.some(Boolean)) text = text.split("\n").map((l, i) => (anchors[i] && /^ {0,3}::[a-z]/.test(l) ? `${l} ^${anchors[i]}` : l)).join("\n");
     this.keepFolds(points);
     // The live figures this layout draws, each told here; a tab or the density drawn as a control.
     const figures: FigureInfo[] = [];
     this.figuresDrawn = figures;
     // The inline ::links components this layout draws (PIE-693), each told here.
-    const blocks: LinkBlockInfo[] = [];
+    const blocks: ListHandle<any>[] = [];
     this.linkBlocksDrawn = blocks;
     const { preview, spanPreview, ...hooks } = this.bodyHooks(m, lines, env, src, drawn);
     const additions = withBeside(more?.(text, lines) ?? {}, this.besideRegions(m, lines, src, preview));
@@ -2412,16 +2420,18 @@ export class NoteSurface {
         role: "control", label: field, form: { field }, press: { act: `${act} tile=${m.id}`, block: m.id, line: 0 },
       }, value))] : []),
     ]);
+    // What the inline lists (a ::links component, an extension's list view) are lent: their lists, the person in one, how a row and the control are tagged.
+    this.listEnv = this.printed ? undefined : {
+      list: key => this.listFor(key),
+      entered: key => this.listIn === key,
+      row: (key, row, to, x) => tagged(drawn, { ...to, listRow: { key, row } }, x),
+      control: (key, x) => tagged(drawn, { role: "control", label: key, listRow: { key } }, x),
+      ...(preview ? { preview } : {}),
+      seen: info => blocks.push(info),
+    };
     const doc = renderDoc(presentLinks(text, expandsEmbeds(!!hooks.embed, m), src, m.text, drawn, tokens, isOutlineNote(m) ? { block: m.id } : undefined), {
       ...env, literal, ...hooks, ...(isOutlineNote(m) ? { outputs: new Map(findOutputRegions(text).map(r => [r.startLine, r])) } : {}),
-      linkBlocks: this.printed ? undefined : {
-        list: key => this.listFor(key),
-        entered: key => this.listIn === key,
-        row: (key, row, to, x) => tagged(drawn, { ...to, listRow: { key, row } }, x),
-        control: (key, x) => tagged(drawn, { role: "control", label: key, listRow: { key } }, x),
-        ...(preview ? { preview } : {}),
-        seen: info => blocks.push(info),
-      },
+      linkBlocks: this.listEnv,
       callout: this.calloutHook(m, lines, points, drawn),
       image: this.imageHook(m, lines, drawn),
       // An artifact's card (PIE-793): its file read through the service, the card drawn again once it's read.
@@ -3763,6 +3773,39 @@ export class NoteSurface {
 
   // ── the inline lists (PIE-693, PIE-747): a ::links component, an extension's list view; their rows, picks, the person in one ──
 
+  /**
+   * An extension's `list` view drawn (PIE-747): the rows are the primitive's, the view is this reader's (`#n` among the
+   * lists the note draws), and each row is the element its one activation makes it: a block or Resource it opens, an
+   * action line it presses, text it copies or puts in the person's draft.
+   */
+  private viewList(node: ListPrimitive, width: number, run: (act: string) => LinkTarget, lb: LinkBlocksEnv | undefined, drawn: Link[], markdown: (text: string) => string[]): string[] {
+    if (!lb) return listRowsOf(node).flatMap(r => listRowLines(r, { cols: width, lines: 2 }));
+    const n = ++(lb.drawn ??= { n: 0 }).n, key = `#${n}`;
+    const view = this.listFor(key, true), entered = this.listIn === key;
+    view.set(listRowsOf(node));
+    const previewing = node.preview !== undefined && node.preview !== "none" && view.rows.some(r => r.preview);
+    const tag = (row: ListViewRow, x: string): string => {
+      const a = activationOf(row);
+      if (!a) return x;
+      const at = { listRow: { key, row: row.id } };
+      const to: LinkTarget = a.kind === "open" ? (isResourceRef(a.value as string) ? { resourceRef: a.value as string, label: a.value as string, role: "row" } : { block: a.value as string, role: "row" })
+        : a.kind === "run" ? run(actionLine({ action: (a.value as { action: string }).action, args: (a.value as { args?: Record<string, string> }).args }))
+        : { role: "row", label: row.label, listText: a.kind === "copy" ? { copy: a.value as string } : { insert: a.value as string } };
+      return tagged(drawn, { ...to, ...at }, x);
+    };
+    const drawing = view.draw({
+      cols: width, focused: entered, selection: entered || previewing, tag, empty: node.empty ?? "nothing here",
+      ...(previewing ? { preview: { side: node.preview!, of: (row: ListViewRow, w: number) => {
+        const p = row.preview;
+        return !p ? null : "block" in p ? lb.preview?.(p.block, w) ?? null : markdown(p.markdown);
+      } } } : {}),
+    });
+    lb.seen?.({ n, key, title: `list ${n}`, view, entered, detail: { preview: null } });
+    // The frame's control, above the rows: ⏎ in (or esc out), unless the view said the list takes no keys.
+    const control = node.enter !== false && lb.control ? [" ".repeat(Math.max(0, width - 7)) + lb.control(key, entered ? "esc out" : "⏎ in")] : [];
+    return [...control, ...drawing.lines];
+  }
+
   /** The list the reader keeps for component `key`, made when first drawn. `narrows`: whether the view narrows its rows by a typed filter (a links component's model does that itself). */
   listFor<S = unknown>(key: string, narrows = false): ListView<S> {
     let v = this.listViews.get(key);
@@ -3911,6 +3954,8 @@ export class NoteSurface {
   private async openListRow(l: ListHandle<any>, row: ListViewRow<any>, where: "home" | "new", actor: Actor, host: SurfaceHost, standing: boolean): Promise<unknown> {
     const at = this.linkRowElement(l.key, row.id);
     if (!at) throw new ActionRefused(`${row.label} isn't drawn in ${l.title} now`);
+    // A row that runs an action line is a press (button.press), as whoever asks.
+    if (at.e.link?.press) return NOTE_ACTIONS.run("button.press", { n: at.n }, { surface: this, host, standing }, actor);
     return NOTE_ACTIONS.run("element.open", { n: at.n, ...(at.row !== undefined ? { row: at.row } : {}), ...(where === "new" ? { fresh: true } : {}) }, { surface: this, host, standing }, actor);
   }
 
@@ -4624,7 +4669,7 @@ export class NoteSurface {
   // ── folds ──────────────────────────────────────────────────────────────────
 
   /** The note's readable source, the note line each of its lines comes from, and its fold points. */
-  foldsIn(m: Msg): { text: string; lines: number[]; points: FoldPoint[]; literal: Set<number>; unterminated: number | null } {
+  foldsIn(m: Msg): { text: string; lines: number[]; points: FoldPoint[]; literal: Set<number>; unterminated: number | null; anchors: (string | undefined)[] } {
     const r = readableSource(m, this.src);
     const sig = m.text + "\0" + r.text + "\0" + r.anchors.join("\0");
     if (this.foldCache?.text !== sig) this.foldCache = { text: sig, points: foldPoints(r.text, r.anchors), lines: r.lines };
@@ -4633,7 +4678,7 @@ export class NoteSurface {
       const first = p.list.line;
       if (propertyTokensInLine(all[(r.lines[first] ?? 0) - 1] ?? "").some(t => t.key === "children" && t.value === "preview")) p.list.preview = true;
     }
-    return { text: r.text, lines: r.lines, points: this.foldCache.points, literal: r.literal, unterminated: r.unterminated };
+    return { text: r.text, lines: r.lines, points: this.foldCache.points, literal: r.literal, unterminated: r.unterminated, anchors: r.anchors };
   }
 
   private previews(p: FoldPoint) { return !this.printed && !!p.list && (this.previewLists.get(p.list.key) ?? p.list.preview); }
@@ -4826,7 +4871,7 @@ export class NoteSurface {
     const figure = current?.link?.figure?.figure;
     const links = current?.link?.listRow?.key;
     if (figure || links) {
-      const entries = this.elems.filter(e => e.kind === "row" && (figure ? e.link?.figure?.figure === figure : e.link?.listRow?.key === links));
+      const entries = this.elems.filter(e => figure ? e.kind === "row" && e.link?.figure?.figure === figure : e.link?.listRow?.key === links && e.link?.listRow?.row !== undefined);
       const entry = entries[0];
       const inline = current.link?.inlineList ?? entry?.link?.inlineList;
       if (inline && entry) {
@@ -5003,6 +5048,8 @@ export class NoteSurface {
     // A generated region's mark with nothing behind it to follow: `[ ]` on it already shows what there is.
     if (e.region && !e.link?.ext && !e.link?.block) { host.redraw(); return null; }
     if (e.kind === "control") return this.useControl(e, host);
+    // A list row whose activation is text (PIE-747): ⏎ copies it, or puts it in the person's draft.
+    if (e.link?.listText) return this.activateListText(e.link.listText, host, select);
     // A code block or a quote has nothing to open: ⏎ copies it, as y does.
     if (e.kind === "block") return this.runKey("block.copy", { n: e.block! + 1 }, host);
     // A step's box opens its status choice under it (the person's; an agent sets a status by task.status).
@@ -5013,6 +5060,21 @@ export class NoteSurface {
     const l = e.link!;
     if (e.value !== undefined) return this.followValue({ key: e.value, target: l.block ? { block: l.block } : { page: l.page! } }, host, how);
     return this.followTarget(l, host, how);
+  }
+
+  /** A list row's `copy` or `insert` (PIE-747): the person's copy goes to their clipboard (an agent's is returned to it); `insert` goes only into the person's own draft. */
+  private activateListText(t: NonNullable<Link["listText"]>, host: SurfaceHost, person: boolean): unknown {
+    if ("copy" in t) {
+      if (person && host.ctx.copy?.(t.copy) === false) throw new ActionRefused(`not copied: ${[...t.copy].length} chars is more than the clipboard takes`);
+      host.ctx.flash(person ? `copied ${[...t.copy].length} char${[...t.copy].length === 1 ? "" : "s"}` : "copied for itself · your clipboard is untouched");
+      return { copied: t.copy, clipboard: person };
+    }
+    if (!person) throw new ActionRefused("an agent writes with outline_edit, not into the person's draft");
+    const s = this.draftSession();
+    if (!s) { host.ctx.flash("no draft is open to put that in · e edits the note"); return { inserted: null }; }
+    s.draft.pasteText(t.insert, USER);
+    host.redraw();
+    return { inserted: t.insert };
   }
 
   /** The thread list, on the current comment mark's thread, as the person's `m` opens it (their session). */

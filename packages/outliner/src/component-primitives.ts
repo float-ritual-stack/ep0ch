@@ -5,7 +5,7 @@ import { HEADING_STYLE_NAME } from "@ep0ch/outline-core/heading-styles";
 import { isResourceRef, parseResourceRef } from "@ep0ch/outline-core/resource-ref";
 import { fileName, imageSource, parseSize } from "@ep0ch/outline-core/media-line";
 import { safeExtensionHtml } from "./extension-html";
-import { ACTIVATION_KINDS, LIST_MAX_ROWS, LIST_PREVIEWS, activationCount, type ListGroup, type ListPrimitive, type ListRow } from "@ep0ch/outline-core/list-row";
+import { ACTIVATION_KINDS, LIST_MAX_ROWS, LIST_PREVIEWS, activationCount, listHead, listSections, type ListGroup, type ListPrimitive, type ListRow } from "@ep0ch/outline-core/list-row";
 
 /**
  * The shared primitive catalogue a rich component (kind 3 of the extension
@@ -563,25 +563,6 @@ function terminalLines(node: Primitive): string[] {
 }
 
 
-/**
- * A list's rows in the sections they are drawn in, every renderer's order: the rows that name no group, then each
- * declared group's (its header from `groups`), then the groups only a row names. A row with no `do` is a header.
- */
-function listSections(node: ListPrimitive): { head: { label: string; glyph?: string; count?: number; note?: string } | null; rows: ListRow[] }[] {
-  const out: { head: { label: string; glyph?: string; count?: number; note?: string } | null; rows: ListRow[] }[] = [];
-  const bare = node.rows.filter((row) => row.group === undefined);
-  if (bare.length) out.push({ head: null, rows: bare });
-  const named = new Map<string, ListRow[]>();
-  for (const row of node.rows) if (row.group !== undefined) named.set(row.group, [...(named.get(row.group) ?? []), row]);
-  for (const group of node.groups ?? []) {
-    out.push({ head: { label: group.label, ...(group.glyph ? { glyph: group.glyph } : {}), count: group.count, ...(group.note ? { note: group.note } : {}) }, rows: named.get(group.name) ?? [] });
-    named.delete(group.name);
-  }
-  for (const [name, rows] of named) out.push({ head: { label: name }, rows });
-  return out;
-}
-const listHead = (head: NonNullable<ReturnType<typeof listSections>[number]["head"]>) =>
-  `${head.glyph ? `${head.glyph} ` : ""}${head.label}${head.count !== undefined ? ` (${head.count})` : ""}`;
 /** A list as terminal text: a section's header, its rows indented under it, `mark label · detail`. */
 function listTerminal(node: ListPrimitive): string[] {
   const sections = listSections(node);

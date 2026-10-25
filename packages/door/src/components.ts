@@ -10,9 +10,11 @@ import type { CalloutTone } from "@ep0ch/outline-core/callouts";
 import { bandLetters, drawBand, drawTrack, withMargin } from "./figures/banner";
 import { TONE as CALLOUT_TONE } from "./callouts";
 import { imageSource, type ImagePrimitive } from "@ep0ch/outline-core/media-line";
+import type { ListPrimitive } from "@ep0ch/outline-core/list-row";
+import { listRowLines, listRowsOf } from "./surface/list-view";
 
 /** The service's primitives (src/component-primitives.ts PRIMITIVE_TYPES): what `primitiveLines` draws. */
-export const PRIMITIVES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button"] as const;
+export const PRIMITIVES = ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button", "list"] as const;
 
 /** A primitive this door doesn't draw (a newer catalogue), or a view past the catalogue's bounds. */
 export class PrimitiveUnknown extends Error {}
@@ -105,6 +107,11 @@ export interface PrimitiveDraw {
    * caption. Without it, its alt text and its path.
    */
   image?(node: ImagePrimitive, width: number): string[];
+  /**
+   * A `list` primitive (PIE-747), drawn as the reader draws its lists: the one ListView, with the selection, filter and
+   * scroll its viewer keeps. Without it (a page, a draft's preview, a rule's decoration) the rows are drawn as they are.
+   */
+  list?(node: ListPrimitive, width: number): string[];
   headings?: HeadingStyleRegistry;
 }
 
@@ -211,6 +218,13 @@ export function primitiveLines(view: unknown, w: number, draw: PrimitiveDraw = {
       if (draw.image) return draw.image(node, w);
       // As the service's terminal target says it: its words, then its file.
       return wrap(`[image${node.alt ? `: ${one(node.alt)}` : ""}] ${one(imageSource(node.src))}`, w).map(l => fg(C.cyan) + l + RESET);
+    }
+    case "list": {
+      if (!Array.isArray(n.rows)) throw new PrimitiveUnknown("a list needs rows");
+      if (draw.list) return draw.list(n as unknown as ListPrimitive, w);
+      // As the service's terminal target says it: a section's header, its rows under it, nothing selected.
+      const rows = listRowsOf(n as unknown as ListPrimitive);
+      return rows.length ? rows.flatMap(r => listRowLines(r, { cols: w, lines: 2 })) : [fg(C.dark) + one(n.empty ?? "nothing here") + RESET];
     }
     case "track":
       return drawTrack(primitiveStyle(n, headings, "fade"), w) ?? [fg(C.dark) + "─".repeat(w) + RESET];

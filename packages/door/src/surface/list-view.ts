@@ -5,7 +5,7 @@
 // decides: where an open lands, what a row's note previews as, which rows the model narrows. Those stay with the
 // host that draws it (the reader, the links tile), reached through `ListHandle`, the one seam `LISTVIEW_ACTIONS`
 // (list.blocks, list.pick, list.step, list.open, list.filter, list.enter) runs over.
-import { filterListRows, type ListPreviewSide, type ListRow, type ListTone } from "@ep0ch/outline-core/list-row";
+import { filterListRows, listHead, listSections, type ListPreviewSide, type ListPrimitive, type ListRow, type ListTone } from "@ep0ch/outline-core/list-row";
 import type { StyleValues } from "@ep0ch/outline-core/style-cascade";
 import { dividerLine, listSlots, zebraRow } from "../list-look";
 import { RowView, type RowGesture, type RowPress } from "../scroll";
@@ -71,6 +71,17 @@ export function listRowLines<S>(r: ListViewRow<S>, o: RowDraw<S>): string[] {
     const body = pad(fg(colour) + line, o.cols) + RESET;
     return o.agent ? paintRange(body, 0, o.cols, tint("agent")) : body;
   });
+}
+
+/**
+ * The rows a `list` primitive draws, flat: each section's header (a row that can't be picked) then its rows, nested
+ * under it. A row with no mark is a dot, or a square when it does nothing (a header the view wrote itself).
+ */
+export function listRowsOf(node: Pick<ListPrimitive, "rows" | "groups">): ListViewRow[] {
+  return listSections(node).flatMap(({ head, rows }) => [
+    ...(head ? [{ id: `§group:${head.name ?? head.label}`, label: listHead(head), mark: "▾", tone: "warn" as const, pick: false, group: head.name ?? head.label, ...(head.note ? { detail: head.note } : {}) }] : []),
+    ...rows.map((r): ListViewRow => ({ ...r, mark: r.mark ?? (r.do ? "·" : "▪"), depth: head ? 1 : 0 })),
+  ]);
 }
 
 /** What a list says it holds, for `list.blocks` and `peek`: one row as an agent reads it. */

@@ -86,3 +86,28 @@ export function filterListRows<R extends Pick<ListRow, "id" | "label" | "detail"
   const groups = new Set(rows.filter((r, i) => keep[i] && r.do).map(r => r.group ?? ""));
   return rows.filter((r, i) => (r.do ? keep[i] : keep[i] || groups.has(r.group ?? "")));
 }
+
+/** A section of a list as every client draws it: its header (absent for the rows that name no group) and its rows. */
+export interface ListSection { head: { name?: string; label: string; glyph?: string; count?: number; note?: string } | null; rows: ListRow[] }
+
+/**
+ * A list's rows in the sections they are drawn in, every renderer's order: the rows that name no group, then each
+ * declared group's (its header from `groups`), then the groups only a row names. A row with no `do` is a header.
+ */
+export function listSections(node: Pick<ListPrimitive, "rows" | "groups">): ListSection[] {
+  const out: ListSection[] = [];
+  const bare = node.rows.filter(row => row.group === undefined);
+  if (bare.length) out.push({ head: null, rows: bare });
+  const named = new Map<string, ListRow[]>();
+  for (const row of node.rows) if (row.group !== undefined) named.set(row.group, [...(named.get(row.group) ?? []), row]);
+  for (const group of node.groups ?? []) {
+    out.push({ head: { name: group.name, label: group.label, ...(group.glyph ? { glyph: group.glyph } : {}), count: group.count, ...(group.note ? { note: group.note } : {}) }, rows: named.get(group.name) ?? [] });
+    named.delete(group.name);
+  }
+  for (const [name, rows] of named) out.push({ head: { name, label: name }, rows });
+  return out;
+}
+
+/** A section's header as words: `glyph label (count)`. */
+export const listHead = (head: NonNullable<ListSection["head"]>): string =>
+  `${head.glyph ? `${head.glyph} ` : ""}${head.label}${head.count !== undefined ? ` (${head.count})` : ""}`;

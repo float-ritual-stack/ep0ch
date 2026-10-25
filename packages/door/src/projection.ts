@@ -20,6 +20,7 @@ import { isPropertyTokenLine, withoutPropertyTokens } from "@ep0ch/outline-core/
 import { resourceProviderKeys } from "./resource-providers";
 import { decoratingRules, handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
 import { primitiveLines, type PrimitiveDraw } from "./components";
+import type { ListPrimitive } from "@ep0ch/outline-core/list-row";
 import type { AfterRows } from "./doc";
 import { regionRows, type RegionBook } from "./output-region";
 import { BOLD, C, fg, RESET, UNBOLD } from "./style";
@@ -561,6 +562,11 @@ export interface ExtDraw {
   row?(block: string, text: string): string;
   /** The keys the reader's host keeps (SurfaceHost.ownKeys): a control never names one as its key. */
   hostKeys?: string;
+  /**
+   * A `list` primitive in the line's view (PIE-747), drawn as the reader draws its lists. `run` gives the target of a row
+   * whose activation runs an action line on this line (a press, as a button's). Absent: the rows are drawn as they are.
+   */
+  list?(node: ListPrimitive, width: number, run: (act: string) => LinkTarget): string[];
   /** Only what the line last drew, with no controls or hints (PIE-981: it stays under its line while the note is edited). */
   bare?: boolean;
 }
@@ -609,9 +615,9 @@ export function primaryAction(p: ResourceProjection): { name: string; label: str
 }
 
 /** A line's view: drawn from its primitives, else (a primitive this door doesn't draw) its markdown, else its data. */
-function componentBody(p: ResourceProjection, width: number, d: ExtDraw, press?: PrimitiveDraw["press"]): { lines: string[]; via: "primitives" | "markdown" | "json" } {
+function componentBody(p: ResourceProjection, width: number, d: ExtDraw, press?: PrimitiveDraw["press"], run?: (act: string) => LinkTarget): { lines: string[]; via: "primitives" | "markdown" | "json" } {
   const c = p.output?.component;
-  if (c?.view) { try { return { lines: primitiveLines(c.view, width, { ...(d.row ? { link: d.row } : {}), ...(press ? { press } : {}), ...(d.blockdown ? { blockdown: d.blockdown } : {}), ...(d.image ? { image: d.image } : {}) }), via: "primitives" }; } catch { /* the next step of the chain */ } }
+  if (c?.view) { try { return { lines: primitiveLines(c.view, width, { ...(d.row ? { link: d.row } : {}), ...(press ? { press } : {}), ...(d.list && run && !d.bare ? { list: (node: ListPrimitive, w: number) => d.list!(node, w, run) } : {}), ...(d.blockdown ? { blockdown: d.blockdown } : {}), ...(d.image ? { image: d.image } : {}) }), via: "primitives" }; } catch { /* the next step of the chain */ } }
   if (p.output?.markdown.trim()) return { lines: d.markdown(p.output.markdown, width), via: "markdown" };
   return { lines: wrap(JSON.stringify(c?.data ?? null, null, 1) ?? "null", width).map(l => fg(C.grey) + l + RESET), via: "json" };
 }
@@ -640,7 +646,8 @@ export function extensionRegion(p: ResourceProjection, w: number, now: number, l
   const running = p.fetching ? (p.kind === "agent" ? "working…" : "running…") : "";
   // The result: flush.
   const body: string[] = [];
-  if (ready && (p.kind === "component" || p.output?.component)) body.push(...componentBody(p, inner, d, pressing).lines);
+  const run = link ? (act: string): LinkTarget => ({ role: "control", label: act, ...at(primary.name), press: { act, block: d.note, line: p.anchor.line } }) : undefined;
+  if (ready && (p.kind === "component" || p.output?.component)) body.push(...componentBody(p, inner, d, pressing, run).lines);
   else if (ready && p.output?.markdown.trim()) body.push(...d.markdown(p.output.markdown, inner));
   else if (ready && p.kind === "data" && p.fields.length) body.push(...wrap(p.fields.map(f => `${drawnInline(f.label)}: ${drawnInline(f.value)}`).join(" · "), inner).map(r => fg(C.brown) + r + RESET));
   // What is wrong, or all there is to say when there is no result (a request's state, a line not run yet): in the flow, dim or yellow.

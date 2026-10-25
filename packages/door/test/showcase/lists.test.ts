@@ -470,7 +470,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect((reader().surface.linkBlocksDrawn[0].view as any).others()).toMatchObject([{ who: "test-agent", row: { label: read.text } }]);
     // The person's pick (a key or a click) moves the selection, the [ ] position with it, and the preview follows.
     await stage().dispatch.act({ action: "list.pick", tile: "reader", args: { n: 2 } }, { kind: "user" });
-    await until(() => reader().surface.linkBlocksDrawn[0]?.previewId === read.id, "the preview following the pick", 5000);
+    await until(() => reader().surface.linkBlocksDrawn[0]?.detail.preview === read.id, "the preview following the pick", 5000);
     // The preview is the reader's own drawing of an embed of it: its » title, then its text.
     await until(() => screen().includes(`» ${read.text.slice(0, 20)}`), "the picked letter drawn in the preview", 8000);
     expect(reader().surface.inView()?.link?.listRow?.row).toBeDefined();
@@ -485,6 +485,51 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await until(() => reader().surface.msg?.id === b.rows[2].id, "the third letter in the reader", 5000);
     await app.act({ action: "back", tile: "reader", as: "test-agent" });
     await until(() => reader().surface.msg?.id === seeded.notes.dayPlan.id, "back on the plan", 5000);
+    expect(S().focus).toBe("index");
+  }, 30_000);
+
+
+  test("list-view (PIE-747): a ::links block (^outbox), an extension's list view and the links tile are one ListView: list.blocks reads all three, an agent's pick and filter are its own, the person's open runs a row's one activation", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "list-view" }, as: "test-agent" })).toMatchObject({ key: "list-view" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "list-view")).top; };
+    const reader = () => stage().pane("reader") as any;
+    const person = (action: string, args: Record<string, unknown> = {}, tile = "reader") => stage().dispatch.act({ action, tile, args }, { kind: "user" }) as Promise<any>;
+    const blocks = async (tile = "reader") => ((await app.act({ action: "list.blocks", tile, as: "test-agent" })) as any).lists as any[];
+    await until(() => reader()?.surface.listsDrawn.length === 2 && reader().surface.listsDrawn.every((l: any) => l.view.rows.length > 0), "the block's rows and the shelf's", 8000);
+    const [outbox, shelf] = await blocks();
+    // A component's ^name is its id; one without is its place among the note's.
+    expect(outbox).toMatchObject({ n: 1, key: "^outbox", title: "Outbox", query: "type=letter mail=waiting", entered: false });
+    expect(shelf).toMatchObject({ n: 2, key: "#2" });
+    expect(outbox.rows.map((r: any) => r.text).sort()).toEqual(["Ask Ana about the bean seed", "Order the fruit-cage netting", "Write to the allotment society about the gate"]);
+    expect(shelf.rows.map((r: any) => r.text)).toEqual(["Ask Ana about the bean seed", "Write to the allotment society about the gate", "Order the fruit-cage netting", "Copy the letters' titles", "Copy this note"]);
+    // The links tile's rows are the same set of actions: by tile.
+    expect((await blocks("links"))[0].rows.map((r: any) => r.text)).toEqual(expect.arrayContaining(["Wash the seed trays", "Label the dahlia tubers"]));
+    // An agent's pick and filter are its own: drawn in its tint on the list, never moving the person's selection.
+    const read = await app.act({ action: "list.pick", tile: "reader", args: { list: "^outbox", n: 2 }, as: "test-agent" }) as any;
+    expect(read).toMatchObject({ list: 1, row: 2, moved: false });
+    const was = (await blocks())[0].rows.find((r: any) => r.selected).n;
+    await app.act({ action: "list.filter", tile: "reader", args: { list: "2", words: "titles" }, as: "test-agent" });
+    const after = await blocks();
+    expect(after[0].rows.find((r: any) => r.selected).n).toBe(was);
+    expect(after[0].yours).toEqual({ picked: expect.any(String) });
+    expect(after[1].yours).toEqual({ filter: "titles", rows: 1 });
+    expect(after[1].rows).toHaveLength(5);          // the person's shelf is not narrowed by an agent's filter
+    // What the person sees of it: each list says who else has picked or filtered.
+    const seen = (await person("list.blocks")).lists as any[];
+    expect(seen[0].agents).toEqual([{ by: "test-agent", picked: expect.any(String) }]);
+    expect(seen[1].agents).toEqual([{ by: "test-agent", filter: "titles" }]);
+    await until(() => screen().includes("test-agent: ◆ ") && screen().includes("test-agent: / titles"), "the agent's say-so lines on the lists", 5000);
+    // Going in is the person's.
+    await expect(app.act({ action: "list.enter", tile: "reader", args: { list: "2" }, as: "test-agent" })).rejects.toThrow(/the person's/);
+    // Each row does one thing, as the person: a copy row copies, a run row runs its action.
+    const copied = await person("list.open", { list: "2", n: 4 });
+    expect(copied).toMatchObject({ copied: "Ask Ana about the bean seed\nWrite to the allotment society about the gate\nOrder the fruit-cage netting", clipboard: true });
+    await person("list.open", { list: "2", n: 5 });
+    await until(() => String((app as any).message).includes("copied the note"), "the run row's action ran as the person", 5000);
+    // An open row opens its note where opens land: here, the reader itself.
+    await person("list.open", { list: "^outbox", n: 3 });
+    await until(() => reader().surface.msg?.id !== seeded.notes.listDemo.id, "the letter in the reader", 5000);
     expect(S().focus).toBe("index");
   }, 30_000);
 
