@@ -2,6 +2,7 @@
 // whole: a terminal's program keeps running (the same pid), a reader keeps its note. By `act` (tile.drawer, attributed,
 // never the person's keys), by ^W a, by a drag onto the drawer's chip or out of the dock, and by a key while dragging.
 // It's saved (drawer-tiles.json) and comes back in the next door. Scratch outline host, fictional notes, `cat` programs.
+import { tileRegistry } from "../src/desk/tile-registry";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1106,9 +1107,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(d.app.drawer.resolveTile("role:agent")?.tile.name).toBe("drawer.agent");
       // A second tile with the role makes the address ambiguous: refused with both ids, never one of them guessed.
       const other = d.kettle()!;
-      other.role = "agent";
+      tileRegistry.setRole(other, "agent");
       expect(() => d.app.drawer.resolveTile("role:agent")).toThrow(/role:agent names 2 tiles: .*use tile=<id> or role:agent@<screen>/);
-      other.role = undefined;
+      tileRegistry.setRole(other, undefined);
     } finally { d.app.quit(); }
   });
 
@@ -1133,7 +1134,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
         await e.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "agent" } }, USER);
         e.paint();
         const back = e.desk.pane("agent") as PtyPane;
-        back.role = "agent";
+        tileRegistry.setRole(back, "agent");
         expect(await e.desk.dispatch.act({ action: "tile.drawer", args: {}, tile: "agent" }, USER)).toMatchObject({ tile: "drawer.agent", back: true });
         expect(e.app.drawer.tile).toBe(back);
         expect(back.kind).toBe("drawer.own");

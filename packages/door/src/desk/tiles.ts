@@ -16,6 +16,7 @@ import { ReaderPane, type Pane } from "./panes";
 import { nowPage } from "../hub/now";
 import { isTileKind, missingKind, tileKind, tileKinds, UnavailableTile, type TileKindName } from "./tile-kinds";
 import { registerBuiltinTiles } from "./builtin-tiles";
+import { tileRegistry } from "./tile-registry";
 
 /** One tile as saved: what it is, its name, and what it needs to be built again. */
 export interface TileSpec {
@@ -30,6 +31,8 @@ export interface TileSpec {
   role?: string;
   /** The tile that opened this one (`t-<uuid>`): `^` names it. */
   openedFrom?: string;
+  /** The tile this one was copied from (`t-<uuid>`), when a copy of a saved arrangement gave it a fresh id. */
+  copiedFrom?: string;
   writtenTitle?: string;
   systemTitle?: boolean;
   /** Its id (`t<n>`, PIE-491), kept so a restarted door gives the tile the same one. */
@@ -146,8 +149,7 @@ export function makeTile(given: Partial<TileSpec> & { kind: TileKindName }): Pan
   if (!k) return new UnavailableTile(s.kind, missingKind(s.kind), s.state ?? {});
   const p = k.make(s);
   p.deliberate = s.deliberate;
-  if (s.role) p.role = s.role;
-  if (s.openedFrom) p.openedFrom = s.openedFrom;
+  tileRegistry.restore(p, { role: s.role, openedFrom: s.openedFrom, copiedFrom: s.copiedFrom });
   p.writtenTitle = s.writtenTitle;
   p.systemTitle = s.systemTitle;
   return p;

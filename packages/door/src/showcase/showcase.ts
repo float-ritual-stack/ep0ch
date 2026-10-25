@@ -1,3 +1,4 @@
+import { tileRegistry } from "../desk/tile-registry";
 import { LibraryPane } from "../library/library";
 import { errorDetails } from "../status-log";
 // The showcase (PIE-439): every shared door part, live, on the seeded showcase outline. One section per
@@ -116,7 +117,7 @@ function stageDesk(st: Stage): Desk {
   const names = new Map<number, string>();
   st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p instanceof ReaderPane && p.kind === "reader" && p.holding ? "detail" : p.kind)));
   const ids = st.panes.map((_, i) => i);
-  st.roles?.forEach((role, i) => { if (role) st.panes[i]!.role = role; });
+  st.roles?.forEach((role, i) => { if (role) tileRegistry.setRole(st.panes[i]!, role); });
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
   const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.panes[i] instanceof PreviewPane && "tile" in st.panes[i].source ? { source: `tile:${st.panes[i].source.tile}` } : {}), ...(st.panes[i]!.deliberate ? { deliberate: true } : {}), ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
   return new Desk({ name: "showcase", title: st.title, layout: { root, focus: names.get(0) } }, { given: new Map(st.panes.map((p, i) => [names.get(i)!, p])) });
@@ -416,7 +417,7 @@ export const SECTIONS: Section[] = [
       const first = new ReaderPane(true), second = new ReaderPane(true), third = new ReaderPane(true);
       return deskOf({ title: "showcase · addresses", panes: [first, second, third], names: ["first", "second", "third"], roles: [undefined, "stage", undefined] }, show, [], d => {
         // The third was opened beside the second: its opener is the second's id, kept with it.
-        (third as Pane).openedFrom = (d.layoutGet().tiles as { name: string; tile: string }[]).find(t => t.name === "second")?.tile;
+        tileRegistry.setOpener(third, (d.layoutGet().tiles as { name: string; tile: string }[]).find(t => t.name === "second")?.tile);
         if (n.notebook) d.setCurrent(n.notebook);
       });
     },
