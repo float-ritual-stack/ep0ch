@@ -75,7 +75,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   // Settled means no answer from the host is awaited, whichever way the screen asked (test/settle.ts).
   // The power bar (ctrl+k) still asking its sources is not settled either: its rows land after.
   const hosts = watchHosts(() => { const bar = (app as any)?.bar; return !!bar && (bar.asking.size > 0 || !!bar.timer); });
-  const settle = hosts.settle;
+  // [DEBUG-pw] profile
+  const prof: Record<string, { n: number; ms: number; max: number }> = {};
+  const P = async <T>(name: string, f: () => Promise<T>): Promise<T> => { const t = performance.now(); try { return await f(); } finally { const d = performance.now() - t; const r = (prof[name] ??= { n: 0, ms: 0, max: 0 }); r.n++; r.ms += d; r.max = Math.max(r.max, d); } };
+  const settle = () => P("settle", hosts.settle);
+  const sleep = (ms: number) => P(`sleep${ms}`, () => Bun.sleep(ms));
   /** A terminal tile drew since this was last cleared: its program may still be printing. */
   let ptyDrew = false;
   let notes: Msg[] = [];
@@ -190,12 +194,14 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   };
   const masks = new Map<string, Set<number>>();
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
+  const keyMs: [string, number, number][] = [];
   const stats = { fresh: 0, freshMs: 0, second: 0 };
   const fresh = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
     stats.fresh++; const f0 = Date.now();
-    try { return await freshIn(label, make, setup); } finally { stats.freshMs += Date.now() - f0; }
+    try { return await P("fresh", () => freshIn(label, make, setup)); } finally { stats.freshMs += Date.now() - f0; }
   };
   const freshIn = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
+    const tf = performance.now();
     for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s);
     // The power bar is the App's, over every screen: put away.
     A().bar?.close(); A().bar = null;
@@ -212,25 +218,26 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     for (const f of readdirSync(dir)) if (f.endsWith(".json")) rmSync(join(dir, f), { force: true });
     // A probe's alt+t (theme.cycle) changes every screen's colours: each screen starts in the default theme.
     setTheme(DEFAULT_THEME);
+    { const r = (prof["f.teardown"] ??= { n: 0, ms: 0, max: 0 }); r.n++; r.ms += performance.now() - tf; }
     A().stack.push(new MainMenu());
-    const s = await make();
-    if (!(s instanceof MainMenu)) app.push(s); else A().stack.splice(0, 1, s);
+    const s = await P("f.make", async () => await make());
+    await P("f.push", async () => { if (!(s instanceof MainMenu)) app.push(s); else A().stack.splice(0, 1, s); });
     A().lastInput = 0;
-    await settle();
+    await P("f.settle0", settle);
     // Drawn before each key as the person would see it (a key can depend on the last layout, as the river's
     // ⏎ does), and settled after: a paint asks for what it draws (a reply count, a title).
-    for (const k of setup) { snap(new Set()); await settle(); press(k); await settle(); }
+    await P("f.setup", async () => { for (const k of setup) { snap(new Set()); await settle(); press(k); await settle(); } });
     // A second look only when the first asked the service for something (what it draws once that comes).
-    for (let i = 0; i < 2; i++) { const n = hosts.asked(); snap(new Set()); await settle(); if (hosts.asked() === n) break; }
+    await P("f.look", async () => { for (let i = 0; i < 2; i++) { const n = hosts.asked(); snap(new Set()); await settle(); if (hosts.asked() === n) break; } });
     // Until it holds still (a terminal's prompt arriving), at most a second. Only a terminal draws by itself
     // (in a tile, or the drawer's): without one, a settle and one more look is enough.
     ptyDrew = false;
-    for (let i = 0, was = snap(new Set()); i < 50; i++) { if (ptyDrew || drawer.p || i > 0) await Bun.sleep(5); await settle(); const now = snap(new Set()); if (alike(was, now)) break; was = now; }
+    await P("f.quiet", async () => { for (let i = 0, was = snap(new Set()); i < 50; i++) { if (ptyDrew || drawer.p || i > 0) await sleep(5); await settle(); const now = snap(new Set()); if (alike(was, now)) { prof.quietIters = { n: (prof.quietIters?.n ?? 0) + i, ms: 0, max: 0 }; break; } was = now; } });
     const id = `${label}\0${setup.map(named).join(" ")}`;
     let mask = masks.get(id);
     if (!mask) {
-      await Bun.sleep(80); await settle();
-      const a = snap(new Set()), b = (await Bun.sleep(150), await settle(), snap(new Set()));
+      await sleep(80); await settle();
+      const a = snap(new Set()), b = (await sleep(150), await settle(), snap(new Set()));
       mask = new Set<number>();
       a.lines.forEach((l, i) => { if (l !== b.lines[i]) mask!.add(i); });
       if (a.about !== b.about) mask.add(-1);
@@ -291,7 +298,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   async function bare(label: string, make: () => Screen | Promise<Screen>, setup: Key[], k: Key): Promise<string | null> {
     let mask = await fresh(label, make, setup);
     const a = snap(mask);
-    await Bun.sleep(150); await settle();
+    await sleep(150); await settle();
     const b = snap(mask);
     a.lines.forEach((l, i) => { if (l !== b.lines[i]) mask.add(i); });
     if (a.about !== b.about) mask.add(-1);
@@ -354,7 +361,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       const runs: ActionRun[] = [];
       const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
       if (process.env.PARITY_TRACE) require("node:fs").appendFileSync(process.env.PARITY_TRACE, `${label} ${named(k)}\n`);
+      const tk = performance.now();
       try { push(k); await settle(); } finally { stop(); }
+      keyMs.push([named(k), performance.now() - tk, runs.length]);
       const after = snap(mask);
       last = after;
       if (same(base, after) && !runs.length) continue;
@@ -566,6 +575,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       await audit(label, make, setup ?? []);
       if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks)\n`);
       stats.fresh = stats.freshMs = stats.second = 0;
+      if (process.env.PARITY_PROF) { const out = [`# [DEBUG-pw] ${label} total ${Date.now() - t0} ms`, ...Object.entries(prof).map(([k, v]) => `#   ${k}: n=${v.n} total=${v.ms.toFixed(0)}ms max=${v.max.toFixed(0)}ms`), `#   keys: n=${keyMs.length} total=${keyMs.reduce((a, b) => a + b[1], 0).toFixed(0)}ms`, ...keyMs.sort((a, b) => b[1] - a[1]).slice(0, 15).map(([n, ms, r]) => `#   slow key ${n}: ${ms.toFixed(0)}ms runs=${r}`)]; require("node:fs").appendFileSync(process.env.PARITY_PROF, out.join("\n") + "\n"); for (const k of Object.keys(prof)) delete prof[k]; keyMs.length = 0; }
       const mine = [...found, ...hintFound].slice(before).map(f => `${f.screen}\t${f.keys}\t${f.problem}`);
       expect(mine).toEqual([]);
     }, 600_000);
