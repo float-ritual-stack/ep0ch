@@ -130,7 +130,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
       press({ kind: "mouse", action: "down", button: 0, x, y });
       press({ kind: "mouse", action: "up", button: 0, x, y });
     }
-    expect(screen()).toContain("Rename tile");
+    expect(screen()).toContain("Rename this tile");
     expect(d.layoutGet().focus).toBe("activity");
     press({ kind: "paste", text: "Garden visitors and callers" });
     press({ kind: "enter" });

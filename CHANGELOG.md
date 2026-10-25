@@ -51,6 +51,16 @@ are its record. The outliner's entries from then are kept below, under
   started when one of its tests times out, so one slow test used to fail every test after it with `connect ENOENT …/host.sock`;
   now only the slow one fails (`test/scratch.ts` `revive`, asked by `test/preload.ts` before each test).
 
+### A mounted screen acts and looks like one screen (PIE-1283, PIE-1305)
+
+Evan, Oct 25: four screens mounted in screens drew four hint rows and a box inside every box, and a click on a tile's menu refused with "several tiles named reader".
+
+- **The tile menu opens on the tile you clicked.** The person's click, key and right-click go to the dispatcher by the tile's id, so two tiles named `reader` in different layers never refuse the person. Only an agent's `tile=reader` is refused, naming the paths (`calls/reader`) or ids to use.
+- **A mount is named for its screen**: `tile.open kind=screen screen=who` is `who` (a part is named for the part, a group is `group`, a second is numbered), so names don't clash in the first place.
+- **One rename.** `^W n` (`tile.title`, "rename this tile…") renames any tile, mounted or not: a name-shaped text becomes its name and its title together, so `tile=yo` and the path `who/yo` resolve it; a title with spaces is written on the tile and the name stays. A name already taken in its layer is refused.
+- **One hint row, one box.** A mounted screen draws no hint row of its own: the outermost screen's one row says the keys of the tile that has focus at any depth. A tile with a screen in it is its header (name, ▲ full, ⏎ in) with no second box around tiles that already have frames. A mounted screen's shut-dock handle and lock chip, which lived on its hint row, are not drawn (use the key or the tile menu).
+- **Kitchen sink:** section `nested-mounts` mounts the last callers' screen with who's online in it.
+
 ### The lift works on every screen (PIE-1285)
 
 - **`lift` on the component library said "no tile drawer.agent on the component library".** The drawer is above every screen, so `tile=drawer.agent`, a tile's id and an `@screen/tile` path are read once, by the host layer (`HostLayer.resolveTile`), and every screen's dispatcher asks it when its own tiles name nothing. `agent.lift`, a `tile.zoom tile=drawer.agent` button and `✦a` lift and drop the drawer's agent from any screen; a tile name that doesn't exist is still refused.

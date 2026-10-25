@@ -216,9 +216,12 @@ export interface Pane {
   claims?(k: Key): boolean;
   /**
    * A screen of its own is drawn in it (a mount, a group): a refusal of the person's key is said on the focused tile in
-   * there (PIE-727), so this tile's frame doesn't say it again.
+   * there (PIE-727), so this tile's frame doesn't say it again. Its tiles have frames of their own, so the desk draws
+   * this one as its header row alone (PIE-1305), and the outermost screen's hint row speaks for the focused tile in it.
    */
   nestsTiles?(): boolean;
+  /** A tile of its desk was renamed (`tile.title`): a tile that keeps another's name as its source (a preview's, a tune's) follows it. */
+  renamedTile?(from: string, to: string): void;
   click?(x: number, y: number, desk: DeskApi): void;
   /** The wheel; `at`: where the pointer is, in the pane's cells. */
   wheel?(dir: 1 | -1, desk: DeskApi, at?: { x: number; y: number }): void;

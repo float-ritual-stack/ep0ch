@@ -104,6 +104,8 @@ export class QueryPane implements Pane {
    */
   constructor(public view: string, public query: string | null = null, public home: string | null = null, public held = false) {}
 
+  renamedTile(from: string, to: string) { if (this.home === from) this.home = to; }
+
   /** A query listed for a home reader (a #tag's list) can be held there; a saved view's lane can't. */
   get holdable(): boolean { return this.query !== null && this.home !== null && !this.model; }
 

@@ -89,7 +89,9 @@ export class ScreenTile implements Pane {
   async ownPreview(on: boolean, actor: Actor = USER) {
     this.preview = on;
     const s = this.framed?.first;
-    if (this.screen === "board" && !this.part && s?.dispatch) await s.dispatch.act({ action: "tile.collapse", tile: "preview", args: { on: !on } }, actor).catch(() => {});
+    // The tile by its id: a desk around the mount can have a "preview" of its own.
+    const inner = this.inner, preview = inner?.paneNamed("preview"), tile = preview ? inner!.tileIdOfPane(preview) : undefined;
+    if (this.screen === "board" && !this.part && s?.dispatch && tile) await s.dispatch.act({ action: "tile.collapse", tile, args: { on: !on } }, actor).catch(() => {});
   }
   spec(): Record<string, unknown> {
     const inner = this.inner?.savedState() ?? this.saved;

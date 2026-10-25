@@ -193,6 +193,7 @@ export class BacklinksPane implements Pane {
     return [{ text: this.data ? `${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : "… sources", sgr: fg(C.lcyan),
       chip: true as const, press: () => this.run(desk, "backlinks.groups", { choose: true }) }];
   }
+  renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
   hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : `j k preview · ⏎ open in ${this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), "open")} · alt+⏎ ${this.desk?.wireDescription?.(this.desk.nameOfPane?.(this), "alt")} · b ${this.follows ? "aim" : "re-aim"} at ${this.sourceLabel()}'s note · . fold · s K w h n view · v groups`; }
   spec() { return { source: this.source ? `tile:${this.source}` : "", ...(this.openGroups ? { groups: "open" as const } : {}), ...(this.every ? {} : { linkGroups: this.groups.join(",") }), subject: this.follows ? "follows" as const : "held" as const, ...(this.options.stages?.length ? { stages: this.options.stages.join(",") } : {}) }; }
 
