@@ -1054,14 +1054,13 @@ export class App implements Ctx {
     const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}),
-      // How the door keeps up, per attached terminal: the frames its terminal hasn't answered (a stalled link holds them) and the answer's round trip.
-      ...(this.term.speed ? { speed: { clients: this.term.speed() } } : {}),
       nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
       messages: this.messages.rows,
       pointers: this.agentPointers.list(),
       // How the door is keeping up (a475084a): frames drawn, and the hover reports a busier moment folded into the newest.
-      speed: { ...this.speed },
+      // Per attached terminal (a session's): the frames it hasn't answered (a stalled link holds them) and the answer's round trip (PIE-1163).
+      speed: { ...this.speed, ...(this.term.speed ? { clients: this.term.speed() } : {}) },
       // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
       hover: this.overflow.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
