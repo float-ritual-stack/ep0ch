@@ -10,6 +10,24 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A slow or stalled ssh link is sent the latest frame, never a queue of old ones (PIE-1163)
+
+Evan, Oct 21, tethered over ssh: after a wifi drop mid-drag he watched a replay of every intermediate frame. The daemon
+can't see the link (its socket to the client is local; sshd's window holds about 2 MB, 60 to 250 frames), and nothing dropped them.
+
+- **A frames-in-flight window per client.** A client's terminal is asked to answer `CSI 5 n` after each frame; with two unanswered the
+  client isn't painted, and its next answer paints the latest. The rows it missed are remembered by the diff (`Rows.paint`), so no
+  stale frame is ever sent. Measured on a pty stand-in for a 100 KB/s ssh link with a 2 MB window, 100 resize steps at 20 Hz: the
+  screen stopped changing about 0.4 s after the last step, from 8 to 10 s before, and 40 KB were still queued after it, from 0.8 to 1 MB.
+- **Off where it can't work.** Asked at the probe (`Hello.acks`): a terminal that doesn't answer, or a client behind Herdr, tmux or screen
+  (which answer for themselves), is sent every frame as before. A frame unanswered for 5 s is given up on; a program handed the terminal
+  (`$EDITOR`, the drop shell) waits for the answers first, so none is typed into it.
+- **A drag held still isn't over.** The resize's 0.5 s hold now lasts while the button is down (30 s for a release that never comes), so a
+  link that stalls mid-drag doesn't trigger the full relayout and image uploads onto the link that just stalled.
+- **Catching up after a stall draws every row again and frees no image** (it disposed every Kitty image and uploaded them all again).
+- **`peek` shows it:** `speed.clients` has each terminal's `unacked` frames, `skipped` paints, `ackMs` and `ackTimeouts`.
+  No protocol bump: `Hello.acks` is optional.
+
 ### A links tile with hundreds of rows no longer makes every layout read take seconds (PIE-1303)
 
 - **`layout.get` (and so `act` and the parity probes) listed a links tile's rows once per row.** With a note open that has a few

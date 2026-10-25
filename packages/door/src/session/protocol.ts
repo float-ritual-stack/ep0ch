@@ -25,6 +25,12 @@ export interface Hello {
   pst?: boolean;
   /** The terminal has Kitty's text sizing (OSC 66): readers draw their title at double height for it. Left out by an older client: no. */
   sized?: boolean;
+  /**
+   * The terminal answers `CSI 5 n` (its status) in order, once it has taken what was sent before it, and no multiplexer
+   * answers for it: the session asks after each frame and keeps at most FRAMES_IN_FLIGHT unanswered (PIE-1163). Left out
+   * by an older client, or one that is behind a multiplexer: every frame is sent, as before.
+   */
+  acks?: boolean;
   /** The client's process, and where it runs (its tty, `EP0CH_NEST`): `session list` and `peek` say which is which. */
   pid: number; tty?: string; nest?: string;
   /** The client application's own host pane, when there is one (for example Tern), independent of the terminal/daemon. */

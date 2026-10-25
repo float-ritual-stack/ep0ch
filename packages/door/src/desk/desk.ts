@@ -36,7 +36,7 @@ import { MOUSE_RIGHT, RowPresses, sideways, SidewaysWheel, type RowPress } from 
 import { readLinks } from "../links";
 import { AGENT_GLYPH, AGENT_WORDS, agentRefusal, isAgentLevel, nextAgentLevel, type AgentLevel } from "../surface/agent-level";
 import { uncover, type Placement } from "../kitty";
-import { inResize, resizeEnded, resizing } from "../resize";
+import { inResize, resizeEnded, resizeHeld } from "../resize";
 import { authorName, whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { lastTrashed } from "../note-trash";
 import { LayoutHistory, type LayoutEntry } from "./layout-history";
@@ -4256,6 +4256,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { opened: await this.startSession(rd, "edit", undefined, kept.keys) };
   }
 
+  /**
+   * The pointer moved with no button held while a border or a float's corner was being dragged: the release never came
+   * (it fell outside the window, or an overlay took it, or the link dropped it), and the drag is over. A held drag stays
+   * a resize until it is let go (resizeHeld), so this is what ends one whose end was lost, soon rather than at the ceiling.
+   */
+  private releaseLost(): void {
+    const sizing = this.floatDrag?.size;
+    if (!this.drag && !sizing) return;
+    if (this.drag) { this.drag = null; this.save(); }
+    if (sizing) { this.floatDrag = null; this.save(); }
+    resizeEnded();
+    this.redraw();
+  }
+
   key(k: Key, ctx: Ctx): void {
     if (k.kind === "mouse" && (k.mods ?? 0) === ZOOM_WHEEL.mods && (k.action === "wheel-up" || k.action === "wheel-down")) {
       const hit = this.hits.find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
@@ -4319,7 +4333,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         return this.run("tile.menu", {}, this.nameOf(b.id));
       }
     }
-    if (isHover(k)) return;
+    if (isHover(k)) { this.releaseLost(); return; }
     if (k.kind === "esc" && (this.hintCard || this.xray)) {
       const inMode = this.linking || this.dragging || this.floatDrag || this.drag || this.prefix || this.overlayOpen() || this.pickedBy(USER).length;
       this.run("hint.dismiss");
@@ -6154,7 +6168,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.failedEdits.delete(p);
       if (this.entered.in(p)) this.entered.clear();
     }
-    if (this.floatDrag?.id === id) this.floatDrag = null;
+    if (this.floatDrag?.id === id) { if (this.floatDrag.size) resizeEnded(); this.floatDrag = null; }
     if (this.linking?.desk === this && this.linking.from === id) this.linking = null;
     if (this.mouseTile?.id === id) this.mouseTile = null;
     if (this.headPress?.id === id) this.headPress = null;
@@ -7072,7 +7086,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // A float's title moves it, its corner sizes it: float.place, as H J K L and an agent's.
       if (this.floatDrag) {
         const f = this.floats.find(x => x.id === this.floatDrag!.id), g = this.floatDrag;
-        if (g.size) resizing();
+        if (g.size) resizeHeld();
         if (f) { const at = this.floatRect(f); this.run("float.place", g.size ? { cols: k.x - at.col + 1, rows: k.y - at.row + 1 } : { col: k.x - g.dx, row: k.y - g.dy }, this.nameOf(g.id)); }
         if (!g.size && this.floatDrag === g) { g.drop = this.floatDock(g.id, k.x, k.y); g.x = k.x; g.y = k.y; this.redraw(); }
         return;
@@ -7081,7 +7095,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // A report that wouldn't move it (the pointer within the cell, or past where the border stops) does nothing: a
       // frame for it would lay out every tile again for nothing.
       if (this.drag) {
-        resizing();
+        resizeHeld();
         const g = this.drag, split = g.d.node.id, f = dragShare(g, k.x, k.y);
         if (split && f !== null && f !== this.dragAt) { this.dragAt = f; this.run("layout.resize", { split, border: g.d.i, share: f }); }
         return;
@@ -7181,7 +7195,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (hit && this.isFloat(hit[0])) {
         const [id, r] = hit;
         if (id !== this.focus || this.floats.at(-1)?.id !== id) this.run("tile.focus", {}, this.nameOf(id));
-        if (k.x >= r.col + r.cols - 2 && k.y >= r.row + r.rows - 2) { this.floatDrag = { id, size: true, dx: 0, dy: 0 }; resizing(); return this.redraw(); }
+        if (k.x >= r.col + r.cols - 2 && k.y >= r.row + r.rows - 2) { this.floatDrag = { id, size: true, dx: 0, dy: 0 }; resizeHeld(); return this.redraw(); }
         if (k.y === r.row) { this.floatDrag = { id, size: false, dx: k.x - r.col, dy: k.y - r.row }; return this.redraw(); }
       }
       // A spine: a click opens it (and gives it the keys), as ⏎ on it does.
@@ -7199,7 +7213,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // A border the policy keeps where it is (locked, resizable off, a fixed size) doesn't follow the pointer: said once.
         const why = d.d.node.id ? refusal(this.layout, { op: "resize", split: d.d.node.id, border: d.d.i, share: d.d.sizes[0] / Math.max(1, d.d.sizes[0] + d.d.sizes[1]) }, this.layoutCtx(USER)) : null;
         if (why) { this.ctx.flash(why); return this.redraw(); }
-        this.drag = d; this.dragAt = null; resizing(); return;
+        this.drag = d; this.dragAt = null; resizeHeld(); return;
       }
       if (!hit) return;
       const [id, r] = hit;
