@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Restart a background Claude session with `ep0ch agent restart`, from your laptop too (PIE-1273)
+
+Asked Oct 25, from the laptop: "is it just `ep0ch ... stuff`, or does it have to be run from scripts?" It is `ep0ch` now:
+
+- **`ep0ch agent ls [--machine <ssh-name>] [--json]`** lists the machine's Claude Code sessions: name, short id, background or interactive (with the door terminal tile and outline an interactive one runs in, when its parents say), busy or waiting, and the version each process runs beside the installed one, `behind` when older.
+- **`ep0ch agent restart <name | short id | --all> [--if-update] [--fresh-daemon] [--check-env VAR] [--now] [--dry-run] [--machine <ssh-name>]`** runs `scripts/agent-restart --bg` there (over ssh with `--machine`, to that machine's own `ep0ch`) and prints the log's place. A name matching nothing or several is refused at once (it used to be said only into the log once detached); an interactive session is refused with why and the way out (`/exit`, then `claude --continue` in its terminal); `--all` stays background-only and says which interactive sessions it left out and which of them are behind. `--dry-run` no longer waits for a safe moment: it says what it would wait for. Only `--machine` names the machine, never `EP0CH_MACHINE` or a `.ep0ch`.
+- The remote-`ep0ch` helper (`remoteEp0ch`) now escapes single quotes in what it carries, so a session name like `it's` crosses the hop.
+
+No protocol change. Restarting an interactive session in a door tile would be a tile action (restart the tile's program): not built.
+
 ### A status-bar button that lifts toggles, and `agent.lift` is `tile.zoom` on the drawer's agent (PIE-1279)
 
 Evan, Oct 25: a `::button{label="lift" act="agent.lift"}` lifted the agent the first time, and the second click did nothing, as did every one after.

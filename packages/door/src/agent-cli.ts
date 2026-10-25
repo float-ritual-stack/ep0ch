@@ -5,7 +5,22 @@ import { resolve } from "node:path";
 import { ask } from "./jsonl";
 import { resolveDoor } from "./door-resolve";
 
-export const AGENT_USAGE = `  ep0ch agent use <name> [--everywhere]
+export const AGENT_USAGE = `  ep0ch agent ls [--machine <ssh-name>] [--json]
+                                   the Claude Code sessions here (or on that machine, over ssh): name, short id, kind
+                                   (background: the daemon's job; interactive: a terminal owns it, with where it runs
+                                   when the process's parents say), busy or waiting, and the version each runs beside
+                                   the one installed, marked "behind" when it is older
+  ep0ch agent restart <name | short id | --all> [--if-update] [--fresh-daemon] [--check-env <VAR>] [--now] [--dry-run]
+                      [--machine <ssh-name>]
+                                   restart a background session at a safe moment (between turns, its builders done
+                                   and pushed), detached: it prints where the log is and returns. An interactive one
+                                   is its terminal's: refused, with how. --if-update: only one behind the installed
+                                   version (after a Claude Code update); --all: every background session, one at a
+                                   time (interactive ones left out, said); --fresh-daemon: so a changed ~/.bashrc
+                                   reaches it; --check-env: and check the new process carries <VAR>; --now: don't
+                                   wait; --dry-run: say the plan, change nothing. It runs scripts/agent-restart here
+                                   or on --machine (only that flag names the machine, never EP0CH_MACHINE or a .ep0ch)
+  ep0ch agent use <name> [--everywhere]
                                    choose and restart the drawer agent for this outline, or every outline
   ep0ch agent [--program <name>] [--in <folder>] [--persona <name>] [--new] [--json]
                                    start an agent session in this folder (or --in one), or attach the one already
@@ -41,6 +56,10 @@ export function agentArgs(argv: readonly string[], cwd = process.cwd()): { args:
 }
 
 export async function agentCommand(argv: readonly string[], env: Record<string, string | undefined> = process.env, cwd = process.cwd()): Promise<number> {
+  if (argv[0] === "ls" || argv[0] === "restart") {
+    const { agentLs, agentRestart, realFleetIO } = await import("./agent-fleet");
+    return (argv[0] === "ls" ? agentLs : agentRestart)(argv.slice(1), env, realFleetIO);
+  }
   if (argv[0] === "use") {
     const name = argv[1];
     if (!name || name.startsWith("--") || argv.slice(2).some(a => a !== "--everywhere")) {

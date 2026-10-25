@@ -288,7 +288,7 @@ export async function queueCommand(args: readonly string[], io: Io, env: Env = p
 // ─── The home machine's side: the pull ───────────────────────────────────────
 
 /** What the home machine asks of the hub over ssh: its login shell's `ep0ch`, without this side's routing. */
-export const remoteEp0ch = (command: string) => `exec env -u EP0CH_SOCKET -u EP0CH_MACHINE -u EP0CH_WS "\${SHELL:-/bin/sh}" -lc '${command}'`;
+export const remoteEp0ch = (command: string) => `exec env -u EP0CH_SOCKET -u EP0CH_MACHINE -u EP0CH_WS "\${SHELL:-/bin/sh}" -lc '${command.replaceAll("'", `'\\''`)}'`;
 
 export async function ssh(env: Env, hub: string, command: string, stdin?: string | Blob, timeoutMs?: number): Promise<{ code: number; out: string; err: string }> {
   const p = Bun.spawn([env.EP0CH_SSH || "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "--", hub, remoteEp0ch(command)], {

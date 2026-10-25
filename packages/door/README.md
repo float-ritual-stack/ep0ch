@@ -1651,6 +1651,19 @@ it's the same process and the same conversation.
   `act agents.list` reads the same rows (`peek` has them under `drawer.sessions`).
 - **Never stranded.** Every session starts inside your login shell: when the agent exits, its tile is that shell,
   in the same folder. `alt+s` opens a plain shell in the drawer from anywhere.
+- **Restart a Claude Code session from anywhere.** `ep0ch agent ls [--machine <ssh-name>]` lists the machine's Claude
+  Code sessions (`claude agents --json`): name, short id, **background** (the daemon's job) or **interactive** (a
+  terminal owns it, with the door terminal tile and its outline when the process's parents say), busy or waiting, and
+  the version each process runs beside the installed one, marked `behind`. `ep0ch agent restart <name | short id | --all>
+  [--if-update] [--fresh-daemon] [--check-env <VAR>] [--now] [--dry-run] [--machine <ssh-name>]` runs
+  `scripts/agent-restart` there, detached: it waits for a safe moment (between turns, its builders done and pushed), stops
+  the session, and resumes it, so it picks up a Claude Code update (`--all --if-update`) or a changed `~/.bashrc`
+  (`--fresh-daemon --check-env VAR`). It prints the log's place and returns, so it is safe to fire from a laptop at the
+  machine the sessions run on. A name that matches nothing or several is said at once with `ep0ch agent ls` as the way
+  out. An interactive session is refused (its terminal owns it: `/exit`, then `claude --continue` there) and `--all`
+  says how many it left out and which are behind. Only `--machine` names the machine, never `EP0CH_MACHINE` or a
+  `.ep0ch`, so a restart can't follow an outline to another machine by accident. The script is the one implementation;
+  `ep0ch agent` is argument handling and the ssh hop (`src/agent-fleet.ts`).
 - `EP0CH_DAILY_CWD` is gone: the drawer's own agent starts in the folder chosen with it (`host.agent in=<folder>`),
   else the project's or the outline's; any other folder gets its own session with `ep0ch agent` there. `ep0ch
   doctor` says it when the variable is still set, with the command.
