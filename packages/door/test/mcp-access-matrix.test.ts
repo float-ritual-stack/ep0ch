@@ -178,8 +178,12 @@ describe.skipIf(!outliner)("ep0ch mcp access --matrix, on a scratch host", () =>
     for (const [name, level] of [["pie", "full"], ["gurgle", "read"], ["rotfield", "full"]] as const) expect((await run([level, "--ws", name])).code).toBe(0);
     mkdirSync(join(host.config, "ep0ch"), { recursive: true });
     writeFileSync(join(host.config, "ep0ch", "mcp.env"), "EP0CH_MCP_PATH_ACCESS=garden-bot=propose\n", { mode: 0o600 });
-    recordUsage(use("mcp:garden-bot/claude.ai", "rotfield", 1) as Parameters<typeof recordUsage>[0]);
-    recordUsage({ ...use("mcp:claude-code@box", "pie", 2), time: new Date(Date.now() - 2 * HOUR).toISOString() } as Parameters<typeof recordUsage>[0]);
+    // The scratch host's matrix reads usage against the real clock (the 7-day window), so these records are dated from
+    // it: `use` counts hours back from the fixed NOW, which falls out of the window a week after it was written.
+    const recent = (actor: string, outline: string, hoursAgo: number) =>
+      ({ ...use(actor, outline, 0), time: new Date(Date.now() - hoursAgo * HOUR).toISOString() }) as Parameters<typeof recordUsage>[0];
+    recordUsage(recent("mcp:garden-bot/claude.ai", "rotfield", 1));
+    recordUsage(recent("mcp:claude-code@box", "pie", 2));
   }, 40_000);
 
   afterAll(async () => {
