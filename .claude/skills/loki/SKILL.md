@@ -173,6 +173,16 @@ Codex for second opinions.
 After a big push, run the review ritual on the push-review page in pie (auditors per lens, verify each finding, fix
 in a wave, docs and skills, cruft, tests that can go, CHANGELOG, then the whole backlog).
 
+## Restarting your own session
+
+Your session is a Claude Code background job (`claude agents --json` lists it; `ssh` and the drawer are only windows onto
+it), so a changed `~/.bashrc` reaches you only through a restart. `scripts/agent-restart <your session id> --fresh-daemon
+--check-env <VAR>`, run detached (`setsid nohup … &`), waits until your builders have pushed and stopped, then stops you,
+starts a fresh daemon and resumes you with a note pointing at its log. Stop each builder once its branch is pushed (a
+running one holds the restart), and touch `~/.local/state/ep0ch/agent-restart.hold` before a merge or deploy (remove it
+after) so the restart can't cut one. The new session reads the log, checks its `env ok` line, reorients and re-arms its
+watchers. Its session id may change: say the new one to Evan.
+
 ## Infrastructure
 
 Before setting up or changing anything about machines, services, domains, tunnels, DNS, TLS, backups or public
