@@ -467,6 +467,7 @@ export class ArtifactStore {
 export function untar(path: string, folder: string): void {
   const fd = openSync(path, "r"), length = lstatSync(path).size;
   let at = 0, bytes = 0, entries = 0;
+  const seen = new Set<string>();
   try {
     for (;;) {
       const header = Buffer.alloc(512);
@@ -487,6 +488,8 @@ export function untar(path: string, folder: string): void {
       if (kind === "5") { if (relative && relative !== ".") artifactPath(relative); }
       else if (kind === "0" || kind === "") {
         const target = join(folder, artifactPath(relative)); mkdirSync(dirname(target), { recursive: true });
+        if (seen.has(target)) throw new Error(`The archive lists ${relative} twice.`);
+        seen.add(target);
         const out = openSync(target, "w"), chunk = Buffer.alloc(64 * 1024);
         try {
           for (let offset = 0; offset < size;) {

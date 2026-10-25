@@ -174,6 +174,26 @@ test("a link preview or an interrupted upload leaves the lease working; only a f
   expect((await send(issued.url, site("Third"))).status).toBe(410);
 });
 
+test("a filename with a percent sign, and a zip entry named __proto__, are ordinary", async () => {
+  const percent = await send((await lease("percent-page")).url, site("Percent"), { headers: { host: HOST, "content-type": "text/html", "content-disposition": 'attachment; filename="100%.html"' } });
+  expect(percent.status, await percent.clone().text()).toBe(201);
+  expect(readFileSync(join(live("percent-page"), "100-.html"), "utf8")).toContain("Percent");
+  const odd = await send((await lease("proto-site")).url, zip([{ name: "index.html", data: site("Proto") }, { name: "__proto__", data: "kept, not hidden" }]));
+  expect(odd.status, await odd.clone().text()).toBe(201);
+  expect(readFileSync(join(live("proto-site"), "__proto__"), "utf8")).toBe("kept, not hidden");
+});
+
+test("a host that restarted mid-upload still uses the lease up when the upload finishes", () => {
+  const file = join(root, "restart-tokens.json");
+  const before = new UploadTokens(file);
+  const { token } = before.startLease({ name: "survivor", outline: "garden", by: "you" });
+  const taken = before.take(token, "PUT");
+  if (taken.status !== 200) throw new Error("the lease should admit the upload");
+  const after = new UploadTokens(file);
+  after.finish(taken.claim!, true);
+  expect(after.take(token, "PUT")).toMatchObject({ status: 410 });
+});
+
 test("an expired lease, an unknown one and a wrong method are refused, each with why", async () => {
   let now = Date.parse("2026-10-24T20:00:00Z");
   const tokens = new UploadTokens(join(root, "tokens-under-test.json"), () => {}, () => now);
@@ -207,6 +227,7 @@ const hazards: [string, () => Buffer, RegExp][] = [
   ["a zip bomb that declares more than the cap", () => zip([{ name: "big.bin", data: Buffer.alloc(400_000) }]), /unpacks past/],
   ["a header that lies about its size", () => zip([{ name: "small.txt", data: Buffer.alloc(150_000), claims: 10 }]), /more than the 10 bytes|bytes, not the/],
   ["more entries than the cap", () => zip(Array.from({ length: 30 }, (_, i) => ({ name: `f${i}.txt`, data: "x" }))), /entries; cap is 20/],
+  ["a tar that lists a file twice", () => tar([{ name: "index.html", data: site("One") }, { name: "./index.html", data: site("Two") }]), /twice/],
   ["a tar with a symlink", () => tar([{ name: "ok.html", data: site("Ok") }, { name: "link", type: "2", link: "/etc/passwd" }]), /without links/],
 ];
 for (const [what, build, reason] of hazards) {

@@ -18,6 +18,7 @@ const MAX_ACTIVE_LEASES = 50;
 /** An ended lease answers 410 (not 404) for this long. */
 const ENDED_KEPT_MS = 24 * 60 * 60_000;
 const MAX_DEVICES = 20;
+const CLAIM_MS = 10 * 60_000;
 
 interface StoredLease { id: string; digest: string; name?: string; outline: string; by: string; createdAt: string; expiresAt: string; usedAt?: string }
 interface StoredDevice extends UploadDevice { digest: string }
@@ -28,8 +29,11 @@ const clean = (value: unknown, max: number) => (typeof value === "string" ? valu
 const newToken = () => randomBytes(32).toString("base64url");
 
 export class UploadTokens {
-  /** Uploads under way (a PUT that has begun and not finished), by claim. Memory only: a restart ends the transfer too. */
-  private readonly claims = new Map<string, { id: string; kind: "lease" | "device" }>();
+  /**
+   * Uploads under way (a PUT that has begun and not finished), by claim. Memory only: a restart ends the transfer too.
+   * A claim that nobody settles (the publisher restarted mid-transfer) stops holding its lease after CLAIM_MS.
+   */
+  private readonly claims = new Map<string, { id: string; kind: "lease" | "device"; at: number }>();
   constructor(private readonly file: string, private readonly log: (message: string) => void = () => {}, private readonly now: () => number = Date.now) {}
 
   private load(): File {
@@ -80,9 +84,10 @@ export class UploadTokens {
       };
       if (lease.usedAt) return answer(410, "This upload link was already used. Ask for a new one: artifact_upload_lease, or ep0ch artifact lease <name>.");
       if (Date.parse(lease.expiresAt) <= now) return answer(410, "This upload link expired (a lease lasts one hour). Ask for a new one: artifact_upload_lease, or ep0ch artifact lease <name>.");
+      for (const [key, held] of this.claims) if (now - held.at > CLAIM_MS) this.claims.delete(key);
       if (writing && [...this.claims.values()].some(c => c.id === lease.id)) return answer(409, "An upload on this link is still arriving; wait for it to finish, then try again if it fails.");
-      const claim = writing ? randomUUID() : undefined;
-      if (claim) this.claims.set(claim, { id: lease.id, kind: "lease" });
+      const claim = writing ? `lease:${lease.id}:${randomUUID()}` : undefined;
+      if (claim) this.claims.set(claim, { id: lease.id, kind: "lease", at: now });
       this.log(JSON.stringify({ event: "upload.use", lease: lease.id, method, status: 200 }));
       return { status: 200, ...(claim ? { claim } : {}), who: { kind: "lease", id: lease.id, ...(lease.name ? { name: lease.name } : {}), outline: lease.outline, by: lease.by }, expiresAt: lease.expiresAt };
     }
@@ -92,8 +97,8 @@ export class UploadTokens {
         this.log(JSON.stringify({ event: "upload.use", device: device.id, method, status: 410 }));
         return { status: 410, reason: `This device token was revoked (${device.name}). Make a new one: ep0ch device add <name>.` };
       }
-      const claim = writing ? randomUUID() : undefined;
-      if (claim) this.claims.set(claim, { id: device.id, kind: "device" });
+      const claim = writing ? `device:${device.id}:${randomUUID()}` : undefined;
+      if (claim) this.claims.set(claim, { id: device.id, kind: "device", at: now });
       this.log(JSON.stringify({ event: "upload.use", device: device.id, method, status: 200 }));
       return { status: 200, ...(claim ? { claim } : {}), who: { kind: "device", id: device.id, outline: device.outline, by: device.name, deviceName: device.name } };
     }
@@ -101,11 +106,15 @@ export class UploadTokens {
     return { status: 404, reason: "No upload link here. It may have expired, been revoked, or the host restarted without it: ask for a new one (artifact_upload_lease, or ep0ch artifact lease <name>)." };
   }
 
-  /** An upload ended: `ok` settles it (a lease is used up, a device's last use is noted); otherwise the lease stays good. */
+  /**
+   * An upload ended: `ok` settles it (a lease is used up, a device's last use is noted); otherwise the lease stays good.
+   * The claim names its lease, so a host that restarted during the transfer still uses it up.
+   */
   finish(claim: string, ok: boolean): void {
-    const held = this.claims.get(claim);
     this.claims.delete(claim);
-    if (!held || !ok) return;
+    const [kind, id] = claim.split(":");
+    if (!ok || (kind !== "lease" && kind !== "device") || !id) return;
+    const held = { kind, id };
     const data = this.load(), at = new Date(this.now()).toISOString();
     if (held.kind === "lease") { const lease = data.leases.find(l => l.id === held.id); if (lease) lease.usedAt = at; }
     else { const device = data.devices.find(d => d.id === held.id); if (device) device.lastUsedAt = at; }

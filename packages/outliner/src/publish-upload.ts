@@ -44,10 +44,10 @@ export function dropFilename(value: string | undefined): string {
 }
 
 function filenameOf(url: URL, rest: string | undefined, headers: Headers): string {
-  const disposition = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(headers.get("content-disposition") ?? "")?.[1];
-  let fromPath: string | undefined;
-  try { fromPath = rest ? decodeURIComponent(rest) : undefined; } catch { fromPath = rest; }
-  return dropFilename(fromPath) || dropFilename(url.searchParams.get("filename") ?? undefined) || dropFilename(disposition ? decodeURIComponent(disposition) : undefined) || "upload";
+  // `filename*=UTF-8''…` is percent-encoded; a plain `filename="100%.html"` is literal.
+  const disposition = /filename(\*)?=(?:UTF-8'')?"?([^";]+)"?/i.exec(headers.get("content-disposition") ?? "");
+  const decode = (value: string) => { try { return decodeURIComponent(value); } catch { return value; } };
+  return dropFilename(rest ? decode(rest) : undefined) || dropFilename(url.searchParams.get("filename") ?? undefined) || dropFilename(disposition ? (disposition[1] ? decode(disposition[2]!) : disposition[2]!) : undefined) || "upload";
 }
 
 /** A name with no extension gets the one its bytes (or its declared type) show; a wrong extension on an archive is corrected. */
@@ -142,7 +142,7 @@ export async function publishUpload(request: Request, host: Pick<OutlinerClient,
     await host.request({ action: "uploads.finish", claim, ok: true }).catch((error: Error) => options.log(`upload: could not settle ${who.kind} ${who.id}: ${error.message}`));
 
     const result = await awaitResult(inbox, id, options.waitMs ?? Number(env.EP0CH_UPLOAD_WAIT_MS ?? 25_000));
-    if (!result) return json({ ok: true, pending: true, received: { bytes, sha256: meta.sha256 }, said: `Received ${filename}. It is being checked and installed; a card for it lands in ${outline}'s note for today.` }, 202);
+    if (!result) return json({ ok: true, pending: true, received: { bytes, sha256: meta.sha256 }, said: `Received ${filename}. It is being checked and installed; a card for it lands in ${outline}'s note for today. If it was refused, the reason is on the artifact-uploads page there.` }, 202);
     if (!result.ok) return json({ ok: false, reason: result.reason, received: { bytes, sha256: meta.sha256 }, said: `Refused: ${result.reason}` }, 422);
     return json({
       ok: true, name: result.name, version: result.version, ...(result.title ? { title: result.title } : {}), outline, card: result.card, record: result.record,

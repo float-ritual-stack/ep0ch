@@ -64,7 +64,8 @@ export function unzip(input: Uint8Array, limits: ArchiveLimits): Record<string, 
     entries.push({ name: limits.path(raw.replace(/^\.\//, "")), method, compressed, size: unpacked, crc, local });
   }
 
-  const files: Record<string, Buffer> = {};
+  // No prototype: an entry named `__proto__` is a file like any other, not a way to hide one.
+  const files: Record<string, Buffer> = Object.create(null);
   for (const entry of entries) {
     if (Object.hasOwn(files, entry.name)) throw new Error(`The archive lists ${entry.name} twice.`);
     if (entry.local + 30 > end || data.readUInt32LE(entry.local) !== LOCAL) throw new Error(`Not a readable zip: ${entry.name} has no data.`);
