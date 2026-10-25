@@ -1224,6 +1224,13 @@ export class AgentDrawer {
     const t = this.d?.resolveTile(DRAWER_TILE_ID), p = t?.desk.pane(t.tile.name);
     return !(p instanceof PtyPane && p.running);
   }
+  /** The drawer's own program is the tile lifted now (the tile grammar's `drawer.agent`, wherever it is). */
+  liftsOwn(): boolean {
+    const t = this.d?.resolveTile(DRAWER_TILE_ID), p = t?.desk.pane(t.tile.name);
+    return !!t && !!p && t.desk.liftsPane(p);
+  }
+  /** Whether `actor` acts as the person here (their press, or an agent on it): only then do the keys move with a lift. */
+  standsFor(actor: Actor): boolean { return this.ctx(actor).standing; }
 
   /** Whether the drawer's program that's out still runs somewhere (on a screen not shown now): the tile that left, else one with its key. */
   private outAlive(): boolean {
@@ -1901,9 +1908,13 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       { act: "agent.lift reach=full", does: "lifts it across the whole terminal" },
     ],
     to: { action: "tile.zoom", tile: DRAWER_TILE_ID, args: { reach: "column" } },
+    // A lift of it (not a drop) comes with the person's keys, as alt+a gives them: the program in the drawer pulls it up and
+    // goes into it, one on a screen takes the focus there.
     first: [
-      { action: "agent.back", when: (_, { drawer }) => drawer.awayUnseen() },
-      { action: "host.toggle", args: { open: true }, when: ({ on }, { drawer }) => on !== false && !drawer.tile && !drawer.isAway() },
+      { action: "agent.back", when: ({ on }, { drawer }) => on !== false && !drawer.liftsOwn() && drawer.awayUnseen() },
+      { action: "host.toggle", args: { open: true }, when: ({ on }, { drawer }) => on !== false && !drawer.liftsOwn() && !drawer.isAway() && !drawer.shown },
+      { action: "tile.focus", tile: DRAWER_TILE_ID, when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsOwn() && drawer.standsFor(actor) },
+      { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsOwn() && drawer.standsFor(actor) && !drawer.isAway() && !drawer.entered },
     ],
   }),
   "agent.restart": def({

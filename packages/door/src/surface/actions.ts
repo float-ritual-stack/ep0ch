@@ -196,13 +196,13 @@ export function preset<const S extends Record<string, ArgSpec>, H extends Again>
   summary: string; keys?: string; touches: Touches; host?: true; replay: Replay; args: S;
   says?: ActionDef<ArgsOf<S>, H>["says"]; examples?: readonly ActionExample[];
   to: { action: string; tile?: string; args?: Record<string, unknown> };
-  first?: readonly { action: string; args?: Record<string, unknown>; when?(args: ArgsOf<S>, host: H): boolean }[];
+  first?: readonly { action: string; args?: Record<string, unknown>; tile?: string; when?(args: ArgsOf<S>, host: H, actor: Actor): boolean }[];
 }): ActionDef<ArgsOf<S>, H> {
   const { to, first = [], ...rest } = d;
   return def({
     ...rest,
-    async run(args: ArgsOf<S>, host: H) {
-      for (const step of first) if (step.when?.(args, host) ?? true) await host.again(step.action, step.args ?? {});
+    async run(args: ArgsOf<S>, host: H, actor: Actor) {
+      for (const step of first) if (step.when?.(args, host, actor) ?? true) await host.again(step.action, step.args ?? {}, step.tile);
       const given = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
       return host.again(to.action, { ...to.args, ...given }, to.tile);
     },

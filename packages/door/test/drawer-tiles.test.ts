@@ -676,9 +676,12 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const own = d.app.drawer.tile!, name = d.app.drawer.name;
       await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
       expect(d.desk.pane(name)).toBe(own);
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
       const r = await d.app.dispatch.press("agent.lift", {}) as any;
       expect(r).toMatchObject({ zoomed: true, name: "cat" });
       expect(d.desk.liftsPane(own)).toBe(true);
+      // The person's keys went with it (the lift would drop on the next key otherwise).
+      d.key(char("x")); expect(d.desk.liftsPane(own)).toBe(true);
       expect(d.app.drawer.made?.lifted ?? null).toBeNull();
       await d.app.dispatch.press("agent.lift", {});
       expect(d.desk.lifted).toBeNull();
@@ -726,6 +729,7 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           click(label); await settle(null, `${label}: the second click drops it`);
           click(label); await settle("up", `${label}: the third click lifts it again`);
           expect(lifted()).toBe(tile);
+          if (label === "lift") { d.key(char("x")); d.paint(); expect(lifted()).toBe(tile); expect(d.app.drawer.entered).toBe(true); }
           // By act, the same: the lift is what drops it.
           await d.app.dispatch.press(label === "lift" ? "agent.lift" : "tile.zoom", label === "lift" ? {} : { reach: "column" }, label === "lift" ? undefined : "drawer.agent");
           await settle(null, `${label}: by act too, it drops`);
