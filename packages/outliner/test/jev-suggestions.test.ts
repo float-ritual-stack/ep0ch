@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
+import { applyWrite } from "../src/mcp-write";
 import { judgeSuggestion, tallyAsk, settleOpen, writerOf } from "../src/jev-suggestions";
 import { scratchOutline } from "./scratch-outline";
 import { OutlinerClient } from "../src/client";
@@ -20,7 +21,7 @@ const SEASON = ["Garden year", "- 2026-03: seeds sown", "- 2026-05: first flower
 const TIMELINE = `${SEASON}\n::graph-timeline\n---\n---\n- 2026-10: seed collecting\n::`;
 const CHECK = `${SEASON}\n::graph-check\n- [ ] sow\n::`;
 
-async function setup() {
+async function setup(o: { hostDelayMs?: number } = {}) {
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
     fetch: () => Response.json({ model: "jev-1.13.0", answers: {
@@ -33,6 +34,14 @@ async function setup() {
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
   const server = new OutlinerServer(store, paths.socket);
   await server.start();
+  // A host slow to write (pie on float-2 took 0.4 to 1 s to create a note under load): the writes it is asked, whoever asks.
+  if (o.hostDelayMs) {
+    const real = server.handleAsync.bind(server);
+    (server as unknown as { handleAsync: typeof real }).handleAsync = async (request, ...rest) => {
+      if (["create", "update", "move", "template.stamp"].includes(request.action)) await Bun.sleep(o.hostDelayMs!);
+      return real(request, ...rest);
+    };
+  }
   cleanups.push(async () => { fake.stop(true); await server.close(); store.close(); rmSync(root, { recursive: true, force: true }); });
   const cliEnv: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !/^(HERDR_|OUTLINER_|EP0CH_)/.test(k)) cliEnv[k] = v;
@@ -47,7 +56,7 @@ async function setup() {
   const client = new OutlinerClient(paths.socket);
   const records = async (type: string) => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `type=${type}`, machinery: "show" } })).blocks
     .map(b => ({ id: b.id, text: b.text, ...Object.fromEntries(parsePropertyRecords(b.text).map(p => [p.key, p.value])) as Record<string, string> } as { id: string; text: string } & Record<string, string>));
-  return { store, agent, records, client };
+  return { store, agent, records, client, env: { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` } };
 }
 
 test("a write that gets a suggestion leaves a record, and later writes decide whether it was followed, a different figure, or ignored", async () => {
@@ -141,3 +150,58 @@ test("a writer's actor id splits into the persona and the harness", () => {
   expect(writerOf("loki/claude-code@float-box")).toEqual({ writer: "loki", harness: "claude-code" });
   expect(writerOf("garden-agent")).toEqual({ writer: "garden-agent", harness: "unknown" });
 });
+
+/** Polls until `check` holds (the host finishes what the one-shot CLI left it), up to `ms`. */
+async function until(check: () => Promise<boolean>, ms = 20_000) {
+  const stop = Date.now() + ms;
+  while (Date.now() < stop) { if (await check()) return true; await Bun.sleep(100); }
+  return false;
+}
+
+// PIE-1251, the real path (pie, Oct 25): loki's outline_create answered "this reads as a stat", and pie held no record. The Claude
+// mod runs `ep0ch agent create`, a one-shot CLI that exits when the answer is printed; the first write seeded the Records
+// page's templates one slow create at a time from the CLI and was cut off after two of them. The host writes the record, so
+// the CLI's exit costs nothing, and a second write finds the templates there.
+test("a write on a slow host leaves its record and the day's run after the one-shot CLI has exited, cold start included", async () => {
+  const { agent, records } = await setup({ hostDelayMs: 500 });
+  const today = new Date().toISOString().slice(0, 10);
+  const made = await agent("create", { parent: "root", text: SEASON });
+  expect(made.exitCode, made.stderr).toBe(0);
+  expect(made.json.warnings.some((w: string) => w.includes("graph-timeline")), "the writer was told").toBe(true);
+  const landed = await until(async () => (await records("suggestion")).length === 1 && (await records("jev-run")).some(r => r.run === today && r.suggested === "1"));
+  expect(landed, "the suggestion and the day's run").toBe(true);
+  expect(await records("suggestion")).toEqual([expect.objectContaining({ note: made.json.id, writer: "loki", harness: "claude-code", component: "graph-timeline" })]);
+}, 40_000);
+
+// The MCP gateway runs in the host's machine and stays up, but a write through it reaches the same place: `applyWrite`
+// (mcp-write.ts) makes the note with the agent operation the mod's CLI runs, so the same records are made, by the service.
+test("a write through the MCP gateway's entry leaves the same record, with the writer the connector named", async () => {
+  const { client, records, env } = await setup({ hostDelayMs: 300 });
+  const saved = { ...process.env };
+  Object.assign(process.env, env);
+  try {
+    const board = {
+      request: (action: string, args?: Record<string, unknown>) => client.request({ action, ...args } as never),
+      info: () => client.requireCompatibleService(),
+      comments: async () => [],
+    };
+    const outcome = await applyWrite(board as never, { tool: "outline_create", blockId: (await client.request<{ id: string }>({ action: "create", text: "Garden", parentId: null, author: "user" })).id, input: { text: SEASON } },
+      { level: "full", actor: { actorId: "mcp:loki/claude.ai", author: "agent" } as never, uri: id => `ep0ch://scratch/${id}` });
+    expect(outcome.outcome).toBe("applied");
+    expect(await until(async () => (await records("suggestion")).length === 1)).toBe(true);
+    expect(await records("suggestion")).toEqual([expect.objectContaining({ writer: "mcp:loki", harness: "claude.ai", component: "graph-timeline", source: "write" })]);
+  } finally {
+    for (const key of Object.keys(env)) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
+  }
+}, 40_000);
+
+test("two writers' first suggestions of the day at once leave one run for the day, counting both", async () => {
+  const { agent, records } = await setup({ hostDelayMs: 150 });
+  const [one, two] = await Promise.all([
+    agent("create", { parent: "root", text: SEASON }),
+    agent("create", { parent: "root", text: SEASON.replace("Garden year", "Bed rotation") }),
+  ]);
+  expect([one.exitCode, two.exitCode], `${one.stderr}${two.stderr}`).toEqual([0, 0]);
+  expect(await until(async () => (await records("suggestion")).length === 2 && (await records("jev-run")).some(r => r.suggested === "2"))).toBe(true);
+  expect(await records("jev-run")).toHaveLength(1);
+}, 40_000);
