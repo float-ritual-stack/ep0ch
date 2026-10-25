@@ -265,7 +265,7 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
 
 const BLOCK = /^[0-9a-f-]{8,}$/;
 /** What the person's press has done so far, for the repaint after it (asPerson): the actions run, and whether any changed what's shown. */
-interface PressShown { ran: number; changed: boolean }
+interface PressShown { ran: number; /** Something changed that no repaint has covered yet. */ changed: boolean }
 const pressShown = new AsyncLocalStorage<PressShown>();
 const isThenable = (x: unknown): x is PromiseLike<unknown> => typeof (x as { then?: unknown } | null)?.then === "function";
 /** Whether a run changed what's shown (ActionDef.repaints): declared, or by what it touches of the person's (`nothing`: no). */
@@ -535,7 +535,8 @@ export class Dispatcher {
     // The repaint this press owes (PIE-1301): the actions it ran say whether they changed what's shown (runIn); the tail
     // repaints for those that did, unless an action's own redraw already asked for the paint, and never for a press that
     // ran actions that all changed nothing.
-    const shown: PressShown = { ran: 0, changed: false };
+    // A press made from inside another's action shares its accounting: what the inner one changed, the outer one owes.
+    const shown: PressShown = pressShown.getStore() ?? { ran: 0, changed: false };
     const asked = ctx?.redrawsAsked?.();
     const tell = (e: unknown) => {
       const failed = !(e instanceof ActionRefused || e instanceof Offline);
@@ -553,7 +554,7 @@ export class Dispatcher {
       // An action that answers at once and asked for its paint (any `redraw()` it made) needs no second one behind it; one
       // that answers later may have changed more by then, and is painted for.
       const own = !isThenable(out) && asked !== undefined && ctx?.redrawsAsked?.() !== asked;
-      return Promise.resolve(out).then(r => { if (!own && (shown.ran === 0 || shown.changed)) ctx?.redraw?.(); return r; }, tell);
+      return Promise.resolve(out).then(r => { if (!own && (shown.ran === 0 || shown.changed)) ctx?.redraw?.(); shown.changed = false; return r; }, tell);
     } catch (e) { return Promise.resolve(tell(e)); }
   }
 

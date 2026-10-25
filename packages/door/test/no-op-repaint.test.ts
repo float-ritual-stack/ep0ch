@@ -38,6 +38,9 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
     "probe.screen": def({ summary: "changes the screen and leaves the repaint to the dispatcher", touches: "screen", replay: "safe", args: {}, run: () => "moved" }),
     // Touches the screen and redraws itself: still one frame.
     "probe.screen.self": def({ summary: "changes the screen and redraws itself", touches: "screen", replay: "safe", args: {}, run: (_: unknown, { ctx }: { ctx: { redraw(): void } }) => { ctx.redraw(); return "moved"; } }),
+    // An action that presses another, as an authored press or a button does: the inner one's verdict is the press's.
+    "probe.press.noop": def({ summary: "presses an action that changes nothing", touches: "nothing", replay: "safe", args: {}, run: (_: unknown, { ctx }: { ctx: { press?(n: string): Promise<unknown> } }) => ctx.press!("probe.noop") }),
+    "probe.press.screen": def({ summary: "presses an action that changes the screen", touches: "nothing", replay: "safe", args: {}, run: (_: unknown, { ctx }: { ctx: { press?(n: string): Promise<unknown> } }) => ctx.press!("probe.screen") }),
     // Answers later: what it changed lands after the promise, which the tail waits for.
     "probe.later": def({ summary: "changes the screen when its answer comes", touches: "screen", replay: "safe", args: {}, run: async (_, { ctx }) => { ctx.redraw(); await Bun.sleep(5); return "moved"; } }),
     "probe.refused": def({ summary: "is refused", touches: "screen", replay: "safe", args: {}, run: () => { throw new ActionRefused("not now"); } }),
@@ -77,6 +80,11 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
   test("an action that touches nothing of the person's but changes what's shown says so; or its answer does", async () => {
     expect(await painted("probe.shows")).toBe(1);
     expect(await painted("probe.says")).toBe(0);
+  });
+
+  test("a press made from inside an action's run counts as that action's: no extra paint for a no-op, one for a change", async () => {
+    expect(await painted("probe.press.noop")).toBe(0);
+    expect(await painted("probe.press.screen")).toBe(1);
   });
 
   test("an action that answers later paints when it does, and a refusal is said and shown once", async () => {
