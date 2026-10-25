@@ -41,6 +41,9 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "status-bar" }, as: "test-agent" });
     await until(() => screen().includes("[Collapse]"), "the status bar guide");
+    // The note holds two buttons, so the menu row needs one selected: put the [ ] on Collapse, as the demo's text says.
+    const found = await app.dispatch.act({ action: "elements", tile: "notes" }, { kind: "user" }) as { elements: { n: number; label: string }[] };
+    await app.dispatch.act({ action: "element.select", tile: "notes", args: { n: found.elements.find(e => e.label.includes("Collapse"))!.n } }, { kind: "user" });
     const menu = await app.dispatch.act({ action: "tile.menu", tile: "notes" }, { kind: "agent", id: "test-agent" }) as any;
     expect(JSON.stringify(menu)).toContain("pin to status bar");
     await app.dispatch.act({ action: "button.pin", tile: "notes", args: { label: "Collapse" } }, { kind: "user" });
