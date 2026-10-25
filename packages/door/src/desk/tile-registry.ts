@@ -1,0 +1,90 @@
+// The tile registry (PIE-1286): the one place a tile's identity lives. A record per tile says which tile it is, whatever its
+// name, its screen or its program: its id (`t-<uuid>`, kept through moves, tabs, saves and restores), what it is for (its
+// role), the tile that opened it and, for a copy, the tile it was copied from. A desk joins a pane to it as the pane is
+// made or restored, the drawer when it makes its own program; the resolver (tile-address.ts) reads it; nothing else keeps
+// a tile's id, role or opener (not the pane, not a desk's name map, not the drawer, not a program's told id).
+//
+// A name is a label the layout keeps; a screen and a slot are where the layout put the tile. They change when a tile is
+// renamed or moved; the record doesn't, so an address made of the record survives them.
+import { tileKind } from "./tile-kinds";
+import type { Pane } from "./panes";
+
+/** What the registry keeps of a tile, and what a save writes of it (the leaf's `id`, `role`, `openedFrom`, `copiedFrom`). */
+export interface TileRecord {
+  /** `t-<uuid>`. */
+  id: string;
+  /** What the tile is for (`agent`, `reader`), set by what makes it; absent: its kind's (`roleOf`). */
+  role?: string;
+  /** The tile that opened it (its id): what `^` follows, and where the keys go back when a program's tile closes. */
+  openedFrom?: string;
+  /** The tile this one was copied from (its id), when a saved arrangement was copied and the copy got fresh ids. */
+  copiedFrom?: string;
+}
+
+const records = new WeakMap<Pane, TileRecord>();
+/** Each door's index from id to pane, so a layout loaded twice finds an id already held. */
+const doors = new WeakMap<object, Map<string, WeakRef<Pane>>>();
+
+const record = (pane: Pane): TileRecord => {
+  let r = records.get(pane);
+  if (!r) { r = { id: `t-${crypto.randomUUID()}` }; records.set(pane, r); }
+  return r;
+};
+
+export const tileRegistry = {
+  /** The tile's id, minted the first time it is asked for. */
+  idOf: (pane: Pane): string => record(pane).id,
+  /** The tile's id if it has one yet (asking never mints it). */
+  knownId: (pane: Pane): string | undefined => records.get(pane)?.id,
+  /** What the tile is for: the role it was made with, else its kind's, else the kind's name. */
+  roleOf: (pane: { kind: string }): string => records.get(pane as Pane)?.role ?? tileKind(pane.kind)?.role ?? pane.kind,
+  /** The role set on the tile itself (what a save writes), if any. */
+  explicitRole: (pane: Pane): string | undefined => records.get(pane)?.role,
+  setRole(pane: Pane, role: string | undefined) { if (role === undefined) { const r = records.get(pane); if (r) delete r.role; } else record(pane).role = role; },
+  /** The tile that opened it (its id), if one is recorded. */
+  openerOf: (pane: Pane): string | undefined => records.get(pane)?.openedFrom,
+  setOpener(pane: Pane, opener: string | undefined) { if (opener === undefined) { const r = records.get(pane); if (r) delete r.openedFrom; } else record(pane).openedFrom = opener; },
+  copiedFrom: (pane: Pane): string | undefined => records.get(pane)?.copiedFrom,
+  /** What a save writes of the tile's record besides its id. */
+  saved(pane: Pane): Pick<TileRecord, "role" | "openedFrom" | "copiedFrom"> {
+    const r = records.get(pane);
+    return { ...(r?.role ? { role: r.role } : {}), ...(r?.openedFrom ? { openedFrom: r.openedFrom } : {}), ...(r?.copiedFrom ? { copiedFrom: r.copiedFrom } : {}) };
+  },
+  /** A saved arrangement comes back: the tile keeps its saved id (when it has none yet and it is an id), role, opener and lineage. */
+  restore(pane: Pane, saved: { id?: string; role?: string; openedFrom?: string; copiedFrom?: string }) {
+    const r = records.get(pane);
+    if (!r && saved.id?.startsWith("t-")) records.set(pane, { id: saved.id });
+    if (saved.role) tileRegistry.setRole(pane, saved.role);
+    if (saved.openedFrom) tileRegistry.setOpener(pane, saved.openedFrom);
+    if (saved.copiedFrom) record(pane).copiedFrom = saved.copiedFrom;
+  },
+  /**
+   * `panes` are in `door` now: a pane whose id another live pane of the door holds (a saved arrangement loaded twice) gets a
+   * fresh id and remembers the one it was copied from. Answers what changed (old id to new id), for the references to it.
+   */
+  claim(door: object, panes: Iterable<Pane>): Map<string, string> {
+    let used = doors.get(door);
+    if (!used) { used = new Map(); doors.set(door, used); }
+    const remapped = new Map<string, string>();
+    for (const pane of panes) {
+      const before = tileRegistry.idOf(pane), other = used.get(before)?.deref();
+      if (other && other !== pane) {
+        const r = record(pane);
+        r.copiedFrom = before;
+        r.id = `t-${crypto.randomUUID()}`;
+        remapped.set(before, r.id);
+      }
+      used.set(tileRegistry.idOf(pane), new WeakRef(pane));
+    }
+    return remapped;
+  },
+  /** The pane with id `id` in `door`, if it is still there. */
+  paneIn: (door: object | undefined, id: string): Pane | undefined => (door ? doors.get(door)?.get(id)?.deref() : undefined),
+  /** The opener references of `panes` follow ids that were remapped. */
+  followRemap(panes: Iterable<Pane>, remapped: Map<string, string>) {
+    for (const pane of panes) { const up = records.get(pane)?.openedFrom; if (up !== undefined && remapped.has(up)) tileRegistry.setOpener(pane, remapped.get(up)); }
+  },
+};
+
+/** What tile `p` is for (`role:<role>`): the registry's answer. */
+export const tileRole = (p: { kind: string }): string => tileRegistry.roleOf(p);

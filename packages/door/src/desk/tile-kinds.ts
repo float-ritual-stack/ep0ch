@@ -219,8 +219,6 @@ export function kindsChanged(): void {
   for (const w of [...watchers]) { const o = w.deref(); if (!o) { watchers.delete(w); continue; } try { o.kindsChanged(); } catch { /* one desk's problem */ } }
 }
 export const tileKind = (kind: string): TileKind | undefined => registry.get(kind);
-/** What tile `p` is for (`role:<role>`, PIE-1286): the role it was made with, else its kind's, else its kind's name. */
-export const tileRole = (p: { role?: string; kind: string }): string => p.role ?? registry.get(p.kind)?.role ?? p.kind;
 export const isTileKind = (kind: string): boolean => registry.has(kind);
 /** A kind as a message says it (an agent "opened a terminal tile"), never its internal name (`pty`). */
 export function kindNoun(kind: string): string {

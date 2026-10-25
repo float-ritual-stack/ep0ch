@@ -185,13 +185,6 @@ export interface DeskApi {
 export interface Pane {
   /** Made on purpose: retained with this instance across groups, spills and the drawer. */
   deliberate?: boolean;
-  /**
-   * What this tile is for, whatever its name or place (PIE-1286): the drawer's own program is `agent`. Set by whatever
-   * made the tile, saved with its id, so a restart, a handover or a restore keeps it; absent, its kind's role (`tileRole`).
-   */
-  role?: string;
-  /** The tile that opened this one (its `t-<uuid>`), kept with it: `^` follows it (PIE-1286). */
-  openedFrom?: string;
   readonly bindings?: readonly ModeKey[];
   /** Whether its host currently draws the tile (also reaches nested screens). */
   shownAs?(on: boolean): void;
