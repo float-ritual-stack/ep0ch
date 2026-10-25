@@ -232,9 +232,14 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
 
 - **Fixtures are made up:** notes, names and ids in tests, snapshots and docs. No private details from a real outline,
   and no machine-specific paths.
-- **One coherent PR per change.** A feature split across agents branches each slice from the feature branch
-  (`<feature>/<slice>`) and opens its PR into it. Don't commit `bun.lock` churn; commit it only when dependencies
-  change.
+- **One coherent PR per change, and closely related tickets share one** (Evan, Oct 25: nine small PRs in a day each
+  cost a CodeRabbit pass). Small tickets in the same area go to one builder and one PR that names them all; not a
+  PR per small ticket, and not a giant PR either. A feature split across agents branches each slice from the feature
+  branch (`<feature>/<slice>`) and opens its PR into it (CodeRabbit skips PRs that don't target main; review slices
+  with `/code-review`), then one PR goes from the feature branch to main. Don't commit `bun.lock` churn; commit it
+  only when dependencies change.
+- **Tag what matters:** a landed note for a change in performance, infrastructure, cost, an incident or the
+  architecture carries `[notable::<kind>]` (pie's "Notable changes" view lists them).
 - **Rebase on the way in, hand the sha on the way out.** Rebase before the final test run. Set `PROTOCOL` to main's
   value plus one at the final rebase, right before merging, never earlier (when several PRs bump it, the deployer
   orders their merges). A protocol or schema bump says in the PR exactly what to run on each machine, with real
