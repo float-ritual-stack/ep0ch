@@ -249,6 +249,8 @@ note="You were restarted by scripts/agent-restart at $(date +'%-I:%M %p') ($mode
 
 # `claude stop` takes the short id (the full uuid answers "No job matching"), and the session must be gone before the
 # resume: resuming one that still runs starts a copy beside it (trial, Oct 25).
+# It may have been stopped on purpose during the wait: a resume would bring it back.
+[ -n "$(listed)" ] || { say "FAILED: $short is no longer running (it ended during the wait); nothing stopped, nothing resumed"; exit 1; }
 say "stopping $short"
 claude stop "$short" >>"$log" 2>&1
 for _ in $(seq 1 15); do [ -z "$(listed)" ] && break; sleep 2; done
