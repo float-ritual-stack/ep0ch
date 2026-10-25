@@ -168,6 +168,20 @@ test("find by text, property, key, query and under", async () => {
   expect((await agent("find", {})).exitCode).toBe(1);
 });
 
+test("find rows carry created, which an edit leaves alone (so a newest-first list doesn't reorder on edit)", async () => {
+  const { store, agent } = await setup();
+  const first = store.create("First post [kind::post]");
+  await Bun.sleep(5);
+  store.create("Second post [kind::post]");
+  const born = store.get(first.id)!.createdAt;
+  store.update(first.id, "First post, reworded [kind::post]", first.revision);
+  const rows = (await agent("find", { query: "kind=post" })).json.blocks as { title: string; created: string; updated: string }[];
+  expect(rows.find(r => r.title.startsWith("First"))!.created).toBe(born);
+  expect(rows.every(r => typeof r.created === "string" && r.created.length > 0)).toBe(true);
+  // Newest-created first stays Second, First although First was edited last.
+  expect([...rows].sort((a, b) => b.created.localeCompare(a.created)).map(r => r.title.split(" ")[0])).toEqual(["Second", "First"]);
+});
+
 test("edit refuses an empty write and a stale revision, and writes nothing", async () => {
   const { store, agent } = await setup();
   const note = store.create("Shed keys: hook by the door");

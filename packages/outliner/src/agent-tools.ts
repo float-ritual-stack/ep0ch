@@ -457,6 +457,8 @@ export interface FindRow {
   title: string;
   revision: number;
   parentId: string | null;
+  /** When the note was made: an edit leaves it alone, so a newest-first list sorts on it and keeps its order. */
+  created: string;
   updated: string;
   workId?: string;
 }
@@ -468,6 +470,7 @@ function findRow(block: Block): FindRow {
     title: blockDisplayTitle(block),
     revision: block.revision,
     parentId: block.parentId,
+    created: block.createdAt,
     updated: block.updatedAt,
     ...(workId ? { workId } : {}),
   };

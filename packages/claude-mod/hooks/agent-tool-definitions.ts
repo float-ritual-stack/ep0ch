@@ -123,7 +123,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     description:
       "Find blocks (no `ref` needed) by text, a property (`key=value`, or `key`), a property key (hasKey), a query in the saved-view " +
       "grammar (`type=roadmap-item AND work-stage=doing`), or a saved view. text, property, hasKey, query and under " +
-      "combine; view stands alone. Returns rows (id, title, revision); read one with outline_read.",
+      "combine; view stands alone. Returns rows (id, title, revision, parentId, created, updated); read one with outline_read.",
     properties: {
       text: { type: "string" },
       property: { type: "string", description: "key=value, or key for any value" },
