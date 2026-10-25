@@ -256,6 +256,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     }
     case "repo": {
       const changed = await updateCheckout(f.repo.root, "the ep0ch checkout", say, child, env, sha);
+      if (changed.length) checkoutMoved = true;
       if (changed.length) say("RUN AGAIN: ep0ch install --apply — the checkout changed, but the remaining steps in this run use the code install started with. A second run picks up newly added or changed install steps.");
       if (changed.includes("packages/outliner/herdr-plugin.toml") && f.plugin?.kind === "local") say(`the plugin's manifest changed: herdr plugin link ${f.repo.outliner} --enabled refreshes Herdr's copy of it`);
       return;
@@ -557,6 +558,13 @@ export interface SetupIO {
   status?: StatusEmitter;
   /** Asks the person this machine's name (the suggestion is the default): only at a terminal. Answers a valid name, or undefined. */
   ask?: (suggested: string) => Promise<string | undefined>;
+}
+
+/** This run fast-forwarded the checkout: the rest of it ran on the code install started with (main.ts runs it again). */
+export let checkoutMoved = false;
+/** A person's install whose checkout moved runs again on the new code; scripted callers (--json, --as-client) do it themselves, and a rerun never reruns. */
+export function rerunAfterMove(code: number, moved: boolean, args: readonly string[], env: Record<string, string | undefined>): boolean {
+  return code === 0 && moved && args.includes("--apply") && !args.includes("--json") && !args.includes("--as-client") && !env.EP0CH_INSTALL_RERUN;
 }
 
 export async function setupCommand(args: readonly string[], io: SetupIO = { out: console.log, err: console.error }): Promise<number> {
