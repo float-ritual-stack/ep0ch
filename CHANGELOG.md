@@ -58,7 +58,7 @@ Evan, Oct 25: over ssh, sweep the mouse and stop, and the highlights replayed th
 On the Mac, a claude running in the drawer was reporting `claude-code` over OSC 7501 and still listed no session, so
 alt+g's `agent.start` started a second one beside it (and that one, `--continue` with nothing to continue, exited).
 
-- **The report is the answer.** The latest OSC 7501 report's `app` names the agent in a terminal tile (`claude-code` is
+- **The report is the answer.** The latest root OSC 7501 report's `app` names the agent in a terminal tile (`claude-code` is
   claude), as soon as it starts: the Claude mod reports once when a session starts, so an idle claude is known too.
   `agent.start` for it attaches to that tile instead of starting another.
 - **It goes when the program says so.** A `clear` that leaves no record, the program exiting, a new prompt (OSC 133 A)

@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "4001c239", "outliner": "4001c239", "on": "2026-10-25" },
+  "verified": { "door": "1d13d25a", "outliner": "1d13d25a", "on": "2026-10-25" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -377,10 +377,10 @@
       "does": "One door every action goes through, one per screen host: the person's keys and clicks, an agent's act, a tile holding a whole screen. It reads tile= with one grammar, finds the set that owns a name, checks expected=, checks what the action declares it touches against where the person is (once, before it runs), runs it as the person (a refusal said, then a redraw) or as an agent (announced, refused with the reason, what it did said).",
       "built": "Dispatcher, TileRef and actorRule in surface/dispatch.ts; screens register their action sets (the desk, the board, the welcome, the brief, Waiting, the river, the BBS screens, the showcase, the App's shell, host layer and extensions). The shell's whereabouts query (whereabouts.ts, App.person) answers where the person's keys and focus are, which tile they type in, whether they're busy, how long idle; it feeds the actor rule, the layout engine's ctx.person and, through the dispatcher, the draft session's draftRule (PIE-514).",
       "refs": [
-        { "r": "door", "p": "src/surface/dispatch.ts", "l": 264, "m": "export class Dispatcher" },
-        { "r": "door", "p": "src/surface/dispatch.ts", "l": 196, "m": "export function actorRule" },
+        { "r": "door", "p": "src/surface/dispatch.ts", "l": 269, "m": "export class Dispatcher" },
+        { "r": "door", "p": "src/surface/dispatch.ts", "l": 201, "m": "export function actorRule" },
         { "r": "door", "p": "src/whereabouts.ts", "l": 85, "m": "export function whereabouts" },
-        { "r": "door", "p": "src/app.ts", "l": 1165, "m": "person(): Whereabouts" },
+        { "r": "door", "p": "src/app.ts", "l": 1170, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 607, "m": "export function draftRule" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 2561, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
@@ -395,8 +395,8 @@
       "refs": [
         { "r": "door", "p": "src/screens.ts", "l": 497, "m": "export const SHELL_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 1103, "m": "export const LIST_ACTIONS" },
-        { "r": "door", "p": "src/surface/dispatch.ts", "l": 196, "m": "export function actorRule" },
-        { "r": "door", "p": "src/app.ts", "l": 1183, "m": "async act(req" },
+        { "r": "door", "p": "src/surface/dispatch.ts", "l": 201, "m": "export function actorRule" },
+        { "r": "door", "p": "src/app.ts", "l": 1188, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 53, "m": "export async function runLoginShell" }
       ]
     },
@@ -405,9 +405,9 @@
       "does": "A refusal of the person's own key or click (an ActionRefused from their press, nothing to close, a spine's keys, a dimmed tile-menu row) is said on the focused tile's frame as well as the status bar; the same key refused again makes it loud (bold on the amber surface, capped dark, the frame amber) until a different key (PIE-727). An agent's refusal is thrown to it and said with who it is.",
       "built": "Ctx.refuse and App.refusal (the same gesture again: pressOf, joined while the screen holds the keys; pressNow drops a late one to the status bar); the dispatcher's asPerson calls it; refused() in shell-keys for a Ctx without it; the desk's drawTile draws it on the focused tile's hint row (refusalHint), the screen's hint row for a spine; Pane.nestsTiles leaves it to a mount's own focused tile.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 792, "m": "refuse(msg: string, at = this.pressCount) {" },
+        { "r": "door", "p": "src/app.ts", "l": 798, "m": "refuse(msg: string, at = this.pressCount) {" },
         { "r": "door", "p": "src/shell-keys.ts", "l": 32, "m": "export function refused" },
-        { "r": "door", "p": "src/surface/dispatch.ts", "l": 503, "m": "private asPerson(" },
+        { "r": "door", "p": "src/surface/dispatch.ts", "l": 520, "m": "private asPerson(" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 7300, "m": "export function refusalHint" }
       ]
     },
@@ -556,7 +556,7 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 667, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/app.ts", "l": 673, "m": "background: Screen[]" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1649, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
@@ -607,7 +607,7 @@
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 88, "m": "\"tile.herdr\": def({" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 193, "m": "get herdr(): { pane: string; name?: string } | null" },
         { "r": "door", "p": "src/drawer.ts", "l": 195, "m": "export class AgentDrawer" },
-        { "r": "door", "p": "src/drawer.ts", "l": 1655, "m": "export const DRAWER_ACTIONS" },
+        { "r": "door", "p": "src/drawer.ts", "l": 1660, "m": "export const DRAWER_ACTIONS" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 2059, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback. In a door session the tile outlives a detach, scrollback and all; a new door still attaches without it.", "finding": "B-F21", "route": "PIE-418" } ]
@@ -644,7 +644,7 @@
       "refs": [
         { "r": "door", "p": "src/door.ts", "l": 220, "m": "export function guardDoor" },
         { "r": "door", "p": "src/door.ts", "l": 235, "m": "process.on(\"uncaughtException\", fault)" },
-        { "r": "door", "p": "src/app.ts", "l": 752, "m": "terminate()" }
+        { "r": "door", "p": "src/app.ts", "l": 758, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -800,8 +800,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the request through the App's dispatcher (the host layer's, the shell's and the extensions' sets, then the screen's own dispatcher); App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 1183, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 853, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 1188, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 859, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },

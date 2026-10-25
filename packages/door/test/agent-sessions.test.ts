@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
+import { localPtys, usePtyBackend, type PtyBackend } from "../src/desk/pty-backend";
 import { cttyPrefix, PtyPane } from "../src/desk/pty";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
@@ -87,6 +88,37 @@ describe("the model, without a door", () => {
       await until(() => !q.running && q.status.app === null, "the program exits");
       expect(asSession(q, { proc: NO_PROC })).toBeNull();
     }, 15_000);
+
+    describe("an agent in the person's login shell that reported and then left (the wrapper's exit line)", () => {
+      // What inLoginShell's wrapper prints when the agent exits 3, as bytes a tile reads.
+      const left = Buffer.from("\x1b]2;claude exited · shell\x07\r\nclaude exited (3) · this is your shell, in /x\r\n");
+      const said = Buffer.from(`\x1b]7501;state=idle:app=claude-code\x1b\\`);
+      const proc = { pid: 4242, exited: new Promise<number>(() => {}), write() {}, resize() {}, kill() {}, close() {} };
+      const pane = () => { const p = new PtyPane({ cmd: ["claude"], cwd: home, label: "claude" }); p.home = "desk.json"; p.tileId = "t5"; p.init({ redraw() {}, ctx: { flash() {} } } as any); panes.push(p); return p; };
+      afterEach(() => usePtyBackend(localPtys));
+
+      test("its report and its exit line in one read: the report doesn't outlive the line", async () => {
+        let feed: (d: Uint8Array) => void = () => {};
+        usePtyBackend({ kind: "host", spawn: (_s, onData) => { feed = onData; return proc; }, adopt: () => null, meta() {}, holds: () => false } as PtyBackend);
+        const p = pane();
+        p.render(60, 8, false, {} as any);
+        feed(Buffer.concat([said, left]));
+        await until(() => p.agentExit === 3 && p.status.records.size === 1, "the exit line and the report read");
+        await Bun.sleep(100);
+        expect(p.status.app).toBeNull();
+        expect(asSession(p, { proc: NO_PROC })).toBeNull();
+      });
+
+      test("adopted after a handover, its old report doesn't outlive the exit line it kept", async () => {
+        usePtyBackend({ kind: "host", spawn: () => { throw new Error("adopted, not started"); }, adopt: () => ({ proc, replay: Buffer.concat([said, left]), cols: 60, rows: 8, argv: ["claude"], meta: { cmd: ["claude"], socket: null }, exited: null }), meta() {}, holds: () => true } as PtyBackend);
+        const p = pane();
+        p.render(60, 8, false, {} as any);
+        await until(() => p.agentExit === 3 && p.status.records.size === 1, "the exit line and the report replayed");
+        await Bun.sleep(100);
+        expect(p.status.app).toBeNull();
+        expect(asSession(p, { proc: NO_PROC })).toBeNull();
+      });
+    });
 
     test("the door's own report and a job's are no agent", async () => {
       const p = tile(`printf '${report("state=working:app=ep0ch")}'; echo told; sleep 30`, home);

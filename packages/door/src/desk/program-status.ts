@@ -52,7 +52,7 @@ export class TileStatus {
   /** When its records last changed (Date.now()). */
   at = 0;
   /**
-   * Who runs here, by what the program says (the `app` of the latest report that carried one): the one answer to "which
+   * Who runs here, by what the program says (the `app` of the latest root report): the one answer to "which
    * agent is in this terminal" that needs no /proc (agent-sessions.ts `agentOfApp` reads it). It is not a record: `idle`,
    * `done` and `error` stay for the person after the program is gone, but the program isn't there. So it goes when the
    * program says so (a `clear` that leaves no record), exits, a new prompt begins (OSC 133 A) or the terminal is reset.
@@ -68,8 +68,9 @@ export class TileStatus {
     if (p.t === "query") { reply?.(PROGRAM_STATUS_QUERY); return; }
     if (p.t !== "report") return;
     const applied = this.records.apply(p.report);
+    // Only the root record names who runs here: a door's child records name its tiles' programs, not the door's.
     if (p.report.state === "clear") { if (this.records.size === 0) this.app = null; }
-    else if (p.report.app !== undefined) this.app = p.report.app;
+    else if (p.report.id === "") this.app = p.report.app ?? null;
     if (applied) this.changed();
   }
   /** The program exited: `working` and `blocked` go; `done` and `error` stay for the person. */
