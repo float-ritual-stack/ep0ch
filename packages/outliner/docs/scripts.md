@@ -209,22 +209,23 @@ has. The tone is one of `default`, `good`, `warn`, `bad`, `dim`, `accent`.
 
 | Builder | Fields (anything else is refused) | Source |
 |---|---|---|
-| `view.text` | `text`, `tone`, `strong`, `act` | `packages/outliner/src/component-primitives.ts:206` |
-| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:211` |
-| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:214` |
-| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:221` |
-| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:228` |
-| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:235` |
-| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:261` |
-| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:272` |
-| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:278` |
-| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:296` |
-| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:299` |
-| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:302` |
-| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:307` |
-| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:323` |
-| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:330` |
-| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:218` |
+| `view.text` | `text`, `tone`, `strong`, `act` | `packages/outliner/src/component-primitives.ts:321` |
+| `view.blockdown` | `text` | `packages/outliner/src/component-primitives.ts:326` |
+| `view.badge` | `label`, `tone`, `act` | `packages/outliner/src/component-primitives.ts:329` |
+| `view.stat` | `label`, `value`, `unit`, `tone` | `packages/outliner/src/component-primitives.ts:336` |
+| `view.bar` | `label`, `value`, `max`, `tone` | `packages/outliner/src/component-primitives.ts:343` |
+| `view.table` | `columns`, `rows`, `links`, `acts` | `packages/outliner/src/component-primitives.ts:350` |
+| `view.checklist` | `items` | `packages/outliner/src/component-primitives.ts:376` |
+| `view.sparkline` | `label`, `values` | `packages/outliner/src/component-primitives.ts:387` |
+| `view.card` | `title`, `subtitle`, `badge`, `link`, `act`, `children` | `packages/outliner/src/component-primitives.ts:393` |
+| `view.box` | `title`, `children` | `packages/outliner/src/component-primitives.ts:411` |
+| `view.stack` | `children` | `packages/outliner/src/component-primitives.ts:414` |
+| `view.row` | `children`, `minWidth` | `packages/outliner/src/component-primitives.ts:417` |
+| `view.band` | `text`, `level`, `style`, `pattern`, `align`, `row`, `tone` | `packages/outliner/src/component-primitives.ts:422` |
+| `view.track` | `style`, `pattern`, `tone` | `packages/outliner/src/component-primitives.ts:438` |
+| `view.image` | `src`, `alt`, `size`, `fit`, `height`, `caption` | `packages/outliner/src/component-primitives.ts:445` |
+| `view.button` | `label`, `act`, `tone` | `packages/outliner/src/component-primitives.ts:333` |
+| `view.list` | `rows`, `groups`, `preview`, `filter`, `enter`, `empty` | `packages/outliner/src/component-primitives.ts:459` |
 
 <!-- generated:view:end -->
 
@@ -254,10 +255,10 @@ primitive's label without the line. In a note the same press is `::button{label=
 
 | Entry | Source |
 |---|---|
-| `validatePrimitive` | `packages/outliner/src/component-primitives.ts:193` |
+| `validatePrimitive` | `packages/outliner/src/component-primitives.ts:309` |
 | `PRIMITIVE_TYPES` | `packages/outliner/src/component-primitives.ts:27` |
 | `PRIMITIVE_FIELDS` | `packages/outliner/src/component-primitives.ts:28` |
-| `MAX_NODES` | `packages/outliner/src/component-primitives.ts:121` |
+| `MAX_NODES` | `packages/outliner/src/component-primitives.ts:130` |
 
 ## What a script returns
 
@@ -353,8 +354,8 @@ examples lean on:
 | `script_run` (the gateway tool) | `packages/door/src/mcp.ts:727` |
 | `scripts.run` (the service request, capped by the access level) | `packages/outliner/src/server.ts:1625` |
 | `mcpAccess` (a script's write, by access level) | `packages/outliner/src/host-api.ts:145` |
-| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4395` |
-| `viaYolo` | `packages/outliner/src/server.ts:4425` |
+| `mcpAccess` (yolo reads as full) | `packages/outliner/src/server.ts:4416` |
+| `viaYolo` | `packages/outliner/src/server.ts:4446` |
 | `inverse` (the undo's draft part) | `packages/outliner/src/script-runs.ts:473` |
 
 ## Lifecycle
@@ -393,7 +394,7 @@ examples lean on:
 | `stopRun` | `packages/outliner/src/script-runs.ts:217` |
 | `The script source changed` (during a run) | `packages/outliner/src/script-runs.ts:330` |
 | `scripts.stop` | `packages/outliner/src/server.ts:2043` |
-| `scripts.stop` request | `packages/outliner/src/types.ts:2499` |
+| `scripts.stop` request | `packages/outliner/src/types.ts:2505` |
 
 ## Traps
 

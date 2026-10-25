@@ -353,6 +353,40 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
     "- Water the beans before ten.",
     "- Lift the last of the onions.",
   ].join("\n"));
+  // The list primitive (PIE-747): one ListView draws a ::links block, the links tile and an extension's `list` view, and one
+  // set of actions (list.blocks, list.pick, list.step, list.open, list.filter, list.enter) reads and moves all three.
+  await make(notes.scripts.id, [
+    "Seed shelf [script::seed-shelf] [mode::render]",
+    "```js",
+    "const letters = (await q('type=letter mail=waiting')).blocks;",
+    "return view.list({",
+    "  preview: 'below',",
+    "  groups: [{ name: 'letters', label: 'Waiting letters', glyph: '✉', count: letters.length }, { name: 'actions', label: 'Shelf actions', count: 3 }],",
+    "  rows: [",
+    "    ...letters.map(b => ({ id: b.id, label: b.title, group: 'letters', do: { open: b.id }, preview: { block: b.id } })),",
+    "    { id: 'copy-titles', label: 'Copy the letters\\' titles', detail: 'to your clipboard', group: 'actions', do: { copy: letters.map(b => b.title).join('\\n') } },",
+    "    { id: 'copy-note', label: 'Copy this note', detail: 'note.copy', group: 'actions', do: { run: { action: 'note.copy' } } },",
+    "    { id: 'put-link', label: 'Put a link to this shelf in my draft', detail: 'a draft you have open', group: 'actions', do: { insert: '[[One list, three ways]]' } },",
+    "  ],",
+    "});",
+    "```",
+  ].join("\n"));
+  notes.listDemo = await make(notes.root.id, [
+    `${SEED.listDemo} [type::daily-plan]`,
+    "One ListView draws every list on this screen: the block below, the shelf under it and the links tile beside. Same rows, same keys, same actions.",
+    "",
+    "## A links block",
+    '::links{query="type=letter mail=waiting" preview=right title="Outbox"} ^outbox',
+    "::",
+    "",
+    "## An extension's list view",
+    "seed-shelf::",
+    "",
+    "## Notes under this one",
+    "The links tile lists them (Children); the two rows above are an extension's rows and a query's.",
+  ].join("\n"));
+  await make(notes.listDemo.id, "Wash the seed trays\nBleach and rinse; they dry on the bench.");
+  await make(notes.listDemo.id, "Label the dahlia tubers\nTwo to a box, the name on the lid.");
   // Tags as links (PIE-800): a note whose #tags open the notes carrying them, and those notes (one under a nested tag).
   notes.frost = await make(notes.root.id, [
     `${SEED.frost}`,

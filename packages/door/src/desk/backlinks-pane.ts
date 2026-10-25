@@ -21,9 +21,8 @@ import { outlineBoards, readNote } from "./outline-boards";
 // The rows are drawn by `linkRowLines`, as the tree's links and the inline `::links` component are; the status
 // line by `layoutLinksStatus`. One model and one drawing, not three.
 import { BASE_STYLE } from "@ep0ch/outline-core/style-cascade";
-import { dividerLine, listSlots, zebraRow, type ListSlot } from "../list-look";
 import { isOutlineNote, type AuthoredLinksSnapshot } from "../authored";
-import { ALL_LINK_GROUPS, describeLinkRow, isLinkEntry, isLinkGroup, LINK_GROUPS, linkAcross, linkBlock, linkNote, linkTargetOf, linkRowLines, linkRows, readChildren, type ChildLink, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
+import { ALL_LINK_GROUPS, describeLinkRow, isLinkEntry, isLinkGroup, LINK_GROUPS, linkAcross, linkBlock, linkListRow, linkNote, linkTargetOf, linkRows, readChildren, type ChildLink, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { subject, type Msg } from "../board";
 import {
   backlinkOptionsFrom, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
@@ -36,8 +35,9 @@ import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
 import { C, drawEllipsized, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
-import { pressOn, RowView, type RowPress } from "../scroll";
-import { LineInput } from "../surface/line";
+import { pressOn, type RowPress } from "../scroll";
+import { LISTVIEW_ACTIONS, type ListHost } from "../surface/list-actions";
+import { ListView, PERSON, type ListHandle, type ListViewRow } from "../surface/list-view";
 import { centred, ListPicker, pickRows, pickRow } from "../surface/picker";
 
 /**
@@ -126,11 +126,20 @@ export class BacklinksPane implements Pane {
   /** Children's own reads: only the latest one lands (it can be asked again without the rest, as its group comes on). */
   private kidsAsked = 0;
   problem = "";
-  /** The selected row, and the first row drawn. */
-  sel = 0;
-  private view = new RowView();
-  /** The rows as last drawn, with the look's spacing between them (src/list-look.ts). */
-  private slots: ListSlot[] = [];
+  /**
+   * The list this tile draws (PIE-747): the one ListView, which holds the person's pick, each agent's own pick and
+   * the typed filter, and scrolls (a RowView). The tile gives it the links model's rows and keeps what it decides:
+   * the groups, the status line's controls, what a pick shows and where an open lands.
+   */
+  readonly list = new ListView<LinkRow>("links", false);
+  /** The rows of the list as last drawn, one per drawn line (null: spacing, a say-so line), for the mouse. */
+  private rowAt: (number | null)[] = [];
+  /** The selected row: an index into `rows()`, kept as the person's pick in the list by the row's key. */
+  get sel(): number {
+    const id = this.list.pickedId(PERSON);
+    return id === null ? 0 : Math.max(0, this.rows().findIndex(r => r.key === id));
+  }
+  set sel(i: number) { const r = this.rows()[i]; this.list.setPick(PERSON, r ? r.key : null); }
   options: BacklinkViewOptions = { ...DEFAULT_BACKLINK_VIEW_OPTIONS };
   expanded = new Set<string>();
   /** The status line's controls as last drawn (for clicks), and how many rows it took. */
@@ -142,7 +151,7 @@ export class BacklinksPane implements Pane {
   /** Given the keys before its rows were read: the selected row shows once they are (and as whom). */
   private showOnLoad: Actor | null = null;
   /** A filter being typed (`/`): applied as it's typed; ⏎ keeps it, esc goes back to what it was. Null when not typing. */
-  draft: LineInput | null = null;
+  get draft() { return this.list.typing; }
   /**
    * A note named outright (`backlinks id=<id>` on the board, a note no tile shows): listed instead of what the
    * source tile shows, until the source shows another note.
@@ -263,7 +272,7 @@ export class BacklinksPane implements Pane {
     // person moved on before it came) never left them shut on the way back to a note opened before.
     if (m?.id !== this.target?.id) { this.options = { ...this.options, filter: "", kind: null }; this.expanded = new Set(); this.openedFor = null; this.headerPicked = false; }
     this.target = m;
-    if (!keepSel) { this.data = null; this.authored = { kind: "loading" }; this.sel = 0; this.view.reset(); }
+    if (!keepSel) { this.data = null; this.authored = { kind: "loading" }; this.sel = 0; this.list.view.reset(); }
     this.problem = "";
     const n = ++this.asked;
     if (!m) return;
@@ -364,17 +373,16 @@ export class BacklinksPane implements Pane {
     this.controls = st.segs.filter(s => s.control);
     this.head = st.rows;
     const fit = Math.max(1, h - this.head);
-    this.sel = Math.max(0, Math.min(this.sel, rows.length - 1));
+    // The selection kept within the rows (one pass over them: `sel` asks the model again each time it is read).
+    const kept = rows.findIndex(r => r.key === this.list.pickedId(PERSON));
+    const sel = Math.max(0, Math.min(kept < 0 ? 0 : kept, rows.length - 1));
+    if (rows[sel]) this.list.setPick(PERSON, rows[sel].key);
     // The look's list rows (PIE-673): gaps between rows, a divider between groups (dots by default), zebra on every other.
     const v = desk.lookOf?.(this)?.values ?? BASE_STYLE;
-    const drawn = rows.map((r, i) => linkRowLines(r, { selected: i === this.sel, focused, cols: w, lines: v["rows.lines"] }));
-    const { slots, at } = listSlots(rows.length, v, i => rows[i]!.kind === "group", drawn.map(r => r.length));
-    this.slots = slots;
-    this.view.place(this.sel, slots.length, fit, [at[this.sel] ?? 0, (at[this.sel] ?? 0) + (drawn[this.sel]?.length ?? 1) - 1]);
-    for (const slot of slots.slice(this.view.top, this.view.top + fit)) {
-      if ("item" in slot) { const selected = slot.item === this.sel; lines.push(zebraRow(drawn[slot.item]![slot.line ?? 0]!, slot.item, w, v, selected)); }
-      else lines.push("divider" in slot ? dividerLine(v, w) : "");
-    }
+    this.syncList(rows);
+    const drawn = this.list.draw({ cols: w, lines: v["rows.lines"], focused, selection: true, room: fit, look: v, divide: r => r.source?.kind === "group", filterLine: false, empty: "" });
+    this.rowAt = drawn.rowAt;
+    lines.push(...drawn.lines);
     if (!rows.some(isLinkEntry) && this.opts().filter) lines.push(fg(C.dark) + " nothing matches · the status line's controls, / and esc change what shows" + RESET);
     return { lines };
   }
@@ -404,12 +412,10 @@ export class BacklinksPane implements Pane {
     const agent = !standing;
     // An agent's pick is its own: the person's selection stays where it is.
     if (!agent) { this.sel = i; this.headerPicked = !isLinkEntry(r); }
+    // A header shows nothing; opening one is its fold (the list's `run` activation: listHost.open).
     if (r.kind === "group" || r.kind === "kind") {
-      const g = r.kind === "group" ? r.group : r.group.kind;
-      if (how !== "show" && agent) throw new ActionRefused(LINK_GROUPS_ARE_THE_PERSONS);
-      if (how !== "show") { if (r.kind === "group") this.fold(r.group); else this.toggle(r.group.kind, desk); }
       desk.redraw();
-      return { row: i + 1, group: g };
+      return { row: i + 1, group: r.kind === "group" ? r.group : r.group.kind };
     }
     const address = this.target?.address;
     const ctx = address ? await outlineBoards(desk.ctx).on(address) : desk.ctx;
@@ -484,7 +490,7 @@ export class BacklinksPane implements Pane {
       } else if (c === "stage") { o.stage = nextBacklinkStageFilter(o.stage, this.across({ ...o, stage: "all" }).stages); said = o.stage === "all" ? "links: every stage" : `links: only ${o.stage}`; }
       else if (c === "resolved") { o.showResolved = !o.showResolved; said = o.showResolved ? "showing resolved comments" : "hiding resolved comments"; }
       else if (c === "related") { o.showRelated = !o.showRelated; said = o.showRelated ? "showing this note and its descendants" : "hiding this note and its descendants"; }
-      else if (c === "filter") { this.draft ??= new LineInput(o.filter, false, { complete: false }); said = ""; }   // plain words over rows already listed
+      else if (c === "filter") { if (!this.draft) { this.list.setFilter(PERSON, o.filter); this.list.startTyping(); } said = ""; }   // plain words over rows already listed
       else if (c === "groups") said = "";   // the groups' list is backlinks.groups's (it needs the screen)
     });
     return said;
@@ -498,31 +504,80 @@ export class BacklinksPane implements Pane {
     return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, undefined, this.across(o)), rows: this.rows().map((r, i) => describeLinkRow(r, i + 1, i === this.sel)), folded: [...this.shut], linkGroups: [...this.groups], typing: this.draft?.text ?? null };
   }
 
-  run(desk: DeskApi, name: "backlinks" | "backlinks.pick" | "backlinks.open" | "backlinks.view" | "backlinks.fold" | "backlinks.groups", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
+  run(desk: DeskApi, name: "backlinks" | "backlinks.view" | "backlinks.fold" | "backlinks.groups", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
+  /** A list action (list.pick, list.open, …) on this tile's list, through the desk's dispatcher as the person's key or click. */
+  runList(desk: DeskApi, name: "list.pick" | "list.step" | "list.open" | "list.filter", args: Record<string, unknown>) { runOwn(LISTVIEW_ACTIONS, name, args, { pane: this, desk }); }
+
+  /** Give the list the model's rows as they are now (the tile's rows are computed, so it is told before it draws or answers). */
+  private syncList(rows: readonly LinkRow[] = this.rows()) {
+    this.list.set(rows.map(r => linkListRow(r, { folds: true, select: "all" })));
+  }
+
+  /** This tile's one list, as the lists' actions run over it. */
+  private handle(desk: DeskApi): ListHandle<LinkRow> {
+    this.syncList();
+    return {
+      n: 1, key: "links", title: this.title(), view: this.list, entered: !!desk.hasFocus?.(this),
+      describeRow: (row, n) => ({ kind: row.source!.kind, ...(linkBlock(row.source) ? { id: linkBlock(row.source)! } : {}), n }),
+    };
+  }
+
+  /** The lists' actions over this tile (PIE-747): one list, whose picks and opens are this tile's. */
+  listHost(desk: DeskApi): ListHost {
+    return {
+      lists: () => (this.target ? [this.handle(desk)] : []),
+      current: () => "links",
+      none: this.target ? "the links are still being read" : `no links are listed here: the links of what ${this.source} shows land in this tile (b aims it at a note)`,
+      // The person's pick moved: the row shows where this tile's selection goes (a preview following), as moving to it always did.
+      picked: (_l, row) => {
+        const rows = this.rows(), i = rows.findIndex(r => r.key === row.id);
+        if (i < 0) return;
+        this.sel = i; this.headerPicked = !isLinkEntry(rows[i]);
+        return this.pick(i, "show", desk, USER).then(() => {}, () => {});
+      },
+      open: async (_l, row, where, actor, standing) => {
+        const i = this.rows().findIndex(r => r.key === row.id);
+        if (i < 0) throw new ActionRefused(`${row.label} isn't listed now`);
+        const act = row.do && "run" in row.do ? row.do.run : null;
+        // A header's activation is its fold: the person's view, an agent's is refused (LINK_GROUPS_ARE_THE_PERSONS).
+        if (act) {
+          if (!standing) throw new ActionRefused(LINK_GROUPS_ARE_THE_PERSONS);
+          this.sel = i; this.headerPicked = true;
+          this.run(desk, act.action as "backlinks.fold", act.args ?? {});
+          return { row: i + 1, group: act.args?.kind };
+        }
+        return this.pick(i, where === "new" ? "fresh" : "open", desk, actor, standing);
+      },
+      enter: () => { throw new ActionRefused("a links tile's list has the keys whenever the tile does: focus the tile (tile.focus) rather than going into it"); },
+      type: () => this.run(desk, "backlinks.view", { step: "filter" }),
+      keep: (_l, words) => this.run(desk, "backlinks.view", { filter: words }),
+      redraw: () => desk.redraw(),
+    };
+  }
 
   /** Typing a filter: letters go into it and the list follows; ⏎ keeps it (`backlinks.view filter=`), esc goes back to what it was. */
   private filterKey(k: Key, desk: DeskApi): boolean {
-    if (k.kind === "enter") { const f = this.draft?.text.trim() ?? ""; this.draft = null; this.run(desk, "backlinks.view", { filter: f }); return true; }
-    if (k.kind === "esc") this.draft = null;
+    if (k.kind === "enter") { const f = this.draft?.text.trim() ?? ""; this.list.stopTyping(false); this.run(desk, "backlinks.view", { filter: f }); return true; }
+    if (k.kind === "esc") this.list.stopTyping(false);
     else if (!this.draft?.key(k)) return k.kind !== "tab" && k.kind !== "backtab";
     this.keepSel(() => {});
     desk.redraw();
     return true;
   }
   /** It loses the keys while a filter is typed: what's typed is kept, as leaving Detail's filter keeps it. */
-  blur() { if (this.draft !== null) { this.options = { ...this.options, filter: this.draft.text.trim() }; this.draft = null; } }
+  blur() { if (this.draft !== null) { this.options = { ...this.options, filter: this.draft.text.trim() }; this.list.stopTyping(false); } }
 
   key(k: Key, desk: DeskApi): boolean {
     if (this.draft !== null && k.kind !== "mouse") return this.filterKey(k, desk);
     const n = this.rows().length, c = ch(k);
     // The selection moves at once (the next key counts from it); the source is read and shown after.
-    const to = (i: number) => { if (n && i >= 0 && i < n && i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 }); return true; };
-    const by = (d: number) => { const i = this.sel + d; if (n && i >= 0 && i < n) this.run(desk, "backlinks.pick", { by: d }); return true; };
+    const to = (i: number) => { if (n && i >= 0 && i < n && i !== this.sel) this.runList(desk, "list.pick", { n: i + 1 }); return true; };
+    const by = (d: number) => { const i = this.sel + d; if (n && i >= 0 && i < n) this.runList(desk, "list.step", { by: d }); return true; };
     if (isDown(k)) return by(1);
     if (isUp(k)) return by(-1);
     if (k.kind === "home") return to(0);
     if (k.kind === "end") return to(n - 1);
-    if (k.kind === "enter" || k.kind === "alt-enter") { if (n) this.run(desk, "backlinks.open", { n: this.sel + 1, where: k.kind === "alt-enter" ? "new" : "home" }); return true; }
+    if (k.kind === "enter" || k.kind === "alt-enter") { if (n) this.runList(desk, "list.open", { n: this.sel + 1, where: k.kind === "alt-enter" ? "new" : "home" }); return true; }
     // b: the list aims at its home's note now (PIE-794), as b in that reader does.
     if (c === "b") { this.run(desk, "backlinks", {}); return true; }
     if (c === "." || c === " ") { this.run(desk, "backlinks.fold", {}); return true; }
@@ -546,14 +601,13 @@ export class BacklinksPane implements Pane {
     if (c?.control === "groups") { this.run(desk, "backlinks.groups", { choose: true }); return true; }
     if (c?.control) { this.run(desk, "backlinks.view", { step: c.control }); return true; }
     // A gap or a divider row is the list's drawing, not a row: a press there selects nothing.
-    const slot = this.slots[this.view.top + y - this.head];
-    const i = slot && "item" in slot ? slot.item : -1, row = this.rows()[i];
+    const i = this.rowAt[y - this.head] ?? -1, row = this.rows()[i];
     if (y < this.head || !row) return true;
-    const gesture = this.view.press(i, pressOn(k, press, i === this.sel));
+    const gesture = this.list.press(i, pressOn(k, press, i === this.sel));
     const header = row.kind === "group" || row.kind === "kind";
-    if (header && gesture !== "focus" && x <= row.depth * 2 + 1) { this.run(desk, "backlinks.open", { n: i + 1 }); return true; }
-    if (gesture === "open" || gesture === "fresh") this.run(desk, "backlinks.open", { n: i + 1, where: gesture === "fresh" && !header ? "new" : "home" });
-    else if (gesture === "select" || i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 });
+    if (header && gesture !== "focus" && x <= row.depth * 2 + 1) { this.runList(desk, "list.open", { n: i + 1 }); return true; }
+    if (gesture === "open" || gesture === "fresh") this.runList(desk, "list.open", { n: i + 1, where: gesture === "fresh" && !header ? "new" : "home" });
+    else if (gesture === "select" || i !== this.sel) this.runList(desk, "list.pick", { n: i + 1 });
     return true;
   }
 }
@@ -596,7 +650,7 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
         } else if (!L.data && L.target) await L.load(L.target, desk, true);
         if (!viewing) return { backlinks: L.describe() };
         const next = parse(L.options, L.data);
-        L.draft = null;
+        L.list.stopTyping(false);
         L.options = next;
         desk.redraw();
         return { backlinks: L.describe() };
@@ -639,54 +693,6 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
       pane.toggle(k, desk);
       desk.redraw();
       return { backlinks: pane.describe() };
-    },
-  }),
-  "backlinks.pick": def({
-    summary: "pick a row of a links tile (tile=<its name>): n (as peek's rows, from 1) or id (a block's, or a resource's); it shows where the tile's selection goes (a note, a ticket's block, a Resource's stored content: read only); open=true as ⏎ (a Resource is registered if it must be), fresh=true as alt+⏎. An agent's never moves the person's keys",
-    keys: "j k ↑ ↓ Home End wheel click (show) · ⏎ double click (open) · alt+⏎ alt-click ctrl-click middle-click (fresh); the click that gives the tile the keys only selects",
-    touches: "nothing", replay: "safe", says: r => `picked a link (row ${r.row})`,
-    args: {
-      n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
-      id: { type: "string", optional: true, about: "a linked block's id or a resource's (or its start)" },
-      by: { type: "number", optional: true, about: "rows on from the selected one (1 the next, -1 the one before), as j k do" },
-      open: { type: "boolean", optional: true, about: "open it, as ⏎ does (a group opens or folds)" },
-      fresh: { type: "boolean", optional: true, about: "open it fresh, as alt+⏎ does" },
-    },
-    examples: [
-      { act: "backlinks.pick tile=replies n=2", does: "selects row 2; it shows where the tile's selection goes" },
-      { act: "backlinks.pick tile=replies by=1", does: "moves to the next row, as j does" },
-    ],
-    async run({ n, id, by, open, fresh }, { pane, desk, standing }, actor) {
-      if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("backlinks.pick takes one of n, id or by");
-      const rows = pane.rows();
-      const idOf = (r: LinkRow) => linkBlock(r) ?? (r.kind === "resource" ? r.link.recordBlockId ?? r.link.resourceId ?? (r.link.resolution.kind === "ready" ? r.link.resolution.target.resourceId : null) : null);
-      const i = id !== undefined ? rows.findIndex(r => idOf(r)?.startsWith(id)) : by !== undefined ? pane.sel + Math.trunc(by) : n! - 1;
-      if (by !== undefined && (i < 0 || i >= rows.length)) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} row ${pane.sel + 1}`);
-      if (id !== undefined && i < 0) throw new ActionRefused(`no link to or from ${id} here`);
-      return pane.pick(i, fresh ? "fresh" : open ? "open" : "show", desk, actor, standing);
-    },
-  }),
-  "backlinks.open": def({
-    summary: "open a row of a links tile for real, not as a preview (n= its row from 1, as peek lists them; id= a block's or a resource's; default the selected one): where=home (default) in the tile its opens land in: the tile linked to it as a target, else its home, the reader it belongs to, whose note it replaces (kept in that reader's history; a reader following the current note moves the current note, a held one only itself); where=new in a new detail beside its home (the person's keys stay in the list). The list keeps its subject either way (only b aims it). A group opens or folds. The same open as `open from=<this tile>` (fresh for new)",
-    keys: "⏎ double click (home) · alt+⏎ alt-click ctrl-click middle-click (new); the click that gives the tile the keys only selects",
-    touches: "nothing", replay: "safe", says: r => `opened a link (row ${r.row})`,
-    args: {
-      n: { type: "number", optional: true, about: "the row, from 1, as peek lists them; default the selected one" },
-      id: { type: "string", optional: true, about: "a linked block's id or a resource's (or its start)" },
-      where: { type: "string", optional: true, about: "home (default): the tile its opens land in; new: a new detail beside its home" },
-    },
-    examples: [
-      { act: "backlinks.open tile=replies n=1", does: "opens the first linked note in the tile its opens land in" },
-      { act: "backlinks.open tile=replies n=1 where=new", does: "opens it in a new detail beside the tile's home" },
-    ],
-    async run({ n, id, where }, { pane, desk, standing }, actor) {
-      if (where !== undefined && where !== "home" && where !== "new") throw new ActionRefused(`backlinks.open: where is home or new, not ${where}`);
-      if (n !== undefined && id !== undefined) throw new ActionRefused("backlinks.open takes one of n or id");
-      const rows = pane.rows();
-      const idOf = (r: LinkRow) => linkBlock(r) ?? (r.kind === "resource" ? r.link.recordBlockId ?? r.link.resourceId ?? (r.link.resolution.kind === "ready" ? r.link.resolution.target.resourceId : null) : null);
-      const i = id !== undefined ? rows.findIndex(r => idOf(r)?.startsWith(id)) : (n ?? pane.sel + 1) - 1;
-      if (id !== undefined && i < 0) throw new ActionRefused(`no link to or from ${id} here`);
-      return pane.pick(i, where === "new" ? "fresh" : "open", desk, actor, standing);
     },
   }),
   "backlinks.groups": def({

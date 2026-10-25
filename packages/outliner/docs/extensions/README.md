@@ -142,7 +142,7 @@ several of them.
 |---|---|---|---|---|
 | 1. **Data** | A record put into a block, as if you copied it in | `moon:: 2026-10-26`, `jira:: PC-12` | A real block the extension owns, with namespaced properties (`[moon.phase::Full Moon]`) | As any block. Under the line, a projection says what it is and when it was fetched |
 | 2. **Inline output** | Markdown rendered inside a block | `horoscope:: virgo` | Kept by the service per line (`extension_outputs`); never written into the note unless you **keep** it | The projection's `output.markdown`, under the line |
-| 3. **Rich component** | Data plus a view, with its own behaviour (actions) | `fancy-horror:: virgo` | Kept like an output: `{ data, view }` | The view's primitives (box, card, table, stat, bar, checklist, sparkline, badge, text, image, row, stack), or a rendered target |
+| 3. **Rich component** | Data plus a view, with its own behaviour (actions) | `fancy-horror:: virgo` | Kept like an output: `{ data, view }` | The view's primitives (box, card, table, stat, bar, checklist, sparkline, badge, text, image, list, row, stack), or a rendered target |
 | 4. **A whole tile** | A program in a tile of its own kind | opened from the door | Whatever its actions write | The door's tile-kind registry runs it in a terminal tile |
 | **Rules** (`decorate`, `on`) | "When a block matches this, draw this on it, or run this": `match` by a property, a saved-view query, a text pattern or a construct kind | `rules[]` in `extension.json`, or a rule note (`[rule-name::name]`, no code) | Nothing in the note: a built-in decoration is computed on read; a code rule's view is kept like an output until the block's revision changes; a trigger's writes are the extension's | `decorations` in `resources.projection.read`: view primitives (plus `band` and `track`) above, below, in place of or around what matched; Detail and the publisher as text |
 
@@ -674,10 +674,40 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 | `track` | `pattern?`, `tone?`: one row of glyph track, a divider (rules) |
 | `button` | `label`, `act` (an action line to [press](#pressing-a-view)), `tone?`: a labelled press, drawn in the control row an extension line's controls are |
 | `image` | `src` (a path, as a note's `[img::]` line names one, or a `file:/path` Resource ref; never a web page or a stored Resource), `alt?`, `size?` (as `[size::]`: cells, `N%` or `full`), `fit?` (`cover` or `contain`), `height?` (1–60 rows), `caption?` (`false`: the picture alone, without its caption line, where it's drawn): a picture, drawn the way each reader draws a note's image line (PIE-827; see [Pictures in a view](#pictures-in-a-view)) |
+| `list` | `rows` (at most 200), `groups?`, `preview?` (`right`, `below`, `none`), `filter?` and `enter?` (both on by default), `empty?`: a selectable, filterable list with a preview (PIE-747, ADR 0004 contract 3; see [Lists](#lists-in-a-view)) |
 
 `tone` is `default`, `good`, `warn`, `bad`, `dim` or `accent`. Limits: depth 8, 400 primitives, 200
 rows, 12 columns, 2 000 characters of text each, 256 KiB of data. A view that breaks one is refused
 with a path to the problem (`view.children[0].max must be more than 0`), and the line shows it.
+
+#### Lists in a view
+
+A `list` is a real list in every client without a door feature (PIE-747): rows the viewer can pick, filter and preview,
+each doing one thing.
+
+```js
+return view.list({
+  preview: "right",
+  groups: [{ name: "sow", label: "Sow now", count: 2 }],
+  rows: [
+    { id: "pea", label: "Pea trellis", detail: "next", group: "sow", do: { open: letter.id }, preview: { block: letter.id } },
+    { id: "titles", label: "Copy the titles", group: "sow", do: { copy: titles.join("\n") } },
+  ],
+});
+```
+
+- **A row** has an `id` (unique in its list: it keys the viewer's selection), a one-line `label`, and optionally `detail`, `mark` (a glyph),
+  `tone`, `group` (a `groups[].name`), `preview` (`{ block }` or `{ markdown }`, shown beside or under the list while the row is selected) and
+  `do`. A row with no `do` is a header: nothing to pick.
+- **`do` is exactly one of** `open` (a block id or a [Resource ref](#opening-a-resource): opens where the viewer's opens land), `run`
+  (`{ action, args? }`: runs as the viewer, as a [press](#pressing-a-view) does), `copy` (text for the viewer's clipboard; an agent is
+  given the text) or `insert` (one line, put in the viewer's own open draft; an agent is refused: it writes with `outline_edit`). A `do` with two of them, or
+  none, is refused with its path.
+- **The viewer's state is theirs.** Selection, the typed filter (`/`), whether they are in the list (`⏎ in`) and scroll are never written and never
+  sent; an agent's pick and filter are its own and drawn in its tint. A page has no viewer, so it draws the first `markdown` preview after the list.
+- **The door** draws it with its one ListView, the same as the links tile and an inline `::links`; Detail and Markdown as a bulleted list
+  (a group's header a bold line, a header row bold), a page as `<ul>` per group, CSV as label and detail, JSON the rows. `list.blocks`, `list.pick`,
+  `list.open`, `list.filter` read and move it (`act`). Limits: 200 rows, 50 groups.
 
 #### Pressing a view
 
@@ -2222,7 +2252,7 @@ Both built with no core change, working around these. Wave 2 closed them:
   "resourceProviders": [{ "provider": "ext:jira", "key": "jira", "label": "Jira", "keyPattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "fields": ["status", "assignee", "type", "priority", "labels"], "link": "browse/{{key}}" }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
-  "primitives": ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image"],
+  "primitives": ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button", "list"],
   "rules": [{ "key": "ext:done-stamp/stamp", "name": "done-stamp/stamp", "source": { "kind": "extension", … }, "match": { "query": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }, "matching": 3 }],
   "ruleProblems": [],
   "targets": ["terminal", "markdown", "blockdown", "html", "json", "csv"],

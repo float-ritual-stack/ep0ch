@@ -256,7 +256,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     const L = B().linksTile, one = L.data.sources[0];
     // More sources than fit, one line each (PIE-442), under the status line; without facets, so one flat list.
     L.data = { ...L.data, sources: Array.from({ length: 40 }, (_, i) => ({ ...one, blockId: one.blockId, facets: undefined, title: `Source ${String(i).padStart(2, "0")}`, updatedAt: `2026-01-01T00:00:${String(59 - i).padStart(2, "0")}.000Z` })) };
-    L.sel = 0; L.top = 0;
+    L.sel = 0; L.list.view.top = 0;
     const r = rect("backlinks"), head = L.head, fit = r.rows - 2 - head;
     expect(fit).toBeGreaterThan(3);
     click({ x: r.col + 3, y: r.row + r.rows - 1 });                            // the bottom border
@@ -268,12 +268,12 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     click({ x: r.col + 3, y: r.row + head + fit });                            // the last source drawn: a double click opens it
     click({ x: r.col + 3, y: r.row + head + fit });
     // The rows drawn are the list's with the look's spacing between them (a divider between groups, PIE-673): the last is an item.
-    const last = (L as any).slots.slice(0, fit).at(-1);
-    expect(L.sel).toBe(last.item);
+    const last = ((L as any).rowAt as (number | null)[]).slice(0, fit).filter(i => i !== null).at(-1);
+    expect(L.sel).toBe(last);
     await until(() => B().details[0]?.msg?.id === one.blockId, "the source in a detail");
     // A short list leaves spare rows under it: a click there does nothing.
     L.data = { ...L.data, sources: L.data.sources.slice(0, 2) };
-    BV.at(b, "backlinks"); L.sel = 0; L.top = 0;
+    BV.at(b, "backlinks"); L.sel = 0; L.list.view.top = 0;
     const before = B().details.length;
     const under = r.row + head + L.rows().length + 1;                           // under the last row drawn
     click({ x: r.col + 3, y: under });

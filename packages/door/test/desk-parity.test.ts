@@ -81,11 +81,11 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     const ids = replies().rows().filter((r: any) => r.kind === "child").map((r: any) => r.child.block.id);
     expect(ids.sort()).toEqual([notes.pears.id, notes.plums.id].sort());
     const was = replies().sel;
-    const r = await act("backlinks.pick", { id: notes.plums.id }, "replies") as any;
+    const r = await act("list.pick", { id: notes.plums.id }, "replies") as any;
     expect(r.id).toBe(notes.plums.id);
     expect(replies().sel).toBe(was);
     const row = replies().rows().findIndex((x: any) => x.kind === "child" && x.child.block.id === notes.plums.id);
-    await D().dispatch.act({ action: "backlinks.pick", args: { n: row + 1 }, tile: "replies" }, { kind: "user" });
+    await D().dispatch.act({ action: "list.pick", args: { n: row + 1 }, tile: "replies" }, { kind: "user" });
     expect(replies().sel).toBe(row);
   });
 

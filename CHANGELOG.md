@@ -10,6 +10,28 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### One list, drawn the same everywhere: the `list` primitive and the door's ListView (PIE-747)
+
+Asked Oct 25 ("i want it"): a real list in every client without a door feature. An extension (marginalia's notebook, a
+Readwise board) returns `view.list({ rows })` and gets selection, a filter, a preview and one thing for ⏎ to do per row.
+
+- **The `list` view primitive.** Rows have an `id`, a `label`, and optionally a `detail`, `mark`, `tone`, `group`, a `preview` (a block or Blockdown) and
+  `do`: exactly one of `open` (a block or Resource), `run` (an action), `copy` or `insert`. A row with no `do` is a header. The door draws it with its
+  one `ListView`; Detail and Markdown as a bulleted list, a published page as `<ul>`, CSV as label and detail. The service refuses a row with two
+  activations and says which.
+- **`^name` names a component** inside its note: `::links{query="…"} ^orders`. A list's pick, filter and scroll are kept under it (else under the
+  component's place among the note's), no longer under its title, so editing a title above no longer moves one list's selection to another.
+  `((note^orders))` opens the line.
+- **The links tile, the inline `::links` and an extension's `list` are one list.** One row drawer, one `ListView` over `RowView`. The tree's links rows use the same drawer.
+- **`list.blocks`, `list.pick`, `list.step`, `list.open`, `list.filter` and `list.enter` replace `links.blocks`, `links.pick`, `links.open`, `links.enter`,
+  `backlinks.pick` and `backlinks.open`** (an old name answers with the new call). `tile=` names a reader or a links tile, `list=` which list
+  (its number, `^name` or title).
+- **An agent's pick and filter are its own.** They are drawn in its tint on the row and in a line under the list, and never move your selection, filter,
+  preview or keys (an agent's pick used to preview in the tile beside; `list.open` is what shows a note). `list.enter` is yours only.
+- Kitchen sink: the `list-view` section, a links block, an extension's list and the links tile on one note.
+
+PROTOCOL and GRAMMAR change (the primitive catalogue, the `^name` form): restart the outline host and the doors on this code (`ep0ch install --apply`).
+
 ### A refused press says why (PIE-1264)
 
 - **`ep0ch act`, MCP `script_run` and the door's press answer with what the script said.** They wait up to 3 seconds

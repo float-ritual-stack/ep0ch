@@ -146,12 +146,12 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(inner(g, links).wires).toContainEqual({ verb: "select", to: inner(g, preview).tile });
     await until(() => { render(); return inner(g, links).backlinks.rows?.some((r: any) => r.id); }, "the grouped links loaded");
     const row = inner(g, links).backlinks.rows.find((r: any) => r.id);
-    await me("backlinks.pick", { n: row.n }, `${g}/${links}`);
+    await me("list.pick", { n: row.n }, `${g}/${links}`);
     await until(() => { render(); return inner(g, preview).showing?.id === row.id; }, "the selected link's preview loaded");
     expect(row.id).not.toBe(seeded.notes.hub.id);
     await me("backlinks", {}, `${g}/${links}`);
     expect(inner(g, links).backlinks.target.id).toBe(seeded.notes.hub.id);
-    await me("backlinks.pick", { n: row.n }, `${g}/${links}`);
+    await me("list.pick", { n: row.n }, `${g}/${links}`);
     press({ kind: "enter" });
     await until(() => showing("detail") === row.id, "the grouped links open in their home detail");
     await spill(g);

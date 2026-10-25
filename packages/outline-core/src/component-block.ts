@@ -11,8 +11,10 @@ import { closesCodeFence, codeBlocks, codeFenceOpen, fenceEnd, type CodeFence, t
  * The opening line: `::` and a component name, indented at most three spaces (four is code), with or without
  * arguments (`::links ((id))`), or with attributes straight after the name (`::box{pad=1 list.gap=1}`, PIE-549's
  * block attributes; group 3; a `{{ placeholder }}` may be inside them, `::status-card{status={{parent.status}}}`). One with attributes is a block: it closes with `::`, as one without arguments does.
+ * A `^name` at the end of the line (group 4, PIE-747) is the component's id inside its note: `::links{query="…"} ^orders`.
+ * It is the line anchor `((note^orders))` already points at, and the key a list's view state is kept under.
  */
-export const COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?)|(\{(?:[^{}\n]|\{\{[^\n]*?\}\})*\}))?[ \t]*$/;
+export const COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(?!\^[A-Za-z0-9][\w-]{0,63}[ \t]*$)(\S[^\n]*?)|(\{(?:[^{}\n]|\{\{[^\n]*?\}\})*\}))?(?:[ \t]+\^([A-Za-z0-9][\w-]{0,63}))?[ \t]*$/;
 /** The closing line: `::` alone. */
 export const COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
 
@@ -165,7 +167,7 @@ export function componentAttributeAtCursor(line: string, column: number): {
 }
 
 /** A component block found in a note's lines: its name, its arguments, and its first and last line (inclusive). */
-export interface ComponentBlock { name: string; args: string | null; start: number; end: number; attrs?: string }
+export interface ComponentBlock { name: string; args: string | null; start: number; end: number; attrs?: string; /** Its `^name` (PIE-747): the id it has inside its note. */ id?: string }
 
 /**
  * Every component block in a note's lines, in order, each as `componentBlockAt` reads it: `end` is its closing
@@ -215,7 +217,7 @@ function scanComponents(lines: Iterable<string>, firstOnly = false, fenceStop?: 
     }
     if (open) {
       const block: ComponentBlock = { name: open[1]!, args: open[2] ?? null, start: i, end: i,
-        ...(open[3] ? { attrs: open[3].slice(1, -1) } : {}) };
+        ...(open[3] ? { attrs: open[3].slice(1, -1) } : {}), ...(open[4] ? { id: open[4] } : {}) };
       const inline = block.name === "use" || block.name === "button" && block.attrs !== undefined &&
         componentAttrs(block.attrs).pairs.some(p => p.key.toLowerCase() === "act" || p.key.toLowerCase() === "of");
       const frame: Frame = { block, fence: null, yamlSeen: false, closed: !!inline };

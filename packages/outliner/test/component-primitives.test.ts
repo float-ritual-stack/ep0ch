@@ -55,7 +55,7 @@ test("the fallback chain: the component's own rendering, then primitives, then w
 });
 
 test("views are checked against the catalogue with a path to what is wrong", () => {
-  expect(() => validatePrimitive({ type: "chart" })).toThrow("view.type must be one of text, blockdown, badge, stat, bar, table, checklist, sparkline, card, box, stack, row, band, track, image");
+  expect(() => validatePrimitive({ type: "chart" })).toThrow("view.type must be one of text, blockdown, badge, stat, bar, table, checklist, sparkline, card, box, stack, row, band, track, image, button, list");
   expect(() => validatePrimitive({ type: "row", minWidth: 2, children: [] })).toThrow("view.minWidth must be a whole number from 4 to 200");
   expect(() => validatePrimitive({ type: "box", children: [{ type: "bar", label: "x", value: 1, max: 0 }] })).toThrow("view.children[0].max must be more than 0");
   expect(() => validatePrimitive({ type: "table", columns: ["a"], rows: [["1", "2"]] })).toThrow("view.rows[0] must have 1 cells");
@@ -210,4 +210,60 @@ test("a button, or a badge, text, card or table row, can carry an action line to
   expect(() => validatePrimitive({ type: "badge", label: "x", act: "go as=someone" })).toThrow("as=");
   expect(() => validatePrimitive({ type: "button", label: "x" })).toThrow("view.act");
   expect(() => validatePrimitive({ type: "table", columns: ["a"], rows: [["1"]], acts: [] })).toThrow("view.acts");
+});
+
+// ── the list primitive (PIE-747, ADR 0004 contract 3) ──────────────────────────────────────────────────
+
+const GARDEN = {
+  type: "list", preview: "right", empty: "no seeds yet",
+  groups: [{ name: "sow", label: "Sow now", glyph: "☀", count: 2, note: "frost-free" }, { name: "later", label: "Later", count: 1 }],
+  rows: [
+    { id: "pea", label: "Pea trellis", detail: "next", mark: "●", tone: "good", group: "sow", do: { open: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34" }, preview: { markdown: "Order 40 packets of sugar snap." } },
+    { id: "bean", label: "Bean *poles*", group: "sow", do: { copy: "bean poles" } },
+    { id: "hdr", label: "Needs a spade", group: "later" },
+    { id: "ins", label: "Spade", detail: "shed", group: "later", do: { insert: "[[Shed]]" } },
+  ],
+};
+
+test("a list validates its rows, one activation each, and says what is wrong where", () => {
+  const view = validatePrimitive(GARDEN);
+  expect(view).toMatchObject({ type: "list", preview: "right", rows: [{ id: "pea", do: { open: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34" } }, { id: "bean" }, { id: "hdr" }, { id: "ins" }] });
+  expect((view as { rows: { do?: unknown }[] }).rows[2]!.do).toBeUndefined();
+  const bad = (patch: object, rowAt = 0) => () => validatePrimitive({ ...GARDEN, rows: GARDEN.rows.map((r, i) => (i === rowAt ? { ...r, ...patch } : r)) });
+  expect(bad({ do: { open: "7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34", copy: "x" } })).toThrow("view.rows[0].do must do exactly one thing, not 2");
+  expect(bad({ do: {} })).toThrow("must do exactly one thing, none given");
+  expect(bad({ do: { open: "not a block" } })).toThrow("view.rows[0].do.open must be a block id or a Resource ref");
+  expect(bad({ do: { insert: "two\nlines" } })).toThrow("view.rows[0].do.insert must be one line");
+  expect(bad({ do: { run: { action: "ttt-move", args: { as: "x" } } } })).toThrow("a press runs as the person");
+  expect(bad({ id: "bean" })).toThrow("repeats bean");
+  expect(bad({ label: "two\nlines" })).toThrow("view.rows[0].label must be one line");
+  expect(bad({ preview: { block: "x", markdown: "y" } })).toThrow("must be exactly one of { block } or { markdown }");
+  expect(bad({ colour: "red" })).toThrow("has a field it doesn't know: colour");
+  expect(() => validatePrimitive({ type: "list", rows: Array.from({ length: 201 }, (_, i) => ({ id: String(i), label: "x" })) })).toThrow("at most 200 rows");
+  expect(() => validatePrimitive({ ...GARDEN, preview: "above" })).toThrow("must be one of right, below, none");
+});
+
+test("a list draws as text, Markdown, a page's <ul> and CSV: its groups, its rows, the first preview", () => {
+  const output = validateComponent({ data: [], view: GARDEN });
+  expect(renderComponent(output, "terminal").body).toBe([
+    "▾ ☀ Sow now (2) · frost-free",
+    "  ● Pea trellis · next",
+    "  · Bean *poles*",
+    "▾ Later (1)",
+    "  ■ Needs a spade",
+    "  · Spade · shed",
+  ].join("\n"));
+  const markdown = renderComponent(output, "markdown").body;
+  expect(markdown).toContain("**☀ Sow now (2)** · frost-free");
+  expect(markdown).toContain("- ● Pea trellis — next")
+  expect(markdown).toContain("- Bean \\*poles\\*");
+  expect(markdown).toContain("- **Needs a spade**");
+  expect(markdown).toContain("> Order 40 packets of sugar snap.");
+  const html = renderComponent(output, "html").body;
+  expect(html).toContain('<ul><li class="ext-row-item ext-good"><span class="ext-mark">●</span> Pea trellis <span class="ext-label">next</span></li>');
+  expect(html).toContain('<li class="ext-row-head"><strong>Needs a spade</strong></li>');
+  expect(html).toContain('ext-list-preview">Order 40 packets of sugar snap.');
+  expect(html).not.toContain("<a ");
+  expect(renderComponent(output, "csv").body).toBe("label,detail\nPea trellis,next\nBean *poles*,\nNeeds a spade,\nSpade,shed");
+  expect(renderComponent(validateComponent({ data: [], view: { type: "list", rows: [], empty: "no seeds yet" } }), "terminal").body).toBe("no seeds yet");
 });

@@ -262,7 +262,7 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     key({ kind: "mouse", action: "up", button: 0, x, y });
     await Bun.sleep(100);
     expect(desk.current?.id).toBe(n.inline.id);
-    expect(reader().surface.inView()?.link?.linksBlock?.row).toBeDefined();
+    expect(reader().surface.inView()?.link?.listRow?.row).toBeDefined();
     key({ kind: "mouse", action: "down", button: 0, x, y });
     key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => desk.current?.id === n.notes.id, "the backlink's note opened from the inline row");
@@ -276,36 +276,35 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     const plan = await create(null, "Sunday jobs\n::links{query=\"type=seed-job\" preview=right title=\"Seed jobs\"}\n::\nAfter the list.");
     desk.setCurrent(plan);
     D().focus = D().idNamed("reader");
-    const s = () => reader().surface, b = () => s().linkBlocksDrawn[0];
-    await until(() => b()?.rows.length === 2 && b()!.preview !== null, "the two jobs, the first previewed");
-    const firstId = b()!.rows[0]!.id;
+    const s = () => reader().surface, b = () => s().linkBlocksDrawn[0], rows = () => b()?.view.pickable() ?? [], opens = (r: any) => r.do?.open as string;
+    await until(() => rows().length === 2 && b()!.detail!.preview !== null, "the two jobs, the first previewed");
+    const firstId = opens(rows()[0]);
     // ] steps onto the first row of the list: it's the selection, and the reader keeps the keys (j scrolls the reader).
-    for (let i = 0; i < 10 && !s().inView()?.link?.linksBlock?.row; i++) key({ kind: "char", ch: "]" });
-    expect(s().inView()?.link?.linksBlock?.row).toBeDefined();
-    expect(s().linksIn).toBeNull();
+    for (let i = 0; i < 10 && !s().inView()?.link?.listRow?.row; i++) key({ kind: "char", ch: "]" });
+    expect(s().inView()?.link?.listRow?.row).toBeDefined();
+    expect(s().listIn).toBeNull();
     // ] again onto the second row: the preview follows.
     key({ kind: "char", ch: "]" });
-    await until(() => b()!.preview === b()!.rows[1]!.id, "the preview following [ ]");
+    await until(() => b()!.detail!.preview === opens(rows()[1]), "the preview following [ ]");
     // ⏎ on the frame's ⏎ in goes in.
     const ctl = s().describeElements().find((e: any) => e.links?.control);
     expect(ctl).toMatchObject({ links: { block: 1 } });
     await D().dispatch.act({ action: "element.open", args: { n: ctl!.n }, tile: "reader" }, { kind: "user" });
-    expect(s().linksIn).toBe(b()!.key);
+    expect(s().listIn).toBe(b()!.key);
     key({ kind: "char", ch: "k" });
-    await until(() => b()!.sel === b()!.rows[0]!.key, "k moves the selection up");
-    expect(b()!.preview).toBe(firstId);
+    await until(() => { lines(); return b()!.view.picked()?.id === rows()[0]!.id && b()!.detail!.preview === firstId; }, "k moves the selection up, the preview following");
     // / filters the rows as it's typed; esc clears the filter, esc again comes out.
     key({ kind: "char", ch: "/" });
     for (const c of "peas") { key({ kind: "char", ch: c }); }
-    await until(() => { lines(); return b()!.rows.length === 1 && b()!.rows[0]!.id === peas.id; }, "the filter narrowing the list");
+    await until(() => { lines(); return rows().length === 1 && opens(rows()[0]) === peas.id; }, "the filter narrowing the list");
     key({ kind: "esc" });
-    await until(() => { lines(); return b()!.rows.length === 2; }, "esc clears the typed filter", 1500);
+    await until(() => { lines(); return rows().length === 2; }, "esc clears the typed filter", 1500);
     key({ kind: "esc" });
-    expect(s().linksIn).toBeNull();
+    expect(s().listIn).toBeNull();
     // Mouse: a click on a row selects it (its preview follows), a second click on it opens it in the reader.
     const ls = lines(), y = ls.findIndex(l => l.includes("∙ Stake the peas")), x = ls[y]!.indexOf("Stake the peas") + 2;
     key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
-    await until(() => b()?.preview === peas.id, "a click selecting the row");
+    await until(() => b()?.detail?.preview === peas.id, "a click selecting the row");
     expect(desk.current?.id).toBe(plan.id);
     key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => reader().msg?.id === peas.id, "a double click opening it");

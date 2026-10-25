@@ -23,13 +23,20 @@ import { Offline, USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
 import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts, type AgentPointers } from "../whereabouts";
 import { agentRefusal, type AgentLevel } from "./agent-level";
-import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, declaredKeys, isKeyName, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
+import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, declaredKeys, isKeyName, type ActionDef, type ActionInfo, type Touches, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
 /** `tile=<mount>/<tile>`: a tile of a screen mounted in a tile (PIE-651); names never hold a `/`. */
 /** Actions that were renamed: a call to the old name is answered with the call that works (PIE-660: say the right thing). */
 export const GONE_ACTIONS: Record<string, string> = {
   "reader.hold": "reader.hold is now reader.mode (PIE-705, any reader or detail): act reader.mode tile=<reader> mode=held | follows | pinned [page=<name>]; with no mode it toggles follows and held, as on= did",
+  // The lists' actions are one set (PIE-747): a reader's inline lists and the links tile's rows answer to the same names.
+  "links.blocks": "links.blocks is now list.blocks (PIE-747): act list.blocks tile=<reader> reads every list it draws, an inline ::links component or an extension's list view",
+  "links.pick": "links.pick is now list.pick (PIE-747): act list.pick tile=<reader> [list=<number|^name|title>] n=<row> | id=<block>; list.step by=1 is the old by=",
+  "links.open": "links.open is now list.open (PIE-747): act list.open tile=<reader> [list=<number|^name|title>] n=<row> | id=<block> [where=home|new]",
+  "links.enter": "links.enter is now list.enter (PIE-747): act list.enter tile=<reader> [list=<number|^name|title>] [on=false]",
+  "backlinks.pick": "backlinks.pick is now list.pick (PIE-747): act list.pick tile=<links tile> n=<row> | id=<block>; list.step by=1 is the old by=, list.open the old open=true / fresh=true",
+  "backlinks.open": "backlinks.open is now list.open (PIE-747): act list.open tile=<links tile> n=<row> | id=<block> [where=home|new]",
 };
 
 export const isTilePath = (sel: string | undefined): sel is string => !!sel && sel.includes("/");
@@ -128,6 +135,11 @@ export interface Registration<On = any> {
   run?(name: string, args: Record<string, unknown>, on: On, actor: Actor, typed: boolean): Promise<unknown>;
   /** The answer as the socket gives it (the tile it ran in added). */
   answer?(out: unknown, at: Target): unknown;
+  /**
+   * What an action touches in this tile, when the tile's kind decides it rather than the arguments (the lists' open: a
+   * reader's moves what the person reads, a links tile's lands in its home reader). Absent: the def's own.
+   */
+  touchesAt?(action: string, at: Target): Touches | undefined;
 }
 
 /**
@@ -560,7 +572,7 @@ export class Dispatcher {
     this.host.beforeAction?.(req.action);
     const confirmation = ++this.nextConfirmation;
     const ctx = this.host.ctx();
-    const on = reg.on(at, { actor, standing: this.standing(actor, def.touchesWith?.(seen as never, at.name) ?? def.touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
+    const on = reg.on(at, { actor, standing: this.standing(actor, reg.touchesAt?.(req.action, at) ?? def.touchesWith?.(seen as never, at.name) ?? def.touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
     // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
     const run = () => messageContext.run({ ...messageContext.getStore(), action: req.action, ...(at.tile ? { tile: at.tile.id ?? at.tile.name, note: at.tile.shows ?? undefined } : {}) }, () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor));
     const recordedArgs = { ...seen };
@@ -591,7 +603,7 @@ export class Dispatcher {
 
   /** The actor rule for one request, with what its arguments make it touch: null, or why not. */
   private refusal(reg: Registration, def: ActionDef<unknown, unknown>, name: string, at: Target, args: Record<string, unknown>, seen: Record<string, unknown>, actor: Actor, where = this.where()): string | null {
-    const touches = def.touchesWith?.(seen as never, at.name) ?? def.touches;
+    const touches = reg.touchesAt?.(name, at) ?? def.touchesWith?.(seen as never, at.name) ?? def.touches;
     // An invitation is read only for an action that takes one (and spends it): elsewhere it opens nothing.
     const invitation = reg.set.argsOf(name)?.invitation && typeof args.invitation === "string" ? args.invitation : undefined;
     // A tile the action acts on (its kind's, or one named) limits an agent; the screen's own action, given none, only reads the focus.

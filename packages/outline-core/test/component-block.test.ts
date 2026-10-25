@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { componentAttrs, componentBlockAt, componentBlocks } from "../src/component-block";
+import { COMPONENT_OPEN, componentAttrs, componentBlockAt, componentBlocks } from "../src/component-block";
 import { interpolationSpans } from "../src/interpolation";
 import { COMARK_NOTE, COMARK_NOTE_BLOCKS } from "./fixtures/component-notes";
 import * as modCopy from "../../claude-mod/hooks/link-grammar.js";
@@ -91,4 +91,21 @@ test("a placeholder inside the call-site braces is still a component line, and t
   const figure = "::graph-table\n---\nwhere: project={{this.project}}\n---\n::";
   expect(componentBlocks(figure.split("\n"))).toHaveLength(1);
   expect(interpolationSpans(figure).map(s => s.path)).toEqual(["this.project"]);
+});
+
+test("a ^name at the end of the first line is the component's id, in braces, after arguments or alone (PIE-747)", () => {
+  const braces = '::links{query="type=outbox-item" preview=right} ^orders\n::';
+  const [a] = componentBlocks(braces.split("\n"));
+  expect(a).toMatchObject({ name: "links", start: 0, end: 1, attrs: 'query="type=outbox-item" preview=right', id: "orders" });
+  expect(componentAttrs(a!.attrs!).pairs).toEqual([{ key: "query", value: "type=outbox-item" }, { key: "preview", value: "right" }]);
+  // After arguments the id is split off them; a bare `^name` is an id, never the component's arguments.
+  const args = COMPONENT_OPEN.exec("::links ((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34)) ^garden")!;
+  expect([args[1], args[2], args[4]]).toEqual(["links", "((7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34))", "garden"]);
+  const bare = COMPONENT_OPEN.exec("::links ^orders")!;
+  expect([bare[1], bare[2], bare[4]]).toEqual(["links", undefined, "orders"]);
+  // A block's id is on its opening line; `((note^orders))` is not one (no space before the caret), nor is a ^ inside the arguments.
+  expect(COMPONENT_OPEN.exec("::links ((abc^orders))")?.[4]).toBeUndefined();
+  expect(componentBlocks("::box ^frame\ninside\n::".split("\n"))[0]).toMatchObject({ name: "box", id: "frame", start: 0, end: 2 });
+  // Without one nothing changes.
+  expect(componentBlocks('::links{query="x"}\n::'.split("\n"))[0]).not.toHaveProperty("id");
 });

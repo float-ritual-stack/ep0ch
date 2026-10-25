@@ -68,6 +68,7 @@ export const marks: Record<string, string[]> = {
   "links-rows": ["One line", "Two lines", "Truncate", "Carry the trestle tables"],
   // The day's plan with its outbox: the waiting letters listed, the first one previewed beside the list.
   "links-block": ["Plan for Saturday", "OUTBOX", "Ask Ana about the bean seed", "3 matches", "⏎ in"],
+  "list-view": ["One list, three ways", "OUTBOX", "Waiting letters", "Shelf actions", "Copy this note"],
   "agent-focus": ["Plan for Saturday", "@fern:3", "@moss:5", "who's online"],
   presence: ["who's online", "last callers · live"],
   "inline-lists": ["Parcels on the desk", "Parcel 01", "After the list:"],

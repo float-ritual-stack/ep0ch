@@ -96,7 +96,7 @@ describe.skipIf(!outliner)("the showcase screen: figures: steps, tabs and Markdo
       await untilAsync(async () => (await elements()).some((e: any) => e.kind === "row"), `${kind} rows`);
       const first = (await elements()).find((e: any) => e.kind === "row");
       await app.dispatch.act({ action: "element.select", tile, args: { n: first.n } }, { kind: "user" });
-      if (kind === "links") await app.dispatch.act({ action: "links.enter", tile, args: { block: "1", on: true } }, { kind: "user" });
+      if (kind === "links") await app.dispatch.act({ action: "list.enter", tile, args: { list: "1", on: true } }, { kind: "user" });
       screen();
       press({ kind: "down" });
       const selected = () => elements().then((es: any[]) => es.find(e => e.current));
