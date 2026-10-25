@@ -84,7 +84,7 @@ describe("agent restart: where it runs and what it says", () => {
     expect(await agentRestart(["--machine", "far-box", "it's (2)", "--fresh-daemon"], {}, io, c.o, c.e)).toBe(0);
     expect(calls).toEqual([["remote", "far-box", `ep0ch agent restart 'it'\\''s (2)' '--fresh-daemon'`]]);
     expect(c.out.join("\n")).toContain("far-box: agent-restart: running in the background");
-    expect(c.out.join("\n")).toContain("follow it: ssh far-box tail -f ~/.local/state/ep0ch/agent-restart.log");
+    expect(c.out.join("\n")).toContain("follow it: ssh far-box 'tail -f ~/.local/state/ep0ch/agent-restart.log'");
   });
   test("this machine's own name is here, not an ssh to itself", async () => {
     const { io, calls } = fakeIO({});
@@ -222,7 +222,7 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
     const r = await ep0ch(["agent", "restart", "gpty", "--machine", "far-box"], { });
     expect(r.code).toBe(0);
     expect(r.out).toContain("far-box: agent-restart: running in the background");
-    expect(r.out).toContain("follow it: ssh far-box tail -f");
+    expect(r.out).toContain("follow it: ssh far-box 'tail -f");
     const pid = Number(/\(pid (\d+)\)/.exec(r.out)?.[1]);
     try {
       // gpty-box is waiting, with no builders and nothing unpushed: it is stopped (by the made-up claude: a line in a file).
@@ -244,6 +244,31 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
       expect(all.out).toContain("kitty-sr (behind: 2.0.0, installed 2.2.0, door terminal tile (outline gurgle))");
       expect(all.out).not.toMatch(/dry run: .*stop eeee5555/);
     }
+    expect(stopLog()).toBe(stopped);
+  });
+
+  test("a name with a newline survives the list, and a list claude can't give is an error, not an empty one", async () => {
+    const file = join(home, "agents.json"), kept = readFileSync(file, "utf8");
+    try {
+      writeFileSync(file, JSON.stringify([{ pid: behindPid, id: "aaaa1111", kind: "background", sessionId: "aaaa1111-0000-4000-8000-000000000001", name: "first\nsecond", status: "" }]));
+      const rows = JSON.parse((await ep0ch(["agent", "ls", "--json"])).out) as SessionRow[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ name: "first\nsecond", id: "aaaa1111", status: "", running: "2.0.0" });
+      writeFileSync(file, "not json");
+      const bad = await ep0ch(["agent", "ls"]);
+      expect(bad.code).not.toBe(0);
+      expect(bad.err).toContain("didn't answer a list of sessions");
+    } finally { writeFileSync(file, kept); }
+  });
+
+  test("a job state that can't be read stops nothing", async () => {
+    const stopped = stopLog(), state = join(home, ".claude/jobs/cccc3333/state.json"), kept = readFileSync(state, "utf8");
+    try {
+      writeFileSync(state, "not json");
+      const r = await ep0ch(["agent", "restart", "cccc3333", "--now", "--dry-run"]);
+      expect(r.code).not.toBe(0);
+      expect(r.out + r.err).toContain("can't read");
+    } finally { writeFileSync(state, kept); }
     expect(stopLog()).toBe(stopped);
   });
 

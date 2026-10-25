@@ -78,25 +78,28 @@ def place(pid):
 # first, then the interactive ones (a terminal owns each: this script can't restart those).
 if [ "$target" = --ls ]; then
   installed=$(installed_version)
-  sep=$'\x1f'   # not whitespace, so an empty field (a session with no name) stays a field
+  sep=$'\x1f'   # not whitespace, so an empty field stays a field; each row is one line of JSON, which has no raw newline or \x1f in it
   rows=$(agents | python3 -c "
 import json, sys
 $place_py
 rows = json.load(sys.stdin)
 rows.sort(key=lambda r: not r.get('id'))
 for r in rows:
-    kind = 'background' if r.get('id') else (r.get('kind') or 'interactive')
-    print(chr(31).join([str(r.get('name') or ''), r.get('id') or r.get('sessionId','')[:8], r.get('sessionId',''), str(r.get('status') or ''), str(r.get('pid') or ''), str(r.get('cwd') or ''), kind, '' if r.get('id') else place(r.get('pid'))]))")
-  while IFS=$sep read -r name id sid status pid cwd kind place; do
-    [ -n "$id" ] || continue
+    row = {'name': str(r.get('name') or ''), 'id': r.get('id') or r.get('sessionId', '')[:8], 'sessionId': r.get('sessionId', ''), 'kind': 'background' if r.get('id') else (r.get('kind') or 'interactive'),
+           'status': str(r.get('status') or ''), 'cwd': str(r.get('cwd') or ''), 'place': None if r.get('id') else (place(r.get('pid')) or None)}
+    print(str(r.get('pid') or '') + chr(31) + json.dumps(row))") || { echo "agent-restart: claude agents --json didn't answer a list of sessions (run it to see why)" >&2; exit 1; }
+  while IFS=$sep read -r pid row; do
+    [ -n "$row" ] || continue
     running=""; [ -n "$pid" ] && running=$(running_version "$pid")
-    printf '%s\n' "$name$sep$id$sep$sid$sep$status$sep$cwd$sep$kind$sep$place$sep$running$sep$installed"
+    printf '%s\n' "$running$sep$installed$sep$row"
   done <<< "$rows" | python3 -c "
 import json, sys
 rows = []
 for line in sys.stdin:
-    name, id, sid, status, cwd, kind, place, running, installed = line.rstrip('\n').split(chr(31))
-    rows.append({'name': name, 'id': id, 'sessionId': sid, 'kind': kind, 'status': status, 'cwd': cwd, 'place': place or None, 'running': running or None, 'installed': installed, 'behind': bool(running) and running != installed})
+    running, installed, row = line.rstrip('\n').split(chr(31), 2)
+    row = json.loads(row)
+    row.update({'running': running or None, 'installed': installed, 'behind': bool(running) and running != installed})
+    rows.append(row)
 print(json.dumps(rows))"
   exit 0
 fi
@@ -203,7 +206,10 @@ unpushed() {
 }
 
 say "preflight ($mode)"
-b=$(running_builders); u=$(unpushed)
+# A job state or a session list that can't be read is not "nothing running": nothing is stopped on a guess.
+b=$(running_builders) || { say "FAILED: can't read $job: nothing stopped"; exit 1; }
+[ -n "$(listed)" ] || { say "FAILED: $short isn't in claude agents --json (or it didn't answer): nothing stopped"; exit 1; }
+u=$(unpushed)
 [ -n "$b" ] && say "builders running: $(echo "$b" | tr '\n' ';')"
 [ -n "$u" ] && say "unpushed worktrees: $(echo "$u" | tr '\n' ';')"
 
@@ -236,8 +242,8 @@ else
   [ -n "$b$u" ] && say "--now: dropping the builders above; their worktrees stay on disk"
 fi
 
-flags=$(python3 -c "import json,shlex,sys; print(' '.join(shlex.quote(x) for x in json.load(open(sys.argv[1])).get('respawnFlags', [])))" "$job")
-cwd=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('cwd','$HOME'))" "$job")
+flags=$(python3 -c "import json,shlex,sys; print(' '.join(shlex.quote(x) for x in json.load(open(sys.argv[1])).get('respawnFlags', [])))" "$job") || { say "FAILED: can't read $job: nothing stopped"; exit 1; }
+cwd=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('cwd','$HOME'))" "$job") || { say "FAILED: can't read $job: nothing stopped"; exit 1; }
 note="You were restarted by scripts/agent-restart at $(date +'%-I:%M %p') ($mode) so your process picks up the current ~/.bashrc. Read its log first: tail -20 $log. Then reorient (pie 63132a65), re-arm your watchers, and carry on."
 
 

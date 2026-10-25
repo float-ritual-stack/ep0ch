@@ -149,7 +149,7 @@ export async function agentRestart(argv: readonly string[], env: Env, io: FleetI
   const say = (s: string) => s.split("\n").filter(Boolean).map(l => (far ? `${far}: ${l}` : l)).join("\n");
   if (r.out.trim()) out(say(r.out.trim()));
   if (r.code !== 0) { err(r.err.trim() ? say(r.err.trim()) : `ep0ch agent restart: exit ${r.code}${far ? ` on ${far}` : ""}`); return r.code; }
-  if (r.out.includes("running in the background")) out(`follow it: ${far ? `ssh ${far} ` : ""}tail -f ${REMOTE_LOG}`);
+  if (r.out.includes("running in the background")) out(`follow it: ${far ? `ssh ${far} 'tail -f ${REMOTE_LOG}'` : `tail -f ${REMOTE_LOG}`}`);
   return 0;
 }
 
