@@ -16,6 +16,8 @@ export interface HyperBinding {
   args?: Record<string, unknown>;
   /** The tile the action is for (`#3`: the third); none: the focused one. */
   tile?: string;
+  /** The chord resolves the tile with the keys to its `t-<uuid>` and addresses the action by it, as an `act` string would (PIE-1286). */
+  onFocus?: true;
   label: string;
   /** Moves the keys to another tile: an edit the person is in is left first, as a click elsewhere leaves it. */
   leaves?: true;
@@ -28,10 +30,10 @@ export const HYPER_KEYS: readonly HyperBinding[] = [
   { key: "j", action: "tile.focus", args: { dir: "down" }, label: "focus the tile below", leaves: true },
   { key: "k", action: "tile.focus", args: { dir: "up" }, label: "focus the tile above", leaves: true },
   { key: "l", action: "tile.focus", args: { dir: "right" }, label: "focus the tile to the right", leaves: true },
-  { key: "-", action: "tile.collapse", args: { on: true }, label: "fold the tile to a spine" },
-  { key: "=", action: "tile.collapse", args: { on: false }, label: "open the tile from its spine" },
-  { key: "z", action: "tile.zoom", label: "zoom the tile" },
-  { key: "u", action: "tile.zoom", args: { reach: "column" }, label: "lift or drop this column" },
+  { key: "-", action: "tile.collapse", args: { on: true }, onFocus: true, label: "fold the tile to a spine" },
+  { key: "=", action: "tile.collapse", args: { on: false }, onFocus: true, label: "open the tile from its spine" },
+  { key: "z", action: "tile.zoom", onFocus: true, label: "zoom the tile" },
+  { key: "u", action: "tile.zoom", args: { reach: "column" }, onFocus: true, label: "lift or drop this column" },
   { key: "a", action: "agent.lift", label: "lift or drop the drawer's agent, wherever it is" },
   { key: "n", action: "note.new", label: "a new note" },
   ...Array.from({ length: 9 }, (_, i): HyperBinding => ({ key: String(i + 1), action: "tile.focus", tile: `#${i + 1}`, label: `focus tile ${i + 1}`, leaves: true })),

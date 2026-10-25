@@ -2772,7 +2772,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.panes.get(id)!, rd = p instanceof ReaderPane ? p : null, name = this.nameOf(id), aliases = more.get(id), mount = kindOf(p)?.dispatcher?.(p);
       const { fold, cover } = this.contentCover(id);
       return {
-        name, id: this.tileId(id), n: i + 1, kind: this.unregistered.get(id)?.kind ?? p.kind, shown: shown.has(id),
+        name, id: this.tileId(id), n: i + 1, kind: this.unregistered.get(id)?.kind ?? p.kind, role: tileRole(p), shown: shown.has(id),
         ...(mount ? { mount } : {}),
         ...(rd?.noteAddress ?? {}),
         shows: this.showing(p)?.id ?? null, editing: !!rd?.editing,
@@ -4654,7 +4654,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private closeStep(esc: boolean): boolean {
     const step = (name: string, args: Record<string, unknown>, tile: string) => { this.run(name, args, tile); return true; };
     if (this.layout.lift) return step("tile.zoom", { on: false, reach: this.layout.lift.reach }, this.nameOf(this.layout.lift.tile));
-    if (this.zoom !== null) return step("tile.zoom", { on: false }, String(this.numberOf(this.zoom)));
+    if (this.zoom !== null) return step("tile.zoom", { on: false }, this.nameOf(this.zoom));
     // Esc lets go of the tiles the person picked to gather.
     if (esc && this.pickedBy(USER).length) return step("tile.select", { clear: true }, this.nameOf(this.focus));
     const shuts = (d: Dock<number> | null) => !!d?.open && d.policy?.overlay !== false && policyOfNode(this.layout, d).collapsible;
@@ -4795,7 +4795,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (k.kind === "esc" || k.kind === "enter") { this.leaveResize(); return this.redraw(); }
       const rc = k.kind === "char" && !k.ctrl ? k.ch : ARROW[k.kind] ?? "";
       const re = wKey(RESIZE_ALIAS[rc] ?? rc);
-      if (re?.sticky && re.how.k === "run") { this.armResize(); return this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : String(this.numberOf(this.focus))); }
+      if (re?.sticky && re.how.k === "run") { this.armResize(); return this.run(re.how.action, re.how.args ?? {}, re.how.tile === "-" ? undefined : this.tileId(this.focus)); }
       this.leaveResize();
       this.redraw();
       return this.key(k, this.ctx);
@@ -4826,7 +4826,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       case "edge": return this.run("layout.move", { where: `edge-${TO_EDGE[c]}` }, me);
       case "prefix": this.prefix = e.how.mode; return this.redraw();
       case "run": {
-        const done = this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? String(this.numberOf(this.focus)) : me);
+        const done = this.run(e.how.action, e.how.args ?? {}, e.how.tile === "-" ? undefined : e.how.tile === "n" ? this.tileId(this.focus) : me);
         // A resize key stays in resize mode (the hint row and the status bar say so): the next ones need no ^W.
         if (e.sticky) { this.armResize(); this.ctx.flash("resize · - + < > · h j k l · = evens · esc done", RESIZE_IDLE_MS); }
         return done;

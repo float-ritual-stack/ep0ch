@@ -1944,13 +1944,13 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       { act: "agent.lift", does: "lifts the drawer's agent as a column wherever it is, or drops it when it's lifted" },
       { act: "agent.lift reach=full", does: "lifts it across the whole terminal" },
     ],
-    to: { action: "tile.zoom", tile: DRAWER_TILE_ID, args: { reach: "column" } },
+    to: { action: "tile.zoom", tile: `role:${ROLE_AGENT}`, args: { reach: "column" } },
     // A lift of it (not a drop) comes with the person's keys, as alt+a gives them: the program in the drawer pulls it up and
     // goes into it (host.enter is the person's own), one on a screen takes the focus there.
     first: [
       { action: "agent.back", when: ({ on }, { drawer }) => on !== false && !drawer.liftsOwn() && drawer.awayUnseen() },
       { action: "host.toggle", args: { open: true }, when: ({ on }, { drawer }) => on !== false && !drawer.liftsOwn() && !drawer.isAway() && !drawer.shown },
-      { action: "tile.focus", tile: DRAWER_TILE_ID, when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsOwn() && drawer.standsFor(actor) },
+      { action: "tile.focus", tile: `role:${ROLE_AGENT}`, when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsOwn() && drawer.standsFor(actor) },
       { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsOwn() && actor.kind === "user" && !drawer.isAway() && !drawer.entered },
     ],
   }),

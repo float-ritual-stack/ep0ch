@@ -1451,7 +1451,10 @@ export class App implements Ctx {
     if (top?.noDrawer) return;
     if (!b) return void this.refuse(`${hyperLabel(key)} isn't bound · ${HYPER_KEYS.map(x => hyperLabel(x.key)).join(" ")}`);
     if (b.leaves && top?.leaveTyping && !top.leaveTyping()) return;
-    this.dispatch.press(b.action, b.args ?? {}, b.tile).catch(e => this.refuse(e instanceof Error ? e.message : String(e)));
+    // A chord for "this tile" addresses it by its id, as an act string would: pointing and naming are one path (PIE-1286).
+    const at = b.tile ?? (b.onFocus ? top?.dispatch?.tile("focused")?.id : undefined);
+    if (b.onFocus && b.tile === undefined && at === undefined) return void this.refuse(`${hyperLabel(key)}: no tile has the keys here · tile.focus names one`);
+    this.dispatch.press(b.action, b.args ?? {}, at).catch(e => this.refuse(e instanceof Error ? e.message : String(e)));
   }
 
   /**

@@ -19,6 +19,7 @@ import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { declaredKeys, hintKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
+import { traceRequests, type RunRequest } from "../src/surface/dispatch";
 import { SHELL_ACTIONS, MENU_SCREENS, MainMenu, MessageReader, StatusMessages } from "../src/screens";
 import { DRAWER_ACTIONS } from "../src/drawer";
 import { EXT_ACTIONS } from "../src/extensions";
@@ -348,14 +349,24 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       sharedStates.add(id);
       return false;
     };
+    /** The targeted actions a key or click ran alone, once each: replayed below as the act string would address the tile (PIE-1286). */
+    const pointed = new Map<string, { key: Key; req: RunRequest }>();
     for (const k of [...PROBE_KEYS, ...await clicks()]) {
       if (dirty) { mask = await fresh(label, make, setup); dirty = false; last = null; }
       const base = last ?? snap(mask);
       const runs: ActionRun[] = [];
+      const reqs: RunRequest[] = [];
       const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
+      const stopReqs = traceRequests(r => { if (r.actor.kind === "user") reqs.push(r); });
       if (process.env.PARITY_TRACE) require("node:fs").appendFileSync(process.env.PARITY_TRACE, `${label} ${named(k)}\n`);
-      try { push(k); await settle(); } finally { stop(); }
+      try { push(k); await settle(); } finally { stop(); stopReqs(); }
       const after = snap(mask);
+      const req = reqs[0];
+      // Pointed at a tile: it was named (`tile=`), or the action is a tile's own (its default is the focused one, so an id says the same).
+      if (runs.length === 1 && reqs.length === 1 && req?.tile?.id && (req.named || req.takes === "tile") && !same(base, after) && !/t-[0-9a-f]{8}-/.test(JSON.stringify(req.args))) {
+        const id = `${req.action}\0${req.tile.name}\0${JSON.stringify(req.args)}`;
+        if (!pointed.has(id)) pointed.set(id, { key: k, req });
+      }
       last = after;
       if (same(base, after) && !runs.length) continue;
       dirty = true;
@@ -376,6 +387,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       findings.push({ screen: label, keys: named(k), problem: `${after.top !== base.top || after.depth !== base.depth ? "moved the screen stack without an action" : "changed the screen without an action"} (${changed})` });
     }
     if (log) require("node:fs").appendFileSync(log, `# ${label}: input states ${states.map(named).join(" ")}\n`);
+    await addressed(label, make, setup, pointed);
     if (process.env.PARITY_DEPTH === "1") return;
     // The second key, from each input state: typing that keeps the state is the state's; a key that ends it
     // with a change must run an action (a cancel that puts the screen back as it was is fine).
@@ -412,6 +424,36 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         // A finding is made only from the state built again: the keys before this one may have moved it on.
         const problem = await second(label, make, setup, k1, k2);
         if (problem) findings.push({ screen: label, keys: `${named(k1)} ${named(k2)}`, problem });
+      }
+    }
+  }
+
+  /**
+   * A key or click that ran one action on a tile ran it for that tile's id (PIE-1286). The same action, said as the act string
+   * says it, once by `tile=t-<uuid>` and once by `tile=role:<role>` (where the tile's role names it alone), must leave the
+   * screen as the key left it: pointing and naming are one path, so they can't drift apart (the sixth lift fix, not the first).
+   * Each way starts from a screen built the same way (the key again, the id, the role), so only the address differs.
+   */
+  async function addressed(label: string, make: () => Screen | Promise<Screen>, setup: Key[], pointed: Map<string, { key: Key; req: RunRequest }>) {
+    for (const { key, req } of pointed.values()) {
+      let mask = await fresh(label, make, setup);
+      push(key); await settle();
+      const pressed = snap(mask);
+      for (const way of ["id", "role"] as const) {
+        mask = await fresh(label, make, setup);
+        const top = A().stack.at(-1) as Screen | undefined;
+        const at = top?.dispatch?.tile(req.tile!.name) ?? A().drawer.desk?.dispatch.tile(req.tile!.name);
+        if (!top?.dispatch || !at?.id) break;
+        const address = way === "id" ? at.id : at.role ? `role:${at.role}` : "";
+        if (!address) continue;
+        let said = "";
+        try { await top.dispatch.act({ action: req.action, args: req.args, tile: address }, { kind: "user" }); await settle(); }
+        catch (e) { said = e instanceof Error ? e.message : String(e); }
+        // A role that names several tiles is not an address for this one: the refusal says so, and that is the resolver's job.
+        if (way === "role" && /names \d+ tiles/.test(said)) continue;
+        const now = snap(mask);
+        if (said) findings.push({ screen: label, keys: named(key), problem: `${req.action} by ${address} was refused (${said.slice(0, 160)}) where the key ran it` });
+        else if (!alike(pressed, now, false)) findings.push({ screen: label, keys: named(key), problem: `${req.action} ${JSON.stringify(req.args)} by ${way === "id" ? "id" : address} left the screen different from the key (${changes(pressed, now)})` });
       }
     }
   }
