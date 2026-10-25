@@ -752,7 +752,7 @@ The short form for working in an outline is [references/scripts.md](references/s
 keys, named commands, rules and `@name` (#588), and `@asks` answer in place while the person keeps typing (#590, #591).
 Read ((d6ac2691-0585-4d09-9f89-435ee3be0ca3|the scripting design)) in pie for the shared parts.
 Script files opt in under `<outline folder>/.ep0ch/scripts/` with `// ep0ch-script` on the first line.
-They run read-only by default; `// ep0ch-script effects=write` declares writes. Files in the old `scripts/`
+They run read-only by default; `// ep0ch-script effects=write` declares writes, and `// ep0ch-script mode=render` makes a file a render script (an extension ships its screens this way and `ep0ch install --apply` updates them; a note with the same `[script::]` name wins). Several chips in one write: `outline_set_property` takes `properties: { key: value, other: null }` (null removes). Files in the old `scripts/`
 folder stay inactive; review them before `ep0ch doctor --fix --move-scripts`.
 
 Extensions are trusted user code, like editor plugins, run by the service. Their data behaves as if the

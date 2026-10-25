@@ -35,7 +35,7 @@ import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
-import { EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, connectScriptActions, scriptPressMessage } from "./extensions";
+import { EXT_ACTIONS, EXTENSION_INSTALL_ACTIONS, loadExtensions, scriptBindings, scriptInstallWords, connectScriptActions, scriptPressMessage } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
@@ -1185,7 +1185,7 @@ export class App implements Ctx {
     const who = agentLabel(actor);
     return messageContext.run({ action: req.action, ...(req.tile ? { tile: req.tile } : {}) }, async () => {
       try {
-        if (!this.dispatch.takes(req, actor)) throw new ActionRefused(GONE_ACTIONS[req.action] ?? this.dispatch.unknownAction(req.action));
+        if (!this.dispatch.takes(req, actor)) throw new ActionRefused(GONE_ACTIONS[req.action] ?? scriptInstallWords(req.action) ?? this.dispatch.unknownAction(req.action));
         this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
         const r = await this.dispatch.act(req, actor);
         this.redraw();

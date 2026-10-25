@@ -10,6 +10,16 @@
       "name": "wyrm",
       "file": "scripts/wyrm.js",
       "about": "Plays one move for the player whose sheet you press from: wyrm do=forest, hit, run, heal, train, buy, deposit, withdraw, sleep, ambush, wyrm, join."
+    },
+    {
+      "name": "wyrm-sheet",
+      "file": "scripts/wyrm-sheet.js",
+      "about": "Draws a player's note: the chips and a press for every move. A line `wyrm-sheet::` shows it."
+    },
+    {
+      "name": "wyrm-town",
+      "file": "scripts/wyrm-town.js",
+      "about": "Draws a town note: the players ranked, the join button and today's Daily News. A line `wyrm-town::` shows it."
     }
   ]
 }

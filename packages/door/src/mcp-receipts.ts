@@ -56,16 +56,21 @@ export interface WriteStatus {
   settledAt?: string;
 }
 
+/** The keys a queued outline_set_property writes: its `key`, or the keys of its `properties` map. */
+const propertyKeys = (input: Record<string, unknown>): string[] =>
+  input.properties && typeof input.properties === "object" ? Object.keys(input.properties) : typeof input.key === "string" ? [input.key] : [];
+
 const spansOf = (e: NetmailReceipt): { observed: string; replacement: string }[] => strings(e.input.patches) ? e.input.patches : [];
 
 /**
- * Whether write `l`, queued after `e`, takes `e`'s place: not refused, the same tool, and for a property the same key, for
+ * Whether write `l`, queued after `e`, takes `e`'s place: not refused, the same tool, and for a property the same keys (all of `e`'s), for
  * a patch a span that is over the same text (the one holds the other's passage, or its replacement). A comment or a new
  * block is never replaced.
  */
 function replaces(l: NetmailReceipt, e: NetmailReceipt): boolean {
   if (l.id === e.id || l.tool !== e.tool || l.state === "refused") return false;
-  if (e.tool === "outline_set_property") return l.input.key === e.input.key;
+  // The later write takes its place only when it writes every key the earlier one did.
+  if (e.tool === "outline_set_property") return propertyKeys(e.input).every(key => propertyKeys(l.input).includes(key));
   if (e.tool !== "outline_patch") return false;
   const [a, b] = [spansOf(e), spansOf(l)];
   return a.some(x => b.some(y => [x.observed, x.replacement].some(t => t && (y.observed.includes(t) || t.includes(y.observed)))));
@@ -149,7 +154,11 @@ export function pendingOverlay(body: string, waiting: readonly NetmailReceipt[])
         out.spans.push({ queueId: w.id, observed: p.observed, replacement: p.replacement, shown: true });
         patched = true;
       }
-    } else if (w.tool === "outline_set_property") out.properties.push({ queueId: w.id, key: String(input.key), value: String(input.value) });
+    } else if (w.tool === "outline_set_property") {
+      // A map is one entry per key; a null value (the key removed) reads as an empty value.
+      const several = input.properties && typeof input.properties === "object" ? Object.entries(input.properties as Record<string, unknown>) : [[String(input.key), input.value] as const];
+      for (const [key, value] of several) out.properties.push({ queueId: w.id, key, value: value === null ? "" : String(value) });
+    }
     else if (w.tool === "outline_create") out.newBlocks.push({ queueId: w.id, text: String(input.text), ...(typeof input.position === "number" ? { position: input.position } : {}) });
     else if (w.tool === "outline_comment") out.comments.push({ queueId: w.id, body: String(input.body), ...(typeof input.quote === "string" ? { quote: input.quote } : {}) });
     else if (w.tool === "outline_reply") out.replies.push({ queueId: w.id, thread: String(input.thread), body: String(input.body) });

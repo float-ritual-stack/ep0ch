@@ -293,6 +293,11 @@ describe("the overlay of a caller's waiting writes", () => {
     expect(later({ ...entry("e3", "outline_patch", { patches: [{ observed: "brass key", replacement: "x" }] }), state: "refused" })).toBe("proposed");
     expect(later(entry("e4", "outline_patch", { patches: [{ observed: "Three candles", replacement: "Four" }] }))).toBe("proposed");
     expect(later(entry("e5", "outline_set_property", { key: "room", value: "cellar" }))).toBe("proposed");
+    // A map: the later write takes its place only when it writes every key the earlier one did.
+    const several: NetmailReceipt = { ...entry("e6", "outline_set_property", { properties: { room: "attic", lamp: "lit" } }), state: "proposed", proposalUri: "ep0ch://attic-notes@far-box/b/p2" };
+    const afterMap = (e: NetmailReceipt) => receiptStatus(several, { summary: null, proposal: "open", later: [several, e] }).state;
+    expect(afterMap(entry("e7", "outline_set_property", { key: "room", value: "cellar" }))).toBe("proposed");
+    expect(afterMap(entry("e8", "outline_set_property", { properties: { lamp: "out", room: "cellar", door: null } }))).toBe("superseded");
     expect(receiptStatus({ ...first, state: "applied", resultUri: "ep0ch://attic-notes@far-box/b/new", resultRevision: 1 }, { summary: null, later: [] }).uri).toBe("ep0ch://attic-notes@far-box/b/new");
   });
 

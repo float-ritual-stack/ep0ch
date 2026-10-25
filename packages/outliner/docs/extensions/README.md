@@ -26,14 +26,16 @@ An extension declares the scripts it ships in `extension.json`:
 
 Scripts count as something the extension provides; a scripts-only extension needs no `run`.
 Each script must declare a different file. Each declared `.js` or `.ts` file must exist in `scripts/` and start with `// ep0ch-script`
-(or `// ep0ch-script effects=write`). The folder reader names a missing file or header.
+(settings after it, each optional: `effects=write`, `mode=render`). A file headed `// ep0ch-script mode=render` is a render script: a line `name::`
+draws what it returns, so an extension ships its own screens and `ep0ch install --apply` updates them (a note with the same
+`[script::name]` still wins, so a person's copy overrides it). The folder reader names a missing file or header.
 Only declared scripts from extensions the registry serves as active load (a disabled extension, or a copy another folder shadows, supplies none). Outline script notes and outline files
 precede extension scripts. The install row, `extensions.list` (`scripts` on installed and available
 entries), and the extension's page describe the same manifest list. Uninstall removes the scripts;
-a button naming one offers `ep0ch act extensions.install id=<extension>` to reinstall it. See [neat](../../extensions/neat/README.md)
+a button naming one, `ep0ch act <script>` in the door, and the service's refusal for it (to MCP and CLI callers) all name `ep0ch act extensions.install id=<extension>` to reinstall it. See [neat](../../extensions/neat/README.md)
 for a complete layout script using the existing actions and drawer links.
 
-Scripts default to read-only. A file declares writes with `// ep0ch-script effects=write`; a block uses
+Scripts default to read-only. A file declares writes with `// ep0ch-script effects=write` (or `// ep0ch-script effects=write mode=render`); a block uses
 `[effects::write]`. Read scripts can query and read, but cannot call write tools or dispatch door actions.
 The runtime still records their progress in a run note. Recorded action scripts declare write effects.
 

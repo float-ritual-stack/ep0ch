@@ -591,7 +591,6 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
       await Bun.sleep(100);
     }
     await board.request("extensions.schedule.run", { extension: "notify", entry: "action:pull" }).catch(() => null);
-    Object.assign(notes, await wyrmNotes(board));
   }
   // EchoNet (PIE-779): a mini network. Plot chat starts here, a view named as an area, with a note posted to it by its
   // tag; Seed swap is a subscription to the society's area, its posts copied onto the society's source board by the
@@ -642,22 +641,36 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
   const seen = await board.comment("showcase-attention-seen", at.id, at.revision!, "Who has the spare washers?", quote(at.text, "tap washer was replaced"));
   await board.setLifecycle(seen.id, "seen");
 
+  // Extensions' demo notes sit under their pages, not under the root.
+  Object.assign(notes, await demoNotes(board, unfound(notes)));
   // Re-read what later writes changed (the shed gained comments and children).
   for (const k of Object.keys(notes) as SeedName[]) notes[k] = (await board.get(notes[k].id)) ?? notes[k];
   await seedAccess(board);
   return { notes, lanes, cards, chores, race: race.race, comments: { open: open.id, resolved: resolved.id, resource: resourceThread } };
 }
 
-/** The wyrm's demo town and the player asleep in its fields (extensions/wyrm/demo), when it's installed. */
-async function wyrmNotes(board: SocketBoard): Promise<Partial<Record<SeedName, Msg>>> {
+/**
+ * The notes extensions seeded under their pages (each one's `demo/` folder, written once as the page's children), found by
+ * the titles the seed names them by: the names in `missing` not found where the seed put them. Any extension's demo notes
+ * are found this way, with no lookup of its own.
+ */
+async function demoNotes(board: SocketBoard, missing: readonly SeedName[]): Promise<Partial<Record<SeedName, Msg>>> {
   const found: Partial<Record<SeedName, Msg>> = {};
-  const town = (await board.queryNotes("type=wyrm-world", 5).catch(() => ({ notes: [] as Msg[] }))).notes.find(m => titleOf(m) === SEED.wyrm);
-  if (!town) return found;
-  found.wyrm = town;
-  const sleeper = (await board.children(town.id)).find(m => titleOf(m) === SEED.wyrmSleeper);
-  if (sleeper) found.wyrmSleeper = (await board.get(sleeper.id)) ?? sleeper;
+  const wanted = new Map<string, SeedName>(missing.map(name => [SEED[name], name]));
+  let level = Object.values((await board.listExtensions(false).catch(() => null))?.pages ?? {});
+  for (let depth = 0; depth < 3 && level.length && wanted.size > Object.keys(found).length; depth++) {
+    const kids = (await Promise.all(level.map(page => board.children(page).catch(() => [] as Msg[])))).flat();
+    for (const kid of kids) {
+      const name = wanted.get(titleOf(kid));
+      if (name && !found[name]) found[name] = (await board.get(kid.id)) ?? kid;
+    }
+    level = kids.map(kid => kid.id);
+  }
   return found;
 }
+
+/** The names of the seed not found so far. */
+const unfound = (notes: Partial<Record<SeedName, Msg>>) => (Object.keys(SEED) as SeedName[]).filter(name => !notes[name]);
 
 /** The showcase's root on this outline, or null when the outline has none. */
 export async function findShowcase(board: SocketBoard): Promise<Msg | null> {
@@ -701,8 +714,8 @@ export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; not
       if (hit) notes[name] = (await board.get(hit.id)) ?? hit;
     }
   }
-  // The wyrm's town and its sleeper are its demo notes, under its extension page: found by their chips.
-  Object.assign(notes, await wyrmNotes(board));
+  // Extensions' demo notes (the wyrm's town and sleeper) sit under their pages, not under the root.
+  Object.assign(notes, await demoNotes(board, unfound(notes)));
   // The fixture of "Notes that read themselves" (PIE-533) sits under its project, so its `parent` has a project to read.
   if (notes.ventProject) {
     const hit = (await board.children(notes.ventProject.id)).find(k => titleOf(k) === SEED.ventRail);

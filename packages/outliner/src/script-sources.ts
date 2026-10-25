@@ -3,7 +3,7 @@ import { codeBlocks, codeFenceInfo, SCRIPT_FENCE } from "@ep0ch/outline-core/cod
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { SCRIPT_HEADER, durationMs, MAX_DEADLINE_MS, type LoadedExtension, type ManifestSource, type ScriptSource, type ExtensionOrigin } from "./extension-manifest";
+import { scriptHeader, SCRIPT_HEADER_WORDS, durationMs, MAX_DEADLINE_MS, type LoadedExtension, type ManifestSource, type ScriptSource, type ExtensionOrigin } from "./extension-manifest";
 import type { OutlinerStore } from "./store";
 import type { ExtensionEntry } from "./extension-registry";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
@@ -139,10 +139,11 @@ export async function scriptSources(store: OutlinerStore, draft?: { blockId: str
             continue;
           }
         }
-        const header = SCRIPT_HEADER.exec(code.split(/\r?\n/)[0] ?? "");
+        const header = scriptHeader(code.split(/\r?\n/)[0] ?? "");
         const error = !opted ? `${file}: ignored; scripts load only from .ep0ch/scripts/. Move it there only if you intend to run it, and opt in with // ep0ch-script.`
-          : !header ? `${file}: ignored; opt in with a first line of // ep0ch-script (or // ep0ch-script effects=write).` : undefined;
-        add(identity, scriptName, { code, file, revision: hash(code), effects: header?.[1] === "write" ? "write" : "read", author: { author: "user" } }, error, { origin, directory });
+          : !header ? `${file}: ignored; opt in with a first line of ${SCRIPT_HEADER_WORDS}.` : undefined;
+        // `mode=render`: the script draws its `name::` lines in place (as a note script with [mode::render] does).
+        add(identity, scriptName, { code, file, revision: hash(code), effects: header?.effects ?? "read", ...(header?.render ? { render: true as const } : {}), author: { author: "user" } }, error, { origin, directory });
       }
     }
   }

@@ -566,6 +566,10 @@ export class OutlinerServer {
       patchGroup: (input) => this.draftPatches.patchGroup(input),
       held: (blockId) => this.draftPatches.isHeld(blockId),
       ...(options.extensionNow ? { now: options.extensionNow } : {}),
+      installFor: (id) => {
+        const offered = this.extensionPages.availableNow().find((entry) => entry.id === id || (id.startsWith("script:") && entry.scripts?.some((script) => script.name === id.slice("script:".length))));
+        return offered ? `${offered.name} adds it: ep0ch act extensions.install id=${offered.id}` : undefined;
+      },
       here: () => ({ ...(this.outline?.name ? { outline: this.outline.name } : {}), machines: [localMachineName(this.outlinesFolder), ...localMachineAliases(this.outlinesFolder)] }),
       changed: (blockId) => this.broadcast({
         id: crypto.randomUUID(), domain: "resource-catalog", action: "extensions.output", sequence: this.store.sequence, blockId,

@@ -10,6 +10,25 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An extension ships its screens, and an agent presses what a script drew (PIE-1264)
+
+What the wyrm door game ran into building on scripts, fixed in the parts it used:
+
+- **Several properties in one write.** `outline_set_property` (the tool, in scripts, MCP and the Claude mod) takes
+  `properties: { key: value, other: null }`: all the chips change in one revision, and a null removes its key.
+- **File render scripts.** A file script headed `// ep0ch-script mode=render` draws its `name::` lines in place, so an
+  extension ships a renderer that `ep0ch install --apply` updates (a note with the same `[script::]` name still wins).
+  The wyrm's sheet and town board are now such files, and its town draws its own join button.
+- **`button.press note=` reaches what a render script drew** (a view's button, badge, card or row) in a note open
+  nowhere, from the service's projection.
+- **A missing script names its install.** The service's refusal for a script no extension serves, and the door's
+  `ep0ch act <script>`, say `ep0ch act extensions.install id=<extension>` when an extension the repo offers adds it.
+- **`q` rows carry `created`**, so a newest-first list doesn't reorder when a note is edited.
+- The showcase finds an extension's demo notes under its page by itself.
+
+No protocol change. A wyrm installed before this keeps its old screens as notes ("Player sheet", "Town board" under its
+page) and its join button; they win over the new files. Delete them and reinstall to take the shipped ones.
+
 ### Signed in, the site never locks a note against its owner (PIE-1265)
 
 `[publish::never]` now means "never share this outside". Signed in as yourself, the published site draws every note as

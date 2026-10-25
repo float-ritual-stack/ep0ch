@@ -60,7 +60,7 @@ import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
-import { decorationsOf, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, resourceChanged, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, resourceChanged, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
@@ -102,7 +102,7 @@ import { composerBody, composerBox, placeBox, type ComposerBox } from "./compose
 import { AttachedTile, attachedAt, attachedPlaceOf, attachedRect, drawAttachedFloat, type AttachedTileHost, type AttachedSide, type AttachedPlace, type AttachedSplit, type FloatMove, moveFloat, ATTACHED_PLACES, frameZone, nextPlace, SPLIT_MIN_H, SPLIT_MIN_W, type FloatRect } from "./attached";
 import { pickerCwd, pickInto, type Picked } from "../pick";
 import { sourceSpanOf } from "./source-map";
-import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, threadAgents } from "../extensions";
+import { askingFirst, extensionList, passageActions, runExtensionAction, scriptActions, scriptInstallWords, threadAgents } from "../extensions";
 import { actRequestOf, lineWords } from "@ep0ch/outline-core/action-line";
 import { INVITES } from "./invite";
 import { buttonCallAt, buttonCallsOf, type ButtonCall } from "@ep0ch/outline-core/button-call";
@@ -4456,8 +4456,7 @@ export class NoteSurface {
         const listed = await host.ctx.board.listExtensions(false, { blockId: p.block || this.msg?.id, line: p.line });
         const scripts = listed.extensions.filter(e => e.script && e.name === action && (e.state === "active" || e.state === "failed"));
         if (!scripts.length) {
-          const provider = listed.available?.find(e => e.scripts?.some(s => s.name === action));
-          throw new ActionRefused(provider ? `Script ${action} is not installed; install with ep0ch act extensions.install id=${provider.id}` : d.unknownAction(action));
+          throw new ActionRefused(scriptInstallWords(action, listed.available) ?? d.unknownAction(action));
         }
         if (scripts[0]!.state === "failed") throw new ActionRefused(scripts[0]!.error!);
         if (scripts.length > 1) host.ctx.flash(scripts[0]!.description ?? "");
@@ -9822,14 +9821,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "button.press": def({
-    summary: "press a button or a pressable square of a view in this note by its label (or n from elements): a button runs its ordered action taps and script pipe stages as one undo group over reversible effects; a view square runs its action line. The dispatcher attributes whoever asks, and the first sequence failure reports the step and effects that remain. It opens nothing and moves nothing the person is reading, so it works on the reader they hold; tile= names another reader, and note=<id> presses a ::button or an [label](act: …) link written in a note that is open nowhere (the door reads the note's text), with no focus moved",
+    summary: "press a button or a pressable square of a view in this note by its label (or n from elements): a button runs its ordered action taps and script pipe stages as one undo group over reversible effects; a view square runs its action line. The dispatcher attributes whoever asks, and the first sequence failure reports the step and effects that remain. It opens nothing and moves nothing the person is reading, so it works on the reader they hold; tile= names another reader, and note=<id> presses a ::button, an [label](act: …) link or a control a render script drew (a view's button, badge, card or row, from the service's projection) in a note that is open nowhere, with no focus moved",
     keys: "a click on a button, or ⏎ on it (element.open does the same)", touches: "nothing", replay: "ask",
     args: {
       label: { type: "string", optional: true, about: "the button's label, or part of it (`Fantasia` finds `✦ Fantasia`); the one pressable element that has it" },
       alt: { type: "boolean", optional: true, about: "run the button's alt= action, as alt+click does" },
       n: { type: "number", optional: true, about: "which element, from 1 (elements lists them), when it is a pressable one" },
       line: { type: "number", optional: true, about: "source line from 1, with note=, to press a specific button when labels repeat" },
-      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters); the button's script acts on that note" },
+      note: { type: "string", optional: true, about: "a note to press a button of by its label, whether or not it is open anywhere (a block id or its first 8+ characters): a ::button, a link, or a control its render script drew; the button's script acts on that note" },
     },
     examples: [
       { act: "button.press label=Water", does: "presses the Water button of this note, as whoever asks" },
@@ -9844,8 +9843,23 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         for (const c of buttonCallsOf(m.text)) if (c.act) found.push({ label: c.label, act: c.act, alt: c.alt, line: c.line });
         m.text.split("\n").forEach((l, line) => { if (!l.includes("](act:")) return; for (const o of linkOccurrences(l)) if (o.kind === "markdown") { const act = /^act:\s*(\S.*)$/.exec(o.url.trim())?.[1]?.trim(); if (act) found.push({ label: o.text, act, line }); } });
         const want = label.toLowerCase();
-        const exact = found.filter(f => f.label.toLowerCase() === want);
-        const hits = (exact.length ? exact : found.filter(f => f.label.toLowerCase().includes(want))).filter(f => line === undefined || f.line === line - 1);
+        const matching = (list: typeof found) => {
+          const exact = list.filter(f => f.label.toLowerCase() === want);
+          return (exact.length ? exact : list.filter(f => f.label.toLowerCase().includes(want))).filter(f => line === undefined || f.line === line - 1);
+        };
+        // Controls a render script drew on the note (a view's button, badge, card or row) are the service's projection of it, so a note open
+        // nowhere has them too. Lines still being drawn are waited for (the read itself asks the service to draw them), so which
+        // line answers a label never depends on which finished first.
+        if (!matching(found).length && mayHaveProjections(m.text)) {
+          for (const end = Date.now() + 10_000; ;) {
+            const read = await host.ctx.board.readResourceProjections(m.id).catch(() => null);
+            if (!read) break;
+            const drawn = drawnPresses(read);
+            if (!drawingPending(read) || Date.now() > end) { found.push(...drawn.filter(d => !found.some(f => f.act === d.act && f.line === d.line && f.label === d.label))); break; }
+            await Bun.sleep(150);
+          }
+        }
+        const hits = matching(found);
         if (!hits.length) throw new ActionRefused(`no button says "${label}" in that note; it has ${found.length ? found.map(f => `"${f.label}"`).join(", ") : "none"}. Example: button.press note=${m.id.slice(0, 8)} label="${found[0]?.label ?? "Review"}"`);
         if (hits.length > 1) throw new ActionRefused(`"${label}" matches ${hits.length} buttons of that note (${hits.map(f => `"${f.label}"`).join(", ")}); say more of the label`);
         const hit = hits[0]!, act = alt && hit.alt ? hit.alt : hit.act;

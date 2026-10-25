@@ -40,3 +40,42 @@ test("an extension another folder shadows supplies no scripts, and the winning c
   plant(join(root, "outline/extensions"), "garden", "water");
   expect(await scriptsListed(client)).toEqual(["water"]);
 });
+
+test("a file script headed `mode=render` draws its `name::` lines, updates with its file, and a note script of the same name still wins", async () => {
+  const { root, store, create, output, draw, client } = await setup();
+  const folder = join(root, "outline/extensions/garden");
+  mkdirSync(join(folder, "scripts"), { recursive: true });
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "garden", name: "garden", version: 1, scripts: [{ name: "tally", file: "scripts/tally.js", about: "draws the bed's tally" }] }));
+  const file = (word: string) => writeFileSync(join(folder, "scripts", "tally.js"), `// ep0ch-script mode=render\nreturn "${word} for " + (await resolve("this.owner")).values[0];\n`);
+  file("beans");
+  const note = create("Bed [owner::sam]\ntally::");
+  await draw(note.id);
+  expect(await until("the file's drawing", async () => output(note.id)[0])).toBe("beans for sam");
+  // The listed entry is a render handler: the line is drawn, not run by a press.
+  const listed = (await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true })).extensions.find(e => e.script && e.name === "tally")!;
+  expect(listed.state).toBe("active");
+  // The file changes (as `ep0ch install --apply` would change it): the line draws the new words.
+  file("leeks");
+  await client.request({ action: "extensions.list", reload: true });
+  await client.request({ action: "resources.projection.refresh", blockId: note.id });
+  await until("the new file's drawing", async () => output(note.id)[0] === "leeks for sam");
+  // A note with the same [script::] name wins over the extension's file.
+  create("Tally [script::tally] [mode::render]\n```js\nreturn 'the note says so';\n```");
+  await client.request({ action: "extensions.list", reload: true });
+  await client.request({ action: "resources.projection.refresh", blockId: note.id });
+  await until("the note script's drawing", async () => output(note.id)[0] === "the note says so");
+  expect(store.get(note.id)!.revision).toBe(1);
+});
+
+test("a file script's header names its mode and effects, and anything else is refused with the header that works", async () => {
+  const { root, client } = await setup();
+  const folder = join(root, "outline/extensions/garden");
+  mkdirSync(join(folder, "scripts"), { recursive: true });
+  writeFileSync(join(folder, "extension.json"), JSON.stringify({ contract: 2, id: "garden", name: "garden", version: 1, scripts: [{ name: "tally", file: "scripts/tally.js", about: "draws the bed's tally" }] }));
+  writeFileSync(join(folder, "scripts", "tally.js"), "// ep0ch-script mode=paint\nreturn 1;\n");
+  const all = (await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true })).extensions;
+  const refused = all.find(e => e.id === "garden" || e.name === "garden" || e.name === "tally");
+  expect(refused?.state).not.toBe("active");
+  expect(refused?.error).toContain("mode=render");
+  expect(refused?.error).toContain("effects=write");
+});

@@ -168,6 +168,20 @@ test("find by text, property, key, query and under", async () => {
   expect((await agent("find", {})).exitCode).toBe(1);
 });
 
+test("find rows carry created, which an edit leaves alone (so a newest-first list doesn't reorder on edit)", async () => {
+  const { store, agent } = await setup();
+  const first = store.create("First post [kind::post]");
+  await Bun.sleep(5);
+  store.create("Second post [kind::post]");
+  const born = store.get(first.id)!.createdAt;
+  store.update(first.id, "First post, reworded [kind::post]", first.revision);
+  const rows = (await agent("find", { query: "kind=post" })).json.blocks as { title: string; created: string; updated: string }[];
+  expect(rows.find(r => r.title.startsWith("First"))!.created).toBe(born);
+  expect(rows.every(r => typeof r.created === "string" && r.created.length > 0)).toBe(true);
+  // Newest-created first stays Second, First although First was edited last.
+  expect([...rows].sort((a, b) => b.created.localeCompare(a.created)).map(r => r.title.split(" ")[0])).toEqual(["Second", "First"]);
+});
+
 test("edit refuses an empty write and a stale revision, and writes nothing", async () => {
   const { store, agent } = await setup();
   const note = store.create("Shed keys: hook by the door");
@@ -390,6 +404,50 @@ test("set-property replaces a header chip in place or adds one at the line's end
   expect((await agent("set-property", { ref: list.id, key: "tag", value: "c", revision: list.revision })).stderr).toContain("a list");
   expect((await agent("set-property", { ref: list.id, key: "bad key", value: "c", revision: list.revision })).stderr).toContain("isn't a property key");
   expect((await agent("set-property", { ref: list.id, key: "tag2", value: "x]y", revision: list.revision })).stderr).toContain("without ]");
+});
+
+test("set-property with a properties map changes several chips as one revision: replaced in place, added at the end, null removes", async () => {
+  const { store, agent } = await setup();
+  const note = store.create("Seed list - [crop::bean] [bed::north] [row::3]\nRunner beans.");
+  const before = store.get(note.id)!.revision;
+  const done = await agent("set-property", { ref: note.id, revision: before, properties: { crop: "leek", row: null, sown: "2026-03-01", frost: null } });
+  expect(done.json).toMatchObject({ outcome: "applied", properties: { crop: { previous: "bean", value: "leek" }, row: { previous: "3", value: null }, sown: { previous: null, value: "2026-03-01" } } });
+  expect(done.json.properties.frost).toBeUndefined();
+  expect(store.get(note.id)!.text).toBe("Seed list - [crop::leek] [bed::north] [sown::2026-03-01]\nRunner beans.");
+  // One write: one revision more, not one per key.
+  expect(store.get(note.id)!.revision).toBe(before + 1);
+  // Everything already as asked is no change, and writes nothing.
+  const same = await agent("set-property", { ref: note.id, revision: store.get(note.id)!.revision, properties: { crop: "leek", row: null } });
+  expect(same.json.outcome).toBe("unchanged");
+  expect(store.get(note.id)!.revision).toBe(before + 1);
+  // Removing the last chips leaves the title without a dangling separator.
+  const bare = store.create("Seed list - [crop::bean]\nRunner beans.");
+  await agent("set-property", { ref: bare.id, revision: bare.revision, properties: { crop: null } });
+  expect(store.get(bare.id)!.text).toBe("Seed list\nRunner beans.");
+  // A refusal anywhere writes nothing: a list, a bad key, a bad value, a map beside key/value, an empty map.
+  const list = store.create("Tags [tag::a] [tag::b] [bed::n]");
+  const refused = async (input: Record<string, unknown>, words: string) => {
+    const r = await agent("set-property", { ref: list.id, revision: list.revision, ...input });
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain(words);
+    expect(store.get(list.id)!.text).toBe("Tags [tag::a] [tag::b] [bed::n]");
+  };
+  await refused({ properties: { bed: "s", tag: "c" } }, "a list");
+  await refused({ properties: { bed: "s", "bad key": "c" } }, "isn't a property key");
+  await refused({ properties: { bed: "x]y" } }, "without ]");
+  await refused({ properties: { bed: "s" }, key: "bed", value: "t" }, "not both");
+  await refused({ properties: {} }, "at least one");
+  await refused({ properties: { bed: "s", BED: "t" } }, "named twice");
+  // A title's ` - ` separators go with the chips they led to, and no other.
+  const dashed = store.create("Seed - [a::1] - [b::2] - [c::3]\nBody.");
+  await agent("set-property", { ref: dashed.id, revision: dashed.revision, properties: { a: null } });
+  expect(store.get(dashed.id)!.text).toBe("Seed - [b::2] - [c::3]\nBody.");
+  await agent("set-property", { ref: dashed.id, revision: store.get(dashed.id)!.revision, properties: { b: null, c: null } });
+  expect(store.get(dashed.id)!.text).toBe("Seed\nBody.");
+  const spaced = store.create("Seed [a::1] [b::2] #tag\nBody.");
+  await agent("set-property", { ref: spaced.id, revision: spaced.revision, properties: { a: null } });
+  expect(store.get(spaced.id)!.text).toBe("Seed [b::2] #tag\nBody.");
+  await refused({ properties: { bed: 4 } }, "a string");
 });
 
 test("assign-id stamps the next work id on a note as its page address, attributed; a second call answers unchanged", async () => {

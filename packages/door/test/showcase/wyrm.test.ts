@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { extensionList } from "../../src/extensions";
 import { USER, type Actor } from "../../src/socket";
 import { outliner, until } from "../scratch";
+import { loadShowcase } from "../../src/showcase/seed";
 import { useShowcaseScreen } from "./harness";
 
 const AGENT: Actor = { kind: "agent", id: "test-agent" };
@@ -44,6 +45,10 @@ describe.skipIf(!outliner)("the showcase screen: the wyrm", () => {
     const town = seeded.notes.wyrm!;
     expect(town).toBeDefined();
     expect(seeded.notes.wyrmSleeper).toBeDefined();
+    // Opening the showcase again finds the extension's demo notes under its page, with no lookup of the wyrm's own.
+    const again = (await loadShowcase(board))!.notes;
+    expect(again.wyrm?.id).toBe(town.id);
+    expect(again.wyrmSleeper?.id).toBe(seeded.notes.wyrmSleeper!.id);
 
     expect(await press({ note: town.id }, "join the realm", /joins Wyrmhold/)).toMatch(/^Stranger \d+ joins Wyrmhold/);
     const players = (await board.queryNotes("type=wyrm-player")).notes;
@@ -51,6 +56,8 @@ describe.skipIf(!outliner)("the showcase screen: the wyrm", () => {
     expect(player.parentId).toBe(town.id);
     expect(await chip(player.id, "turns")).toBe("15");
 
+    // A square the sheet drew (a row of the fields' table) is pressed by label on a note open nowhere, by an agent, with nothing in front of it.
+    expect(await press({ note: player.id }, "Dozing Gerald", /Dozing Gerald/, AGENT)).toMatch(/kill|wakes/);
     const sheet = await app.dispatch.act({ action: "tile.open", args: { kind: "reader", mode: "held", note: player.id, name: "sheet" } }, USER) as { tile: string };
     await press({ tile: sheet.tile }, "forest", /steps out|gem|purse|fairy/);
     expect(await chip(player.id, "turns")).toBe("14");
@@ -59,7 +66,7 @@ describe.skipIf(!outliner)("the showcase screen: the wyrm", () => {
     expect(events).toContainEqual(expect.stringContaining("wanders into Wyrmhold"));
   }, 40_000);
 
-  test("uninstalled, a press names the reinstall command; installed by act, the moves come back", async () => {
+  test("uninstalled, its moves name the reinstall command; installed by act, the screens and moves come back", async () => {
     const { app, board, seeded } = h;
     await app.dispatch.act({ action: "section", args: { name: "wyrm" } }, USER);
     const town = seeded.notes.wyrm!;
@@ -67,7 +74,9 @@ describe.skipIf(!outliner)("the showcase screen: the wyrm", () => {
     await app.loadExtensions(true);
     await until(() => !extensionList()?.extensions.some(e => e.id === "wyrm"), "wyrm removed from the door");
     expect((await board.get(town.id))!.text).toContain("wyrm-town::");
-    await expect(app.dispatch.act({ action: "button.press", args: { note: town.id, label: "join the realm" } }, AGENT)).rejects.toThrow("ep0ch act extensions.install id=wyrm");
+    // The screens went with the extension, so the town draws no join button now; the move itself names its install (`ep0ch act wyrm …`).
+    await expect(app.dispatch.act({ action: "button.press", args: { note: town.id, label: "join the realm" } }, AGENT)).rejects.toThrow("it has none");
+    await expect(app.act({ action: "wyrm", args: { do: "join" }, as: "test-agent" })).rejects.toThrow("ep0ch act extensions.install id=wyrm");
     const rows = await app.dispatch.act({ action: "bar.open", args: { scope: "&", query: "wyrm" } }, AGENT) as { rows: { label: string }[] };
     expect(rows.rows.some(r => r.label === "install Legend of the Ep0ch Wyrm")).toBe(true);
 

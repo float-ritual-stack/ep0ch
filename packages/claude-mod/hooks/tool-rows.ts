@@ -219,8 +219,11 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
     }
     case 'outline_set_property': {
       const target = targetOf(input.ref, titleOf)
-      if (!target || typeof input.key !== 'string' || typeof input.value !== 'string') return null
-      const change = [`set [${input.key}::${clip(input.value, QUOTE_CHARS)}]`]
+      const several = recordOf(input.properties)
+      if (!target || (!several && (typeof input.key !== 'string' || typeof input.value !== 'string'))) return null
+      const change = [several
+        ? `set ${Object.entries(several).map(([key, value]) => value === null ? `[${key}::] removed` : `[${key}::${clip(String(value), QUOTE_CHARS)}]`).join(' ')}`
+        : `set [${input.key}::${clip(String(input.value), QUOTE_CHARS)}]`]
       let warning: string | undefined
       if (out?.outcome === 'unchanged') change.push('(no change)')
       if (out?.outcome === 'applied') change.push(Array.isArray(out.edits) && recordOf(out.edits[0])?.route === 'draft' ? 'applied to the live draft' : 'applied')

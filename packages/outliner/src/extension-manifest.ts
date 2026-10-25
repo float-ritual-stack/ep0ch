@@ -46,7 +46,15 @@ import { SECRET_GROUP_PATTERN, SECRET_KEY_PATTERN } from "./extension-secrets";
 
 export const EXTENSION_ID_PATTERN = "^[a-z][a-z0-9-]{0,31}$";
 const ID = Type.String({ pattern: EXTENSION_ID_PATTERN });
-export const SCRIPT_HEADER = /^\s*\/\/ ep0ch-script(?: effects=(read|write))?\s*$/;
+/** What a file script's first line (`// ep0ch-script effects=write mode=render`, each setting optional) declares; null when the line isn't the opt-in. */
+export function scriptHeader(line: string): { effects: "read" | "write"; render: boolean } | null {
+  const found = /^\s*\/\/ ep0ch-script((?: (?:effects=(?:read|write)|mode=render))*)\s*$/.exec(line);
+  if (!found) return null;
+  const words = found[1]!.trim().split(" ").filter(Boolean);
+  return { effects: words.includes("effects=write") ? "write" : "read", render: words.includes("mode=render") };
+}
+/** The first line a script file needs, as the refusals say it. */
+export const SCRIPT_HEADER_WORDS = "// ep0ch-script (settings after it: effects=write, mode=render; for example // ep0ch-script effects=write)";
 /** `30s`, `15m`, `24h`. */
 const Duration = Type.String({ pattern: "^[1-9][0-9]{0,4}[smh]$" });
 
@@ -855,7 +863,7 @@ export async function readExtensionFolder(
     const file = join(directory, script.file);
     if (!(await Bun.file(file).exists())) throw new ExtensionLoadError(`extension.json: script ${script.name} is missing ${script.file}; restore that file before installing`);
     const code = await Bun.file(file).text();
-    if (!SCRIPT_HEADER.test(code.split(/\r?\n/)[0] ?? "")) throw new ExtensionLoadError(`extension.json: script ${script.name} (${script.file}) needs a first line of // ep0ch-script (or // ep0ch-script effects=write)`);
+    if (!scriptHeader(code.split(/\r?\n/)[0] ?? "")) throw new ExtensionLoadError(`extension.json: script ${script.name} (${script.file}) needs a first line of ${SCRIPT_HEADER_WORDS}`);
   }
   return loaded;
 }

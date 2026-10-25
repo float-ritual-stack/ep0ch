@@ -1,6 +1,5 @@
-Player sheet [script::wyrm-sheet] [mode::render]
-Draws a player's note: the chips the `wyrm` script keeps, and a press for every move. Each press is `wyrm do=…` on the note it's drawn in.
-```js
+// ep0ch-script mode=render
+// Draws a player's note: the chips the `wyrm` script keeps, and a press for every move. Each press is `wyrm do=…` on the note it's drawn in.
 const today = (await resolve("now.date")).values[0];
 const of = (note, key) => note.properties.find(p => p.key === key)?.values[0];
 const v = key => of(this, key);
@@ -55,4 +54,3 @@ if (dead) {
   })] }));
 }
 return view.stack({ children: parts });
-```

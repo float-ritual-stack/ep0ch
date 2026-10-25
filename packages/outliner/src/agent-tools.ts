@@ -457,6 +457,8 @@ export interface FindRow {
   title: string;
   revision: number;
   parentId: string | null;
+  /** When the note was made: an edit leaves it alone, so a newest-first list sorts on it and keeps its order. */
+  created: string;
   updated: string;
   workId?: string;
 }
@@ -468,6 +470,7 @@ function findRow(block: Block): FindRow {
     title: blockDisplayTitle(block),
     revision: block.revision,
     parentId: block.parentId,
+    created: block.createdAt,
     updated: block.updatedAt,
     ...(workId ? { workId } : {}),
   };
@@ -1249,13 +1252,18 @@ export type SetPropertyResult =
  */
 export async function setBlockProperty(
   client: AgentToolsClient,
-  input: { ref: string; key: string; value: string; revision: number; propose?: DraftPatchInput["propose"] },
+  input: { ref: string; key?: string; value?: string; properties?: Record<string, string | null>; revision: number; propose?: DraftPatchInput["propose"] },
   actor: AgentActor,
-): Promise<SetPropertyResult> {
+): Promise<SetPropertyResult | SetPropertiesResult> {
+  if (input.properties !== undefined) {
+    if (input.key !== undefined || input.value !== undefined) throw new WorkToolRefusal("Give either key and value (one property) or properties (several), not both");
+    return setBlockProperties(client, { ref: input.ref, properties: input.properties, revision: input.revision, ...(input.propose ? { propose: input.propose } : {}) }, actor);
+  }
+  if (typeof input.key !== "string" || typeof input.value !== "string") throw new WorkToolRefusal("Give key and value (one property), or properties: { key: value, key: null } (several; null removes)");
   const revision = requireRevision(input.revision);
-  const key = typeof input.key === "string" ? input.key.trim() : "";
+  const key = input.key.trim();
   if (!isPropertyKey(key)) throw new WorkToolRefusal(`${JSON.stringify(input.key)} isn't a property key: letters, digits, - and _`);
-  const value = typeof input.value === "string" ? input.value.trim() : "";
+  const value = input.value.trim();
   if (!value || /[\]\n]/.test(value)) throw new WorkToolRefusal("The value is one line of text without ]; give a non-empty value");
   const block = await writableBlock(client, input.ref);
   const header = headerLine(block.text);
@@ -1272,6 +1280,76 @@ export async function setBlockProperty(
     })();
   const result = await patchDraft(client, { ref: block.id, revision, patches: [span], policy: "edit", ...(input.propose ? { propose: input.propose } : {}) }, actor, { suggest: false });
   return { ...result, id: block.id, key: chip?.key ?? key, previous: chip?.value ?? null, value };
+}
+
+export type SetPropertiesResult =
+  | (DraftPatchResult & { id: string; properties: PropertyChanges })
+  | { outcome: "unchanged"; id: string; properties: PropertyChanges };
+/** What a map write changed, by key: the value the chip had (null: none) and has now (null: removed). Keys already as asked are left out. */
+export type PropertyChanges = Record<string, { previous: string | null; value: string | null }>;
+
+/**
+ * Several header chips in one write: `{ key: value }`, a null value removing the chip. Each key is checked as the single
+ * form checks it, and the whole header line is one `draft.patch` span against the revision read, so the note takes one
+ * revision however many chips changed, and a refusal anywhere (a list, a bad key or value, a stale revision) writes none.
+ * A chip is replaced where it is, a new one is added at the line's end in the map's order, and a separator the removals
+ * leave dangling (`Seed list - ` once its chips are gone) goes with them.
+ */
+export async function setBlockProperties(
+  client: AgentToolsClient,
+  input: { ref: string; properties: Record<string, string | null>; revision: number; propose?: DraftPatchInput["propose"] },
+  actor: AgentActor,
+): Promise<SetPropertiesResult> {
+  const revision = requireRevision(input.revision);
+  const given = input.properties;
+  if (!given || typeof given !== "object" || Array.isArray(given)) throw new WorkToolRefusal("properties is an object of { key: value }, null removing a key");
+  const entries = Object.entries(given);
+  if (!entries.length) throw new WorkToolRefusal("Give at least one property in properties: { key: value } (null removes the key)");
+  const wanted: [string, string | null][] = entries.map(([name, raw]) => {
+    const key = name.trim();
+    if (!isPropertyKey(key)) throw new WorkToolRefusal(`${JSON.stringify(name)} isn't a property key: letters, digits, - and _`);
+    if (raw === null) return [key, null];
+    if (typeof raw !== "string") throw new WorkToolRefusal(`[${key}::…] takes a string (or null to remove it); got ${JSON.stringify(raw)}`);
+    const value = raw.trim();
+    if (!value || /[\]\n]/.test(value)) throw new WorkToolRefusal(`[${key}::…]: the value is one line of text without ]; give a non-empty value (null removes the key)`);
+    return [key, value];
+  });
+  const names = wanted.map(([key]) => key.toLowerCase());
+  const twice = wanted.find(([key], i) => names.indexOf(key.toLowerCase()) !== i);
+  if (twice) throw new WorkToolRefusal(`[${twice[0]}::…] is named twice in properties (keys match without regard to case); name each key once`);
+  const block = await writableBlock(client, input.ref);
+  const header = headerLine(block.text);
+  if (header.line < 0) throw new WorkToolRefusal(`${block.id} is empty; it has no header line to set properties on`);
+  const changes: PropertyChanges = {};
+  // Edits to the header line, from the back so the offsets of the earlier ones hold.
+  const replaced: { start: number; end: number; text: string }[] = [];
+  const added: string[] = [];
+  for (const [key, value] of wanted) {
+    const same = header.chips.filter(chip => chip.key.toLowerCase() === key.toLowerCase());
+    if (same.length > 1) throw new WorkToolRefusal(`[${key}::…] is written ${same.length} times on ${block.id} (a list); edit it with outline_patch`);
+    const chip = same[0];
+    if (!chip) { if (value !== null) { added.push(chipText({ key, value })); changes[key] = { previous: null, value }; } continue; }
+    if (chip.value === value) continue;
+    changes[chip.key] = { previous: chip.value, value };
+    if (value !== null) { replaced.push({ start: chip.start, end: chip.end, text: chipText({ key: chip.key, value }) }); continue; }
+    // A removed chip takes the blanks before it, and the ` -` separator before those (`Seed - [a::1] - [b::2]` loses " - [a::1]").
+    let start = chip.start;
+    while (start > header.offset && /[ \t]/.test(block.text[start - 1]!)) start--;
+    if (start < chip.start && block.text[start - 1] === "-" && start - 1 > header.offset && /[ \t]/.test(block.text[start - 2]!)) {
+      start--;
+      while (start > header.offset && /[ \t]/.test(block.text[start - 1]!)) start--;
+    }
+    replaced.push({ start, end: chip.end, text: "" });
+  }
+  if (!Object.keys(changes).length) return { outcome: "unchanged", id: block.id, properties: {} };
+  const line = block.text.slice(header.offset, header.end);
+  let next = line;
+  for (const edit of replaced.sort((a, b) => b.start - a.start)) next = next.slice(0, edit.start - header.offset) + edit.text + next.slice(edit.end - header.offset);
+  if (added.length) next = `${next.trimEnd()} ${added.join(" ")}`;
+  if (replaced.some(edit => !edit.text)) next = next.trimEnd();
+  const span: DraftPatchSpan = { observed: line, replacement: next, range: { start: header.offset, end: header.end } };
+  const result = await patchDraft(client, { ref: block.id, revision, patches: [span], policy: "edit", ...(input.propose ? { propose: input.propose } : {}) }, actor, { suggest: false });
+  return { ...result, id: block.id, properties: changes };
 }
 
 // ─── A work id for a note ──────────────────────────────────────────────────
