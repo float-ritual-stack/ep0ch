@@ -201,8 +201,12 @@ One user, two databases that matter (pie on float-2, float-hub on the MacBook), 
   install` hard-links), never there. It moves only through `ep0ch install --apply` (which backs up the outlines,
   fast-forwards it and hands everything to the new code together), run only when the person (or the agent they made
   the deployer) asks: a merged protocol bump with the host not restarted makes every client refuse it.
-- **Tests on a shared machine.** Whole suites (a whole package, `--each`) run off float-2 through `scripts/box-test`
-  (float-box, or `--on boxd`); `scripts/box-test all --each` before merging a series. A focused run on float-2 is
+- **One test gate, sized to the change** (Evan, Oct 25: two full gates per PR cost ~$500 of CI in a month and choked
+  float-box). A PR merges on `bun run check` plus the test files it touches and their neighbours, run focused; never
+  GitHub CI per PR (it runs by hand and weekly on main), never a whole suite per PR. Whole suites (a whole package,
+  `--each`, parity) run once a night on main through `scripts/box-test` (float-box, or `--on boxd`), and what goes
+  red there is a ticket, not a rerun. A protocol, schema or cross-package change still runs its packages' suites
+  once before merging. A focused run on float-2 is
   `scripts/agent-env <name> --test -- timeout 900 bun test <files>` (two slots, capped, cleaned up, first for the OOM
   killer). Never `--parallel` on float-2 (several agents testing at once froze it). Run in the foreground, or poll
   your own background run until it exits (its notification may never reach you). **Judge a run by its exit code,**
