@@ -120,7 +120,8 @@ revision, so concurrent edits rarely collide.
   `outline_proposal_dismiss {ref: "<proposal id>"}` needs no reader. Apply keeps the normal patch comparison;
   any agent may dismiss any proposal (recorded as the one who did; the Trash takes it back). MCP settlement requires full access.
 - A refusal is an answer: read again and retry, or leave it. Never route around it.
-- A write's `warnings` are answers too: a `((` that leads nowhere (with a did-you-mean), and each construct you
+- A write's `warnings` are answers too, and each one that starts "fix before you call this done" is a gate: a long
+  title, a wall, a buried question (the floor, under "Shaping a note"). A `((` that leads nowhere (with a did-you-mean), and each construct you
   left open (an unclosed fence, `[[`, `[key::`, `::component` or `<!-- literal -->`, on its line, with how to close
   it). The text was saved as you wrote it, and an open construct costs only itself (a fence its paragraph); fix it
   in the next write.
@@ -368,6 +369,9 @@ Every note clears this floor:
 - What the reader needs first comes first: one line saying what this is and what's left.
 - Context that matters less is folded (`[!note]-`), not deleted.
 - Link, don't direct: `((id|label))`.
+- A short title line (under about 70 characters), a paragraph of at most three sentences, a section of one component
+  plus at most three short lines. A question for Evan goes first as one `- [ ]` line, with `[needs::sysop: …]` on the
+  note. The write answer measures these (below).
 
 Above the floor, use whatever makes this note clearer. The examples are one way each, not the way: an outbox draft
 (a purpose callout, a before-it-posts checklist, the message in one quote, folded sources), a session plan (now, open
@@ -375,10 +379,14 @@ questions, steps as live queries), a decision record (the question, options as a
 change it). Reach past them: ask `outline_components` (or `ep0ch library --brief`) for what exists and pick what
 fits; `ep0ch library --guide` (the Claude mod's context, the MCP gateway's instructions) lists them all in a line each.
 A write answers with the `components` the note now holds and its `warnings` (a figure's name or key with a typo, YAML
-that doesn't read, a reference that leads nowhere): the text is saved as written, so fix them in the same turn. Where
-figure-fit is on, a write that leaves a note as rows with no figure may answer with a `suggestion` ("this reads as a
-timeline: ::graph-timeline would draw it"): take it when it fits, from `outline_components <id>`. In
-the Claude mod a note that holds a figure comes back drawn; read the drawing before calling it done. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
+that doesn't read, a reference that leads nowhere): the text is saved as written, so fix them in the same turn. The
+answer also measures the note against the house rules above, and each finding is a warning that starts "fix before you
+call this done": a title line over about 70 characters, a paragraph past three sentences, a long run of prose with no
+figure or callout, a callout inside a callout, a question for Evan below the top with no `[needs::sysop]`. Where
+figure-fit is on, a write that leaves a note as rows with no figure adds one more ("this reads as a timeline:
+::graph-timeline would draw it"): take it from `outline_components <id>`. Every answer ends with `next`, the check to
+make: read the note as drawn (`ep0ch show <id>`, or `outline_read` it back) before you call the write done. In
+the Claude mod a note that holds a figure comes back drawn already. If nothing fits, use the nearest and add a one-line `[wish::…]` saying what would be better. Vary the shape to
 the content.
 
 A worked outbox draft (fictional). The note is made first, then `outline_assign_id` stamps `[work-id::…]` on its first line (no `[page::…]`: the id is the page address). The properties are on the first line; the message is the one quote, so its ⧉

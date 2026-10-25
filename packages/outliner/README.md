@@ -2860,8 +2860,8 @@ prose out. The request is made three ways:
   of gets one `[kind::figure-fit]` margin thread by the actor: a suggestion, never a rewrite. A note with a
   figure-fit thread already (Seen, Kept or resolved) is never asked about again. Without `comment` it only lists.
 - Unless `OUTLINER_FIGURE_FIT=off` (the tests set it), a create, an edit or a patch that gives
-  a note that shape answers with a `suggestion`. The MCP gateway lifts it beside `said`. A property set and a
-  comment never ask.
+  a note that shape answers with a `warnings` entry, "fix before you call this done: this reads as a timeline: …"
+  (PIE-1270: a gate, not a suggestion, beside the house-rule findings below). A property set and a comment never ask.
 - `bun scripts/evals/figure-fit.ts <copy.sqlite> --note` is the eval. It scores the suggestions on an outline's own
   notes (a copy: `ep0ch outline snapshot <name> --out <copy>`) at every threshold.
 

@@ -220,7 +220,11 @@ callouts and rules without being reminded:
   Their descriptions say what a note can hold and what the answer reports.
 - **A written figure drawn back:** a write's answer lists the `components` the note now holds and its `warnings`
   (outline-core's `component-warnings.ts`: a figure's name or key with a typo, YAML that doesn't read, a value
-  outside a property's; with the references that lead nowhere, as before). When the note holds a `::graph-*`, the
+  outside a property's; with the references that lead nowhere, as before), and the house rules measured on what was
+  written (outline-core's `write-shape.ts`, PIE-1270: a title over about 70 characters, a paragraph past three
+  sentences, prose with no figure, a nested callout, a question for Evan below the top with no `[needs::sysop]`), each
+  worded "fix before you call this done: …", then a `next` check. The same rules sit in the write tools' descriptions
+  (`agent-tool-definitions.ts`), so they are in the prompt beside every call. When the note holds a `::graph-*`, the
   answer starts with the note as it draws (`ep0ch show <id> --width 80 --rows 40`), its JSON still last for the tool
   rows. A drawing that fails leaves the answer as it was.
 
