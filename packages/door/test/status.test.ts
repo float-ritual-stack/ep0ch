@@ -166,6 +166,7 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
       spyOn(app.whatChanged, "count").mockReturnValue(1),
       spyOn(app.whatChanged, "machineryCount").mockReturnValue(1),
       spyOn(app.heldAsks, "count").mockReturnValue(1),
+      spyOn(app.speed, "slow").mockReturnValue("slow: 300 ms to settle"),
     ];
     const wasDance = screen.dancing;
     screen.dancing = () => true;
@@ -353,5 +354,37 @@ describe.skipIf(!outliner)("the person's status bar (PIE-1121)", () => {
     expect((await board.get(note.id))!.text).toContain('label="Broken"');
     app.flash("");
     expect(bar()).toContain("^K");
+  });
+});
+
+
+describe("the status bar says when the door settles slowly (PIE-1309)", () => {
+  /** A door on a fake clock whose screen takes `paintMs` to draw: the time from a key to the frame that shows it. */
+  function door(paintMs: () => number) {
+    let now = new Date(2026, 9, 25, 9, 0, 0).getTime();
+    const term = { info: { cols: 120, rows: 30, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey() {}, onResize() {} };
+    const app = new App(term as any, {} as any, now, () => {}, () => now);
+    const screen = { title: "board", render: () => { now += paintMs(); return { lines: ["a screen"] }; }, key() { app.redraw(); } };
+    app.push(screen as any);
+    const bar = () => plain((app as any).statusBar(screen, 120));
+    /** One burst: a key, the frame it draws, and a pause longer than a burst. */
+    const burst = async () => { now += 2000; (app as any).key({ kind: "char", ch: "x" }); await Bun.sleep(30); };
+    return { app, bar, burst, wait: (ms: number) => { now += ms; } };
+  }
+
+  test("a minute of slow bursts puts the number in the bar; a minute of fast ones takes it away; one slow paint says nothing", async () => {
+    let slow = 150;
+    const d = door(() => slow);
+    await d.burst();
+    expect(d.bar()).not.toContain("slow");
+    for (let i = 0; i < 6; i++) await d.burst();
+    expect(d.app.speed.describe().settle).toMatchObject({ n: 7, p95: 150, worst: 150 });
+    expect(d.bar()).toContain("slow: 150 ms to settle");
+    // Nothing is slow once a minute passes without a slow burst.
+    slow = 5;
+    d.wait(61_000);
+    for (let i = 0; i < 6; i++) await d.burst();
+    expect(d.bar()).not.toContain("slow");
+    expect(d.app.speed.describe().settle.worst).toBe(150);
   });
 });

@@ -669,7 +669,8 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
       else { for (const m of sweep) { a.send(m); await nextTurn(); } for (const m of after) a.send(m); }
       await quiet();
       const speed = (await control({ cmd: "peek" })).screen.speed;
-      return { frames: a.drawn.filter(t => t >= t0).length, idle: Math.max(0, ...a.drawn.filter(t => t >= t0)) - t0, painted: speed.frames - before.frames, folded: speed.motionCoalesced - before.motionCoalesced };
+      return { frames: a.drawn.filter(t => t >= t0).length, idle: Math.max(0, ...a.drawn.filter(t => t >= t0)) - t0, painted: speed.frames - before.frames, folded: speed.motionCoalesced - before.motionCoalesced,
+        reports: speed.reports - before.reports, bursts: speed.settle.n - before.settle.n, worst: speed.settle.worst as number | null };
     };
 
     for (const shape of ["one write", "200 writes"] as const) {
@@ -680,6 +681,12 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
       expect(r.painted).toBeLessThanOrEqual(10);
       // Nearly every report was folded into a newer one, however the link cut them into reads.
       expect(r.folded).toBeGreaterThanOrEqual(150);
+      // The door counted every report it was handed, and measured the burst: the last report to the frame that showed it,
+      // which cannot have taken longer than the whole sweep took to reach the screen (PIE-1309).
+      expect(r.reports).toBeGreaterThanOrEqual(200);
+      expect(r.bursts).toBeGreaterThanOrEqual(1);
+      expect(r.worst).not.toBeNull();
+      expect(r.worst!).toBeLessThan(Math.max(r.idle + 100, 1000));
       const now = cuts.map(look);
       expect(now[1]).not.toBe(plain[1]);
       expect(now.filter((_, i) => i !== 1)).toEqual(plain.filter((_, i) => i !== 1));

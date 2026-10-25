@@ -359,7 +359,7 @@ describe("two doors on one outline (F19)", () => {
     // Whichever door started second is warned (both, when they start at the same moment); read before the
     // marks' own flashes replace it.
     await Bun.sleep(500);
-    const warned = (await a.cli("peek")).out + (await b.cli("peek")).out;
+    const warned = (await a.cli("peek", "--json")).out + (await b.cli("peek", "--json")).out;
     expect(warned.includes("another door")).toBe(true);
     const id = await note("Harbour chart\nthe north pier");
     const mark = (d: Door, reason: string) => d.cli("act", "block.mark", `id=${id}`, `reason=${reason}`, "--as", "cartographer-2");
@@ -414,7 +414,7 @@ describe("offline says offline (F24, C F17)", () => {
       pty.write("]"); await Bun.sleep(300);
       pty.write("\r"); await Bun.sleep(2000);
       expect(proc.exitCode).toBeNull();
-      const peek = await cli("peek");
+      const peek = await cli("peek", "--json");
       expect(peek).toContain('"screen": "desk"');
       expect(peek).toContain("offline · the outline isn't answering");
     } finally {

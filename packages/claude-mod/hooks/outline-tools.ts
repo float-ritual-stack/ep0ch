@@ -125,8 +125,20 @@ export const DOOR_TOOLS: readonly DoorToolDefinition[] = [
   {
     name: 'door_peek',
     example: {},
-    description: 'What the door shows the person now (ep0ch peek): the screen as structured state and as text. Only reads.',
-    inputSchema: { type: 'object', properties: { xray: { type: 'boolean', description: 'Include every visible tile controls as hint-card rows.' } }, additionalProperties: false },
+    description:
+      'What the door shows the person now (ep0ch peek): by default the compact text, a few lines of state (where, ' +
+      'the person, the door\'s speed) and the screen as text, a few KB. `full: true` is the whole structured state as ' +
+      'well (ep0ch peek --json: layout, drawer, tiles, hundreds of KB); `section` is one top-level part of it ' +
+      '(speed, person, layout, drawer, state, …). Only reads.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        full: { type: 'boolean', description: 'The whole structured state and the screen text, not the compact text.' },
+        section: { type: 'string', description: 'One part of the state, e.g. speed, person, layout, drawer, state, text.' },
+        xray: { type: 'boolean', description: 'Include every visible tile controls as hint-card rows (the whole state, as full).' },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'door_act',
@@ -204,18 +216,29 @@ export function doorActArgv(
   return { argv: ['ep0ch', 'act', action, ...words, '--as', actor], ...(stdin === undefined ? {} : { stdin }) }
 }
 
+/** What a `door_peek` call asks `ep0ch peek` for: the compact text (`text`), one `section` of the state, or the `full` state as one JSON object. */
+export type PeekAsk = { argv: string[]; reads: 'text' | 'section' | 'full' }
+export function peekArgv(input: Json): PeekAsk | string {
+  const section = typeof input.section === 'string' ? input.section.trim() : ''
+  if (section && !/^[A-Za-z][A-Za-z0-9_-]*$/.test(section)) return 'section is the name of one part of the state: speed, person, layout, drawer, state, text.'
+  if (section) return { argv: ['ep0ch', 'peek', section], reads: section === 'text' ? 'text' : 'section' }
+  const full = input.full === true || input.xray === true
+  return { argv: ['ep0ch', 'peek', ...(full ? ['--json'] : []), ...(input.xray === true ? ['--xray'] : [])], reads: full ? 'full' : 'text' }
+}
+
 /**
- * `ep0ch peek` prints the screen's state as indented JSON, then the screen's
- * text. Both, as one compact value; the text alone when the state doesn't parse.
+ * What `ep0ch peek` printed, as one compact value: the compact text as `{ text }`; the full state (`--json`: one object
+ * holding the screen's `text` lines) as `{ screen, text }`; a section (JSON alone) as `{ section }`.
  */
-export function peekOf(stdout: string): { screen?: unknown; text: string } {
-  const lines = stdout.split('\n')
-  const end = lines.findIndex(line => line === '}' || line === ']')
-  if (lines[0]?.startsWith('{') || lines[0]?.startsWith('[')) {
+export function peekOf(stdout: string, reads: PeekAsk['reads'] = 'text'): { screen?: unknown; section?: unknown; text?: string } {
+  if (reads !== 'text') {
     try {
-      return { screen: JSON.parse(lines.slice(0, end + 1).join('\n')), text: lines.slice(end + 1).join('\n').trimEnd() }
+      const value = JSON.parse(stdout) as Json
+      if (reads === 'section') return { section: value }
+      const { text, ...screen } = value
+      return { screen, text: Array.isArray(text) ? text.join('\n').trimEnd() : '' }
     } catch {
-      // Not the state this expects: the text alone.
+      // Not the JSON this asked for: the text alone.
     }
   }
   return { text: stdout.trimEnd() }

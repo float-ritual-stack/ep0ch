@@ -139,12 +139,18 @@ export class Painter implements Display {
   /** What it was last asked to report, for after a program had the terminal. */
   private want: ReadonlyMap<string, StatusInput> | null = null;
   /** A program had the terminal (and may have reported, cleared or reset its records): everything the door says, said again. */
-  retell(): void { this.reporter.forget(); if (this.want && this.term.info.pst) this.reporter.sync(this.want); }
+  retell(): void { this.reporter.forget(); if (this.want && this.term.info.pst) this.reporter.sync(this.heard(this.want)); }
+  /** What this terminal is told of `want`: all of it where it shows the tree, else the root alone. */
+  private heard(want: ReadonlyMap<string, StatusInput>): ReadonlyMap<string, StatusInput> {
+    if (this.term.info.tree) return want;
+    const root = want.get("");
+    return new Map(root ? [["", root]] : []);
+  }
   programStatus(want: ReadonlyMap<string, StatusInput> | null): void {
     if (!this.term.info.pst) return;
     this.want = want;
     if (this.away) return;
-    if (want) this.reporter.sync(want); else this.reporter.clear();
+    if (want) this.reporter.sync(this.heard(want)); else this.reporter.clear();
   }
 
   async handOver(argv: string[], o: HandoverOpts): Promise<number | null> {

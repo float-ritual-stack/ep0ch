@@ -282,7 +282,7 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
       expect(await printed.exited, await new Response(printed.stderr).text()).toBe(0);
       expect(output).toContain("TypeError: broken fixture action");
       expect(output.includes("Message 504:")).toBe(true);
-      const peek = cli(["peek"]);
+      const peek = cli(["peek", "--json"]);
       const peeked = await new Response(peek.stdout).text();
       expect(await peek.exited, await new Response(peek.stderr).text()).toBe(0);
       expect(peeked.includes("Message 504:")).toBe(true);

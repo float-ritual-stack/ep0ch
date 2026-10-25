@@ -705,7 +705,7 @@ See [machine-link installation](../outliner/docs/machine-link.md#installing-over
 | `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
 | `ep0ch clients [--ws <name>] [--machine <ssh-name>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |
 | `ep0ch session list`, `attach [--watch]`, `end [--yes] [--all]`, `upgrade [--clients] [--all]`, `restart` | the door sessions, one per outline (see [Sessions](#sessions-quit-is-detach)): every one listed with who's attached and what runs; attach to this folder's (or `--ws`'s), end it, hand it to a new daemon on this checkout's code (its programs keep running); `--all` for every session |
-| `ep0ch peek`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
+| `ep0ch peek [<section>] [--json] [--xray]`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (`peek` is the compact text by default; `--json` one JSON object; `peek speed`, `peek person` … one part of it) (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
 
 `bun src/main.ts …` still works the same way, and `ep0ch-door` is the same command.
 
@@ -724,7 +724,7 @@ See [machine-link installation](../outliner/docs/machine-link.md#installing-over
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_THEME` | `calm` (the default), `night` or `classic`: the colours at start, over the one last chosen with `alt+t` (see [Themes and accessibility](#themes-and-accessibility)) |
 | `EP0CH_LANDING` | the screen opened after the logon, by any `--screen` name: `brief` (the newest daily brief), `welcome` (the welcome notes), or any registered screen (default: the main menu) |
-| `EP0CH_PROGRAM_STATUS` | `0` (or `off`): the door doesn't ask its terminal for the Program Status Protocol (OSC 7501) or report its own status to it, and our commands and the Claude mod emit none; `1`: they report without asking (a terminal known to speak it). Unset: asked (the `?` query, or `Pst` in terminfo). Terminal tiles always read what their programs report |
+| `EP0CH_PROGRAM_STATUS` | `0` (or `off`): the door doesn't ask its terminal for the Program Status Protocol (OSC 7501) or report its own status to it, and our commands and the Claude mod emit none; `1`: they report without asking (a terminal known to speak it). Unset: asked (the `?` query, or `Pst` in terminfo). `children`: the door also sends each of its tiles to the terminal (Herdr gets them without this), `root`: the root alone. Terminal tiles always read what their programs report |
 | `EP0CH_KEYBOARD` | `legacy` doesn't ask the terminal for the Kitty keyboard protocol (then Shift+Enter reads as Enter); unset, the door asks when the terminal answers its query |
 | `EP0CH_COPY_ON_SELECT` | `0` (or `off`) doesn't copy a mouse selection when the button comes up; `y`, `cmd+c` or the copy control copies it then (Herdr's `ui.copy_on_select`). Unset, a drag copies |
 | `EP0CH_OPTION_KEYS` | `us` reads macOS Option characters (`å`, `¬`) as alt keys outside text, `off` never; unset, by the locale |
@@ -1540,9 +1540,15 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   and `[invoke-deny::]` leaves an ask unsent with its reason outside this queue. Claude Code reports through the ep0ch mod (a permission dialog, a question, done at its
   answer), and so do `ep0ch install --apply`, `ep0ch backup run`, `scripts/box-test` and `scripts/agent-env --test`;
   without reports, the chip still guesses from the program's output, as before. The door reports its own to the
-  terminal it runs in when that terminal speaks the protocol (Ghostty, Rex): the most urgent across its tiles, and each
-  tile as a child by a key it keeps wherever it moves (`claude.3`; at most 63, most urgent first; progress in tens). A
-  detached terminal is cleared, an attached one told everything. `EP0CH_PROGRAM_STATUS=0` turns its reports and its query off.
+  terminal it runs in when that terminal speaks the protocol (Ghostty, Rex, Tern, Herdr), and only what a person away
+  from the door needs (PIE-1310): a tile blocked on you, a failure, a long job's done (two minutes or more), each in words
+  that say who, where and what (`scribe in garden · approve: Allow Edit: src/seeds.ts?`, `scribe in garden · 4 min: planted
+  the early peas`), sent once the change has held four seconds (a tile answered within them sends nothing), and an idle
+  saying `nothing waits on you in garden` when it clears. Working, idle, progress and a program rewording itself stay inside
+  the door. A terminal that shows the tree (Herdr's sidebar) is also sent each tile as a child by a key it keeps wherever
+  it moves (`claude.3`; at most 63, most urgent first; progress in tens). A detached terminal is cleared, an attached one
+  told everything. `EP0CH_PROGRAM_STATUS=0` turns its reports and its query off; `children` sends the tiles to a terminal
+  that shows them, `root` sends the root alone to Herdr.
   Done is the person's: an agent reading or acting on a tile never clears it. A shell without prompt marks (OSC 133)
   still loses a finished job's working: on Linux the door sees the shell take the terminal back.
 - **A new shell, here.** `alt+s` opens a new shell as a tab in the drawer, in its folder (`host.shell`). It starts in the folder chosen with the drawer's agent (`host.agent in=<folder>`) when
@@ -3233,7 +3239,7 @@ never shows a percentage. Extra wire details appear only where there is room. `h
 tune inspector is `full`, `brief`, or `off`; cards use the tile's tone on a dark
 surface. The showcase's `hints` section demonstrates linking live.
 
-`ep0ch peek --xray` reads every visible tile's card as data without displaying it.
+`ep0ch peek --xray` reads every visible tile's card as data without displaying it (the whole state, as `--json`).
 `hint.show text="Choose a destination" for=reader` shows an attributed card;
 `hint.get`, `hint.pin`, and `hint.dismiss` read, keep, or close it.
 Every card has `[never]` (`Alt+Shift+N`, `hint.never`): future occurrences of that hint

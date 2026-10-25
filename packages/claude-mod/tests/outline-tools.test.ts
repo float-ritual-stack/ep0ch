@@ -267,7 +267,11 @@ describe('door tools', () => {
   test('in a door tile they run ep0ch on its control socket, attributed with --as', async ($, on) => {
     const session = sessionIn(on, run => {
       if (run.argv[0] !== 'ep0ch') return undefined
-      if (run.argv[1] === 'peek') return result(0, '{\n  "screen": "desk",\n  "focus": "middle"\n}\nDESK  middle: Seed swap plan\n')
+      if (run.argv[1] === 'peek') {
+        if (run.argv[2] === 'speed') return result(0, '{\n  "frames": 7\n}\n')
+        if (run.argv.includes('--json')) return result(0, '{\n  "screen": "desk",\n  "focus": "middle",\n  "text": [\n    "DESK  middle: Seed swap plan",\n    ""\n  ]\n}\n')
+        return result(0, 'desk · middle · garden\nperson {"busy":false}\n────\nDESK  middle: Seed swap plan\n')
+      }
       if (run.argv[1] === 'act') return result(0, `{"ok":true,"action":"${run.argv[2]}"}\n`)
       return undefined
     }, { ...DOOR, EP0CH_AGENT: 'loki' })
@@ -277,8 +281,17 @@ describe('door tools', () => {
     const where = await $.tool.call({ tool: 'mcp__ep0ch__door_where' })
     expect(JSON.parse(String((where as { result: unknown }).result))).toMatchObject({ summary: 'door:4242/desk/t1:claude' })
 
+    // The compact text by default; the whole state one argument away; one part of it by name.
     const peek = await $.tool.call({ tool: 'mcp__ep0ch__door_peek' })
-    expect(JSON.parse(String((peek as { result: unknown }).result))).toEqual({ screen: { screen: 'desk', focus: 'middle' }, text: 'DESK  middle: Seed swap plan' })
+    expect(JSON.parse(String((peek as { result: unknown }).result))).toEqual({ text: 'desk · middle · garden\nperson {"busy":false}\n────\nDESK  middle: Seed swap plan' })
+    expect(session.runs.findLast(run => run.argv[1] === 'peek')!.argv).toEqual(['ep0ch', 'peek'])
+    const full = await $.tool.call({ tool: 'mcp__ep0ch__door_peek', full: true })
+    expect(JSON.parse(String((full as { result: unknown }).result))).toEqual({ screen: { screen: 'desk', focus: 'middle' }, text: 'DESK  middle: Seed swap plan' })
+    expect(session.runs.findLast(run => run.argv[1] === 'peek')!.argv).toEqual(['ep0ch', 'peek', '--json'])
+    const part = await $.tool.call({ tool: 'mcp__ep0ch__door_peek', section: 'speed' })
+    expect(JSON.parse(String((part as { result: unknown }).result))).toEqual({ section: { frames: 7 } })
+    const bad = await $.tool.call({ tool: 'mcp__ep0ch__door_peek', section: '--json' })
+    expect(bad.deny).toContain('section is the name of one part')
 
     await $.tool.call({ tool: 'mcp__ep0ch__door_act', action: 'block.mark', args: { reason: 'needs your call', line: 3 }, tile: 'middle' })
     const act = session.runs.findLast(run => run.argv[1] === 'act')!

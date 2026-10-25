@@ -227,6 +227,49 @@ function openRef(arg: string): { blockId: string; fragment?: string; address?: {
 /** `open`'s ref, as the shared tool-argument check words a refusal. */
 const OPEN_SPEC: ToolArgsSpec = { name: "ep0ch open", schema: { type: "object", properties: { ref: { type: "string" } }, required: ["ref"] }, example: { ref: "PIE-123" }, callText: (name, args) => `${name} ${args.ref}` };
 
+/**
+ * What `peek` was asked for (PIE-1308, PIE-1302): by default the compact text, a few lines of state and the screen as
+ * text; `--json` the whole state and the text as one JSON object and nothing else; a section (`peek speed`, `peek
+ * person`, any top-level key of the state) just that, as JSON; `--xray` the state with every tile's card, as `--json`.
+ */
+export interface PeekAsk { json: boolean; xray: boolean; section: string | null }
+export function peekAsk(args: readonly string[]): PeekAsk | { error: string } {
+  const rest = args.slice(args.indexOf("peek") + 1);
+  const section: string[] = [];
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i]!;
+    if (a === "--ws" || a === "--machine" || a === "--as") { i++; continue; }
+    if (a.startsWith("--")) continue;
+    section.push(a);
+  }
+  if (section.length > 1) return { error: `peek takes one section (\`ep0ch peek speed\`), not ${section.join(" ")} · \`ep0ch peek --json\` has them all` };
+  return { json: args.includes("--json"), xray: args.includes("--xray"), section: section[0] ?? null };
+}
+
+/** The state as the compact peek heads it: where the door is and who it is for, in lines an agent reads at a glance. */
+function peekHead(screen: Record<string, any>): string[] {
+  const where = [screen.outline ?? screen.workspace, screen.machine ?? screen.host].filter(Boolean).join(" on ");
+  return [
+    `${screen.screen ?? "?"} · ${(screen.stack as string[] | undefined)?.join(" › ") ?? ""} · ${where}`,
+    `person ${JSON.stringify(screen.person ?? null)}`,
+    `speed ${JSON.stringify(screen.speed ?? null)}`,
+  ];
+}
+
+/** What `ep0ch peek` prints for `ask`, from the door's answer; an error names the sections there are. */
+export function peekOutput(result: { screen: Record<string, any>; text: string[] }, ask: PeekAsk): { out: string; error?: undefined } | { error: string; out?: undefined } {
+  const { screen, text } = result;
+  if (ask.section) {
+    if (ask.section === "text") return { out: text.join("\n") + "\n" };
+    if (!(ask.section in screen)) return { error: `peek has no section ${ask.section} · its sections: ${Object.keys(screen).concat("text").join(", ")} · \`ep0ch peek --json\` gives them all` };
+    return { out: JSON.stringify(screen[ask.section], null, 2) + "\n" };
+  }
+  if (ask.json || ask.xray) return { out: JSON.stringify({ ...screen, text }, null, 2) + "\n" };
+  let last = text.length;
+  while (last > 0 && !text[last - 1]) last--;
+  return { out: [...peekHead(screen), "─".repeat(20), ...text.slice(0, last), "─".repeat(20), "more: `ep0ch peek --json` (all of the state, and this text), `ep0ch peek <section>` (layout, drawer, speed, state, …)"].join("\n") + "\n" };
+}
+
 /** Client side: send one command to a running door and print the reply. */
 export async function controlClient(args: string[]): Promise<number> {
   let commandArgs = args.filter(a => a !== "--json");
@@ -252,6 +295,8 @@ export async function controlClient(args: string[]): Promise<number> {
     }
   }
   let req: Record<string, unknown>;
+  const peeked = cmd === "peek" ? peekAsk(args) : null;
+  if (peeked && "error" in peeked) { console.error(peeked.error); return 1; }
   // `subscribe [type,…]`: print the live feed, one JSON event per line, until interrupted.
   if (cmd === "subscribe") {
     const path = controlSocket();
@@ -276,7 +321,7 @@ export async function controlClient(args: string[]): Promise<number> {
     req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
       : fileTarget !== null ? { cmd: "act", ...(await parseActArgs(["open", `file=${fileTarget}`, ...commandArgs.slice(2)])) }
       : cmd === "open" ? { cmd: "act", ...(openTarget!.address ? { address: openTarget!.address } : {}), ...(await parseActArgs(["open", `id=${openTarget!.blockId}`, ...(openTarget!.fragment ? [`fragment=${openTarget!.fragment}`] : []), ...commandArgs.slice(2)])) }
-      : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd, ...(cmd === "peek" && args.includes("--xray") ? { xray: true } : {}) };
+      : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd, ...(cmd === "peek" && peeked && !("error" in peeked) && peeked.xray ? { xray: true } : {}) };
   } catch (e) { console.error((e as Error).message); return 1; }
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open), or its folder's .ep0ch does.
   if (req.cmd === "act") { const as = actAs(req.as, process.env, process.cwd()); if (as) req.as = as; }
@@ -293,7 +338,11 @@ export async function controlClient(args: string[]): Promise<number> {
     else console.error(r.error);
     return cmd === "open" && wantsJson ? 0 : 1;
   }
-  if (cmd === "peek") { await Bun.write(Bun.stdout, JSON.stringify(r.result.screen, null, 2) + "\n" + r.result.text.join("\n") + "\n"); }
+  if (cmd === "peek") {
+    const shown = peekOutput(r.result, peeked as PeekAsk);
+    if (shown.error !== undefined) { console.error(shown.error); return 1; }
+    await Bun.write(Bun.stdout, shown.out);
+  }
   else if (cmd === "actions") {
     const a = r.result;
     console.log(`${a.screen ?? "?"}${a.note ? ` · ${a.note}` : ""}${a.tiles?.length ? ` · tiles: ${a.tiles.join(", ")}` : ""}`);

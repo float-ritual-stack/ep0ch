@@ -10,6 +10,25 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The door tells its terminal only what deserves a nudge, and `peek` and the speed measure get easier to use (PIE-1310, PIE-1308, PIE-1309, PIE-1302)
+
+- **Tern, Ghostty and Rex no longer get an `ep0ch - done` for every Claude turn (PIE-1310).** The door's own program status
+  (OSC 7501) used to follow its tiles: working, idle and done flipped the root every turn. Now the root changes only when a
+  tile is blocked on you, a tile failed, or a job that ran two minutes or more is done, and only once the change has held four
+  seconds (a tile answered within them sends nothing). Each report says who, where and what: `scribe in garden · approve:
+  Allow Edit: src/seeds.ts?`, `scribe in garden failed: stopped on an API error`, `scribe in garden · 4 min: <its last
+  line>` (`finished after 4 min` without one); when it clears, `nothing waits on you in garden`. A terminal that shows the tile
+  records (Herdr's sidebar) is still sent each tile as a child; the others hear the root alone. `EP0CH_PROGRAM_STATUS=children`
+  or `root` says which for a terminal the door can't tell; `0` is still off.
+- **`ep0ch peek` is the compact text by default (PIE-1302).** A few KB: where the door is, `person`, `speed`, and the screen as
+  text (at the door's own width: a second render at another width is not side-effect free). `ep0ch peek --json` is the whole
+  state and the screen's `text` as one JSON object and nothing else (it printed the screen after the object, so `| jq` failed:
+  PIE-1308); `ep0ch peek <section>` (`speed`, `person`, `layout`, …) is one part as JSON. The Claude mod's `door_peek` takes
+  `full: true` and `section` for the same; the four narrow-width drawing fixes of PIE-1302 are not in this change.
+- **`peek`'s `speed` measures how fast the door settles (PIE-1309).** `since`, `frames`, `reports`, `motionCoalesced` and
+  `settle {p50, p95, worst, n}`: the time from the last input of a burst to the frame that shows it, over the latest 200
+  bursts. When the last minute's p95 passes 100 ms the status bar says `slow: N ms to settle`; nothing when it's fine.
+
 ### A links tile with hundreds of rows no longer makes every layout read take seconds (PIE-1303)
 
 - **`layout.get` (and so `act` and the parity probes) listed a links tile's rows once per row.** With a note open that has a few
