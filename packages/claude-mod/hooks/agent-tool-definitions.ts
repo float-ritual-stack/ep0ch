@@ -68,8 +68,10 @@ const WRITE_RULES =
   "Evan reads on a phone or between other work: lead with the conclusion; keep the title line short (under about 70 characters) " +
   "with the detail in the body; a section is one component (a figure, a callout, a check, a compare) plus at most three short lines, " +
   "and a paragraph is at most three sentences; a number a query can count goes in a live figure, never in prose. A question for Evan " +
-  "goes first as one `- [ ]` line, and the note gets `[needs::sysop: the decision]`. The answer measures what you wrote: every " +
-  "`warnings` entry that starts \"fix before you call this done\" is yours to fix, and `next` says how to check it.";
+  "goes first as one `- [ ]` line, and the note gets `[needs::sysop: the decision]`. A fragment of an idea still forming is " +
+  "`[type::chirp]`; a request is only something ready to work on. Before you finish, check: no paragraph over three sentences, no count typed " +
+  "in prose. The answer measures what you wrote and the rows each live figure returned: every `warnings` entry that starts " +
+  "\"fix before you call this done\" (a figure suggestion and a figure with 0 rows too) is yours to fix, and `next` says how to check it.";
 
 /** The same for a margin comment: no title, nothing to mark, the same wall rule and the same answer. */
 const COMMENT_RULES =

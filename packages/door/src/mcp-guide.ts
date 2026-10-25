@@ -71,13 +71,13 @@ export function skillResource(skills: readonly Skill[], uri: unknown): { content
  * What a write's `detail` says about the text it wrote (the agent tools' `warnings` and `components`), to sit beside
  * `said`, with a clause for `said` when there are warnings: nothing when it says nothing.
  */
-export function writeReading(detail: unknown): { fields: { components?: string[]; warnings?: string[]; next?: string }; said: string } {
+export function writeReading(detail: unknown): { fields: { components?: string[]; warnings?: string[]; figures?: string[]; next?: string }; said: string } {
   const d = detail && typeof detail === "object" ? detail as Record<string, unknown> : {};
   const list = (v: unknown) => (Array.isArray(v) && v.every(x => typeof x === "string") && v.length ? v as string[] : undefined);
-  const components = list(d.components), warnings = list(d.warnings);
+  const components = list(d.components), warnings = list(d.warnings), figures = list(d.figures);
   const next = typeof d.next === "string" && d.next ? d.next : undefined;
   return {
-    fields: { ...(components ? { components } : {}), ...(warnings ? { warnings } : {}), ...(next ? { next } : {}) },
+    fields: { ...(components ? { components } : {}), ...(warnings ? { warnings } : {}), ...(figures ? { figures } : {}), ...(next ? { next } : {}) },
     said: (warnings ? `; ${warnings.length} to fix before you call this done (warnings): saved as written, fix ${warnings.length === 1 ? "it" : "them"} now` : "")
       + (next ? `; next: ${next}` : ""),
   };

@@ -18,6 +18,9 @@ test("the note write tools carry the house rules right after their first sentenc
     expect(description, name).toContain("one `- [ ]` line");
     expect(description, name).toContain("[needs::sysop");
     expect(description, name).toContain(gate);
+    expect(description, name).toContain("no count typed in prose");
+    expect(description, name).toContain("[type::chirp]");
+    expect(description, name).toContain("ready to work on");
   }
 });
 

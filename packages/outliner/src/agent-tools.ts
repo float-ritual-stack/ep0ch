@@ -21,6 +21,7 @@ import { FIX_BEFORE_DONE, shapeNext, shapeWarnings } from "@ep0ch/outline-core/w
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { figureShape, suggestFigure } from "./figure-fit";
+import { figureRowReport } from "./figure-rows";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
@@ -551,6 +552,8 @@ export interface EditResult {
   warnings?: string[];
   /** The components the saved text holds, by id (PIE-721): what the note now draws besides its prose. */
   components?: string[];
+  /** The live figures this write added or changed, with the rows each returned (figure-rows.ts, PIE-1270). */
+  figures?: string[];
   /** The next check, always (PIE-1270): read the note as drawn before calling the write done. */
   next?: string;
 }
@@ -804,10 +807,14 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
  * create's or an edit's, with the text before), the figure it would read best as (figure-fit.ts). Every finding is a
  * warning worded as a gate, never a refusal; `next` always ends the answer.
  */
-async function warned(client: AgentToolsClient, text: string, near?: string, self = near, gate?: { before?: string }): Promise<{ warnings?: string[]; components?: string[]; next?: string }> {
-  const [{ warnings, components }, fit] = await Promise.all([writtenReading(client, text, near, self), gate ? figureSuggestion(client, text, gate.before) : null]);
-  const all = [...warnings, ...(gate ? shapeWarnings(text, gate.before) : []), ...(fit ? [FIX_BEFORE_DONE + fit.said] : [])];
-  return { ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(near ? { next: shapeNext(near) } : {}) };
+async function warned(client: AgentToolsClient, text: string, near?: string, self = near, gate?: { before?: string }): Promise<{ warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
+  const [{ warnings, components }, fit, rows] = await Promise.all([
+    writtenReading(client, text, near, self),
+    gate ? figureSuggestion(client, text, gate.before) : null,
+    gate && near ? figureRowReport(client, near, text, gate.before) : null,
+  ]);
+  const all = [...warnings, ...(gate ? shapeWarnings(text, gate.before) : []), ...(rows?.warnings ?? []), ...(fit ? [FIX_BEFORE_DONE + fit.said] : [])];
+  return { ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(near ? { next: shapeNext(near) } : {}) };
 }
 
 // ─── Create ────────────────────────────────────────────────────────────────
@@ -817,7 +824,7 @@ export async function createBlock(
   client: AgentToolsClient,
   input: { parent: string; text: string; position?: number },
   actor: AgentActor,
-): Promise<{ id: string; ref: string; revision: number; parentId: string | null; warnings?: string[]; components?: string[]; next?: string }> {
+): Promise<{ id: string; ref: string; revision: number; parentId: string | null; warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
   const text = requireText(input.text, "The new block's text");
   if (typeof input.parent !== "string" || !input.parent.trim()) throw new WorkToolRefusal("Give the parent: a reference, or root");
   const parentId = input.parent.trim() === "root" ? null : (await writableBlock(client, input.parent)).id;
@@ -1213,7 +1220,7 @@ export async function patchDraft(
   actor: AgentActor,
   /** `suggest: false`: a write that isn't the note's words (a property set) asks figure-fit nothing, measures nothing and has no next check. */
   o: { suggest?: boolean } = {},
-): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; next?: string }> {
+): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
   const revision = requireRevision(input.revision);
   const policy = input.policy ?? "edit";
   if (!DRAFT_PATCH_POLICIES.includes(policy)) throw new WorkToolRefusal(`policy is ${DRAFT_PATCH_POLICIES.join(" or ")}`);
@@ -1244,13 +1251,18 @@ export async function patchDraft(
   const after = await read();
   if (after === undefined || after === was) return result;
   const before = new Set(await referenceWarningsFor(client, was, block.id));
-  const [now, suggestion] = await Promise.all([writtenReading(client, after, block.id), o.suggest === false ? null : figureSuggestion(client, after, was)]);
+  const [now, suggestion, rows] = await Promise.all([
+    writtenReading(client, after, block.id),
+    o.suggest === false ? null : figureSuggestion(client, after, was),
+    o.suggest === false ? null : figureRowReport(client, block.id, after, was),
+  ]);
   const warnings = [
     ...now.warnings.filter(w => !before.has(w)),
     ...(o.suggest === false ? [] : shapeWarnings(after, was)),
+    ...(rows?.warnings ?? []),
     ...(suggestion ? [FIX_BEFORE_DONE + suggestion.said] : []),
   ];
-  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(o.suggest === false ? {} : { next: shapeNext(block.id) }) };
+  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(o.suggest === false ? {} : { next: shapeNext(block.id) }) };
 }
 
 // ─── One header property ───────────────────────────────────────────────────

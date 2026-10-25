@@ -749,6 +749,35 @@ test("a write measures the note: a 200-character title and a wall each answer a 
   expect(set.json.warnings).toBeUndefined();
 });
 
+// PIE-1270: an agent can't see a figure draw over MCP, so a write reports the rows each live figure it added returned,
+// and a figure that matches nothing is something to fix before calling the write done.
+test("a written live figure reports its rows; one that matches nothing is a fix before done; an unchanged figure isn't asked again", async () => {
+  const { store, agent } = await setup();
+  store.create("Borlotti [type::seed]");
+  store.create("Lentils [type::seed]");
+  const figure = (query: string) => ["Seeds", "::graph-table", "---", `query: ${query}`, "---", "::"].join("\n");
+
+  const found = await agent("create", { parent: "root", text: figure("type=seed") });
+  expect(found.exitCode, found.stderr).toBe(0);
+  expect(found.json.figures).toEqual(["graph-table on line 2: 2 rows"]);
+  expect(found.json.warnings).toBeUndefined();
+
+  const none = await agent("create", { parent: "root", text: figure("type=sead") });
+  expect(none.json.figures).toEqual(["graph-table on line 2: 0 rows"]);
+  expect(none.json.warnings).toEqual([expect.stringMatching(/^fix before you call this done: the graph-table on line 2 \(query: type=sead\) returned 0 rows/)]);
+
+  const note = store.require(none.json.id);
+  const again = await agent("edit", { ref: note.id, expectedRevision: note.revision, append: "A line below." });
+  expect(again.json.figures).toBeUndefined();
+  expect(again.json.warnings).toBeUndefined();
+  const fixed = await agent("edit", { ref: note.id, expectedRevision: store.require(note.id).revision, text: figure("type=seed") });
+  expect(fixed.json.figures).toEqual(["graph-table on line 2: 2 rows"]);
+
+  const stat = await agent("create", { parent: "root", text: ["Counts", "::graph-stat", "---", "items:", "  - label: seeds", "    query: type=seed", "  - label: none", "    query: type=sead", "---", "::"].join("\n") });
+  expect(stat.json.figures).toEqual(["graph-stat on line 2: 2, 0 rows"]);
+  expect(stat.json.warnings).toEqual([expect.stringContaining('matched 0 rows ("none")')]);
+});
+
 // PIE-721: a write says what its components will draw, and what in them won't draw as written, without refusing it.
 test("a written figure is confirmed in components; a typo in its name or a key, or YAML that doesn't read, is a warning", async () => {
   const { store, agent } = await setup();

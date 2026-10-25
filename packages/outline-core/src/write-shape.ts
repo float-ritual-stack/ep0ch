@@ -53,24 +53,26 @@ const excerpt = (text: string, max = 48) => {
   return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat;
 };
 
-/** Sentences in a paragraph: a terminator followed by a space and more text, or ending it; code, links and abbreviations aren't ends. */
+/** Sentences in a paragraph: a terminator followed by a space and a capital or digit, or ending it; code, links, properties and abbreviations aren't ends. */
 export function sentenceCount(paragraph: string): number {
   const flat = paragraph
+    .replace(/\[[\w-]+::[^\]]*\]/g, " ")
     .replace(/`[^`]*`/g, "x")
     .replace(/\(\([^)]*\)\)|\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\)/g, "x")
     .replace(/https?:\/\/\S*[^\s.,;:!?)]/g, "x")
-    .replace(/\b(?:e\.g|i\.e|etc|vs|approx|fig|no|cf)\./gi, "x")
+    .replace(/\b(?:e\.g|i\.e|etc|vs|approx|fig|no|cf|dr|mr|mrs|ms|prof|st|jr|sr)\./gi, "x")
     .replace(/(\d)\.(\d)/g, "$1$2")
     .replace(/\s+/g, " ")
     .trim();
   if (!flat) return 0;
-  return Math.max(1, (flat.match(/[.!?]+(?=\s+\S|\s*$)/g) ?? []).length);
+  return Math.max(1, (flat.match(/[.!?]+(?=\s+["'(\[*_`]*[\p{Lu}\d]|\s*$)/gu) ?? []).length);
 }
 
 const HEADING = /^[ \t]{0,3}#{1,6}[ \t]/;
 const LIST_ITEM = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/;
 const TABLE_ROW = /^[ \t]*\|/;
 const RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
+const PROPERTY_CHIP = /\[[\w-]+::[^\]]*\]/g;
 const CALLOUT_OPEN = /^\[![^\]]+\]/;
 
 interface Paragraph { line: number; text: string; lines: number; item: boolean }
@@ -86,7 +88,12 @@ function paragraphs(text: string, comment: boolean): Paragraph[] {
   const title = comment ? -1 : headerLine(text).line;
   const out: Paragraph[] = [];
   let open: (Paragraph & { depth: number }) | null = null;
-  const close = () => { if (open) { out.push({ line: open.line, text: open.text, lines: open.lines, item: open.item }); open = null; } };
+  const close = () => {
+    // A `[key::value]` chip is a property, not prose: its value (a URL, a path) never makes a paragraph long.
+    const text = open?.text.replace(PROPERTY_CHIP, " ").replace(/\s+/g, " ").trim();
+    if (open && text) out.push({ line: open.line, text, lines: open.lines, item: open.item });
+    open = null;
+  };
   lines.forEach((raw, i) => {
     if (structure[i]! !== -1 || i === title) { close(); return; }
     const { depth } = quoteDepth(raw);
@@ -122,7 +129,7 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
     const sentences = sentenceCount(p.text);
     if (sentences > SHAPE_LIMITS.sentences || p.text.length > SHAPE_LIMITS.paragraphChars) {
       found.push({
-        rule: "wall", key: `wall:${excerpt(p.text, 40)}`,
+        rule: "wall", key: `wall:${p.text.slice(0, 24)}…${p.text.slice(-24)}`,
         say: `line ${p.line + 1} ("${excerpt(p.text, 32)}") is ${sentences} sentences, ${p.text.length} characters: a paragraph is at most ${SHAPE_LIMITS.sentences} sentences; split it, or make it a list, a callout or a figure`,
       });
     }
@@ -161,14 +168,17 @@ export function writeShape(text: string, o: ShapeOptions = {}): ShapeFinding[] {
 
 /** A line that asks Evan: names him and has a question mark or a decision word. A heuristic until PIE-1251's judgment replaces it. */
 export function asksEvan(line: string): boolean {
-  return /\bEvan\b/.test(line) && (/\?/.test(line) || /\b(?:decide|should we|which)\b/i.test(line));
+  return /\bEvan\b/.test(line) && (/\?/.test(line) || /\b(?:decide|should we)\b/i.test(line));
 }
 
 /**
  * The findings for a write's answer, each worded as a gate. With `before` (the text the write changed), a finding the
- * note already had is left out: an append to an old note is told what the append did, not what the note was.
+ * note already had is left out (a wall is matched by its first and last words, so a word fixed in the middle is still
+ * the same wall): an append to an old note is told what the append did, not what the note was.
  */
 export function shapeWarnings(text: string, before?: string, o: ShapeOptions = {}): string[] {
-  const had = new Set(before === undefined ? [] : writeShape(before, o).map(f => f.key));
-  return writeShape(text, o).filter(f => !had.has(f.key)).map(f => FIX_BEFORE_DONE + f.say);
+  // Counted, not just seen: a second copy of a wall the note already had is a new wall.
+  const had = new Map<string, number>();
+  for (const f of before === undefined ? [] : writeShape(before, o)) had.set(f.key, (had.get(f.key) ?? 0) + 1);
+  return writeShape(text, o).filter(f => { const n = had.get(f.key) ?? 0; if (n) had.set(f.key, n - 1); return !n; }).map(f => FIX_BEFORE_DONE + f.say);
 }

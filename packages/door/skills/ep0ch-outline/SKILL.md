@@ -159,7 +159,7 @@ revision, so concurrent edits rarely collide.
   labelled as history. An aside or warning is a callout; sections are headings. Worked example:
   [[callouts-to-figures]] in pie (`ep0ch show --ws pie --machine float-2 41280a8e`). Plan -> graph-check;
   today/route/rules -> graph-compare; superseded choices/rules -> graph-decision; edges -> graph-table;
-  code -> a code fence; the untested warning stays a callout and history folds.
+  a key/value list (a thing's settings, owner, dates) -> graph-props; code -> a code fence; the untested warning stays a callout and history folds.
 
   ```text
   Shed repairs [project::garden-club] [type::plan]
@@ -293,8 +293,9 @@ one.
 
 ## Pages, welcome and the briefing
 
-- Ask the person for a go with `[needs::sysop: <one line>]` at the top of the note, loud. It appears in
-  the drawer's waiting-on-you decisions, with your attribution. When the answer lands, remove the property;
+- Ask the person for a go in two places that say the same thing: `[needs::sysop: <one line>]` on the title line, and the
+  question as one `- [ ]` in a warning callout at the top of the note. The property feeds the drawer's waiting-on-you
+  list, with your attribution; the checkbox is what a reader sees first. Write both, together. When the answer lands, remove the property;
   the person's `x` clears it with a "cleared by you" comment. Open proposals and unticked calls under
   "Decisions for Evan" or "NEEDS A GO" in capability/design notes appear there too.
 
@@ -372,6 +373,9 @@ Every note clears this floor:
 - A short title line (under about 70 characters), a paragraph of at most three sentences, a section of one component
   plus at most three short lines. A question for Evan goes first as one `- [ ]` line, with `[needs::sysop: …]` on the
   note. The write answer measures these (below).
+- A fragment of an idea still forming is `[type::chirp]`. A request is only something ready to work on (the workboard's
+  "Requests are chirps": an idea becomes a request when someone can start it).
+- Suggest mode in chat follows the same rules: one line per note, then the swaps. No wall in chat either.
 
 Above the floor, use whatever makes this note clearer. The examples are one way each, not the way: an outbox draft
 (a purpose callout, a before-it-posts checklist, the message in one quote, folded sources), a session plan (now, open
@@ -379,8 +383,9 @@ questions, steps as live queries), a decision record (the question, options as a
 change it). Reach past them: ask `outline_components` (or `ep0ch library --brief`) for what exists and pick what
 fits; `ep0ch library --guide` (the Claude mod's context, the MCP gateway's instructions) lists them all in a line each.
 A write answers with the `components` the note now holds and its `warnings` (a figure's name or key with a typo, YAML
-that doesn't read, a reference that leads nowhere): the text is saved as written, so fix them in the same turn. The
-answer also measures the note against the house rules above, and each finding is a warning that starts "fix before you
+that doesn't read, a reference that leads nowhere): the text is saved as written, so fix them in the same turn. A live figure you wrote (a `query:` or `view:`)
+comes back in `figures` with the rows it returned, and one that returned 0 is a warning too: check the query with
+`outline_find` (`hasKey` names a property). The answer also measures the note against the house rules above, and each finding is a warning that starts "fix before you
 call this done": a title line over about 70 characters, a paragraph past three sentences, a long run of prose with no
 figure or callout, a callout inside a callout, a question for Evan below the top with no `[needs::sysop]`. Where
 figure-fit is on, a write that leaves a note as rows with no figure adds one more ("this reads as a timeline:
@@ -756,7 +761,10 @@ the name. The whole-note form uses `[script::name]` and a closed `js` fence; `[m
 `view.*`, modes, effects, lifecycle, traps, worked examples you can paste) is one page with a `path:line` pointer per
 entry: `packages/outliner/docs/scripts.md` in the repository. Read it before writing a script; its example 2 is the
 usual start (a table of a note's children with a computed column). Two traps to know first: `this.children` is always
-empty (use `q("parent:this")` or `read(this.id)`), and a `q` row has no properties (read the row).
+empty (use `q("parent:this")` or `read(this.id)`), and a `q` row has no properties (read the row: one `read()` per row).
+More traps: a render script run as an action leaves a run note (31 KB with `[results::keep]`); `script_run` over MCP
+passes no slots or `this` yet (PIE-1272); and pass `persona` when you aren't the connector's owner, or the write is
+recorded as theirs.
 
 The short form for working in an outline is [references/scripts.md](references/scripts.md).
 

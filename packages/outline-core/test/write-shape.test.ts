@@ -94,3 +94,18 @@ test("an edit is told what it added, not what the note already was", () => {
 test("the next check names the note", () => {
   expect(shapeNext("abc")).toContain("ep0ch show abc");
 });
+
+// Codex review of PIE-1270: four ways the first version nagged on a note that was fine, or stayed quiet on one that wasn't.
+test("titles of address aren't sentence ends, and a property's value is not prose", () => {
+  expect(sentenceCount("Dr. Green met Mr. Brown. They spoke to Dr. White. All agreed.")).toBe(3);
+  const url = `https://example.test/${"a".repeat(600)}`;
+  expect(writeShape(`Notes [type::note]\n- [source::${url}]\n\nShort.`)).toEqual([]);
+});
+
+test("a completed statement about Evan below the top isn't a question; a word fixed inside a wall is the same wall; a second copy is new", () => {
+  const filler = Array.from({ length: SHAPE_LIMITS.top }, (_, i) => `- point ${i}`).join("\n");
+  expect(writeShape(`Notes\n\n${filler}\n\nEvan explained which table was booked.`)).toEqual([]);
+  const before = `Seed swap\n\n${wall}`;
+  expect(shapeWarnings(before.replace("Tuesday", "Wednesday"), before)).toEqual([]);
+  expect(shapeWarnings(`${before}\n\n${wall}`, before)).toHaveLength(1);
+});
