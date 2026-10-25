@@ -1391,7 +1391,7 @@ describe('the settle check (PIE-1268)', () => {
    * it), answering the three facet questions by their query, the capability and build-log lookups, and recording the
    * wakes (prompt.submit) and the lines written under the build log (`ep0ch new`).
    */
-  function settleSession(on: On, threads: Record<string, Fake>, persona: object | null = LOKI, env: Record<string, string> = {}, noFacets = false) {
+  function settleSession(on: On, threads: Record<string, Fake>, persona: object | null = LOKI, env: Record<string, string> = {}, noFacets = false, byOutline: Record<string, Record<string, Fake>> = {}) {
     const session = sessionIn(on, WORKSPACE, run => {
       const query = run.argv[run.argv.indexOf('--query') + 1] ?? ''
       if (run.argv[0] === 'ep0ch' && run.argv[1] === 'where') return result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona } }), '')
@@ -1399,7 +1399,7 @@ describe('the settle check (PIE-1268)', () => {
         // An older host: the service answers without the facet.
         if (noFacets) return result(0, '{"blocks":[]}', '')
         const now = session.clock.now()
-        const rows = Object.entries(threads).flatMap(([thread, t]) => {
+        const rows = Object.entries(byOutline[run.init?.env?.EP0CH_WS ?? ''] ?? threads).flatMap(([thread, t]) => {
           const count = query.startsWith('type=roadmap-item') ? (t.shaped ? 1 : 0) : query.includes('by:user') ? t.evan : t.count
           t.last ??= now - t.ago * MIN
           return count ? [{ value: thread, count, last: new Date(t.last).toISOString() }] : []
@@ -1413,10 +1413,11 @@ describe('the settle check (PIE-1268)', () => {
     on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
     mock.store(on)
     const wakes: string[] = []
-    on('prompt.submit', ($, e) => { wakes.push(e.text); return { drop: 'test' } as any })
+    let dropping = false
+    on('prompt.submit', ($, e) => { wakes.push(e.text); return (dropping ? { drop: 'busy' } : { text: e.text }) as any })
     const lines = () => session.runs.filter(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'new').map(r => r.argv[2]!)
     const asked = () => session.runs.filter(r => r.argv.includes('--facets')).length
-    return { session, threads, wakes, lines, asked }
+    return { session, threads, wakes, lines, asked, drop: (on: boolean) => { dropping = on } }
   }
 
   async function start($: any, s: ReturnType<typeof settleSession>) {
@@ -1435,11 +1436,11 @@ describe('the settle check (PIE-1268)', () => {
     })
     await start($, s)
     expect(s.wakes).toHaveLength(1)
-    expect(s.wakes[0]).toContain(`thread zucchini (garden) settled: 4 chirps, 2 Evan's, quiet 90 min, capability ((${CAPABILITY}))`)
+    expect(s.wakes[0]).toContain(`thread zucchini settled: 4 chirps, 2 Evan's, quiet 90 min, capability ((${CAPABILITY}))`)
     // Warming, too thin and already shaped threads are not in it.
     for (const name of ['beans', 'thin', 'tickets']) expect(s.wakes[0]).not.toContain(`thread ${name}`)
     // A new settled thread is a change; a thread first seen shaped was shaped before, and says nothing.
-    expect(s.lines()).toEqual(['Thread zucchini (garden): new → settled · 4 chirps, 2 Evan\'s, quiet 90 min'])
+    expect(s.lines()).toEqual(['Thread zucchini: new → settled · 4 chirps, 2 Evan\'s, quiet 90 min'])
     const written = s.session.runs.find(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'new')!
     expect(written.argv).toEqual(expect.arrayContaining(['--near', LOG, '--as', 'loki/claude-code@garden-host']))
 
@@ -1462,9 +1463,9 @@ describe('the settle check (PIE-1268)', () => {
     expect(s.wakes).toHaveLength(2)
     expect(s.wakes[1]).toContain('5 chirps')
     expect(s.lines().map(l => l.replace(/ · .*/, ''))).toEqual([
-      'Thread zucchini (garden): new → settled',
-      'Thread zucchini (garden): settled → warming',
-      'Thread zucchini (garden): warming → settled',
+      'Thread zucchini: new → settled',
+      'Thread zucchini: settled → warming',
+      'Thread zucchini: warming → settled',
     ])
   })
 
@@ -1517,6 +1518,32 @@ describe('the settle check (PIE-1268)', () => {
     const forced = settleSession(on, { zucchini: { count: 4, evan: 2, ago: 90 } }, null, { EP0CH_SETTLE: 'on' })
     await start($, forced)
     expect(forced.wakes).toHaveLength(1)
+  })
+
+  test('a prompt the session drops is not told: the next check names the thread again', async ($, on) => {
+    const s = settleSession(on, { zucchini: { count: 4, evan: 2, ago: 90 } })
+    s.drop(true)
+    await start($, s)
+    expect(s.wakes).toHaveLength(1)
+    expect(s.session.toasts.some(t => t.includes('could not wake this session (busy)'))).toBe(true)
+    s.drop(false)
+    await s.session.clock.advance(31 * MIN)
+    expect(s.wakes).toHaveLength(2)
+    await s.session.clock.advance(31 * MIN)
+    expect(s.wakes).toHaveLength(2)
+  })
+
+  test('a thread is one thread across the outlines it reads: tickets in one shape the conversation in the other', async ($, on) => {
+    const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: 'gurgle@float-2, pie@float-2' }, false, {
+      gurgle: { zucchini: { count: 4, evan: 2, ago: 90 }, beans: { count: 2, evan: 1, ago: 90 } },
+      pie: { zucchini: { count: 0, evan: 0, ago: 90, shaped: true }, beans: { count: 2, evan: 1, ago: 100 } },
+    })
+    await start($, s)
+    // zucchini has tickets in pie: shaped, not woken. beans has 2 notes in each outline: 4 together, settled.
+    expect(s.wakes).toHaveLength(1)
+    expect(s.wakes[0]).toContain('thread beans settled: 4 chirps, 2 Evan\'s')
+    expect(s.wakes[0]).not.toContain('thread zucchini')
+    expect(s.asked()).toBe(6)
   })
 
   test('a host that cannot answer list --facets is one toast and no wake', async ($, on) => {

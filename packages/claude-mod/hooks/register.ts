@@ -36,7 +36,7 @@ import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-pers
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
-import { capabilityArgs, facetCountsOf, firstIdOf, logLine, outlineLabel, outlinesOf, settleAsks, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type Change, type SettleConfig, type SettleOutline, type SettleStore, type Thread } from './settle'
+import { capabilityArgs, facetCountsOf, firstIdOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type Change, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
@@ -1742,9 +1742,11 @@ function startSettleOnce($: EngineInterface, option: PluginOptions): Promise<voi
 }
 
 /**
- * One check: for each outline it reads, the service's value counts of `thread` (three `list --facets` runs), joined into
- * states; a thread newly settled wakes this session with one prompt for all of them; every change into or out of
- * settled or shaped is a line under the newest build log. A failed read says so once and leaves everything as it was.
+ * One check: the service's value counts of `thread` from each outline it reads (three `list --facets` runs each), joined
+ * across the outlines into states; a thread newly settled wakes this session with one prompt for the newest few; every
+ * change into or out of settled or shaped is a line under the newest build log (best effort: a line that can't be
+ * written is said once and not retried). An outline that can't be read says so once and leaves the whole check undone,
+ * since a thread's tickets may be in the one that didn't answer.
  */
 async function runSettle($: EngineInterface, option: PluginOptions, config: SettleConfig): Promise<void> {
   if (settleRunning) return
@@ -1762,26 +1764,22 @@ async function runSettle($: EngineInterface, option: PluginOptions, config: Sett
     const cli = (o: SettleOutline, args: string[]) => $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: bound.root, env: envFor(at(o)), timeoutMs: SETTLE_TIMEOUT_MS })
     const asks = settleAsks(config)
     const now = await $.clock.now()
-    let store = (await $.store.get(SETTLE_KEY).catch(() => undefined) ?? {}) as SettleStore
-    const woken: { outline: SettleOutline; threads: Thread[] }[] = []
-    const changes: { outline: SettleOutline; change: Change }[] = []
-    for (const outline of named.outlines) {
+    const read = await Promise.all(named.outlines.map(async outline => {
       const ran = await Promise.all([cli(outline, asks.all), cli(outline, asks.evan), cli(outline, asks.shaped)])
       const counts = ran.map(r => (r.exitCode === 0 ? facetCountsOf(r.stdout) : null))
-      const [all, evan, shaped] = counts
-      if (!all || !evan || !shaped) {
+      if (counts.some(c => !c)) {
         const why = ran.find(r => r.exitCode !== 0)
         settleToast($, `${outlineLabel(outline)} could not be read${why ? `: ${failureReasonOf(why.stderr) || why.stderr.trim()}` : ' (its host does not answer list --facets: ep0ch install --apply there)'}.`)
-        continue
+        return null
       }
-      const diff = settleDiff(store, outline, threadsOf(all, evan, shaped, now, config))
-      store = diff.next
-      if (diff.wake.length) woken.push({ outline, threads: diff.wake })
-      for (const change of diff.changes) changes.push({ outline, change })
-    }
-    await $.store.set(SETTLE_KEY, store)
-    await logSettleChanges($, bound, root, changes, now)
-    if (woken.length) await wakeSettled($, config, named.outlines, woken, now, cli, store)
+      return counts as [Map<string, ThreadCount>, Map<string, ThreadCount>, Map<string, ThreadCount>]
+    }))
+    if (read.some(r => !r)) return
+    const [all, evan, shaped] = [0, 1, 2].map(i => mergedCounts(read.map(r => r![i]!)))
+    const diff = settleDiff((await $.store.get(SETTLE_KEY).catch(() => undefined) ?? {}) as SettleStore, threadsOf(all!, evan!, shaped!, now, config))
+    await $.store.set(SETTLE_KEY, diff.next)
+    await logSettleChanges($, bound, root, diff.changes, now)
+    if (diff.wake.length) await wakeSettled($, config, named.outlines, diff.wake, now, cli, diff.next)
   } catch (error) {
     settleToast($, error instanceof Error ? error.message : String(error))
   } finally {
@@ -1791,30 +1789,28 @@ async function runSettle($: EngineInterface, option: PluginOptions, config: Sett
 
 /**
  * The wake: one prompt naming the newest `wakeMax` settled threads, each with the capability note that carries its
- * `thread`. Only those are marked told, and only once the prompt went: the others, and a wake that failed, are named at
- * the next check.
+ * `thread`. Only those are marked told, and only once the prompt went (a refusal, `{ drop }`, counts as not going): the
+ * others, and a wake that failed, are named at the next check.
  */
 async function wakeSettled(
-  $: EngineInterface, config: SettleConfig, outlines: SettleOutline[], woken: { outline: SettleOutline; threads: Thread[] }[], now: number,
+  $: EngineInterface, config: SettleConfig, outlines: SettleOutline[], woken: Thread[], now: number,
   cli: (o: SettleOutline, args: string[]) => Promise<{ exitCode: number; stdout: string }>, store: SettleStore,
 ): Promise<void> {
-  const all = woken.flatMap(w => w.threads.map(thread => ({ outline: w.outline, thread }))).sort((a, b) => b.thread.last - a.thread.last)
-  const shown = all.slice(0, config.wakeMax)
-  const lines = await Promise.all(shown.map(async ({ outline, thread }) => {
+  const shown = [...woken].sort((a, b) => b.last - a.last).slice(0, config.wakeMax)
+  const lines = await Promise.all(shown.map(async thread => {
     // The capability note may be in any outline the check reads (the chirps are in one, the notes they shape in another).
     let link: string | null = null
     for (const o of outlines) {
       const found = await cli(o, capabilityArgs(thread.thread)).then(r => (r.exitCode === 0 ? firstIdOf(r.stdout) : null), () => null)
       if (found) { link = `((${found}))`; break }
     }
-    return wakeLine(thread, outline, now, link)
+    return wakeLine(thread, now, link)
   }))
   try {
     // Marked before the call returns: it resolves as the turn starts, which can wait for the session to go idle.
-    let next = store
-    for (const { outline, thread } of shown) next = told(next, outline, [thread])
-    await $.store.set(SETTLE_KEY, next)
-    await $.prompt.submit({ text: wakeText(lines, all.length - shown.length) })
+    await $.store.set(SETTLE_KEY, told(store, shown))
+    const sent = await $.prompt.submit({ text: wakeText(lines, woken.length - shown.length) })
+    if (sent.drop !== undefined) throw Error(sent.drop || 'the prompt was dropped')
   } catch (error) {
     await $.store.set(SETTLE_KEY, store).catch(() => {})
     settleToast($, `could not wake this session (${error instanceof Error ? error.message : String(error)}); the next check tries again.`)
@@ -1822,7 +1818,7 @@ async function wakeSettled(
 }
 
 /** One line a change under the bound outline's newest build log, written as the session's persona. No build log: said once, nothing invented. */
-async function logSettleChanges($: EngineInterface, bound: Workspace, root: string, changes: { outline: SettleOutline; change: Change }[], now: number): Promise<void> {
+async function logSettleChanges($: EngineInterface, bound: Workspace, root: string, changes: Change[], now: number): Promise<void> {
   if (!changes.length) return
   const env = envFor(bound)
   const logs = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...listArgs(BUILD_LOG_QUERY, LIST_LIMIT, 'id,title,timestamps')], { cwd: bound.root, env, timeoutMs: SETTLE_TIMEOUT_MS })
@@ -1830,7 +1826,7 @@ async function logSettleChanges($: EngineInterface, bound: Workspace, root: stri
   const newest = [...(logs?.blocks ?? [])].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))[0]
   if (!newest) return settleToast($, `${changes.length} thread ${changes.length === 1 ? 'change' : 'changes'} not logged: ${bound.outline ?? 'the outline'} has no note with [type::build-log].`)
   const actor = await actorFor($, {})
-  const texts = changes.slice(0, SETTLE_LOG_MAX).map(({ outline, change }) => logLine(change, outline, now))
+  const texts = changes.slice(0, SETTLE_LOG_MAX).map(change => logLine(change, now))
   if (changes.length > SETTLE_LOG_MAX) texts.push(`and ${changes.length - SETTLE_LOG_MAX} more thread state changes`)
   for (const text of texts) {
     const ran = await $.process.run(['ep0ch', 'new', text, '--near', newest.id, '--as', actor], { cwd: bound.root, env, timeoutMs: SETTLE_TIMEOUT_MS })

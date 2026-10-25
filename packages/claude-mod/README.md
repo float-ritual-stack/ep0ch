@@ -363,7 +363,8 @@ has the steps for a wake.
 - **What it asks:** per `thread` value, the notes in it (roadmap items excluded), how many are the person's own
   (`by:user OR actor=evan OR text~"Evan, "`), and the last update, from the service's value counts
   (`outliner list --query <q> --facets thread`, three runs; counts are over every match, however many notes there are).
-  Nothing here decides what a thread is: `settle.ts` joins the three answers and applies the thresholds.
+  Nothing here decides what a thread is: `settle.ts` joins the three answers, and the outlines' (a thread is one thread
+  wherever its notes are: counts add, the newest touch wins, tickets in any outline shape it), and applies the thresholds.
 - **States:** warming (touched within `quiet` minutes), settled (at least `chirps` notes, `evan` of them the person's,
   quiet for `quiet` minutes and for no more than `within`), shaped (a roadmap item carries the thread: put
   `[thread::<x>]` on tickets cut from it), else quiet.
@@ -372,7 +373,8 @@ has the steps for a wake.
   A thread already told isn't told again until it is touched and goes quiet again; the others, and a wake that did not go,
   are named at the next check. What was told is kept in `$.store` (`settle.threads`).
 - **Build log:** each move into or out of settled or shaped is a child of the newest `[type::build-log]` note, written as
-  the session's persona. No build log: one toast, nothing invented.
+  the session's persona (best effort: a line that can't be written is said once, not retried). No build log: one toast,
+  nothing invented. An outline that can't be read leaves the whole check undone.
 - **Who and where:** a session whose persona is `loki`; `settle` (option) or `EP0CH_SETTLE` = `on` or `off` decides
   outright. The outlines are `settleOutlines` or `EP0CH_SETTLE_OUTLINES` (`gurgle@float-2, pie@float-2`; default the
   session's own). `settleTuning` or `EP0CH_SETTLE_TUNING` is `chirps=3; evan=1; quiet=60; within=10080; every=30;

@@ -174,6 +174,18 @@ export function facetCountsOf(stdout: string): Map<string, ThreadCount> | null {
 
 // ─── Joining them ──────────────────────────────────────────────────────────
 
+/** The same question answered by several outlines, as one: a thread is one thread wherever its notes are (counts add, the last touch is the newest). */
+export function mergedCounts(parts: readonly Map<string, ThreadCount>[]): Map<string, ThreadCount> {
+  const out = new Map<string, ThreadCount>()
+  for (const part of parts) {
+    for (const [thread, c] of part) {
+      const seen = out.get(thread)
+      out.set(thread, seen ? { count: seen.count + c.count, last: Math.max(seen.last, c.last) } : { ...c })
+    }
+  }
+  return out
+}
+
 export type Thread = {
   thread: string
   /** Notes in the thread, roadmap items excluded. */
@@ -219,8 +231,6 @@ export type SettleStore = Record<string, Seen>
 
 export type Change = { thread: Thread; from: SettleState | null }
 
-const storeKey = (outline: SettleOutline, thread: string) => `${outlineLabel(outline)}/${thread}`
-
 /**
  * What this check found against what the last one kept:
  * - `wake`: threads settled whose newest touch the deployer was not told about. A thread that stays settled isn't
@@ -229,13 +239,13 @@ const storeKey = (outline: SettleOutline, thread: string) => `${outlineLabel(out
  *   settled counts (it is about to be woken for); one first seen shaped was shaped before the check began.
  * - `next`: the store to keep. It does not mark a wake as told: `told` does, once the wake went.
  */
-export function settleDiff(store: SettleStore, outline: SettleOutline, threads: readonly Thread[]): { wake: Thread[]; changes: Change[]; next: SettleStore } {
+export function settleDiff(store: SettleStore, threads: readonly Thread[]): { wake: Thread[]; changes: Change[]; next: SettleStore } {
   const next: SettleStore = { ...store }
   const wake: Thread[] = []
   const changes: Change[] = []
   for (const t of threads) {
-    const prev = store[storeKey(outline, t.thread)]
-    next[storeKey(outline, t.thread)] = { state: t.state, last: t.last, announced: prev?.announced ?? 0 }
+    const prev = store[t.thread]
+    next[t.thread] = { state: t.state, last: t.last, announced: prev?.announced ?? 0 }
     if (t.state === 'settled' && t.last > (prev?.announced ?? 0)) wake.push(t)
     const from = prev?.state ?? null
     const matters = (s: SettleState | null) => s === 'settled' || s === 'shaped'
@@ -245,9 +255,9 @@ export function settleDiff(store: SettleStore, outline: SettleOutline, threads: 
 }
 
 /** The store with these threads marked told, up to their newest touch: only a wake that went marks them, so a failed one is tried again. */
-export function told(store: SettleStore, outline: SettleOutline, threads: readonly Thread[]): SettleStore {
+export function told(store: SettleStore, threads: readonly Thread[]): SettleStore {
   const next = { ...store }
-  for (const t of threads) next[storeKey(outline, t.thread)] = { state: t.state, last: t.last, announced: t.last }
+  for (const t of threads) next[t.thread] = { state: t.state, last: t.last, announced: t.last }
   return next
 }
 
@@ -260,8 +270,8 @@ export function agoOf(ms: number): string {
 }
 
 /** One thread's wake line: the shape the capability note gives. `capability` is its link text, or null when none names the thread. */
-export function wakeLine(t: Thread, outline: SettleOutline, now: number, capability: string | null): string {
-  return `thread ${t.thread} (${outlineLabel(outline)}) settled: ${t.chirps} chirps, ${t.evan} Evan's, quiet ${agoOf(now - t.last)}, ${capability ? `capability ${capability}` : `no capability note yet (write [thread::${t.thread}] on the one you shape it on)`}`
+export function wakeLine(t: Thread, now: number, capability: string | null): string {
+  return `thread ${t.thread} settled: ${t.chirps} chirps, ${t.evan} Evan's, quiet ${agoOf(now - t.last)}, ${capability ? `capability ${capability}` : `no capability note yet (write [thread::${t.thread}] on the one you shape it on)`}`
 }
 
 /** The prompt that wakes the deployer: one line per thread (cut at `max`), and what to do with them. */
@@ -276,8 +286,8 @@ export function wakeText(lines: readonly string[], more: number): string {
 
 const STATE_WORDS: Record<SettleState, string> = { warming: 'warming', settled: 'settled', shaped: 'shaped', quiet: 'quiet' }
 
-/** The build-log line for a state change: `Thread backlog-groom (gurgle@float-2): warming → settled · 5 chirps, 2 Evan's, quiet 74 min`. */
-export function logLine(c: Change, outline: SettleOutline, now: number): string {
+/** The build-log line for a state change: `Thread backlog-groom: warming → settled · 5 chirps, 2 Evan's, quiet 74 min`. */
+export function logLine(c: Change, now: number): string {
   const t = c.thread
-  return `Thread ${t.thread} (${outlineLabel(outline)}): ${c.from ? STATE_WORDS[c.from] : 'new'} → ${STATE_WORDS[t.state]} · ${t.chirps} chirps, ${t.evan} Evan's, quiet ${agoOf(now - t.last)}`
+  return `Thread ${t.thread}: ${c.from ? STATE_WORDS[c.from] : 'new'} → ${STATE_WORDS[t.state]} · ${t.chirps} chirps, ${t.evan} Evan's, quiet ${agoOf(now - t.last)}`
 }

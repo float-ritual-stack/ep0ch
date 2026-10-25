@@ -1,5 +1,5 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
-import { facetArgs, facetCountsOf, logLine, outlinesOf, SETTLE_DEFAULTS, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
+import { facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
 
 tier('user')
 
@@ -26,19 +26,18 @@ describe('the states', () => {
 })
 
 describe('what a check tells and keeps', () => {
-  const outline = { outline: 'gurgle', machine: 'float-2' }
   const check = (store: SettleStore, all: Record<string, [number, number]>, shaped: Record<string, [number, number]> = {}) =>
-    settleDiff(store, outline, threadsOf(counts(all), counts(Object.fromEntries(Object.entries(all).map(([k, [, ago]]) => [k, [1, ago]]))), counts(shaped), NOW, SETTLE_DEFAULTS))
+    settleDiff(store, threadsOf(counts(all), counts(Object.fromEntries(Object.entries(all).map(([k, [, ago]]) => [k, [1, ago]]))), counts(shaped), NOW, SETTLE_DEFAULTS))
 
   test('a newly settled thread wakes once; the check does not mark it told, `told` does', () => {
     const first = check({}, { a: [4, 90] })
     expect(first.wake.map(t => t.thread)).toEqual(['a'])
     expect(check(first.next, { a: [4, 90] }).wake).toHaveLength(1)
-    const marked = told(first.next, outline, first.wake)
+    const marked = told(first.next, first.wake)
     expect(check(marked, { a: [4, 90] }).wake).toEqual([])
   })
   test('a thread that warms and goes quiet again wakes again: its newest touch moved on', () => {
-    let store = told(check({}, { a: [4, 90] }).next, outline, check({}, { a: [4, 90] }).wake)
+    let store = told(check({}, { a: [4, 90] }).next, check({}, { a: [4, 90] }).wake)
     store = check(store, { a: [5, 5] }).next
     expect(check(store, { a: [5, 70] }).wake.map(t => t.thread)).toEqual(['a'])
   })
@@ -49,19 +48,29 @@ describe('what a check tells and keeps', () => {
   })
 })
 
+describe('one thread across outlines', () => {
+  test('counts add and the newest touch wins, so a conversation in one outline and its tickets in another are one thread', () => {
+    const merged = mergedCounts([counts({ a: [2, 300], b: [1, 20] }), counts({ a: [3, 120] })])
+    expect(merged.get('a')).toEqual({ count: 5, last: NOW - 120 * MIN })
+    const all = mergedCounts([counts({ a: [2, 300] }), counts({ a: [3, 120] })])
+    const evan = mergedCounts([counts({ a: [1, 300] }), counts({})])
+    expect(threadsOf(all, evan, counts({ a: [1, 5] }), NOW, SETTLE_DEFAULTS)[0]).toMatchObject({ thread: 'a', chirps: 5, evan: 1, shaped: true, state: 'shaped' })
+    expect(threadsOf(all, evan, counts({}), NOW, SETTLE_DEFAULTS)[0]).toMatchObject({ chirps: 5, state: 'settled' })
+  })
+})
+
 describe('the words', () => {
-  const outline = { outline: 'gurgle', machine: 'float-2' }
   const [t] = threadsOf(counts({ backlog: [5, 74] }), counts({ backlog: [2, 74] }), counts({}), NOW, SETTLE_DEFAULTS)
   test('a wake line gives the counts and the capability link, or says how to give it one', () => {
-    expect(wakeLine(t!, outline, NOW, '((cap))')).toBe('thread backlog (gurgle@float-2) settled: 5 chirps, 2 Evan\'s, quiet 74 min, capability ((cap))')
-    expect(wakeLine(t!, outline, NOW, null)).toContain('no capability note yet (write [thread::backlog]')
+    expect(wakeLine(t!, NOW, '((cap))')).toBe('thread backlog settled: 5 chirps, 2 Evan\'s, quiet 74 min, capability ((cap))')
+    expect(wakeLine(t!, NOW, null)).toContain('no capability note yet (write [thread::backlog]')
   })
   test('the wake counts the threads it names and the ones it leaves for the next check', () => {
     expect(wakeText(['a', 'b'], 3)).toContain('5 threads have gone quiet')
     expect(wakeText(['a'], 0)).toContain('1 thread has gone quiet')
   })
   test('a build-log line says the change and the counts', () => {
-    expect(logLine({ thread: t!, from: 'warming' }, outline, NOW)).toBe('Thread backlog (gurgle@float-2): warming → settled · 5 chirps, 2 Evan\'s, quiet 74 min')
+    expect(logLine({ thread: t!, from: 'warming' }, NOW)).toBe('Thread backlog: warming → settled · 5 chirps, 2 Evan\'s, quiet 74 min')
   })
 })
 
