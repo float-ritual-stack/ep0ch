@@ -27,7 +27,13 @@ set -uo pipefail
 usage="scripts/agent-restart <session id | short id | name | --all> [--when-idle|--now] [--if-update] [--fresh-daemon] [--check-env VAR] [--dry-run] [--bg] | --ls"
 target=${1:?usage: $usage}
 
-agents() { claude agents --json 2>/dev/null; }
+# The sessions as JSON; when claude doesn't answer a list, say which claude ran (a login shell can put another first on PATH).
+agents() {
+  local out
+  out=$(claude agents --json 2>/dev/null) && printf '%s' "$out" | python3 -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)' 2>/dev/null \
+    && { printf '%s\n' "$out"; return 0; }
+  echo "agent-restart: $(command -v claude) agents --json didn't answer a list of sessions (run it to see why)" >&2; return 1
+}
 # The Claude Code version a process runs (its binary is versions/<v>) and the one `claude` points at now.
 running_version() { basename "$(readlink -f /proc/"$1"/exe 2>/dev/null)"; }
 installed_version() { basename "$(readlink -f "$(command -v claude)")"; }
@@ -87,7 +93,7 @@ rows.sort(key=lambda r: not r.get('id'))
 for r in rows:
     row = {'name': str(r.get('name') or ''), 'id': r.get('id') or r.get('sessionId', '')[:8], 'sessionId': r.get('sessionId', ''), 'kind': 'background' if r.get('id') else (r.get('kind') or 'interactive'),
            'status': str(r.get('status') or ''), 'cwd': str(r.get('cwd') or ''), 'place': None if r.get('id') else (place(r.get('pid')) or None)}
-    print(str(r.get('pid') or '') + chr(31) + json.dumps(row))") || { echo "agent-restart: claude agents --json didn't answer a list of sessions (run it to see why)" >&2; exit 1; }
+    print(str(r.get('pid') or '') + chr(31) + json.dumps(row))") || exit 1
   while IFS=$sep read -r pid row; do
     [ -n "$row" ] || continue
     running=""; [ -n "$pid" ] && running=$(running_version "$pid")
