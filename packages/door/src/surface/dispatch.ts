@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { fromPress } from "../session/session-term";
 import { modeActionKeys } from "./modes";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
@@ -165,7 +166,8 @@ export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req:
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
-  beforeAction?(name: string): void;
+  /** Runs before each action; true when it changed what's shown (the desk dropping a hint card), which the press then repaints for (PIE-1301). */
+  beforeAction?(name: string): boolean | void;
   hint?(hint: Hint, tile: string | undefined, actor: Actor): void;
   /** Dispatchers for a screen's kinds share that screen's pointer identity. */
   pointerScope?: object;
@@ -263,6 +265,20 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
 }
 
 const BLOCK = /^[0-9a-f-]{8,}$/;
+/** What the person's press has done so far, for the repaint after it (asPerson): the actions run, and whether any changed what's shown. */
+interface PressShown { ran: number; /** Something changed that no repaint has covered yet. */ changed: boolean; /** Repaints this press's own actions asked for (App.redraw says so through notePressRedraw). */ asked: number }
+const pressShown = new AsyncLocalStorage<PressShown>();
+/** Where no press is running, so a redraw made there counts for none. */
+const NO_PRESS: PressShown = { ran: 0, changed: false, asked: 0 };
+/** A repaint was asked for (App.redraw): the press whose action asked, and whatever it awaited, owes no second one for it. */
+export function notePressRedraw(): void { const p = pressShown.getStore(); if (p) p.asked++; }
+const isThenable = (x: unknown): x is PromiseLike<unknown> => typeof (x as { then?: unknown } | null)?.then === "function";
+/** Whether a run changed what's shown (ActionDef.repaints): declared, or by what it touches of the person's (`nothing`: no). */
+function changesShown(def: ActionDef<any, any>, touches: Touches, out: unknown, args: Record<string, unknown>): boolean {
+  const r = def.repaints;
+  return r === undefined ? touches !== "nothing" : typeof r === "function" ? r(out, args) : r;
+}
+
 /** `#3` or `3`: a tile's number on screen (a name never starts with a digit). */
 const NUMBER = /^#?([1-9][0-9]{0,2})$/;
 
@@ -521,16 +537,42 @@ export class Dispatcher {
     const ctx = this.host.ctx();
     // The key or click this answers: a refusal that lands after the person moved on is said on the status bar alone.
     const at = ctx?.pressNow?.();
+    // The repaint this press owes (PIE-1301): the actions it ran say whether they changed what's shown (runIn); the tail
+    // repaints for those that did, unless an action's own redraw already asked for the paint, and never for a press that
+    // ran actions that all changed nothing.
+    // A press made from inside another's action keeps its own account: what it painted covers what it changed, and none of what
+    // its outer action changes after it.
+    const shown: PressShown = { ran: 0, changed: false, asked: 0 };
+    // The tail's own repaint: no press's action asked for it, so it covers nothing the outer action does after it.
+    const paint = () => pressShown.run(NO_PRESS, () => ctx?.redraw?.());
+    let sameTurn = true;
     const tell = (e: unknown) => {
       const failed = !(e instanceof ActionRefused || e instanceof Offline);
       const action = messageContext.getStore()?.action ?? "the action";
       const why = failed ? actionFailure(action, e) : e.message, said = failed ? why : say === true ? null : say === false ? why : say(why);
+      const before = shown.asked;
       // Said where the person is looking (the focused tile's frame) as well as on the status bar (Ctx.refuse, PIE-727).
-      if (said) messageContext.run({ ...messageContext.getStore(), kind: failed ? "error" : "refusal", ...(failed && e instanceof Error ? { stack: e.stack } : {}) }, () => (ctx?.refuse ? ctx.refuse(said, at) : ctx?.flash?.(said)));
-      ctx?.redraw?.();
+      if (said) pressShown.run(shown, () => messageContext.run({ ...messageContext.getStore(), kind: failed ? "error" : "refusal", ...(failed && e instanceof Error ? { stack: e.stack } : {}) }, () => (ctx?.refuse ? ctx.refuse(said, at) : ctx?.flash?.(said))));
+      // Saying it painted; a refusal that said nothing still shows what the action did before it was refused.
+      if (shown.asked === before) paint();
       return undefined;
     };
-    try { return Promise.resolve(fromPress(f)).then(r => { ctx?.redraw?.(); return r; }, tell); } catch (e) { return Promise.resolve(tell(e)); }
+    try {
+      const out = pressShown.run(shown, () => fromPress(f));
+      // Only an answer that waits needs to know whether it came within this turn.
+      if (isThenable(out)) setImmediate(() => { sameTurn = false; });
+      // An action that answered within this turn (at once, or through promises that waited on nothing but each other: the
+      // reader's actions all answer as promises) and asked for its paint (any `redraw()` it made) needs no second one behind
+      // it. One that waited for something may have changed more by then, and is painted for.
+      const moved = () => shown.asked > 0;
+      const early = !isThenable(out) && moved();
+      return Promise.resolve(out).then(r => {
+        const own = isThenable(out) ? sameTurn && moved() : early;
+        if (!own && (shown.ran === 0 || shown.changed)) paint();
+        shown.changed = false;
+        return r;
+      }, tell);
+    } catch (e) { return Promise.resolve(tell(e)); }
   }
 
   /**
@@ -586,10 +628,12 @@ export class Dispatcher {
     const seen = reg.set.defArgs(req.action, args, typed);
     const no = this.refusal(reg, def, req.action, at, args, seen, actor);
     if (no) throw new ActionRefused(no);
-    this.host.beforeAction?.(req.action);
+    const hooked = this.host.beforeAction?.(req.action);
+    if (hooked) { const shown = pressShown.getStore(); if (shown) shown.changed = true; }
     const confirmation = ++this.nextConfirmation;
     const ctx = this.host.ctx();
-    const on = reg.on(at, { actor, standing: this.standing(actor, reg.touchesAt?.(req.action, at) ?? def.touchesWith?.(seen as never, at.name) ?? def.touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
+    const touches = reg.touchesAt?.(req.action, at) ?? def.touchesWith?.(seen as never, at.name) ?? def.touches;
+    const on = reg.on(at, { actor, standing: this.standing(actor, touches), ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
     // A key's arguments are typed already (the compiler checked them); the wire's are checked and coerced.
     const run = () => messageContext.run({ ...messageContext.getStore(), action: req.action, ...(at.tile ? { tile: at.tile.id ?? at.tile.name, note: at.tile.shows ?? undefined } : {}) }, () => reg.run ? reg.run(req.action, args, on, actor, typed) : typed ? reg.set.call(req.action as never, args as never, on, actor) : reg.set.callUntyped(req.action, args, on, actor));
     const recordedArgs = { ...seen };
@@ -613,6 +657,8 @@ export class Dispatcher {
           ctx?.flash?.(actor.kind === "agent" ? `${agentLabel(actor)} ${said}` : said.replace(/^· /, ""), ms);
         }
       }
+      const shown = pressShown.getStore();
+      if (shown) { shown.ran++; shown.changed ||= changesShown(def, touches, out, seen); }
       return reg.answer ? reg.answer(out, at) : out;
     };
     return ran instanceof Promise ? ran.then(done) : done(ran);
