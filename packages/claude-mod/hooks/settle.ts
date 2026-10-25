@@ -123,9 +123,19 @@ export function outlinesOf(text: string | undefined, bound: SettleOutline | null
 export const DEFAULT_OUTLINES = ['pie', 'gurgle'] as const
 
 /** `settle-outlines = "gurgle@float-2, pie"` in a folder's `.ep0ch/config.toml` (or an old `.ep0ch` file), or undefined. */
-export function settleOutlinesOfConfig(text: string | null | undefined): string | undefined {
-  const m = /^\s*settle-outlines\s*=\s*(?:"([^"\n]*)"|'([^'\n]*)')\s*(?:#.*)?$/m.exec(text ?? '')
+/** One string key of `.ep0ch/config.toml` (`key = "…"` or `key = '…'`, a trailing `#` comment allowed). */
+function configString(text: string | null | undefined, key: string): string | undefined {
+  const m = new RegExp(`^\\s*${key}\\s*=\\s*(?:"([^"\\n]*)"|'([^'\\n]*)')\\s*(?:#.*)?$`, 'm').exec(text ?? '')
   return (m?.[1] ?? m?.[2])?.trim() || undefined
+}
+
+export function settleOutlinesOfConfig(text: string | null | undefined): string | undefined {
+  return configString(text, 'settle-outlines')
+}
+
+/** The folder's `settle-tuning` in `.ep0ch/config.toml`: the `settleTuning` form (TUNING_FORM), read on every check so an edit counts at the next one; the option and EP0CH_SETTLE_TUNING come first. `every` applies from the next load. */
+export function settleTuningOfConfig(text: string | null | undefined): string | undefined {
+  return configString(text, 'settle-tuning')
 }
 
 /** The outline as the store and the wake name it: `gurgle@float-2`, or `pie` here. */

@@ -1,5 +1,5 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
-import { baselineOf, facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleOutlinesOfConfig, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
+import { baselineOf, facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleOutlinesOfConfig, settleTuningOfConfig, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
 
 tier('user')
 
@@ -98,6 +98,10 @@ describe('the settings', () => {
     expect(outlinesOf('', { outline: 'garden' }).outlines).toEqual([{ outline: 'pie' }, { outline: 'gurgle' }])
     expect(settleOutlinesOfConfig('ws = "pie"\nsettle-outlines = "gurgle@float-2, pie@float-2" # both\n')).toBe('gurgle@float-2, pie@float-2')
     expect(settleOutlinesOfConfig('ws = "pie"\n')).toBeUndefined()
+    const toml = "ws = 'pie'\nsettle-tuning = 'base=thread AND NOT type=quote AND NOT thread=pie-requests; quiet=90' # channels are not threads\n"
+    expect(settleTuningOfConfig(toml)).toBe('base=thread AND NOT type=quote AND NOT thread=pie-requests; quiet=90')
+    expect(tuningOf(settleTuningOfConfig(toml)).config.base).toBe('thread AND NOT type=quote AND NOT thread=pie-requests')
+    expect(settleTuningOfConfig('ws = "pie"\n')).toBeUndefined()
     expect(outlinesOf('Not A Name', null).problems.at(-1)).toContain('write it like: gurgle@float-2')
   })
   test('the deployer\'s persona runs it unless on or off says otherwise', () => {

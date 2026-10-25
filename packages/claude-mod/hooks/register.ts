@@ -36,7 +36,7 @@ import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-pers
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
-import { baselineOf, capabilityArgs, facetCountsOf, firstIdOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleOutlinesOfConfig, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
+import { baselineOf, capabilityArgs, facetCountsOf, firstIdOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleOutlinesOfConfig, settleTuningOfConfig, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
@@ -1755,9 +1755,17 @@ async function runSettle($: EngineInterface, option: PluginOptions, config: Sett
     if (!references?.workspace) await loadReferences($, option)
     const bound = references?.workspace
     if (!bound) return
+    const folderConfig = await $.fs.read(`${bound.root}/.ep0ch/config.toml`).then(String, () => null) ?? await $.fs.read(`${bound.root}/.ep0ch`).then(String, () => null)
+    // The folder's `settle-tuning` counts when neither the option nor EP0CH_SETTLE_TUNING names one, read on every check.
+    const folderTuning = !String(option.settleTuning ?? '').trim() && !(await $.env.get('EP0CH_SETTLE_TUNING')) ? settleTuningOfConfig(folderConfig) : undefined
+    if (folderTuning) {
+      const tuned = tuningOf(folderTuning)
+      if (tuned.problems.length) settleToast($, `settle-tuning in .ep0ch/config.toml: ${tuned.problems.join('; ')}`)
+      else config = tuned.config
+    }
     // The override first (option, EP0CH_SETTLE_OUTLINES), then the folder's `settle-outlines` in .ep0ch/config.toml, then pie and gurgle.
     const configured = String(option.settleOutlines ?? '').trim() || (await $.env.get('EP0CH_SETTLE_OUTLINES')) || undefined
-      || settleOutlinesOfConfig(await $.fs.read(`${bound.root}/.ep0ch/config.toml`).then(String, () => null) ?? await $.fs.read(`${bound.root}/.ep0ch`).then(String, () => null))
+      || settleOutlinesOfConfig(folderConfig)
     const named = outlinesOf(configured,
       bound.outline ? { outline: bound.outline, ...(bound.machine ? { machine: bound.machine } : {}) } : null)
     if (named.problems.length) settleToast($, `settleOutlines: ${named.problems.join('; ')}`)
