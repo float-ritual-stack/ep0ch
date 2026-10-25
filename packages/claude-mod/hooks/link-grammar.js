@@ -596,7 +596,7 @@ var ADDRESS_KEYS = new Set(["page", "work-id"]);
 var QUERY_KEYS = new Set(["query"]);
 
 // packages/outline-core/src/component-block.ts
-var COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(\S[^\n]*?)|(\{(?:[^{}\n]|\{\{[^\n]*?\}\})*\}))?[ \t]*$/;
+var COMPONENT_OPEN = /^ {0,3}::([a-z][a-z0-9-]*)(?:[ \t]+(?!\^[A-Za-z0-9][\w-]{0,63}[ \t]*$)(\S[^\n]*?)|(\{(?:[^{}\n]|\{\{[^\n]*?\}\})*\}))?(?:[ \t]+\^([A-Za-z0-9][\w-]{0,63}))?[ \t]*$/;
 var COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
 var HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 var YAML_FENCE = /^ {0,3}---[ \t]*$/;
@@ -762,7 +762,8 @@ function scanComponents(lines, firstOnly = false, fenceStop) {
           args: open[2] ?? null,
           start: i,
           end: i,
-          ...open[3] ? { attrs: open[3].slice(1, -1) } : {}
+          ...open[3] ? { attrs: open[3].slice(1, -1) } : {},
+          ...open[4] ? { id: open[4] } : {}
         };
         const inline = block.name === "use" || block.name === "button" && block.attrs !== undefined && componentAttrs(block.attrs).pairs.some((p) => p.key.toLowerCase() === "act" || p.key.toLowerCase() === "of");
         const frame = { block, fence: null, yamlSeen: false, closed: !!inline };

@@ -30,6 +30,8 @@ const PREVIEWS: readonly LinkPreview[] = ["right", "below", "none"];
  */
 export interface LinkBlockSpec {
   kind: LinkBlockKind; of: string | null; filter: string; title: string | null;
+  /** Its `^name` on the first line (PIE-747): its id inside the note, the key its view state is kept under. */
+  id?: string;
   /** The groups written (`groups:`), or null for its name's. */
   groups: LinkGroupName[] | null;
   /** A query in the saved views' grammar: its matches are the `matches` group. */
@@ -82,7 +84,7 @@ function groupsFrom(v: string): LinkGroupName[] | string {
  */
 export function linkBlockAt(lines: readonly string[], i: number, blocks: ReadonlyMap<number, ComponentBlock> = new Map(componentBlocks(lines).map(c => [c.start, c]))): { spec: LinkBlockSpec; end: number } | null {
   const open = COMPONENT_OPEN.exec((lines[i] ?? "").replace(/\r$/, ""));
-  const block: ComponentBlock | null = blocks.get(i) ?? (open && !open[2] ? { name: open[1]!, args: null, start: i, end: i, ...(open[3] ? { attrs: open[3].slice(1, -1) } : {}) } : null);
+  const block: ComponentBlock | null = blocks.get(i) ?? (open && !open[2] ? { name: open[1]!, args: null, start: i, end: i, ...(open[3] ? { attrs: open[3].slice(1, -1) } : {}), ...(open[4] ? { id: open[4] } : {}) } : null);
   if (!block || !(LINK_BLOCK_KINDS as readonly string[]).includes(block.name)) return null;
   const rest = (block.args ?? "").trim(), end = block.end;
   const spec: LinkBlockSpec = { kind: block.name as LinkBlockKind, of: null, filter: "", title: null, groups: null, query: null, preview: "none", stages: null };
@@ -114,6 +116,7 @@ export function linkBlockAt(lines: readonly string[], i: number, blocks: Readonl
     if (!kv) { words.push(line.trim()); continue; }
     set(kv[1]!, kv[2]!.replace(/^["']|["']$/g, ""));
   }
+  if (block.id) spec.id = block.id;
   spec.filter = words.filter(Boolean).join(" ");
   if (preview !== null && !(PREVIEWS as readonly string[]).includes(preview)) spec.problem = `preview: is right, below or none, not ${preview}`;
   spec.preview = (preview as LinkPreview | null) ?? (spec.query ? "right" : "none");

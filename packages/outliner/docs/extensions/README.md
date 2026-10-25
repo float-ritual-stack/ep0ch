@@ -2222,7 +2222,7 @@ Both built with no core change, working around these. Wave 2 closed them:
   "resourceProviders": [{ "provider": "ext:jira", "key": "jira", "label": "Jira", "keyPattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "fields": ["status", "assignee", "type", "priority", "labels"], "link": "browse/{{key}}" }],
   "tileKinds": [ … ],
   "barSources": [{ "id": "glyphs", "extension": "glyphs", "name": "ext.glyphs.glyphs", "title": "glyphs", "prefix": "~", "main": false }],
-  "primitives": ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image"],
+  "primitives": ["text", "blockdown", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track", "image", "button", "list"],
   "rules": [{ "key": "ext:done-stamp/stamp", "name": "done-stamp/stamp", "source": { "kind": "extension", … }, "match": { "query": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }, "matching": 3 }],
   "ruleProblems": [],
   "targets": ["terminal", "markdown", "blockdown", "html", "json", "csv"],
