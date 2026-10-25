@@ -10,6 +10,14 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A refused press says why (PIE-1264)
+
+- **`ep0ch act`, MCP `script_run` and the door's press answer with what the script said.** They wait up to 3 seconds
+  for the run to end and return its last word: the line it returned, the refusal it threw ("the cellar is closed: it
+  needs candles >= 4"), or "<name> done", with `state` (`done`, `failed`, `stopped`) and the whole `answer` when it
+  returned more than a line. A run still going says "still running" and names `script.stop run=<id>`, never just
+  "working". An agent's press of a run that failed is refused with the script's message. No protocol change.
+
 ### Restart a background Claude session with `ep0ch agent restart`, from your laptop too (PIE-1273)
 
 Asked Oct 25, from the laptop: "is it just `ep0ch ... stuff`, or does it have to be run from scripts?" It is `ep0ch` now:

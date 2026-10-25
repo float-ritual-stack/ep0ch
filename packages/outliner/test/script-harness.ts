@@ -32,7 +32,7 @@ export async function setup() {
     mkdirSync(join(root, folder), { recursive: true });
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: join(root, "outline") });
   const socket = join(root, "outliner.sock");
-  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80, ruleQuietMs: 20 });
+  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80, ruleQuietMs: 20, scriptAnswerMs: 400 });
   await server.start();
   const client = new OutlinerClient(socket, 15_000);
   cleanups.push(async () => {

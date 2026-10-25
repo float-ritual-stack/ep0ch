@@ -1,3 +1,4 @@
+import type { ExtensionActRequest } from "./extension-calls";
 import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
 import { deployArtifact, artifactDns, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
@@ -444,7 +445,7 @@ export class OutlinerServer {
     readonly socketPath: string,
     readonly herdrRegistry?: HerdrRuntimeRegistry,
     private readonly promptDirectory?: string,
-    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; routeQuietMs?: number; readOnly?: boolean;
+    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; ruleQuietMs?: number; /** How long a script ask waits for the run's own answer before it says the run is still going (default 3 s). */ scriptAnswerMs?: number; routeQuietMs?: number; readOnly?: boolean;
       /** The host's outlines folder: where this machine's own name is kept (`.host/machine-name`). */
       outlinesFolder?: string;
       /** How often due schedules are looked for (default 15 s), and the clock they read (tests). */
@@ -559,7 +560,7 @@ export class OutlinerServer {
     this.extensionCalls = new ExtensionCalls(store, this.extensionRegistry, extensionRuntime, {
       undoDrafts: (edits, by, write) => this.draftPatches.undoScript(edits, by, write),
       resolveProposal: (id, by, rule) => this.draftPatches.resolveProposal(id, by, rule),
-      script: (extension, request) => this.scriptRuns.start(extension, request),
+      script: (extension, request) => this.scriptRuns.answered(this.scriptRuns.start(extension, request), request),
       scriptRender: (source, input) => this.scriptRuns.render(source, input),
       // An action's update goes where an @agent's edit goes: draft.patch, the edit policy's guard.
       patch: (input) => this.draftPatches.patch(input),
@@ -607,7 +608,7 @@ export class OutlinerServer {
         this.broadcast({ id: requestId, domain: "script", action: "scripts.act", sequence: store.sequence,
           script: { requestId, targetClientId: target, action, args, actor, requestedBy: meta.requestedBy, ...(meta.invitation ? { invitation: meta.invitation } : {}) } });
       });
-    }, ended => this.broadcast({ id: crypto.randomUUID(), domain: "script", action: "scripts.ended", sequence: store.sequence, ended }));
+    }, ended => this.broadcast({ id: crypto.randomUUID(), domain: "script", action: "scripts.ended", sequence: store.sequence, ended }), options.scriptAnswerMs);
     this.extensionRules = new ExtensionRules(store, this.extensionRegistry, extensionRuntime, {
       // A trigger's action runs where any action runs: extensions.act, attributed to the extension, with who asked.
       act: (request) => this.extensionCalls.act(request),
@@ -2029,10 +2030,11 @@ export class OutlinerServer {
     if (request.action === "scripts.sequence") {
       try {
         await this.extensionRegistry.reload();
-        const result = this.scriptRuns.startSequence({ extension: "button", action: "run", blockId: request.blockId, line: request.line,
+        const asked: ExtensionActRequest = { extension: "button", action: "run", blockId: request.blockId, line: request.line,
           clientId: request.clientId, invitation: request.invitation, button: { block: request.blockId, line: request.line },
           requestedBy: declaredRequester(request, "scripts.sequence") ?? { author: "user" },
-        });
+        };
+        const result = await this.scriptRuns.answered(this.scriptRuns.startSequence(asked), asked);
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
     }
@@ -2060,7 +2062,8 @@ export class OutlinerServer {
         if (!selected) throw new Error("This block has no authored script; add [script::name] and a closed js or ts fence");
         const extension = this.extensionRegistry.extension(selected.expectedId);
         if (!extension) throw new Error(`Script ${nameOf(selected)}: ${this.extensionRegistry.list().extensions.find(e => e.id === selected.expectedId)?.error ?? "not runnable"}`);
-        const result = this.scriptRuns.start(extension, { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(typeof request.door === "string" ? { clientId: request.door } : {}) });
+        const asked: ExtensionActRequest = { extension: extension.id, action: "run", mcpAccess: access, requestedBy: request.mutation, ...(typeof request.door === "string" ? { clientId: request.door } : {}) };
+        const result = await this.scriptRuns.answered(this.scriptRuns.start(extension, asked), asked);
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) {
         if (isSqliteBusy(error)) throw error;

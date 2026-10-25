@@ -76,7 +76,7 @@ import { createHash } from "node:crypto";
 export interface ExtensionCallsOptions {
   readonly resolveProposal?: (id: string, by: MutationProvenance, trigger?: string) => Promise<{outcome: "resolved" | "open"; message: string; undo?: string; undoNote?: string}>;
   readonly undoDrafts?: import("./extension-writes").ExtensionWritesDeps["undoDrafts"];
-  readonly script?: (extension: LoadedExtension, request: ExtensionActRequest) => ExtensionActResult;
+  readonly script?: (extension: LoadedExtension, request: ExtensionActRequest) => ExtensionActResult | Promise<ExtensionActResult>;
   /**
    * A render-mode script drawn for a line (`ScriptRuns.render`): what it returns as Blockdown, and the notes it read with
    * their revisions. The producer path for a script is this handler line's, so it keeps its output where every handler does.
@@ -194,6 +194,10 @@ export interface ExtensionActResult {
   readonly undo?: string;
   /** Why what it wrote isn't one undo step here (a part went into a live draft, whose own ctrl+z undoes it). */
   readonly undoNote?: string;
+  /** A script run's state when this answered (PIE-1264): `message` is its last word, so `running` means it hadn't one yet. */
+  readonly state?: "running" | "done" | "failed" | "stopped";
+  /** What the script returned, whole, when `message` (one line) can't hold it. */
+  readonly answer?: string;
 }
 
 /** `extensions.bar`: a query for one of an extension's command-palette sources (PIE-656). */

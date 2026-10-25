@@ -57,7 +57,7 @@ async function setup() {
   mkdirSync(extensions, { recursive: true });
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: outline });
   const socket = join(root, "outliner.sock");
-  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80 });
+  const server = new OutlinerServer(store, socket, undefined, undefined, { extensionPollMs: 0, agentRequestQuietMs: 80, scriptAnswerMs: 0 });
   await server.start();
   const client = new OutlinerClient(socket, 15_000);
   cleanups.push(async () => {

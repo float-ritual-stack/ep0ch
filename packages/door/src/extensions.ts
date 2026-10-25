@@ -151,6 +151,10 @@ export interface ExtensionActResult {
   undo?: string;
   /** Why they aren't one undo step here (they went into a live draft, whose ctrl+z undoes them). */
   undoNote?: string;
+  /** A script run's state when the service answered (PIE-1264): `running` when it outlasted the wait; `message` is its last word. */
+  state?: "running" | "done" | "failed" | "stopped";
+  /** What the script returned, whole, when `message` (one line) can't hold it. */
+  answer?: string;
 }
 
 /** What an extension action needs from where it runs: the outline, and somewhere to say what happened. */
@@ -386,6 +390,9 @@ export async function runExtensionAction(ctx: ExtOn["ctx"], a: ExtensionAction, 
     // One undo step (PIE-784): kept for whoever asked, against the note it acted on, for that reader's ctrl+z (ext.undo).
     const on = r.undoOn ?? target.blockId ?? target.passage?.subject;
     if (r.undo && on) EXT_UNDO.push({ undo: r.undo, label: a.label, by: partyOf(actor), context: on });
+    // A script that ended in failure refuses its caller with its own words (PIE-1264): an agent's `act` is refused
+    // (the person's press hears it from `scripts.ended`, and keeps the undo above for what it did before it stopped).
+    if (script && r.state === "failed" && actor.kind !== "user") throw new ActionRefused(message ?? `${name} failed`);
     // What it asks to have opened (PIE-754): a block or a Resource, where this actor's opens land.
     if (r.open && ctx.dispatch) await ctx.dispatch.act({ action: "open", args: isResourceRef(r.open) ? { resource: r.open } : { id: r.open } }, actor)
       .catch((e: Error) => say.flash(`${name}: couldn't open ${oneLine(r.open)}: ${oneLine(e.message)}`, undefined, errorDetails(e)));
