@@ -85,7 +85,7 @@ test("the functions the page lists exist, and the globals it says are absent are
 test("the traps: this has no children, a q row has no properties, caller and props are empty off a line", async () => {
   const seen = await surface();
   expect(seen.childrenOfThis).toEqual([]);
-  expect(seen.row).toEqual(["id", "parentId", "revision", "title", "updated"]);
+  expect(seen.row).toEqual(["created", "id", "parentId", "revision", "title", "updated"]);
   expect(seen.caller).toBeNull();
   expect(seen.props).toEqual({});
 });

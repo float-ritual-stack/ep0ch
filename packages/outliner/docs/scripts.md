@@ -147,7 +147,7 @@ write `rows.map(x => this.title + x)`, not `rows.map(function (x) { return this.
 
 | Function | Returns | Source |
 |---|---|---|
-| `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:222` |
+| `q(query, { under?, limit? })` | `{ blocks: [{ id, title, revision, parentId, created, updated }], complete }`. `query` is the views' grammar (`type=ticket due <= +3d`, `parent:this`, `#tag`); `limit` 1 to 200, default 20; `under` is a ref. **Rows carry no properties**: read the row to get them. | `packages/outliner/src/host-api.ts:222` |
 | `read(ref, { depth?, limit? })` | The note's [record](#record-shapes) plus `outline_read`'s `children` (`[{ id, text, revision }]`, to `depth`, default 1), `revision`, `complete`. `ref` is an id, `((id))`, `[[page]]` or a Work ID. | `packages/outliner/src/host-api.ts:227` |
 | `resolve(path)` | What `{{ path }}` says here, through the one resolver: `{ path, values: string[], links?, lines?, route }`, or `{ path, problem: { message, didYouMean }, route }`. Never an empty string for a typo. `this.owner`, `props.week`, `now.date`, `((id)).crop`, `this.tasks \| status=todo`. | `packages/outliner/src/host-api.ts:236` |
 | `act(name, args?)` | Dispatches a door action in the connected door (**only when the run started from a door**: `ep0ch ext act` and MCP answer "act needs a connected door") (`await act("tile.open", { kind: "query", query: "#beans" })`) and answers what it did. Needs a door (run from the power bar or a live draft); a saved ask or rule has none. | `packages/outliner/src/host-api.ts:240` |
@@ -284,7 +284,7 @@ examples lean on:
 - `tasks`: `[{ status, text, line, id }]`. `children`: ids. `links`, `backlinks`, `resources`, `created`, `updated`, `author`, `revision`, `parent`.
 - **`this` and `self` are text records**: `children`, `links`, `backlinks` and `resources` are empty (`truncated` lists
   links and resources). `read(this.id)` is the full record, and `q("parent:this")` lists the children.
-- A `q` row is `{ id, title, revision, parentId, updated }`; a `read` child is `{ id, text, revision }`; `read()` itself
+- A `q` row is `{ id, title, revision, parentId, created, updated }`; a `read` child is `{ id, text, revision }`; `read()` itself
   returns `title`, `text`, `properties` and the rest of the record. **`q` rows come in no promised order** (an edited note
   came first in a check): sort them, or take outline order from `read(this.id).children`.
 - **The host of a `name::` line is `this`**, so `q("parent:this")` lists that note's children, and `this.owner` is its owner.
