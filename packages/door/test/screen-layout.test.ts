@@ -755,3 +755,23 @@ for (const cols of [160, 250]) for (const target of [1, 2]) test(`placement keep
     }
   } finally { extra = {}; }
 });
+
+describe("renaming a tile (PIE-1283)", () => {
+  test("the name changes where a name is looked up, a taken name is refused, and the open rules that name it follow", () => {
+    const into = ok(fresh(), { op: "policy", tile: 3, set: { opensInto: "reader" }, clear: [] }).state;
+    const r = ok(into, { op: "rename", tile: 2, name: "yo" });
+    expect(r.state.names.get(2)).toBe("yo");
+    expect(policyAt(r.state, 3).opensInto).toBe("yo");
+    no(fresh(), { op: "rename", tile: 2, name: "tree" }, /already a tile named tree here/);
+    // Unchanged is no change.
+    expect(ok(fresh(), { op: "rename", tile: 2, name: "reader" }).changed).toBe(false);
+  });
+
+  test("a locked layer's open rule isn't rewritten, and an agent doesn't rename a tile it may only edit", () => {
+    const locked = ok(ok(fresh(), { op: "policy", tile: 3, set: { opensInto: "reader" }, clear: [] }).state, { op: "lock", on: true }).state;
+    no(locked, { op: "rename", tile: 2, name: "yo" }, /locked/);
+    const edit = ok(fresh(), { op: "agents", tile: 2, level: "edit" }).state;
+    no(edit, { op: "rename", tile: 2, name: "yo" }, /renaming it/, AGENT);
+    ok(fresh(), { op: "rename", tile: 2, name: "yo" }, AGENT);
+  });
+});

@@ -128,6 +128,7 @@ export class TunePane implements Pane {
   constructor(public source: string) {}
 
   title() { return `tune · ${this.source}`; }
+  renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
   typing() { return !!this.view.field; }
   unsaved() { return this.view.unsaved(); }
   keepDrafts() { return this.view.keep(); }

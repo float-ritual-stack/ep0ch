@@ -3939,6 +3939,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const role = this.specTiles.get(text);
         if (role !== undefined && role !== t.id && this.panes.has(role)) throw new ActionRefused(`there's already a tile named ${text} here (this screen's ${text}) · pick another name`);
         this.apply({ op: "rename", tile: t.id, name: text }, actor);
+        // Tiles that keep this one's name as their source (a preview, a comment beside it, a tune) follow it.
+        for (const q of this.panes.values()) q.renamedTile?.(t.name, this.nameOf(t.id));
         p.writtenTitle = this.nameOf(t.id); p.systemTitle = false;          // the title it shows is its name (as the layout kept it: a name the drawer has is numbered), until a title is written on it
       } else { p.writtenTitle = text || undefined; p.systemTitle = false; }
     } else {

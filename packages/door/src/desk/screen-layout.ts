@@ -954,6 +954,7 @@ class Step<I> {
     const under = (n: LNode<I> | null | undefined) => (n ? leaves(n) : []);
     switch (op.op) {
       case "close": return no(op.tile, "closing it");
+      case "rename": return no(op.tile, "renaming it");
       case "replace": return no(op.tile, "replacing it");
       case "take": return no(op.tile, "taking it away");
       case "group": { const nd = op.node !== undefined ? nodeById(this.d.tree, op.node) ?? node(this.d.tree, op.node) : null; return each([...(nd ? leaves(nd) : op.tile !== undefined ? [op.tile] : []), ...(op.take ?? [])], "gathering it into a group"); }
@@ -1015,11 +1016,16 @@ class Step<I> {
     if (was === name) { this.d.changed = false; this.d.answer = { tile: name, changed: false }; return; }
     const other = named(this.d, name);
     refuse(other !== undefined ? `there's already a tile named ${name} here · pick another name (${autoName(this.d, name)} is free)` : null);
-    this.d.names.set(id, name);
-    const rewire = (policy: Policy | undefined) => { if (policy?.opensInto === was) policy.opensInto = name; };
-    rewire(this.d.policy);
-    const walk = (n: LNode<I>) => { if (n.t !== "leaf") { rewire(n.policy); kidsOf(n).forEach(walk); } };
+    // An open rule's `opensInto` names a tile or a container's key: a tile named for a container would take its opens.
+    refuse(node(this.d.tree, name) ? `${name} is the key of a container here: a tile named so would take what opens into it · pick another name` : null);
+    // The open rules that name it follow it, unless their layer is locked (as `policy` refuses a locked layer's change).
+    const owners: { policy: Policy | undefined; locked: Effective | null; what: string }[] = [];
+    if (this.d.policy.opensInto === was) owners.push({ policy: this.d.policy, locked: effective([{ by: "screen", policy: this.d.policy }]), what: "the screen's" });
+    const walk = (n: LNode<I>) => { if (n.t !== "leaf") { if (n.policy?.opensInto === was) owners.push({ policy: n.policy, locked: this.ofNode(n), what: `${n.id ?? n.t}'s` }); kidsOf(n).forEach(walk); } };
     walk(this.d.tree);
+    for (const o of owners) if (o.locked?.locked && !this.yolo) refuse(this.lockedWhy(o.locked, `renaming ${was} (${o.what} open rule names it)`));
+    this.d.names.set(id, name);
+    for (const o of owners) o.policy!.opensInto = name;
     this.d.answer = { tile: name, was, changed: true };
   }
 

@@ -344,4 +344,15 @@ describe.skipIf(!outliner)("a mounted screen is one screen with the one around i
     await act("tile.close", {}, b.tile);
     await act("tile.close", {}, a.tile);
   }, 30_000);
+
+  test("a tile that keeps another's name as its source follows its rename", async () => {
+    const reader = D().layoutGet().tiles.find((t: any) => t.name === "reader").tile as string;
+    const pv = await act("tile.open", { kind: "tune", name: "follower", source: "tile:reader" }, reader);
+    const pane = D().paneNamed("follower");
+    expect(pane.source).toBe("reader");
+    await act("tile.title", { text: "notes-here" }, reader);
+    expect(pane.source).toBe("notes-here");
+    await act("tile.title", { text: "reader" }, reader);
+    await act("tile.close", {}, pv.tile);
+  }, 20_000);
 });
