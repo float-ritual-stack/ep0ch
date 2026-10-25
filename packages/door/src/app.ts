@@ -101,6 +101,8 @@ export interface HostLayer {
    * desk answers (it reads every layer); none made yet, nothing.
    */
   resolveTile(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null;
+  /** Why `sel` names no tile in the host layer, in words and with the command to run (the drawer's own program closed, or out on a screen not shown), or null: the dispatcher's refusal says it. */
+  unnamed(sel: string): string | null;
   /** Tile `name` of screen `from` into the drawer, whole, as a tab unless `to`/`where` place it in the drawer's layout; `keys`: the person's go into it there (a new note to write). */
   put(from: Desk, name: string, actor: Actor, keys?: boolean, to?: string, where?: Where): TileDone;
   /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. */

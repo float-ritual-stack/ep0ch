@@ -161,7 +161,7 @@ export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req:
    * The host layer (the drawer, above every screen): the one place that resolves what `tile=` names across layers (a tile's
    * id, `drawer.agent`, an `@screen/tile` path), for every screen host, a desk or not. A screen's own names are its own.
    */
-  hostLayer?: { resolveTile?(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null } }
+  hostLayer?: { resolveTile?(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null; /** Why `sel` names no tile in the host layer (the drawer's program closed, say), with what to run: a refusal says it. */ unnamed?(sel: string): string | null } }
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
@@ -638,7 +638,7 @@ export class Dispatcher {
     const resolved = this.resolve(sel);
     if (resolved && resolved.dispatch.host.pointerScope !== this.host.pointerScope) return resolved.dispatch.menu(resolved.tile.id!, actor);
     const tiles = this.tilesNow(), tile = this.tile(sel);
-    if (!tile) throw new ActionRefused(`no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
+    if (!tile) throw this.noTile(sel, tiles);
     const out: MenuRow[] = [], where = this.where(), ctx = this.host.ctx();
     // A row is listed by the registration that would run it: the owner a press of it finds (claims included).
     const owns = (r: Registration | Delegation, action: string) => this.owner({ action, tile: tile.id ?? tile.name }) === r;
@@ -731,10 +731,19 @@ export class Dispatcher {
       if (resolved) { out[k] = resolved.tile.id ?? resolved.tile.name; continue; }
       if (isTilePath(String(out[k]))) continue;
       const hit = this.named(String(out[k]), tiles);
-      if (!hit) throw new ActionRefused(`no tile ${out[k]} here; ${this.which(tiles)}`);
+      if (!hit) throw this.noTile(String(out[k]), tiles);
       out[k] = hit.t.name;
     }
     return out;
+  }
+
+  /**
+   * The refusal for a `tile=` that names nothing: the host layer's reason when it has one (`drawer.agent` with its program
+   * closed names what to run), else the tiles this screen has.
+   */
+  private noTile(sel: string, tiles: TileRef[]): ActionRefused {
+    const why = this.host.ctx()?.hostLayer?.unnamed?.(sel);
+    return new ActionRefused(why ? `no tile ${sel}: ${why}` : `no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
   }
 
   /** Where a request runs: the tile `tile=` names (one grammar), a place word, or the action's own default. */
@@ -751,7 +760,7 @@ export class Dispatcher {
       if (sel === "focused") return focused ? { tile: focused, name: focused.name } : { name: sel };
       if (!tiles.length) return { name: sel };
       const hit = this.named(sel, tiles) ?? this.byBlock(sel, tiles, actor);
-      if (!hit) throw new ActionRefused(`no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
+      if (!hit) throw this.noTile(sel, tiles);
       return { tile: hit.t, name: hit.t.name };
     }
     // takes: "tile"
@@ -770,7 +779,7 @@ export class Dispatcher {
         const other = this.named(sel, tiles);
         if (other) throw new ActionRefused(`${other.t.name} is ${kindNoun(other.t)}: ${req.action} is for ${noun(req.action)}${can.length ? `; here: ${can.map(t => t.name).join(", ")}` : ""}`);
         if (BLOCK.test(sel)) throw new ActionRefused(`no ${noun(req.action).replace(/^an? /, "")} shows ${sel}; open it first (open id=${sel})`);
-        throw new ActionRefused(`no tile ${sel} on the ${this.host.title}; ${this.which(can.length ? can : tiles)}`);
+        throw this.noTile(sel, can.length ? can : tiles);
       }
     }
     const t = hit.t;

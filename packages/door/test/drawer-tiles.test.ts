@@ -701,6 +701,51 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  // PIE-1286 (Evan's laptop, Oct 25): `agent.lift` said "no tile drawer.agent on the desk; tiles: #1 detail2 ..." with a tab
+  // named claude shown in the drawer and `/bin/zsh` as the drawer's program. The own tab had been closed, so the drawer's
+  // program was nowhere, and the refusal listed the screen's tiles. The drawer says which tile is its program; when it has
+  // none, the refusal says so and what to run.
+  test("agent.lift with the drawer's own tab closed and another tab shown: the refusal says the program is closed and what to run, not the screen's tiles", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      const drawer = d.app.drawer.desk!;
+      d.app.drawer.tile!.kill();
+      await until(() => d.app.drawer.tile?.running === false, "the program exited");
+      await drawer.dispatch.act({ action: "tile.close", tile: "drawer.agent" }, USER);
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      expect(d.app.describe().drawer.tile).toMatchObject({ name: "kettle" });
+      for (const sel of [{ action: "agent.lift" }, { action: "tile.zoom", tile: DRAWER_TILE_ID, args: { reach: "column" } }]) {
+        const why = await d.app.dispatch.act({ args: {}, ...sel }, USER).then(() => "", (e: Error) => e.message);
+        expect(why).toContain("the drawer's own program is closed");
+        expect(why).toContain("host.agent");
+        expect(why).not.toContain("tiles:");
+      }
+      // The tab that is there is still reached by its own name.
+      await d.app.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: "kettle" }, USER);
+      expect(d.app.drawer.desks().some(x => x.liftedDesk?.lifted)).toBe(true);
+    } finally { d.app.quit(); }
+  });
+
+  // PIE-1286: what the drawer's program was once told (EP0CH_TILE_ID) is the program's word for where it ran; it names no tile
+  // now. A tile that was the drawer's program and sits as an ordinary tab keeps that id, and `drawer.agent` is still the own tab.
+  test("drawer.agent is the drawer's own tab, never an ordinary tile whose program was once told that id", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      const own = d.app.drawer.tile!, kettle = d.kettle()!;
+      kettle.toldId = DRAWER_TILE_ID;
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      own.kill();
+      await until(() => own.running === false, "the own program exited");
+      const drawer = d.app.drawer.desk!;
+      expect(drawer.dispatch.tile(DRAWER_TILE_ID)?.name).toBe("drawer.agent");
+      expect(d.desk.dispatch.tile(DRAWER_TILE_ID)?.name).toBe("drawer.agent");
+    } finally { d.app.quit(); }
+  });
+
   // PIE-1279 (Evan, Oct 25): a status-bar button that lifts toggles. A status click drops a lift first (PIE-1189: work that
   // moves to a bar must not land under it), which ate the toggle: the second click dropped, then lifted again. And
   // agent.lift is tile.zoom on drawer.agent with its start step, so the two buttons do the same, whatever the drawer's

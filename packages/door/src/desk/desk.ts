@@ -1213,15 +1213,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return hits[0]!.id?.startsWith("t-") ? hits[0]!.id : path;
   }
 
+  /** The answer `tile=` gets for `pane` on this desk: its tile, this desk's dispatcher and the desk. */
+  answerFor(pane: Pane): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
+    const id = this.idOf(pane), tile = id === undefined ? undefined : this.tiles().find(t => t.id === this.tileId(id));
+    return tile ? { tile, dispatch: this.dispatch, desk: this } : null;
+  }
+
   resolveTile(sel: string, o: { program?: true } = {}): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
+    // The drawer's own program is the drawer's to name (AgentDrawer.agentPane): a desk never matches it by a name or an id.
+    if (sel === DRAWER_TILE_ID) return this.ctx?.hostLayer?.resolveTile(sel) ?? null;
     const desks = this.relatives();
-    const found = (desk: Desk, id: number) => ({ tile: desk.tiles().find(t => t.id === desk.tileId(id))!, dispatch: desk.dispatch, desk });
+    const found = (desk: Desk, id: number) => desk.answerFor(desk.panes.get(id)!)!;
     for (const desk of desks) for (const id of desk.panes.keys()) if (desk.tileId(id) === sel) return found(desk, id);
-    // `program`: the tile a program runs in (`open from=`), which it names by what it was told. The id it was told (EP0CH_TILE_ID) beats a name: the drawer's own program keeps `drawer.agent` wherever it runs, and its
-    // tab holds a tile of that name while it is out on a screen.
-    // `drawer.agent` is that program in every grammar, not only an `open from=`'s: the tile a lift or a zoom of it reaches.
-    const program = o.program || sel === DRAWER_TILE_ID;
-    const toldId = !program ? [] : desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && (p.toldId ?? p.tileId) === sel).map(([id]) => ({ desk, id })));
+    // `program`: the tile a program runs in (`open from=`), which it names by what it was told. The id it was told (EP0CH_TILE_ID) beats a name:
+    // a program moved to another tile (the drawer's own, put on a screen) still says the id it started with.
+    const toldId = !o.program ? [] : desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && (p.toldId ?? p.tileId) === sel).map(([id]) => ({ desk, id })));
     if (toldId.length === 1) return found(toldId[0]!.desk, toldId[0]!.id);
     const named = desks.flatMap(desk => [...desk.names].filter(([id, name]) => name === sel && desk.panes.has(id)).map(([id]) => ({ desk, id })));
     if (named.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${named.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
@@ -1234,8 +1240,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (sel === "focused") return this.resolveTile(this.ctx?.person?.().address ?? this.keys().address ?? "");
     const pane = sel.includes("/") ? this.paneAtPath(sel) : undefined;
     const desk = pane && desks.find(d => d.idOf(pane) !== undefined);
-    if (!pane || !desk) return null;
-    return { tile: desk.tiles().find(t => t.id === desk.tileId(desk.idOf(pane)!))!, dispatch: desk.dispatch, desk };
+    return pane && desk ? desk.answerFor(pane) : null;
   }
 
   /** An empty drawer still owns capture; no tile on the screen leaves capture to its screen wrapper. */
