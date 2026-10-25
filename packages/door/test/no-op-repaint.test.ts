@@ -50,6 +50,7 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
     // An outer action that mutates after an inner press has painted: the inner press's frame doesn't cover the later change.
     "probe.press.then": def({ summary: "presses an action that changes the screen, then changes more", touches: "screen", replay: "safe", args: {}, run: async (_: unknown, { ctx }: { ctx: { press?(n: string): Promise<unknown> } }) => { await ctx.press!("probe.screen"); return "moved more"; } }),
     // Changes the screen a turn after it began, without redrawing.
+    "probe.press.self.then": def({ summary: "presses an action that redraws itself, then changes more", touches: "screen", replay: "safe", args: {}, run: async (_: unknown, { ctx }: { ctx: { press?(n: string): Promise<unknown> } }) => { await ctx.press!("probe.self"); return "moved more"; } }),
     "probe.turn": def({ summary: "changes the screen after one turn and leaves the repaint to the dispatcher", touches: "screen", replay: "safe", args: {}, run: async () => { await Promise.resolve(); return "moved"; } }),
     "probe.refused": def({ summary: "is refused", touches: "screen", replay: "safe", args: {}, run: () => { throw new ActionRefused("not now"); } }),
   };
@@ -96,6 +97,7 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
 
   test("a frame an inner press painted doesn't stand for what its outer action changed after it", async () => {
     expect(await painted("probe.press.then")).toBe(2);
+    expect(await painted("probe.press.self.then")).toBe(2);
   });
 
   test("another press's own redraw is not this press's: each action that changed the screen is painted for", async () => {
