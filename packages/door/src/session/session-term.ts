@@ -77,6 +77,8 @@ export class SessionClient {
   /** What the window did, for `peek`: frames skipped, answers given up on, the smoothed round trip of an answer (ms). */
   skipped = 0; ackTimeouts = 0; ackMs: number | null = null;
   staleTimer: Timer | null = null;
+  /** Frames given up on whose answers may still come: the next that many answers are theirs, not newer frames'. */
+  lost = 0;
   /** Called when `inflight` has emptied (a program waiting to be given the terminal). */
   settled: (() => void)[] = [];
   /** It just took the session at another size: its clicks were aimed at the old frame until it's painted again. */
@@ -411,6 +413,7 @@ export class SessionTerm implements Display {
 
   /** `c`'s terminal answered a status query: the oldest frame in flight has been taken. */
   private answered(c: SessionClient): void {
+    if (c.lost) { c.lost--; return; }         // the answer to a frame given up on
     const sent = c.inflight.shift();
     if (sent === undefined) return;           // none was asked (an old answer after a handoff, or one given up on)
     const ms = performance.now() - sent;
@@ -446,6 +449,7 @@ export class SessionTerm implements Display {
       if (performance.now() - c.inflight[0]! < this.ackStaleMs) return this.watchStale(c);
       c.ackTimeouts++;
       const skipped = c.waiting;
+      c.lost += c.inflight.length;
       this.forgetWindow(c);
       if (skipped) this.paintClient(c);
     }, wait);

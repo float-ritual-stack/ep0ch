@@ -312,7 +312,7 @@ export class KeyDecoder {
       if (p[i] === "\x1d") break;
       if (p.startsWith("\x1b[", i)) {
         const rest = p.slice(i);
-        if (/^\x1b\[<\d+;\d+;\d+[Mm]/.test(rest) || REPORT_AT.test(rest) || rest.startsWith(STATUS_OK)) break;
+        if (/^\x1b\[<\d+;\d+;\d+[Mm]/.test(rest) || REPORT_AT.test(rest)) break;
         if (/^\x1b\[[<\d;:]*$/.test(rest)) {
           if (i) sink(p.slice(0, i));
           this.pending = rest;
@@ -326,7 +326,6 @@ export class KeyDecoder {
     this.pending = p.slice(i);
     if (!this.pending) return true;
     if (this.pending[0] === "\x1d") { this.pending = this.pending.slice(1); this.keyHandler({ kind: "char", ch: "]", ctrl: true }); return true; }
-    if (this.pending.startsWith(STATUS_OK)) { this.pending = this.pending.slice(STATUS_OK.length); this.status(); return true; }
     const r = parseReport(this.pending);
     if (r) {
       const seq = this.pending.slice(0, r.length);
@@ -344,6 +343,9 @@ export class KeyDecoder {
   }
 
   feed(s: string) {
+    // The status reports that answer `CSI 5 n` are taken out first, wherever they fall: in the middle of a paste still
+    // arriving, in raw input to a terminal tile, between keys. At the probe one says the terminal answers it at all.
+    if (s.includes(STATUS_OK)) s = s.replaceAll(STATUS_OK, () => { this.status(); return ""; });
     this.pending += s;
     while (this.pending.length) {
       const sink = this.rawSink?.();
@@ -380,8 +382,6 @@ export class KeyDecoder {
       if (m) { const seen = (this.probing!.cursor ??= []); seen.push(Number(m[2])); this.info.sized = sizedAnswer(seen); this.pending = p.slice(m[0].length); continue; }
       m = p.match(/^\x1b\[\?[\d;]*c/);
       if (m) { this.probing?.done(); this.pending = p.slice(m[0].length); continue; }
-      // The status report that answers `CSI 5 n`: at the probe it says the terminal answers it at all (src/session/client.ts).
-      if (p.startsWith(STATUS_OK)) { this.pending = p.slice(STATUS_OK.length); this.status(); continue; }
       // The Kitty keyboard protocol's query answered: the terminal has it (src/kbd.ts).
       m = p.match(/^\x1b\[\?\d*u/);
       if (m) { if (this.probing) this.kbd = true; this.keyEvents = !!(Number(m[0].slice(3, -1)) & 2); this.pending = p.slice(m[0].length); continue; }

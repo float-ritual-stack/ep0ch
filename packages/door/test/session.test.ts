@@ -502,6 +502,13 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     expect(frames(a)[0]!.text.endsWith("\x1b[?2026l\x1b[5n")).toBe(true);
     term.input(ca, answer + "j" + answer);
     expect(keys).toEqual([{ kind: "char", ch: "j" }]);
+    // Nor into a paste still arriving over a slow link, and the answer inside it is counted.
+    term.invalidate(); paint();
+    const waiting = term.speed()[0]!.unacked;
+    const typedBefore = keys.length;
+    term.input(ca, "\x1b[200~pasted "); term.input(ca, answer); term.input(ca, "text\x1b[201~");
+    expect(keys.slice(typedBefore).map((k: any) => k.ch ?? `<${k.kind}>`).join("")).toBe("pasted text");
+    expect(term.speed()[0]!.unacked).toBe(waiting - 1);
     // Nor into a program typed to in a terminal tile (raw input): it would see ESC [ 0 n.
     const typed: string[] = [];
     term.rawSink = () => b => typed.push(b);
@@ -542,7 +549,12 @@ describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163
     expect(numbers(a)).toEqual([0, 1]);
     await until(() => numbers(a).length === 3, "the latest frame to go after the stale time, with no other paint to bring it", 400);
     expect(numbers(a)).toEqual([0, 1, 5]);
-    expect(term.speed()[0]).toMatchObject({ ackTimeouts: 1 });
+    expect(term.speed()[0]).toMatchObject({ ackTimeouts: 1, unacked: 1 });
+    // The answers to the two given up on come late: they are theirs, not frame 5's.
+    term.input(term.all()[0]!, answer); term.input(term.all()[0]!, answer);
+    expect(term.speed()[0]).toMatchObject({ unacked: 1 });
+    term.input(term.all()[0]!, answer);
+    expect(term.speed()[0]).toMatchObject({ unacked: 0 });
   });
 
   test("the round trip of the answers is measured for each client, beside the frames waiting", async () => {

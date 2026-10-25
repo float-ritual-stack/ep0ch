@@ -614,6 +614,11 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
       mouse("drag", border, n.row - 4); render();
       mouse("up", border, n.row - 4); render();
       expect({ ends, inResize: inResize() }).toEqual({ ends: 1, inResize: false });
+      // A release that never came (the pointer let go outside the window): the next report with no button down ends it.
+      mouse("down", border, n.row - 4); mouse("drag", border, n.row - 3); render();
+      expect(inResize()).toBe(true);
+      key({ kind: "mouse", action: "drag", button: 3, x: border + 2, y: n.row }); render();
+      expect({ ends, inResize: inResize(), dragging: D().drag }).toEqual({ ends: 2, inResize: false, dragging: null });
     } finally { off(); }
   });
 });

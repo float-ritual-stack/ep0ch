@@ -4256,6 +4256,20 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { opened: await this.startSession(rd, "edit", undefined, kept.keys) };
   }
 
+  /**
+   * The pointer moved with no button held while a border or a float's corner was being dragged: the release never came
+   * (it fell outside the window, or an overlay took it, or the link dropped it), and the drag is over. A held drag stays
+   * a resize until it is let go (resizeHeld), so this is what ends one whose end was lost, soon rather than at the ceiling.
+   */
+  private releaseLost(): void {
+    const sizing = this.floatDrag?.size;
+    if (!this.drag && !sizing) return;
+    if (this.drag) { this.drag = null; this.save(); }
+    if (sizing) { this.floatDrag = null; this.save(); }
+    resizeEnded();
+    this.redraw();
+  }
+
   key(k: Key, ctx: Ctx): void {
     if (k.kind === "mouse" && (k.mods ?? 0) === ZOOM_WHEEL.mods && (k.action === "wheel-up" || k.action === "wheel-down")) {
       const hit = this.hits.find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
@@ -4319,7 +4333,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         return this.run("tile.menu", {}, this.nameOf(b.id));
       }
     }
-    if (isHover(k)) return;
+    if (isHover(k)) { this.releaseLost(); return; }
     if (k.kind === "esc" && (this.hintCard || this.xray)) {
       const inMode = this.linking || this.dragging || this.floatDrag || this.drag || this.prefix || this.overlayOpen() || this.pickedBy(USER).length;
       this.run("hint.dismiss");
@@ -6154,7 +6168,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.failedEdits.delete(p);
       if (this.entered.in(p)) this.entered.clear();
     }
-    if (this.floatDrag?.id === id) this.floatDrag = null;
+    if (this.floatDrag?.id === id) { if (this.floatDrag.size) resizeEnded(); this.floatDrag = null; }
     if (this.linking?.desk === this && this.linking.from === id) this.linking = null;
     if (this.mouseTile?.id === id) this.mouseTile = null;
     if (this.headPress?.id === id) this.headPress = null;
