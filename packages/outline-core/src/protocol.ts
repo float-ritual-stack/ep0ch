@@ -12,7 +12,7 @@
 // search and dates are GRAMMAR-owned. Never use a GRAMMAR-only parse to choose a write range.
 // A newer host's grammar warns once and never refuses capture; the host's parsing owns saved content.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 262;
+export const PROTOCOL = 263;
 /** Parse/draw rules, independent of whether a write can land correctly. */
 export const GRAMMAR = 3;
 
@@ -439,9 +439,10 @@ export interface ShareSession {
   id: string;
   /**
    * What it shows: the whole outline (the default, navigated as the tailnet's web client is), or only one note and
-   * what's under it. A `[publish::never]` note is never shown either way.
+   * what's under it. A `[publish::never]` note is never shown either way. An `artifact` share (PIE-1266) shows one
+   * artifact on its own, full-bleed: the same link, revoke and list as a page's.
    */
-  scope: { kind: "note"; blockId: string; title: string } | { kind: "outline" };
+  scope: { kind: "note"; blockId: string; title: string } | { kind: "outline" } | { kind: "artifact"; name: string; title: string };
   /** The note the link opens on (`url` ends `/p/<id>`), when it was started from or for one. */
   opens?: { blockId: string; title: string };
   /** Whether a reader may highlight, comment, ask and reply (attributed to the person, via this share). */
@@ -471,8 +472,12 @@ export interface ShareSession {
 export const SHARE_VIAS = ["edge", "cloudflare"] as const;
 export type ShareVia = typeof SHARE_VIAS[number];
 
-/** The longest and default life of a share session, and the shortest. */
-export const SHARE_TTL = { defaultMs: 60 * 60_000, maxMs: 24 * 60 * 60_000, minMs: 60_000 } as const;
+/**
+ * The life of a share session. `defaultMs`, `maxMs` and `minMs` bound a snapshot's download and a lease (an hour by default,
+ * a minute to a day); a share of a page, the outline or an artifact lasts until revoked unless a time is given (`neverMs`,
+ * PIE-1266), any length from `minMs`.
+ */
+export const SHARE_TTL = { defaultMs: 60 * 60_000, maxMs: 24 * 60 * 60_000, minMs: 60_000, neverMs: 100 * 365 * 24 * 60 * 60_000 } as const;
 
 /**
  * A signed-in web session (the publisher's sign-in listener, `my.ep0ch.sh`): one browser that signed in through Clerk as

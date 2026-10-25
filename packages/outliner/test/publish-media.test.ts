@@ -164,16 +164,18 @@ test("imported artifact paths frame their static URLs and keep files outside the
   await client.request({ action: "artifacts.import" });
   const note = store.create(`Desk toys [publish::public:desk-toys]\n[artifact::artifacts/orbit-lamp.html] [height::20] [alt::Orbit lamp]\n[artifact::${join(elsewhere, "secret.html")}]`);
   const html = await (await get("/p/desk-toys?view=html")).text();
-  const { url } = await client.request<{ url: string }>({ action: "artifacts.show", name: "artifacts/orbit-lamp.html" });
-  expect(html).toContain(`<iframe src="${url}" title="Orbit lamp"`);
+  // The owner's page frames it from the artifact host (a grant for that artifact); "open" is this site's own route.
+  expect(html).toMatch(/<iframe src="https:\/\/artifacts\.example\.test\/k\/\d+\.[\w-]+\/orbit-lamp%401\/" title="Orbit lamp"/);
   expect(html).toContain("height:25.00rem");
   expect(html).not.toContain(elsewhere);
+  expect(html).toContain(`href="/p/${note.id}/artifact/1"`);
   const frame = await get(`/p/${note.id}/artifact/1`);
-  expect(frame.status).toBe(302);
-  expect(frame.headers.get("location")).toBe(url);
+  expect(frame.status).toBe(200);
+  expect(await frame.text()).toMatch(/<iframe src="https:\/\/artifacts\.example\.test\/k\//);
   expect((await get(`/p/${note.id}/artifact/2`)).status).toBe(404);
-  expect((await get(`/share/p/${note.id}/artifact/1`, "public")).status).toBe(302);
-  expect(await (await get("/p/desk-toys?view=md")).text()).toContain(`([open](${url}))`);
+  // A public reader gets nothing of what the store holds, even by the file it was imported from.
+  expect((await get(`/share/p/${note.id}/artifact/1`, "public")).status).toBe(404);
+  expect(await (await get("/p/desk-toys?view=md")).text()).toContain(`([open](/p/${note.id}/artifact/1))`);
 });
 
 test("an artifact runs only where its note is shown: never under [publish::never], never publicly unless public", async () => {
@@ -184,7 +186,7 @@ test("an artifact runs only where its note is shown: never under [publish::never
   await client.request({ action: "artifacts.put", name: "lamp", files: { "index.html": "<title>Lamp</title>" } });
   const open = store.create("Open toys [publish::open-toys]\n[artifact::lamp]");
   const locked = store.create("Locked toys [publish::never]\n[artifact::lamp]");
-  expect((await get(`/p/${open.id}/artifact/1`)).status).toBe(302);
+  expect((await get(`/p/${open.id}/artifact/1`)).status).toBe(200);
   expect((await get(`/p/${locked.id}/artifact/1`)).status).toBe(404);
   expect((await get(`/share/p/${open.id}/artifact/1`, "public")).status).toBe(404);
   expect((await get(`/p/${open.id}/media/1`)).status).toBe(404);

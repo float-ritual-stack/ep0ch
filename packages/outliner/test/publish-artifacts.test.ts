@@ -26,6 +26,10 @@ afterEach(async () => {
 });
 
 const COMPILE_TIMEOUT = 180_000;
+/** Where the owner's frame loads an artifact from (`url` is its page in the web client; the artifact host is never shown). */
+const framed = async (client: OutlinerClient, name: string) => (await client.request<ArtifactInfo>({ action: "artifacts.show", name, frame: { owner: true } })).frame!;
+/** The artifact host over real HTTP, the owner's side of it (a share's is artifact-access.test.ts). */
+const iframeSrc = (html: string) => /<iframe src="([^"]*)"/.exec(html)?.[1]?.replace(/&amp;/g, "&");
 const SANDBOX = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads";
 
 async function setup(options: { artifactCacheDirectory?: string | null; roots?: string[] } = {}) {
@@ -349,43 +353,45 @@ test("a named folder goes through the service and snapshots keep its earlier byt
   const oldOrigin = process.env.EP0CH_ARTIFACT_ORIGIN;
   process.env.EP0CH_ARTIFACT_ORIGIN = staticServer.url.origin;
   cleanups.push(() => { staticServer.stop(true); if (oldOrigin === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = oldOrigin; });
-  const live = await client.request<ArtifactInfo>({ action: "artifacts.put", name: "moth-site", files: { "index.html": '<h1>First night</h1><link rel="stylesheet" href="assets/theme.css">', "assets/theme.css": "body{color:purple}" } });
-  expect(await (await fetch(live.url!)).text()).toContain("First night");
-  const css = await fetch(new URL("assets/theme.css", live.url!));
+  await client.request<ArtifactInfo>({ action: "artifacts.put", name: "moth-site", files: { "index.html": '<h1>First night</h1><link rel="stylesheet" href="assets/theme.css">', "assets/theme.css": "body{color:purple}" } });
+  const liveFrame = await framed(client, "moth-site");
+  expect(await (await fetch(liveFrame)).text()).toContain("First night");
+  const css = await fetch(new URL("assets/theme.css", liveFrame));
   expect(css.headers.get("content-type")).toContain("text/css");
   expect(await css.text()).toBe("body{color:purple}");
   const frozen = await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "moth-site" });
   expect(frozen.version).toBe(1);
+  const frozenFrame = await framed(client, "moth-site@1");
   await client.request({ action: "artifacts.put", name: "moth-site", files: { "index.html": "<h1>Second night</h1>" } });
-  expect(await (await fetch(live.url!)).text()).toContain("Second night");
-  expect(await (await fetch(frozen.url!)).text()).toContain("First night");
+  expect(await (await fetch(liveFrame)).text()).toContain("Second night");
+  expect(await (await fetch(frozenFrame)).text()).toContain("First night");
   writeFileSync(join(root, ".artifacts/live/moth-site/index.html"), "Saved by sync");
-  expect(await (await fetch(live.url!)).text()).toBe("Saved by sync");
-  const response = await fetch(live.url!);
+  expect(await (await fetch(liveFrame)).text()).toBe("Saved by sync");
+  const response = await fetch(liveFrame);
   expect(response.headers.get("content-security-policy")).toContain("frame-ancestors https://notes.example.test");
   expect(response.headers.get("set-cookie")).toBeNull();
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-  expect((await fetch(new URL("assets/", live.url!))).status).toBe(404);
+  expect((await fetch(new URL("assets/", liveFrame))).status).toBe(404);
   symlinkSync(join(root, "garden"), join(root, ".artifacts/live/moth-site/leak"));
-  expect((await fetch(new URL("leak/", live.url!))).status).toBe(404);
+  expect((await fetch(new URL("leak/", liveFrame))).status).toBe(404);
   rmSync(join(root, ".artifacts/live/moth-site/leak"));
-  expect((await fetch(live.url!.replace(/\/[a-f0-9-]{36}\//, "/unknown/"))).status).toBe(404);
+  expect((await fetch(liveFrame.replace(/\/k\/[^/]+\//, "/k/1.unknown/"))).status).toBe(401);
   await expect(client.request({ action: "artifacts.put", name: "escape", files: { "../stolen.html": "bad" } })).rejects.toThrow("Unsafe artifact path");
   const oldLimit = process.env.EP0CH_ARTIFACT_MAX_BYTES;
   process.env.EP0CH_ARTIFACT_MAX_BYTES = "4";
   try {
     await expect(client.request({ action: "artifacts.put", name: "moth-site", files: { "index.html": "Too large" } })).rejects.toThrow("exceeds");
-    expect(await (await fetch(live.url!)).text()).toBe("Saved by sync");
+    expect(await (await fetch(liveFrame)).text()).toBe("Saved by sync");
     await expect(client.request({ action: "artifacts.snapshot", name: "moth-site" })).rejects.toThrow("exceeds");
   } finally { if (oldLimit === undefined) delete process.env.EP0CH_ARTIFACT_MAX_BYTES; else process.env.EP0CH_ARTIFACT_MAX_BYTES = oldLimit; }
   const versions = await client.request<{ versions: { version: number; hash: string }[] }>({ action: "artifacts.versions", name: "moth-site" });
   expect(versions.versions[0]?.hash).toMatch(/^[a-f0-9]{64}$/);
   store.create("Moth exhibit [publish::moth-exhibit]\n[artifact::moth-site]");
   const html = await (await get("/p/moth-exhibit?view=html")).text();
-  expect(html).toContain(`src="${live.url}"`);
+  expect(iframeSrc(html)).toMatch(new RegExp(`^${staticServer.url.origin}/k/\\d+\\.[\\w-]+/moth-site/$`));
   expect(html.match(/<iframe[^>]*>/)?.[0]).toContain('sandbox="allow-scripts allow-popups allow-forms allow-pointer-lock allow-downloads"');
   await client.request({ action: "artifacts.rm", name: "moth-site@1" });
-  expect((await fetch(frozen.url!)).status).toBe(404);
+  expect((await fetch(frozenFrame)).status).toBe(404);
   expect((await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "moth-site" })).version).toBe(2);
 });
 
@@ -472,9 +478,10 @@ test("settled inbox drops become versions and receipts, while bad drops keep the
   process.env.EP0CH_ARTIFACT_SETTLE_MS = "200";
   const staticServer = Bun.serve({ port: 0, fetch: request => artifactResponse(join(root, ".artifacts"), request, "https://notes.example.test") });
   process.env.EP0CH_ARTIFACT_ORIGIN = staticServer.url.origin;
+  process.env.EP0CH_WEB_URL = "https://my.example.test";
   cleanups.push(() => {
     staticServer.stop(true);
-    for (const key of ["EP0CH_ARTIFACT_INBOX", "EP0CH_ARTIFACT_SETTLE_MS", "EP0CH_ARTIFACT_ORIGIN", "EP0CH_ARTIFACT_MAX_BYTES"]) {
+    for (const key of ["EP0CH_ARTIFACT_INBOX", "EP0CH_ARTIFACT_SETTLE_MS", "EP0CH_ARTIFACT_ORIGIN", "EP0CH_ARTIFACT_MAX_BYTES", "EP0CH_WEB_URL"]) {
       if (oldEnv[key] === undefined) delete process.env[key]; else process.env[key] = oldEnv[key];
     }
   });
@@ -502,7 +509,7 @@ test("settled inbox drops become versions and receipts, while bad drops keep the
   await waitFor(() => existsSync(receipts) && readFileSync(receipts, "utf8").trim().split("\n").length === 3 && existsSync(join(inbox, ".failed/broken.jsx/reason.txt")));
   for (const [name, content] of [["moth-counter", "First moth"], ["garden", "Settled HTML"]]) {
     const info = await client.request<ArtifactInfo>({ action: "artifacts.show", name: `${name}@1` });
-    expect(await (await fetch(info.url!)).text()).toContain(content!);
+    expect(await (await fetch(await framed(client, `${name}@1`))).text()).toContain(content!);
     expect(readFileSync(receipts, "utf8")).toContain(`\t${name}\t1\t${info.url}`);
   }
   expect(readFileSync(join(root, ".artifacts/live/source-bundle/app.jsx"), "utf8")).toBe("source only, kept as given");
@@ -515,10 +522,8 @@ test("settled inbox drops become versions and receipts, while bad drops keep the
   expect(existsSync(join(inbox, ".mutagen-temporary-drop"))).toBe(true);
   writeFileSync(join(inbox, "Moth Counter.jsx"), 'export default () => <p>Second moth</p>');
   await waitFor(() => readFileSync(receipts, "utf8").trim().split("\n").length === 4);
-  const latest = await client.request<ArtifactInfo>({ action: "artifacts.show", name: "moth-counter" });
-  expect(await (await fetch(latest.url!)).text()).toContain("Second moth");
-  const pinned = await client.request<ArtifactInfo>({ action: "artifacts.show", name: "moth-counter@1" });
-  expect(await (await fetch(pinned.url!)).text()).toContain("First moth");
+  expect(await (await fetch(await framed(client, "moth-counter"))).text()).toContain("Second moth");
+  expect(await (await fetch(await framed(client, "moth-counter@1"))).text()).toContain("First moth");
   expect(readFileSync(receipts, "utf8")).toMatch(/\d{4}-\d{2}-\d{2}T[^\t]+\tmoth-counter\t2\t/);
   process.env.EP0CH_ARTIFACT_MAX_BYTES = "32";
   writeFileSync(join(inbox, "oversized.html"), "x".repeat(33));
@@ -536,25 +541,29 @@ test("settled inbox drops become versions and receipts, while bad drops keep the
 }, COMPILE_TIMEOUT);
 
 
-test("each artifact ref has its own capability and removing live revokes its old URL", async () => {
+test("a grant opens one artifact ref only, and follows that name through a removal and a put", async () => {
   const { root, client } = await setup();
   const oldOrigin = process.env.EP0CH_ARTIFACT_ORIGIN;
   process.env.EP0CH_ARTIFACT_ORIGIN = "https://artifacts.example.test";
   cleanups.push(() => { if (oldOrigin === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = oldOrigin; });
   const serve = (url: string) => artifactResponse(join(root, ".artifacts"), new Request(url), "*");
-  const live = await client.request<ArtifactInfo>({ action: "artifacts.put", name: "capability", files: { "index.html": "Live" } });
-  const pinned = await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "capability" });
-  const second = await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "capability" });
-  expect(serve(live.url!.replace("/capability/", "/capability@1/")).status).toBe(404);
-  expect(serve(pinned.url!.replace("capability%401", "capability")).status).toBe(404);
-  expect(serve(pinned.url!.replace("capability%401", "capability%402")).status).toBe(404);
+  await client.request<ArtifactInfo>({ action: "artifacts.put", name: "capability", files: { "index.html": "Live" } });
+  await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "capability" });
+  await client.request<ArtifactInfo>({ action: "artifacts.snapshot", name: "capability" });
+  const live = await framed(client, "capability"), pinned = await framed(client, "capability@1"), second = await framed(client, "capability@2");
+  expect(await (await serve(live)).text()).toBe("Live");
+  // A grant is for its ref: no other ref, live or pinned, opens by editing the address.
+  expect((await serve(live.replace("/capability/", "/capability@1/"))).status).toBe(401);
+  expect((await serve(pinned.replace("capability%401", "capability"))).status).toBe(401);
+  expect((await serve(pinned.replace("capability%401", "capability%402"))).status).toBe(401);
+  // The store decides what is behind a name: a removed live artifact serves nothing, a replacement serves its own bytes.
   await client.request({ action: "artifacts.rm", name: "capability" });
-  const replacement = await client.request<ArtifactInfo>({ action: "artifacts.put", name: "capability", files: { "index.html": "Replacement" } });
-  expect(replacement.url).not.toBe(live.url);
-  expect(serve(live.url!).status).toBe(404);
-  expect(await serve(pinned.url!).text()).toBe("Live");
+  expect((await serve(live)).status).toBe(404);
+  await client.request<ArtifactInfo>({ action: "artifacts.put", name: "capability", files: { "index.html": "Replacement" } });
+  expect(await (await serve(live)).text()).toBe("Replacement");
+  expect(await (await serve(pinned)).text()).toBe("Live");
   await client.request({ action: "artifacts.rm", name: "capability@2" });
-  expect(serve(second.url!).status).toBe(404);
+  expect((await serve(second)).status).toBe(404);
 });
 
 test("read-only copies can show, list and read versions of machine artifacts", async () => {
@@ -581,7 +590,7 @@ test("mermaid and markdown puts serve rendered HTML beside their source", async 
   for (const [name, source, expected] of [["diagram.mermaid", MERMAID, MERMAID_MODULE], ["guide.md", "# Lantern guide", "<h1>Lantern guide</h1>"]]) {
     const info = await client.request<ArtifactInfo>({ action: "artifacts.put", name: "rendered", files: { [name!]: source! } });
     expect(info.files).toContain("index.html");
-    const page = artifactResponse(join(root, ".artifacts"), new Request(info.url!), "*");
+    const page = await artifactResponse(join(root, ".artifacts"), new Request(await framed(client, "rendered")), "*");
     expect(page.headers.get("content-type")).toContain("text/html");
     expect(await page.text()).toContain(expected!);
     expect(readFileSync(join(root, ".artifacts/live/rendered", name!), "utf8")).toBe(source!);
@@ -654,17 +663,19 @@ test("artifact file lines enter the store, follow edits and retain the last snap
   const first = await show(source);
   expect(first.name).toBe("lantern-2");
   expect(first.version).toBe(1);
-  const serve = (info: ArtifactInfo) => artifactResponse(join(root, ".artifacts"), new Request(info.url!), "*");
-  expect(await serve(first).text()).toContain("First lantern");
+  const serve = async (info: ArtifactInfo) => artifactResponse(join(root, ".artifacts"), new Request(await framed(client, info.version ? `${info.name}@${info.version}` : info.name)), "*");
+  expect(await (await serve(first)).text()).toContain("First lantern");
   for (const ref of refs) expect(await show(ref)).toEqual(first);
-  expect(await (await get("/p/file-art?view=html")).text()).toContain(`src="${first.url}"`);
-  expect((await get(`/p/${note.id}/artifact/1`)).headers.get("location")).toBe(first.url);
+  expect(iframeSrc(await (await get("/p/file-art?view=html")).text())).toContain("/lantern-2%401/");
+  const opened = await get(`/p/${note.id}/artifact/1`);
+  expect(opened.status).toBe(200);
+  expect(iframeSrc(await opened.text())).toContain("/lantern-2%401/");
   writeFileSync(source, 'export default () => <p>Second lantern</p>');
   const second = await show(source);
   expect(second.name).toBe(first.name);
   expect(second.version).toBe(2);
-  expect(await serve(second).text()).toContain("Second lantern");
-  expect(await serve(first).text()).toContain("First lantern");
+  expect(await (await serve(second)).text()).toContain("Second lantern");
+  expect(await (await serve(first)).text()).toContain("First lantern");
   expect((await show(source)).version).toBe(2);
   const other = write("other/Lantern.jsx", 'export default () => <p>Other lantern</p>');
   expect((await show(other)).name).toBe("lantern-3");
@@ -674,12 +685,12 @@ test("artifact file lines enter the store, follow edits and retain the last snap
   const pulse = await show("artifacts/Pulse.html");
   expect((await show("./artifacts/Pulse.html")).name).toBe(pulse.name);
   write("artifacts/Pulse.html", "Second pulse");
-  expect(await serve(await show("artifacts/Pulse.html")).text()).toBe("Second pulse");
+  expect(await (await serve(await show("artifacts/Pulse.html"))).text()).toBe("Second pulse");
   rmSync(source);
   const gone = await show(source);
   expect(gone.url).toBe(second.url);
   expect(gone.warning).toMatch(/file gone since \d{4}-/);
-  expect(await serve(gone).text()).toContain("Second lantern");
+  expect(await (await serve(gone)).text()).toContain("Second lantern");
   expect((await show(source)).warning).toBe(gone.warning);
   expect(store.get(note.id)?.text).toBe(text);
   // A fresh store instance reads the durable path index, rather than minting another name.
@@ -699,7 +710,7 @@ test("artifact file lines enter the store, follow edits and retain the last snap
   const restored = await show(a);
   expect(restored.name).toBe(one.name);
   expect(restored.version).toBe(2);
-  expect(await serve(restored).text()).toBe("A");
+  expect(await (await serve(restored)).text()).toBe("A");
   await reopened.close(); await peer.close();
 }, COMPILE_TIMEOUT);
 

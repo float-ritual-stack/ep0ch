@@ -62,11 +62,18 @@ export function shareAllowMail(value: unknown): string[] {
 }
 
 /**
- * How long a share lives: `90m`, `1h`, `2h30m`, `1d`, or a number of seconds; the default when left out. At least a
- * minute and at most a day: anything else is refused with what is allowed.
+ * How long a share lives: `90m`, `1h`, `2h30m`, `1d`, or a number of seconds; the default when left out.
+ * `share` (a page, the outline or an artifact, PIE-1266): until revoked unless a time is given (`never` says so), any
+ * length from a minute; `fallback` is the default where until-revoked isn't (a Cloudflare tunnel's process).
+ * `bounded` (a snapshot's download, a lease): a minute to a day, an hour when left out, and always ends by itself.
  */
-export function shareTtlMs(value: unknown): number {
-  if (value === undefined || value === null || value === "") return SHARE_TTL.defaultMs;
+export function shareTtlMs(value: unknown, kind: "share" | "bounded" = "bounded", fallback?: number): number {
+  const longest = kind === "share" ? SHARE_TTL.neverMs : SHARE_TTL.maxMs;
+  if (value === undefined || value === null || value === "") return kind === "share" ? fallback ?? SHARE_TTL.neverMs : SHARE_TTL.defaultMs;
+  if (value === "never") {
+    if (kind !== "share") throw new Error(`ttl is from 1m to 24h: ${String(value)}`);
+    return SHARE_TTL.neverMs;
+  }
   let ms: number | undefined;
   if (typeof value === "number" && Number.isFinite(value)) ms = Math.round(value * 1000);
   else if (typeof value === "string") {
@@ -78,7 +85,7 @@ export function shareTtlMs(value: unknown): number {
     }
   }
   if (ms === undefined) throw new Error(`ttl is a duration such as 30m, 1h or 2h30m (or seconds): ${String(value)}`);
-  if (ms < SHARE_TTL.minMs || ms > SHARE_TTL.maxMs) throw new Error(`ttl is from 1m to 24h: ${String(value)}`);
+  if (ms < SHARE_TTL.minMs || ms > longest) throw new Error(kind === "share" ? `ttl is never (until revoked) or 1m and longer, such as 30m, 4h or 7d: ${String(value)}` : `ttl is from 1m to 24h: ${String(value)}`);
   return Math.round(ms);
 }
 

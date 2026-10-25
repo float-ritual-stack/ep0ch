@@ -6,6 +6,8 @@ ExecStart=%h/.bun/bin/bun %h/projects/ep0ch/packages/outliner/src/artifact-main.
 Environment=EP0CH_ARTIFACT_HOST=127.0.0.1
 Environment=EP0CH_ARTIFACT_PORT=8796
 Environment="EP0CH_ARTIFACT_FRAME_ANCESTORS=https://my.ep0ch.sh https://my.floatbbs.net https://pie.ep0ch.sh https://gurgle.ep0ch.sh https://float-2.tail2a183e.ts.net"
+# An artifact's address is its page in the web client; the sign-in prompt points there (PIE-1266).
+Environment=EP0CH_WEB_URL=https://my.ep0ch.sh
 
 [Install]
 WantedBy=default.target

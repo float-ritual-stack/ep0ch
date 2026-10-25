@@ -35,9 +35,10 @@ import { useShowcaseScreen } from "./harness";
 import { marks } from "./marks";
 
 describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, styles, images, callouts, titles", () => {
-  const origin = process.env.EP0CH_ARTIFACT_ORIGIN;
-  beforeAll(() => { process.env.EP0CH_ARTIFACT_ORIGIN = "https://artifacts.example.test"; });
-  afterAll(() => { if (origin === undefined) delete process.env.EP0CH_ARTIFACT_ORIGIN; else process.env.EP0CH_ARTIFACT_ORIGIN = origin; });
+  // An artifact's address is its page in the web client (EP0CH_WEB_URL); the artifact host is never one a person is given.
+  const web = process.env.EP0CH_WEB_URL;
+  beforeAll(() => { process.env.EP0CH_WEB_URL = "https://my.example.test"; });
+  afterAll(() => { if (web === undefined) delete process.env.EP0CH_WEB_URL; else process.env.EP0CH_WEB_URL = web; });
   const h = useShowcaseScreen();
   const { scratch, written, press, ch, screen, S } = h;
   let board!: SocketBoard, app!: App, sc!: Showcase, seeded!: Seeded;
@@ -926,6 +927,14 @@ describe.skipIf(!outliner)("the showcase screen: how a note looks: headings, sty
       press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
       await until(() => opened.length === 2, "Click opened the live folder", 5000);
       expect(opened[1]!.at(-1)).toBe(live.url);
+      // Share the live card on its own (PIE-1266): an agent's act, then the person's click on its [share].
+      const shared = await app.act({ action: "artifact.share", args: { n: 1, ttl: "never" }, as: "test-agent" }) as { share: { id: string; scope: object } };
+      expect(shared.share.scope).toMatchObject({ kind: "artifact", name: "showcase-orbit" });
+      const sy = rows.findIndex(l => l.includes("Orbit lamp") && !l.includes("pinned") && l.includes("[share]")), sx = rows[sy]!.indexOf("[share]") + 2;
+      press({ kind: "mouse", action: "down", button: 0, x: sx, y: sy }); press({ kind: "mouse", action: "up", button: 0, x: sx, y: sy });
+      await untilAsync(async () => (await board.request<{ shares: { id: string }[] }>("shares.list")).shares.length === 2, "the click shared it again");
+      await board.request("shares.revoke", { all: true });
+      expect(opened.length).toBe(2);
     } finally { external.run = run; if (display === undefined) delete process.env.DISPLAY; else process.env.DISPLAY = display; if (ssh === undefined) delete process.env.SSH_CONNECTION; else process.env.SSH_CONNECTION = ssh; if (sshClient === undefined) delete process.env.SSH_CLIENT; else process.env.SSH_CLIENT = sshClient; if (tty === undefined) delete process.env.SSH_TTY; else process.env.SSH_TTY = tty; }
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     const path = join(scratch.root, "gone-lamp.html");

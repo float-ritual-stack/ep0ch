@@ -2,6 +2,7 @@ import { replaceSectionText, refuseDroppedStructure } from "./work-tools";
 import { waitingAsks } from "./waiting-you";
 import { deployArtifact, artifactDns, backfillArtifacts, seedArtifactRule } from "./artifact-deploy";
 import { ArtifactStore } from "./artifact-store";
+import type { ArtifactInfo } from "@ep0ch/outline-core/artifacts";
 import { moveNote } from "./note-move";
 import { isSqliteBusy } from "./sqlite-busy";
 import { OutlineSnapshots } from "./outline-snapshots";
@@ -17,7 +18,7 @@ import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { RULE_NAME } from "@ep0ch/outline-core/rules";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL, GRAMMAR, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, SHARE_TTL, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readNewNoteIntent } from "./note-placement";
@@ -1940,6 +1941,11 @@ export class OutlinerServer {
     }
   }
 
+  /** The artifact store beside this outline's (the machine's one, in the outlines folder). */
+  private artifacts(): ArtifactStore {
+    return this.artifactStore ??= new ArtifactStore(this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename));
+  }
+
   private async handleAsyncOnce(
     request: OutlinerRequest,
     subscribedClient?: OutlinerClientRegistration,
@@ -1948,11 +1954,10 @@ export class OutlinerServer {
     if (request.action.startsWith("artifacts.")) {
       try {
         if (this.readOnly && !["artifacts.show", "artifacts.list", "artifacts.versions"].includes(request.action)) throw new Error("This outline is read-only.");
-        this.artifactStore ??= new ArtifactStore(this.outlinesFolder ?? dirname(this.store.workspaceRoot || this.store.database.filename));
-        const result = request.action === "artifacts.deploy" ? await deployArtifact(this.artifactStore, this.store, request.repo, request.mutation, request.domain)
+        const result = request.action === "artifacts.deploy" ? await deployArtifact(this.artifacts(), this.store, request.repo, request.mutation, request.domain)
           : request.action === "artifacts.dns" ? await artifactDns(request.name, request.to)
-          : request.action === "artifacts.backfill" ? await backfillArtifacts(this.artifactStore, this.store, request.catalogue)
-          : await this.artifactStore.request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot);
+          : request.action === "artifacts.backfill" ? await backfillArtifacts(this.artifacts(), this.store, request.catalogue)
+          : await this.artifacts().request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot, this.outline?.name);
         return { id: request.id, ok: true, result, sequence: this.store.sequence };
       } catch (error) { return { id: request.id, ok: false, error: (error as Error).message, sequence: this.store.sequence }; }
     }
@@ -4141,8 +4146,10 @@ export class OutlinerServer {
       case "shares.snapshot.finish": this.snapshots.finish(request.shareId, request.fetched, request.bytes); return { ok: true };
       case "shares.start": {
         if (request.comments !== undefined && typeof request.comments !== "boolean") throw new Error("comments is true or false");
-        const ttlMs = shareTtlMs(request.ttl);
+        const artifactAsked = request.artifact !== undefined;
         const via = shareVia(request.via);
+        // Until revoked unless a time is given (PIE-1266); a tunnel's process still defaults to an hour.
+        const ttlMs = shareTtlMs(request.ttl, "share", via === "cloudflare" ? SHARE_TTL.defaultMs : undefined);
         const allowMail = shareAllowMail(request.allowMail);
         if (allowMail.length && via !== "cloudflare") throw new Error("allowMail gates a Cloudflare tunnel: give via cloudflare with it (ep0ch share start <ref> --via cloudflare --allow-mail a@example.org)");
         if (via === "cloudflare" && !this.tunnelPublisher()) {
@@ -4171,7 +4178,14 @@ export class OutlinerServer {
         }
         // The whole outline, as the tailnet's web client shows it, unless `scope` narrows it to one note and below.
         const narrowed = typeof request.scope === "string" && request.scope.trim() && request.scope.trim() !== "outline" ? shareable(request.scope.trim()).block : undefined;
-        const scope: ShareSession["scope"] = narrowed ? { kind: "note", blockId: narrowed.id, title: blockDisplayTitle(narrowed) } : { kind: "outline" };
+        // One artifact on its own (PIE-1266): the name as the store resolves it, so an alias or a path shares what it opens.
+        let scope: ShareSession["scope"] = narrowed ? { kind: "note", blockId: narrowed.id, title: blockDisplayTitle(narrowed) } : { kind: "outline" };
+        if (artifactAsked) {
+          if (typeof request.artifact !== "string" || !request.artifact.trim()) throw new Error("artifact is an artifact's name (ep0ch artifact ls lists them), or name@number for a snapshot");
+          if (narrowed || request.open !== undefined) throw new Error("A share of one artifact takes no scope or open: it shows that artifact and nothing else");
+          const found = await this.artifacts().request({ action: "artifacts.show", name: request.artifact.trim() }, this.store.workspaceRoot, this.outline?.name) as ArtifactInfo;
+          scope = { kind: "artifact", name: found.version ? `${found.name}@${found.version}` : found.name, title: found.name };
+        }
         // The page the link opens on: inside what's shared.
         let opens: ShareSession["opens"];
         if (typeof request.open === "string" && request.open.trim()) {
@@ -4179,7 +4193,7 @@ export class OutlinerServer {
           if (narrowed && !chain.includes(narrowed.id)) throw new Error(`${block.id} isn't under ${narrowed.id}, which is all this share shows: open it on a note inside, or leave only out`);
           if (block.id !== narrowed?.id) opens = { blockId: block.id, title: blockDisplayTitle(block) };
         }
-        const session = this.shares.start({ scope, ttlMs, comments: request.comments ?? true, by: by?.author === "agent" ? by.actorId ?? "agent" : "you", via, ...(allowMail.length ? { allowMail } : {}), ...(opens ? { opens } : {}) });
+        const session = this.shares.start({ scope, ttlMs, comments: artifactAsked ? false : request.comments ?? true, by: by?.author === "agent" ? by.actorId ?? "agent" : "you", via, ...(allowMail.length ? { allowMail } : {}), ...(opens ? { opens } : {}) });
         this.sharesChanged();
         if (via === "cloudflare") {
           // The publisher starts the tunnel and says its host: the answer waits for it, so the caller gets the link.

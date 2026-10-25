@@ -1,5 +1,5 @@
 import { subtitleOf } from "@ep0ch/outline-core/block-record";
-import { type ArtifactInfo } from "@ep0ch/outline-core/artifacts";
+import { type ArtifactInfo, type ArtifactReader } from "@ep0ch/outline-core/artifacts";
 import { pageSources, SOURCES_STYLE } from "./publish-sources";
 import type { SiteAnswer, SiteAnswerRequest, SiteLink } from "@ep0ch/outline-core/site";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -1227,6 +1227,13 @@ export class Publisher {
       return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
     }
     try {
+      // An artifact's own page, for the owner (PIE-1266); outsiders reach one only through a share.
+      const own = audience === "tailnet" ? /^\/a\/([^/]+)\/?$/.exec(path) : null;
+      if (own) {
+        let ref: string;
+        try { ref = decodeURIComponent(own[1]!); } catch { return notFound(); }
+        return await this.serveOwnArtifact(ref);
+      }
       // The public listener has no index: a public note is reached by its link alone.
       if (audience === "public" && !path.startsWith("/p/")) return notFound();
       const accept = request.headers.get("accept") ?? "";
@@ -1349,6 +1356,13 @@ export class Publisher {
       id: found.share.id, base: `${mount}/s/${token}`, scope: found.share.scope, comments: found.share.comments,
       active: async () => (await this.client.request<ShareResolution>({ action: "shares.resolve", token })).status === "active",
     };
+    // A share of one artifact is that artifact, full-bleed, and no page (PIE-1266): the link looks like the thing itself.
+    if (share.scope.kind === "artifact") {
+      if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
+      if (rest !== "/" && rest !== "") return notFound();
+      const { framed } = await this.frameOf(share.scope.name, "tailnet", share);
+      return framed ? this.frameResponse(share.scope.title, framed.frame!) : notFound();
+    }
     if (rest === `${PAGE_ROUTE}/sources.js`) return new Response(Bun.file(new URL("./publish-sources.js", import.meta.url)), { headers: { "content-type": "text/javascript; charset=utf-8" } });
     if (rest.startsWith(`${PAGE_ROUTE}/`)) return this.marginalia.handle(request, rest.slice(PAGE_ROUTE.length), share);
     if (request.method !== "GET" && request.method !== "HEAD") return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
@@ -1504,7 +1518,7 @@ export class Publisher {
       try {
         await this.client.request(path === "/shares/start"
           ? {
-            action: "shares.start", ...(form.get("open") ? { open: form.get("open")! } : {}), ...(form.get("only") === "on" && form.get("open") ? { scope: form.get("open")! } : {}), ttl: form.get("ttl") || "1h", comments: form.get("comments") === "on", mutation: { author: "user" },
+            action: "shares.start", ...(form.get("open") ? { open: form.get("open")! } : {}), ...(form.get("only") === "on" && form.get("open") ? { scope: form.get("open")! } : {}), ttl: form.get("ttl") || "never", comments: form.get("comments") === "on", mutation: { author: "user" },
             ...(form.get("via") ? { via: form.get("via")! } : {}), ...(form.get("allowMail")?.trim() ? { allowMail: form.get("allowMail")! } : {}),
           }
           : form.get("all") === "1" ? { action: "shares.revoke", all: true } : { action: "shares.revoke", shareId: form.get("id") ?? "" });
@@ -1520,10 +1534,11 @@ export class Publisher {
     const { shares } = await this.client.request<{ shares: ShareSession[] }>({ action: "shares.list" });
     const left = (iso: string) => {
       const minutes = Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 60_000));
+      if (minutes > 50 * 365 * 24 * 60) return "never (until revoked)";
       return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
     };
     const note = (blockId: string, title: string) => `<a href="${escapeHtml(`${base}/p/${blockId}`)}">${escapeHtml(noteTitle(title) || blockId)}</a>`;
-    const what = (share: ShareSession) => share.snapshot ? "SQLite snapshot (one download)" : (share.scope.kind === "outline" ? "the whole outline" : `only ${note(share.scope.blockId, share.scope.title)} and what's under it`) +
+    const what = (share: ShareSession) => share.snapshot ? "SQLite snapshot (one download)" : (share.scope.kind === "outline" ? "the whole outline" : share.scope.kind === "artifact" ? `the artifact <a href="${escapeHtml(`${base}/a/${encodeURIComponent(share.scope.name)}/`)}">${escapeHtml(share.scope.title)}</a>, on its own` : `only ${note(share.scope.blockId, share.scope.title)} and what's under it`) +
       (share.opens ? `, opening on ${note(share.opens.blockId, share.opens.title)}` : "");
     const how = (share: ShareSession) => share.via === "cloudflare" ? ` · Cloudflare tunnel${share.allowMail?.length ? ` for ${share.allowMail.join(", ")}` : ", public"}` : "";
     const rows = shares.map((share) => `<tr><td>${what(share)}<div class="dim">${escapeHtml(share.id)} · by ${escapeHtml(share.by)}${escapeHtml(how(share))}</div></td>` +
@@ -1544,13 +1559,13 @@ export class Publisher {
       start = `<h2>${block ? `Share, opening on “${named}”` : "Share the outline"}</h2>\n<form method="post" action="${escapeHtml(`${base}/shares/start`)}" class="share-new">` +
           (block ? `<input type="hidden" name="open" value="${escapeHtml(block.id)}">` +
             `<label><input type="checkbox" name="only"> only this note and below</label>` : "") +
-          `<label>for <select name="ttl"><option value="15m">15 minutes</option><option value="1h" selected>1 hour</option><option value="4h">4 hours</option><option value="24h">24 hours</option></select></label>` +
+          `<label>for <select name="ttl"><option value="never" selected>until I end it</option><option value="15m">15 minutes</option><option value="1h">1 hour</option><option value="4h">4 hours</option><option value="24h">24 hours</option></select></label>` +
           `<label><input type="checkbox" name="comments" checked> comments (highlight, comment, ask, reply)</label>` +
           `<label>by <select name="via"><option value="edge" selected>this outline's public host</option><option value="cloudflare">a Cloudflare tunnel of its own</option></select></label>` +
           `<label>only for (Cloudflare, by email PIN) <input type="text" name="allowMail" placeholder="someone@example.org, @example.org" size="32"></label>` +
           `<button type="submit">Start a public link</button></form>\n<p class="dim">Anyone with the link reads the outline as this site shows it (or, ticked, only that note and below) until it ends; [publish::never] notes stay hidden.</p>\n`;
     } else start = `<p class="dim">No note ${escapeHtml(wanted)} to share.</p>\n`;
-    const body = `<article>\n<h1>Shares</h1>\n<p class="dim">Short-lived public links. Each ends by itself; Revoke ends it now.</p>\n${start}${list}</article>\n` +
+    const body = `<article>\n<h1>Shares</h1>\n<p class="dim">Public links. Each lasts until you Revoke it, or until the time it was given runs out.</p>\n${start}${list}</article>\n` +
       `<footer><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a></footer>`;
     const crumbs = `<nav class="crumbs"><a href="${escapeHtml(`${base}/`)}">${escapeHtml(this.rootLabel())}</a> / <span>Shares</span></nav>`;
     return renderedHtml(htmlPage("Shares", body, crumbs, { search: { base } }), 200, SHARES_CSP);
@@ -1932,7 +1947,40 @@ export class Publisher {
     return failed(body, status);
   }
 
-  // Existing note links keep their visibility checks before redirecting to the static origin.
+  /**
+   * Artifact `name` as the reader of this request may frame it (PIE-1266), the one place a page asks: the owner (the
+   * tailnet, or signed in) gets a short-lived path, a share's reader one that works while that share is open, and
+   * anyone else nothing. The artifact host never sees who is signed in, only a path that was made for the reader.
+   */
+  private async frameOf(name: string, audience: PublishAudience, share?: PageShare): Promise<{ framed: ArtifactInfo | null; withheld: boolean }> {
+    const reader: ArtifactReader | undefined = share ? { share: { id: share.id } } : audience === "tailnet" ? { owner: true } : undefined;
+    const info = await this.client.request<ArtifactInfo>({ action: "artifacts.show", name, ...(reader ? { frame: reader } : {}) }).catch(() => null);
+    // `withheld`: the store has it and this reader may not see it, so the file it came from (an imported path) is no way round.
+    return { framed: reader && info?.frame ? info : null, withheld: !reader && !!info };
+  }
+
+  /** An artifact alone, full-bleed: the page a card's "open", an artifact's own address and a lone-artifact share all show. */
+  private frameResponse(title: string, src: string): Response {
+    const origin = process.env.EP0CH_ARTIFACT_ORIGIN ?? "";
+    const body = `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title>` +
+      `<style>:root{color-scheme:dark}html,body{margin:0;height:100%;background:#141413}iframe{display:block;width:100%;height:100%;border:0}</style></head><body>` +
+      `<iframe src="${escapeHtml(src)}" title="${escapeHtml(title)}" sandbox="allow-scripts allow-popups allow-forms allow-pointer-lock allow-downloads" allow="autoplay; fullscreen; clipboard-write" referrerpolicy="no-referrer"></iframe></body></html>\n`;
+    return renderedHtml(body, 200, `default-src 'none'; style-src 'unsafe-inline'; frame-src ${origin || "'none'"}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
+  }
+
+  /** `/a/<ref>`: an artifact's own page for the owner (signed in, or on the tailnet), whether or not any note frames it. */
+  private async serveOwnArtifact(ref: string): Promise<Response> {
+    let info: ArtifactInfo | null = null;
+    try {
+      info = await this.client.request<ArtifactInfo>({ action: "artifacts.show", name: ref, frame: { owner: true } });
+    } catch (error) {
+      return plainPage("No such artifact", `<h1>No artifact “${escapeHtml(ref)}”</h1>\n<p class="dim">${escapeHtml(error instanceof Error ? error.message : String(error))}</p>\n`, 404);
+    }
+    if (!info.frame) return plainPage("Not available", `<h1>${escapeHtml(info.name)} can't be shown here</h1>\n<p class="dim">No artifact host is set up for this service: set EP0CH_ARTIFACT_ORIGIN on the outline host and the publisher.</p>\n`, 503);
+    return this.frameResponse(info.name, info.frame);
+  }
+
+  // Existing note links keep their visibility checks before framing the artifact.
   private async serveArtifact(blockId: string, line: number, view: string | null, audience: PublishAudience, share?: PageShare): Promise<Response> {
     if ((await this.lockedIds([blockId])).size) return notFound();
     if (share && !(await this.inScope([blockId], share)).has(blockId)) return notFound();
@@ -1940,8 +1988,9 @@ export class Publisher {
     const block = (await this.client.request<BlockReadCollection>({ action: "blocks.read", ids: [blockId], fields: ["text"] })).blocks[0];
     const spec = block ? noteMediaLines(block.text ?? "").get(line) : undefined;
     if (!spec || spec.kind !== "artifact") return notFound();
-    const artifact = await this.client.request<ArtifactInfo>({ action: "artifacts.show", name: spec.path }).catch(() => null);
-    if (artifact?.url) return Response.redirect(artifact.url, 302);
+    const { framed, withheld } = await this.frameOf(spec.path, audience, share);
+    if (framed) return this.frameResponse(spec.alt ?? framed.name, framed.frame!);
+    if (withheld) return notFound();
     const check = this.policy && checkAttachment(spec.path, this.policy);
     if (!check || !check.ok) return notFound();
     const contents = await this.client.request<FileContents>({ action: "files.read", path: check.path });
@@ -2110,6 +2159,8 @@ export class Publisher {
    */
   private async inScope(ids: readonly string[], share: PageShare): Promise<Set<string>> {
     if (share.scope.kind === "outline") return new Set(ids);
+    // A share of one artifact shows no note.
+    if (share.scope.kind === "artifact") return new Set();
     const rootId = share.scope.blockId;
     const known = await this.walkUp(ids);
     const reaches = (id: string): boolean => {
@@ -2359,14 +2410,17 @@ export class Publisher {
     const policy = this.policy;
     const artifacts = new Map<string, string>();
     const artifactUrls = new Map<string, string>();
+    // Where each framed artifact opens on its own: this page's route, never the artifact host's address.
+    const artifactPages = new Map<string, string>();
     if (!linked.labelsOnly) {
       for (const row of rows) for (const [line, spec] of noteMediaLines(row.block.text ?? "")) {
         if (spec.kind !== "artifact" || artifacts.size >= MAX_PUBLISHED_COMPONENTS) continue;
-        const artifact = await this.client.request<ArtifactInfo>({ action: "artifacts.show", name: spec.path }).catch(() => null);
-        if (artifact?.url) {
+        const { framed: artifact, withheld } = await this.frameOf(spec.path, audience, share);
+        if (artifact) {
           artifacts.set(`${row.block.id}:${line}`, spec.alt ?? artifact.name);
-          artifactUrls.set(`${row.block.id}:${line}`, artifact.url);
-        } else if (policy) {
+          artifactUrls.set(`${row.block.id}:${line}`, artifact.frame!);
+          artifactPages.set(`${row.block.id}:${line}`, `${base}${artifactPagePath(row.block.id, line)}`);
+        } else if (policy && !withheld) {
           const check = checkAttachment(spec.path, policy);
           if (check.ok && check.type !== "text") {
             artifacts.set(`${row.block.id}:${line}`, artifactTitle(spec));
@@ -2379,7 +2433,8 @@ export class Publisher {
       (blockId, line, spec) => spec.kind === "artifact"
         ? (artifactUrls.get(`${blockId}:${line}`) ?? null)
         : !linked.labelsOnly && policy && checkImage(spec.path, policy).ok ? `${base}${mediaPath(blockId, line)}` : null,
-      { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec));
+      { id: entry.blockId, title: entry.title }, (blockId, line, spec) => artifacts.get(`${blockId}:${line}`) ?? artifactTitle(spec),
+      (blockId, line) => artifactPages.get(`${blockId}:${line}`));
     // HTML pages carry source-line destinations; only tailnet pages also identify blocks for presence.
     const anchors = options.anchors;
     const markdown = renderSubtreeMarkdown(subtree, linked, base, pages, embeds, decorations, marks, order, under, (options.format ?? "html") === "html" ? anchors : undefined, drawn, owner, (options.format ?? "html") === "html" ? steps : undefined, !!options.browse, values, unlocked);

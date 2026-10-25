@@ -104,7 +104,7 @@ test("deploying through the CLI publishes a static repo, registers it and skips 
   const catalogue = store.resolveBlockRef("[[artifacts]]");
   expect(store.children(catalogue.id).some(b => b.text.includes("abc123"))).toBe(true);
   for (const url of ["https://artifacts.ep0ch.sh/moth-garden/", "https://moth-garden.ep0ch.sh/"]) {
-    const response = artifactResponse(join(paths.outlines, ".artifacts"), new Request(url), "*");
+    const response = await artifactResponse(join(paths.outlines, ".artifacts"), new Request(url), "*");
     expect(response.status).toBe(200); expect(await response.text()).toContain("Moth garden");
   }
   const again = await cli("deploy", "moth-garden");

@@ -1124,8 +1124,9 @@ tailnet page, a phone, someone else). Narrowing it to one note and below is opt-
   (`ep0ch share start [<ref>] [--only <ref>] [--ttl 1h] [--no-comments]`), from the door (`share.start`,
   `> share.start` in the power bar) or from a note's tailnet page (`share…` at its foot). A ref (an id, a page name
   bare or as `[[page]]`, PIE-123) is only the page the link opens on (`…/s/<token>/p/<id>`); `--only <ref>` (MCP
-  `only`, the form's "only this note and below", off by default) shows only that note and what's under it. It lives 1
-  hour by default (`--ttl` from 1m to 24h) and takes comments unless told not to.
+  `only`, the form's "only this note and below", off by default) shows only that note and what's under it. It lasts
+  until revoked by default (`--ttl 30m`, `4h`, `7d` from 1m makes it expire; a Cloudflare tunnel still defaults to
+  an hour) and takes comments unless told not to. Revoking ends it at once.
 - **Two ways in** (`--via`, `via`):
   - `edge` (the default): `https://<outline>.ep0ch.sh/s/<token>/`, at the root of the public listener's own host
     (`--public-url`'s origin), through the proxy already in front of it (Caddy on float-2), so nothing is
@@ -1308,8 +1309,8 @@ laptop too. `EP0CH_ARTIFACT_INBOX` overrides the inbox path and
 Dotfiles, including Mutagen's `.mutagen-temporary-*` files, are ignored.
 
 Each successful pickup appends a tab-separated line to `inbox/receipts.log`:
-ISO time, artifact name, version number and the framing URL (using the configured
-`EP0CH_ARTIFACT_ORIGIN`). A failed drop (too big, unknown file kind, compile error)
+ISO time, artifact name, version number and the artifact's page in the web client
+(from `EP0CH_WEB_URL`; empty when it is not set). A failed drop (too big, unknown file kind, compile error)
 moves intact under `inbox/.failed/<original-name>/source/`, with `reason.txt`
 beside `source/`. Repeated
 failures of that name are kept in unique subfolders there. Fix the source and drop
@@ -1356,24 +1357,61 @@ file maps, inbox drops, import and tar uploads.
 Write `[artifact::moth-site]` on its own note line for the live folder, or
 `[artifact::moth-site@1]` to pin snapshot 1. `artifact:: moth-site` also works.
 `[height::20]`, `[size::wide]`, `[align::center]` and `[alt::Moth site]` use the
-existing media layout. The note frames `<origin>/<unguessable id>/<name>/`;
-the door's card opens that same URL by Enter, mouse, or `artifact.open` (an agent
-receives the URL without opening the person's browser). Snapshots live under
+existing media layout. A page frames the artifact from the artifact host (below), and
+the door's card opens the artifact's page in the web client, `<web>/pub/a/<name>/`, by
+Enter, mouse, or `artifact.open` (an agent receives that address without opening the
+person's browser); `[share]` on the card, `artifact.share`, `ep0ch share start
+--artifact <name>` and the MCP `share_start {artifact}` give someone outside a link
+to it alone. Snapshots live under
 `.artifacts/snapshots/`, outside the synced tree, with a content hash and timestamp.
-Each ref (the live name and every numbered snapshot) has its own unguessable URL.
-Deleting a ref revokes its URL; putting the live name again gets a new URL.
 Deleting a snapshot never reuses its version number. Removing the live folder
-leaves its snapshots and their URLs available.
+leaves its snapshots available.
 
 The static server serves files and directory `index.html` pages, with media types,
 no directory listing, no cookies set, `nosniff`, and a CSP allowing local scripts,
-inline scripts and the pinned CDN scripts. Its own origin isolates it from notes;
-frames also use a sandbox allowing scripts, popups, forms, pointer lock and
-downloads, without same-origin access or top navigation. An artifact's
-`localStorage` does not persist in that frame. Artifact URLs are unlisted bearer
-links, not a second copy of note permissions: notes only expose frames where
-those notes may appear, and someone holding the URL can open it directly.
-The server never reads an outline.
+inline scripts and the pinned CDN scripts. Its own origin isolates it from notes
+and from the person's session; frames also use a sandbox allowing scripts, popups,
+forms, pointer lock and downloads, without same-origin access or top navigation.
+An artifact's `localStorage` does not persist in that frame.
+
+#### Who can open an artifact (PIE-1266)
+
+A share is one hard-to-guess link and the link carries everything its page shows;
+an artifact has no link of its own beside that.
+
+- **Signed in** (my.ep0ch.sh, or the tailnet), the owner sees every artifact: a
+  note's page frames it, and `<web>/pub/a/<name>/` shows any artifact full-bleed
+  whether or not a note frames it. The page hands its frame a path on the artifact
+  host that was made for that reader and lasts an hour (`/k/<expiry>.<mac>/<ref>/…`);
+  the artifact host never sees the session.
+- **Unsigned and unshared**, the artifact host answers a sign-in prompt (401) before
+  it looks at the store, so no answer says whether an artifact exists. The old
+  `<origin>/<uuid>/<name>/` address means nothing now. A page that is published
+  publicly but not shared shows an artifact's card without its frame.
+- **A share of one artifact** (`ep0ch share start --artifact <name>`, name or
+  `name@n`) opens that artifact full-bleed and nothing else. Like every share
+  it lasts until it is revoked unless `--ttl` gives a time.
+- **A share of a page** opens the artifacts that page frames, as the page shows them
+  to a share's reader (inside its scope, not under `[publish::never]`), for as long as
+  the share is open. The publisher decides this when it draws the page, and the
+  frame's path is bound to that one artifact, the outline and the share
+  (`/s/<outline>/<share id>.<mac>/<ref>/…`); the artifact host checks with the outline
+  host on every request that the share is still open, so revoking it closes the
+  page and every frame at once.
+- **Shares keep the outline's own share link** (`https://pie.ep0ch.sh/s/<token>/`), a
+  hard-to-guess link on our domain; no artifact-host address is ever part of it.
+- **A file a note names** (`[artifact::notes/chart.jsx]`, a path under the publish
+  roots that is not in the store) is that note's attachment, served by the publisher
+  under the note's own `[publish::]` rules as before. One the store holds, even by the
+  file it was imported from, follows the access above: a public reader gets no frame.
+- **Deployed repos** (`ep0ch artifact deploy`) are sites, public by the act of
+  deploying them, and keep their own routes; the access above is for the store's
+  artifacts.
+
+The grant key is `~/outlines/.artifacts/key` (0600, made on first use); `EP0CH_WEB_URL`
+(the web client's origin) on the host, the artifact server and the watcher is what
+makes an artifact's `url` its page there. The server never reads an outline: it asks
+the outline host only whether a share is open.
 
 For existing `[artifact::artifacts/file.jsx]` notes, run
 `ep0ch artifact import --ws <outline> --machine float-2` once per outline. It copies
@@ -1405,7 +1443,10 @@ systemctl --user enable --now ep0ch-artifacts.service ep0ch-artifact-watch.servi
 ```
 
 Set `EP0CH_ARTIFACT_ORIGIN=https://artifacts.ep0ch.sh` in the outline host and each
-publisher's systemd environment, then restart those units. Point DNS for
+publisher's systemd environment (it is only ever the frame's address, never shown), and
+`EP0CH_WEB_URL=https://my.ep0ch.sh` in the outline host, `ep0ch-artifacts` and
+`ep0ch-artifact-watch` (the publishers already have it from `signin.conf`), then
+restart those units. Point DNS for
 `artifacts.ep0ch.sh` at float-2's existing Caddy edge and add this Caddy site:
 
 ```caddy
@@ -1418,7 +1459,7 @@ Validate and reload Caddy. The shipped listener is `127.0.0.1:8796`; override
 `EP0CH_ARTIFACT_HOST`/`EP0CH_ARTIFACT_PORT` for a different bind. Set
 `EP0CH_ARTIFACT_FRAME_ANCESTORS` to the space-separated publisher origins that may
 frame artifacts (the unit lists the current public, signed-in and tailnet origins).
-Import each outline's old artifacts, check a live and pinned URL, and update the
+Import each outline's old artifacts, check a live and pinned page, and update the
 infrastructure hub in the same deployment step. No live unit, DNS or route is
 changed by this PR. The sync command is run by Evan on his laptop.
 

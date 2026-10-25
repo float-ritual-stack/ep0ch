@@ -828,13 +828,14 @@ const isShareTool = (name: string): name is ShareTool => (SHARE_TOOLS as readonl
 const shareToolDefinitions = (outline: Record<string, unknown>) => [
   {
     name: "share_start",
-    description: "Start a short-lived public link (a share session) to the outline, for the person to open as an ordinary public web site and navigate as the tailnet's web client: anyone with the link reads it until it expires (ttl, 1h by default, at most 24h) or is revoked. ref is the page the link opens on; only narrows it to one note and what's under it. " +
+    description: "Start a short-lived public link (a share session) to the outline, for the person to open as an ordinary public web site and navigate as the tailnet's web client: anyone with the link reads it until it is revoked, or until it expires when ttl names a time (from 1m; left out, it lasts until revoked). ref is the page the link opens on; only narrows it to one note and what's under it. " +
       "[publish::never] notes stay hidden, and every page and link stays inside what's shared. With comments (default true) the reader can highlight, comment, ask and reply, as the person. This call is the approval: nothing asks again. " +
       "Answers the share with its url (give the person the link: it opens on ref), id (for share_revoke) and expiresAt.",
     inputSchema: { type: "object", properties: {
       ref: { type: "string", description: "The page the link opens on: its id, ((id)), [[page]], a page name or Work ID (PIE-123); left out, the top of the outline" },
       only: { type: "string", description: "Show only this note and what's under it (as ref names one); left out, the whole outline" },
-      ttl: { type: "string", default: "1h", description: "How long it lives: 30m, 1h, 2h30m (1m to 24h)" },
+      artifact: { type: "string", description: "Share one artifact on its own, full-bleed, and nothing else: its name (artifact_list), or name@number for a snapshot. Give no ref or only; ttl may be never, which keeps the link until share_revoke ends it" },
+      ttl: { type: "string", description: "Left out, the link lasts until share_revoke ends it. To make it expire: 30m, 4h, 7d (1m or longer). A Cloudflare tunnel defaults to 1h" },
       comments: { type: "boolean", default: true, description: "Let the link's reader highlight, comment, ask and reply" },
       via: { type: "string", enum: ["edge", "cloudflare"], default: "edge", description: "edge: the outline's own public host (one stable origin, https://pie.ep0ch.sh/s/…). cloudflare: a Cloudflare tunnel of its own on a random trycloudflare.com host, for sharing with someone else; with allowMail only they get in" },
       allowMail: { type: "array", items: { type: "string" }, description: "via cloudflare: the emails (or @domains) that may sign in by one-time PIN; leave out for a public tunnel (the link's token still gates it)" },
@@ -880,10 +881,10 @@ async function shareTool(outlines: McpOutlines, name: ShareTool | "reader_view" 
     if (!caller || !writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
     if (name === "share_start") {
       const started = await startShare(board, {
-        ...(typeof args.ref === "string" ? { ref: args.ref } : {}), ...(typeof args.only === "string" ? { only: args.only } : {}), ...(args.ttl !== undefined ? { ttl: args.ttl as string } : {}), ...(typeof args.comments === "boolean" ? { comments: args.comments } : {}),
+        ...(typeof args.ref === "string" ? { ref: args.ref } : {}), ...(typeof args.only === "string" ? { only: args.only } : {}), ...(typeof args.artifact === "string" ? { artifact: args.artifact } : {}), ...(args.ttl !== undefined ? { ttl: args.ttl as string } : {}), ...(typeof args.comments === "boolean" ? { comments: args.comments } : {}),
         ...(typeof args.via === "string" ? { via: args.via } : {}), ...(Array.isArray(args.allowMail) ? { allowMail: args.allowMail as string[] } : {}),
       }, { kind: "agent", id: actorOf(caller).actorId });
-      outlines.log?.(`mcp share_start: ${actorOf(caller).actorId} (${caller.sub}) ${started.share.id} ${started.share.scope.kind === "note" ? started.share.scope.blockId : "outline"} until ${started.share.expiresAt}`);
+      outlines.log?.(`mcp share_start: ${actorOf(caller).actorId} (${caller.sub}) ${started.share.id} ${started.share.scope.kind === "note" ? started.share.scope.blockId : started.share.scope.kind === "artifact" ? `artifact:${started.share.scope.name}` : "outline"} until ${started.share.expiresAt}`);
       return toolText({ ...started, said: [shareLine(started.share), started.said].filter(Boolean).join("\n") });
     }
     if (name === "share_list") {
@@ -907,9 +908,9 @@ async function lokiAccessRefusal(outlines: McpOutlines, caller: McpCaller): Prom
     (caller.cap ? ` The named path must also allow read in EP0CH_MCP_PATH_ACCESS (${caller.persona}=read).` : "");
 }
 const artifactToolDefinitions = (outline: Record<string, unknown>) => [
-  { name: "artifact_put", description: "Save an artifact into the live artifact folder, outside the outline. Pass files (relative path to UTF-8 content) for a small site, or name, kind and content for one file. A lone jsx/tsx compiles at put. Reference it as [artifact::<name>]. Requires write access.",
+  { name: "artifact_put", description: "Save an artifact into the live artifact folder, outside the outline. Pass files (relative path to UTF-8 content) for a small site, or name, kind and content for one file. A lone jsx/tsx compiles at put. Reference it as [artifact::<name>]. Answers its url: the artifact's page in the web client, which opens for the signed-in person; to give someone outside a link use share_start with artifact=<name>. Requires write access.",
     inputSchema: { type: "object", properties: { outline, name: { type: "string" }, kind: { type: "string", enum: ["html", "jsx", "tsx", "svg", "mermaid", "md"] }, content: { type: "string" }, files: { type: "object", additionalProperties: { type: "string" } } }, required: ["name"], additionalProperties: false } },
-  { name: "artifact_list", description: "List the live artifacts and their URLs.", inputSchema: { type: "object", properties: { outline }, additionalProperties: false } },
+  { name: "artifact_list", description: "List the live artifacts with each one's url, its page in the web client (it opens for the signed-in person). To give someone outside a link to one, use share_start with artifact=<name>.", inputSchema: { type: "object", properties: { outline }, additionalProperties: false } },
   { name: "artifact_versions", description: "List the snapshots of an artifact; [artifact::name@number] pins one.", inputSchema: { type: "object", properties: { outline, name: { type: "string" } }, required: ["name"], additionalProperties: false } },
 ];
 async function artifactTool(outlines: McpOutlines, name: string, args: Record<string, unknown>, caller?: McpCaller): Promise<ToolResult> {

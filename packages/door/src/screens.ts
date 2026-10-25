@@ -588,24 +588,25 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "share.start": def({
-    summary: "start a short-lived public link (a share session) to the outline, navigated as the tailnet's web client is: ref= is the page it opens on (an id, ((id)), a page name, [[page]] or PIE-123), only= narrows it to that note and what's under it; for ttl= (30m, 1h by default, at most 24h), taking comments unless comments=false. The link goes on the clipboard and the status bar; [publish::never] notes stay hidden. `ep0ch share start` from a shell. An agent's is attributed to it",
+    summary: "start a short-lived public link (a share session) to the outline, navigated as the tailnet's web client is: ref= is the page it opens on (an id, ((id)), a page name, [[page]] or PIE-123), only= narrows it to that note and what's under it; until it is revoked, or for ttl= (30m, 4h, 7d) when given, taking comments unless comments=false. The link goes on the clipboard and the status bar; [publish::never] notes stay hidden. `ep0ch share start` from a shell. An agent's is attributed to it",
     keys: "> share.start in the power bar",
     touches: "nothing", replay: "ask", says: out => (out?.share ? { text: `· shared ${out.share.scope.kind === "outline" ? "the outline" : `only “${out.share.scope.title}”`} for ${endsIn(out.share.expiresAt)}: ${out.share.url ?? out.share.id}`, ms: 15_000 } : null),
     args: {
       ref: { type: "string", optional: true, about: "the page the link opens on (id, ((id)), a page name, [[page]], PIE-123); default: the top of the outline" },
       only: { type: "string", optional: true, about: "show only this note and what's under it; default: the whole outline" },
-      ttl: { type: "string", optional: true, about: "how long it lives: 30m, 1h (the default), 2h30m, up to 24h" },
+      ttl: { type: "string", optional: true, about: "left out, until revoked; to expire it: 30m, 4h, 7d (from 1m). A Cloudflare tunnel defaults to 1h" },
       comments: { type: "boolean", optional: true, about: "false: a reading copy (no highlights, comments or asks); default true" },
       via: { type: "string", optional: true, about: "edge (the default: the outline's public host) or cloudflare (a tunnel of its own, for sharing with someone else)" },
       allowMail: { type: "string", optional: true, about: "via cloudflare: emails or @domains (comma-separated) that may sign in by one-time PIN; left out, the tunnel is public" },
+      artifact: { type: "string", optional: true, about: "share this artifact (name, or name@n) on its own, full-bleed, instead of a note; ttl may be never. The card's artifact.share does the same" },
     },
     examples: [
       { act: "share.start ref=garden ttl=2h", does: "shares the garden page for two hours and puts the link on the clipboard" },
       { act: "share.start only=7d9a1f40-3c52-4b8e-a6d1-0e5f2b9c8a34 comments=false", does: "shares one note as a reading copy for an hour" },
     ],
-    async run({ ref, only, ttl, comments, via, allowMail }, { ctx }, actor) {
+    async run({ ref, only, ttl, comments, via, allowMail, artifact }, { ctx }, actor) {
       const started = await startShare(ctx.board, {
-        ...(ref ? { ref } : {}), ...(only ? { only } : {}), ...(ttl ? { ttl } : {}), ...(comments !== undefined ? { comments } : {}),
+        ...(ref ? { ref } : {}), ...(only ? { only } : {}), ...(artifact ? { artifact } : {}), ...(ttl ? { ttl } : {}), ...(comments !== undefined ? { comments } : {}),
         ...(via ? { via } : {}), ...(allowMail ? { allowMail: allowMail.split(",") } : {}),
       }, actor);
       const { share } = started;

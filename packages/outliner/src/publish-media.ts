@@ -51,8 +51,8 @@ function width(spec: MediaSpec): string | undefined {
  * An image as HTML: dark behind it until it loads, held a little below full brightness unless `[dim::]` says how much
  * (0 none … 1 black), its alt text its caption (none when `caption` is false: a view's cover, PIE-839).
  */
-export function mediaHtml(spec: MediaSpec, src: string | null, title?: string, caption = true): string {
-  if (spec.kind === "artifact") return artifactHtml(spec, src, title ?? fileName(spec.path));
+export function mediaHtml(spec: MediaSpec, src: string | null, title?: string, caption = true, open?: string): string {
+  if (spec.kind === "artifact") return artifactHtml(spec, src, title ?? fileName(spec.path), open);
   const alt = spec.alt ?? "";
   const align = spec.align ?? (spec.layout === "hero" ? "center" : "left");
   if (!src || spec.kind !== "img") {
@@ -75,7 +75,8 @@ export function mediaHtml(spec: MediaSpec, src: string | null, title?: string, c
 /** An artifact's frame height when its line gives none: a phone's screen, less the page around it. */
 const ARTIFACT_HEIGHT = "min(36rem,75vh)";
 
-function artifactHtml(spec: MediaSpec, src: string | null, title: string): string {
+/** `open` is where the artifact opens on its own (the page's route); the frame's `src` is never shown as a link. */
+function artifactHtml(spec: MediaSpec, src: string | null, title: string, open?: string): string {
   const kind = artifactKind(spec.path), label = kind ? ARTIFACT_KIND_LABELS[kind] : "artifact";
   const align = spec.align ?? "left";
   if (!src) {
@@ -89,14 +90,14 @@ function artifactHtml(spec: MediaSpec, src: string | null, title: string): strin
     `<iframe src="${escapeHtml(src)}" title="${escapeHtml(title)}" sandbox="allow-scripts allow-popups allow-forms allow-pointer-lock allow-downloads" allow="autoplay; fullscreen; clipboard-write" ` +
     `loading="lazy" referrerpolicy="no-referrer"></iframe></div>` +
     `<figcaption><span class="media-what">${escapeHtml(label)}</span> ${escapeHtml(title)} · ` +
-    `<a href="${escapeHtml(src)}" target="_blank" rel="noopener">open full page</a></figcaption></figure>`;
+    `${open ? `<a href="${escapeHtml(open)}" target="_blank" rel="noopener">open full page</a>` : ""}</figcaption></figure>`;
 }
 
 /** An image as Markdown: the image itself where it's served, else its alt text and its file's name. */
-export function mediaMarkdown(spec: MediaSpec, src: string | null, title?: string): string {
+export function mediaMarkdown(spec: MediaSpec, src: string | null, title?: string, open?: string): string {
   if (spec.kind === "artifact") {
     const kind = artifactKind(spec.path), what = `${kind ? ARTIFACT_KIND_LABELS[kind] : "an"} artifact: ${(title ?? fileName(spec.path)).replace(/[[\]\\*]/g, "")}`;
-    return src ? `*${what}* ([open](${src}))` : `*${what}* \`${fileName(spec.path).replace(/`/g, "'")}\``;
+    return src ? `*${what}*${open ? ` ([open](${open}))` : ""}` : `*${what}* \`${fileName(spec.path).replace(/`/g, "'")}\``;
   }
   const alt = (spec.alt ?? "").replace(/[[\]\\]/g, "");
   if (src && spec.kind === "img") return `![${alt}](${src})`;
@@ -127,6 +128,7 @@ export function drawNoteMedia(
   notes: readonly { id: string; text: string }[], format: "markdown" | "html", components: string[],
   drawn: Map<string, Map<number, DrawnComponent>>, src: (blockId: string, line: number, spec: MediaSpec) => string | null,
   first?: { id: string; title: string }, title?: (blockId: string, line: number, spec: MediaSpec) => string | undefined,
+  open?: (blockId: string, line: number) => string | undefined,
 ): void {
   for (const note of notes) {
     if (!/\[?(?:img|image|video|artifact)::/i.test(note.text)) continue;
@@ -138,9 +140,9 @@ export function drawNoteMedia(
       let shown: string;
       if (format === "html") {
         if (components.length >= MAX_PUBLISHED_COMPONENTS) break;
-        components.push(mediaHtml(spec, at, named));
+        components.push(mediaHtml(spec, at, named, true, spec.kind === "artifact" ? open?.(note.id, line) : undefined));
         shown = componentSentinel(components.length - 1);
-      } else shown = mediaMarkdown(spec, at, named);
+      } else shown = mediaMarkdown(spec, at, named, spec.kind === "artifact" ? open?.(note.id, line) : undefined);
       own.set(line, { end: line + 1, markdown: line === 0 && first?.id === note.id ? `${first.title}\n\n${shown}` : shown });
     }
     if (own.size) drawn.set(note.id, own);
