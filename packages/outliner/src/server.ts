@@ -9,7 +9,7 @@ import { isSqliteBusy } from "./sqlite-busy";
 import { OutlineSnapshots } from "./outline-snapshots";
 import { DEFAULT_MACHINERY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
 import { scriptSources, scriptsAt } from "./script-sources";
-import { ScriptRuns } from "./script-runs";
+import { queueRelease, ScriptRuns } from "./script-runs";
 import { TLDR_KIND } from "@ep0ch/outline-core/annotation-marks";
 import { PERSON_READER, queryRequestProblem } from "./block-query";
 import { readerKey } from "./read-marks";
@@ -209,19 +209,6 @@ function requestChangeKind(action: unknown): OutlinerChangeKind | undefined {
 function isDraftAnswer(line: string): boolean {
   try {
     return (JSON.parse(line) as { action?: unknown }).action === "drafts.answer";
-  } catch {
-    return false;
-  }
-}
-
-/**
- * A request that waits for a script run's answer (PIE-1264). It never holds its connection: the run's own calls into the
- * door that asked (`scripts.act`, answered by `scripts.answer`, and whatever the action then reads) come back over it.
- */
-function waitsForRun(line: string): boolean {
-  if (!line.includes('"extensions.act"') && !line.includes('"scripts.run"') && !line.includes('"scripts.sequence"')) return false;
-  try {
-    return ["extensions.act", "scripts.run", "scripts.sequence"].includes((JSON.parse(line) as { action?: string }).action ?? "");
   } catch {
     return false;
   }
@@ -4675,13 +4662,13 @@ export class OutlinerServer {
         } else if (line.includes('"drafts.answer"') && isDraftAnswer(line)) {
           // A door's answer is never queued behind the request on its connection that waits for it.
           void this.respond(socket, line);
-        } else if (waitsForRun(line)) {
-          const received = performance.now();
-          void this.turns.next(actionOf(line)).then(() => this.respond(socket, line, received));
         } else {
           const received = performance.now();
-          // Each request waits its turn on the loop (Turns): a burst of whole-outline reads never holds it.
-          requestQueue = requestQueue.then(() => this.turns.next(actionOf(line))).then(() => this.respond(socket, line, received));
+          // Each request waits its turn on the loop (Turns): a burst of whole-outline reads never holds it. One that waits
+          // for a script run's answer (PIE-1264) lets the next go once the run has started: the run's own calls into the
+          // door that asked (`scripts.answer`, and what its action then reads) come back over this connection.
+          requestQueue = requestQueue.then(() => this.turns.next(actionOf(line))).then(() => new Promise<void>(release =>
+            void queueRelease.run(release, () => this.respond(socket, line, received)).finally(release)));
         }
         newline = buffer.indexOf("\n");
       }

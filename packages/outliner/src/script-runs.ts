@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { firstLineWithoutPropertyTokens } from "@ep0ch/outline-core/property-parse";
 import { DEFAULT_MACHINERY } from "@ep0ch/outline-core/machinery";
 import { rebaseSpans, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
@@ -25,6 +26,8 @@ import type { OutlinerStore } from "./store";
 import type { Block, MutationProvenance, OutlinerChange } from "./types";
 
 const ANSWER_MS = 3000;
+/** Lets go of the connection's request queue (the server's `accept` sets it per request): a request that waits can call it. */
+export const queueRelease = new AsyncLocalStorage<() => void>();
 const RENDER_ERROR = "render scripts draw; use an action script (a button or of=) to change things";
 
 /**
@@ -92,11 +95,13 @@ export class ScriptRuns {
    * A run's answer for the one who asked (PIE-1264): `start` returns at once, but a caller of `act` or `script_run` has
    * no `scripts.ended` to hear, so it waits here, a few seconds, for what the run says last (its returned line, the
    * refusal it threw, "done"). A run still going after that answers `running` and how to stop it; its end is still
-   * broadcast. A background run (an agent's answer) or a rule's trigger never waits: nobody asked for words.
+   * broadcast. A background run (an agent's answer) or a rule's trigger never waits: nobody asked for words. Nor does a
+   * person's press: the door they pressed in hears the end (`scripts.ended`) and says it.
    */
   async answered(started: ExtensionActResult, request: ExtensionActRequest): Promise<ExtensionActResult> {
     const task = started.undo ? this.tasks.get(started.undo) : undefined;
-    if (!task || request.background || request.trigger || this.answerMs <= 0) return started;
+    if (!task || request.background || request.trigger || request.requestedBy?.author === "user" || this.answerMs <= 0) return started;
+    queueRelease.getStore()?.();
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([task, new Promise<void>(resolve => { timer = setTimeout(resolve, this.answerMs); })]);
     clearTimeout(timer);

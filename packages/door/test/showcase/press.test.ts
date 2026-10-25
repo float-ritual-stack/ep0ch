@@ -401,7 +401,8 @@ describe.skipIf(!outliner)("the showcase screen: pressable views", () => {
     await app.dispatch.act({ action: `ext.${move.id}.run`, args: { block: seeded.notes.press.id, at: "1" } }, USER);
     await until(() => (app as any).message.includes("press New game to play again"), "a finished game's refusal");
     expect((app as any).statusBar(h.sc, 200)).toContain(fg(C.yellow) + (app as any).message);
-    await app.act({ action: `ext.${move.id}.run`, args: { block: seeded.notes.press.id, at: "1" }, as: "test-agent" });
+    // The agent's own press is refused with the script's words (PIE-1264), and the status line says it as the agent's.
+    await expect(app.act({ action: `ext.${move.id}.run`, args: { block: seeded.notes.press.id, at: "1" }, as: "test-agent" })).rejects.toThrow("press New game to play again");
     await until(() => (app as any).message.startsWith("an agent (test-agent)") && (app as any).message.includes("press New game to play again"), "the agent's attributed refusal");
     expect(app.refusal()).toBeNull();
     await app.dispatch.act({ action: "button.press", args: { label: "New game" }, tile: "notes" }, USER);
