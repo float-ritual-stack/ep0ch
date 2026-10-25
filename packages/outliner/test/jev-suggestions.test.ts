@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { parsePropertyRecords } from "@ep0ch/outline-core/property-parse";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { judgeSuggestion, tallyAsk, settleOpen, writerOf } from "../src/jev-suggestions";
+import { runAgentOperation } from "../src/agent-tools";
 import { scratchOutline } from "./scratch-outline";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
@@ -20,7 +21,7 @@ const SEASON = ["Garden year", "- 2026-03: seeds sown", "- 2026-05: first flower
 const TIMELINE = `${SEASON}\n::graph-timeline\n---\n---\n- 2026-10: seed collecting\n::`;
 const CHECK = `${SEASON}\n::graph-check\n- [ ] sow\n::`;
 
-async function setup() {
+async function setup(o: { delayMs?: number } = {}) {
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
     fetch: () => Response.json({ model: "jev-1.13.0", answers: {
@@ -45,9 +46,11 @@ async function setup() {
     return { exitCode, stderr, json: exitCode === 0 ? JSON.parse(stdout) : undefined };
   };
   const client = new OutlinerClient(paths.socket);
+  /** The same service over a link that costs a delay per request (the mod's CLI reaches another machine over ssh), counted. */
+  const slow = { requests: 0, request: async (input: never, timeout?: number) => { slow.requests++; await Bun.sleep(o.delayMs ?? 0); return client.request(input, timeout); }, requireCompatibleService: () => client.requireCompatibleService() };
   const records = async (type: string) => (await client.request<{ blocks: Block[] }>({ action: "blocks.query", query: { where: `type=${type}`, machinery: "show" } })).blocks
     .map(b => ({ id: b.id, text: b.text, ...Object.fromEntries(parsePropertyRecords(b.text).map(p => [p.key, p.value])) as Record<string, string> } as { id: string; text: string } & Record<string, string>));
-  return { store, agent, records, client };
+  return { store, agent, records, client, slow, fake, env: { OUTLINER_FIGURE_FIT: "on", TYPESAFE_API_KEY: "fake-key", OUTLINER_JEV_ENDPOINT: `http://127.0.0.1:${fake.port}/v1/systemone` } };
 }
 
 test("a write that gets a suggestion leaves a record, and later writes decide whether it was followed, a different figure, or ignored", async () => {
@@ -140,4 +143,27 @@ test("an actor id with property brackets cannot add properties to the record", a
 test("a writer's actor id splits into the persona and the harness", () => {
   expect(writerOf("loki/claude-code@float-box")).toEqual({ writer: "loki", harness: "claude-code" });
   expect(writerOf("garden-agent")).toEqual({ writer: "garden-agent", harness: "unknown" });
+});
+
+// PIE-1251, the real path: the Claude mod, the CLI and the MCP gateway all run `runAgentOperation` (agent-tools.ts) over a
+// client. The mod's CLI reaches another machine over ssh, a request each (about 0.25 s): the records once went missing there
+// because ~25 requests didn't finish in the time allowed. The bookkeeping is a handful of requests, and done when the answer is.
+test("a write over a slow link still leaves its record and the day's run before the answer returns, in few requests", async () => {
+  const { slow, records, env } = await setup({ delayMs: 60 });
+  const saved = { ...process.env };
+  Object.assign(process.env, env);
+  try {
+    // The first write ever seeds the Records page and its templates (the cold start); a later one is the warm path.
+    const cold = await runAgentOperation(slow as never, "create", { parent: "root", text: SEASON }, { actorId: "loki/claude-code@float-box" }) as { id: string };
+    expect(await records("suggestion")).toEqual([expect.objectContaining({ note: cold.id })]);
+    slow.requests = 0;
+    const warm = await runAgentOperation(slow as never, "create", { parent: "root", text: SEASON.replace("Garden year", "Bed rotation") }, { actorId: "loki/claude-code@float-box" }) as { id: string };
+    expect((await records("suggestion")).map(r => r.note).sort()).toEqual([cold.id, warm.id].sort());
+    const today = new Date().toISOString().slice(0, 10);
+    expect((await records("jev-run")).find(r => r.run === today)).toMatchObject({ suggested: "2", items: "2" });
+    // Everything the write asked of the service, the create itself included.
+    expect(slow.requests).toBeLessThanOrEqual(13);
+  } finally {
+    for (const key of Object.keys(env)) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
+  }
 });

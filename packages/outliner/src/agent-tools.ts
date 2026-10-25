@@ -661,7 +661,7 @@ async function settleSuggestions(client: AgentToolsClient, noteId: string, text:
 /** At most this long added to a write's answer by its figure suggestion, whatever Jev does. */
 const FIGURE_FIT_BUDGET_MS = 1500;
 /** And at most this long for the suggestion's record and the settling of earlier ones (jev-suggestions.ts). */
-const RECORD_BUDGET_MS = 3000;
+const RECORD_BUDGET_MS = 8000;
 
 /** What a figure-fit sweep found: each note it would tell, and the margin thread it left when asked to. */
 export interface FigureSweep {

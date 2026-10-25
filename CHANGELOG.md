@@ -19,6 +19,7 @@ are its record. The outliner's entries from then are kept below, under
   five writes or a day (or a figure-fit thread marked Kept) is followed; one that draws another is a different figure once that window has closed
   (the suggested one could still follow); neither is ignored. The verdict is a `suggestion-outcome` record, written once. A "Jev's suggestions" view in pie counts
   them by figure and writer over 7 and 30 days.
+- **Records now land when the write came through the Claude mod's CLI too.** That path reaches another machine over ssh, a request each (about 0.25 s), and the suggestion's bookkeeping took ~25 of them, so the CLI exited with the first templates made and no record. It is now a handful of requests (one query finds the kind's template, one stamps it; one query counts a day; one reads the open suggestions) and is done before the answer returns. Through MCP on float-2's gateway (a local socket) it already recorded.
 - The records writer (`ep0ch record`) moved from the door to the outliner (`@ep0ch/outliner/records`) so the service can write
   records itself; the door imports it from there.
 

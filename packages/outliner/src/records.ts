@@ -13,7 +13,7 @@ export const RECORD_FIELDS = {
   "jev-run": ["experiment", "run", "model", "prompt-rev", "items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out"],
 } as const;
 export type RecordKind = keyof typeof RECORD_FIELDS;
-interface Note { id: string }
+interface Note { id: string; parentId?: string | null }
 
 const DEPLOYS_NOTE = [
   "Deploys [system-view::deploys] [machine::install] [type::virtual-branch] [query::type=deploy machine=install] [sort::created] [direction::desc]", "",
@@ -54,4 +54,20 @@ export async function writeRecord(board: RecordWriter, kind: RecordKind, props: 
     of: template!.id, parent: root.id, title: o.title ?? (deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`), props, ...who,
   });
   return { id: result.stamped[0]!.id, warnings: result.warnings };
+}
+
+/**
+ * `writeRecord` for a writer that pays for each round trip (the Claude mod's CLI reaches another machine over ssh, a
+ * request each): the kind's template is found in one query and stamped under its own parent, two requests. A kind with
+ * no template yet, or a deploy, takes `writeRecord`'s whole path, which seeds the Records page and every template.
+ */
+export async function stampRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string } = {}) {
+  if (kind !== "deploy") {
+    const template = (await board.request<{ blocks: Note[] }>("blocks.query", { query: { where: `template-for=${kind} machine=record`, machinery: "show", limit: 1 } })).blocks[0];
+    if (template?.parentId) {
+      const result = await board.request<{ stamped: Note[]; warnings: string[] }>("template.stamp", { of: template.id, parent: template.parentId, title: o.title ?? `${kind} ${new Date().toISOString()}`, props, ...who });
+      return { id: result.stamped[0]!.id, warnings: result.warnings };
+    }
+  }
+  return writeRecord(board, kind, props, who, o);
 }

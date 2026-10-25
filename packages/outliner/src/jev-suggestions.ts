@@ -17,7 +17,7 @@ import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRevisions } from "@ep0ch/outline-core/protocol";
 import type { RequestInput } from "./client";
 import { figuresIn, type FigureFit, type FigureFitReading } from "./figure-fit";
-import { writeRecord, type RecordWho, type RecordWriter } from "./records";
+import { stampRecord, type RecordWho, type RecordWriter } from "./records";
 import type { AnnotationThread, Block, VisibleBlockCollection } from "./types";
 
 /** A suggestion is followed when one of the note's next writes, within a day, draws the figure; this many writes count. */
@@ -66,7 +66,7 @@ const dayOf = (at: Date | number) => new Date(at).toISOString().slice(0, 10);
 export async function recordSuggestion(client: SuggestionClient, fit: FigureFit, reading: FigureFitReading | undefined, at: SuggestionWrite, now = new Date()): Promise<void> {
   try {
     const day = dayOf(now);
-    await writeRecord(board(client), "suggestion", clean({
+    await stampRecord(board(client), "suggestion", clean({
       day, note: at.note, revision: String(at.revision), ...writerOf(at.actorId), component: fit.component,
       gate: String(fit.gate), confidence: String(fit.confidence), callout: fit.callouts?.join(" / ") ?? "none",
       model: reading?.model ?? "unknown", "prompt-rev": promptRevOf(reading), source: at.source, thread: at.thread ?? "none",
@@ -104,12 +104,14 @@ async function updateRun(client: SuggestionClient, day: string, change: { quiet?
   let run = await find();
   if (!run) {
     const zero = Object.fromEntries(["items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out"].map(k => [k, "0"]));
-    await writeRecord(board(client), "jev-run", { experiment: LIVE_EXPERIMENT, run: day, model: "unknown", "prompt-rev": "unknown", ...zero }, JEV, { title: `figure-fit ${day}` });
+    await stampRecord(board(client), "jev-run", { experiment: LIVE_EXPERIMENT, run: day, model: "unknown", "prompt-rev": "unknown", ...zero }, JEV, { title: `figure-fit ${day}` });
     run = await find();
     if (!run) return;
   }
-  const suggested = (await countOf(client, `type=suggestion day=${day}`, "day"))[day] ?? 0;
-  const outcomes = await countOf(client, `type=suggestion-outcome day=${day}`, "outcome");
+  // One query: the suggestions have no `outcome`, so they are the group with no value; the outcomes group by theirs.
+  const counted = await countOf(client, `(type=suggestion OR type=suggestion-outcome) day=${day}`, "outcome");
+  const suggested = counted[""] ?? 0;
+  const outcomes = counted;
   const quiet = chipNumber(run.text, "quiet") + (change.quiet ?? 0);
   let text = run.text;
   const set = (key: string, value: string | number) => { text = setChip(text, key, value); };
@@ -179,9 +181,11 @@ async function read(client: SuggestionClient, where: string, limit = 1000): Prom
   return (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", limit } })).blocks;
 }
 
-const openOf = (suggestions: Block[], outcomes: Block[]): OpenSuggestion[] => {
-  const settled = new Set(outcomes.map(o => propsOf(o.text).suggestion));
-  return suggestions.filter(b => !settled.has(b.id)).map(b => {
+/** The open suggestions among these records: the suggestions no outcome names. One query reads both kinds. */
+const openOf = (records: Block[]): OpenSuggestion[] => {
+  const kind = (b: Block) => propsOf(b.text).type;
+  const settled = new Set(records.filter(b => kind(b) === "suggestion-outcome").map(o => propsOf(o.text).suggestion));
+  return records.filter(b => kind(b) === "suggestion" && !settled.has(b.id)).map(b => {
     const p = propsOf(b.text);
     return { id: b.id, note: p.note!, revision: Number(p.revision), at: Date.parse(b.createdAt), component: p.component!, ...(p.thread && p.thread !== "none" ? { thread: p.thread } : {}), writer: p.writer, harness: p.harness, day: p.day };
   }).filter(s => s.note && Number.isFinite(s.revision) && s.component);
@@ -195,7 +199,7 @@ type OpenWithWho = OpenSuggestion & { writer?: string; harness?: string; day?: s
  */
 export async function settleNote(client: SuggestionClient, note: string, schemas: readonly ComponentSchema[], now = Date.now()): Promise<number> {
   try {
-    const open = openOf(await read(client, `type=suggestion note=${note}`, 50), await read(client, `type=suggestion-outcome note=${note}`, 100)) as OpenWithWho[];
+    const open = openOf(await read(client, `(type=suggestion OR type=suggestion-outcome) note=${note}`)) as OpenWithWho[];
     return await settle(client, note, open, schemas, now);
   } catch { return 0; }
 }
@@ -220,7 +224,7 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
     if (!verdict) continue;
     // Settled by another pass while this one read the revisions: one outcome per suggestion.
     if ((await read(client, `type=suggestion-outcome suggestion=${s.id}`, 1)).length) continue;
-    await writeRecord(board(client), "suggestion-outcome", clean({
+    await stampRecord(board(client), "suggestion-outcome", clean({
       day: s.day ?? dayOf(s.at), suggestion: s.id, note, outcome: verdict.outcome, component: s.component, writer: s.writer ?? "unknown", harness: s.harness ?? "unknown", because: verdict.because,
     }), JEV);
     written++;
@@ -236,7 +240,7 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
  */
 export async function settleOpen(client: SuggestionClient, schemas: readonly ComponentSchema[], now = Date.now()): Promise<number> {
   try {
-    const open = openOf(await read(client, "type=suggestion created >= -30d"), await read(client, "type=suggestion-outcome created >= -30d")) as OpenWithWho[];
+    const open = openOf(await read(client, "(type=suggestion OR type=suggestion-outcome) created >= -30d")) as OpenWithWho[];
     const byNote = new Map<string, OpenWithWho[]>();
     for (const s of open) byNote.set(s.note, [...(byNote.get(s.note) ?? []), s]);
     let written = 0;
