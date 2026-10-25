@@ -2921,6 +2921,12 @@ run-level keys the lab's runs share (`model`, `prompt-rev`, `items`, `agreed`, `
 `ignored`, `tokens-in`, `tokens-out`, plus `quiet` and `unavailable`), so one query reads lab and field: an ask where Jev
 stayed quiet is a count on it, never a note each, and its tokens come from Jev's own `usage`. The counts are recomputed
 from the day's suggestion and outcome records; the note is the one record rewritten, as a rate.
+**The service makes them** (`suggestions.keep`, `keepSuggestion`): a writer that asked Jev sends one request and the
+service writes the records in its own process, finishing whether or not the writer waits (the writer's answer waits at
+most three seconds). The Claude mod's CLI exits when its answer is printed and reaches the host over ssh, and once did the
+Records page's templates one create at a time and was cut off after two (pie, Oct 25: the writer was told "this reads as
+a stat" and the outline held no record). The MCP gateway, the CLI and a script's `outline_*` call all end in the same
+`figureSuggestion` (`src/agent-tools.ts`), so all three keep the same way.
 Whether it was followed is derived by `judgeSuggestion`, never typed: **followed** when one of the note's next five
 writes within a day draws that figure (or the margin thread was marked Kept), **different** when the window closes with another figure drawn instead,
 **ignored** when it closes with neither. The verdict is

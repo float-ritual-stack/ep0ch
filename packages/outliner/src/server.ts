@@ -52,6 +52,7 @@ import { templatePropsOf, templateUse } from "./template-use";
 import { readSources } from "./site-sources";
 import { placeOutput } from "./place";
 import { stampTemplateInto, stampTemplate, type TemplateStampResult } from "./template-stamp";
+import { keepSuggestion, readKeep } from "./jev-suggestions";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSyncs } from "./extension-sync";
 import { resourceProviderEntries } from "./extension-registry";
@@ -1408,6 +1409,16 @@ export class OutlinerServer {
     return { ...calloutTypesFromBlocks(blocks), complete: declared.completeness.kind === "complete" };
   }
 
+  /**
+   * Every component's schema (`components.schemas`, PIE-618): the built-ins with the outline's own styles and types among
+   * their values (as headings.styles and callouts.types read them), then the schemas the extensions ship.
+   */
+  private componentSchemas() {
+    const h = this.headingStyles(), c = this.calloutTypes();
+    const merged = mergeComponentSchemas({ headingStyles: h.styles, calloutTypes: c.types, extensions: this.extensionRegistry.components() });
+    return { schemas: merged.schemas, problems: [...h.problems, ...c.problems, ...merged.problems], complete: h.complete && c.complete };
+  }
+
   /** The outline's heading styles (`headings.styles`, PIE-599): those its notes and lines declare, and what's wrong with any. */
   private headingStyles() {
     // As callouts.types: the built-ins are the client's own; the outline adds or restyles styles.
@@ -2153,6 +2164,21 @@ export class OutlinerServer {
         if (isSqliteBusy(error)) throw error;
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
+    }
+    if (request.action === "suggestions.keep") {
+      // PIE-1251: the records of what Jev said are made here, in this process, so a writer that exits after one request
+      // (the Claude mod's CLI) leaves them as complete as one that waits. The records are Jev's own writes.
+      try {
+        if (this.readOnly) throw new Error("This outline is read-only.");
+        const keep = readKeep(request.keep);
+        const own = { request: async <T>(input: RequestInput): Promise<T> => {
+          const response = await this.handleAsync({ id: crypto.randomUUID(), ...input } as OutlinerRequest);
+          if (!response.ok) throw new Error(response.error);
+          return response.result as T;
+        } };
+        const settled = await keepSuggestion(own, keep, this.componentSchemas().schemas);
+        return { id: request.id, ok: true, result: { settled }, sequence: this.store.sequence };
+      } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
     }
     if (request.action === "template.stamp" && request.into !== undefined) {
       try {
@@ -3460,14 +3486,9 @@ export class OutlinerServer {
         case "components.usage":
           result = this.store.componentUsage();
           break;
-        case "components.schemas": {
-          // PIE-618: every component's schema in one read: the built-ins with the outline's own styles and types among
-          // their values (as headings.styles and callouts.types read them), then the schemas the extensions ship.
-          const h = this.headingStyles(), c = this.calloutTypes();
-          const merged = mergeComponentSchemas({ headingStyles: h.styles, calloutTypes: c.types, extensions: this.extensionRegistry.components() });
-          result = { schemas: merged.schemas, problems: [...h.problems, ...c.problems, ...merged.problems], complete: h.complete && c.complete };
+        case "components.schemas":
+          result = this.componentSchemas();
           break;
-        }
         case "references.backlinks":
           result = this.store.queryBacklinks(request.query);
           break;
@@ -3582,6 +3603,8 @@ export class OutlinerServer {
         case "artifacts.upload.finish":
         case "artifacts.upload.abort":
           throw new Error("Artifact requests require asynchronous dispatch.");
+        case "suggestions.keep":
+          throw new Error("suggestions.keep requires asynchronous dispatch.");
         default: {
           const unsupportedAction: never = action;
           throw new Error(`Unsupported action: ${String(unsupportedAction)}`);

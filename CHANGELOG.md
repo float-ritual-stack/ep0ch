@@ -19,6 +19,10 @@ are its record. The outliner's entries from then are kept below, under
   five writes or a day (or a figure-fit thread marked Kept) is followed; one that draws another is a different figure once that window has closed
   (the suggested one could still follow); neither is ignored. The verdict is a `suggestion-outcome` record, written once. A "Jev's suggestions" view in pie counts
   them by figure and writer over 7 and 30 days.
+- **The records land when the write came through the Claude mod's CLI too.** A note written through `outline_create` was told "this reads as a stat" and pie held
+  no record: the CLI exits when its answer is printed, and the first write's bookkeeping (the Records page's templates, a create each, 0.4 to 1 s on pie under load) was cut off after two.
+  The writer now sends one request, `suggestions.keep`, and the service makes the records itself, finishing whether or not the writer waits; the MCP gateway, the CLI and scripts keep the same way.
+  A new request, so `PROTOCOL` moves: `ep0ch install --apply` on each machine.
 - The records writer (`ep0ch record`) moved from the door to the outliner (`@ep0ch/outliner/records`) so the service can write
   records itself; the door imports it from there.
 

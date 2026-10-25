@@ -21,7 +21,7 @@ import { FIX_BEFORE_DONE, shapeNext, shapeWarnings } from "@ep0ch/outline-core/w
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { figureShape, suggestFigure, type FigureFit, type FigureFitReading } from "./figure-fit";
-import { recordSuggestion, settleNote, settleOpen, tallyAsk, type SuggestionWrite } from "./jev-suggestions";
+import type { SuggestionKeep, SuggestionWrite } from "./jev-suggestions";
 import { figureRowReport } from "./figure-rows";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -635,16 +635,14 @@ async function figureSuggestion(client: AgentToolsClient, text: string, before?:
   const asked = await Promise.race([ask().catch((): Asked => null), Bun.sleep(FIGURE_FIT_BUDGET_MS).then((): Asked => "unavailable")]);
   if (!asked) return null;
   // PIE-1251: what Jev said is a fact, recorded only once the writer is about to hear it (an ask that outlived the budget is
-  // not a suggestion anyone was told), and awaited so a one-shot CLI doesn't exit before it lands.
-  // The bookkeeping is bounded too: the writer's answer never waits on it past the budget (a record not made in time is lost, not retried).
-  const keep = async () => {
-    if (asked === "unavailable") return void await tallyAsk(client, "unavailable");
-    if ("quiet" in asked) return void await tallyAsk(client, "quiet", asked.quiet);
-    await recordSuggestion(client, asked.fit, asked.reading, { ...at!, source: "write" });
-    const schemas = await schemasOf(client);
-    if (schemas) await settleOpen(client, schemas);
-  };
-  if (at) await Promise.race([keep().catch(() => undefined), Bun.sleep(RECORD_BUDGET_MS)]);
+  // not a suggestion anyone was told). The service makes the records (`suggestions.keep`): a one-shot CLI that waited for a
+  // dozen requests over ssh was cut off and left none. The writer's answer waits for it no longer than the budget.
+  if (at) {
+    const change: SuggestionKeep = asked === "unavailable" ? { kind: "unavailable" }
+      : "quiet" in asked ? { kind: "quiet", ...(asked.quiet ? { reading: asked.quiet } : {}) }
+      : { kind: "suggested", fit: asked.fit, ...(asked.reading ? { reading: asked.reading } : {}), at: { ...at, source: "write" } };
+    await keepRecords(client, change);
+  }
   if (asked === "unavailable" || "quiet" in asked) return null;
   return { component: asked.fit.component, said: asked.fit.said };
 }
@@ -656,7 +654,12 @@ async function figureSuggestion(client: AgentToolsClient, text: string, before?:
  */
 async function settleSuggestions(client: AgentToolsClient, noteId: string, text: string): Promise<void> {
   if (process.env.OUTLINER_FIGURE_FIT === "off" || !componentBlocks(text.split("\n")).length) return;
-  await Promise.race([schemasOf(client).then(schemas => schemas && settleNote(client, noteId, schemas)).catch(() => undefined), Bun.sleep(RECORD_BUDGET_MS)]);
+  await keepRecords(client, { kind: "settle", note: noteId });
+}
+
+/** Asks the service to make the records of what Jev said (jev-suggestions.ts); waits for it no longer than the budget, and never throws. */
+async function keepRecords(client: AgentToolsClient, keep: SuggestionKeep): Promise<void> {
+  await Promise.race([client.request({ action: "suggestions.keep", keep }).catch(() => undefined), Bun.sleep(RECORD_BUDGET_MS)]);
 }
 /** At most this long added to a write's answer by its figure suggestion, whatever Jev does. */
 const FIGURE_FIT_BUDGET_MS = 1500;
@@ -696,7 +699,7 @@ export async function sweepFigures(client: AgentToolsClient, input: { under: str
   const rows = found.blocks.filter(b => b.id !== root).slice(0, limit);
   const sweep: FigureSweep = { checked: rows.length, shaped: 0, told: 0, suggested: [] };
   // PIE-1251: the sweep is also when a day-old suggestion nobody followed is settled as ignored.
-  if (process.env.OUTLINER_FIGURE_FIT !== "off") await settleOpen(client, schemas);
+  if (process.env.OUTLINER_FIGURE_FIT !== "off") await keepRecords(client, { kind: "settle" });
   const failed: { id: string; error: string }[] = [];
   for (const block of rows) {
     if (figureShape(block.text, schemas) !== "shaped") continue;
@@ -711,7 +714,7 @@ export async function sweepFigures(client: AgentToolsClient, input: { under: str
         ? (await commentOn(client, { ref: block.id, whole: true, kind: "figure-fit", requestId: `figure-fit:${block.id}:${block.revision}`, body: `${answer.fit.said}. A suggestion only, nothing was changed: mark it Seen to set it aside.` }, actor!)).thread
         : undefined;
       // Only a thread the writer can see is a suggestion told: a listing without `comment` tells nobody.
-      if (thread) await recordSuggestion(client, answer.fit, answer.reading, { note: block.id, revision: block.revision, actorId: actor!.actorId, source: "sweep", thread });
+      if (thread) await keepRecords(client, { kind: "suggested", fit: answer.fit, reading: answer.reading, at: { note: block.id, revision: block.revision, actorId: actor!.actorId, source: "sweep", thread } });
       sweep.suggested.push({ id: block.id, title: blockDisplayTitle(block), component: answer.fit.component, confidence: answer.fit.confidence, ...(thread ? { thread } : {}) });
     } catch (error) {
       failed.push({ id: block.id, error: (error as Error).message });

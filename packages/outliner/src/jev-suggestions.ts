@@ -244,3 +244,56 @@ export async function settleOpen(client: SuggestionClient, schemas: readonly Com
     return written;
   } catch { return 0; }
 }
+
+// ── Kept by the service ────────────────────────────────────────────────────
+
+/**
+ * What a writer asks the service to keep of an ask to Jev (the `suggestions.keep` action). The writer is often a one-shot
+ * CLI (the Claude mod's `ep0ch agent create`) that exits when its answer is printed, over a link where each request
+ * costs a round trip, and the records are a dozen requests the first time (the Records page and a template per kind): it
+ * was cut off part-way and the outline held nothing (pie, Oct 25). So the writer sends one request, and the service
+ * makes the records in its own process, finishing whether or not anyone waits.
+ */
+export type SuggestionKeep =
+  | { kind: "suggested"; fit: FigureFit; reading?: FigureFitReading; at: SuggestionWrite }
+  | { kind: "quiet" | "unavailable"; reading?: FigureFitReading }
+  /** A note's open suggestions judged (after a write to it), or, with no note, every open one (the tidy sweep's). */
+  | { kind: "settle"; note?: string };
+
+/** A request's `keep`, checked: it arrives as JSON from any client, and says what is wrong with it. */
+export function readKeep(value: unknown): SuggestionKeep {
+  const keep = value as Partial<SuggestionKeep> | null | undefined;
+  const text = (v: unknown, what: string) => { if (typeof v !== "string" || !v) throw new Error(`suggestions.keep: ${what} is a non-empty string`); return v; };
+  if (!keep || typeof keep !== "object") throw new Error("suggestions.keep needs keep: {kind: suggested | quiet | unavailable | settle, …}");
+  if (keep.kind === "settle") return { kind: "settle", ...(keep.note === undefined ? {} : { note: text(keep.note, "note") }) };
+  if (keep.kind === "quiet" || keep.kind === "unavailable") return { kind: keep.kind, ...(keep.reading ? { reading: keep.reading } : {}) };
+  if (keep.kind === "suggested") {
+    const { fit, at } = keep;
+    if (!fit || typeof fit !== "object" || !fit.component || typeof fit.component !== "string") throw new Error("suggestions.keep: a suggested keep needs fit.component");
+    if (!at || typeof at !== "object" || !Number.isInteger(at.revision) || at.source !== "write" && at.source !== "sweep") throw new Error("suggestions.keep: a suggested keep needs at: {note, revision, actorId, source}");
+    text(at.note, "at.note"); text(at.actorId, "at.actorId");
+    return { kind: "suggested", fit, ...(keep.reading ? { reading: keep.reading } : {}), at };
+  }
+  throw new Error(`suggestions.keep: kind is suggested, quiet, unavailable or settle (got ${JSON.stringify((keep as { kind?: unknown }).kind)})`);
+}
+
+/**
+ * Makes the records `keep` asks for, as the service (`client` is the service's own): a suggestion's fact and the day's run,
+ * then the open suggestions settled (every recorded suggestion settles the day-old ones, so a quiet outline settles itself
+ * the next time Jev speaks); a quiet or unavailable ask counted on the day's run; or the settling alone. Returns the
+ * outcomes it wrote. Never throws.
+ */
+export async function keepSuggestion(client: SuggestionClient, keep: SuggestionKeep, schemas: readonly ComponentSchema[]): Promise<number> {
+  switch (keep.kind) {
+    case "suggested":
+      await recordSuggestion(client, keep.fit, keep.reading, keep.at);
+      // A write's suggestion also settles the day-old ones; the sweep settles once, before it starts.
+      return keep.at.source === "write" ? settleOpen(client, schemas) : 0;
+    case "quiet":
+    case "unavailable":
+      await tallyAsk(client, keep.kind, keep.reading);
+      return 0;
+    case "settle":
+      return keep.note ? settleNote(client, keep.note, schemas) : settleOpen(client, schemas);
+  }
+}
