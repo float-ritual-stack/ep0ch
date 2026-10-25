@@ -266,6 +266,9 @@ const BLOCK = /^[0-9a-f-]{8,}$/;
 /** `#3` or `3`: a tile's number on screen (a name never starts with a digit). */
 const NUMBER = /^#?([1-9][0-9]{0,2})$/;
 
+/** The whereabouts each dispatcher gave while a listing runs (`Dispatcher.list`): null outside one. */
+let listing: Map<Dispatcher, Whereabouts> | null = null;
+
 export class Dispatcher {
   private nextConfirmation = 0;
   private saidConfirmation = 0;
@@ -338,8 +341,18 @@ export class Dispatcher {
   /** Add sets after those already here (a screen built on another adds its own first: `first`). */
   register(regs: (Registration | Delegation)[], first = false) { this.regs = first ? [...regs, ...this.regs] : [...this.regs, ...regs]; }
 
-  /** The person's whereabouts, as the shell answers it (or the screen alone, with no shell to ask). */
+  /**
+   * The person's whereabouts, as the shell answers it (or the screen alone, with no shell to ask). While a listing is being made
+   * (`list`) it is asked once for each dispatcher, not once for each action the listing weighs: nothing moves while it runs.
+   */
   where(): Whereabouts {
+    const asked = listing;
+    if (!asked) return this.whereNow();
+    let w = asked.get(this);
+    if (!w) asked.set(this, w = this.whereNow());
+    return w;
+  }
+  private whereNow(): Whereabouts {
     if (this.host.where) return this.host.where();
     const ctx = this.host.ctx();
     if (ctx?.person) return ctx.person();
@@ -363,6 +376,12 @@ export class Dispatcher {
 
   /** Every action here once, in the order a name is looked up; the tiles `tile=` names. */
   list(): { actions: ActionInfo[]; tiles: string[] } {
+    // A listing asks each registration whether it claims each action, and a claim asks where the person is (`owner`): once, not for each.
+    const outermost = !listing;
+    if (outermost) listing = new Map();
+    try { return this.listIn(); } finally { if (outermost) listing = null; }
+  }
+  private listIn(): { actions: ActionInfo[]; tiles: string[] } {
     const seen = new Set<string>(), out: ActionInfo[] = [];
     const bindings = this.host.bindings?.() ?? [];
     // The layout host can also be the screen delegate; describe it once per listing.

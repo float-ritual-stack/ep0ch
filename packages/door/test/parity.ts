@@ -36,6 +36,7 @@ import { DEFAULT_THEME, setTheme } from "../src/theme";
 import { outliner, Scratch } from "./scratch";
 import { watchHosts } from "./settle";
 import { cacheReads } from "./board-reads";
+import { ScenarioBudget } from "./parity-budget";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
@@ -73,6 +74,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const scratch = new Scratch();
   let board: SocketBoard, app: App, reads: ReturnType<typeof cacheReads>;
   let press: (k: Key) => void = () => {};
+  /** Keys read as one chunk of input (Term's onBatch): handled together, the screen painted once after them. */
+  let batch: (run: () => void) => void = run => run();
   // Settled means no answer from the host is awaited, whichever way the screen asked (test/settle.ts).
   // The power bar (ctrl+k) still asking its sources is not settled either: its rows land after.
   const hosts = watchHosts(() => { const bar = (app as any)?.bar; return !!bar && (bar.asking.size > 0 || !!bar.timer); });
@@ -165,7 +168,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   /** A door of its own for each screen: nothing one screen's probes left (a dock, a timer) reaches the next. */
   function newApp() {
     if (app) { for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s); try { app.quit(); } catch { /* gone */ } }
-    const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { press = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { press = f; }, onBatch(f: any) { batch = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     A().cycleVideo = function () { this.video = this.video === "cells" ? "kitty" : "cells"; };
   }
@@ -240,24 +243,42 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
    * slowest build, rather than running on to the test's own timeout (PIE-1307: one ran 570 s against a 600 s limit and took the
    * next scenario with it). Checked between probes and builds, so a hung settle (3 s at most) is the longest it overshoots.
    */
-  const budget = Number(process.env.PARITY_BUDGET_MS ?? 60_000);
-  const worst = { t0: 0, label: "", key: "", keyMs: 0, build: 0 };
+  const budget = new ScenarioBudget(Number(process.env.PARITY_BUDGET_MS ?? 60_000));
   const keysLog = process.env.PARITY_KEYS;   // every probe's key and its milliseconds, one line each: what a scenario spends its time on
+  let scenario = "";
   const timed = (key: string, since: number) => {
     const ms = performance.now() - since;
-    if (ms > worst.keyMs) { worst.key = key; worst.keyMs = ms; }
-    if (keysLog) require("node:fs").appendFileSync(keysLog, `${worst.label}\t${key}\t${ms.toFixed(1)}\n`);
+    budget.key(key, ms);
+    if (keysLog) require("node:fs").appendFileSync(keysLog, `${scenario}\t${key}\t${ms.toFixed(1)}\n`);
   };
-  const overBudget = (label: string, doing: string) => {
-    const took = Date.now() - worst.t0;
-    if (took > budget) throw new Error(`parity scenario "${label}" took over ${budget / 1000} s (${(took / 1000).toFixed(1)} s, ${stats.fresh} builds taking ${(stats.freshMs / 1000).toFixed(1)} s, ${stats.second} second checks) at ${doing}: the slowest key took ${worst.keyMs.toFixed(0)} ms (${worst.key || "none yet"}), the slowest build ${worst.build} ms`);
-  };
+  const overBudget = (label: string, doing: string) => budget.check(label, doing, { builds: stats.fresh, buildMs: stats.freshMs, seconds: stats.second });
   const fresh = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
     overBudget(label, "a build");
-    stats.fresh++; const f0 = Date.now();
-    try { return await freshIn(label, make, setup); } finally { const ms = Date.now() - f0; stats.freshMs += ms; worst.build = Math.max(worst.build, ms); }
+    stats.fresh++; const f0 = performance.now();
+    try { return await freshWith(label, make, setup); } finally { const ms = performance.now() - f0; stats.freshMs += ms; budget.build(ms); }
   };
-  const freshIn = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
+  /**
+   * A setup's keys are a way to a state, not what is probed. Pressed one by one each paints the screen (a person's keys do),
+   * and a scenario is built a few hundred times; pressed as one chunk of input, as a fast typist's or a paste arrives, the
+   * screen is painted once after them. The first build of a setup is made both ways and the two screens compared: when
+   * they match the setup is pressed as a chunk from then on, else it keeps painting between keys (a key that waits on
+   * what the last one's paint asked for, a list's rows, is one only the slow way reaches).
+   */
+  const pacing = new Map<string, boolean>();
+  const freshWith = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[]): Promise<Set<number>> => {
+    if (setup.length < 2 || process.env.PARITY_PACED === "1") return freshIn(label, make, setup, false);
+    const id = `${label}\0${setup.map(named).join(" ")}`, known = pacing.get(id);
+    if (known !== undefined) return freshIn(label, make, setup, known);
+    const mask = await freshIn(label, make, setup, false);
+    const paced = snap(mask);
+    await freshIn(label, make, setup, true);
+    const chunk = snap(mask), ids = (t: string) => t.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "#id");
+    const alikeChunk = paced.top?.constructor === chunk.top?.constructor && paced.depth === chunk.depth && paced.holds === chunk.holds && paced.drawer === chunk.drawer && ids(paced.about) === ids(chunk.about) && paced.lines.length === chunk.lines.length && paced.lines.every((l, i) => l === chunk.lines[i]);
+    pacing.set(id, alikeChunk);
+    if (log) require("node:fs").appendFileSync(log, `# ${label}: setup ${setup.map(named).join(" ")} ${alikeChunk ? "as a chunk of input reaches the same screen" : "painted between keys: as a chunk it reaches another screen"}\n`);
+    return alikeChunk ? mask : freshIn(label, make, setup, false);
+  };
+  const freshIn = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = [], chunked = false): Promise<Set<number>> => {
     for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s);
     // The power bar is the App's, over every screen: put away.
     A().bar?.close(); A().bar = null;
@@ -283,7 +304,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     await settle();
     // Drawn before each key as the person would see it (a key can depend on the last layout, as the river's
     // ⏎ does), and settled after: a paint asks for what it draws (a reply count, a title).
-    for (const k of setup) { if (frames() === pressed) snap(new Set(), true); await settle(); pressed = frames(); press(k); await settle(); }
+    if (chunked) { batch(() => { for (const k of setup) press(k); }); await settle(); }
+    else for (const k of setup) { if (frames() === pressed) snap(new Set(), true); await settle(); pressed = frames(); press(k); await settle(); }
     // A second look only when the first asked the service for something (what it draws once that comes).
     for (let i = 0; i < 2; i++) { const n = hosts.asked(); if (i > 0 || frames() === pressed) snap(new Set(), true); await settle(); if (hosts.asked() === n) break; }
     // Until it holds still (a terminal's prompt arriving), at most a second. Only a terminal draws by itself
@@ -657,13 +679,13 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     test(`${label}: every key and click it handles runs an action that names it`, async () => {
       const before = found.length + hintFound.length, t0 = Date.now();
       for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
-      worst.t0 = t0; worst.label = label; worst.key = ""; worst.keyMs = 0; worst.build = 0;
+      scenario = label; budget.start();
       await audit(label, make, setup ?? []);
-      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${worst.key} ${worst.keyMs.toFixed(0)} ms, slowest build ${worst.build} ms; keys: ${stats.pressMs.toFixed(0)} ms handling, ${stats.settleMs.toFixed(0)} ms settling; ${stats.paints} paints ${stats.paintMs.toFixed(0)} ms, ${stats.looks} looks ${stats.lookMs.toFixed(0)} ms)\n`);
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${budget.worst().key} ${budget.worst().keyMs.toFixed(0)} ms, slowest build ${budget.worst().buildMs.toFixed(0)} ms; keys: ${stats.pressMs.toFixed(0)} ms handling, ${stats.settleMs.toFixed(0)} ms settling; ${stats.paints} paints ${stats.paintMs.toFixed(0)} ms, ${stats.looks} looks ${stats.lookMs.toFixed(0)} ms)\n`);
       for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
       const mine = [...found, ...hintFound].slice(before).map(f => `${f.screen}\t${f.keys}\t${f.problem}`);
       expect(mine).toEqual([]);
-    }, budget + 60_000);
+    }, budget.limitMs + 60_000);
   }
   // The other parts leave the shell's states to this one: a desk that stopped opening one would leave it unprobed.
   if (part === "desk" && !only) test("the shell's input states were probed here, as no other part probes them", () => {
