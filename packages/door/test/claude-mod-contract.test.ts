@@ -190,6 +190,35 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     expect(text).toContain("- latest build log: Build log, Mar 3");
   });
 
+  test("the settle check: the mod's three questions run on the real CLI, and its readers join what list --facets thread prints (PIE-1268)", async () => {
+    const { settleAsks, SETTLE_DEFAULTS, facetCountsOf, threadsOf } = await mod("settle.ts");
+    const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
+    try {
+      for (const text of [
+        "Which bed for the squash? [thread::squash]", "Squash wants the sunny corner [thread::squash] [actor::sam]", "Trellis or ground? [thread::squash]", "Sam, Mar 3: \"trellis, then\" [thread::squash]",
+        "Netting for the peas [thread::netting]",
+        "GAR-9 — Trellis the squash [type::roadmap-item] [work-id::GAR-9] [work-stage::queued] [thread::netting]",
+      ]) await board.request("create", { parentId: null, text, author: "agent" });
+    } finally { board.close(); }
+    const outliner = async (args: string[]) => {
+      const p = Bun.spawn(["bun", OUTLINER_CLI, ...args], { cwd: scratch.workspace, stdout: "pipe", stderr: "pipe", env: { ...clean, ...env, FORCE_COLOR: "3" } });
+      const [stdout, exitCode] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+      expect(exitCode).toBe(0);
+      return stdout;
+    };
+    const config = { ...SETTLE_DEFAULTS, evanQuery: "actor=sam OR text~\"Sam, \"" };
+    const asks = settleAsks(config);
+    const [all, evan, shaped] = await Promise.all([asks.all, asks.evan, asks.shaped].map(async a => facetCountsOf(await outliner(a))));
+    expect(all.get("squash").count).toBe(4);
+    expect(evan.get("squash").count).toBe(2);
+    // The ticket is not a note of the conversation; it is what shapes the other thread.
+    expect(all.get("netting").count).toBe(1);
+    expect(shaped.get("netting").count).toBe(1);
+    const far = Date.now() + 2 * 60 * 60_000;
+    const threads = threadsOf(all, evan, shaped, far, config);
+    expect(Object.fromEntries(threads.map((t: { thread: string; state: string }) => [t.thread, t.state]))).toEqual({ squash: "settled", netting: "shaped" });
+  });
+
   test("outline_comment's kind lands on the thread through the real CLI, as kind and as properties.kind (PIE-871)", async () => {
     const { checkedInput, OUTLINE_TOOLS } = await mod("outline-tools.ts");
     const tool = OUTLINE_TOOLS.find((t: { name: string }) => t.name === "outline_comment");

@@ -27,6 +27,27 @@
       "description": "off: nothing is recorded this session, whatever the outline's Recent files page asks. Otherwise the page's [file-touches::<glob>] properties decide. Empty: PI_OUTLINER_FILE_TOUCHES applies.",
       "required": false,
       "default": ""
+    },
+    "settle": {
+      "type": "string",
+      "title": "The settle check (on, off, or the deployer's session)",
+      "description": "on: this session runs the settle check every 30 minutes (threads that go quiet wake it). off: never. Empty: EP0CH_SETTLE applies; neither set: only a session whose persona is loki.",
+      "required": false,
+      "default": ""
+    },
+    "settleOutlines": {
+      "type": "string",
+      "title": "Outlines the settle check reads",
+      "description": "name[@ssh-name] separated by commas, such as gurgle@float-2, pie@float-2. Empty: EP0CH_SETTLE_OUTLINES applies; neither set: settle-outlines in the folder's .ep0ch/config.toml, else pie and gurgle on the session outline's machine.",
+      "required": false,
+      "default": ""
+    },
+    "settleTuning": {
+      "type": "string",
+      "title": "Settle check thresholds",
+      "description": "key=value pairs separated by ';': chirps=3; evan=1; quiet=60 (minutes without a touch); within=4320 (minutes after which a quiet thread is dormant); every=30; wake-max=5; base, evan-query, shaped-query (queries in the views' grammar). Empty: EP0CH_SETTLE_TUNING applies.",
+      "required": false,
+      "default": ""
     }
   }
 }

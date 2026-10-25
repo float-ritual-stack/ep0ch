@@ -98,6 +98,37 @@ what `.claude/freshness.md` lists as stale, and its findings arrive as a prompt 
 finding, make the updates that hold up as yourself, and say which you skipped and why. What counts as stale is that
 file: edit it like any rule. `EP0CH_FRESHNESS=off` stops the sweep for a session; `on` runs it in any session.
 
+## A settled thread (the settle check wakes you)
+
+The Claude mod (`packages/claude-mod/hooks/settle.ts`) runs the check in your sessions every 30 minutes (PIE-1268, the
+capability ((46e391fb-dcd7-46eb-a6f2-f8f71d45f5cb|Settle, then shape))). Per `[thread::…]` it counts the notes, Evan's
+own among them, and the last touch, across `settleOutlines`; a thread with at least 3 notes (one of them Evan's), quiet
+for an hour, wakes you once: `thread <x> settled: <n> chirps, <m> Evan's, quiet <t> min, capability <link>`. Up to
+five a wake; the rest come at the next check. The pie "Threads" page (hub › Browse) shows warming and shaped live;
+each move into or out of settled or shaped is already a line under the day's build log, so you don't write it.
+
+1. **Read the thread** (`ep0ch find --ws gurgle --query 'thread="<x>"' --sort created`), not only the wake. If it is
+   chatter that needs no shape, say so in one line on the thread's note and go on: it stays settled until someone
+   touches it.
+2. **Shape it on its capability note** (the one the wake links; with none, make a `[type::capability]` note under
+   Capabilities and put `[thread::<x>]` on it): the north star in Evan's words, the parts it uses, the glue, open
+   questions. A new framing is a line there, not a ticket.
+3. **Cut tickets only for primitives**, each with the Parts-it-uses table the root AGENTS.md asks for, and
+   `[thread::<x>]` on every ticket: that is what turns the thread shaped (the check stops watching it).
+4. **Start builders within budget** (two test-heavy agents on float-2, five in all); the rest wait for a free slot (below).
+5. **Gate only taste and direction** (`[needs::sysop]`, about three open). Evan does not have to say go for the rest.
+
+The check is off in every session but yours: `EP0CH_SETTLE=on|off` (or the mod's `settle` option) overrides, and
+`settle-outlines` in the folder's `.ep0ch/config.toml` (default `pie` and `gurgle` on the outline's machine; `EP0CH_SETTLE_OUTLINES` overrides), `settleTuning` (`chirps=3; quiet=60; within=4320; wake-max=5`) tune
+it. The first check only records what was already settled (one baseline line in the build log). Thresholds are guesses: tune them from a week of real threads.
+
+## Draining Up next
+
+When a builder slot or a box-test slot is free and nothing is settling (no wake pending, no thread you owe a shape),
+take the next item from Up next (the briefing's section, aca85598, or the Waiting to start lane in the Roadmap Hub),
+start a builder on it within the budget, and close it on proof the same day. The backlog drains because there was room,
+not because Evan said go; one-way doors (infrastructure, deletion, a protocol bump) still get a one-line heads-up first.
+
 ## The build log
 
 The rules are pie's: [[house-rules]] (House rules: how we work in pie, e19f9fe0), sections 'Requests and patch notes' and 'Build logs, snapshots and Welcome'.

@@ -659,6 +659,7 @@ bun run cli list --subtree <block-uuid> --text "route snapshot" --limit 20
 bun run cli list --filter type=roadmap-item --limit 400 --fields title,properties,revision
 bun run cli read <block-uuid> <block-uuid> --fields title,properties
 bun run cli list --query "type=task (work-stage=review OR work-stage=validate) updated >= -7d"
+bun run cli list --query "thread" --limit 1 --facets thread --facet-values 1000   # value counts and last update per thread, over every match
 bun run cli view <saved-virtual-branch-uuid>
 bun run cli view <saved-virtual-branch-uuid> --limit 500 --expected <revision>
 bun run cli view <saved-virtual-branch-uuid> --limit 50 --offset 50
