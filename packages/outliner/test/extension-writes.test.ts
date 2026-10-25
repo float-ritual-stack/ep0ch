@@ -499,12 +499,13 @@ test("ext add over an install never leaves the folder without its extension.json
 test("a running script keeps its undo while ordinary extension writes fill the history", async () => {
   const { store, client, scribe, act } = await setup();
   await scribe();
-  const source = store.create("Waiting [script::waiting] [results::keep]\n```js\nwhile (!(await q('signal=history-ready')).blocks.length) {}\nreturn 'Ready';\n```", null, "user");
+  const source = store.create("Waiting [script::waiting] [results::keep]\n```js\nwhile (!(await q('signal=history-ready')).blocks.length) await wait(25);\nreturn 'Ready';\n```", null, "user");
   const listed = await client.request<ExtensionsListResult>({ action: "extensions.list", reload: true });
   const extension = listed.extensions.find(e => e.name === "waiting")!;
   const run = await client.request<{ written: string[]; undo: string }>({ action: "extensions.act", extension: extension.id, extensionAction: "run" });
   const target = store.create("Other extension's notes", null, "user");
-  for (let i = 0; i < 101; i++) await act("child", target.id, { text: `Packet ${i}` });
+  // Each write spawns the extension's process (~150 ms), so they go in batches of ten rather than one after another.
+  for (let i = 0; i < 101; i += 10) await Promise.all(Array.from({ length: Math.min(10, 101 - i) }, (_, j) => act("child", target.id, { text: `Packet ${i + j}` })));
   store.create("Continue [signal::history-ready]", null, "user");
   await until("script completed", () => !store.get(run.written[0]!)!.text.includes("· working"));
   await client.request({ action: "extensions.undo", undo: run.undo });
