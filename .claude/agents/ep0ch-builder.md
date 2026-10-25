@@ -73,6 +73,7 @@ loki says several bumps are queued, wait for its go before that rebase. A schema
 - Whole suites and `--each` go through `scripts/box-test` (float-box, or `--on boxd`), never on float-2. Rust and
   other heavy builds go to float-box too.
 - Judge a run by its exit code, never by grepping coloured output.
+- **Watch your own box-test until it exits** (Monitor with an until-loop on its output file or pid). Its exit notice often never reaches a builder: on Oct 24, six builders went idle after their runs went green, one for 14 hours. **The moment it exits 0, push, open the PR with `work_deliver` and message loki the PR number and sha.** On a red run, name the failing tests and check them against origin/main before fixing.
 - Never `pkill`, and never kill a process you didn't start; stop your own by its pid or `scripts/agent-env <name> --clean`.
 - Clean up scratch with `scripts/scratch-clean <dir>…` (a `mktemp -d`, an agent-env tmp folder, your worktree when the PR has
   merged), never `rm -rf`: the dangerous-command check can stop that for a permission prompt that waits in loki's session.
