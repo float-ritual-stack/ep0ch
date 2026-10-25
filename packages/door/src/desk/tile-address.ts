@@ -28,11 +28,11 @@ export type TileAddress =
 export const AGENT_ALIAS = "drawer.agent";
 /** The role of the drawer's own program. */
 export const ROLE_AGENT = "agent";
-/** Whether `sel` names the drawer's own program (`drawer.agent`, `role:agent`, `role:agent@drawer`). */
+/** Whether `sel` names the drawer's own program (`drawer.agent`, `role:agent`, `role:agent@drawer`); another scope names none. */
 export const namesAgent = (sel: string | undefined): boolean => {
   if (sel === undefined) return false;
   const a = parseTileAddress(sel);
-  return a.kind === "role" && a.role === ROLE_AGENT;
+  return a.kind === "role" && a.role === ROLE_AGENT && (a.scope === undefined || a.scope === "drawer");
 };
 /** A tile id's shortest prefix that names it (after `t-`), the rule block ids follow. */
 export const MIN_ID_PREFIX = 8;

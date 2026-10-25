@@ -1,13 +1,14 @@
 /*
- * The drawer's own program is the tile with role `agent` (PIE-1286), saved on its leaf. A layout saved by an older door
- * says which tile it is only by the program key it runs under (`kept: "drawer.json:drawer.agent"`, or `drawer.json#<n>:…`
- * once it had left for a screen and come back), and may have lost its name (`shell`) and its place (`slot`). This gives that
- * leaf its role, and in the drawer's own file its name, slot and kind too.
+ * A saved leaf's `role` was the slot its screen's spec gave the tile; it is now `slot`, and `role` says what the tile is for
+ * (PIE-1286). A layout saved by an older door is moved to the new words: every leaf's `role` becomes its `slot`. The drawer's
+ * own program is the tile with role `agent`; an older layout says which tile it is only by the program key it runs under
+ * (`kept: "drawer.json:drawer.agent"`, or `drawer.json#<n>:…` once it had left for a screen and come back), and may have lost
+ * its name (`shell`) and place: that leaf gets role `agent`, and in the drawer's own file its name, slot and kind too.
  *
  *   ep0ch session end --all --yes     # first: a running session holds the old layout and saves over this one
  *                                     # (or, to keep the agent running, run this right before `ep0ch install --apply`)
- *   bun packages/door/scripts/migrations/drawer-own-role.ts [<state dir>]          # says what it would change
- *   bun packages/door/scripts/migrations/drawer-own-role.ts [<state dir>] --write  # changes it
+ *   bun packages/door/scripts/migrations/tile-roles.ts [<state dir>]          # says what it would change
+ *   bun packages/door/scripts/migrations/tile-roles.ts [<state dir>] --write  # changes it
  *
  * In the door's state dir (EP0CH_STATE, else $XDG_STATE_HOME/ep0ch-door), every folder's drawer-tiles.json and every other
  * saved layout (*.json) that holds such a leaf. Run once on each machine that matters (float-2 for pie), then delete this file.
@@ -18,7 +19,7 @@ import { stateDir } from "../../src/state";
 
 const OWN_KEY = /^drawer\.json(#\d+)?:drawer\.agent$/;
 
-/** A saved layout with the drawer's own program's leaf given its role; the leaves it changed. `drawer`: the drawer's own file. */
+/** A saved layout in the new words, the drawer's own program's leaf given its role; the leaves it changed. `drawer`: the drawer's own file. */
 export function migrateLayout(v: unknown, drawer: boolean): { value: unknown; changed: number } {
   let changed = 0;
   const walk = (x: unknown): unknown => {
@@ -31,6 +32,11 @@ export function migrateLayout(v: unknown, drawer: boolean): { value: unknown; ch
       changed++;
       out.role = "agent";
       if (drawer) Object.assign(out, { kind: "drawer.own", name: "drawer.agent", slot: "drawer.agent" });
+      else if (out.slot === undefined && typeof o.role === "string") out.slot = o.role;
+    } else if (o.t === "leaf" && typeof o.role === "string" && o.slot === undefined) {
+      changed++;
+      out.slot = o.role;
+      delete out.role;
     }
     return out;
   };

@@ -2012,7 +2012,8 @@ export const HOST_TILE_ACTIONS = actionSet<{ drawer: AgentDrawer }>()("host", {
       { act: "tile.herdr tile=drawer.agent on=false", does: "records that the drawer's program no longer lives in Herdr" },
     ],
     run({ pane, name, on }, { drawer }) {
-      const p = drawer.tile;
+      // The tile with role agent, wherever it is (in its tab, or out on a screen), never the tab holding its place.
+      const p = drawer.agentPane()?.pane;
       if (!p) throw new ActionRefused("your drawer's own program hasn't started");
       if (on === false) { p.herdr = null; return { tile: DRAWER_TILE_ID, name: drawer.name, herdr: null }; }
       if (!pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
