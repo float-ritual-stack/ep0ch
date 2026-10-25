@@ -1221,14 +1221,28 @@ export class AgentDrawer {
    * Not running yet, the drawer comes up and starts it first, as alt+a does. Lifted already (or on=false), it drops.
    */
   lift(on: boolean | undefined, reach: ZoomReach, actor: Actor): { tile: string; name: string; lifted: ZoomReach | null; in?: "drawer" | "screen" } {
-    if (!this.p && on !== false) this.set(true, actor);
-    const p = this.p;
-    if (!p) throw new ActionRefused(`${this.name} isn't running · alt+a pulls it up and starts it`);
-    const holder = [this.d, tilesOf(this.host.screen?.())].find(d => !!d?.nameOfPane(p)) ?? null;
+    // Out, but its program has since closed: the tab is the drawer's own again (as bringBack finds), and starts as any does.
+    if (this.out && !this.awayPane() && !this.outAlive()) this.free();
+    if (!this.p && !this.out && on !== false) this.set(true, actor);
+    // Out on a screen (take), the own tab only holds its place: the program is the tile that left, or after a handover
+    // the one with its key, on the screen it went to or the one shown.
+    const p = this.out ? this.awayPane() : this.p;
+    if (!p) throw new ActionRefused(this.out ? `${this.name} is out on a screen that isn't shown · go to it, or agent.back brings it home` : `${this.name} isn't running · alt+a pulls it up and starts it`);
+    const holder = [this.d, this.left?.screen, tilesOf(this.host.screen?.())].find(d => !!d?.nameOfPane(p)) ?? null;
     const up = !!holder?.liftsPane(p);
     if (on ?? !up) { const went = this.goTo(p, actor, { zoom: reach }); return { tile: went.tile, name: went.name, in: went.in, lifted: reach }; }
     if (holder && up) { holder.zoomTile(holder.nameOfPane(p), false, actor, reach); this.host.redraw(); }
     return { tile: DRAWER_TILE_ID, name: this.name, lifted: null };
+  }
+  /** The drawer's own program while it's out: the tile that left, else (after a handover) the one with its key, where it's shown. */
+  private awayPane(): PtyPane | null {
+    if (this.left && [this.left.screen, tilesOf(this.host.screen?.())].some(s => !!s?.nameOfPane(this.left!.pane))) return this.left.pane;
+    for (const s of [this.left?.screen, tilesOf(this.host.screen?.())]) {
+      if (!s || s === this.desk) continue;
+      const name = s.layoutGet().tiles.map((t: { name: string }) => t.name).find((n: string) => this.isOwnOut(s.pane(n)));
+      if (name) return s.pane(name) as PtyPane;
+    }
+    return null;
   }
   /** Whether the drawer's program that's out still runs somewhere (on a screen not shown now): the tile that left, else one with its key. */
   private outAlive(): boolean {

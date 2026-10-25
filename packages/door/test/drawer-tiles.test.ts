@@ -667,6 +667,24 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  // PIE-1275 (CodeRabbit on #913): out on a screen, the own tab only holds the place: agent.lift lifts the program that left.
+  test("agent.lift lifts the drawer's own program where it went out to, never the tab holding its place, and drops it", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      const own = d.app.drawer.tile!, name = d.app.drawer.name;
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
+      expect(d.desk.pane(name)).toBe(own);
+      const r = await d.app.dispatch.press("agent.lift", {}) as any;
+      expect(r).toMatchObject({ lifted: "column", in: "screen" });
+      expect(d.desk.liftsPane(own)).toBe(true);
+      expect(d.app.drawer.made?.lifted ?? null).toBeNull();
+      await d.app.dispatch.press("agent.lift", {});
+      expect(d.desk.lifted).toBeNull();
+    } finally { d.app.quit(); }
+  });
+
   // PIE-892: the drawer's own program leaves whole. Its tab holds the place and starts nothing (a second client of a
   // Herdr session was a mirror nobody could type in or close), says where it went, and ⏎ or a click brings it back.
   test("the drawer's own tab leaves onto the screen whole: its tab starts nothing and says where it went; a click brings the same program back, no restart; a running close asks before ending it", async () => {
