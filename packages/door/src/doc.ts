@@ -190,7 +190,7 @@ export interface DocEnv {
   decorate?: (line: number, width: number) => { end: number; rows?: string[]; headRow?: number; frame?: { title: string; colour: number } } | null;
 }
 /** A control on an image's caption: a size step, an alignment step, or the header on or off; on an artifact's card, open. */
-export type ImageControl = { size: 1 | -1 } | { align: 1 | -1 } | { hero: boolean } | { fit: "cover" | "contain" } | { open: true };
+export type ImageControl = { size: 1 | -1 } | { align: 1 | -1 } | { hero: boolean } | { fit: "cover" | "contain" } | { open: true } | { share: true };
 /**
  * An image laid out on the body's rows: `col` cells in, `cols` × `rows` cells; `crop` the part of it shown, as
  * fractions of the image (a header's cover crop).
@@ -1061,13 +1061,15 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
 
 /**
  * An artifact's card (PIE-793): no script runs in a terminal, so the line is drawn as what it is, its kind on the frame,
- * its title, its file and what's wrong with its line, and [open ↗], which opens it running on its web page (artifact.open).
+ * its title, its file and what's wrong with its line, and [open ↗], which opens it running on its web page (artifact.open),
+ * and [share], which gives an outsider a link to it alone (artifact.share).
  * `ref.row` is its title's row: the element a click or [ ] lands on.
  */
 function artifactCard(spec: MediaSpec, facts: ArtifactFacts, W: number, env: DocEnv, line: number, ref: DocMedia, out: string[], edge: (row: number) => void) {
   const kind = facts.kind ? `${ARTIFACT_KIND_LABELS[facts.kind]} artifact` : "artifact";
   const name = env.printed ? spec.path : fileName(spec.path);
-  const open = env.image && (facts.kind || isArtifactName(spec.path)) ? fg(C.cyan) + env.image(line, { open: true }, "[open ↗]") + RESET : "";
+  const shown = env.image && (facts.kind || isArtifactName(spec.path));
+  const open = shown ? fg(C.cyan) + env.image!(line, { open: true }, "[open ↗]") + " " + env.image!(line, { share: true }, "[share]") + RESET : "";
   const said = [
     facts.state === "missing" ? `✗ can't read it: ${facts.reason ?? "missing"}` : facts.state === "reading" ? "◌ reading…" : "",
     ...(facts.warning ? [`⚠ ${facts.warning}`] : []),

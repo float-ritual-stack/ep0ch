@@ -15,7 +15,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ReaderView, ShareSession } from "@ep0ch/outline-core/protocol";
+import { SHARE_TTL, type ReaderView, type ShareSession } from "@ep0ch/outline-core/protocol";
 import { OutlinerClient } from "../src/client";
 import { Publisher, publisherRequest } from "../src/publish";
 import { OutlinerServer } from "../src/server";
@@ -240,7 +240,12 @@ test("the whole outline's share: the top level, every note but the locked; a loc
   expect((await get(`${base}/p/${letter.id}`)).status).toBe(200);
   expect((await get(`${base}/p/${ledger.id}`)).status).toBe(404);
   await expect(client.request({ action: "shares.start", scope: ledger.id })).rejects.toThrow(/publish::never/);
-  await expect(client.request({ action: "shares.start", scope: hub.id, ttl: "3d" })).rejects.toThrow(/1m to 24h/);
+  // Longer than a day is allowed now (PIE-1266); a share is until revoked unless a time is given.
+  const { share: week } = await client.request<{ share: ShareSession }>({ action: "shares.start", scope: hub.id, ttl: "3d" });
+  expect(Date.parse(week.expiresAt) - Date.parse(week.createdAt)).toBe(3 * 86_400_000);
+  const { share: kept } = await client.request<{ share: ShareSession }>({ action: "shares.start", scope: hub.id });
+  expect(Date.parse(kept.expiresAt) - Date.parse(kept.createdAt)).toBeGreaterThan(50 * 365 * 86_400_000);
+  await expect(client.request({ action: "shares.start", scope: hub.id, ttl: "30s" })).rejects.toThrow(/never \(until revoked\) or 1m and longer/);
   await client.request({ action: "shares.revoke", all: true });
 });
 
@@ -277,12 +282,37 @@ test("no token is ever logged", () => {
   for (const line of logged) for (const token of tokens) expect(line).not.toContain(token);
 });
 
+test("a share made without a ttl still opens after 25 hours and stops the moment it is revoked", () => {
+  let clock = Date.parse("2026-10-24T12:00:00Z");
+  let kept: string | undefined;
+  const sessions = new ShareSessions({ read: () => kept, write: (value) => { kept = value; } }, () => clock);
+  const session = sessions.start({ scope: { kind: "outline" }, ttlMs: shareTtlMs(undefined, "share"), comments: true, by: "you" });
+  clock += 25 * 3_600_000;
+  expect(sessions.resolve(session.token)?.state).toBe("active");
+  expect(sessions.list().map((row) => row.id)).toContain(session.id);
+  // One that was given a time still ends by it.
+  const brief = sessions.start({ scope: { kind: "outline" }, ttlMs: shareTtlMs("4h", "share"), comments: true, by: "you" });
+  clock += 5 * 3_600_000;
+  expect(sessions.resolve(brief.token)?.state).toBe("expired");
+  expect(sessions.resolve(session.token)?.state).toBe("active");
+  sessions.revoke(session.id);
+  expect(sessions.resolve(session.token)?.state).toBe("revoked");
+});
+
 test("ttl words, and a token that is only near another opens nothing", () => {
+  // A snapshot's download and a lease are bounded: an hour by default, a minute to a day, always ending.
   expect(shareTtlMs(undefined)).toBe(3_600_000);
   expect(shareTtlMs("2h30m")).toBe(9_000_000);
   expect(shareTtlMs(120)).toBe(120_000);
   expect(() => shareTtlMs("soon")).toThrow(/30m, 1h/);
   expect(() => shareTtlMs("30s")).toThrow(/1m to 24h/);
+  expect(() => shareTtlMs("never")).toThrow(/1m to 24h/);
+  // A share lasts until revoked unless given a time: any length from a minute.
+  expect(shareTtlMs(undefined, "share")).toBe(SHARE_TTL.neverMs);
+  expect(shareTtlMs("never", "share")).toBe(SHARE_TTL.neverMs);
+  expect(shareTtlMs("7d", "share")).toBe(7 * 86_400_000);
+  expect(shareTtlMs(undefined, "share", 3_600_000)).toBe(3_600_000);
+  expect(() => shareTtlMs("30s", "share")).toThrow(/never \(until revoked\)/);
   let kept: string | undefined;
   const sessions = new ShareSessions({ read: () => kept, write: (value) => { kept = value; } });
   const session = sessions.start({ scope: { kind: "outline" }, ttlMs: 60_000, comments: false, by: "you" });

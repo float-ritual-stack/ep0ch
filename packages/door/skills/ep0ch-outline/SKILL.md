@@ -341,10 +341,13 @@ PUBLIC column. Removing `public` takes the note off at once.
 **A short-lived public link.** When they want their outline's web pages as an ordinary public site, or to show it to
 someone, start a share: `share_start` over MCP (your tool call is the approval; don't ask again), `ep0ch share start
 [<ref>] [--ttl 1h]` from a shell. It's the whole outline, navigated as on the tailnet; `ref` is only the page it opens
-on, and `only` narrows it to one note and below when they ask for that. It's on the outline's own public host (one
-stable origin). To
+on, and `only` narrows it to one note and below when they ask for that. It's on the outline's own public host
+(`https://pie.ep0ch.sh/s/<token>/`). To give someone one
+artifact on its own, `share_start` with `artifact: "<name>"` (or `ep0ch share start --artifact <name>`): the link shows
+that artifact full-bleed and nothing else. A share
+of a page also opens the artifacts that page frames, for as long as it lasts. To
 share with someone else, `via: "cloudflare"` with `allowMail` (their email): a tunnel only they can sign in to. Give
-them the `url`; it ends by itself (1h default, 24h at most), and
+them the `url`; it lasts until revoked unless you pass `ttl` (30m, 4h, 7d), and
 `share_revoke` / `ep0ch share revoke <id>|--all` ends it now. `[publish::never]` notes stay hidden. To see what they
 have open or selected on any web page of the outline, read `reader_view` (`ep0ch reader`) instead of fetching it.
 
@@ -689,14 +692,17 @@ Drop a file or built folder there. After 10 seconds without changes, the watcher
 compiles a lone JSX/TSX (folders stay as given), stores the next version, and removes
 the drop; two-way sync removes it from the laptop too. File names lose their extension
 and become lowercase with dashes; folders keep their names. `inbox/receipts.log`
-records ISO time, name, version and URL. Failed drops remain in `inbox/.failed/<name>/`
+records ISO time, name, version and the artifact's page. Failed drops remain in `inbox/.failed/<name>/`
 with `reason.txt`; fix the source and drop it again. Dotfiles, Mutagen staging files,
 receipts and `.failed/` are never picked up. `EP0CH_ARTIFACT_INBOX` and
 `EP0CH_ARTIFACT_SETTLE_MS` configure the watcher's inbox and settling period.
 The store's `live/` serves the newest version outside the sync tree; names share one
 machine-wide store. `ep0ch artifact snapshot <name>` also freezes direct puts.
-Artifact URLs are unlisted bearer links on their own origin; the note's publishing
-rules decide where a frame appears. `artifact.open` gives agents the same URL.
+An artifact's `url` (from `artifact_put`, `artifact_list`, `artifact show`) is its page in the web client: it opens
+for the signed-in person and nowhere else, and it is the only address to give them. The artifact host behind it
+(artifacts.ep0ch.sh) is plumbing: never print, paste or hand out an address on it. To let someone outside see one,
+share it (`share_start artifact=<name>`) or share a page that frames it. `artifact.open` gives agents the page's
+address; `artifact.share` (the card's `[share]`) starts a share of the artifact.
 See the outliner README's **Artifacts** section for import, limits and deployment.
 
 ## Keys and secrets (for an extension that needs one)

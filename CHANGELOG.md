@@ -41,6 +41,21 @@ value counts of any key over every match. It reads `pie` and `gurgle` on the out
 is already settled, so only threads that settle afterwards wake. `EP0CH_SETTLE=on|off` and `EP0CH_SETTLE_TUNING` change
 who runs it and the thresholds (`packages/claude-mod/README.md`). No protocol change.
 
+### Artifacts follow the access model: signed in you see them all, an outsider only what a share opens (PIE-1266)
+
+An artifact is no longer a public link nobody asked for. Signed in, every artifact opens (a note's page frames it, and
+`/pub/a/<name>/` shows any artifact full-bleed). Unsigned and unshared, the artifact host answers a sign-in prompt, never
+the artifact: the old `artifacts.ep0ch.sh/<id>/<name>/` addresses stop working. `ep0ch share start --artifact <name>` (the
+MCP `share_start {artifact}`, the door's `artifact.share` and the card's `[share]`) gives someone a link to that artifact
+alone, full-bleed; a share of a page opens the artifacts that page frames for as long as it lasts, and revoking it closes the page and the frames together. Share links stay on the outline's own host
+(`https://pie.ep0ch.sh/s/<token>/`). No surface prints an artifacts.ep0ch.sh address any more: an artifact's `url`
+(`artifact put`, `artifact ls`, the MCP tools, receipts) is its page in the web client. Deployed repos stay public.
+Shares (of a page, the outline or an artifact) now last until you revoke them: `--ttl 4h` (any time from a minute, no 24h
+cap) makes one expire, and the shares page's form defaults to "until I end it"; a Cloudflare tunnel still defaults to an
+hour, and a snapshot's download and a lease keep their bounded lifetimes. Shares already issued keep their expiry.
+Protocol changed (`ShareSession.scope`, `ArtifactInfo.frame`, `shares.start artifact`): `ep0ch install --apply`.
+On float-2, the units that run the artifact server, its watcher and the host need `EP0CH_WEB_URL` (see the PR).
+
 ### Signed in, the site never locks a note against its owner (PIE-1265)
 
 `[publish::never]` now means "never share this outside". Signed in as yourself, the published site draws every note as

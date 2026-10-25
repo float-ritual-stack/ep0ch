@@ -2703,7 +2703,7 @@ export type OutlinerRequestAction =
   | { id: string; action: "outline.snapshot"; webUrl?: string; ttl?: string | number; out?: string; mutation?: MutationProvenance }
   | { id: string; action: "shares.snapshot.take"; token: string; ip: string; userAgent: string; method: string }
   | { id: string; action: "shares.snapshot.finish"; shareId: string; fetched: boolean; bytes: number }
-  | { id: string; action: "shares.start"; scope?: string; open?: string; ttl?: string | number; comments?: boolean; via?: string; allowMail?: string | string[]; mutation?: MutationProvenance }
+  | { id: string; action: "shares.start"; scope?: string; artifact?: string; open?: string; ttl?: string | number; comments?: boolean; via?: string; allowMail?: string | string[]; mutation?: MutationProvenance }
   /** The open share sessions, soonest to end first (`all`: the ones ended this week too). */
   | { id: string; action: "shares.list"; all?: boolean }
   /** Ends one share session now (its link answers 410), or with `all: true` every open one. */

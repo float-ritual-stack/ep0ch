@@ -5,7 +5,8 @@ import { deployedArtifacts } from "./artifact-deploy";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, openSync, closeSync, readSync, writeSync, rmSync, fstatSync, realpathSync, constants, lstatSync, existsSync, cpSync, watch, type FSWatcher } from "node:fs";
 import { join, dirname, extname, basename, resolve } from "node:path";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
-import { artifactReference, type ArtifactInfo, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
+import { artifactReference, type ArtifactInfo, type ArtifactReader, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
+import { artifactKey, artifactPageUrl, grantPath } from "./artifact-grants";
 
 const artifactLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_BYTES ?? 64 * 1024 * 1024);
 const artifactEntryLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_ENTRIES ?? 5000);
@@ -64,13 +65,7 @@ export class ArtifactStore {
     this.live = join(this.root, "live");
     this.compiler = new ArtifactCompiler({ cacheDirectory: join(outlines, ".artifact-cache") });
   }
-  private prepare() { for (const folder of [this.live, join(this.root, "snapshots"), join(this.root, "ids")]) mkdirSync(folder, { recursive: true }); }
-  private id(name: string): string {
-    this.prepare();
-    const path = join(this.root, "ids", name);
-    if (!existsSync(path)) writeFileSync(path, crypto.randomUUID(), { flag: "wx" });
-    return readFileSync(path, "utf8");
-  }
+  private prepare() { for (const folder of [this.live, join(this.root, "snapshots")]) mkdirSync(folder, { recursive: true }); }
   info(ref: string): ArtifactInfo {
     const parsed = artifactReference(ref);
     if (!parsed) throw new Error("Use an artifact name, or <name>@<number> for a snapshot.");
@@ -79,8 +74,17 @@ export class ArtifactStore {
     if (!existsSync(folder)) throw new Error(`No artifact ${ref}; use ep0ch artifact put <file-or-folder> --name ${name}.`);
     if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
     const files = artifactFiles(folder), bytes = files.reduce((n, p) => n + lstatSync(join(folder, p)).size, 0);
+    return { name, ...(pin ? { version: Number(pin) } : {}), files, bytes, url: artifactPageUrl(ref) ?? null };
+  }
+  /**
+   * Where a frame loads `info` from for `reader` (PIE-1266): the artifact host's path that grants it, the one place a
+   * surface may see that host. Null when no artifact host is known, or a share is asked for without its outline.
+   */
+  frame(info: ArtifactInfo, reader: ArtifactReader, outline?: string): string | null {
     const origin = process.env.EP0CH_ARTIFACT_ORIGIN?.replace(/\/$/, "");
-    return { name, ...(pin ? { version: Number(pin) } : {}), files, bytes, url: origin ? `${origin}/${this.id(ref)}/${encodeURIComponent(ref)}/` : null };
+    if (!origin) return null;
+    const ref = info.version ? `${info.name}@${info.version}` : info.name;
+    return `${origin}${grantPath(artifactKey(this.root, true)!, reader, ref, { outline })}`;
   }
   async compile(name: string, folder = join(this.live, name), rejectErrors = false) {
     if (lstatSync(folder).isSymbolicLink()) throw new Error("An artifact folder cannot be a symlink.");
@@ -208,8 +212,8 @@ export class ArtifactStore {
     const target = join(dir, String(version)), stage = join(this.root, `.${crypto.randomUUID()}.snapshot`);
     try {
       cpSync(join(this.live, name), join(stage, "files"), { recursive: true });
-      const origin = process.env.EP0CH_ARTIFACT_ORIGIN?.replace(/\/$/, ""), ref = `${name}@${version}`;
-      const result = { ...info, version, url: origin ? `${origin}/${this.id(ref)}/${encodeURIComponent(ref)}/` : null,
+      const ref = `${name}@${version}`;
+      const result = { ...info, version, url: artifactPageUrl(ref) ?? null,
         hash: artifactHash(join(stage, "files"), info.files), at: new Date().toISOString() };
       writeFileSync(join(stage, "meta.json"), JSON.stringify(result));
       renameSync(stage, target);
@@ -279,7 +283,35 @@ export class ArtifactStore {
     return this.info(`${name}@${entry!.version}`);
   }
 
-  async request(request: ArtifactRequest, workspace?: string): Promise<unknown> {
+  /** An artifact by name, `name@n`, or the file or folder a path names (imported as a snapshot), as `artifacts.show` answers. */
+  private show(requested: string, workspace?: string): ArtifactInfo | Promise<ArtifactInfo> {
+    const aliases = workspace ? join(this.root, "aliases", basename(workspace)) : "";
+    const map = aliases && existsSync(aliases) ? JSON.parse(readFileSync(aliases, "utf8")) : {};
+    const name = Object.hasOwn(map, requested) ? map[requested] : requested;
+    const parsed = artifactReference(name);
+    if (parsed && (parsed.version || existsSync(join(this.live, parsed.name))) && (name === requested || !artifactKind(requested))) return this.info(name);
+    if (requested.includes("/") || extname(requested) || (workspace && existsSync(resolve(workspace, requested)))) {
+      const path = resolve(workspace ?? dirname(this.root), requested.startsWith("~/") ? join(homedir(), requested.slice(2)) : requested);
+      const key = `${this.root}\0${path}`;
+      const shared = ArtifactStore.resolving.get(key);
+      const result = shared
+        ? Promise.all([shared, this.pending]).then(([info]) => info)
+        : Promise.all([ArtifactStore.pathReads.get(this.root), this.pending]).then(() => this.resolveFile(path, workspace ?? dirname(this.root)));
+      ArtifactStore.resolving.set(key, result);
+      const clear = () => { if (ArtifactStore.resolving.get(key) === result) ArtifactStore.resolving.delete(key); };
+      void result.then(clear, clear);
+      const settled = this.pending = result.then(() => {}, () => {});
+      // Joining an earlier path must not replace a later import's root queue.
+      if (!shared) {
+        ArtifactStore.pathReads.set(this.root, settled);
+        void settled.then(() => { if (ArtifactStore.pathReads.get(this.root) === settled) ArtifactStore.pathReads.delete(this.root); });
+      }
+      return result;
+    }
+    return this.info(name);
+  }
+
+  async request(request: ArtifactRequest, workspace?: string, outline?: string): Promise<unknown> {
     this.prepare();
     switch (request.action) {
       case "artifacts.deploy":
@@ -326,30 +358,8 @@ export class ArtifactStore {
       }
       case "artifacts.put": return this.put(request.name, request.files);
       case "artifacts.show": {
-        const aliases = workspace ? join(this.root, "aliases", basename(workspace)) : "";
-        const map = aliases && existsSync(aliases) ? JSON.parse(readFileSync(aliases, "utf8")) : {};
-        const name = Object.hasOwn(map, request.name) ? map[request.name] : request.name;
-        const parsed = artifactReference(name);
-        if (parsed && (parsed.version || existsSync(join(this.live, parsed.name))) && (name === request.name || !artifactKind(request.name))) return this.info(name);
-        if (request.name.includes("/") || extname(request.name) || (workspace && existsSync(resolve(workspace, request.name)))) {
-          const path = resolve(workspace ?? dirname(this.root), request.name.startsWith("~/") ? join(homedir(), request.name.slice(2)) : request.name);
-          const key = `${this.root}\0${path}`;
-          const shared = ArtifactStore.resolving.get(key);
-          const result = shared
-            ? Promise.all([shared, this.pending]).then(([info]) => info)
-            : Promise.all([ArtifactStore.pathReads.get(this.root), this.pending]).then(() => this.resolveFile(path, workspace ?? dirname(this.root)));
-          ArtifactStore.resolving.set(key, result);
-          const clear = () => { if (ArtifactStore.resolving.get(key) === result) ArtifactStore.resolving.delete(key); };
-          void result.then(clear, clear);
-          const settled = this.pending = result.then(() => {}, () => {});
-          // Joining an earlier path must not replace a later import's root queue.
-          if (!shared) {
-            ArtifactStore.pathReads.set(this.root, settled);
-            void settled.then(() => { if (ArtifactStore.pathReads.get(this.root) === settled) ArtifactStore.pathReads.delete(this.root); });
-          }
-          return result;
-        }
-        return this.info(name);
+        const info = await this.show(request.name, workspace);
+        return request.frame ? { ...info, frame: this.frame(info, request.frame, outline) } : info;
       }
       case "artifacts.list": {
         const deployed = deployedArtifacts(this);
@@ -357,7 +367,11 @@ export class ArtifactStore {
       }
       case "artifacts.versions": {
         const dir = join(this.root, "snapshots", artifactName(request.name));
-        return { versions: existsSync(dir) ? readdirSync(dir).filter(n => existsSync(join(dir, n, "meta.json"))).map(n => JSON.parse(readFileSync(join(dir, n, "meta.json"), "utf8"))).sort((a,b) => a.version - b.version) : [] };
+        return { versions: existsSync(dir) ? readdirSync(dir).filter(n => existsSync(join(dir, n, "meta.json"))).map(n => {
+          // A version's address is its page now, whatever address was kept when it was frozen (PIE-1266).
+          const meta = JSON.parse(readFileSync(join(dir, n, "meta.json"), "utf8"));
+          return { ...meta, url: artifactPageUrl(`${meta.name}@${meta.version}`) ?? null };
+        }).sort((a,b) => a.version - b.version) : [] };
       }
       case "artifacts.snapshot": return this.snapshot(artifactName(request.name));
       case "artifacts.rm": {

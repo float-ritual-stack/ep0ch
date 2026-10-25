@@ -3,6 +3,8 @@ Description=Compile synced ep0ch React artifacts
 
 [Service]
 ExecStart=%h/.bun/bin/bun %h/projects/ep0ch/packages/outliner/src/artifact-main.ts watch
+# An artifact's address is its page in the web client (PIE-1266); the artifact host is never shown.
+Environment=EP0CH_WEB_URL=https://my.ep0ch.sh
 
 [Install]
 WantedBy=default.target

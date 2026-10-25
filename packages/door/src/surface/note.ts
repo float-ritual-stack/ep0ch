@@ -94,6 +94,8 @@ import { fieldsDrawn, type FieldsDrawing } from "../site-blocks";
 import { visible, headOf, tailFrom, BOLD, bgRgb, fgRgb, ellipsize, drawEllipsized, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, stripMarks, stripTags, width, type LinkRange } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rowLines, rule, wrap } from "../text";
+import { startShare, endsIn } from "../share-cli";
+import type { ShareSession } from "@ep0ch/outline-core/protocol";
 import { ActionRefused, actionSet, boundNow, def, agentLabel, agentWords, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
@@ -5455,6 +5457,7 @@ export class NoteSurface {
     else if ("align" in c) void this.runKey("image.align", { by: c.align, line }, host);
     else if ("fit" in c) void this.runKey("image.fit", { to: c.fit, line }, host);
     else if ("open" in c) void this.runKey("artifact.open", { line }, host);
+    else if ("share" in c) void this.runKey("artifact.share", { line }, host);
     else void this.runKey("image.hero", { on: c.hero, line }, host);
     host.redraw();
   }
@@ -5934,9 +5937,19 @@ export class NoteSurface {
     return { outside: where, url, launched: true };
   }
 
+  /** A link to this artifact alone for someone outside (PIE-1266), copied for the person; an agent is given it in the answer. */
+  async shareArtifact(ref: ImageRef, ttl: string | undefined, host: SurfaceHost, actor: Actor): Promise<{ share: ShareSession; said?: string }> {
+    const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
+    const started = await startShare(host.ctx.board, { artifact: artifact.version ? `${artifact.name}@${artifact.version}` : artifact.name, ...(ttl ? { ttl } : {}) }, actor);
+    const { share } = started;
+    if (actor.kind === "user" && share.url) host.ctx.copy?.(share.url, "share link");
+    host.ctx.flash(`${share.url && actor.kind === "user" ? "copied the link · " : ""}shared ${artifact.name} alone for ${endsIn(share.expiresAt)}${share.url ? `: ${share.url}` : ` · ${started.said ?? ""}`} · share.revoke id=${share.id} ends it`, 15_000);
+    return started;
+  }
+
   async openArtifact(ref: ImageRef, host: SurfaceHost): Promise<Outside> {
     const artifact = await host.ctx.board.request<ArtifactInfo>("artifacts.show", { name: ref.path });
-    if (!artifact.url) throw new ActionRefused("Set EP0CH_ARTIFACT_ORIGIN on the outline host to the static artifact server's URL.");
+    if (!artifact.url) throw new ActionRefused("Set EP0CH_WEB_URL on the outline host to the web client's address (https://my.ep0ch.sh): an artifact opens as its page there.");
     return this.openOutside("browser", artifact.url, host);
   }
 
@@ -8394,7 +8407,7 @@ const notArtifact = <T extends { spec: MediaSpec }>(ref: T): T => {
   if (ref.spec.kind === "artifact") throw new ActionRefused("that's an artifact, not an image: it takes a size, a height and a place (image.size, image.align), and artifact.open runs it");
   return ref;
 };
-const imageControlLabel = (c: ImageControl) => "size" in c ? `size ${c.size > 0 ? "+" : "−"}` : "align" in c ? `align ${c.align > 0 ? "▸" : "◂"}` : "fit" in c ? (c.fit === "contain" ? "show it whole" : "crop it to fill") : "open" in c ? "open it on its web page" : c.hero ? "make it the header" : "not the header";
+const imageControlLabel = (c: ImageControl) => "size" in c ? `size ${c.size > 0 ? "+" : "−"}` : "align" in c ? `align ${c.align > 0 ? "▸" : "◂"}` : "fit" in c ? (c.fit === "contain" ? "show it whole" : "crop it to fill") : "open" in c ? "open it on its web page" : "share" in c ? "share it with a link" : c.hero ? "make it the header" : "not the header";
 /** What a line change says when its line no longer reads as drawn (`flash`, `refused`), and after a conflict (`again`). */
 interface Stale { flash: string; refused: string; again: string }
 const CALLOUT_STALE: Stale = { flash: "that callout changed since it was drawn · nothing was changed · choose again", refused: "that callout changed since it was drawn; nothing was changed (callout.list reads it again)", again: "choose again" };
@@ -11590,6 +11603,20 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const ref = await surface.imageNamed(which, actor);
       if (ref.spec.kind !== "artifact") throw new ActionRefused("that's an image, not an artifact: element.open opens it in the system viewer");
       return surface.openArtifact(ref, host);
+    },
+  }),
+  "artifact.share": def({
+    summary: "share an artifact on its own (PIE-1266): a link anyone can open, that shows that artifact and nothing else, ends by itself after ttl= (1h by default; never keeps it until revoked) and is ended with share.revoke. The link is copied for the person; an agent is given it in the answer. n= as images lists them, or line=; left out, the one that's the [ ] position",
+    keys: "a click on its card's [share]",
+    touches: "nothing", replay: "ask",
+    args: { ...IMAGE_ARGS, ttl: { type: "string", optional: true, about: "how long it lives: 30m, 1h (the default), 2h30m, up to 24h, or never" } },
+    examples: [
+      { act: "artifact.share n=1 ttl=never", does: "shares the first artifact on its own until it is revoked, and copies the link" },
+    ],
+    async run({ ttl, ...which }, { surface, host }, actor) {
+      const ref = await surface.imageNamed(which, actor);
+      if (ref.spec.kind !== "artifact") throw new ActionRefused("that's an image, not an artifact: share.start shares notes");
+      return surface.shareArtifact(ref, ttl, host, actor);
     },
   }),
   "image.size": def({
