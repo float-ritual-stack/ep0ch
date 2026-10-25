@@ -14,13 +14,13 @@ are its record. The outliner's entries from then are kept below, under
 
 - **`lift` on the component library said "no tile drawer.agent on the component library".** The drawer is above every screen, so `tile=drawer.agent`, a tile's id and an `@screen/tile` path are read once, by the host layer (`HostLayer.resolveTile`), and every screen's dispatcher asks it when its own tiles name nothing. `agent.lift`, a `tile.zoom tile=drawer.agent` button and `✦a` lift and drop the drawer's agent from any screen; a tile name that doesn't exist is still refused.
 
-### Settle tuning lives on its capability note, not in the folder config (PIE-1299)
+### Settle settings live on their capability note, not in the folder config (PIE-1299)
 
-#918 let the settle check read a `settle-tuning` line from `.ep0ch/config.toml`, but that file holds names only, so the
-line made every session in the folder lose its outline. The check now reads the tuning from the outline: a
-`[settle-tuning::…]` property on a `type=capability` note (pie's settle note has it), the newest edited one winning,
-read at every check. The `settleTuning` option and `EP0CH_SETTLE_TUNING` still override it. The folder config is never
-read for it. No protocol change.
+#918 let the settle check read a `settle-tuning` line from `.ep0ch/config.toml` (and PIE-1268 a `settle-outlines` one), but
+that file holds names only, so such a line makes every session in the folder lose its outline. The check now reads both
+from the outline: `[settle-tuning::…]` and `[settle-outlines::…]` on a `type=capability` note (pie's settle note has the
+tuning), the newest edited note carrying each winning, read at every check. The `settleTuning` and `settleOutlines`
+options and their `EP0CH_SETTLE_*` variables still override. The folder config is never read for either. No protocol change.
 
 ### One list, drawn the same everywhere: the `list` primitive and the door's ListView (PIE-747)
 
@@ -111,7 +111,7 @@ roadmap items carry it. A newly settled thread wakes the session with its counts
 at a time), and each move into or out of settled or shaped is a line under the day's build log. pie's new Threads page
 shows warming and shaped live. `outliner list` takes `--facets <key,…>` (and `--facet-values <n>`) for the service's
 value counts of any key over every match. It reads `pie` and `gurgle` on the outline's machine
-(`settle-outlines` in `.ep0ch/config.toml`, or `EP0CH_SETTLE_OUTLINES`, name others); the first check only records what
+(`EP0CH_SETTLE_OUTLINES`, or a `settle-outlines` property on the settle capability note, name others); the first check only records what
 is already settled, so only threads that settle afterwards wake. `EP0CH_SETTLE=on|off` and `EP0CH_SETTLE_TUNING` change
 who runs it and the thresholds (`packages/claude-mod/README.md`). No protocol change.
 

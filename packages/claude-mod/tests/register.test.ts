@@ -1391,7 +1391,7 @@ describe('the settle check (PIE-1268)', () => {
    * it), answering the three facet questions by their query, the capability and build-log lookups, and recording the
    * wakes (prompt.submit) and the lines written under the build log (`ep0ch new`).
    */
-  function settleSession(on: On, threads: Record<string, Fake>, persona: object | null = LOKI, env: Record<string, string> = {}, noFacets = false, byOutline: Record<string, Record<string, Fake>> = {}, config: { fresh?: boolean; toml?: string; tuning?: Record<string, { id: string; tuning: string; updatedAt: string }[]>; tuningFails?: string[] } = {}) {
+  function settleSession(on: On, threads: Record<string, Fake>, persona: object | null = LOKI, env: Record<string, string> = {}, noFacets = false, byOutline: Record<string, Record<string, Fake>> = {}, config: { fresh?: boolean; toml?: string; tuning?: Record<string, { id: string; tuning?: string; outlines?: string; updatedAt: string }[]>; tuningFails?: string[] } = {}) {
     const session = sessionIn(on, WORKSPACE, run => {
       const query = run.argv[run.argv.indexOf('--query') + 1] ?? ''
       if (run.argv[0] === 'ep0ch' && run.argv[1] === 'where') return result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona } }), '')
@@ -1406,9 +1406,9 @@ describe('the settle check (PIE-1268)', () => {
         })
         return result(0, JSON.stringify({ blocks: [], facets: [{ key: 'thread', count: rows.length, values: rows }] }), '')
       }
-      if (query === 'type=capability AND settle-tuning') {
+      if (query === 'type=capability AND (settle-tuning OR settle-outlines)') {
         if (config.tuningFails?.includes(run.init?.env?.EP0CH_WS ?? '')) return result(1, '', 'error: the host timed out')
-        const rows = (config.tuning?.[run.init?.env?.EP0CH_WS ?? ''] ?? []).map(n => ({ id: n.id, title: 'Settle, then shape', properties: [{ key: 'settle-tuning', value: n.tuning }], updatedAt: n.updatedAt }))
+        const rows = (config.tuning?.[run.init?.env?.EP0CH_WS ?? ''] ?? []).map(n => ({ id: n.id, title: 'Settle, then shape', properties: [...(n.tuning ? [{ key: 'settle-tuning', value: n.tuning }] : []), ...(n.outlines ? [{ key: 'settle-outlines', value: n.outlines }] : [])], updatedAt: n.updatedAt }))
         return result(0, JSON.stringify({ blocks: rows }), '')
       }
       if (query.includes('type=capability')) return result(0, JSON.stringify({ blocks: query.includes('"zucchini"') ? [{ id: CAPABILITY, title: 'Zucchini' }] : [] }), '')
@@ -1574,6 +1574,8 @@ describe('the settle check (PIE-1268)', () => {
   describe('which outlines it reads', () => {
     const byOutline = { pie: { a: { count: 3, evan: 1, ago: 100 } }, gurgle: { b: { count: 3, evan: 1, ago: 100 } }, garden: {}, extra: { c: { count: 3, evan: 1, ago: 100 } } }
     const TOML = 'ws = "garden"\nsettle-outlines = "extra@far-box"\n'
+    const NOTE = { id: CAPABILITY, outlines: 'extra', updatedAt: '2026-10-25T09:00:00Z' }
+    const notes = { tuning: { pie: [NOTE], gurgle: [{ ...NOTE, id: 'older', outlines: 'pie', updatedAt: '2026-10-20T09:00:00Z' }] } }
 
     test("with nothing named: pie and gurgle on the outline's machine", async ($, on) => {
       const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: '' }, false, byOutline)
@@ -1583,18 +1585,33 @@ describe('the settle check (PIE-1268)', () => {
       expect(s.wakes[0]).not.toContain('thread c')
     })
 
-    test("the folder's settle-outlines in .ep0ch/config.toml names others", async ($, on) => {
-      const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: '' }, false, byOutline, { toml: TOML })
+    test("the settle capability note's settle-outlines names others, the newest edited note winning", async ($, on) => {
+      const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: '' }, false, byOutline, notes)
       await start($, s)
       expect(s.wakes[0]).toContain('thread c settled')
       expect(s.wakes[0]).not.toContain('thread a')
     })
 
-    test('EP0CH_SETTLE_OUTLINES beats the folder', async ($, on) => {
-      const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: 'pie' }, false, byOutline, { toml: TOML })
+    test('EP0CH_SETTLE_OUTLINES beats the note', async ($, on) => {
+      const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: 'pie' }, false, byOutline, notes)
       await start($, s)
       expect(s.wakes[0]).toContain('thread a settled')
       expect(s.wakes[0]).not.toContain('thread c')
+    })
+
+    test('a settle-outlines line in .ep0ch/config.toml counts for nothing', async ($, on) => {
+      const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: '' }, false, byOutline, { toml: TOML })
+      await start($, s)
+      expect(s.wakes[0]).toContain('thread a settled')
+      expect(s.wakes[0]).toContain('thread b settled')
+      expect(s.wakes[0]).not.toContain('thread c')
+    })
+
+    test('a note whose settle-outlines does not read is one toast naming it, and pie and gurgle stand', async ($, on) => {
+      const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: '' }, false, byOutline, { tuning: { pie: [{ ...NOTE, outlines: 'Not A Name' }] } })
+      await start($, s)
+      expect(s.wakes[0]).toContain('thread a settled')
+      expect(s.session.toasts.filter(t => t.includes(`settle-outlines on ((${CAPABILITY}))`))).toHaveLength(1)
     })
   })
 
@@ -1622,7 +1639,7 @@ describe('the settle check (PIE-1268)', () => {
       const s = settleSession(on, two, LOKI, { EP0CH_SETTLE_TUNING: 'chirps=5' }, false, {}, { tuning: { garden: [NOTE] } })
       await start($, s)
       expect(s.wakes).toEqual([])
-      expect(s.session.runs.some(r => r.argv.includes('type=capability AND settle-tuning'))).toBe(false)
+      expect(s.session.runs.some(r => r.argv.includes('type=capability AND (settle-tuning OR settle-outlines)'))).toBe(false)
     })
 
     test('a note whose tuning does not read is one toast naming it, and the defaults stand', async ($, on) => {
@@ -1637,7 +1654,7 @@ describe('the settle check (PIE-1268)', () => {
       await start($, s)
       expect(s.wakes).toEqual([])
       expect(s.asked()).toBe(0)
-      expect(s.session.toasts.filter(t => t.includes('pie could not be read for its settle-tuning: the host timed out'))).toHaveLength(1)
+      expect(s.session.toasts.filter(t => t.includes('pie could not be read for its settle settings: the host timed out'))).toHaveLength(1)
     })
 
     test('the folder config is never read for it: a settle-tuning line in .ep0ch/config.toml counts for nothing', async ($, on) => {

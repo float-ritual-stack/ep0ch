@@ -38,7 +38,7 @@
     "settleOutlines": {
       "type": "string",
       "title": "Outlines the settle check reads",
-      "description": "name[@ssh-name] separated by commas, such as gurgle@float-2, pie@float-2. Empty: EP0CH_SETTLE_OUTLINES applies; neither set: settle-outlines in the folder's .ep0ch/config.toml, else pie and gurgle on the session outline's machine.",
+      "description": "name[@ssh-name] separated by commas, such as gurgle@float-2, pie@float-2. Empty: EP0CH_SETTLE_OUTLINES applies; neither set: the settle-outlines property on the newest type=capability note that has one, else pie and gurgle on the session outline's machine.",
       "required": false,
       "default": ""
     },

@@ -122,36 +122,34 @@ export function outlinesOf(text: string | undefined, bound: SettleOutline | null
 /** The outlines a session reads when nothing names them: the ones the person works in, on the bound outline's machine. */
 export const DEFAULT_OUTLINES = ['pie', 'gurgle'] as const
 
-/** `settle-outlines = "gurgle@float-2, pie"` in a folder's `.ep0ch/config.toml` (or an old `.ep0ch` file), or undefined. */
-export function settleOutlinesOfConfig(text: string | null | undefined): string | undefined {
-  const m = /^\s*settle-outlines\s*=\s*(?:"([^"\n]*)"|'([^'\n]*)')\s*(?:#.*)?$/m.exec(text ?? '')
-  return (m?.[1] ?? m?.[2])?.trim() || undefined
-}
-
-/** The property the settle capability note carries its tuning on: the `settleTuning` form (TUNING_FORM), edited in the outline. */
+/** The properties the settle capability note carries its settings on, edited in the outline where the design lives. */
 export const TUNING_KEY = 'settle-tuning'
+export const OUTLINES_KEY = 'settle-outlines'
 
-/** `list`'s argv for the notes carrying the tuning: any outline's capability notes with the property, rows with their update time. */
-export function tuningNoteArgs(): string[] {
-  return listArgs(`type=capability AND ${TUNING_KEY}`, LIST_LIMIT, 'id,title,properties,timestamps')
+/** `list`'s argv for the capability notes carrying either setting, rows with their update time. */
+export function settleNoteArgs(): string[] {
+  return listArgs(`type=capability AND (${TUNING_KEY} OR ${OUTLINES_KEY})`, LIST_LIMIT, 'id,title,properties,timestamps')
 }
 
-export type TuningNote = { id: string; tuning: string; updatedAt: number }
+/** A capability note's settings: the `settleTuning` form (TUNING_FORM) and/or the outlines (`gurgle@float-2, pie`). */
+export type SettleNote = { id: string; updatedAt: number; tuning?: string; outlines?: string }
 
-/** The tuning notes in one `list` answer, or null when it isn't one. A note with an empty property or no update time is no tuning. */
-export function tuningNotesOf(stdout: string): TuningNote[] | null {
+/** The settings notes in one `list` answer, or null when it isn't one. An empty property or a missing update time is no setting. */
+export function settleNotesOf(stdout: string): SettleNote[] | null {
   const listed = listedOf(stdout)
   if (!listed) return null
   return listed.blocks.flatMap(b => {
-    const tuning = b.properties.find(p => p.key === TUNING_KEY)?.value.trim()
+    const valueOf = (key: string) => b.properties.find(p => p.key === key)?.value.trim() || undefined
+    const tuning = valueOf(TUNING_KEY)
+    const outlines = valueOf(OUTLINES_KEY)
     const updatedAt = Date.parse(b.updatedAt ?? '')
-    return tuning && Number.isFinite(updatedAt) ? [{ id: b.id, tuning, updatedAt }] : []
+    return (tuning || outlines) && Number.isFinite(updatedAt) ? [{ id: b.id, updatedAt, ...(tuning ? { tuning } : {}), ...(outlines ? { outlines } : {}) }] : []
   })
 }
 
-/** The newest tuning note across the outlines read: the one edited last wins, wherever it lives. */
-export function newestTuning(notes: readonly TuningNote[]): TuningNote | null {
-  return notes.reduce<TuningNote | null>((best, n) => (!best || n.updatedAt > best.updatedAt ? n : best), null)
+/** The newest edited note that carries `key`, across the outlines read: the last edit wins, wherever it lives. */
+export function newestWith(notes: readonly SettleNote[], key: 'tuning' | 'outlines'): (SettleNote & { [K in typeof key]: string }) | null {
+  return notes.reduce<(SettleNote & { [K in typeof key]: string }) | null>((best, n) => (n[key] && (!best || n.updatedAt > best.updatedAt) ? (n as SettleNote & { [K in typeof key]: string }) : best), null)
 }
 
 /** The outline as the store and the wake name it: `gurgle@float-2`, or `pie` here. */
