@@ -8,15 +8,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { PtyPane } from "../src/desk/pty";
+import { cttyPrefix, PtyPane } from "../src/desk/pty";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { agentIn, agentOf, claudeProjectDir, configsOf, hasConversation, piSessionDir, pickSession, resumeArgs, sessionCommand, tildeOf, withIds } from "../src/desk/agent-sessions";
+import { agentIn, agentOf, agentOfApp, asSession, claudeProjectDir, configsOf, hasConversation, piSessionDir, pickSession, resumeArgs, sessionCommand, tildeOf, withIds } from "../src/desk/agent-sessions";
 import { agentArgs } from "../src/agent-cli";
 import { outliner, Scratch, until } from "./scratch";
 
 const USER = { kind: "user" } as const;
 const AS = "sessions-agent-737";
+/** An OSC 7501 report as `printf` writes it. */
+const report = (body: string) => `\\033]7501;${body}\\033\\\\`;
 /** A fake agent: says where it runs and as whom, then answers each line with its turn: the conversation is its count. */
 const FAKE = `#!/bin/sh
 echo "fake agent in $PWD as \${EP0CH_AGENT:-nobody} args $*"
@@ -35,6 +37,62 @@ describe("the model, without a door", () => {
     expect(agentOf(["codex"])).toBe("codex");
     expect(agentOf(["bash", "-l"])).toBeNull();
     expect(agentOf(["vim", "claude"])).toBeNull();     // a file named claude, edited: not an agent
+  });
+
+  test("an agent's own word for itself (an OSC 7501 report's app) names its program: claude-code is claude", () => {
+    expect(agentOfApp("claude-code")).toBe("claude");
+    expect(agentOfApp("claude")).toBe("claude");
+    expect(agentOfApp("codex")).toBe("codex");
+    expect(agentOfApp("ep0ch")).toBeNull();          // the door's own report, build jobs: not agents
+    expect(agentOfApp("build")).toBeNull();
+    expect(agentOfApp(null)).toBeNull();
+  });
+
+  describe.skipIf(!cttyPrefix())("a terminal whose program reports who it is, with no /proc to look in (macOS)", () => {
+    const NO_PROC = "/no-such-proc";
+    const panes: PtyPane[] = [];
+    afterEach(() => { for (const p of panes.splice(0)) p.dispose(); });
+    function tile(script: string, cwd: string): PtyPane {
+      const p = new PtyPane({ cmd: ["sh", "-c", script], cwd, label: "bench" });
+      panes.push(p);
+      p.render(60, 8, false, { redraw() {} } as any);
+      return p;
+    }
+    const text = (p: PtyPane) => p.text().join("\n");
+
+    test("its latest report names the agent: a session until the program says it's gone, with no wrapper line in the output", async () => {
+      const p = tile(`printf '${report("state=idle:app=claude-code")}'; read x; printf '${report("state=clear")}'; echo after-clear; sleep 30`, home);
+      expect(asSession(p, { proc: NO_PROC })).toBeNull();                       // before it has said anything
+      await until(() => p.status.records.size === 1, "the report");
+      expect(asSession(p, { proc: NO_PROC })).toMatchObject({ program: "claude", folder: home, how: "found", pane: p });
+      p.input("\r");
+      await until(() => text(p).includes("after-clear"), "the program cleared its report");
+      expect(asSession(p, { proc: NO_PROC })).toBeNull();
+      expect(p.agentExit).toBeNull();                                          // read from the records: no "exited" line was needed
+      expect(text(p)).not.toContain("exited");
+    }, 15_000);
+
+    test("a new prompt (OSC 133 A) or the program exiting ends it, though its done record stays for the person", async () => {
+      const p = tile(`printf '${report("state=done:app=claude-code")}'; read x; printf '\\033]133;A\\033\\\\'; echo prompt; sleep 30`, home);
+      await until(() => p.status.records.size === 1, "the report");
+      expect(asSession(p, { proc: NO_PROC })).toMatchObject({ program: "claude" });
+      p.input("\r");
+      await until(() => text(p).includes("prompt"), "the prompt mark");
+      expect(p.status.urgent()?.state).toBe("done");                           // the person still has it to see
+      expect(asSession(p, { proc: NO_PROC })).toBeNull();
+      const q = tile(`printf '${report("state=idle:app=claude-code")}'; read x`, home);
+      await until(() => q.status.records.size === 1, "the report");
+      expect(asSession(q, { proc: NO_PROC })).toMatchObject({ program: "claude" });
+      q.input("\r");
+      await until(() => !q.running && q.status.app === null, "the program exits");
+      expect(asSession(q, { proc: NO_PROC })).toBeNull();
+    }, 15_000);
+
+    test("the door's own report and a job's are no agent", async () => {
+      const p = tile(`printf '${report("state=working:app=ep0ch")}'; echo told; sleep 30`, home);
+      await until(() => text(p).includes("told") && p.status.records.size === 1, "the report");
+      expect(asSession(p, { proc: NO_PROC })).toBeNull();
+    }, 15_000);
   });
 
   test("resuming is by folder: claude and pi --continue, codex resume --last, only when a conversation is there", () => {
@@ -193,6 +251,7 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
     chmodSync(claude, 0o755);
     // Two agent configs in the outline: the fake agent as fern, in the garden shed; and as moss, with an argument.
     await board.request<any>("create", { parentId: null, text: `Fern, the shed's agent [agent-config::fern] [program::${fake}] [persona::fern] [folder::${join(work, "garden-shed")}]`, author: "agent" });
+    await board.request<any>("create", { parentId: null, text: `Claude, as installed here [agent-config::claude] [program::${claude}]`, author: "agent" });
     await board.request<any>("create", { parentId: null, text: `Moss [agent-config::moss] [program::${fake}] [args::--quiet] [persona::moss]`, author: "agent" });
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); rmSync(work, { recursive: true, force: true }); });
@@ -308,6 +367,34 @@ describe.skipIf(!outliner)("agent sessions in a door", () => {
       bench.input("\x04");
       await until(() => d.app.drawer.sessions().length === 0, "gone once it exits", 8000);
       expect(bench.running).toBe(true);
+    } finally { end(d.app); }
+  }, 30_000);
+
+  test.skipIf(!cttyPrefix())("a claude that reports itself is a session wherever it runs: agent.start for it attaches, never a second; its clear takes it away", async () => {
+    const d = await door();
+    // A program that says who it is (the Claude mod's session start, then its end on a line) and does nothing else:
+    // no agent process by name anywhere in the tile, as on a Mac where there's no /proc to look in.
+    const says = join(work, "says-claude-code");
+    writeFileSync(says, `#!/bin/sh\nprintf '${report("state=idle:app=claude-code")}'\nread x\nprintf '${report("state=clear")}'\nsleep 30\n`);
+    chmodSync(says, 0o755);
+    try {
+      d.A.lastInput = 0;
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: says, name: "welcome", cwd: join(work, "potting-bench") }, tile: "reader" }, USER);
+      d.paint();
+      const welcome = d.desk.pane("welcome") as PtyPane;
+      await until(() => d.app.drawer.sessions().length === 1, "known by its report", 8000);
+      expect((await d.list())[0]).toMatchObject({ program: "claude", folder: join(work, "potting-bench"), how: "found", shown: { in: "screen", name: "welcome" } });
+      const out = await d.app.act({ action: "agent.start", args: { program: "claude", in: join(work, "potting-bench") }, as: AS }) as any;
+      expect(out).toMatchObject({ attached: true, started: false, program: "claude", tile: welcome.tileId });
+      expect(await d.list()).toHaveLength(1);
+      // It ends its session: the tile is no agent's, and nothing printed a wrapper line to say so.
+      welcome.input("\r");
+      await until(() => d.app.drawer.sessions().length === 0, "gone once it clears its report", 8000);
+      expect(welcome.running).toBe(true);
+      expect(welcome.agentExit).toBeNull();
+      // Asking again now starts one.
+      const again = await d.app.act({ action: "agent.start", args: { program: "claude", in: join(work, "potting-bench") }, as: AS }) as any;
+      expect(again).toMatchObject({ started: true, attached: false });
     } finally { end(d.app); }
   }, 30_000);
 

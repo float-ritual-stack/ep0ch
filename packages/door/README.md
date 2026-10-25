@@ -1637,8 +1637,10 @@ it's the same process and the same conversation.
   (a tab in the drawer, behind the one you're on), or says the one already running there. `--program codex`,
   `--in <folder>`, `--persona <name>`, `--new` for a second beside it. In the door: `n` in the agent panel (the
   program, then the folder). An agent: `act agent.start program=… in=…`.
-- **Or just run it.** `claude` (codex, pi, …) typed in a `^W o s` shell is a session from then on, found the way
-  Herdr finds its agents (the terminal's processes, by name), until it exits and leaves you the shell.
+- **Or just run it.** `claude` (codex, pi, …) typed in a `^W o s` shell is a session from then on, until it exits and
+  leaves you the shell. A program that reports who it is (OSC 7501's `app`: the Claude mod and Claude Code say
+  `claude-code`) is known by that, on every machine, the moment it starts; one that reports nothing (codex, pi) is
+  found the way Herdr finds its agents (the terminal's processes, by name, Linux's `/proc`, else the tile's own command).
 - **Programs from the outline.** A note with `[agent-config::<name>]` and its `[program::<command>]`,
   `[args::…]`, `[persona::<name>]` and `[folder::<folder>]` is a program the panel's `n` offers and
   `agent.start program=<name>` starts, under that persona (`EP0CH_AGENT`, `OUTLINER_ACTOR`).

@@ -296,12 +296,13 @@ export class PtyPane implements Pane {
   }
   /**
    * Without prompt marks (a shell with no OSC 133 integration), only the tile's own process exiting would drop a job's
-   * working or blocked. So the job that reported is noted by the terminal's foreground process group, and once the
-   * foreground is another group (the job ended and the shell took the terminal back), it's a new prompt: working and
-   * blocked go. Checked every 2s while such a record stands, only where /proc says (Linux).
+   * working or blocked, or say its agent is gone (an agent killed before it could clear its report). So the job that
+   * reported is noted by the terminal's foreground process group, and once the foreground is another group (the job
+   * ended and the shell took the terminal back), it's a new prompt: working and blocked go, and the agent it was.
+   * Checked every 2s while such a record or agent stands, only where /proc says (Linux).
    */
   private watchForeground() {
-    const r = this.status.urgent(), live = !!r && this.status.records.list().some(x => x.state === "working" || x.state === "blocked");
+    const r = this.status.urgent(), live = !!r && (this.status.app !== null || this.status.records.list().some(x => x.state === "working" || x.state === "blocked"));
     if (!live) { this.stopForegroundWatch(); return; }
     const fg = foregroundGroup(this.pid);
     if (fg === null) return;

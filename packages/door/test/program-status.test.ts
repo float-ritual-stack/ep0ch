@@ -81,6 +81,18 @@ describe.skipIf(!cttyPrefix() || !Bun.which("bash") || !existsSync("/proc/self/s
     await until(() => draw(p).includes("job-over"), "the job ends", 5000);
     await until(() => p.status.records.size === 0, "working dropped once the shell is back in the foreground", 6000);
   }, 20_000);
+
+  test("an agent that reported idle and was killed without clearing: once the shell has the terminal back, it is no agent here (its idle record stays)", async () => {
+    const p = new PtyPane({ cmd: ["bash", "--norc", "--noprofile", "-i"], label: "shell" });
+    tiles.push(p);
+    draw(p);
+    await Bun.sleep(300);
+    p.input(`PS1='$ '; sh -c "printf '${osc("state=idle:app=claude-code")}'; sleep 1; echo agent-over"\r`);
+    await until(() => p.status.app === "claude-code", "the agent's report", 5000);
+    await until(() => draw(p).includes("agent-over"), "the agent ends", 5000);
+    await until(() => p.status.app === null, "no agent once the shell is back in the foreground", 6000);
+    expect(states(p)).toBe("root:idle");
+  }, 20_000);
 });
 
 describe.skipIf(!cttyPrefix() || !Bun.which("tic") || !Bun.which("infocmp") || !Bun.which("tput"))("the door's terminfo", () => {

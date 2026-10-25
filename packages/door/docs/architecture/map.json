@@ -2,7 +2,7 @@
   "version": 1,
   "title": "ep0ch (the door and the outliner): the architecture map",
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes: `bun scripts/architecture-map.ts --sync` moves every file:line to where its marker (a snippet of the cited code) is now and stamps the commit; the plain run checks every citation against the checkouts before it draws anything, and test/architecture-map.test.ts fails when one has drifted.",
-  "verified": { "door": "de39d3d9", "outliner": "de39d3d9", "on": "2026-10-25" },
+  "verified": { "door": "4001c239", "outliner": "4001c239", "on": "2026-10-25" },
   "repos": {
     "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
     "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
@@ -618,17 +618,17 @@
       "built": "One layout operation each side: the screen's take, the drawer desk's open, both asked first; the instance moves. A moved terminal keeps the key its program started under (PtyPane.keptKey, saved as kept), so a session's terminal host gives it back after an upgrade. Saved in drawer-tiles.json.",
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 195, "m": "export class AgentDrawer" },
-        { "r": "door", "p": "src/desk/drawer-program.ts", "l": 131, "m": "export function drawerProgram" },
+        { "r": "door", "p": "src/desk/drawer-program.ts", "l": 133, "m": "export function drawerProgram" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 6585, "m": "takeOut(sel: string | undefined, actor: Actor, heir?: Pane, keepLinks = true): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1195, "m": "private take(id: I, heir?" }
       ]
     },
     {
       "id": "door.agentsessions", "name": "Agent sessions and the agent panel", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.drawer", "door.dispatch"],
-      "does": "One model for talking to an agent (PIE-737): a program, a folder and a persona, owned by the door session as a terminal tile's program; shown in the drawer or a tile and moved between them whole. Started by agent.start (ep0ch agent from any folder, the panel's n), or found running in a terminal tile the way Herdr finds agents; identity is folder plus program, so starting again attaches and a new one resumes the program's last conversation in that folder. The agent panel lists every session with what it's doing and where it's shown.",
+      "does": "One model for talking to an agent (PIE-737): a program, a folder and a persona, owned by the door session as a terminal tile's program; shown in the drawer or a tile and moved between them whole. Started by agent.start (ep0ch agent from any folder, the panel's n), or running in a terminal tile (known by its own OSC 7501 report's app, else found the way Herdr finds agents); identity is folder plus program, so starting again attaches and a new one resumes the program's last conversation in that folder. The agent panel lists every session with what it's doing and where it's shown.",
       "built": "agent-sessions.ts reads sessions off the live terminals each time (asSession, agentIn over /proc, resumeArgs, configsOf for [agent-config::] notes): no registry; PtySpec.session marks one started as a session and is saved with its tile; AgentDrawer.sessions, startSession, pullSession and dockSession with the agents.* actions in drawer.ts; the agents tile kind in agents-panel.ts; ep0ch agent in agent-cli.ts.",
       "refs": [
-        { "r": "door", "p": "src/desk/agent-sessions.ts", "l": 144, "m": "export function asSession" },
+        { "r": "door", "p": "src/desk/agent-sessions.ts", "l": 155, "m": "export function asSession" },
         { "r": "door", "p": "src/desk/agents-panel.ts", "l": 24, "m": "export class AgentsPane" },
         { "r": "door", "p": "src/drawer.ts", "l": 554, "m": "async startSession(" },
         { "r": "door", "p": "src/agent-cli.ts", "l": 58, "m": "export async function agentCommand" }
