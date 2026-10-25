@@ -3911,14 +3911,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     });
   }
 
+  /**
+   * `tile.title` (^W n): the one rename. A tile with no title written separately takes a name-shaped `text` as its name
+   * (what `tile=` and paths resolve, unique in its layer; its shown title follows it); any other text is a title written
+   * on it, and the name stays. Empty clears the written title.
+   */
   titleTile(sel: string | undefined, text: string | undefined, toggle: boolean, actor: Actor): TileDone {
     const t = this.tile(sel), p = this.panes.get(t.id)!;
     if (toggle) p.systemTitle = !p.systemTitle;
-    else if (text !== undefined) { p.writtenTitle = text || undefined; p.systemTitle = false; }
-    else {
-      if (actor.kind !== "user") throw new ActionRefused("tile.title needs text=<title>; text= clears it");
-      this.overlay(linePrompt<Desk>({ name: "tile title", title: "Rename tile", text: p.writtenTitle ?? "", prefilled: true, verbatim: true,
-        doing: () => "⏎ saves · empty uses the system title · {{this.title}} follows the note",
+    else if (text !== undefined) {
+      if (text && !p.writtenTitle && tileNameProblem(text) === null) this.apply({ op: "rename", tile: t.id, name: text }, actor);
+      else { p.writtenTitle = text || undefined; p.systemTitle = false; }
+    } else {
+      if (actor.kind !== "user") throw new ActionRefused("tile.title needs text=<name or title>; text= clears a written title");
+      this.overlay(linePrompt<Desk>({ name: "tile title", title: "Rename this tile", text: p.writtenTitle ?? t.name, prefilled: true, verbatim: true,
+        doing: () => "⏎ renames it · a title with spaces or {{this.title}} is written on it · empty clears a written title",
         done: (text, d) => { d.run("tile.title", { text }, d.tileId(t.id)); },
       }));
       return { ...this.tileAnswer(t.id), prompt: true };

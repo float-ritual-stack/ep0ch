@@ -233,6 +233,8 @@ export type Op<I = number> =
   | { op: "flow.widen"; tile: I }
   | { op: "flow.travel"; tile: I; dir: -1 | 1 }
   | { op: "flow.hold"; tile: I; on?: boolean }
+  /** Tile `tile`'s name becomes `name` (what `tile=` and paths resolve), refused where another tile of this layout has it. */
+  | { op: "rename"; tile: I; name: string }
   | { op: "names" }
   | { op: "remember"; key: string; policy: Policy };
 
@@ -930,6 +932,7 @@ class Step<I> {
       case "flow.widen": return this.widen(op.tile);
       case "flow.travel": return this.travel(op.tile, op.dir);
       case "flow.hold": return this.holdColumn(op.tile, op.on);
+      case "rename": return this.rename(op.tile, op.name);
       case "names": this.d.changed = false; return;
       case "remember": return this.rememberPolicy(op.key, op.policy);
     }
@@ -1005,6 +1008,21 @@ class Step<I> {
     }
   }
   /** Tile `id`'s own level (PIE-639); `null` takes it away, so the container's and the screen's say again. */
+  /** A tile's name changes (PIE-1283): the open rules that name it follow, its links (by tile) don't care. */
+  private rename(id: I, name: string) {
+    this.present(id);
+    const was = this.name(id);
+    if (was === name) { this.d.changed = false; this.d.answer = { tile: name, changed: false }; return; }
+    const other = named(this.d, name);
+    refuse(other !== undefined ? `there's already a tile named ${name} here · pick another name (${autoName(this.d, name)} is free)` : null);
+    this.d.names.set(id, name);
+    const rewire = (policy: Policy | undefined) => { if (policy?.opensInto === was) policy.opensInto = name; };
+    rewire(this.d.policy);
+    const walk = (n: LNode<I>) => { if (n.t !== "leaf") { rewire(n.policy); kidsOf(n).forEach(walk); } };
+    walk(this.d.tree);
+    this.d.answer = { tile: name, was, changed: true };
+  }
+
   private setAgents(id: I, level: AgentLevel | null) {
     this.present(id);
     const before = this.d.agents.get(id) ?? null;

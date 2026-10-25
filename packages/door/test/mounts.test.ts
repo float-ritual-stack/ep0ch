@@ -289,4 +289,25 @@ describe.skipIf(!outliner)("a mounted screen is one screen with the one around i
     await D().dispatch.press("tile.zoom", { on: false }, m.tile);
     await D().dispatch.press("tile.close", {}, m.tile);
   }, 20_000);
+
+  test("renaming a tile inside a mount is one rename: its name, its path and the title it shows; a taken name is refused", async () => {
+    const m = await act("tile.open", { kind: "screen", screen: "lastcall" }, focusId());
+    await D().dispatch.press("tile.focus", {}, m.tile);
+    await act("tile.zoom", { on: true }, m.tile);
+    await settle();
+    const inner = mountPane(m.name).pane.inner as any;
+    // The tile by its path through the mount's id: the desk around it has a reader too.
+    const r = await act("tile.title", { text: "yo" }, `${m.tile}/reader`);
+    expect(r).toMatchObject({ name: "yo" });
+    await settle();
+    expect(D().pathTo(inner.paneNamed("yo"))).toBe("lastcall/yo");
+    expect(inner.paneNamed("reader")).toBeUndefined();
+    expect(await act("tile.info", {}, "lastcall/yo")).toMatchObject({ name: "yo" });
+    expect(frame().some(l => /\byo\b/.test(l))).toBe(true);
+    await expect(act("tile.title", { text: "yo" }, "lastcall/activity")).rejects.toThrow(/already a tile named yo/);
+    // A title with spaces is written on the tile and leaves the name alone.
+    expect(await act("tile.title", { text: "Who called" }, "lastcall/activity")).toMatchObject({ name: "activity", writtenTitle: "Who called" });
+    await D().dispatch.press("tile.zoom", { on: false }, m.tile);
+    await D().dispatch.press("tile.close", {}, m.tile);
+  }, 20_000);
 });
