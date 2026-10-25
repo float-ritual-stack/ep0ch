@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# agent-restart: restart a Claude Code background session without losing what it has in flight, so it picks up a
+# changed ~/.bashrc (a new env var, a new tool on PATH).
+#   scripts/agent-restart <session id | short id | name | --all> [--when-idle (default) | --now] [--if-update]
+#                         [--fresh-daemon] [--check-env VAR] [--dry-run]
+# A Claude Code update ("restart to apply") is the same restart: --if-update restarts only a session whose process runs an
+# older version than the installed `claude`, and --all does it for every background session, one at a time.
+# 1. Preflight: the job's state (~/.claude/jobs/<id8>/state.json) names the builders still running (kind agent, doneAt 0;
+#    a stopped one leaves the list), and ~/wt worktrees touched in the last 6 hours whose HEAD is on no remote branch.
+#    Shells and monitors are expendable: the resumed session re-arms its own.
+# 2. --when-idle waits until no builder runs, nothing is unpushed and no hold file is there; --now goes anyway and says
+#    what it drops. The session holds it off (a merge, a deploy) with ~/.local/state/ep0ch/agent-restart.hold.
+# 3. Stops the session by its short id and checks it is gone (resuming one that still runs starts a copy). With
+#    --fresh-daemon it stops the daemon and its warmed spares first (sessions keep running), so the resume starts a new
+#    daemon from an interactive login shell: without that a resumed session gets the old daemon's environment.
+# 4. Resumes it (`claude --bg --resume <id>`, no flags: a background session keeps its own options) with a note telling
+#    it it was restarted, then checks the session runs and, with --check-env, that its process carries the variable.
+# Fire and forget (--bg detaches it, which it must be to restart the session that runs it):
+#   scripts/agent-restart --all --if-update --bg          after a Claude Code update
+#   scripts/agent-restart loki --fresh-daemon --check-env OTEL_TRACES_EXPORTER --bg   after a ~/.bashrc change
+# Log: ~/.local/state/ep0ch/agent-restart.log. First used Oct 25 (pie c8a1d788 has what the trial found).
+set -uo pipefail
+
+usage="scripts/agent-restart <session id | short id | name | --all> [--when-idle|--now] [--if-update] [--fresh-daemon] [--check-env VAR] [--dry-run] [--bg]"
+target=${1:?usage: $usage}
+# --bg: detach from the terminal (and from the session it may restart) and say where the log is: fire and forget.
+for a in "$@"; do
+  if [ "$a" = --bg ] && [ -z "${AGENT_RESTART_DETACHED:-}" ]; then
+    args=(); for b in "$@"; do [ "$b" = --bg ] || args+=("$b"); done
+    AGENT_RESTART_DETACHED=1 setsid nohup "$0" "${args[@]}" >/dev/null 2>&1 </dev/null &
+    echo "agent-restart: running in the background (pid $!); it waits for a safe moment. Log: ~/.local/state/ep0ch/agent-restart.log"
+    exit 0
+  fi
+done
+shift
+mode=when-idle check="" fresh=0 ifupdate=0 dry=0
+rest=("$@")
+while [ $# -gt 0 ]; do
+  case $1 in
+    --now) mode=now ;;
+    --when-idle) mode=when-idle ;;
+    --check-env) check=$2; shift ;;
+    --fresh-daemon) fresh=1 ;;
+    --if-update) ifupdate=1 ;;
+    --dry-run) dry=1 ;;
+    *) echo "unknown option $1 (usage: $usage)" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+agents() { claude agents --json 2>/dev/null; }
+
+# --all: every background session (the ones with a job id), one after another; the daemon is made fresh only once.
+if [ "$target" = --all ]; then
+  ids=$(agents | python3 -c "import json,sys; print('\n'.join(r['sessionId'] for r in json.load(sys.stdin) if r.get('id')))")
+  [ -z "$ids" ] && { echo "agent-restart: no background sessions (claude agents --json lists none with a job id)"; exit 0; }
+  first=1
+  for sid in $ids; do
+    args=("${rest[@]}")
+    if [ $first = 0 ]; then args=(); for a in "${rest[@]}"; do [ "$a" = --fresh-daemon ] || args+=("$a"); done; fi
+    "$0" "$sid" "${args[@]}"; first=0
+  done
+  exit 0
+fi
+
+# A name (`loki-sr (2)`, or the start of one: `loki`), a short id or a whole session id, resolved against the running sessions.
+id=$(agents | python3 -c "
+import json, sys
+t = sys.argv[1]
+rows = json.load(sys.stdin)
+hits = [r for r in rows if r.get('sessionId','').startswith(t) or r.get('id') == t] or [r for r in rows if r.get('name') == t] or [r for r in rows if (r.get('name') or '').startswith(t)]
+if len(hits) > 1: sys.exit('agent-restart: ' + repr(t) + ' names ' + str(len(hits)) + ' sessions: ' + ', '.join(r.get('id') or r['sessionId'][:8] for r in hits) + '; pass one of those ids')
+print(hits[0]['sessionId'] if hits else '')" "$target") || exit 2
+[ -z "$id" ] && { echo "agent-restart: no running session matches \"$target\" (claude agents --json lists them)" >&2; exit 2; }
+
+job=$HOME/.claude/jobs/${id:0:8}/state.json
+log=$HOME/.local/state/ep0ch/agent-restart.log
+mkdir -p "$(dirname "$log")"
+say() { echo "$(date +'%F %-I:%M:%S %p') [$id] $*" | tee -a "$log"; }
+[ -f "$job" ] || { say "no job state at $job: is $id a background session on this machine? (claude ls)"; exit 1; }
+
+short=${id:0:8}
+listed() { agents | python3 -c "import json,sys; print('\n'.join(r.get('pid') and str(r['pid']) or '' for r in json.load(sys.stdin) if r.get('sessionId','').startswith(sys.argv[1])))" "$short"; }
+status() { agents | python3 -c "import json,sys; print(next((r.get('status') or '' for r in json.load(sys.stdin) if r.get('sessionId','').startswith(sys.argv[1])), ''))" "$short"; }
+
+# --if-update: the version its process runs (the versions/<v> binary) against the one `claude` now points at.
+if [ "$ifupdate" = 1 ]; then
+  running=$(basename "$(readlink -f /proc/"$(listed | head -1)"/exe 2>/dev/null)")
+  installed=$(basename "$(readlink -f "$(command -v claude)")")
+  if [ -z "$running" ] || [ "$running" = "$installed" ]; then say "already on $installed ($([ -n "$running" ] && echo running "$running" || echo "its process unreadable")): nothing to do"; exit 0; fi
+  say "runs $running, $installed is installed: restarting it for the update"
+  fresh=1   # the daemon runs the old version too
+fi
+
+running_builders() {
+  python3 - "$job" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for f in d.get("fan", []):
+    if f.get("kind") == "agent" and not f.get("doneAt"):
+        print(f.get("label", f.get("id")))
+EOF
+}
+
+# Builder worktrees touched in the last 6 hours whose HEAD isn't on any remote branch: work that would be lost.
+unpushed() {
+  for d in "$HOME"/wt/ep0ch-wt-*; do
+    [ -d "$d/.git" ] || [ -f "$d/.git" ] || continue
+    [ -n "$(find "$d" -maxdepth 1 -newermt '-6 hours' -print -quit 2>/dev/null)" ] || continue
+    head=$(git -C "$d" rev-parse HEAD 2>/dev/null) || continue
+    if [ -z "$(git -C "$d" branch -r --contains "$head" 2>/dev/null)" ]; then
+      echo "$(basename "$d") $(git -C "$d" log --oneline -1 | cut -c1-60)"
+    fi
+  done
+}
+
+say "preflight ($mode)"
+b=$(running_builders); u=$(unpushed)
+[ -n "$b" ] && say "builders running: $(echo "$b" | tr '\n' ';')"
+[ -n "$u" ] && say "unpushed worktrees: $(echo "$u" | tr '\n' ';')"
+
+if [ "$mode" = when-idle ]; then
+  waited=0
+  # The session holds the restart off while it does something a restart would cut (a merge, a deploy): it touches the
+  # hold file before and removes it after.
+  hold=$HOME/.local/state/ep0ch/agent-restart.hold
+  while [ -n "$(running_builders)" ] || [ -n "$(unpushed)" ] || [ -e "$hold" ] || [ "$(status)" = busy ]; do
+    [ $((waited % 600)) -eq 0 ] && say "waiting: $(running_builders | wc -l) builders running, $(unpushed | wc -l) unpushed worktrees$([ -e "$hold" ] && echo ", held ($hold)")$([ "$(status)" = busy ] && echo ", mid-turn")"
+    [ $waited -ge 14400 ] && { say "gave up after 4 hours; nothing restarted"; exit 1; }
+    sleep 60; waited=$((waited + 60))
+  done
+  say "idle: between turns, no builders running, nothing unpushed"
+else
+  [ -n "$b$u" ] && say "--now: dropping the builders above; their worktrees stay on disk"
+fi
+
+flags=$(python3 -c "import json,shlex,sys; print(' '.join(shlex.quote(x) for x in json.load(open(sys.argv[1])).get('respawnFlags', [])))" "$job")
+cwd=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('cwd','$HOME'))" "$job")
+note="You were restarted by scripts/agent-restart at $(date +'%-I:%M %p') ($mode) so your process picks up the current ~/.bashrc. Read its log first: tail -20 $log. Then reorient (pie 63132a65), re-arm your watchers, and carry on."
+
+
+# `claude stop` takes the short id (the full uuid answers "No job matching"), and the session must be gone before the
+# resume: resuming one that still runs starts a copy beside it (trial, Oct 25).
+[ "$dry" = 1 ] && { say "dry run: would stop $short, $([ "$fresh" = 1 ] && echo "restart the daemon, ")resume it from a login shell"; exit 0; }
+say "stopping $short"
+claude stop "$short" >>"$log" 2>&1
+for _ in $(seq 1 15); do [ -z "$(listed)" ] && break; sleep 2; done
+[ -n "$(listed)" ] && { say "FAILED: $short still runs after claude stop; nothing resumed (a resume now would start a copy)"; exit 1; }
+
+# The daemon spawns a resumed session into a spare it warmed earlier, with the daemon's own environment, not the
+# shell's. --fresh-daemon stops the daemon and its spares (sessions keep running: --keep-workers), so the claude
+# below starts a new one from the login shell's environment.
+if [ "$fresh" = 1 ]; then
+  say "stopping the daemon (sessions keep running) so the next one starts from a login shell"
+  claude daemon stop --any --keep-workers >>"$log" 2>&1 || say "claude daemon stop answered non-zero"
+  sleep 3
+fi
+
+say "resuming in the background from a login shell (its saved options: $flags)"
+cd "$cwd" || exit 1
+# No flags: a background session keeps its own saved options, and flags passed here start a copy (trial, Oct 25).
+# An interactive login shell: ~/.bashrc returns early for a non-interactive one (its `case $-` guard), so exports
+# below the guard (the telemetry ones) are only read with -i.
+out=$(bash -lic "cd $(printf %q "$cwd") && claude --bg --resume $(printf %q "$id") $(printf %q "$note")" 2>&1 </dev/null)
+echo "$out" >>"$log"
+echo "$out" | grep -q "started a copy" && { say "FAILED: the resume started a copy; stop it (claude agents) and resume $short by hand"; exit 1; }
+sleep 15
+
+pid=$(listed | head -1)
+if [ -z "$pid" ]; then say "FAILED: no session $short after resume; start it by hand: cd $cwd && claude --bg --resume $id"; exit 1; fi
+say "resumed as pid $pid"
+if [ -n "$check" ]; then
+  if tr '\0' '\n' < /proc/"$pid"/environ | grep -q "^$check="; then
+    say "env ok: $check is set in the new process"
+  else
+    say "env MISSING: $check is not in pid $pid's environment: the daemon gave it its own environment. Run again with --fresh-daemon."
+  fi
+fi
+say "done"
