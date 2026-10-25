@@ -239,6 +239,31 @@ export interface TicketBlocks { record: Msg; comments: Msg[] }
 /** Where a ticket region sits: under a page's line (all of it), or on the ticket block itself (its header on top, its comments below). */
 export type TicketPart = "page" | "head" | "comments";
 
+/**
+ * The projections to draw, by the body line (index into `noteLines`) each follows: the last one at or above its
+ * anchor line, or -1 (above the body) when none is (a ticket page's subject or preamble). A fragment's `slice`
+ * keeps only the output whose line is inside it: an embed of one section never draws the rest of the note's.
+ */
+export function regionsByLine(ps: readonly ResourceProjection[], noteLines: readonly number[], { slice = false }: { slice?: boolean } = {}): Map<number, { p: ResourceProjection; part: TicketPart }[]> {
+  const out = new Map<number, { p: ResourceProjection; part: TicketPart }[]>();
+  const put = (at: number, p: ResourceProjection, part: TicketPart) => { const g = out.get(at); if (g) g.push({ p, part }); else out.set(at, [{ p, part }]); };
+  const last = Math.max(-1, noteLines.length - 1);
+  const first = noteLines[0] ?? 0, end = noteLines[last] ?? -1;
+  for (const p of ps) {
+    if (slice) {
+      if (p.anchor.kind === "page" || p.anchor.kind === "record") continue;
+      if (p.anchor.line < first || p.anchor.line > end) continue;
+    }
+    // A ticket page's ticket is a child block: it follows the person's own notes, as the outline has it.
+    if (p.anchor.kind === "page" && p.record) { put(last, p, "page"); continue; }
+    if (p.anchor.kind !== "record") { put(noteLines.findLastIndex(n => n <= p.anchor.line), p, "page"); continue; }
+    // The ticket block itself: its header on top, its comments after its body.
+    put(-1, p, "head");
+    if (p.record?.commentBlockIds.length) put(last, p, "comments");
+  }
+  return out;
+}
+
 /** A comment block's first line and its words: `Lee Park · 2026-01-02 10:00` then what they wrote. */
 function commentParts(m: Msg): { who: string; body: string } {
   const [first = "", ...rest] = m.text.split("\n");

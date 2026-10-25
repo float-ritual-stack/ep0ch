@@ -60,7 +60,7 @@ import { findOutputRegions } from "@ep0ch/outline-core/output-region";
 import { sourceCalls, withSlotProps, type SourceEntry } from "@ep0ch/outline-core/sources";
 import { drawSources, FOLDS, itemsOf, newPanel, sourceAt, type PanelDraw, type SourcesFold, type SourcesPanel } from "./sources";
 import { joinRows, REGION_MARK, type RegionBook } from "../output-region";
-import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, resourceChanged, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
+import { decorationsOf, drawingPending, drawnPresses, extensionRegion, mayHaveProjections, projectionRegion, projectionsLoaded, projectionsOf, regionsByLine, resourceChanged, RUN_AGAIN, RUN_AGAIN_KEY, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { decorationRows, planDecorations } from "../decorations";
 import { EXT_ACTIONS, EXT_UNDO, extensionNamed, handlerKeyAction } from "../extensions";
 import { blockTags } from "@ep0ch/outline-core/block-tags";
@@ -2227,7 +2227,7 @@ export class NoteSurface {
       hostKeys: host?.ownKeys ?? "",
     };
     const { doc: rendered, points, lines: noteLines } = this.body(m, env, src, drawn, tokens, (source, noteLines) => {
-      const regions = this.projectionRegions(outline ? projectionsOf(m, src) : [], noteLines), bodyText = source.split("\n");
+      const regions = regionsByLine(outline ? projectionsOf(m, src) : [], noteLines), bodyText = source.split("\n");
       // A view note's results under its body, drawn as an embedded view (the service's answer).
       const last = bodyText.length - 1, results = outline ? (width: number) => viewResults(m, width, src, drawn, env.inlineList) : null;
       const view = !!results && (prop(m, "type") ?? "").toLowerCase() === "virtual-branch";
@@ -2577,7 +2577,7 @@ export class NoteSurface {
         lit = new Set(lines.flatMap((l, i) => (inside.has(l) ? [i] : [])));
       } else ({ text, lines, literal: lit } = readableSource(target, source));
       const projections = isOutlineNote(target) ? projectionsOf(target, source) : [];
-      const projected = this.projectionRegions(projections, lines);
+      const projected = regionsByLine(projections, lines, { slice: !!part });
       const inert = (text: string, width: number) => renderDoc(text, { ...env, width, graphics: false, after: undefined, embed: undefined, keepTags: false }).lines;
       const rendered = renderDoc(presentLinks(text, expandsEmbeds(!!hooks.embed, target), source, target.text, drawn, undefined, isOutlineNote(target) ? { block: target.id } : undefined), {
         ...childEnv(env, { off: 0, end: lines.length, width }), heroLine: -1, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, regions: undefined, outputs: undefined,
@@ -5197,25 +5197,6 @@ export class NoteSurface {
       const row = cs.some(c => c.id === mark.thread && isWholeNote(c)) ? -1 : mark.row;
       mark.col = columns.get(row) ?? 0;
       columns.set(row, mark.col + 3);
-    }
-    return out;
-  }
-
-  /**
-   * The projections to draw, by the body line (index into `noteLines`) each follows: the last one at or
-   * above its anchor line, or -1 (above the body) when none is (a ticket page's subject or preamble).
-   */
-  private projectionRegions(ps: readonly ResourceProjection[], noteLines: readonly number[]): Map<number, { p: ResourceProjection; part: TicketPart }[]> {
-    const out = new Map<number, { p: ResourceProjection; part: TicketPart }[]>();
-    const put = (at: number, p: ResourceProjection, part: TicketPart) => { const g = out.get(at); if (g) g.push({ p, part }); else out.set(at, [{ p, part }]); };
-    const last = Math.max(-1, noteLines.length - 1);
-    for (const p of ps) {
-      // A ticket page's ticket is a child block: it follows the person's own notes, as the outline has it.
-      if (p.anchor.kind === "page" && p.record) { put(last, p, "page"); continue; }
-      if (p.anchor.kind !== "record") { put(noteLines.findLastIndex(n => n <= p.anchor.line), p, "page"); continue; }
-      // The ticket block itself: its header on top, its comments after its body.
-      put(-1, p, "head");
-      if (p.record?.commentBlockIds.length) put(last, p, "comments");
     }
     return out;
   }
