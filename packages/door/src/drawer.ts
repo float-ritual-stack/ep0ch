@@ -719,7 +719,7 @@ export class AgentDrawer {
   }
   /** What `tile=` names across layers (HostLayer.resolveTile): an id, `drawer.agent`, a path, a drawer tab's name; a bare name on a screen is that screen's own. */
   resolveTile(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
-    const hit = (sel === DRAWER_TILE_ID ? this.desk : this.d)?.resolveTile(sel, o) ?? null;
+    const hit = this.d?.resolveTile(sel, o) ?? null;
     return hit && (o?.program || sel === DRAWER_TILE_ID || sel.includes("/") || hit.tile.id === sel || this.isDrawer(hit.desk)) ? hit : null;
   }
   /** The terminal tile a process is drawn in, on the drawer or the screen shown (`host.tileOf`, PIE-1043). */

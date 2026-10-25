@@ -403,7 +403,9 @@ export class Dispatcher {
    * `drawer.agent`, a tile's id and a path, so no screen keeps a copy of the rule.
    */
   private resolve(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null {
-    return this.host.resolveTile?.(sel, o) ?? this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
+    if (this.host.resolveTile) return this.host.resolveTile(sel, o) ?? this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
+    // A host that reads no tiles across layers keeps its own names: the host layer answers only what they don't.
+    return this.named(sel, this.tilesNow()) ? null : this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
   }
   /**
    * A tile's name from anything `tile=` takes (a name, an id, a number, an alias, `focused`, a block id it shows), or
@@ -438,6 +440,8 @@ export class Dispatcher {
 
   /** The set that owns a request's action: the first registered that claims it. */
   private owner(req: ActRequest, actor?: Actor): Registration | Delegation | null {
+    const own = this.claimedOutright(req);
+    if (own) return own;
     req = this.mountedRequest(req);
     const defaultAddress = req.tile === undefined ? this.where().address : null;
     const defaultTarget = defaultAddress ? this.host.resolveTile?.(defaultAddress) : null;
@@ -665,8 +669,19 @@ export class Dispatcher {
     return out;
   }
 
+  /**
+   * A host that reads no tiles itself (the door's shell, a menu) hands a request naming a tile of another layer to that
+   * layer's dispatcher, except where one of its sets that takes a tile claims the request outright (the host layer's own `tile.herdr
+   * tile=drawer.agent`): that set's.
+   */
+  private claimedOutright(req: ActRequest): Registration | null {
+    if (this.host.resolveTile) return null;
+    return (this.regs.find(r => "set" in r && r.takes !== "none" && r.claims?.(req)) as Registration | undefined) ?? null;
+  }
+
   /** Ownership discovery and execution must resolve the same mounted target. Local tiles keep their scope. */
   private mountedRequest(req: ActRequest): ActRequest {
+    if (this.claimedOutright(req)) return req;
     if (req.tile) {
       const hit = this.resolve(req.tile);
       if (hit) return { ...req, tile: hit.tile.id ?? hit.tile.name };
