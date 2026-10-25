@@ -182,7 +182,7 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(app.drawer.entered).toBe(false);
     await app.act({ action: "tile.drawer", args: { on: false }, tile: g, as: AS });
     await spill(g);
-    // The detail this test opened goes: left showing a note, it would show its replies (with ages that tick) in every layout read after.
+    // The detail this test opened goes, as the other tests close theirs.
     await act("tile.close", {}, "outside");
   });
 

@@ -19,9 +19,10 @@ process.env.OUTLINER_FIGURE_FIT = "off";
 setDefaultTimeout(30_000);
 // The scratch services a file holds register here (test/scratch.ts), and each test starts by having any that Bun ended
 // started again on the same folder, so one test's timeout is that test's alone.
-const scratches = new Set<{ revive(): Promise<boolean> }>();
-(globalThis as { [k: symbol]: unknown })[Symbol.for("ep0ch.test.scratches")] = scratches;
-beforeEach(async () => { for (const s of [...scratches]) await s.revive(); });
+// Only the running file's own: one a file left undisposed is no business of the next file's tests.
+const scratches = new Map<{ revive(): Promise<boolean> }, string>();
+(globalThis as { [k: symbol]: unknown })[Symbol.for("ep0ch.test.scratches")] = { add(s: { revive(): Promise<boolean> }) { scratches.set(s, Bun.main); }, delete(s: { revive(): Promise<boolean> }) { scratches.delete(s); } };
+beforeEach(async () => { for (const [s, file] of [...scratches]) { if (file === Bun.main) await s.revive(); else scratches.delete(s); } });
 
 // A door a test starts (`bun src/main.ts …`) runs in its own process, not as a session that would outlive the test
 // (test/session.test.ts starts its sessions itself).

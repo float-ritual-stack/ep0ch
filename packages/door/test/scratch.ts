@@ -118,7 +118,7 @@ function watchHost(p: Subprocess, root: string, current: () => Subprocess | null
 
 /** The scratch services this process holds, for the preload's `beforeEach` (`revive`): it can't import this file for every test. */
 const HELD = Symbol.for("ep0ch.test.scratches");
-const holding = (): Set<{ revive(): Promise<boolean> }> | undefined => (globalThis as { [k: symbol]: unknown })[HELD] as Set<{ revive(): Promise<boolean> }> | undefined;
+const holding = (): { add(s: { revive(): Promise<boolean> }): void; delete(s: { revive(): Promise<boolean> }): void } | undefined => (globalThis as { [k: symbol]: unknown })[HELD] as never;
 
 /**
  * Bun ends every process a file started when one of its tests times out (see watchHost), a scratch host among them, so
@@ -132,7 +132,7 @@ async function revived(p: Subprocess | null, root: string, answers: () => Promis
   const gone = () => p.exitCode !== null || p.signalCode !== null;
   if (!gone() && await answers()) return false;
   // Bun's kill is a SIGTERM that lands a moment after the timeout, and the host stops gracefully: wait for it, bounded.
-  await Promise.race([p.exited, Bun.sleep(3000)]);
+  await Promise.race([p.exited, Bun.sleep(8000)]);
   if (!gone()) return false;
   console.error(`scratch host ${root} had ended (Bun ends a file's processes when a test of it times out); started again for the next test`);
   await start();
