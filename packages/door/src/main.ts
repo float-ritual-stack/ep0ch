@@ -241,7 +241,19 @@ if (args[0] === "doctor" || args[0] === "install") {
       }
     } finally { rl.close(); }
   } : undefined;
-  process.exit(await setupCommand(args, { out: console.log, err: console.error, terminal: process.stdout, ...(ask ? { ask } : {}) }));
+  const code = await setupCommand(args, { out: console.log, err: console.error, terminal: process.stdout, ...(ask ? { ask } : {}) });
+  // The checkout moved under this run: its later steps used the old code. A person's install runs itself again on the
+  // new code at once, said loudly, rather than leave a ✓ line asking them to (Evan, Oct 25: "a line with a checkbox
+  // next to it that looks like all good"). --json and --as-client callers rerun it themselves (src/link.ts); the
+  // second run never reruns a third time.
+  const { checkoutMoved, rerunAfterMove } = await import("./setup/apply");
+  if (rerunAfterMove(code, checkoutMoved, args, process.env)) {
+    const loud = process.stdout.isTTY ? "\x1b[1;30;43m" : "", off = process.stdout.isTTY ? "\x1b[0m" : "";
+    console.log(`\n${loud} ▲ THE CHECKOUT MOVED: running install again on the new code, so its steps run too ${off}\n`);
+    const again = Bun.spawn([process.execPath, join(import.meta.dir, "main.ts"), ...args], { stdio: ["inherit", "inherit", "inherit"], env: { ...process.env, EP0CH_INSTALL_RERUN: "1" } });
+    process.exit(await again.exited);
+  }
+  process.exit(code);
 }
 if (args[0] === "backup") { const { backupCommand } = await import("./backup/cli"); process.exit(await backupCommand(args)); }
 if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.error : console.log)(r.out); process.exit(r.code); }
