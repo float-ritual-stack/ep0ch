@@ -305,6 +305,8 @@ describe.skipIf(!outliner)("a mounted screen is one screen with the one around i
     expect(await act("tile.info", {}, "lastcall/yo")).toMatchObject({ name: "yo" });
     expect(frame().some(l => /\byo\b/.test(l))).toBe(true);
     await expect(act("tile.title", { text: "yo" }, "lastcall/activity")).rejects.toThrow(/already a tile named yo/);
+    // The screen's own name for a tile stays that tile's: reader is the role of the tile now called yo.
+    await expect(act("tile.title", { text: "reader" }, "lastcall/activity")).rejects.toThrow(/already a tile named reader here/);
     // A title with spaces is written on the tile and leaves the name alone.
     expect(await act("tile.title", { text: "Who called" }, "lastcall/activity")).toMatchObject({ name: "activity", writtenTitle: "Who called" });
     await D().dispatch.press("tile.zoom", { on: false }, m.tile);
