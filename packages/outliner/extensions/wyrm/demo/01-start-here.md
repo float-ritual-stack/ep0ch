@@ -8,4 +8,4 @@ A door game in the shape of the old BBS ones, written in this outline's own part
 - **Bank your gold**: what's in your purse is what you lose.
 - **The masters** train you up a level when you have the xp. At level 12, go up the mountain after the Wyrm.
 - **The Daily News** is ((daily-news|a note)) of today's events, one note each, drawn on the town board.
-- **The screens** are ((screens|two render scripts)): `wyrm-sheet` on every player, `wyrm-town` on the town. The moves are the installed script `wyrm` (`wyrm do=forest`, `hit`, `run`, `heal`, `train`, `buy item=weapon`, `deposit`, `sleep where=inn`, `ambush target=…`).
+- **The screens** are two render scripts that come with the extension: `wyrm-sheet` on every player, `wyrm-town` on the town (a note of your own with `[script::wyrm-sheet]` and `[mode::render]` overrides one). The moves are the installed script `wyrm` (`wyrm do=forest`, `hit`, `run`, `heal`, `train`, `buy item=weapon`, `deposit`, `sleep where=inn`, `ambush target=…`).

@@ -30,13 +30,16 @@ async function realm() {
 }
 
 test("installing the wyrm seeds a town; joining, the forest, the healer and the bank play on the player's chips", async () => {
-  const { installed, one, play, chips, store, stop } = await realm();
+  const { installed, one, play, chips, store, stop, ...h } = await realm();
   try {
     expect(installed.state).toBe("active");
     const town = one("type=wyrm-world");
     expect(store.require(town.id).text).toContain("wyrm-town::");
     expect(one("type=wyrm-news")).toBeDefined();
-    expect(one("script=wyrm-sheet")).toBeDefined();
+    // The screens ship as the extension's own file renderers, not as demo notes.
+    const screens = (await h.client.request<import("../src/extension-registry").ExtensionsListResult>({ action: "extensions.list" })).extensions.filter(e => e.script && e.name?.startsWith("wyrm-"));
+    expect(screens.map(e => e.name).sort()).toEqual(["wyrm-sheet", "wyrm-town"]);
+    expect(store.queryBlocks({ where: "script=wyrm-sheet" }).blocks).toHaveLength(0);
 
     const joined = await play(town.id, { do: "join", name: "Ash Quill" });
     expect(joined.reason).toBe("done");
@@ -172,8 +175,10 @@ test("the sheet and the town board draw the chips, and uninstalling keeps the no
     const ember = store.queryBlocks({ where: "type=wyrm-player" }).blocks.find(b => b.text.startsWith("Ember" + " ["))!;
     player("Yester Rue", { hp: 0, dead: 1, day: "2001-02-03", rest: "fields" }, town.id);
     player("Tonight Vale", { hp: 0, dead: 1, rest: "fields" }, town.id);
+    // The sheet was drawn when Ember joined; the sleepers made since show once it is drawn again (a query under a note isn't watched).
     await draw(ember.id);
-    const sheet = await until("the sheet", () => output(ember.id).find(o => o?.includes("Ember")));
+    await client.request({ action: "resources.projection.refresh", blockId: ember.id });
+    const sheet = await until("the sheet", () => output(ember.id).find(o => o?.includes("Yester Rue")));
     expect(sheet).toContain("level 1");
     expect(sheet).toContain("forest");
     expect(sheet).toContain("Dozing Gerald"); // asleep in the fields, so on everyone's sheet
@@ -190,6 +195,7 @@ test("the sheet and the town board draw the chips, and uninstalling keeps the no
     const board = await until("the town board", () => output(town.id).find(o => o?.includes("Daily News")));
     expect(board).toContain("Ember");
     expect(board).toContain("Ember wanders into Wyrmhold");
+    expect(board).toContain("join the realm"); // the town draws its own join button
 
     const removed = await client.request<{ removed: boolean }>({ action: "extensions.uninstall", extension: "wyrm", demo: "keep" });
     expect(removed.removed).toBe(true);
