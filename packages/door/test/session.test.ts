@@ -311,6 +311,43 @@ describe("two clients on one session", () => {
     expect(keys).toEqual([{ kind: "mouse", action: "down", button: 0, x: 4, y: 4 }]);
   });
 
+  test("hover reports fold into the newest, in step with the clicks and drags around them; a frame apart, none is lost (PIE-1300)", async () => {
+    const { term, app, keys, paint } = session();
+    const a = fakeLink(100, 30);
+    const ca = term.attach(a.link, hello(100, 30));
+    paint();
+    // A click aimed at a frame the terminal hadn't seen only takes the session: a key first.
+    term.input(ca, "j"); keys.length = 0;
+    const hover = (x: number, y: number) => `\x1b[<35;${x + 1};${y + 1}M`;
+    const motion = (x: number, y: number) => ({ kind: "mouse", action: "drag", button: 3, x, y });
+    // What one socket read held is one batch. Three hovers, a click, two hovers, a drag with the left button held, a hover:
+    // the newest hover before each other report stands, the others are never held back or dropped, and the order is kept.
+    term.readBatch(() => {
+      for (const text of [hover(1, 1), hover(2, 1), hover(3, 1), "\x1b[<0;5;5M", "\x1b[<0;5;5m", hover(4, 2), hover(5, 2), "\x1b[<32;6;2M", hover(7, 2)]) term.input(ca, text);
+    });
+    expect(keys).toEqual([
+      motion(3, 1),
+      { kind: "mouse", action: "down", button: 0, x: 4, y: 4 },
+      { kind: "mouse", action: "up", button: 0, x: 4, y: 4 },
+      motion(5, 2),
+      { kind: "mouse", action: "drag", button: 0, x: 5, y: 1 },
+    ]);
+    // The last one was handled less than a frame after the one before it: it comes when the frame is up.
+    await until(() => keys.length === 6, "the held hover to be handled", 1000);
+    expect(keys.at(-1)).toEqual(motion(7, 2));
+    expect((app.describe() as any).speed.motionCoalesced).toBe(3);
+    // Reads of one report each, a frame apart or more: each is handled as it comes. Closer than that, the newest of them is.
+    keys.length = 0;
+    await Bun.sleep(30);
+    term.input(ca, hover(1, 1));
+    expect(keys).toEqual([motion(1, 1)]);
+    term.input(ca, hover(2, 1)); term.input(ca, hover(3, 1));
+    expect(keys).toHaveLength(1);
+    await until(() => keys.length === 2, "the newest hover, a frame later", 1000);
+    expect(keys.at(-1)).toEqual(motion(3, 1));
+    expect((app.describe() as any).speed.motionCoalesced).toBe(4);
+  });
+
   test("each client in its own video mode: a Kitty terminal gets the tube under its text, a plain one none", () => {
     const { term, paint } = session();
     const a = fakeLink(80, 24), b = fakeLink(80, 24);
@@ -414,11 +451,13 @@ describe("two clients on one session", () => {
 class RawClient {
   readonly mirror: Mirror;
   readonly got: DaemonMsg[] = [];
+  /** When each frame of output (the daemon's paints) arrived. */
+  readonly drawn: number[] = [];
   closed = false;
   private frames = new Frames<DaemonMsg>();
   private constructor(private sock: Socket, cols: number, rows: number) {
     this.mirror = new Mirror(cols, rows);
-    sock.on("data", (d: Buffer) => { for (const m of this.frames.push(d)) { this.got.push(m); if (m.t === "output") this.mirror.write(m.text); } });
+    sock.on("data", (d: Buffer) => { for (const m of this.frames.push(d)) { this.got.push(m); if (m.t === "output") { this.drawn.push(performance.now()); this.mirror.write(m.text); } } });
     sock.on("close", () => { this.closed = true; });
     sock.on("error", () => {});
   }
@@ -429,6 +468,8 @@ class RawClient {
     return c;
   }
   send(m: ClientMsg) { this.sock.write(encode(m)); }
+  /** Frames written back to back in one socket write: the daemon reads them as one chunk, as it does from a busy link. */
+  sendAll(ms: ClientMsg[]) { this.sock.write(Buffer.concat(ms.map(encode))); }
   type(s: string) { this.send({ t: "input", text: s }); }
   text() { return this.mirror.text(); }
   screen() { return this.text().join("\n"); }
@@ -597,6 +638,62 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     for (let i = 0; i < 50 && (await infoOn(sessionSocket(dir)))!.clients.length; i++) await Bun.sleep(100);
     expect((await infoOn(sessionSocket(dir)))!.clients).toEqual([]);
   }, 30_000);
+
+  test("a burst of mouse motion, in one read or in two hundred, paints a few frames, where the pointer is now; a click after it lands after it (PIE-1300)", async () => {
+    const a = await RawClient.attach(sessionSocket(dir), 100, 30);
+    await until(() => a.screen().includes("outline"), "the desk on the client", 10_000);
+    // Quiet: nothing painted for a while (the clock, a clipped label scrolling) before the burst is measured.
+    const quiet = async () => { for (let last = -1; last !== a.drawn.length;) { last = a.drawn.length; await Bun.sleep(400); } };
+    await quiet();
+    // The tree's clipped labels (a ... where a value was cut short): hovering one reveals it in place, in other colours.
+    const cuts = a.text().slice(1, 12).map((line, y) => ({ y: y + 1, x: line.slice(0, 23).lastIndexOf("…") - 2 })).filter(c => c.x > 1);
+    expect(cuts.length).toBeGreaterThanOrEqual(3);
+    const look = (c: { x: number; y: number }) => JSON.stringify(a.mirror.cells[c.y]![c.x]);
+    const plain = cuts.map(look);
+    const motion = (c: { x: number; y: number }): ClientMsg => ({ t: "input", text: `\x1b[<35;${c.x + 1};${c.y + 1}M` });
+    // 200 reports, one input frame each, sweeping the cuts; the last is on the second one.
+    const sweep = Array.from({ length: 200 }, (_, i) => motion(cuts[i === 199 ? 1 : i % cuts.length]!));
+    const click: ClientMsg = { t: "input", text: "\x1b[<0;40;10M\x1b[<0;40;10m" };
+    const nextTurn = () => new Promise<void>(res => setImmediate(res));
+    /** The frames the daemon painted for what was sent, and when the last of them arrived. */
+    const sent = async (shape: "one write" | "200 writes", ...after: ClientMsg[]) => {
+      await quiet();
+      const before = (await control({ cmd: "peek" })).screen.speed;
+      const t0 = performance.now();
+      if (shape === "one write") a.sendAll([...sweep, ...after]);
+      else { for (const m of sweep) { a.send(m); await nextTurn(); } for (const m of after) a.send(m); }
+      await quiet();
+      const speed = (await control({ cmd: "peek" })).screen.speed;
+      return { frames: a.drawn.filter(t => t >= t0).length, idle: Math.max(0, ...a.drawn.filter(t => t >= t0)) - t0, painted: speed.frames - before.frames, folded: speed.motionCoalesced - before.motionCoalesced };
+    };
+
+    for (const shape of ["one write", "200 writes"] as const) {
+      // The motion alone: a few frames, soon over, the pointer where the last report put it (that label revealed, the others not).
+      let r = await sent(shape);
+      expect(r.frames).toBeLessThanOrEqual(10);
+      expect(r.idle).toBeLessThan(500);
+      expect(r.painted).toBeLessThanOrEqual(10);
+      // Nearly every report was folded into a newer one, however the link cut them into reads.
+      expect(r.folded).toBeGreaterThanOrEqual(150);
+      const now = cuts.map(look);
+      expect(now[1]).not.toBe(plain[1]);
+      expect(now.filter((_, i) => i !== 1)).toEqual(plain.filter((_, i) => i !== 1));
+      expect((await control({ cmd: "peek" })).screen.hover.pointer).toEqual({ x: cuts[1]!.x, y: cuts[1]!.y });
+
+      // A click right behind the motion is handled after it: the pointer is the person's again, and the click took the reader.
+      a.type("1");
+      for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== "tree"; i++) await Bun.sleep(100);
+      r = await sent(shape, click);
+      expect(r.frames).toBeLessThanOrEqual(10);
+      expect(r.idle).toBeLessThan(500);
+      expect(r.painted).toBeLessThanOrEqual(10);
+      expect(cuts.map(look)).toEqual(plain);
+      const screen = (await control({ cmd: "peek" })).screen;
+      expect(screen.person.focus).toBe("reader");
+      expect(screen.hover.pointer).toBeNull();
+    }
+    a.close();
+  }, 60_000);
 
   test("a terminal tile's program copies (OSC 52): the client with the keys gets it once, a watcher never; a read, or an agent's, is dropped", async () => {
     const a = await RawClient.attach(sessionSocket(dir), 120, 40), w = await RawClient.attach(sessionSocket(dir), 120, 40, { watch: true });

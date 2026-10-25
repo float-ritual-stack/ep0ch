@@ -84,8 +84,8 @@ interface Spot { y: number; x0: number; x1: number; key?: Key; index?: number; t
  * keys are; a click sends the key the spot stands for back through the screen's own `key()`, so a click
  * and its key are one path. A press on an item selects it; releasing on the same spot is the click (on a
  * list row, only once it was already selected: ⏎). A drag with the button down moves the selection with
- * the pointer (the hover the terminal reports: the door asks for button-event tracking, 1002, not motion
- * without a button). The wheel moves a list's selection a row, as it moves a lane's on the board.
+ * the pointer (the door asks the terminal for any-motion tracking, ?1003h, PIE-925: a report for every cell the
+ * pointer crosses, hover included; App.key folds a batch of them into the newest, PIE-1300). The wheel moves a list's selection a row, as it moves a lane's on the board.
  */
 class Pointer {
   private spots: Spot[] = [];
@@ -508,7 +508,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     person: "the pointer is the person's",
     args: { x: { type: "number", about: "screen column, from 0" }, y: { type: "number", about: "screen row, from 0" } },
     examples: [{ act: "text.hover x=4 y=2", does: "reads the clipped value at column 4, row 2 without opening it" }],
-    run({ x, y }, { ctx }) { ctx.overflow?.hover(x, y); ctx.redraw(); },
+    run({ x, y }, { ctx }) { if (ctx.overflow?.hover(x, y)) ctx.redraw(); },
   }),
   "status.log": def({
     summary: "open the session's message log: every status, warning, refusal and error, with time and the action and tile; / searches, enter returns to its note or tile, q or esc comes back; pressed again (a click on the status line, alt+M) it closes",

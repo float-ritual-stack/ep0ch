@@ -31,7 +31,7 @@ import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
 import { printable, withRowLimit } from "./text";
-import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileProgram } from "./term";
+import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
@@ -423,6 +423,9 @@ export function agentActor(as?: string): Actor {
   return { kind: "agent", id };
 }
 
+/** A frame: no screen paints more often than this, and no hover report is handled more often (App.redraw, App.key). */
+const FRAME_MS = 16;
+
 export class App implements Ctx {
   readonly overflow = new Overflow();
   /** The host layer's drawer, as a screen's tiles reach it (`tile.drawer`). */
@@ -645,6 +648,7 @@ export class App implements Ctx {
     this.offResize();
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
+    if (this.hoverTimer) clearTimeout(this.hoverTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
     this.timer = null; this.paintTimer = null; this.publishTimer = null;
   }
@@ -1051,6 +1055,10 @@ export class App implements Ctx {
       ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
       messages: this.messages.rows,
       pointers: this.agentPointers.list(),
+      // How the door is keeping up (a475084a): frames drawn, and the hover reports a busier moment folded into the newest.
+      speed: { ...this.speed },
+      // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
+      hover: this.overflow.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       layout: this.hostLayer.desks().find(d => !this.hostLayer.isDrawer(d))?.layoutAll() ?? this.drawer.made?.layoutAll(),
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
@@ -1239,8 +1247,46 @@ export class App implements Ctx {
     this.done();
   }
 
+  /**
+   * Hover reports (the pointer moving with no button, ?1003h: one for every cell it crosses) are handled at most once a
+   * frame, and the one handled is the newest (PIE-1300): the pointer is where the last report put it, so the cells it
+   * crossed on the way aren't drawn. The newest is held until the batch being read ends, or, when one was handled less
+   * than a frame ago, until the frame is up: across reads, whatever size the link delivers them in. The one owner of
+   * that is here, beside `redraw`'s own once-a-frame rule. A click, a key, a press, a release or a drag with a button
+   * held is never held or dropped: it flushes the held hover first, so it is handled after it, at once.
+   */
+  private hovering: Key | null = null;
+  private hoverTimer: Timer | null = null;
+  private hoverAt = 0;
+  /** What the door counts about its own speed, always on and free (a475084a): read by `peek`. */
+  readonly speed = { frames: 0, motionCoalesced: 0 };
+  private flushHover() {
+    if (this.hoverTimer) { clearTimeout(this.hoverTimer); this.hoverTimer = null; }
+    const held = this.hovering;
+    this.hovering = null;
+    if (!held || this.closed) return;
+    this.hoverAt = Date.now();
+    this.pressKey(held);
+  }
+  /** The held hover is handled now when a frame has passed since the last one, else when it has. */
+  private settleHover() {
+    if (!this.hovering) return;
+    const wait = FRAME_MS - (Date.now() - this.hoverAt);
+    if (wait <= 0) this.flushHover();
+    else if (!this.hoverTimer) this.hoverTimer = setTimeout(() => { this.hoverTimer = null; this.batched(() => this.flushHover()); }, wait);
+  }
   private key(typed: Key) {
-    if (!(typed.kind === "mouse" && typed.action === "drag" && typed.button === 3)) this.lastInput = Date.now();
+    if (isHover(typed)) {
+      if (this.hovering) this.speed.motionCoalesced++;
+      this.hovering = typed;
+      if (!this.batching) this.settleHover();
+      return;
+    }
+    this.flushHover();
+    this.pressKey(typed);
+  }
+  private pressKey(typed: Key) {
+    if (!isHover(typed)) this.lastInput = Date.now();
     if (!(typed.kind === "mouse" && (typed.action === "wheel-up" || typed.action === "wheel-down"))) this.changed = true;
     // An Option character standing for an alt key is that key everywhere after this, the drawer's alt+a too.
     const k = this.optionAsAlt(typed);
@@ -1261,7 +1307,7 @@ export class App implements Ctx {
   private xrayLeader = false;
   private route(k: Key) {
     if (k.kind === "alt" && k.ch === "?") { void this.dispatch.press("text.reveal"); return; }
-    if (k.kind === "mouse" && k.action === "drag" && k.button === 3) void this.dispatch.press("text.hover", { x: k.x, y: k.y });
+    if (k.kind === "mouse" && isHover(k)) void this.dispatch.press("text.hover", { x: k.x, y: k.y });
     else if (k.kind === "mouse") this.overflow.clear();
     else this.overflow.keys();
     if (k.kind === "modifier") {
@@ -1465,8 +1511,8 @@ export class App implements Ctx {
     this.changed = true;
     if (this.paintTimer) return;
     const since = Date.now() - this.lastPaint;
-    if (since >= 16) return this.paint();
-    this.paintTimer = setTimeout(() => { this.paintTimer = null; this.paint(); }, 16 - since);
+    if (since >= FRAME_MS) return this.paint();
+    this.paintTimer = setTimeout(() => { this.paintTimer = null; this.paint(); }, FRAME_MS - since);
   }
   private lastPaint = 0;
   private paintTimer: Timer | null = null;
@@ -1479,7 +1525,7 @@ export class App implements Ctx {
   /** Read a chunk of input (Term's onBatch): every key in it is handled, then the screen is painted once. */
   private batched(run: () => void) {
     this.batching++;
-    try { run(); }
+    try { run(); if (this.batching === 1) this.settleHover(); }
     finally {
       if (--this.batching === 0 && this.wanted && !this.closed) {
         this.wanted = false;
@@ -1505,6 +1551,7 @@ export class App implements Ctx {
   private drawFrame() {
     const s = this.stack.at(-1);
     if (!s) return;
+    this.speed.frames++;
     const { cols, rows } = this.term.info;
     // The drawer (the host layer's, PIE-513) is laid over the screen's bottom rows: over one, the screen drew at
     // its full size under it; beside one, the screen drew in the rows above it (App.t).

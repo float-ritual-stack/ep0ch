@@ -59,11 +59,28 @@ export class Overflow {
   private chosen: string | null = null;
   private keyboard = false;
   private active = "";
+  private shown: Cut | undefined;
   private since = 0;
   private step = -1;
   private scrolling = false;
 
-  hover(x: number, y: number) { this.pointer = { x, y }; this.chosen = null; }
+  /** The cut-short value at a cell, if any, as `draw` keys it: one answer for what the pointer reveals and whether that changed. */
+  private cutAt(x: number, y: number): Cut | undefined { return this.cuts.find(c => c.y === y && x >= c.x && x < c.end); }
+  private static keyOf(cut: Cut | undefined): string { return cut ? `${cut.y}:${cut.x}:${cut.text}` : ""; }
+
+  /**
+   * The pointer moved to a cell. True when what it reveals is not what the last draw showed (a value came under it, or
+   * it left one): the only time a redraw has anything new. A move inside the value already read, or across plain
+   * cells, is false.
+   */
+  hover(x: number, y: number): boolean {
+    this.pointer = { x, y }; this.chosen = null;
+    return Overflow.keyOf(this.cutAt(x, y)) !== this.active;
+  }
+  /** Where the pointer rests and the value the last draw read in full, for `peek`. */
+  describe(): { pointer: { x: number; y: number } | null; reading: { x: number; y: number } | null } {
+    return { pointer: this.pointer ? { ...this.pointer } : null, reading: this.shown ? { x: this.shown.x, y: this.shown.y } : null };
+  }
   clear() { this.pointer = null; this.chosen = null; this.keyboard = false; }
   keys() { this.clear(); this.keyboard = true; }
   reveal() {
@@ -102,9 +119,10 @@ export class Overflow {
     this.cuts = [];
     const clean = lines.map((line, y) => this.readRow(line, y));
     const p = this.pointer;
-    const cut = p ? this.cuts.find(c => c.y === p.y && p.x >= c.x && p.x < c.end)
+    const cut = p ? this.cutAt(p.x, p.y)
       : this.chosen ? this.cuts.find(c => c.text === this.chosen) : this.keyboard ? [...this.cuts].reverse().find(c => c.selected) : undefined;
-    const key = cut ? `${cut.y}:${cut.x}:${cut.text}` : "";
+    this.shown = cut;
+    const key = Overflow.keyOf(cut);
     if (key !== this.active) { this.active = key; this.since = now; this.step = 0; }
     if (!cut) return { lines: clean };
     this.step = Math.max(0, Math.floor((now - this.since - 900) / 100));

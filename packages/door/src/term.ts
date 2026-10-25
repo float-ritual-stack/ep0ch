@@ -52,6 +52,13 @@ export type Key =
   | { kind: "enter" | "tab"; pasted: true };
 
 
+/**
+ * A report of the pointer moving with no button held (`?1003h`, SGR button 3 + motion): hover. The one kind of input a
+ * newer report of the same kind replaces (App.key keeps the newest of a batch), and the one that isn't the person
+ * doing something: it doesn't count as being at the keyboard.
+ */
+export const isHover = (k: Key): boolean => k.kind === "mouse" && k.action === "drag" && k.button === 3;
+
 /** The character a plain key types (not with ctrl), or "": what a list or a reader reads its letters from. */
 export const ch = (k: Key): string => (k.kind === "char" && !k.ctrl ? k.ch : "");
 /** Up a row: ↑ or k. */
