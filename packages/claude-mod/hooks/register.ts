@@ -36,6 +36,7 @@ import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-pers
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
+import { capabilityArgs, facetCountsOf, firstIdOf, logLine, outlineLabel, outlinesOf, settleAsks, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type Change, type SettleConfig, type SettleOutline, type SettleStore, type Thread } from './settle'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
@@ -454,6 +455,9 @@ export function register(on: On, options: PluginOptions): void {
     $.clock.after(0, () => void readWorkboard($, option))
     guideGiven = undefined
     $.clock.after(0, () => void readGuide($, option))
+    // The settle check, in the deployer's session only (hooks/settle.ts).
+    settleStarting = undefined
+    $.clock.after(0, () => void startSettleOnce($, option))
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     $.ui.status(statusLine(null))
     $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
@@ -773,6 +777,7 @@ export function register(on: On, options: PluginOptions): void {
     if (e.agentId === undefined) reportStatus($, turnEnded(e.reason, e.answer))
     // A module reloaded mid-session never sees its session.start.
     if (!references) $.clock.after(0, () => void loadReferences($, option))
+    if (!settleStarting) $.clock.after(0, () => void startSettleOnce($, option))
     // The binding read again now and then, so the status line follows a door's upgrade or reconnect, or a new .ep0ch.
     else if ((await $.clock.now()) - bindingReadAt >= BINDING_REFRESH_MS) $.clock.after(0, () => void readBinding($, option, true).catch(() => {}))
     if (!isIngestible(e)) return result
@@ -1698,6 +1703,139 @@ async function startMentionsOnce($: EngineInterface, option: PluginOptions): Pro
     $.ui.invalidate('ui.render')
   })().catch(() => {})
   return mentionsStarting
+}
+
+// ─── The settle check (hooks/settle.ts, PIE-1268) ──────────────────────────
+
+/** Where the last check's view of each thread is kept across sessions (`$.store`), so a thread told once isn't told again. */
+const SETTLE_KEY = 'settle.threads'
+const SETTLE_TIMEOUT_MS = 20_000
+/** The first look comes soon after the session starts; the ones after it every `every` minutes. */
+const SETTLE_FIRST_MS = 15_000
+/** Build-log lines one check writes; the rest are said in one line. */
+const SETTLE_LOG_MAX = 10
+let settleStarting: Promise<void> | undefined
+let settleTimer: { cancel: () => void } | undefined
+let settleRunning = false
+/** What the check has already said in a toast this session: a failure says itself once. */
+const toldSettle = new Set<string>()
+
+function settleToast($: EngineInterface, text: string): void {
+  if (toldSettle.has(text)) return
+  toldSettle.add(text)
+  $.ui.toast(`Settle check: ${text}`, { timeoutMs: 8000 })
+}
+
+/** Starts the check once a session, if this is the deployer's (or `settle` / EP0CH_SETTLE says on). Never throws. */
+function startSettleOnce($: EngineInterface, option: PluginOptions): Promise<void> {
+  return (settleStarting ??= (async () => {
+    settleTimer?.cancel()
+    settleTimer = undefined
+    const setting = String(option.settle ?? '').trim() || (await $.env.get('EP0CH_SETTLE')) || undefined
+    if (!settlesFor(setting, await sessionPersona($))) return
+    const tuned = tuningOf(String(option.settleTuning ?? '').trim() || (await $.env.get('EP0CH_SETTLE_TUNING')) || undefined)
+    if (tuned.problems.length) settleToast($, `settleTuning: ${tuned.problems.join('; ')}`)
+    const run = () => void runSettle($, option, tuned.config)
+    settleTimer = $.clock.every(tuned.config.every * 60_000, run)
+    $.clock.after(SETTLE_FIRST_MS, run)
+  })().catch(() => {}))
+}
+
+/**
+ * One check: for each outline it reads, the service's value counts of `thread` (three `list --facets` runs), joined into
+ * states; a thread newly settled wakes this session with one prompt for all of them; every change into or out of
+ * settled or shaped is a line under the newest build log. A failed read says so once and leaves everything as it was.
+ */
+async function runSettle($: EngineInterface, option: PluginOptions, config: SettleConfig): Promise<void> {
+  if (settleRunning) return
+  settleRunning = true
+  try {
+    if (!references?.workspace) await loadReferences($, option)
+    const bound = references?.workspace
+    if (!bound) return
+    const named = outlinesOf(String(option.settleOutlines ?? '').trim() || (await $.env.get('EP0CH_SETTLE_OUTLINES')) || undefined,
+      bound.outline ? { outline: bound.outline, ...(bound.machine ? { machine: bound.machine } : {}) } : null)
+    if (named.problems.length) settleToast($, `settleOutlines: ${named.problems.join('; ')}`)
+    const root = await outlinerRootOf($)
+    if (!root || !named.outlines.length) return
+    const at = (o: SettleOutline): Workspace => ({ root: bound.root, outline: o.outline, ...(o.machine ? { machine: o.machine } : {}), pinned: true })
+    const cli = (o: SettleOutline, args: string[]) => $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: bound.root, env: envFor(at(o)), timeoutMs: SETTLE_TIMEOUT_MS })
+    const asks = settleAsks(config)
+    const now = await $.clock.now()
+    let store = (await $.store.get(SETTLE_KEY).catch(() => undefined) ?? {}) as SettleStore
+    const woken: { outline: SettleOutline; threads: Thread[] }[] = []
+    const changes: { outline: SettleOutline; change: Change }[] = []
+    for (const outline of named.outlines) {
+      const ran = await Promise.all([cli(outline, asks.all), cli(outline, asks.evan), cli(outline, asks.shaped)])
+      const counts = ran.map(r => (r.exitCode === 0 ? facetCountsOf(r.stdout) : null))
+      const [all, evan, shaped] = counts
+      if (!all || !evan || !shaped) {
+        const why = ran.find(r => r.exitCode !== 0)
+        settleToast($, `${outlineLabel(outline)} could not be read${why ? `: ${failureReasonOf(why.stderr) || why.stderr.trim()}` : ' (its host does not answer list --facets: ep0ch install --apply there)'}.`)
+        continue
+      }
+      const diff = settleDiff(store, outline, threadsOf(all, evan, shaped, now, config))
+      store = diff.next
+      if (diff.wake.length) woken.push({ outline, threads: diff.wake })
+      for (const change of diff.changes) changes.push({ outline, change })
+    }
+    await $.store.set(SETTLE_KEY, store)
+    await logSettleChanges($, bound, root, changes, now)
+    if (woken.length) await wakeSettled($, config, named.outlines, woken, now, cli, store)
+  } catch (error) {
+    settleToast($, error instanceof Error ? error.message : String(error))
+  } finally {
+    settleRunning = false
+  }
+}
+
+/**
+ * The wake: one prompt naming the newest `wakeMax` settled threads, each with the capability note that carries its
+ * `thread`. Only those are marked told, and only once the prompt went: the others, and a wake that failed, are named at
+ * the next check.
+ */
+async function wakeSettled(
+  $: EngineInterface, config: SettleConfig, outlines: SettleOutline[], woken: { outline: SettleOutline; threads: Thread[] }[], now: number,
+  cli: (o: SettleOutline, args: string[]) => Promise<{ exitCode: number; stdout: string }>, store: SettleStore,
+): Promise<void> {
+  const all = woken.flatMap(w => w.threads.map(thread => ({ outline: w.outline, thread }))).sort((a, b) => b.thread.last - a.thread.last)
+  const shown = all.slice(0, config.wakeMax)
+  const lines = await Promise.all(shown.map(async ({ outline, thread }) => {
+    // The capability note may be in any outline the check reads (the chirps are in one, the notes they shape in another).
+    let link: string | null = null
+    for (const o of outlines) {
+      const found = await cli(o, capabilityArgs(thread.thread)).then(r => (r.exitCode === 0 ? firstIdOf(r.stdout) : null), () => null)
+      if (found) { link = `((${found}))`; break }
+    }
+    return wakeLine(thread, outline, now, link)
+  }))
+  try {
+    // Marked before the call returns: it resolves as the turn starts, which can wait for the session to go idle.
+    let next = store
+    for (const { outline, thread } of shown) next = told(next, outline, [thread])
+    await $.store.set(SETTLE_KEY, next)
+    await $.prompt.submit({ text: wakeText(lines, all.length - shown.length) })
+  } catch (error) {
+    await $.store.set(SETTLE_KEY, store).catch(() => {})
+    settleToast($, `could not wake this session (${error instanceof Error ? error.message : String(error)}); the next check tries again.`)
+  }
+}
+
+/** One line a change under the bound outline's newest build log, written as the session's persona. No build log: said once, nothing invented. */
+async function logSettleChanges($: EngineInterface, bound: Workspace, root: string, changes: { outline: SettleOutline; change: Change }[], now: number): Promise<void> {
+  if (!changes.length) return
+  const env = envFor(bound)
+  const logs = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...listArgs(BUILD_LOG_QUERY, LIST_LIMIT, 'id,title,timestamps')], { cwd: bound.root, env, timeoutMs: SETTLE_TIMEOUT_MS })
+    .then(r => (r.exitCode === 0 ? listedOf(r.stdout) : null), () => null)
+  const newest = [...(logs?.blocks ?? [])].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))[0]
+  if (!newest) return settleToast($, `${changes.length} thread ${changes.length === 1 ? 'change' : 'changes'} not logged: ${bound.outline ?? 'the outline'} has no note with [type::build-log].`)
+  const actor = await actorFor($, {})
+  const texts = changes.slice(0, SETTLE_LOG_MAX).map(({ outline, change }) => logLine(change, outline, now))
+  if (changes.length > SETTLE_LOG_MAX) texts.push(`and ${changes.length - SETTLE_LOG_MAX} more thread state changes`)
+  for (const text of texts) {
+    const ran = await $.process.run(['ep0ch', 'new', text, '--near', newest.id, '--as', actor], { cwd: bound.root, env, timeoutMs: SETTLE_TIMEOUT_MS })
+    if (ran.exitCode !== 0) return settleToast($, `a thread change was not logged: ${failureReasonOf(ran.stderr) || ran.stderr.trim()}`)
+  }
 }
 
 /**

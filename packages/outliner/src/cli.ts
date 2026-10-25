@@ -65,7 +65,7 @@ The outline host's command line: each command asks the outline this folder names
 .ep0ch). Writes take --author user|agent|system and --actor <id> (--session <id>); an agent names itself.
 
 Reading
-  list [--filter key=value]… [--query <expression>] [--text <words>] [--subtree <id>] [--limit <n>] [--fields <f,…>]
+  list [--filter key=value]… [--query <expression>] [--text <words>] [--subtree <id>] [--limit <n>] [--fields <f,…>] [--facets <key,…> [--facet-values <n>]]
   read <id>… [--fields <f,…>]          blocks by id, whole or the fields named
   view <view id> [--limit <n>] [--offset <n>] [--expected <revision>]
                                        a saved view's members, as the service reads them
@@ -884,6 +884,8 @@ switch (command) {
         subtree: { type: "string" },
         "property-scope": { type: "string" },
         fields: { type: "string" },
+        facets: { type: "string" },
+        "facet-values": { type: "string" },
       },
       strict: true,
     });
@@ -898,9 +900,12 @@ switch (command) {
         ? undefined
         : normalizePropertyQueryScope(values["property-scope"]),
       limit,
+      // The service counts each key's values over every match, however small `--limit` is (a settle check asks `--limit 1`).
+      ...(values.facets === undefined ? {} : { facets: values.facets.split(",").map((key) => key.trim()).filter(Boolean) }),
+      ...(values["facet-values"] === undefined ? {} : { facetValues: Number(values["facet-values"]) }),
     };
     // An older service ignores `where` and would return unfiltered results.
-    if (query.where !== undefined) await client.requireCompatibleService();
+    if (query.where !== undefined || query.facets !== undefined) await client.requireCompatibleService();
     request = {
       action: "blocks.query",
       query,

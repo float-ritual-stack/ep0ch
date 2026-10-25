@@ -1377,3 +1377,152 @@ describe('a session names its outline, and the shell\'s folder never picks it (P
     expect(denied.deny).toContain('outline_bind {"name":"gurgle"}')
   })
 })
+
+describe('the settle check (PIE-1268)', () => {
+  const MIN = 60_000
+  const CAPABILITY = '46e391fb-dcd7-46eb-a6f2-f8f71d45f5cb'
+  const LOG = '4badf9a8-7bb3-4715-9702-7c30605bd96e'
+  const LOKI = { name: 'loki', source: 'file', file: `${WORKSPACE}/.ep0ch` }
+  /** `ago`: minutes before the clock's now when it was first asked; it is then fixed, so time passing is not activity. */
+  type Fake = { count: number; evan: number; ago: number; shaped?: boolean; last?: number }
+
+  /**
+   * A session whose outline holds `threads`, each last touched `ago` minutes before the clock's now (the test moves
+   * it), answering the three facet questions by their query, the capability and build-log lookups, and recording the
+   * wakes (prompt.submit) and the lines written under the build log (`ep0ch new`).
+   */
+  function settleSession(on: On, threads: Record<string, Fake>, persona: object | null = LOKI, env: Record<string, string> = {}, noFacets = false) {
+    const session = sessionIn(on, WORKSPACE, run => {
+      const query = run.argv[run.argv.indexOf('--query') + 1] ?? ''
+      if (run.argv[0] === 'ep0ch' && run.argv[1] === 'where') return result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona } }), '')
+      if (run.argv.includes('--facets')) {
+        // An older host: the service answers without the facet.
+        if (noFacets) return result(0, '{"blocks":[]}', '')
+        const now = session.clock.now()
+        const rows = Object.entries(threads).flatMap(([thread, t]) => {
+          const count = query.startsWith('type=roadmap-item') ? (t.shaped ? 1 : 0) : query.includes('by:user') ? t.evan : t.count
+          t.last ??= now - t.ago * MIN
+          return count ? [{ value: thread, count, last: new Date(t.last).toISOString() }] : []
+        })
+        return result(0, JSON.stringify({ blocks: [], facets: [{ key: 'thread', count: rows.length, values: rows }] }), '')
+      }
+      if (query.includes('type=capability')) return result(0, JSON.stringify({ blocks: query.includes('"zucchini"') ? [{ id: CAPABILITY, title: 'Zucchini' }] : [] }), '')
+      if (query.includes('type=build-log')) return result(0, JSON.stringify({ blocks: [{ id: LOG, title: 'Build log, Oct 25', properties: [], createdAt: '2026-10-25T00:00:00Z' }] }), '')
+      return succeeding(run)
+    }, '', { EP0CH_SETTLE_OUTLINES: '', ...env })
+    on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
+    mock.store(on)
+    const wakes: string[] = []
+    on('prompt.submit', ($, e) => { wakes.push(e.text); return { drop: 'test' } as any })
+    const lines = () => session.runs.filter(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'new').map(r => r.argv[2]!)
+    const asked = () => session.runs.filter(r => r.argv.includes('--facets')).length
+    return { session, threads, wakes, lines, asked }
+  }
+
+  async function start($: any, s: ReturnType<typeof settleSession>) {
+    await s.session.clock.set(Date.parse('2026-10-25T12:00:00Z'))
+    await s.session.begin(() => $.session.start(START))
+    // The first look comes soon after the session starts.
+    await s.session.clock.advance(20_000)
+  }
+
+  test('the deployer\'s session wakes once on a newly settled thread, with its counts and capability, and writes the change under the build log', async ($, on) => {
+    const s = settleSession(on, {
+      zucchini: { count: 4, evan: 2, ago: 90 },
+      beans: { count: 5, evan: 1, ago: 10 },
+      thin: { count: 1, evan: 1, ago: 500 },
+      tickets: { count: 6, evan: 2, ago: 500, shaped: true },
+    })
+    await start($, s)
+    expect(s.wakes).toHaveLength(1)
+    expect(s.wakes[0]).toContain(`thread zucchini (garden) settled: 4 chirps, 2 Evan's, quiet 90 min, capability ((${CAPABILITY}))`)
+    // Warming, too thin and already shaped threads are not in it.
+    for (const name of ['beans', 'thin', 'tickets']) expect(s.wakes[0]).not.toContain(`thread ${name}`)
+    // A new settled thread is a change; a thread first seen shaped was shaped before, and says nothing.
+    expect(s.lines()).toEqual(['Thread zucchini (garden): new → settled · 4 chirps, 2 Evan\'s, quiet 90 min'])
+    const written = s.session.runs.find(r => r.argv[0] === 'ep0ch' && r.argv[1] === 'new')!
+    expect(written.argv).toEqual(expect.arrayContaining(['--near', LOG, '--as', 'loki/claude-code@garden-host']))
+
+    // The next check, nothing changed (beans is still warming): nothing said again.
+    await s.session.clock.advance(31 * MIN)
+    expect(s.asked()).toBe(6)
+    expect(s.wakes).toHaveLength(1)
+    expect(s.lines()).toHaveLength(1)
+  })
+
+  test('a settled thread that warms and goes quiet again wakes again, and each change is one build-log line', async ($, on) => {
+    const s = settleSession(on, { zucchini: { count: 4, evan: 2, ago: 90 } })
+    await start($, s)
+    expect(s.wakes).toHaveLength(1)
+    // New activity: warming. Quiet for the window again: settled once more, with a newer touch than the one told.
+    s.threads.zucchini = { count: 5, evan: 2, ago: 1 }
+    await s.session.clock.advance(31 * MIN)
+    expect(s.wakes).toHaveLength(1)
+    await s.session.clock.advance(62 * MIN)
+    expect(s.wakes).toHaveLength(2)
+    expect(s.wakes[1]).toContain('5 chirps')
+    expect(s.lines().map(l => l.replace(/ · .*/, ''))).toEqual([
+      'Thread zucchini (garden): new → settled',
+      'Thread zucchini (garden): settled → warming',
+      'Thread zucchini (garden): warming → settled',
+    ])
+  })
+
+  test('a thread that gets a ticket is shaped and stops being watched', async ($, on) => {
+    const s = settleSession(on, { zucchini: { count: 4, evan: 2, ago: 90 } })
+    await start($, s)
+    s.threads.zucchini = { count: 4, evan: 2, ago: 120, shaped: true }
+    await s.session.clock.advance(31 * MIN)
+    expect(s.lines().at(-1)).toContain('settled → shaped')
+    await s.session.clock.advance(31 * MIN)
+    expect(s.wakes).toHaveLength(1)
+    expect(s.lines()).toHaveLength(2)
+  })
+
+  test('one wake names the newest few; the others wait for the next check, which names them', async ($, on) => {
+    const many = Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`t${i}`, { count: 3, evan: 1, ago: 100 + i * 10 }]))
+    const s = settleSession(on, many, LOKI, { EP0CH_SETTLE_TUNING: 'wake-max=3' })
+    await start($, s)
+    expect(s.wakes).toHaveLength(1)
+    expect(s.wakes[0]).toContain('7 threads have gone quiet')
+    expect(s.wakes[0]).toContain('- and 4 more')
+    expect(s.wakes[0]).toContain('thread t0 ')
+    expect(s.wakes[0]).not.toContain('thread t3 ')
+    await s.session.clock.advance(31 * MIN)
+    expect(s.wakes).toHaveLength(2)
+    expect(s.wakes[1]).toContain('4 threads have gone quiet')
+    expect(s.wakes[1]).toContain('thread t3 ')
+    expect(s.wakes[1]).not.toContain('thread t0 ')
+  })
+
+  test('thresholds are the settleTuning: a thread needs the notes and the person\'s own, and a dormant one is left alone', async ($, on) => {
+    const s = settleSession(on, {
+      two: { count: 2, evan: 1, ago: 100 },
+      nobody: { count: 5, evan: 0, ago: 100 },
+      dormant: { count: 5, evan: 2, ago: 9 * 24 * 60 },
+    })
+    await start($, s)
+    expect(s.wakes).toEqual([])
+    expect(s.lines()).toEqual([])
+  })
+
+  test('only the deployer\'s session runs it, unless EP0CH_SETTLE says on or off', async ($, on) => {
+    const other = settleSession(on, { zucchini: { count: 4, evan: 2, ago: 90 } }, { name: 'testbot', source: 'file', file: `${WORKSPACE}/.ep0ch` })
+    await start($, other)
+    expect(other.asked()).toBe(0)
+    expect(other.wakes).toEqual([])
+  })
+
+  test('EP0CH_SETTLE=on runs it in any session, and off stops the deployer\'s', async ($, on) => {
+    const forced = settleSession(on, { zucchini: { count: 4, evan: 2, ago: 90 } }, null, { EP0CH_SETTLE: 'on' })
+    await start($, forced)
+    expect(forced.wakes).toHaveLength(1)
+  })
+
+  test('a host that cannot answer list --facets is one toast and no wake', async ($, on) => {
+    const s = settleSession(on, { zucchini: { count: 4, evan: 2, ago: 90 } }, LOKI, {}, true)
+    await start($, s)
+    expect(s.wakes).toEqual([])
+    expect(s.session.toasts.filter(t => t.includes('list --facets'))).toHaveLength(1)
+  })
+})

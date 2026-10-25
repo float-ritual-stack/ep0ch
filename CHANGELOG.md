@@ -29,6 +29,17 @@ What the wyrm door game ran into building on scripts, fixed in the parts it used
 No protocol change. A wyrm installed before this keeps its old screens as notes ("Player sheet", "Town board" under its
 page) and its join button; they win over the new files. Delete them and reinstall to take the shipped ones.
 
+### The settle check: threads gather while warm, and loki is woken when one goes quiet (PIE-1268)
+
+In loki's session the Claude mod now looks at every `[thread::…]` every 30 minutes, in gurgle and pie. A thread is
+warming while it is being touched, settled once it has 3 notes (one of them yours) and an hour of quiet, shaped once
+roadmap items carry it. A newly settled thread wakes the session with its counts and capability note (the five newest
+at a time), and each move into or out of settled or shaped is a line under the day's build log. pie's new Threads page
+shows warming and shaped live. `outliner list` takes `--facets <key,…>` (and `--facet-values <n>`) for the service's
+value counts of any key over every match. To read gurgle too, set `EP0CH_SETTLE_OUTLINES=gurgle@float-2,pie@float-2`
+in loki's environment; `EP0CH_SETTLE=on|off` and `EP0CH_SETTLE_TUNING` change who runs it and the thresholds
+(`packages/claude-mod/README.md`). No protocol change.
+
 ### Signed in, the site never locks a note against its owner (PIE-1265)
 
 `[publish::never]` now means "never share this outside". Signed in as yourself, the published site draws every note as

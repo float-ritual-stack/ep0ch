@@ -354,6 +354,33 @@ rows on. Only the outline host has to run: no door, no Herdr.
   passes `revision` (without it, an edit isn't seen until the session restarts).
   `source` defaults to the session's outline (its folder and `EP0CH_WS`).
 
+## The settle check (PIE-1268)
+
+In the deployer's session (the persona `loki`) the mod runs a check every 30 minutes, so ideas can gather while they are
+warm and the deployer shapes and builds once they go quiet. The capability is "Settle, then shape" in pie; the loki skill
+has the steps for a wake.
+
+- **What it asks:** per `thread` value, the notes in it (roadmap items excluded), how many are the person's own
+  (`by:user OR actor=evan OR text~"Evan, "`), and the last update, from the service's value counts
+  (`outliner list --query <q> --facets thread`, three runs; counts are over every match, however many notes there are).
+  Nothing here decides what a thread is: `settle.ts` joins the three answers and applies the thresholds.
+- **States:** warming (touched within `quiet` minutes), settled (at least `chirps` notes, `evan` of them the person's,
+  quiet for `quiet` minutes and for no more than `within`), shaped (a roadmap item carries the thread: put
+  `[thread::<x>]` on tickets cut from it), else quiet.
+- **A wake** is one prompt naming the `wake-max` newest newly settled threads (`thread <x> settled: <n> chirps, <m>
+  Evan's, quiet <t> min, capability <link>`; the capability is the `type=capability` note carrying the same `thread`).
+  A thread already told isn't told again until it is touched and goes quiet again; the others, and a wake that did not go,
+  are named at the next check. What was told is kept in `$.store` (`settle.threads`).
+- **Build log:** each move into or out of settled or shaped is a child of the newest `[type::build-log]` note, written as
+  the session's persona. No build log: one toast, nothing invented.
+- **Who and where:** a session whose persona is `loki`; `settle` (option) or `EP0CH_SETTLE` = `on` or `off` decides
+  outright. The outlines are `settleOutlines` or `EP0CH_SETTLE_OUTLINES` (`gurgle@float-2, pie@float-2`; default the
+  session's own). `settleTuning` or `EP0CH_SETTLE_TUNING` is `chirps=3; evan=1; quiet=60; within=10080; every=30;
+  wake-max=5; base=…; evan-query=…; shaped-query=…` (minutes; the queries are in the views' grammar). The defaults are
+  guesses to tune from a week of real threads.
+- A host older than `list --facets` is one toast naming `ep0ch install --apply`; the check changes nothing until it
+  can read.
+
 ## Workboard tools
 
 In a bound folder Claude also gets `work_create`, `work_stage`, `work_set`, `work_link`,
