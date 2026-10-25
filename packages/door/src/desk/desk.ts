@@ -3266,7 +3266,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const band = this.band();
     const top = band ? Math.max(0, Math.min(rows - 6, band.kind.rows(band.pane, cols, rows, this))) : 0;
     this.bandHits = top ? [{ col: 0, row: 0, cols, rows: top }] : [];
-    const area: Rect = { col: 0, row: top, cols, rows: rows - 2 - top };
+    const area: Rect = { col: 0, row: top, cols, rows: rows - (this.holder ? 1 : 2) - top };
     this.area = area;
     this.slid = [];
     const zoomed = this.zoom !== null && this.panes.has(this.zoom);
@@ -3407,6 +3407,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const p = this.focusedPane(), values = p ? this.lookAt(p, cols).values : lookFor(this.lookSrc, { screen: this.name }, cols).values;
       withRowLimit(values["rows.lines"], () => o.draw(canvas, { col: 0, row: 0, cols, rows: rows - 2 }, values));
       placements = [];
+    }
+    // A screen mounted in a tile has no hint row of its own: the outermost screen's says the focused tile's keys (PIE-1305).
+    // It still works its own chord box out (the person is in it), which draws in its rectangle.
+    if (this.holder) {
+      this.hintRow = -1;
+      this.hintFull = null; this.moreChip = null; this.keySpots = []; this.handles = []; this.lockChip = null; this.hyperChip = null;
+      this.hintBox = null;
+      this.hintText();
+      if (this.hintBox) { this.drawHintMore(canvas, cols, rows); placements = []; }
+      return { lines: canvas.lines(), placements };
     }
     this.hintRow = rows - 2;
     const hint = this.hints(cols);
@@ -3572,7 +3582,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = this.boxOf(id, r0);
     // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it (a dock's
     // or a float's on the black it slides over).
-    const framed: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
+    // A tile with a screen of its own in it (a mount, a group) is its header and nothing else: the tiles inside have their
+    // frames, so a second box around them would double every border (PIE-1305).
+    const nests = !!pane.nestsTiles?.();
+    const framed: Rect = nests ? { col: r.col, row: r.row + 1, cols: r.cols, rows: r.rows - 1 } : { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
     const look = this.lookAt(pane, framed.cols), lv = look.values;
     // Joined (PIE-886): no frame, a tinted pane that reads as part of the tile it follows, as the admin tree's preview does.
     // `border=joined` asks for it; a preview of a tree has it unless its look says another border.
@@ -3585,7 +3598,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const reader = pane instanceof ReaderPane ? pane : null;
     const gutter = this.readerGutter(pane, framed.cols);
     if (reader) reader.gutterCols = gutter;
-    const inner = contentRect({ ...framed, col: framed.col + gutter, cols: framed.cols - gutter }, look, !!pane.measured, pane.beside?.() ?? 0);
+    const inner = nests ? framed : contentRect({ ...framed, col: framed.col + gutter, cols: framed.cols - gutter }, look, !!pane.measured, pane.beside?.() ?? 0);
     if (gutter) this.gutters.set(id, { col: framed.col, row: inner.row, cols: gutter, rows: inner.rows });
     else this.gutters.delete(id);
     if (reader) reader.innerFrame = { col: framed.col - inner.col, row: framed.row - inner.row, cols: framed.cols, rows: framed.rows };
@@ -3662,11 +3675,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // around this screen (the showcase's index beside its stage).
     // At rest, the lines its look's `border` names (auto: the screen's frame; none: blank edges, the title kept).
     const lines = lv.border === "none" || joined ? NO_BOX : lv.border !== "auto" && lv.border !== "joined" ? BORDER_BOXES[lv.border] : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
-    const glyphs = keys ? FOCUS_BOX : arrival ? LINE_BOX : lines;
+    const glyphs = nests ? NO_BOX : keys ? FOCUS_BOX : arrival ? LINE_BOX : lines;
     const frameInk = (cover === "peek" && !focused && !arrival ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : "");
     const pointers = this.ctx?.agentPointers?.list(this).filter(p => p.tile === this.tileId(id)) ?? [];
     const pointerText = pointers.map(p => `@${p.agent}${p.line ? `:${p.line}` : ""}`).join(" ");
-    const foot = fitHint(armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, Math.max(0, r.cols - 4)).text;
+    const foot = nests ? "" : fitHint(armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, Math.max(0, r.cols - 4)).text;
     canvas.box(r, float && !arrival ? fgRgb(floatTheme(lv).border) : frameInk, armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, pointerText ? `${fg(C.dark)}${pointerText}${foot ? ` · ${foot}` : ""}` : foot, glyphs);
     if (badgeWidth) canvas.text(liftX - badgeWidth - 1, r.row, fg(C.yellow) + liftBadge + RESET, badgeWidth);
     if (lifts) {
@@ -4115,8 +4128,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A float's frame hint, with this screen's keys for putting it back and closing it (the board has its own o and x). */
   private floatHint(): string { return "drag title · drag ◢ · H J K L move · ^W f back in · ^W x close · ^N another · its title onto a header or edge docks it"; }
 
+  /**
+   * The hint row (the outermost screen's alone, PIE-1305): the keys of the focused tile, wherever it is nested, in this
+   * desk's row with its own dock handles and lock chip. A mounted desk draws none (it speaks through this).
+   */
   private hints(cols: number): string {
-    const rd = this.panes.get(this.focus);
     // The docks slid shut, as handles at the end of the row (its edge, what it holds): a click opens one, and a
     // tile dropped on one goes into it. Then the lock chip: a click locks or unlocks the screen (layout.lock).
     // A dock holding a named container reads by its name (the board's outline); else by its tiles'.
@@ -4147,14 +4163,31 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.moreChip = { from: f.at + 3, to: f.at + MORE_WIDTH };
       return f.text;
     };
-    // A source's model says the screen's hint its way (the board's: a card trashed before it, its status after).
-    const decorate = (s: string) => [...this.models.values()].reduce((h, m) => m.decorate?.(h) ?? h, s);
     const line = (s: string) => {
-      const t = fit(decorate(s));
+      const t = fit(s);
       // Its keys, but "? more" (its own chip: ? would be typed into a draft).
       this.keySpots = hintSpots(t, keyStyles()).filter(p => !this.moreChip || p.from < this.moreChip.from).map(p => ({ ...p, y: this.hintRow }));
       return pad(t, room) + tail;
     };
+    return line(this.hintDesk().hintText());
+  }
+
+  /** The desk the hint row speaks for: this one, or the one down through mounts where the focus is, unless a mode of its own (a chord, a drag, a link) is going on. */
+  private hintDesk(): Desk {
+    let d: Desk = this;
+    for (;;) {
+      const p = d.panes.get(d.focus);
+      if (d.prefix || d.dragging || d.floatDrag || d.drag || d.linking || d.pickedBy(USER).length || !(p instanceof ScreenTile) || !p.inner || !p.nestsTiles()) return d;
+      d = p.inner;
+    }
+  }
+
+  /** What this desk's hint row says now, before the row fits it (the focused tile's keys, or the mode it is in). */
+  private hintText(): string {
+    const rd = this.panes.get(this.focus);
+    // A source's model says the screen's hint its way (the board's: a card trashed before it, its status after).
+    const decorate = (s: string) => [...this.models.values()].reduce((h, m) => m.decorate?.(h) ?? h, s);
+    const line = (s: string) => decorate(s);
     // A refusal of the person's key on a tile folded to a spine (PIE-727): the spine has no edge to say it on, so the
     // screen's hint row under it says it, as the tile's frame would.
     const spineNo = !!this.contentCover(this.focus).fold && this.keysHere() ? this.ctx?.refusal?.() ?? null : null;
@@ -4268,7 +4301,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   key(k: Key, ctx: Ctx): void {
     if (k.kind === "mouse" && (k.mods ?? 0) === ZOOM_WHEEL.mods && (k.action === "wheel-up" || k.action === "wheel-down")) {
       const hit = this.hits.find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
-      if (hit && (k.y === hit[1].row || k.y === hit[1].row + hit[1].rows - 1 || k.x === hit[1].col || k.x === hit[1].col + hit[1].cols - 1)) {
+      if (hit && this.onFrame(hit[0], k.x, k.y)) {
         const reaches = ["screen", "column", "full"] as const;
         const current = this.layout.lift?.tile === hit[0] ? this.layout.lift.reach : "screen";
         const reach = reaches[Math.max(0, Math.min(2, reaches.indexOf(current) + (k.action === "wheel-up" ? 1 : -1)))]!;
@@ -6409,9 +6442,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { x: Math.max(0, Math.min(c.cols - 1, x - c.col)), y: Math.max(0, Math.min(c.rows - 1, y - c.row)) };
   }
 
+  /** Whether cell (x, y) is in tile `id`'s body, inside its frame at `r` (a tile with a screen in it runs to its edges: only its header row is frame). */
+  private inBody(id: number, r: Rect, x: number, y: number): boolean {
+    if (this.panes.get(id)?.nestsTiles?.()) return x >= r.col && x < r.col + r.cols && y > r.row && y < r.row + r.rows;
+    return x > r.col && y > r.row && x < r.col + r.cols - 1 && y < r.row + r.rows - 1;
+  }
+
   /** A right-click at screen cell `x`, `y` in tile `id` (drawn at `r`) is the tile's own (a program that asked for the mouse, a step's box). */
   private ownsRightClick(id: number, r: Rect, x: number, y: number): boolean {
-    if (y <= r.row || x <= r.col || x >= r.col + r.cols - 1 || y >= r.row + r.rows - 1) return false;
+    if (!this.inBody(id, r, x, y)) return false;
     const at = this.local(id, r, x, y);
     return !!this.panes.get(id)?.ownsRightClick?.(at.x, at.y);
   }
@@ -6903,7 +6942,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Whether (x, y) is on tile `id`'s frame as drawn: its header row or an edge (where a drag moves or sizes it). */
   private onFrame(id: number, x: number, y: number): boolean {
     const r = this.hits.find(([hid]) => hid === id)?.[1];
-    return !!r && y >= r.row && y < r.row + r.rows && x >= r.col && x < r.col + r.cols && (y === r.row || y === r.row + r.rows - 1 || x === r.col || x === r.col + r.cols - 1);
+    return !!r && y >= r.row && y < r.row + r.rows && x >= r.col && x < r.col + r.cols && (y === r.row || (!this.panes.get(id)?.nestsTiles?.() && (y === r.row + r.rows - 1 || x === r.col || x === r.col + r.cols - 1)));
   }
   /** A click inside the reader the person is editing in: the surface's (a completion candidate), or false. */
   private clickIn(pane: ReaderPane, k: Extract<Key, { kind: "mouse" }>): boolean {
@@ -6930,7 +6969,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A drag in an open edit selects in its draft (the press placed the cursor).
     if (k.action === "drag") { if (this.editPressed !== pane) return false; pane.drag(x, y, this); return true; }
     // Only where the reader is on top: a float or a dock drawn over its popup keeps the click.
-    if (!(this.topTileAt(k.x, k.y) === at![0] && k.x > hit.col && k.y > hit.row && k.x < hit.col + hit.cols - 1 && k.y < hit.row + hit.rows - 1)) return false;
+    if (!(this.topTileAt(k.x, k.y) === at![0] && this.inBody(at![0], hit, k.x, k.y))) return false;
     this.editPressed = pane;
     this.editFloat = !!pane.surface.floatAt(k.x - o.col, k.y - o.row);
     this.editFresh = !!((k.mods ?? 0) & 24);
@@ -7230,7 +7269,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const focusing = id !== this.focus;
       if (focusing) this.run("tile.focus", {}, this.nameOf(id));
       // Inside the frame only: its border (and the scroll thumb drawn on it) isn't the pane's.
-      if (k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1) {
+      if (this.inBody(id, r, k.x, k.y)) {
         const pane = this.panes.get(id);
         const { x, y } = this.local(id, r, k.x, k.y);
         const how: RowPress = { mods: k.mods ?? 0, button: k.button, focusing };

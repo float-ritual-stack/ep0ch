@@ -310,4 +310,36 @@ describe.skipIf(!outliner)("a mounted screen is one screen with the one around i
     await D().dispatch.press("tile.zoom", { on: false }, m.tile);
     await D().dispatch.press("tile.close", {}, m.tile);
   }, 20_000);
+
+  /** The rectangle of tile `id` of `d` on the screen: its desk's own origin (the mount holding it) added. */
+  const onScreen = (d: any, id: number, origin = { col: 0, row: 0 }) => { const r = d.placed.rects.get(id); return { col: r.col + origin.col, row: r.row + origin.row, cols: r.cols, rows: r.rows }; };
+  const VERTICAL = /[│║┃|]/;
+
+  test("two levels of nested mounts draw one hint row and no mount draws a second box", async () => {
+    const a = await act("tile.open", { kind: "screen", screen: "lastcall" }, focusId());
+    await settle();
+    const outer = mountPane(a.name);
+    const inner = outer.pane.inner as any;
+    const b = await act("tile.open", { kind: "screen", screen: "who" }, `${a.tile}/activity`);
+    await settle(6);
+    const nested = [...inner.panes].find(([, p]: [number, any]) => p.kind === "screen");
+    expect(nested).toBeDefined();
+    const lines = frame();
+    if (process.env.DUMP_FRAME) console.log(lines.join("\n"));
+    // One hint row for the whole door: the outermost screen's.
+    expect(lines.filter(l => l.includes("Tab/1-9 focus"))).toHaveLength(1);
+    expect(lines.at(-1)).toContain("Tab/1-9 focus");
+    // A mount's frame is its header: where it meets the tiles inside it there are never two vertical borders side by side.
+    const rects = [onScreen(D(), outer.id), onScreen(inner, nested![0], D().contents.get(outer.id))];
+    for (const r of rects) {
+      for (let y = r.row + 1; y < r.row + r.rows - 1; y++) {
+        const row = [...lines[y]!];
+        expect(VERTICAL.test(row[r.col]!) && VERTICAL.test(row[r.col + 1]!), `row ${y} left edge of the mount at ${r.col}: ${lines[y]!.slice(r.col, r.col + 4)}`).toBe(false);
+        const right = r.col + r.cols - 1;
+        expect(VERTICAL.test(row[right]!) && VERTICAL.test(row[right - 1]!), `row ${y} right edge of the mount at ${right}`).toBe(false);
+      }
+    }
+    await act("tile.close", {}, b.tile);
+    await act("tile.close", {}, a.tile);
+  }, 30_000);
 });
