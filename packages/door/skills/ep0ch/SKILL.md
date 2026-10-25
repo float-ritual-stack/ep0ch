@@ -146,7 +146,7 @@ the ep0ch checkout), or it started without them, it has no door tools or old one
 `▲ claude · door tools` when current, `▲ claude · started before update ⟳` (or `no door tools ⟳`) when not.
 `ep0ch act agent.knows` says the same with why; `ep0ch doctor` lists every door agent on an older mod.
 A click on `⟳`, `alt+R` or `ep0ch act agent.restart` restarts the door's agent, keeping the conversation
-(a bare `claude` gets `--continue` on this restart only; in Herdr it comes back in the session's pane). Your `agent.restart` is refused while the person types in the agent. A `claude` you started in a tile
+(a bare `claude` gets `--continue` on this restart only, and only when its folder holds a conversation with a turn in it; in Herdr it comes back in the session's pane). Your `agent.restart` is refused while the person types in the agent. A `claude` you started in a tile
 yourself (path 1): `/exit`, then `claude --continue`.
 
 - **Who it's from:** each act and open goes with `--as`, the same actor id the mod's outline writes carry

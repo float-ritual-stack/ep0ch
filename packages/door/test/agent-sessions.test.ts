@@ -11,7 +11,7 @@ import { Desk } from "../src/desk/desk";
 import { PtyPane } from "../src/desk/pty";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
-import { agentIn, agentOf, claudeProjectDir, configsOf, piSessionDir, pickSession, resumeArgs, sessionCommand, tildeOf, withIds } from "../src/desk/agent-sessions";
+import { agentIn, agentOf, claudeProjectDir, configsOf, hasConversation, piSessionDir, pickSession, resumeArgs, sessionCommand, tildeOf, withIds } from "../src/desk/agent-sessions";
 import { agentArgs } from "../src/agent-cli";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -44,8 +44,15 @@ describe("the model, without a door", () => {
     mkdirSync(claudeProjectDir(garden, env, home), { recursive: true });
     expect(claudeProjectDir(garden, env, home)).toEndWith("-home-someone-garden-shed");
     expect(resumeArgs("claude", garden, env, home)).toEqual([]);           // a folder with no conversation in it
-    writeFileSync(join(claudeProjectDir(garden, env, home), "a1.jsonl"), "{}\n");
+    // Claude's transcript of a start closed before any prompt holds settings lines only; `--continue` refuses it.
+    const sid = "00000000-1111-4222-8333-444444444444";
+    const settings = [`{"type":"last-prompt","leafUuid":"${sid}","sessionId":"${sid}"}`, `{"type":"agent-setting","agentSetting":"claude","sessionId":"${sid}"}`, `{"type":"mode","mode":"normal","sessionId":"${sid}"}`];
+    writeFileSync(join(claudeProjectDir(garden, env, home), "a1.jsonl"), settings.join("\n") + "\n");
+    expect(resumeArgs("claude", garden, env, home)).toEqual([]);           // settings lines are not a conversation
+    expect(sessionCommand("claude", [], garden, env)).toEqual(["claude"]);
+    writeFileSync(join(claudeProjectDir(garden, env, home), "a2.jsonl"), [settings[0], `{"parentUuid":null,"type":"user","message":{"role":"user","content":"water the beans"},"sessionId":"${sid}"}`].join("\n") + "\n");
     expect(resumeArgs("claude", garden, env, home)).toEqual(["--continue"]);
+    expect(hasConversation("claude", garden, env, home)).toBe(true);
     expect(resumeArgs("claude", "/home/someone/potting-bench", env, home)).toEqual([]);
     mkdirSync(piSessionDir(garden, home), { recursive: true });
     writeFileSync(join(piSessionDir(garden, home), "s.jsonl"), "{}\n");
@@ -127,6 +134,42 @@ describe("the model, without a door", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // A restart that keeps the conversation (tile.restart, the Herdr launcher's EP0CH_AGENT_CONTINUE) asks the same
+  // question as a start: a fresh claude, with no turn in its folder, runs bare instead of dying on --continue.
+  test.skipIf(process.platform !== "linux")("restarting a claude continues it only where the folder holds a conversation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ep0ch-restart-"));
+    const cfg = join(dir, "config"), fresh = join(dir, "fresh-bed"), used = join(dir, "used-bed");
+    mkdirSync(fresh); mkdirSync(used);
+    const claude = join(dir, "claude");
+    writeFileSync(claude, '#!/bin/sh\necho "claude in $PWD args:$*:"\nsleep 30\n');
+    chmodSync(claude, 0o755);
+    const env = { CLAUDE_CONFIG_DIR: cfg, HOME: dir };
+    const sid = "00000000-1111-4222-8333-444444444444";
+    for (const [folder, lines] of [[fresh, [`{"type":"mode","mode":"normal","sessionId":"${sid}"}`]], [used, [`{"type":"user","message":{"role":"user","content":"hi"},"sessionId":"${sid}"}`]]] as const) {
+      mkdirSync(claudeProjectDir(folder, env, dir), { recursive: true });
+      writeFileSync(join(claudeProjectDir(folder, env, dir), `${sid}.jsonl`), lines.join("\n") + "\n");
+    }
+    const saved = { HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR };
+    process.env.HOME = dir; process.env.CLAUDE_CONFIG_DIR = cfg;
+    const text = (p: PtyPane) => p.render(100, 10, false, { redraw() {} } as any).lines.map(l => l.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")).join("\n");
+    const panes: PtyPane[] = [];
+    try {
+      for (const [folder, args] of [[fresh, "args::"], [used, "args:--continue:"]] as const) {
+        const p = new PtyPane({ cmd: [claude], cwd: folder });
+        panes.push(p);
+        text(p);
+        await until(() => text(p).includes(`claude in ${folder}`), "the first start");
+        p.restart(true);
+        await until(() => text(p).includes(args), `the restart: ${args}`, 8000);
+        expect(text(p)).not.toContain(args === "args::" ? "--continue" : "args::");
+      }
+    } finally {
+      for (const p of panes) p.dispose();
+      for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 describe.skipIf(!outliner)("agent sessions in a door", () => {

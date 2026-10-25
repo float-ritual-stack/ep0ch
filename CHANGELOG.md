@@ -22,6 +22,13 @@ from the outline: `[settle-tuning::…]` and `[settle-outlines::…]` on a `type
 tuning), the newest edited note carrying each winning, read at every check. The `settleTuning` and `settleOutlines`
 options and their `EP0CH_SETTLE_*` variables still override. The folder config is never read for either. No protocol change.
 
+### A new agent starts fresh where Claude has no conversation to continue (PIE-1295)
+
+- **`alt+g` in a new folder no longer ends in "No conversation found to continue".** Claude leaves a transcript of settings lines only (no
+  user turn) when a start closes before a prompt, and the door took any `.jsonl` for a conversation. One question, `hasConversation` (claude: a
+  user turn in the head of the newest few transcripts; pi and codex as before), now decides a start and a restart both: a restart of a fresh
+  claude runs plain instead of adding `--continue` blindly. No protocol change.
+
 ### One list, drawn the same everywhere: the `list` primitive and the door's ListView (PIE-747)
 
 Asked Oct 25 ("i want it"): a real list in every client without a door feature. An extension (marginalia's notebook, a

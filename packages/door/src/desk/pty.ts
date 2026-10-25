@@ -22,14 +22,14 @@ import type { DeskApi, Pane, PaneView } from "./panes";
 import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
 import { controlPath, controlPlace } from "../control";
 import { appendNest, doorLayer, doorNest } from "../nest";
-import { agentVars, DOOR_START_VARS, PLACE_VAR, withContinue } from "./agent-env";
+import { agentVars, DOOR_START_VARS, PLACE_VAR } from "./agent-env";
 import { KbdModes, keyBytes, translateReports } from "../kbd";
 import { type Clip, COPY_MAX, cellsOf, Gesture, lineAt, Osc52Reader, paintRange, SELECT_BG, Selection, type SelectRows, TILE_COPY_RECENT_MS, wordAt } from "../surface/selection";
 import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
 import { dropStatus, foregroundGroup, holdStatus, newStatusKey, recordFacts, statusMark, terminfoWithPst, TileStatus } from "./program-status";
 import { stateDir } from "../state";
 import type { Actor } from "../socket";
-import type { SessionMark } from "./agent-sessions";
+import { sessionCommand, type SessionMark } from "./agent-sessions";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -228,7 +228,7 @@ export class PtyPane implements Pane {
   personKeyAt = 0;
   /** When the person last clicked in it or went into it (a click, e or ⏎: tile.enter; the drawer's host.enter). */
   personClickAt = 0;
-  /** The next start only: a restart that keeps the conversation (`withContinue`, and the Herdr launcher told so). */
+  /** The next start only: a restart that keeps the conversation (`sessionCommand`, and the Herdr launcher told so). */
   private continueNext = false;
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
   private sgr = false;
@@ -444,7 +444,9 @@ export class PtyPane implements Pane {
       // The pty becomes the program's controlling terminal (CTTY above), so resizes reach it as SIGWINCH.
       // nvim listens on a socket in the door's state (`tile.info` names it): the door watches its cursor and
       // buffer, and an agent edits other lines through it without moving the person's cursor.
-      const cmd = keep ? withContinue(this.run.cmd) : [...this.run.cmd];
+      // A restart that keeps the conversation continues it when the program has one in this folder (`sessionCommand`, the
+      // one answer a start asks too); a fresh agent runs bare.
+      const cmd = keep ? sessionCommand(this.run.cmd[0] ?? "", this.run.cmd.slice(1), this.run.cwd ?? process.cwd(), env) : [...this.run.cmd];
       if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); if (this.socket) cmd.splice(1, 0, "--listen", this.socket); }
       // An agent starts inside the person's login shell: when it exits (or crashes) the tile is that shell, in the same
       // folder with the same environment, and says so. Nothing starts it again by itself (no dead panes).

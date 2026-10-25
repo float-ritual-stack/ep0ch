@@ -33,7 +33,8 @@ import { dirname, join, resolve } from "node:path";
 import { ask, JsonLines } from "../jsonl";
 import { appendNest } from "../nest";
 import { alive, defaultStateDir, isInside, stateDir } from "../state";
-import { AGENT_VARS, agentVars, DOOR_START_VARS, PLACE_VAR, withContinue } from "./agent-env";
+import { AGENT_VARS, agentVars, DOOR_START_VARS, PLACE_VAR } from "./agent-env";
+import { sessionCommand } from "./agent-sessions";
 import { inLoginShell, isShellName, shellQuote } from "./drawer-program";
 
 export interface Ran { code: number; out: string; err: string }
@@ -125,7 +126,7 @@ export function launchArgs(argv: readonly string[]): LaunchArgs {
 /**
  * The defaults, from the environment the door gave the tile and the launcher's arguments: the pane is the session's
  * own (`sessionSlug`), so a door on another outline never attaches it; the agent is the one the drawer chose (plain
- * `claude` when none is named: `--continue` only when a restart asks for it).
+ * `claude` when none is named: `--continue` only when a restart asks for it and a conversation is there).
  */
 export function agentConfig(env: Record<string, string | undefined> = process.env, which = (c: string) => Bun.which(c), args: LaunchArgs = {}): AgentConfig {
   void which;
@@ -143,9 +144,9 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
     // The folder the drawer started this launcher in (src/desk/drawer-program.ts: the folder chosen with the agent, the
     // project's .ep0ch folder, the outline's folder, or where the door started).
     cwd: process.cwd(),
-    // A restart (`agent.restart`) keeps the conversation: a bare `claude` gets --continue then, and only then.
+    // A restart (`agent.restart`) keeps the conversation: the agent continues it then if the folder has one (`sessionCommand`), and only then.
     shell: env.SHELL || "sh",
-    agent: ((a: string[]) => (env.EP0CH_AGENT_CONTINUE === "1" ? withContinue(a) : a))(args.agent?.length ? args.agent : ["claude"]),
+    agent: ((a: string[]) => (env.EP0CH_AGENT_CONTINUE === "1" ? sessionCommand(a[0]!, a.slice(1), process.cwd(), env) : a))(args.agent?.length ? args.agent : ["claude"]),
     get cmd() { return this.agent.map(shellQuote).join(" "); },
     // The pane's nest: the tile's that made it, then the pane itself. Another door may show it later
     // (`ep0ch where` follows EP0CH_CONTROL to the door that shows it now).

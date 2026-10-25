@@ -1617,8 +1617,8 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   `agent.knows` says the same, with why.
 - **Restarting it.** A click on `⟳` (the chip's last cell), `alt+R`, or `agent.restart`. Only that agent's
   process is asked to exit (SIGTERM; SIGKILL after 8s), then the same command runs again, keeping the
-  conversation: a bare `claude` is given `--continue` (only by this explicit restart; a fresh start is plain
-  `claude`). With the agent in Herdr, its pane closes with it and the launcher makes the session's pane again,
+  conversation: a bare `claude` is given `--continue` (only by this explicit restart, and only when its folder holds a
+  conversation with a turn in it: a `claude` that never got a prompt restarts plain; a fresh start is plain `claude`). With the agent in Herdr, its pane closes with it and the launcher makes the session's pane again,
   with today's variables, and starts it there, continuing. An agent's `agent.restart` is refused while you're typing in the agent, or
   within 10s of your last key in it.
 - **Agents.** `host.toggle [open=true|false]` and `host.size share=0.2…0.9`, `agent.type text=…`, `agent.knows`, `agent.lift` (`✦a`, or a status-bar button: `tile.zoom` on the drawer's agent as a column; the same button again drops it) and `agent.restart` work on every screen through
@@ -1644,7 +1644,8 @@ it's the same process and the same conversation.
   `agent.start program=<name>` starts, under that persona (`EP0CH_AGENT`, `OUTLINER_ACTOR`).
 - **Resume is by folder.** The same program in the same folder is the same session: starting it again attaches it.
   A new one continues the program's last conversation in that folder when there is one (claude and pi
-  `--continue`, codex `resume --last`), whoever started it before.
+  `--continue`, codex `resume --last`), whoever started it before. A claude folder whose transcripts hold only
+  settings lines, no user turn, has none: it starts plain, never into "No conversation found to continue".
 - **The agent panel.** `alt+g` on any screen opens it as a tab in your drawer: every session with its program,
   folder, persona, what it's doing (working, waiting on you, idle) and where it's shown. `j k` pick, `⏎` or a click
   jumps to it, `a` pulls it into your drawer, `d` docks it on the screen you're on, `n` starts a new one.

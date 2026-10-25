@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { startControl } from "../src/control";
-import { AGENT_VARS, CARRIED_VARS, DOOR_START_VARS, doorAgents, judgeAgent, knowsLabel, modDirs, modStamp, procEnv, procStart, withContinue } from "../src/desk/agent-env";
+import { AGENT_VARS, CARRIED_VARS, DOOR_START_VARS, doorAgents, judgeAgent, knowsLabel, modDirs, modStamp, procEnv, procStart } from "../src/desk/agent-env";
+import { claudeProjectDir } from "../src/desk/agent-sessions";
 import { agentConfig, findOrCreate, herdrRunner, runLine } from "../src/desk/herdr-agent";
 import { PtyPane, tileEnv } from "../src/desk/pty";
 import { DRAWER_TILE_ID } from "../src/drawer";
@@ -190,15 +191,27 @@ describe("one set of agent variables, whichever way the agent is started", () =>
     expect(runLine({ agent: ["pi"], unset: [] }, "zsh")).toMatch(/^exec zsh -l -c 'exec \/bin\/sh -c '\\''pi; c=\$\?; .*exec zsh -l'\\'''$/);
   });
 
-  test("a restart keeps the conversation: a bare claude gets --continue, door-claude and a claude told what to resume are left as they are", () => {
-    expect(withContinue(["/opt/bin/claude"])).toEqual(["/opt/bin/claude", "--continue"]);
-    expect(withContinue(["claude", "--model", "x"])).toEqual(["claude", "--model", "x", "--continue"]);
-    expect(withContinue(["claude", "-c"])).toEqual(["claude", "-c"]);
-    expect(withContinue(["claude", "--resume=abc"])).toEqual(["claude", "--resume=abc"]);
-    expect(withContinue(["door-claude"])).toEqual(["door-claude"]);
-    expect(withContinue(["/x/door-agent-herdr.ts"])).toEqual(["/x/door-agent-herdr.ts"]);
-    expect(agentConfig({ HOME: "/h", PWD: "/w", EP0CH_AGENT_CONTINUE: "1" }, () => null).cmd).toBe("claude --continue");
-    expect(agentConfig({ HOME: "/h", PWD: "/w", EP0CH_AGENT_CONTINUE: "1" }, () => "/bin/door-claude").cmd).toBe("claude --continue");
+  test("a Herdr restart keeps the conversation only where the folder has one: a fresh claude runs bare, door-claude and a claude told what to resume are left alone", () => {
+    const home = mkdtempSync(join(tmpdir(), "ep0ch-launch-home-"));
+    const cwd = process.cwd(), env = (extra: Record<string, string> = {}) => ({ HOME: home, PWD: cwd, CLAUDE_CONFIG_DIR: join(home, ".claude"), EP0CH_AGENT_CONTINUE: "1", ...extra });
+    try {
+      // Nothing to continue here (no transcript): the restart is bare, not a claude that refuses --continue.
+      expect(agentConfig(env(), () => null).cmd).toBe("claude");
+      expect(agentConfig(env(), () => null, { agent: ["claude", "--model", "x"] }).cmd).toBe("claude --model x");
+      // A transcript with a turn in the launcher's folder: it continues.
+      const dir = claudeProjectDir(cwd, env(), home);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "a1.jsonl"), '{"type":"mode","mode":"normal","sessionId":"s1"}\n');
+      expect(agentConfig(env(), () => null).cmd).toBe("claude");
+      writeFileSync(join(dir, "a2.jsonl"), '{"type":"user","message":{"role":"user","content":"hi"},"sessionId":"s2"}\n');
+      expect(agentConfig(env(), () => null).cmd).toBe("claude --continue");
+      expect(agentConfig(env(), () => "/bin/door-claude").cmd).toBe("claude --continue");
+      expect(agentConfig(env(), () => null, { agent: ["claude", "-c"] }).cmd).toBe("claude -c");
+      expect(agentConfig(env(), () => null, { agent: ["claude", "--resume=abc"] }).cmd).toBe("claude --resume=abc");
+      expect(agentConfig(env(), () => null, { agent: ["door-claude"] }).cmd).toBe("door-claude");
+      // Not a restart: the command as given.
+      expect(agentConfig(env({ EP0CH_AGENT_CONTINUE: "" }), () => null).cmd).toBe("claude");
+    } finally { rmSync(home, { recursive: true, force: true }); }
   });
 });
 
@@ -262,6 +275,10 @@ describe("what a running agent knows", () => {
       expect(await d.app.act({ action: "agent.knows", args: {}, as: "helper" })).toMatchObject({ knows: { state: "stale" } });
       expect(d.app.drawer.chipText()).toMatch(/^▼ claude \(from EP0CH_DAILY_AGENT\) · (idle|working) · started before update ⟳$/);
 
+      // The folder holds a conversation (a user turn in Claude's project folder for it): the restart continues it.
+      const project = claudeProjectDir(process.cwd(), process.env);
+      mkdirSync(project, { recursive: true });
+      writeFileSync(join(project, "5e55-1011.jsonl"), '{"type":"user","message":{"role":"user","content":"hello"},"sessionId":"5e55-1011"}\n');
       // A click on ⟳ restarts the agent alone (the rest of the chip toggles the drawer; alt+click is the picker).
       const shown = d.paint();
       const chip = d.app.drawer.chipAt!;
@@ -270,7 +287,7 @@ describe("what a running agent knows", () => {
       expect(d.app.drawer.open).toBe(true);                               // not toggled
       await until(() => starts().length === 2 && d.app.drawer.tile?.running === true, "the restart");
       expect(d.app.drawer.tile!.pid).not.toBe(first);
-      expect(starts()[1]!.argv).toBe("--continue");                     // a bare claude continues its conversation
+      expect(starts()[1]!.argv).toBe("--continue");                     // a claude with a conversation in its folder continues it
       expect(starts()[1]!.env.EP0CH_CONTROL).toBe(starts()[0]!.env.EP0CH_CONTROL);
       expect(bystander.exitCode).toBeNull();
       // Restarted by this door: current again.
