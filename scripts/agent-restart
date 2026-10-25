@@ -32,7 +32,7 @@ agents() {
   local out
   out=$(claude agents --json 2>/dev/null) && printf '%s' "$out" | python3 -c 'import json,sys; assert isinstance(json.load(sys.stdin), list)' 2>/dev/null \
     && { printf '%s\n' "$out"; return 0; }
-  echo "agent-restart: $(command -v claude) agents --json didn't answer a list of sessions (run it to see why)" >&2; return 1
+  echo "agent-restart: $(command -v claude) agents --json didn't answer a list of sessions (run it to see why; as $(id -un) in $HOME it printed: $(printf '%s' "$out" | head -c 200))" >&2; return 1
 }
 # The Claude Code version a process runs (its binary is versions/<v>) and the one `claude` points at now.
 running_version() { basename "$(readlink -f /proc/"$1"/exe 2>/dev/null)"; }
