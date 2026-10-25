@@ -3926,16 +3926,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /**
-   * `tile.title` (^W n): the one rename. A tile with no title written separately takes a name-shaped `text` as its name
-   * (what `tile=` and paths resolve, unique in its layer; its shown title follows it); any other text is a title written
-   * on it, and the name stays. Empty clears the written title.
+   * `tile.title` (^W n): the one rename. A tile whose title isn't written separately (none, or its own name) takes a
+   * name-shaped `text` as its name (what `tile=` and paths resolve, unique in its layer) and shows it as its title; any
+   * other text is a title written on it, and the name stays. Empty clears the written title.
    */
   titleTile(sel: string | undefined, text: string | undefined, toggle: boolean, actor: Actor): TileDone {
     const t = this.tile(sel), p = this.panes.get(t.id)!;
     if (toggle) p.systemTitle = !p.systemTitle;
     else if (text !== undefined) {
-      if (text && !p.writtenTitle && tileNameProblem(text) === null) this.apply({ op: "rename", tile: t.id, name: text }, actor);
-      else { p.writtenTitle = text || undefined; p.systemTitle = false; }
+      if (text && (!p.writtenTitle || p.writtenTitle === t.name) && tileNameProblem(text) === null) {
+        this.apply({ op: "rename", tile: t.id, name: text }, actor);
+        p.writtenTitle = text; p.systemTitle = false;          // the title it shows is its name, until a title is written on it
+      } else { p.writtenTitle = text || undefined; p.systemTitle = false; }
     } else {
       if (actor.kind !== "user") throw new ActionRefused("tile.title needs text=<name or title>; text= clears a written title");
       this.overlay(linePrompt<Desk>({ name: "tile title", title: "Rename this tile", text: p.writtenTitle ?? t.name, prefilled: true, verbatim: true,

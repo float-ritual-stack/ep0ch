@@ -298,7 +298,7 @@ describe.skipIf(!outliner)("a mounted screen is one screen with the one around i
     const inner = mountPane(m.name).pane.inner as any;
     // The tile by its path through the mount's id: the desk around it has a reader too.
     const r = await act("tile.title", { text: "yo" }, `${m.tile}/reader`);
-    expect(r).toMatchObject({ name: "yo" });
+    expect(r).toMatchObject({ name: "yo", title: "yo" });
     await settle();
     expect(D().pathTo(inner.paneNamed("yo"))).toBe("lastcall/yo");
     expect(inner.paneNamed("reader")).toBeUndefined();

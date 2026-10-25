@@ -216,7 +216,8 @@ export interface Pane {
   claims?(k: Key): boolean;
   /**
    * A screen of its own is drawn in it (a mount, a group): a refusal of the person's key is said on the focused tile in
-   * there (PIE-727), so this tile's frame doesn't say it again.
+   * there (PIE-727), so this tile's frame doesn't say it again. Its tiles have frames of their own, so the desk draws
+   * this one as its header row alone (PIE-1305), and the outermost screen's hint row speaks for the focused tile in it.
    */
   nestsTiles?(): boolean;
   click?(x: number, y: number, desk: DeskApi): void;
