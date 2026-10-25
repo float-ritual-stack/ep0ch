@@ -171,11 +171,15 @@ export class ArtifactStore {
     } else throw new Error("Unknown artifact kind; use html, jsx, tsx, svg, mermaid or md, a zip or tar of a built folder, or an image or pdf.");
     if (!Object.keys(files).length) throw new Error("The archive holds no files.");
     if (explicit) return { name: explicit, files, compile };
-    // It names itself: the file's name, else the page's own title.
+    // It names itself: a single page by its own title (a file called orrery.html with <title>ep0ch Orrery</title> is
+    // ep0ch-orrery), an archive by its file name unless that says nothing (upload, index), then by its page's title.
     const stem = artifactSlug(basename(entry, extname(entry)));
     const page = files["index.html"] ?? Object.entries(files).find(([path]) => /\.html?$/i.test(path))?.[1];
     const titled = page ? artifactSlug(pageTitle(page.toString("utf8")) ?? "") : "";
-    return { name: ["", "index", "upload", "file", "untitled", "artifact"].includes(stem) ? titled || `upload-${crypto.randomUUID().slice(0, 4)}` : stem, files, compile };
+    const archive = looksZip(head) || looksTar(head) || extension === ".tar";
+    const empty = ["", "index", "upload", "file", "untitled", "artifact"].includes(stem);
+    const chosen = archive ? (empty ? titled : stem) : titled || (empty ? "" : stem);
+    return { name: chosen || `upload-${crypto.randomUUID().slice(0, 4)}`, files, compile };
   }
   private async pickup(inbox: string, entry: string, current: () => boolean, remote = false) {
     const source = join(inbox, entry);

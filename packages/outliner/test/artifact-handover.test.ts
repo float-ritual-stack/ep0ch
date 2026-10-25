@@ -135,6 +135,19 @@ test("sending the same name again is its next version, and a single page names i
   expect(readFileSync(join(live("lantern-tar"), "index.html"), "utf8")).toContain("Lantern");
 });
 
+test("a 10 MB page and a 10 MB zip are taken, and a page named orrery.html titled ep0ch Orrery is ep0ch-orrery", async () => {
+  const big = `<!doctype html><title>ep0ch Orrery</title><script>const graph = "${"x".repeat(10 * 1024 * 1024)}"</script>`;
+  const page = await send((await lease()).url + "orrery.html", big);
+  expect(page.status, await page.clone().text()).toBe(201);
+  expect(await page.json()).toMatchObject({ name: "ep0ch-orrery", version: 1, title: "ep0ch Orrery" });
+  // Incompressible bytes: the zip itself is 10 MB.
+  const noise = crypto.getRandomValues(new Uint8Array(10 * 1024 * 1024));
+  const archive = await send((await lease()).url + "woe-chronicles.zip", zip([{ name: "index.html", data: site("Chronicles") }, { name: "data.bin", data: noise, method: 0 }]));
+  expect(archive.status, await archive.clone().text()).toBe(201);
+  expect(await archive.json()).toMatchObject({ name: "woe-chronicles", version: 1 });
+  expect(readFileSync(join(live("woe-chronicles"), "data.bin")).length).toBe(noise.length);
+});
+
 test("a lease with no name lets the page name itself, and an agent's lease makes an agent's card in the outline it was asked of", async () => {
   const issued = await lease(undefined, "ledger", { author: "agent", actorId: "fictional-agent/claude-code@test" });
   expect(issued.outline).toBe("ledger");

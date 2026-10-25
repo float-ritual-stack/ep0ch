@@ -1351,7 +1351,7 @@ curl -sS -T orrery-site.zip 'https://my.ep0ch.sh/_upload/<token>/'
 
 - **A lease** (`ep0ch artifact lease [<name>]`, the MCP tool `artifact_upload_lease`, the door's `> artifact.lease`) is
   one name (or none: the file names itself by its page `<title>`), one upload, one hour. The link ends in `/` so
-  `curl -T` sends the file's own name. A `GET`, a `HEAD`, a link preview or an interrupted transfer never uses it up;
+  `curl -T` sends the file's own name. With no name, a single page is named by its `<title>` (`orrery.html` titled `ep0ch Orrery` becomes `ep0ch-orrery`), a zip or tar by its file name, or its page's title when the file name says nothing (`upload`, `index`). A `GET`, a `HEAD`, a link preview or an interrupted transfer never uses it up;
   only a finished upload does (the same rule as a snapshot link, PIE-940). It is a bearer secret: show it in a code
   block, never in a chat message. The host keeps leases in `.host/upload-tokens.json` (digests only, 0600), so a deploy
   between minting and curling does not end one.
