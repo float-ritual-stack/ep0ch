@@ -659,7 +659,7 @@ async function settleSuggestions(client: AgentToolsClient, noteId: string, text:
 
 /** Asks the service to make the records of what Jev said (jev-suggestions.ts); waits for it no longer than the budget, and never throws. */
 async function keepRecords(client: AgentToolsClient, keep: SuggestionKeep): Promise<void> {
-  await Promise.race([client.request({ action: "suggestions.keep", keep }).catch(() => undefined), Bun.sleep(RECORD_BUDGET_MS)]);
+  await Promise.race([(async () => client.request({ action: "suggestions.keep", keep }))().catch(() => undefined), Bun.sleep(RECORD_BUDGET_MS)]);
 }
 /** At most this long added to a write's answer by its figure suggestion, whatever Jev does. */
 const FIGURE_FIT_BUDGET_MS = 1500;

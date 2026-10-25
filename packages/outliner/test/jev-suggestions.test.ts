@@ -164,10 +164,10 @@ async function until(check: () => Promise<boolean>, ms = 20_000) {
 // the CLI's exit costs nothing, and a second write finds the templates there.
 test("a write on a slow host leaves its record and the day's run after the one-shot CLI has exited, cold start included", async () => {
   const { agent, records } = await setup({ hostDelayMs: 500 });
+  const today = new Date().toISOString().slice(0, 10);
   const made = await agent("create", { parent: "root", text: SEASON });
   expect(made.exitCode, made.stderr).toBe(0);
   expect(made.json.warnings.some((w: string) => w.includes("graph-timeline")), "the writer was told").toBe(true);
-  const today = new Date().toISOString().slice(0, 10);
   const landed = await until(async () => (await records("suggestion")).length === 1 && (await records("jev-run")).some(r => r.run === today && r.suggested === "1"));
   expect(landed, "the suggestion and the day's run").toBe(true);
   expect(await records("suggestion")).toEqual([expect.objectContaining({ note: made.json.id, writer: "loki", harness: "claude-code", component: "graph-timeline" })]);
@@ -193,4 +193,15 @@ test("a write through the MCP gateway's entry leaves the same record, with the w
   } finally {
     for (const key of Object.keys(env)) { if (saved[key] === undefined) delete process.env[key]; else process.env[key] = saved[key]; }
   }
+}, 40_000);
+
+test("two writers' first suggestions of the day at once leave one run for the day, counting both", async () => {
+  const { agent, records } = await setup({ hostDelayMs: 150 });
+  const [one, two] = await Promise.all([
+    agent("create", { parent: "root", text: SEASON }),
+    agent("create", { parent: "root", text: SEASON.replace("Garden year", "Bed rotation") }),
+  ]);
+  expect([one.exitCode, two.exitCode], `${one.stderr}${two.stderr}`).toEqual([0, 0]);
+  expect(await until(async () => (await records("suggestion")).length === 2 && (await records("jev-run")).some(r => r.suggested === "2"))).toBe(true);
+  expect(await records("jev-run")).toHaveLength(1);
 }, 40_000);

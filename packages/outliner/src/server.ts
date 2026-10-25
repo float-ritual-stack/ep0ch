@@ -1409,6 +1409,9 @@ export class OutlinerServer {
     return { ...calloutTypesFromBlocks(blocks), complete: declared.completeness.kind === "complete" };
   }
 
+  /** The `suggestions.keep` in progress (PIE-1251): the next waits for it. */
+  private suggestionKeeps: Promise<void> = Promise.resolve();
+
   /**
    * Every component's schema (`components.schemas`, PIE-618): the built-ins with the outline's own styles and types among
    * their values (as headings.styles and callouts.types read them), then the schemas the extensions ship.
@@ -2176,7 +2179,10 @@ export class OutlinerServer {
           if (!response.ok) throw new Error(response.error);
           return response.result as T;
         } };
-        const settled = await keepSuggestion(own, keep, this.componentSchemas().schemas);
+        // One at a time: the day's run is found, made and counted by each, and two at once would make it twice.
+        const turn = this.suggestionKeeps.then(() => keepSuggestion(own, keep, this.componentSchemas().schemas));
+        this.suggestionKeeps = turn.then(() => undefined, () => undefined);
+        const settled = await turn;
         return { id: request.id, ok: true, result: { settled }, sequence: this.store.sequence };
       } catch (error) { return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence }; }
     }
