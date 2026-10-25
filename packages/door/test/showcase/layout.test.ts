@@ -827,6 +827,26 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
   }, 40_000);
 
 
+  test("nested mounts (PIE-1305, PIE-1283): a mount in a mount is a header over the tiles' frames with one hint row for the screen; a tile whose name another layer shares answers to its path and to a click; a rename changes the name, the path and the title", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "nested-mounts" }, as: "test-agent" })).toMatchObject({ key: "nested-mounts" });
+    await until(() => marks["nested-mounts"]!.every(m => screen().includes(m)), "the nested-mounts section");
+    const stage = () => S().stages.get(S().sel).top;
+    await until(() => { sc.render(app); return !!stage().pane("calls")?.layoutOf(true).mount?.layout?.tiles?.some((t: any) => t.name === "who" && t.kind === "screen"); }, "the mount in the mount");
+    sc.render(app);
+    // One hint row for the stage, however deep the focus; no mount draws one of its own.
+    expect(sc.render(app).lines.map(plain).filter(l => l.includes("Tab/1-9 focus")).length).toBeLessThanOrEqual(1);
+    // reader is on the stage and in calls: an agent's name for it is refused with the paths to use, and the path works.
+    await expect(app.act({ action: "tile.info", tile: "reader", args: {}, as: "test-agent" })).rejects.toThrow(/several tiles named reader: .*calls\/reader/);
+    expect(await app.act({ action: "tile.info", tile: "calls/reader", args: {}, as: "test-agent" })).toMatchObject({ name: "reader" });
+    // One rename: calls/reader becomes calls/yo, by name, path and title together; a name taken in its layer is refused.
+    expect(await app.act({ action: "tile.title", tile: "calls/reader", args: { text: "yo" }, as: "test-agent" })).toMatchObject({ name: "yo" });
+    expect(await app.act({ action: "tile.info", tile: "calls/yo", args: {}, as: "test-agent" })).toMatchObject({ name: "yo" });
+    await expect(app.act({ action: "tile.title", tile: "calls/yo", args: { text: "activity" }, as: "test-agent" })).rejects.toThrow(/already a tile named activity/);
+    expect(await app.act({ action: "tile.info", tile: "reader", args: {}, as: "test-agent" })).toMatchObject({ name: "reader" });
+  }, 40_000);
+
+
   test("gathering into a group (PIE-696): shift+click picks tiles and ^W G gathers them, a tile's title dragged onto a group goes in and back out, ^W G in a split asks, and a preview across the group's edge keeps following", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "screen" }, as: "test-agent" })).toMatchObject({ key: "screen" });
