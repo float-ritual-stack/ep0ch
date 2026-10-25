@@ -260,15 +260,42 @@ function codexHas(folder: string, home: string): boolean {
 }
 
 /**
+ * Whether Claude kept a conversation for `folder` that an interactive `claude --continue` takes: one of the newest
+ * twenty transcripts has a user turn that isn't from a non-interactive run (`claude -p`, `"entrypoint":"sdk-cli"`).
+ * Measured with Claude Code 2.1.310: `--continue` answers "No conversation found to continue" for a folder holding only
+ * settings lines (`last-prompt`, `agent-setting`, `mode`: a start closed before a prompt) or only `-p` runs, and takes
+ * a folder one interactive claude already holds (no lock).
+ */
+function claudeHas(folder: string, env: Record<string, string | undefined>, home: string): boolean {
+  const dir = claudeProjectDir(folder, env, home), files: { path: string; at: number }[] = [];
+  try {
+    for (const n of readdirSync(dir)) if (n.endsWith(".jsonl")) { const path = join(dir, n); try { files.push({ path, at: statSync(path).mtimeMs }); } catch { /* gone */ } }
+  } catch { return false; }
+  for (const f of files.sort((a, b) => b.at - a.at).slice(0, 20)) {
+    try { if (head(f.path, 65536).split("\n").some(l => l.includes('"type":"user"') && !l.includes('"entrypoint":"sdk-cli"'))) return true; } catch { /* gone */ }
+  }
+  return false;
+}
+
+/**
+ * The one answer to "has `program` a conversation to continue in `folder`": claude a transcript with an interactive user turn in its
+ * project folder, pi a session file for the folder, codex a session whose cwd is it. A restart and a start both ask this.
+ */
+export function hasConversation(program: string, folder: string, env: Record<string, string | undefined> = process.env, home = env.HOME || homedir()): boolean {
+  if (program === "claude") return claudeHas(folder, env, home);
+  if (program === "pi") return hasEntry(piSessionDir(folder, home));
+  if (program === "codex") return codexHas(folder, home);
+  return false;
+}
+
+/**
  * What continues `program`'s last conversation in `folder`, when it has one there: claude `--continue`, pi
  * `--continue`, codex `resume --last` (its own pick is by folder too). Nothing when there's none to continue (claude
  * refuses `--continue` with none) or the program has no such word.
  */
 export function resumeArgs(program: string, folder: string, env: Record<string, string | undefined> = process.env, home = env.HOME || homedir()): string[] {
-  if (program === "claude") return hasEntry(claudeProjectDir(folder, env, home), n => n.endsWith(".jsonl")) ? ["--continue"] : [];
-  if (program === "pi") return hasEntry(piSessionDir(folder, home)) ? ["--continue"] : [];
-  if (program === "codex") return codexHas(folder, home) ? ["resume", "--last"] : [];
-  return [];
+  if (!hasConversation(program, folder, env, home)) return [];
+  return program === "codex" ? ["resume", "--last"] : ["--continue"];
 }
 
 /**

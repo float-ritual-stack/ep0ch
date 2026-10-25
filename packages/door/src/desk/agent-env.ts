@@ -69,18 +69,6 @@ export function agentVars(env: Record<string, string | undefined>, at: AgentAt):
   return out;
 }
 
-// ── restarting: the conversation is kept ──
-
-const CONTINUES = new Set(["-c", "--continue", "-r", "--resume"]);
-/**
- * A command run again by a restart: a bare `claude` gets `--continue`, so the conversation comes back (as
- * a restart's own continuing). Anything else, and a `claude` already told what to resume, runs as it was.
- */
-export function withContinue(cmd: string[]): string[] {
-  if (basename(cmd[0] ?? "") !== "claude" || cmd.slice(1).some(a => CONTINUES.has(a) || a.startsWith("--resume="))) return cmd;
-  return [...cmd, "--continue"];
-}
-
 // ── the agent process ──
 
 export interface AgentProc {
