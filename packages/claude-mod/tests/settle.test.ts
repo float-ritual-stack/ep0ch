@@ -1,5 +1,5 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
-import { baselineOf, facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleDiff, settlesFor, newestWith, settleNoteArgs, settleNotesOf, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
+import { baselineOf, facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleDiff, settlesFor, newestWith, settleAsks, settleNoteArgs, settleNotesOf, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
 
 tier('user')
 
@@ -59,6 +59,13 @@ describe('one thread across outlines', () => {
   })
 })
 
+describe('what shapes a thread', () => {
+  test('tickets, a capability note or a hub note carrying its thread (PIE-1311)', () => {
+    const argv = settleAsks(SETTLE_DEFAULTS).shaped
+    expect(argv[argv.indexOf('--query') + 1]).toBe('(type=roadmap-item OR type=capability OR type=hub OR type=thread) AND thread')
+  })
+})
+
 describe('the first check', () => {
   test('records what is settled as told, so only a thread that settles later wakes', () => {
     const threads = threadsOf(counts({ a: [4, 200], b: [5, 300], c: [9, 5] }), counts({ a: [1, 200], b: [1, 300], c: [1, 5] }), counts({}), NOW, SETTLE_DEFAULTS)
@@ -70,9 +77,8 @@ describe('the first check', () => {
 
 describe('the words', () => {
   const [t] = threadsOf(counts({ backlog: [5, 74] }), counts({ backlog: [2, 74] }), counts({}), NOW, SETTLE_DEFAULTS)
-  test('a wake line gives the counts and the capability link, or says how to give it one', () => {
-    expect(wakeLine(t!, NOW, '((cap))')).toBe('thread backlog settled: 5 chirps, 2 Evan\'s, quiet 74 min, capability ((cap))')
-    expect(wakeLine(t!, NOW, null)).toContain('no capability note yet (write [thread::backlog]')
+  test('a wake line gives the counts and says how to shape it: a note that carries its thread', () => {
+    expect(wakeLine(t!, NOW)).toBe('thread backlog settled: 5 chirps, 2 Evan\'s, quiet 74 min, no capability or hub note yet (write [thread::backlog] on the one you shape it on)')
   })
   test('the wake counts the threads it names and the ones it leaves for the next check', () => {
     expect(wakeText(['a', 'b'], 3)).toContain('5 threads have gone quiet')

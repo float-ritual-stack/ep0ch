@@ -1384,11 +1384,12 @@ describe('the settle check (PIE-1268)', () => {
   const LOG = '4badf9a8-7bb3-4715-9702-7c30605bd96e'
   const LOKI = { name: 'loki', source: 'file', file: `${WORKSPACE}/.ep0ch` }
   /** `ago`: minutes before the clock's now when it was first asked; it is then fixed, so time passing is not activity. */
-  type Fake = { count: number; evan: number; ago: number; shaped?: boolean; last?: number }
+  /** `shaped`: a ticket carries the thread; `hub`: a `type::hub` note does. */
+  type Fake = { count: number; evan: number; ago: number; shaped?: boolean; hub?: boolean; last?: number }
 
   /**
    * A session whose outline holds `threads`, each last touched `ago` minutes before the clock's now (the test moves
-   * it), answering the three facet questions by their query, the capability and build-log lookups, and recording the
+   * it), answering the three facet questions by their query, the settings and build-log lookups, and recording the
    * wakes (prompt.submit) and the lines written under the build log (`ep0ch new`).
    */
   function settleSession(on: On, threads: Record<string, Fake>, persona: object | null = LOKI, env: Record<string, string> = {}, noFacets = false, byOutline: Record<string, Record<string, Fake>> = {}, config: { fresh?: boolean; toml?: string; tuning?: Record<string, { id: string; tuning?: string; outlines?: string; updatedAt: string }[]>; tuningFails?: string[] } = {}) {
@@ -1400,7 +1401,8 @@ describe('the settle check (PIE-1268)', () => {
         if (noFacets) return result(0, '{"blocks":[]}', '')
         const now = session.clock.now()
         const rows = Object.entries(byOutline[run.init?.env?.EP0CH_WS ?? ''] ?? threads).flatMap(([thread, t]) => {
-          const count = query.startsWith('type=roadmap-item') ? (t.shaped ? 1 : 0) : query.includes('by:user') ? t.evan : t.count
+          const shapedAsk = /^\(?type=roadmap-item/.test(query)
+          const count = shapedAsk ? (t.shaped ? 1 : 0) + (t.hub && query.includes('type=hub') ? 1 : 0) : query.includes('by:user') ? t.evan : t.count
           t.last ??= now - t.ago * MIN
           return count ? [{ value: thread, count, last: new Date(t.last).toISOString() }] : []
         })
@@ -1411,7 +1413,6 @@ describe('the settle check (PIE-1268)', () => {
         const rows = (config.tuning?.[run.init?.env?.EP0CH_WS ?? ''] ?? []).map(n => ({ id: n.id, title: 'Settle, then shape', properties: [...(n.tuning ? [{ key: 'settle-tuning', value: n.tuning }] : []), ...(n.outlines ? [{ key: 'settle-outlines', value: n.outlines }] : [])], updatedAt: n.updatedAt }))
         return result(0, JSON.stringify({ blocks: rows }), '')
       }
-      if (query.includes('type=capability')) return result(0, JSON.stringify({ blocks: query.includes('"zucchini"') ? [{ id: CAPABILITY, title: 'Zucchini' }] : [] }), '')
       if (query.includes('type=build-log')) return result(0, JSON.stringify({ blocks: [{ id: LOG, title: 'Build log, Oct 25', properties: [], createdAt: '2026-10-25T00:00:00Z' }] }), '')
       return succeeding(run)
     }, '', { EP0CH_SETTLE_OUTLINES: 'garden', ...env })
@@ -1434,7 +1435,7 @@ describe('the settle check (PIE-1268)', () => {
     await s.session.clock.advance(20_000)
   }
 
-  test('the deployer\'s session wakes once on a newly settled thread, with its counts and capability, and writes the change under the build log', async ($, on) => {
+  test('the deployer\'s session wakes once on a newly settled thread, with its counts, and writes the change under the build log', async ($, on) => {
     const s = settleSession(on, {
       zucchini: { count: 4, evan: 2, ago: 90 },
       beans: { count: 5, evan: 1, ago: 10 },
@@ -1443,7 +1444,7 @@ describe('the settle check (PIE-1268)', () => {
     })
     await start($, s)
     expect(s.wakes).toHaveLength(1)
-    expect(s.wakes[0]).toContain(`thread zucchini settled: 4 chirps, 2 Evan's, quiet 90 min, capability ((${CAPABILITY}))`)
+    expect(s.wakes[0]).toContain("thread zucchini settled: 4 chirps, 2 Evan's, quiet 90 min, no capability or hub note yet")
     // Warming, too thin and already shaped threads are not in it.
     for (const name of ['beans', 'thin', 'tickets']) expect(s.wakes[0]).not.toContain(`thread ${name}`)
     // A new settled thread is a change; a thread first seen shaped was shaped before, and says nothing.
@@ -1485,6 +1486,17 @@ describe('the settle check (PIE-1268)', () => {
     await s.session.clock.advance(31 * MIN)
     expect(s.wakes).toHaveLength(1)
     expect(s.lines()).toHaveLength(2)
+  })
+
+  test('a settled thread whose `thread` a hub note carries is shaped and does not wake; one with only chirps still does (PIE-1311)', async ($, on) => {
+    const s = settleSession(on, {
+      zine: { count: 18, evan: 3, ago: 90, hub: true },
+      zucchini: { count: 4, evan: 2, ago: 90 },
+    })
+    await start($, s)
+    expect(s.wakes).toHaveLength(1)
+    expect(s.wakes[0]).toContain('thread zucchini settled')
+    expect(s.wakes[0]).not.toContain('thread zine')
   })
 
   test('one wake names the newest few; the others wait for the next check, which names them', async ($, on) => {

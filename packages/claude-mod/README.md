@@ -370,10 +370,11 @@ has the steps for a wake.
   Nothing here decides what a thread is: `settle.ts` joins the three answers, and the outlines' (a thread is one thread
   wherever its notes are: counts add, the newest touch wins, tickets in any outline shape it), and applies the thresholds.
 - **States:** warming (touched within `quiet` minutes), settled (at least `chirps` notes, `evan` of them the person's,
-  quiet for `quiet` minutes and for no more than `within`, three days: older threads are never newly settled), shaped (a roadmap item carries the thread: put
-  `[thread::<x>]` on tickets cut from it), else quiet.
+  quiet for `quiet` minutes and for no more than `within`, three days: older threads are never newly settled), shaped (a roadmap item, a `type=capability`
+  note or a hub, `type=hub` or `type=thread`, carries the thread: put `[thread::<x>]` on the note you shape it on and the
+  tickets cut from it, or on its hub), else quiet.
 - **A wake** is one prompt naming the `wake-max` newest newly settled threads (`thread <x> settled: <n> chirps, <m>
-  Evan's, quiet <t> min, capability <link>`; the capability is the `type=capability` note carrying the same `thread`).
+  Evan's, quiet <t> min, no capability or hub note yet …`: one carrying the `thread` would have shaped it).
   A thread already told isn't told again until it is touched and goes quiet again; the others, and a wake that did not go,
   are named at the next check. What was told is kept in `$.store` (`settle.threads`). **The first check wakes nothing:**
   threads already settled are recorded as known, and one build-log line says how many (`Settle check baseline: …`); only

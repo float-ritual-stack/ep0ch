@@ -107,18 +107,19 @@ file: edit it like any rule. `EP0CH_FRESHNESS=off` stops the sweep for a session
 The Claude mod (`packages/claude-mod/hooks/settle.ts`) runs the check in your sessions every 30 minutes (PIE-1268, the
 capability ((46e391fb-dcd7-46eb-a6f2-f8f71d45f5cb|Settle, then shape))). Per `[thread::…]` it counts the notes, Evan's
 own among them, and the last touch, across `settleOutlines`; a thread with at least 3 notes (one of them Evan's), quiet
-for an hour, wakes you once: `thread <x> settled: <n> chirps, <m> Evan's, quiet <t> min, capability <link>`. Up to
+for an hour, wakes you once: `thread <x> settled: <n> chirps, <m> Evan's, quiet <t> min, no capability or hub note yet …`. A ticket, a
+capability note or a hub (`type=hub`, `type=thread`) carrying the `thread` shapes it, so a stream with a home never wakes you. Up to
 five a wake; the rest come at the next check. The pie "Threads" page (hub › Browse) shows warming and shaped live;
 each move into or out of settled or shaped is already a line under the day's build log, so you don't write it.
 
 1. **Read the thread** (`ep0ch find --ws gurgle --query 'thread="<x>"' --sort created`), not only the wake. If it is
    chatter that needs no shape, say so in one line on the thread's note and go on: it stays settled until someone
    touches it.
-2. **Shape it on its capability note** (the one the wake links; with none, make a `[type::capability]` note under
-   Capabilities and put `[thread::<x>]` on it): the north star in Evan's words, the parts it uses, the glue, open
+2. **Shape it on a capability note** (an idea's own, or a new `[type::capability]` note under Capabilities, with
+   `[thread::<x>]` on it; a stream that already has a hub gets `[thread::<x>]` on the hub instead, and needs no more): the north star in Evan's words, the parts it uses, the glue, open
    questions. A new framing is a line there, not a ticket.
 3. **Cut tickets only for primitives**, each with the Parts-it-uses table the root AGENTS.md asks for, and
-   `[thread::<x>]` on every ticket: that is what turns the thread shaped (the check stops watching it).
+   `[thread::<x>]` on every ticket (the capability note already turned the thread shaped; the tickets keep it so).
 4. **Start builders within budget** (two test-heavy agents on float-2, five in all); the rest wait for a free slot (below).
 5. **Gate only taste and direction** (`[needs::sysop]`, about three open). Evan does not have to say go for the rest.
 
