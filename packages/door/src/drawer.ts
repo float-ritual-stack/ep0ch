@@ -719,8 +719,16 @@ export class AgentDrawer {
   }
   /** What `tile=` names across layers (HostLayer.resolveTile): an id, `drawer.agent`, a path, a drawer tab's name; a bare name on a screen is that screen's own. */
   resolveTile(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher; desk: Desk } | null {
+    // `drawer.agent` is the drawer's own program, which only the drawer knows (agentPane): not a name or a told id on some desk.
+    if (sel === DRAWER_TILE_ID) { const a = this.agentPane(); return a ? a.desk.answerFor(a.pane) : null; }
     const hit = this.d?.resolveTile(sel, o) ?? null;
-    return hit && (o?.program || sel === DRAWER_TILE_ID || sel.includes("/") || hit.tile.id === sel || this.isDrawer(hit.desk)) ? hit : null;
+    return hit && (o?.program || sel.includes("/") || hit.tile.id === sel || this.isDrawer(hit.desk)) ? hit : null;
+  }
+  /** Why `sel` names no tile in the host layer, in words and with what to run, or null when it says nothing (HostLayer.unnamed). */
+  unnamed(sel: string): string | null {
+    if (sel !== DRAWER_TILE_ID || !this.d) return null;
+    if (this.out) return `${this.p instanceof DrawerTile && this.p.away ? this.p.away.says : "the drawer's own program is out on a screen"} · agent.back brings it into its tab, or go to that screen`;
+    return `the drawer's own program is closed · host.agent (alt+g) opens one as drawer.agent`;
   }
   /** The terminal tile a process is drawn in, on the drawer or the screen shown (`host.tileOf`, PIE-1043). */
   tileOf(q: { pid?: number; port?: number }): TileOfAnswer {
@@ -1206,11 +1214,8 @@ export class AgentDrawer {
   /** ⏎ or a click on the own tab while its program is out: that tile back from wherever it is now (any screen it was put on). */
   bringBack(actor: Actor): TileDone | null {
     if (!this.out) return null;
-    const screens = [this.left?.screen, tilesOf(this.host.screen?.())].filter((s): s is Desk => !!s && s !== this.desk);
-    for (const s of screens) {
-      const name = s.layoutGet().tiles.map((t: { name: string }) => t.name).find((n: string) => this.isOwnOut(s.pane(n)));
-      if (name) return this.put(s, name, actor, true);
-    }
+    const out = this.outTile([this.left?.screen, tilesOf(this.host.screen?.())]);
+    if (out) return this.put(out.desk, out.name, actor, true);
     // Its program is gone (closed on its screen, or ended with a door before a handover could adopt it): the tab is
     // the drawer's own again, and runs its program as any own tab does.
     if (!this.outAlive()) { this.free(); return null; }
@@ -1225,14 +1230,30 @@ export class AgentDrawer {
    * of a program that is gone).
    */
   awayUnseen(): boolean {
-    if (!this.out) return false;
-    const t = this.d?.resolveTile(DRAWER_TILE_ID), p = t?.desk.pane(t.tile.name);
-    return !(p instanceof PtyPane && p.running);
+    return !!this.out && !this.agentPane()?.pane.running;
   }
   /** The drawer's own program is the tile lifted now (the tile grammar's `drawer.agent`, wherever it is). */
   liftsOwn(): boolean {
-    const t = this.d?.resolveTile(DRAWER_TILE_ID), p = t?.desk.pane(t.tile.name);
-    return !!t && !!p && t.desk.liftsPane(p);
+    const a = this.agentPane();
+    return !!a && a.desk.liftsPane(a.pane);
+  }
+  /**
+   * The drawer's own program and the desk it is on, as the tile grammar's `drawer.agent` reads it (the one finder:
+   * resolveTile, the lift and agent.back ask it): its tab while it is in the drawer, else the tile that left, on the drawer
+   * or the screen shown. Null when it is closed, or out on a screen the grammar can't see from here. Never made by asking.
+   */
+  agentPane(): { pane: PtyPane; desk: Desk } | null {
+    if (this.out) { const o = this.outTile(this.desks()); return o ? { pane: o.pane, desk: o.desk } : null; }
+    const d = this.d;
+    return d && this.p && d.nameOfPane(this.p) ? { pane: this.p, desk: d } : null;
+  }
+  /** The drawer's own program out on a screen (`isOwnOut`), found on `desks`: its tile there, and its name. */
+  private outTile(desks: (Desk | null | undefined)[]): { pane: PtyPane; desk: Desk; name: string } | null {
+    for (const desk of desks) {
+      if (!desk || desk === this.d) continue;
+      for (const { name } of desk.layoutGet().tiles as { name: string }[]) { const pane = desk.pane(name); if (this.isOwnOut(pane)) return { pane, desk, name }; }
+    }
+    return null;
   }
   /** Whether `actor` acts as the person here (their press, or an agent on it): only then do the keys move with a lift. */
   standsFor(actor: Actor): boolean { return this.ctx(actor).standing; }
