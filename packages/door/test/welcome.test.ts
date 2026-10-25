@@ -310,7 +310,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect(await app.act({ action: "welcome.read", args: { id: n.kettle.id }, as: "test-agent" })).toMatchObject({ id: n.kettle.id, n: null });
     expect(focus()).toBe("welcome");
     await until(() => kettleRows(), "the kettle's backlinks");
-    await app.act({ action: "backlinks.pick", args: { id: n.start.id }, as: "test-agent" });
+    await app.act({ action: "list.pick", args: { id: n.start.id }, as: "test-agent" });
     await until(() => tileOf<WelcomePreview>("preview").msg?.id === n.start.id, "an agent's pick in the preview");
     expect(focus()).toBe("welcome");
     expect(await app.act({ action: "welcome.logo", as: "test-agent" })).toHaveProperty("logo");
@@ -381,7 +381,7 @@ describe.skipIf(!outliner)("a backlinks tile on the desk", () => {
     expect(reader.msg?.id).toBe(lamp.id);
     expect(bl.target?.id).toBe(lamp.id);
     // ⏎ opens it: the reader follows the current note, as an open from any list does.
-    await app.act({ action: "backlinks.pick", args: { id: a.id, open: true } });
+    await app.act({ action: "list.pick", args: { id: a.id, open: true } });
     await until(() => reader.msg?.id === a.id, "⏎: the source is the current note");
     void b;
   }, 30_000);

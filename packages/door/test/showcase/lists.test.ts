@@ -123,24 +123,24 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(cellOf("Sort: ")).toEqual(sortAt);
     await app.act({ action: "backlinks.view", tile: "backlinks", args: { stage: "all", sort: "updated-desc" }, as: "test-agent" });
     // A pick previews; the detail keeps the shed.
-    await app.act({ action: "backlinks.pick", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
+    await app.act({ action: "list.pick", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
     await until(() => shows("preview") === first.id, "the preview following the pick", 5000);
     expect(shows("detail")).toBe(seeded.notes.shed.id);
     // Alt+Enter swaps the destination and keeps its former note as a spine.
     const before = tiles().length;
-    await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n, where: "new" }, as: "test-agent" });
+    await app.act({ action: "list.open", tile: "backlinks", args: { n: first.n, where: "new" }, as: "test-agent" });
     await until(() => tiles().length === before + 1, "a new detail", 5000);
     expect(tiles().find(t => t.collapsed)?.showing?.id).toBe(seeded.notes.shed.id);
     expect(shows("detail")).toBe(first.id);
     // ⏎ opens it in the list's home, the detail; the list keeps the shed's links (PIE-794).
-    await app.act({ action: "backlinks.open", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
+    await app.act({ action: "list.open", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
     await until(() => shows("detail") === first.id, "⏎: the detail holds it", 5000);
     expect(links().target.id).toBe(seeded.notes.shed.id);
     // PIE-884: the row said which line links here (a quote of it), and the detail it opened marks that line.
     expect(screen()).toContain("“");
     // (an agent's open never marks the reader the person is in; the person's does)
     const other = rows.find(r => r.id && r.id !== seeded.notes.shed.id && r.id !== first.id)!;
-    await stage().dispatch.act({ action: "backlinks.open", tile: "backlinks", args: { n: other.n } }, { kind: "user" });
+    await stage().dispatch.act({ action: "list.open", tile: "backlinks", args: { n: other.n } }, { kind: "user" });
     await until(() => shows("detail") === other.id, "the person's open: the detail holds the other source", 5000);
     await until(() => (stage().pane("detail") as any).surface.focusMark?.line === true, "the linking line marked in the opened note", 5000);
     expect(S().focus).toBe("index");
@@ -178,11 +178,11 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await tree().loaded;
     const treeWas = tree().selected()?.id ?? null;
     // A pick (a click, j k inside it) selects the row, and the preview of the detail's selection follows; nothing else moves.
-    await person("links.pick", { n });
+    await person("list.pick", { n });
     await until(() => shows("preview") === row.id, "the preview following the row", 5000);
     expect(shows("detail")).toBe(seeded.notes.shed.id);
     // The person's open swaps the held detail and moves current, revealing it in the outline.
-    await person("links.open", { n });
+    await person("list.open", { n });
     await until(() => shows("detail") === row.id, "the detail holds the row's note", 5000);
     expect(tiles().find(t => t.name === "detail").mode).toBe("held");
     expect(stage().current?.id ?? null).toBe(row.id);
@@ -197,7 +197,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await until(() => shows("detail") === seeded.notes.shed.id, "back on the shed", 5000);
     const before = tiles().length;
     await until(() => rows().length > 0, "the shed's rows again", 5000);
-    await person("links.open", { n, where: "new" });
+    await person("list.open", { n, where: "new" });
     await until(() => tiles().some(t => t.showing?.id === row.id && !t.collapsed), "the existing row tile opens", 5000);
     expect(tiles().filter(t => t.kind === "reader" && t.showing?.id === row.id)).toHaveLength(1);
     expect(tiles().length).toBe(before);
@@ -431,7 +431,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await app.act({ action: "backlinks.groups", tile: "links", args: { show: "all" }, as: "test-agent" });
     // ⏎ on a reply opens it where the list's opens land: the reader whose children these are.
     const ana = childRows("replies").find((r: any) => r.text.startsWith("Ana"));
-    await app.act({ action: "backlinks.open", tile: "replies", args: { n: ana.n }, as: "test-agent" });
+    await app.act({ action: "list.open", tile: "replies", args: { n: ana.n }, as: "test-agent" });
     await until(() => tile("reader")?.showing?.id === ana.id, "the reply opened in the reader", 5000);
     expect(S().focus).toBe(focus);
   }, 30_000);
@@ -442,7 +442,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(await app.act({ action: "section", args: { name: "links-block" }, as: "test-agent" })).toMatchObject({ key: "links-block" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "links-block")).top; };
     const reader = () => stage().pane("reader") as any;
-    const blocks = async () => ((await app.act({ action: "links.blocks", tile: "reader", as: "test-agent" })) as any).blocks;
+    const blocks = async () => ((await app.act({ action: "list.blocks", tile: "reader", as: "test-agent" })) as any).blocks;
     await until(() => reader()?.surface.linkBlocksDrawn[0]?.rows.length === 3, "the outbox's three waiting letters", 8000);
     let b = (await blocks())[0];
     expect(b).toMatchObject({ n: 1, title: "Outbox", query: "type=letter mail=waiting", groups: ["matches"], entered: false });
@@ -459,23 +459,23 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(first.n).toBe(1);
     expect(b.preview).toBe(first.id);
     // An agent's pick answers the row and moves nothing of the person's.
-    const read = await app.act({ action: "links.pick", tile: "reader", args: { n: 2 }, as: "test-agent" }) as any;
+    const read = await app.act({ action: "list.pick", tile: "reader", args: { n: 2 }, as: "test-agent" }) as any;
     expect(read).toMatchObject({ row: 2, moved: false });
     expect((await blocks())[0].rows.find((r: any) => r.selected).n).toBe(1);
     // The person's pick (a key or a click) moves the selection, the [ ] position with it, and the preview follows.
-    await stage().dispatch.act({ action: "links.pick", tile: "reader", args: { n: 2 } }, { kind: "user" });
+    await stage().dispatch.act({ action: "list.pick", tile: "reader", args: { n: 2 } }, { kind: "user" });
     await until(() => reader().surface.linkBlocksDrawn[0]?.preview === read.id, "the preview following the pick", 5000);
     // The preview is the reader's own drawing of an embed of it: its » title, then its text.
     await until(() => screen().includes(`» ${read.text.slice(0, 20)}`), "the picked letter drawn in the preview", 8000);
-    expect(reader().surface.inView()?.link?.linksBlock?.row).toBeDefined();
+    expect(reader().surface.inView()?.link?.listRow?.row).toBeDefined();
     // Going in is the person's.
-    await expect(app.act({ action: "links.enter", tile: "reader", as: "test-agent" })).rejects.toThrow(/the person's/);
-    await stage().dispatch.act({ action: "links.enter", tile: "reader" }, { kind: "user" });
+    await expect(app.act({ action: "list.enter", tile: "reader", as: "test-agent" })).rejects.toThrow(/the person's/);
+    await stage().dispatch.act({ action: "list.enter", tile: "reader" }, { kind: "user" });
     expect(reader().surface.linksIn).toBe(reader().surface.linkBlocksDrawn[0].key);
-    await stage().dispatch.act({ action: "links.enter", tile: "reader", args: { on: false } }, { kind: "user" });
+    await stage().dispatch.act({ action: "list.enter", tile: "reader", args: { on: false } }, { kind: "user" });
     expect(reader().surface.linksIn).toBeNull();
     // ⏎ on a row opens it where the reader's opens land: here, the reader itself.
-    await app.act({ action: "links.open", tile: "reader", args: { n: 3 }, as: "test-agent" });
+    await app.act({ action: "list.open", tile: "reader", args: { n: 3 }, as: "test-agent" });
     await until(() => reader().surface.msg?.id === b.rows[2].id, "the third letter in the reader", 5000);
     await app.act({ action: "back", tile: "reader", as: "test-agent" });
     await until(() => reader().surface.msg?.id === seeded.notes.dayPlan.id, "back on the plan", 5000);

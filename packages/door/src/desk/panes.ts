@@ -519,7 +519,10 @@ export class ReaderPane implements Pane {
       ...(desk.sourcesTile ? { hasSourcesTile: () => !!desk.hasSourcesTile?.(this), sourcesTile: (on: boolean, side?: "left" | "right" | "up" | "down") => desk.sourcesTile!(this, on, side) } : {}),
       ...(desk.composerTile ? { composerTile: (on: boolean, keys?: boolean, side?: "left" | "right" | "up" | "down") => desk.composerTile!(this, on, keys, side), hasComposerTile: () => !!desk.hasComposerTile?.(this) } : {}),
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
-      ...(desk.press ? { press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given) } : {}),
+      ...(desk.press ? {
+        press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given),
+        pressSet: (set: ActionSet<any, any>, name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, set, name, args, quiet, given),
+      } : {}),
       // `b`: this note's links in the screen's links tile (one opened beside it where there's none).
       ...(desk.openLinks ? { links: (actor: Actor, standing: boolean) => desk.openLinks!(this, actor, standing) } : {}),
       ...(desk.noteGone ? { gone: (id: string) => desk.noteGone!(this, id) } : {}),

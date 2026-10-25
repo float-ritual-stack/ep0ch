@@ -751,7 +751,7 @@ return failed.length ? \`neat: \${failed.length} steps failed · \${failed.join(
       expect(links.wires).toHaveLength(3);
       expect(layout.tiles.find(t => t.name === "screen")!.wires).toEqual([]);
       for (const how of [{}, { open: true }, { fresh: true }]) {
-        await act("backlinks.pick", links.tile, { id: how.fresh ? tool.id : leaf.id, ...how });
+        await act("list.pick", links.tile, { id: how.fresh ? tool.id : leaf.id, ...how });
         expect(shows(s.d, "other")).toBe(leaf.id);
         expect(shows(s.d, "briefing")).toBe(how.fresh ? tool.id : s.briefing.id);
       }

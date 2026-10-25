@@ -183,9 +183,9 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
         key(char("k")); frame(); expect(current(d)?.list?.row).toBe(54);
         expect(plain(frame().join("\n"))).toContain("After the list.");
         if (component.startsWith("::links")) {
-          const rows = d.surface.linkBlocksDrawn[0]!.rows;
-          await b.dispatch.act({ action: "links.open", args: { block: "1", n: 60 }, tile: "detail" }, { kind: "user" });
-          await whole(d, rows[59]!.id!);
+          const rows = d.surface.linkBlocksDrawn[0]!.view.pickable();
+          await b.dispatch.act({ action: "list.open", args: { list: "1", n: 60 }, tile: "detail" }, { kind: "user" });
+          await whole(d, (rows[59]!.do as { open: string }).open);
         }
       } finally { app.pop(); }
     }

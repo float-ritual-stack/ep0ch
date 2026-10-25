@@ -30,6 +30,13 @@ import { ActionRefused, actionSet, def, agentLabel, asActor, asBoundKey, declare
 /** Actions that were renamed: a call to the old name is answered with the call that works (PIE-660: say the right thing). */
 export const GONE_ACTIONS: Record<string, string> = {
   "reader.hold": "reader.hold is now reader.mode (PIE-705, any reader or detail): act reader.mode tile=<reader> mode=held | follows | pinned [page=<name>]; with no mode it toggles follows and held, as on= did",
+  // The lists' actions are one set (PIE-747): a reader's inline lists and the links tile's rows answer to the same names.
+  "links.blocks": "links.blocks is now list.blocks (PIE-747): act list.blocks tile=<reader> reads every list it draws, an inline ::links component or an extension's list view",
+  "links.pick": "links.pick is now list.pick (PIE-747): act list.pick tile=<reader> [list=<number|^name|title>] n=<row> | id=<block>; list.step by=1 is the old by=",
+  "links.open": "links.open is now list.open (PIE-747): act list.open tile=<reader> [list=<number|^name|title>] n=<row> | id=<block> [where=home|new]",
+  "links.enter": "links.enter is now list.enter (PIE-747): act list.enter tile=<reader> [list=<number|^name|title>] [on=false]",
+  "backlinks.pick": "backlinks.pick is now list.pick (PIE-747): act list.pick tile=<links tile> n=<row> | id=<block>; list.step by=1 is the old by=, list.open the old open=true / fresh=true",
+  "backlinks.open": "backlinks.open is now list.open (PIE-747): act list.open tile=<links tile> n=<row> | id=<block> [where=home|new]",
 };
 
 export const isTilePath = (sel: string | undefined): sel is string => !!sel && sel.includes("/");

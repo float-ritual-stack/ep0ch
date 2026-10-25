@@ -48,6 +48,7 @@ import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { INVITES } from "../surface/invite";
 import { actorRule, Dispatcher, isTilePath, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
+import { isListTile, LISTVIEW_ACTIONS } from "../surface/list-actions";
 import { armsEdit, leaveSaid, NOTE_ACTIONS, PROPOSAL_ACTIONS, type OpenHow, type SurfaceHost, type TagList } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { Modes } from "../surface/modes";
@@ -2652,6 +2653,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // The person's key or click in a reader brings the host it was given (a click's own navigate); else the reader's.
         on: (at, how) => { const p = reader(at.tile); return { surface: p.surface, standing: how.standing, host: (how.given as SurfaceHost | undefined) ?? p.host(this) }; },
         run: (name, args, on, actor, typed) => on.surface.run(name, args, on.host, actor, on.standing, typed),
+        answer: answerIn,
+      },
+      // The lists' actions (PIE-747): one set for every tile that draws a list, a reader's inline lists and the links tile's body.
+      {
+        set: LISTVIEW_ACTIONS, takes: "tile", pick: "first", seen: true, noun: "a list",
+        in: t => { const p = this.pane(t.name); return (p instanceof ReaderPane && p.surface.listsDrawn.length > 0) || isListTile(p); },
+        on: (at, how) => {
+          const p = this.pane(at.tile!.name);
+          return { host: isListTile(p) ? p.listHost(this) : reader(at.tile).surface.listHost((how.given as SurfaceHost | undefined) ?? reader(at.tile).host(this)), standing: how.standing };
+        },
         answer: answerIn,
       },
     ];

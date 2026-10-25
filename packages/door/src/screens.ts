@@ -43,6 +43,7 @@ import { screenNoteProblems } from "./desk/screen-notes";
 import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "@ep0ch/outliner/machine-name";
 import { bbsDate, printable, rowLines, rule, wrap } from "./text";
+import { LISTVIEW_ACTIONS } from "./surface/list-actions";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";
 import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
@@ -1534,6 +1535,7 @@ export class MessageReader implements Screen {
       ownKeys: "nNpPtTqQU",
       // Its own keys and clicks run its note actions through the reader's dispatcher.
       press: (name, args, quiet, given) => this.dispatch.pressIn(NOTE_ACTIONS, name, args, READER, quiet, given),
+      pressSet: (set, name, args, quiet, given) => this.dispatch.pressIn(set, name, args, READER, quiet, given),
     };
   }
 
@@ -1706,6 +1708,11 @@ export class MessageReader implements Screen {
       set: NOTE_ACTIONS, takes: "tile", noun: "a reader",
       on: (_, how) => ({ surface: this.surface, standing: how.standing, host: (how.given as SurfaceHost | undefined) ?? this.host(this.ctxShown()) }),
       run: (name, args, on, actor, typed) => this.surface.run(name, args, on.host, actor, on.standing, typed),
+      answer: (out: unknown) => ({ tile: READER, name: READER, ...(out && typeof out === "object" ? out : { result: out }) }),
+    },
+    {
+      set: LISTVIEW_ACTIONS, takes: "tile", noun: "a list",
+      on: (_, how) => ({ host: this.surface.listHost((how.given as SurfaceHost | undefined) ?? this.host(this.ctxShown())), standing: how.standing }),
       answer: (out: unknown) => ({ tile: READER, name: READER, ...(out && typeof out === "object" ? out : { result: out }) }),
     },
   ]);

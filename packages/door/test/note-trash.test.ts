@@ -100,7 +100,7 @@ describe.skipIf(!outliner)("note.trash: d d from a reader, a list and the tree; 
     await setup();
     await act("tile.focus", {}, "links");
     const hallRow = links().rows().findIndex(r => r.kind === "backlink" && r.source.blockId === hall.id);
-    await act("backlinks.pick", { n: hallRow + 1 });
+    await act("list.pick", { n: hallRow + 1 });
     ch("d");
     await until(() => screen().includes('trash "Hall"?'), "the choice names the row's note");
     key({ kind: "delete" });

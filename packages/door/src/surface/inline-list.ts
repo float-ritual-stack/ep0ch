@@ -4,7 +4,7 @@ import { extractLinks, fg, C, pad, RESET } from "../style";
 import { cellsOf } from "./selection";
 import type { LinkTarget } from "../refs";
 
-export const inlineRowKey = (key: number, target: LinkTarget) => `inline:${key}:${target.linksBlock?.row ?? [target.block, target.fragment, target.resourceRef, target.url, target.query].join("|")}`;
+export const inlineRowKey = (key: number, target: LinkTarget) => `inline:${key}:${target.listRow?.row ?? [target.block, target.fragment, target.resourceRef, target.url, target.query].join("|")}`;
 
 export type InlineListDraw = (lines: string[], width: number) => string[];
 

@@ -101,7 +101,7 @@ describe.skipIf(!outliner)("the showcase screen: tiles: terminal, menu and made 
       await until(() => links()?.rows().some((r: any) => r.kind === "resource"), "the guide's link row");
       const row = links().rows().findIndex((r: any) => r.kind === "resource");
       const linksName = d.nameOfPane(links());
-      expect((await followForeign("backlinks.open", { n: row + 1 }, linksName)).id).toBe(note.id);
+      expect((await followForeign("list.open", { n: row + 1 }, linksName)).id).toBe(note.id);
       for (const n of [2, 3, 4]) {
         await app.act({ action: "open", tile: "guide", args: { id: seeded.notes.crossOutline.id }, as: "test-agent" });
         screen();

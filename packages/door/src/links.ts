@@ -40,6 +40,7 @@ import { C, drawEllipsized, fg, pad, RESET, selectedRow, width } from "./style";
 export { ALL_LINK_GROUPS, blockGroups, isLinkGroup, LINK_BLOCK_KINDS, LINK_GROUPS, linkBlockAt, type LinkBlockKind, type LinkBlockSpec, type LinkGroupName, type LinkPreview } from "@ep0ch/outline-core/link-blocks";
 import { ALL_LINK_GROUPS, blockGroups, LINK_GROUPS, type LinkBlockSpec, type LinkGroupName } from "@ep0ch/outline-core/link-blocks";
 import { prop } from "./props";
+import { ListView, listRowLines, type ListHandle, type ListViewRow } from "./surface/list-view";
 
 // ── the model ────────────────────────────────────────────────────────────────────────────────────────
 
@@ -422,24 +423,37 @@ export function linkWords(r: LinkRow, nest: boolean | null = null): { mark: stri
 }
 
 /**
- * One row as drawn, `cols` wide: indented by its depth, its mark, its text and dim context, lit while selected
- * (`focused`: the list has the keys). `tag` wraps the row's text (the inline component tags it as a link the
- * reader steps to). The tree, the links tile and the inline component all draw a row with this.
+ * A row of the links model as the one list draws it (PIE-747): its words, its mark and ink, the one thing ⏎ does on
+ * it, and the model's own row it stands for (`source`). `nest`: whether a row that stands for a note shows its own
+ * links beneath it (the tree's ▾), not, or null where rows don't nest. `folds`: a group's or kind's header folds on
+ * ⏎ (`backlinks.fold`, the links tile's), else it is a header only (an inline component's). `select: "all"` lets
+ * every row be selected, a header and a thread's fold too (the tile's j k walk them); else only a row that opens something.
  */
-export function linkRowLines(r: LinkRow, o: { cols: number; lines?: number; selected?: boolean; focused?: boolean; nest?: boolean | null; indent?: string; tag?: (text: string) => string }): string[] {
+export function linkListRow(r: LinkRow, o: { nest?: boolean | null; folds?: boolean; select?: "all" | "entries"; indent?: string } = {}): ListViewRow<LinkRow> {
   const words = linkWords(r, o.nest ?? null);
-  const head = `${o.indent ?? "  ".repeat(r.depth)}${words.mark} `;
-  const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : r.kind === "fold" || r.kind === "away" ? C.dark : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
   const subtitle = r.kind === "backlink" ? r.source.subtitle : r.kind === "outlink" && r.link.resolution.kind === "ready" ? r.link.resolution.subtitle : r.kind === "child" || r.kind === "match" ? subtitleOf(r.child.block) : undefined;
-  const tail = subtitle ? " · " + subtitle : words.context ? (r.kind === "backlink" ? " — " : r.kind === "kind" ? " " : " · ") + words.context : "";
-  const context = r.kind === "kind" ? familyInks(r.group, tail) : tail;
-  const text = head + words.text + fg(C.dark) + context + RESET;
-  return rowLines(o.tag ? o.tag(text) : text, o.cols - (o.selected && !head.startsWith(" ") ? 1 : 0), o.lines, { hang: width(head) }).map(line => {
-    const shown = line;
-    return o.selected ? selectedRow(shown, o.cols, o.focused ?? true, "idleRow") : pad(fg(colour) + shown, o.cols) + RESET;
-  });
+  const detail = subtitle ?? words.context;
+  const tone: ListViewRow["tone"] = words.problem ? "bad" : r.kind === "group" ? "warn" : r.kind === "fold" || r.kind === "away" ? "dim" : r.kind === "resource" ? "good" : undefined;
+  const block = linkBlock(r), resource = r.kind === "resource" ? r.link.recordBlockId ?? r.link.resourceId ?? (r.link.resolution.kind === "ready" ? r.link.resolution.target.resourceId : null) : null;
+  const header = r.kind === "group" || r.kind === "kind";
+  const fold = header && o.folds ? { run: { action: "backlinks.fold", args: { kind: r.kind === "group" ? r.group : r.group.kind } } } : undefined;
+  const open = block ?? (resource ? `resource:${resource}` : undefined);
+  return {
+    id: r.key, label: words.text, mark: words.mark, depth: r.depth,
+    ...(detail ? { detail } : {}),
+    join: subtitle ? " · " : r.kind === "backlink" ? " — " : r.kind === "kind" ? " " : " · ",
+    ...(tone ? { tone } : {}),
+    ...(r.kind === "kind" ? { ink: C.brown, paintDetail: (ctx: string) => familyInks(r.group, ctx) } : {}),
+    ...(fold ? { do: fold } : isLinkEntry(r) && open ? { do: { open } } : {}),
+    pick: o.select === "all" ? true : isLinkEntry(r) || !!fold,
+    source: r,
+  };
 }
 
+/** One row of the links model drawn `cols` wide: the shared adapter over the one row drawer (the tree draws its links with this). */
+export function linkRowLines(r: LinkRow, o: { cols: number; lines?: number; selected?: boolean; focused?: boolean; nest?: boolean | null; tag?: (text: string) => string }): string[] {
+  return listRowLines(linkListRow(r, { nest: o.nest ?? null }), { cols: o.cols, lines: o.lines, selected: o.selected, focused: o.focused, ...(o.tag ? { tag: (_row, text) => o.tag!(text) } : {}) });
+}
 
 /** Each family's ink for its values on a group's header: waiting yellow, draft grey, active cyan, done green; a value with no family neutral. */
 const FAMILY_INK: Record<BacklinkStageBucket, number> = { waiting: C.yellow, draft: C.grey, active: C.lcyan, done: C.green };
@@ -638,9 +652,12 @@ const childLinks = (b: LinksBoard, id: string) => questionRows(b, { where: "pare
 export interface LinkBlocksEnv {
   /** A library example supplies its own rows without an outline connection. */
   data?: LinkData;
-  /** Counted as the components are drawn (one env for a layout): a component's key is its title and how many before it had it. */
-  drawn?: { n: number; titles: Map<string, number> };
-  ui?(key: string): { sel?: string; entered?: boolean; typing?: string } | undefined;
+  /** Counted as the components are drawn (one env for a layout): a component's key is its `^name`, else its place among them. */
+  drawn?: { n: number };
+  /** The list the reader keeps for component `key` (its selections, filters and scroll are the viewers'); without it a draw is a one-off. */
+  list?(key: string): ListView<LinkRow>;
+  /** The person is in component `key` (its keys are the list's). */
+  entered?(key: string): boolean;
   /** Tag a row, its target `to`, as row `row` of component `key`. */
   row?(key: string, row: string, to: LinkTarget, text: string): string;
   /** Tag the frame's control that goes in (or out). */
@@ -649,12 +666,9 @@ export interface LinkBlocksEnv {
   preview?(id: string, width: number): string[];
   seen?(info: LinkBlockInfo): void;
 }
-/** One inline component as drawn: its key and place, its rows (each its row key, the block it stands for, its words), the selection, what's previewed. */
-export interface LinkBlockInfo {
-  key: string; n: number; title: string;
-  rows: { key: string; id: string | null; text: string; kind: LinkRow["kind"] }[];
-  sel: string | null; preview: string | null; previews: boolean; entered: boolean; typing: string | null;
-  query: string | null; groups: LinkGroupName[];
+/** One inline component as drawn: the list it is (the one `list.*` actions run over) and what only a links component knows. */
+export interface LinkBlockInfo extends ListHandle<LinkRow> {
+  previewId: string | null; previews: boolean; query: string | null; groups: LinkGroupName[];
 }
 
 /**
@@ -667,11 +681,10 @@ export interface LinkBlockInfo {
 export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W: number, frame: (title: string, body: string[], W: number, footer?: string, control?: string) => string[], tag?: (to: LinkTarget, text: string) => string, blocks?: LinkBlocksEnv, lines = 2): string[] {
   const groups = blockGroups(spec);
   const title = spec.title ?? (spec.query && spec.kind === "links" && !spec.groups ? "matches" : spec.kind);
-  // Its key in the reader: its title and how many before it had that title, as a figure's.
-  const count = blocks ? (blocks.drawn ??= { n: 0, titles: new Map() }) : { n: 0, titles: new Map<string, number>() };
-  const n = ++count.n, same = count.titles.get(title) ?? 0;
-  count.titles.set(title, same + 1);
-  const key = `links:${title}#${same}`;
+  // Its key in the reader: its `^name`, else its place among the note's components (PIE-747: not its title, which an edit above moves).
+  const count = blocks ? (blocks.drawn ??= { n: 0 }) : { n: 0 };
+  const n = ++count.n;
+  const key = spec.id ? `^${spec.id}` : `#${n}`;
   if (spec.problem) return frame(title, [fg(C.lred) + spec.problem + RESET], W);
   const own = groups.some(g => g !== "matches");
   const of = spec.of ?? note;
@@ -693,50 +706,41 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
       ...wrap("edit query= in this block and it asks again", inner).map(l => fg(C.dark) + l + RESET),
     ], W, "live · query not read");
   }
-  const ui = blocks?.ui?.(key), typing = ui?.typing ?? null, entered = !!ui?.entered;
-  const filter = [spec.filter, typing ?? ""].filter(Boolean).join(" ");
+  const view = blocks?.list?.(key) ?? new ListView<LinkRow>(key, false), entered = !!blocks?.entered?.(key);
+  const filter = [spec.filter, view.filter()].filter(Boolean).join(" ");
   const kinds = data.backlinks.kind === "ready" ? new Set(backlinkView(data.backlinks.value, DEFAULT_BACKLINK_VIEW_OPTIONS).kinds.map(k => k.kind)) : new Set<string>();
   const rows = linkRows(data, { shut: new Set(), kinds, backlinks: { ...DEFAULT_BACKLINK_VIEW_OPTIONS, filter, ...(spec.stages ? { stages: spec.stages } : {}) }, only: new Set(groups) });
   // One group alone: its header is the frame's title, so its entries stand one level up.
   const alone = groups.length === 1;
   const shown = alone ? rows.filter(r => r.kind !== "group") : rows;
   const entries = shown.filter(isLinkEntry);
-  // The selection: the person's row while it's still listed, else the first (only where it shows: a preview, or in it).
+  view.set(shown.map(r => linkListRow(alone ? { ...r, depth: Math.max(0, r.depth - 1) } : r)));
   const previewing = spec.preview !== "none" && !!blocks?.preview;
-  const sel = entries.find(r => r.key === ui?.sel)?.key ?? (previewing || entered ? entries[0]?.key ?? null : null);
-  const selRow = entries.find(r => r.key === sel);
   const inner = Math.max(10, W - 4);
-  const beside = previewing && spec.preview === "right" && W >= PREVIEW_MIN_WIDTH;
-  const lw = beside ? Math.max(20, Math.floor(inner * 0.42)) : inner, pw = beside ? inner - lw - 3 : inner;
-  const list = shown.flatMap(r => {
-    const to = linkTargetOf(r);
-    const tagRow = to && blocks?.row ? (t: string) => blocks.row!(key, r.key, to, t) : to && tag ? (t: string) => tag(to, t) : undefined;
-    return linkRowLines(alone ? { ...r, depth: Math.max(0, r.depth - 1) } : r, { cols: lw, lines: spec.lines ?? lines, selected: r.key === sel && (previewing || entered), focused: entered, ...(tagRow ? { tag: tagRow } : {}) });
-  });
   const head = rows.find(r => r.kind === "group");
-  if (!list.length) list.push(fg(C.dark) + (head?.kind === "group" && head.note ? head.note : filter ? `nothing matches ${filter}` : "nothing here yet") + RESET);
-  if (typing !== null) list.unshift(fg(C.yellow) + pad(`/ ${typing}▌`, lw) + RESET);
-  // The preview: the selected row's note, drawn as an embed of it (the reader's own renderer, its links its elements).
-  const previewId = selRow ? linkBlock(selRow) : null;
-  let pv: string[] = [];
-  if (previewing && selRow) {
-    if (!previewId) pv = [fg(C.dark) + "a Resource: ⏎ opens it" + RESET];
-    else {
-      const all = blocks!.preview!(previewId, pw);
-      pv = all.length > PREVIEW_ROWS ? [...all.slice(0, PREVIEW_ROWS - 1), fg(C.dark) + `… ${all.length - PREVIEW_ROWS + 1} more rows · ⏎ opens it` + RESET] : all;
-    }
-  }
-  const body = beside
-    ? Array.from({ length: Math.max(list.length, pv.length) }, (_, i) => pad(list[i] ?? "", lw) + fg(C.dark) + " │ " + RESET + (pv[i] ?? ""))
-    : [...list, ...(pv.length ? [fg(C.dark) + "─".repeat(Math.min(inner, 40)) + RESET, ...pv] : [])];
+  const tagRow = (row: ListViewRow<LinkRow>, text: string) => {
+    const to = linkTargetOf(row.source!);
+    return to && blocks?.row ? blocks.row(key, row.id, to, text) : to && tag ? tag(to, text) : text;
+  };
+  const drawn = view.draw({
+    cols: inner, lines: spec.lines ?? lines, focused: entered, selection: previewing || entered, tag: tagRow,
+    empty: head?.kind === "group" && head.note ? head.note : filter ? `nothing matches ${filter}` : "nothing here yet",
+    ...(previewing ? { preview: { side: spec.preview, minWidth: PREVIEW_MIN_WIDTH - 4, maxRows: PREVIEW_ROWS, of: (row: ListViewRow<LinkRow>, w: number) => {
+      const id = linkBlock(row.source);
+      return id ? blocks!.preview!(id, w) : [fg(C.dark) + "a Resource: ⏎ opens it" + RESET];
+    } } } : {}),
+  });
+  const selected = view.picked(), previewId = selected && previewing ? linkBlock(selected.source) : null;
   const counted = entries.length;
   const loading = [data.links, data.backlinks, data.children, data.matches].some((l, i) => l?.kind === "loading" && (i > 1 || own));
   const what = spec.query ? `${counted} match${counted === 1 ? "" : "es"}` : `${counted} link${counted === 1 ? "" : "s"}`;
   const word = entered ? "esc out" : "⏎ in";
   const control = blocks?.control ? blocks.control(key, word) : "";
   blocks?.seen?.({
-    key, n, title, rows: entries.map(r => ({ key: r.key, id: linkBlock(r), text: linkWords(r).text, kind: r.kind })),
-    sel: sel ?? null, preview: previewing && previewId ? previewId : null, previews: previewing, entered, typing, query: spec.query, groups,
+    n, key, title, view, entered, previewId, previews: previewing, query: spec.query, groups,
+    ...(spec.query ? { about: spec.query } : {}),
+    describeRow: (row, i) => ({ kind: row.source!.kind, ...(linkBlock(row.source) ? { id: linkBlock(row.source)! } : {}), n: i }),
   });
+  const body = drawn.lines;
   return frame(title, body, W, `${loading ? "asking… · " : ""}live · ${what}${filter ? ` · ${filter}` : ""}${spec.of ? ` · of ${drawEllipsized(of!, 9)}` : ""}`, control);
 }

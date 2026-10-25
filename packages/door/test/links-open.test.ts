@@ -31,7 +31,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
   const reader = (name: string) => desk.pane(name) as ReaderPane;
   const links = () => desk.pane("links") as BacklinksPane;
   const rowOf = (id: string) => links().rows().findIndex(r => r.kind === "backlink" && r.source.blockId === id);
-  const pickRow = async (id: string) => { await act("backlinks.pick", { n: rowOf(id) + 1 }); };
+  const pickRow = async (id: string) => { await act("list.pick", { n: rowOf(id) + 1 }, "links"); };
   const mouse = (action: "down" | "up", x: number, y: number, mods = 0) => key({ kind: "mouse", action, button: 0, x, y, ...(mods ? { mods } : {}) });
 
   beforeAll(async () => {
@@ -127,7 +127,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     expect(render().lines.map(plain).join("\n")).toContain("^butt");
     // Opening it lands on that line of the linking note.
     await act("tile.focus", {}, "links");
-    await act("backlinks.open", { n: rowOf(log.id) + 1 });
+    await act("list.open", { n: rowOf(log.id) + 1 }, "links");
     await until(() => reader("reader").msg?.id === log.id, "the log in the detail");
     const lineOf = (await board.get(log.id))!.text.split("\n").findIndex(l => l.startsWith("Check ((")) + 1;
     await until(() => (reader("reader").surface as any).focusMark?.line === true, "the line marked");
@@ -136,7 +136,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await links().show(log, desk as any);
     await until(() => links().target?.id === log.id && links().rows().some(r => r.kind === "outlink"), "the log's outlinks");
     const out = links().rows().findIndex(r => r.kind === "outlink");
-    await act("backlinks.open", { n: out + 1 });
+    await act("list.open", { n: out + 1 }, "links");
     const showing = (id: string) => reader(get().tiles.find(t => t.showing?.id === id && !t.collapsed)?.name);
     await until(() => showing(target.id).msg?.id === target.id, "the plan in the detail");
     await until(() => (showing(target.id).surface as any).focusMark?.fragment === true, "the anchor marked");
@@ -148,7 +148,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await until(() => links().target?.id === target.id && rowOf(log.id) >= 0, "the plan's backlinks again");
     const current = (await board.get(log.id))!;
     await board.update(log.id, current.text.replace("Plot log\n", "Plot log\nAdded one.\nAdded two.\nAdded three.\n"), current.revision!);
-    await act("backlinks.open", { n: rowOf(log.id) + 1 });
+    await act("list.open", { n: rowOf(log.id) + 1 }, "links");
     await until(() => showing(log.id).msg?.id === log.id, "the edited log opens");
     const edited = (await board.get(log.id))!.text.split("\n").findIndex(l => l.startsWith("Check ((")) + 1;
     await until(() => (showing(log.id).surface as any).focusMark?.line === true && (showing(log.id).surface as any).focusMark.spec.line === edited, "the reference's line marked, not the old offset's");
@@ -227,7 +227,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     await pickRow(hall.id);
     expect(reader("peek").msg?.id).toBe(unlinkedPreview);
     expect(reader("side").msg?.id).toBe(porch.id);
-    await act("backlinks.open", { id: hall.id }, "links");
+    await act("list.open", { id: hall.id }, "links");
     expect(reader("reader").msg?.id).toBe(hall.id);
   }, 20_000);
 
@@ -247,25 +247,25 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     expect(reader("peek").msg?.id).not.toBe(porch.id);
     expect(reader("reader").msg?.id).toBe(porch.id);
     await act("tile.focus", {}, "links");
-    await act("backlinks.open", { id: hall.id }, "links");
+    await act("list.open", { id: hall.id }, "links");
     await until(() => reader("reader").msg?.id === hall.id, "the saved preview-role link also takes opens");
     expect(tile("links").wires).toEqual(expect.arrayContaining([{ verb: "select", to: tile("reader").tile }, { verb: "open", to: tile("reader").tile }]));
   }, 20_000);
 
   test("an agent's open from the list lands in its home and never takes the person's keys; a group row opens or folds", async () => {
     await setup();
-    const out = await act("backlinks.open", { id: hall.id }, "links", "walker-2");
+    const out = await act("list.open", { id: hall.id }, "links", "walker-2");
     await until(() => reader("reader").msg?.id === hall.id, "the agent's open");
     expect(out.id).toBe(hall.id);
     expect(D().layoutGet().focus).toBe("links");
-    await expect(act("backlinks.open", { where: "sideways" }, "links")).rejects.toThrow(/home or new/);
+    await expect(act("list.open", { where: "sideways" }, "links")).rejects.toThrow(/home or new/);
   }, 20_000);
 
   test("PIE-1206: a plain click after alt-click previews the same row", async () => {
     await setup();
     render();
     const r = tile("links").rect;
-    const x = r.col + 6, y = r.row + 1 + (links() as any).head + rowOf(hall.id) - (links() as any).view.top;
+    const x = r.col + 6, y = r.row + 1 + (links() as any).head + rowOf(hall.id) - (links() as any).list.view.top;
     await pickRow(porch.id);
     mouse("down", x, y, 8); mouse("up", x, y, 8);
     await until(() => reader("reader").msg?.id === hall.id, "alt-click opens the hall");
@@ -279,7 +279,7 @@ describe.skipIf(!outliner)("the links tile opens for real: ⏎ in its home reade
     render();
     const r = tile("links").rect as { col: number; row: number; cols: number; rows: number };
     // Row positions come from the list itself: where the pane drew its row i.
-    const at = (id: string) => ({ x: r.col + 6, y: r.row + 1 + (links() as any).head + rowOf(id) - (links() as any).view.top });
+    const at = (id: string) => ({ x: r.col + 6, y: r.row + 1 + (links() as any).head + rowOf(id) - (links() as any).list.view.top });
     const p = at(porch.id);
     mouse("down", p.x, p.y); mouse("up", p.x, p.y);
     await until(() => (desk.pane("peek") as ReaderPane).msg?.id === porch.id, "a click previews");
