@@ -336,6 +336,11 @@ describe("two clients on one session", () => {
     await until(() => keys.length === 6, "the held hover to be handled", 1000);
     expect(keys.at(-1)).toEqual(motion(7, 2));
     expect((app.describe() as any).speed.motionCoalesced).toBe(3);
+    // A batch that throws still leaves its newest hover handled.
+    keys.length = 0;
+    await Bun.sleep(30);
+    expect(() => term.readBatch(() => { term.input(ca, hover(1, 3)); term.input(ca, hover(2, 3)); throw new Error("a screen's key threw"); })).toThrow("a screen's key threw");
+    expect(keys).toEqual([motion(2, 3)]);
     // Reads of one report each, a frame apart or more: each is handled as it comes. Closer than that, the newest of them is.
     keys.length = 0;
     await Bun.sleep(30);
@@ -345,7 +350,7 @@ describe("two clients on one session", () => {
     expect(keys).toHaveLength(1);
     await until(() => keys.length === 2, "the newest hover, a frame later", 1000);
     expect(keys.at(-1)).toEqual(motion(3, 1));
-    expect((app.describe() as any).speed.motionCoalesced).toBe(4);
+    expect((app.describe() as any).speed.motionCoalesced).toBe(5);
   });
 
   test("each client in its own video mode: a Kitty terminal gets the tube under its text, a plain one none", () => {
@@ -692,6 +697,14 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
       expect(screen.person.focus).toBe("reader");
       expect(screen.hover.pointer).toBeNull();
     }
+    // Anything else a read holds is one paint too, not one per frame: 60 wheel reports in one write.
+    await quiet();
+    const wheel: ClientMsg = { t: "input", text: "\x1b[<65;40;10M" };
+    const before = (await control({ cmd: "peek" })).screen.speed.frames;
+    a.sendAll(Array.from({ length: 60 }, () => wheel));
+    await quiet();
+    expect((await control({ cmd: "peek" })).screen.speed.frames - before).toBeLessThanOrEqual(5);
+
     a.close();
   }, 60_000);
 

@@ -1525,12 +1525,15 @@ export class App implements Ctx {
   /** Read a chunk of input (Term's onBatch): every key in it is handled, then the screen is painted once. */
   private batched(run: () => void) {
     this.batching++;
-    try { run(); if (this.batching === 1) this.settleHover(); }
+    try { run(); }
     finally {
-      if (--this.batching === 0 && this.wanted && !this.closed) {
-        this.wanted = false;
-        if (this.paintTimer) { clearTimeout(this.paintTimer); this.paintTimer = null; }
-        this.paint();
+      try { if (this.batching === 1) this.settleHover(); }      // the held hover, even when the batch threw
+      finally {
+        if (--this.batching === 0 && this.wanted && !this.closed) {
+          this.wanted = false;
+          if (this.paintTimer) { clearTimeout(this.paintTimer); this.paintTimer = null; }
+          this.paint();
+        }
       }
     }
   }
