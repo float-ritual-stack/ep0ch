@@ -33,7 +33,7 @@ import {
 } from './references'
 import { replyBlocks, tableWidths, type LinePart, type ReplyBlock } from './reply-lines'
 import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-persona'
-import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
+import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekArgv, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
 import { baselineOf, capabilityArgs, facetCountsOf, firstIdOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
@@ -1303,8 +1303,11 @@ async function runDoorTool(
     case 'door_where': {
       return compact(await ep0ch(['ep0ch', 'where', '--json']))
     }
-    case 'door_peek':
-      return JSON.stringify(peekOf(await ep0ch(['ep0ch', 'peek', ...(input.xray === true ? ['--xray'] : [])])))
+    case 'door_peek': {
+      const ask = peekArgv(input)
+      if (typeof ask === 'string') throw Error(ask)
+      return JSON.stringify(peekOf(await ep0ch(ask.argv), ask.reads))
+    }
     case 'door_act': {
       const command = doorActArgv(input, await actorFor($, input))
       if (typeof command === 'string') throw Error(command)

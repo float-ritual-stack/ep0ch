@@ -13,9 +13,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ATTENTION, encodeProgramStatus, parseProgramStatus, PROGRAM_STATUS_QUERY, PROGRAM_STATUS_TERMINFO, statusDisplayText,
-  StatusRecords, statusSegment, type StatusInput, type StatusRecord,
+  StatusRecords, statusSegment, type ProgramState, type StatusInput, type StatusRecord, type StatusReport,
 } from "@ep0ch/outline-core/program-status";
-import { C, fg } from "../style";
+import { C, ellipsize, fg } from "../style";
+
 
 /**
  * The terminal's foreground process group, read from the tile's own process (Linux's /proc/<pid>/stat `tpgid`); null
@@ -49,8 +50,15 @@ export interface StatusHolder {
 /** One terminal tile's records and when they last changed. */
 export class TileStatus {
   readonly records = new StatusRecords();
-  /** When its records last changed (Date.now()). */
+  /** When its records last changed (the clock's now). */
   at = 0;
+  /**
+   * How long each record's job has run, by the record's id: `since` is when it turned `working` (kept through a `blocked`
+   * ask, whose wait is taken out), and a `done` or `error` closes it into `ran`. A record's own clock: a child finishing
+   * never ends its parent's.
+   */
+  private readonly runs = new Map<string, { since: number | null; ran: number | null; state: ProgramState; blockedAt: number | null }>();
+  constructor(private readonly now: () => number = Date.now) {}
   /**
    * Who runs here, by what the program says (the `app` of the latest root report): the one answer to "which
    * agent is in this terminal" that needs no /proc (agent-sessions.ts `agentOfApp` reads it). It is not a record: `idle`,
@@ -67,10 +75,15 @@ export class TileStatus {
     const p = parseProgramStatus(body);
     if (p.t === "query") { reply?.(PROGRAM_STATUS_QUERY); return; }
     if (p.t !== "report") return;
-    const applied = this.records.apply(p.report);
+    this.report(p.report);
+  }
+  /** One report as read, whoever wrote it: the escape sequence above, or a test. */
+  report(r: StatusReport): void {
+    const applied = this.records.apply(r);
+    this.track(r);
     // Only the root record names who runs here: a door's child records name its tiles' programs, not the door's.
-    if (p.report.state === "clear") { if (this.records.size === 0) this.app = null; }
-    else if (p.report.id === "") this.app = p.report.app ?? null;
+    if (r.state === "clear") { if (this.records.size === 0) this.app = null; }
+    else if (r.id === "") this.app = r.app ?? null;
     if (applied) this.changed();
   }
   /** The program exited: `working` and `blocked` go; `done` and `error` stay for the person. */
@@ -83,7 +96,26 @@ export class TileStatus {
   seen(): boolean { const gone = this.records.seen(); if (gone) this.changed(); return gone; }
   /** The record asking most of the person, or null. */
   urgent(): StatusRecord | null { return this.records.urgent(); }
-  private changed() { this.at = Date.now(); notify(this); }
+  private changed() { this.prune(); this.at = this.now(); notify(this); }
+  /** How long `id`'s job ran, once it is `done` or `failed`; null when the door never saw it work. */
+  ranOf(id: string): number | null { return this.runs.get(id)?.ran ?? null; }
+  private track(r: StatusReport) {
+    if (r.state === "clear") return;
+    const now = this.now(), run = this.runs.get(r.id) ?? { since: null, ran: null, state: r.state, blockedAt: null };
+    // Time spent waiting on the person is theirs, not the job's: a run that sat blocked for ten minutes and then took five seconds took five seconds.
+    if (r.state === "blocked") run.blockedAt ??= now;
+    else if (run.blockedAt !== null) { if (run.since !== null) run.since += now - run.blockedAt; run.blockedAt = null; }
+    if (r.state === "working") run.since ??= now;
+    else if (r.state === "done" || r.state === "error") {
+      if (run.since !== null) run.ran = now - run.since;
+      else if (run.state !== r.state) run.ran = null;
+      run.since = null;
+    } else if (r.state !== "blocked") { run.since = null; run.ran = null; }
+    run.state = r.state;
+    this.runs.set(r.id, run);
+  }
+  /** A record that went (cleared, seen, its program exited) takes its clock with it. */
+  private prune() { for (const id of this.runs.keys()) if (!this.records.get(id)) this.runs.delete(id); }
 }
 
 const HOLDERS = new Set<StatusHolder>();
@@ -188,13 +220,64 @@ let keys = 0;
 /** A tile's key in the door's report: its name and a number, given once, so it stays the same wherever the tile moves. */
 export function newStatusKey(name: string): string { return `${statusSegment(name).slice(0, 24)}.${++keys}`; }
 
+/** How long a change to the root waits to see whether it holds: a flap back inside it is never sent. */
+export const NUDGE_SETTLE_MS = 4000;
+/** A job that ran this long is one a person who left it wants to hear is done. */
+export const LONG_JOB_MS = 2 * 60_000;
+/** The most a nudge's words say of what the program wrote. */
+const NUDGE_WORDS = 100;
+
+const minutes = (ms: number) => `${Math.max(1, Math.round(ms / 60_000))} min`;
+/** A program's own words as one short line. */
+const wordsOf = (r: StatusRecord) => { const t = recordText(r).split("\n").map(l => l.trim()).find(l => l) ?? ""; return t ? ellipsize(t, NUDGE_WORDS) : ""; };
+
+/** What a blocked record asks, by its kind. */
+const ASKS = { permission: "approve", question: "asks", auth: "login" } as const;
+
 /**
- * The door's own report (the door as a program in Ghostty, Rex, maybe Herdr): the root record holds what asks most of
- * the person across its terminal tiles (idle when nothing does; the order is blocked, error, done, working, idle), and
- * each tile with records is a child one level down, by its key (`claude.3`): its program's app and words, the tile's name
- * as its title. Herdr's sidebar (or any terminal) can then see what waits inside a door without reading its screen.
+ * What a tile says to a person who isn't looking at the door, as the root's report: who and where (the tile, in the
+ * outline), then what, in the program's own words: a blocked record's ask by its kind, a failure's reason, a long job's
+ * last line and how long it ran. Never a bare state word. Null for what asks nothing of an absent person: working,
+ * idle, and a done that wasn't a long job.
  */
-export function doorReport(holders: readonly StatusHolder[]): Map<string, StatusInput> {
+export function nudgeOf(h: StatusHolder, r: StatusRecord, where: string): StatusInput | null {
+  const who = `${h.statusName()} in ${where}`, words = wordsOf(r);
+  switch (r.state) {
+    case "blocked": {
+      const msg = r.kind === "permission" ? (words ? `${who} · ${ASKS.permission}: ${words}` : `${who} wants your approval`)
+        : r.kind === "question" ? (words ? `${who} · ${ASKS.question}: ${words}` : `${who} asks you a question`)
+        : r.kind === "auth" ? (words ? `${who} · ${ASKS.auth}: ${words}` : `${who} needs a login`)
+        : words ? `${who} needs you: ${words}` : `${who} needs you`;
+      return { state: "blocked", app: "ep0ch", ...(r.kind ? { kind: r.kind } : {}), msg };
+    }
+    case "error": {
+      const ran = h.status.ranOf(r.id);
+      return { state: "error", app: "ep0ch", msg: words ? `${who} failed: ${words}` : ran !== null ? `${who} failed after ${minutes(ran)}` : `${who} failed` };
+    }
+    case "done": {
+      const ran = h.status.ranOf(r.id);
+      if (ran === null || ran < LONG_JOB_MS) return null;
+      return { state: "done", app: "ep0ch", msg: words ? `${who} · ${minutes(ran)}: ${words}` : `${who} finished after ${minutes(ran)}` };
+    }
+    default: return null;
+  }
+}
+
+/**
+ * The door's own report (the door as a program in Ghostty, Rex, Tern, Herdr): the root record holds what a person away
+ * from the door needs to hear (a tile blocked on them, then a failure, then a long job's done; the order is
+ * blocked, error, done, newest first), worded by `nudgeOf`; with nothing to say it is a quiet idle, and working, idle,
+ * progress and rewording never move it. Each tile with records is a child one level down, by its key (`claude.3`): its
+ * program's app and words, the tile's name as its title, for a terminal that shows the tree (Herdr's sidebar; the
+ * painter leaves them out for the rest). `where` is the outline the door is on.
+ */
+export function doorReport(holders: readonly StatusHolder[], where: string): Map<string, StatusInput> { return doorReportOf(holders, where).want; }
+
+/**
+ * `doorReport` and the root's identity: which nudge it is (its state, its kind and the tile it is about, "" for none),
+ * so that a program rewording itself is the same nudge, and a different tile asking is a new one.
+ */
+export function doorReportOf(holders: readonly StatusHolder[], where: string): { want: Map<string, StatusInput>; key: string } {
   const want = new Map<string, StatusInput>();
   // Most urgent first, at most CHILDREN of them: with the root, within the 64 records every terminal must keep.
   const shown = holders.map(h => ({ h, r: h.status.urgent() })).filter((x): x is { h: StatusHolder; r: StatusRecord } => !!x.r)
@@ -207,10 +290,52 @@ export function doorReport(holders: readonly StatusHolder[]): Map<string, Status
     const progress = r.progress === undefined ? undefined : Math.round(r.progress / 10) * 10;
     want.set(id, { state: r.state, id, ...(r.kind ? { kind: r.kind } : {}), ...(progress !== undefined ? { progress } : {}), ...(r.app ? { app: r.app } : {}), title: name, ...(r.msg ? { msg: statusDisplayText(r.msg) } : {}) });
   }
-  const top = shown[0] ?? null;
-  const msg = top && top.r.state !== "idle" ? `${top.h.statusName()} ${statusMark(top.r).word}${top.r.msg ? `: ${statusDisplayText(top.r.msg)}` : ""}` : undefined;
-  want.set("", { state: top?.r.state ?? "idle", app: "ep0ch", ...(top?.r.state === "blocked" && top.r.kind ? { kind: top.r.kind } : {}), ...(msg ? { msg } : {}) });
-  return want;
+  // The root: the first tile (in that order) with something to say. A tile's own most urgent record is the one told.
+  let nudge: StatusInput | null = null, key = "";
+  for (const x of shown) {
+    nudge = nudgeOf(x.h, x.r, where);
+    if (nudge) { key = `${nudge.state}|${nudge.kind ?? ""}|${x.h.statusKey}`; break; }
+  }
+  want.set("", nudge ?? QUIET);
+  return { want, key };
+}
+
+/** The root with nothing to say. */
+const QUIET: StatusInput = { state: "idle", app: "ep0ch" };
+
+/**
+ * What the door says to its terminal, as a policy over `doorReport`: the children as they are, and the root only
+ * once a change of nudge has held for `settleMs` (a tile that asked and was answered within it, or a flap of any kind,
+ * sends nothing; a program rewording its ask is the same nudge, sent once). Leaving a nudge sends an idle that says what
+ * is no longer waiting. One per door, with the door's clock;
+ * the App asks `report` when something changed and `due` from its tick, so a held change goes out on time.
+ */
+export class DoorReporter {
+  /** The root the terminals have, and which nudge it is (`doorReportOf`'s key; "" for none): the same nudge reworded is not a new one. */
+  private told: StatusInput = QUIET;
+  private toldKey = "";
+  /** A change waiting out its hold: which nudge, and since when. */
+  private held: { key: string; at: number } | null = null;
+  constructor(private readonly where: () => string, private readonly now: () => number, private readonly settleMs = NUDGE_SETTLE_MS) {}
+
+  report(holders: readonly StatusHolder[]): Map<string, StatusInput> {
+    const where = this.where();
+    const { want, key } = doorReportOf(holders, where);
+    const now = this.now();
+    if (key === this.toldKey) this.held = null;
+    else {
+      if (this.held?.key !== key) this.held = { key, at: now };
+      if (now - this.held.at >= this.settleMs) {
+        this.held = null;
+        this.toldKey = key;
+        this.told = key === "" ? { state: "idle", app: "ep0ch", msg: `nothing waits on you in ${where}` } : want.get("")!;
+      }
+    }
+    want.set("", this.told);
+    return want;
+  }
+  /** A change has waited out its hold: ask `report` again. */
+  due(): boolean { return this.held !== null && this.now() - this.held.at >= this.settleMs; }
 }
 
 /**

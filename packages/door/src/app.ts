@@ -31,6 +31,7 @@ import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
 import { printable, withRowLimit } from "./text";
+import { SpeedMeter } from "./speed";
 import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
 import { connectFigures } from "./graphs";
@@ -61,7 +62,7 @@ import { BAR_ACTIONS, type BarOn } from "./bar/actions";
 import { onBarSources, type BarHost } from "./bar/source";
 import type { Msg } from "./board";
 import { HeldAsks } from "./held-asks";
-import { doorReport, onStatusChange, statusHolders, waitingCounts, waitingOnYou } from "./desk/program-status";
+import { DoorReporter, onStatusChange, statusHolders, waitingCounts, waitingOnYou } from "./desk/program-status";
 
 const STATUS_BUTTON_ACTIONS = actionSet<{ surface: NoteSurface; host: SurfaceHost; standing: boolean }>()("note", { "button.press": NOTE_ACTIONS.def("button.press")! });
 
@@ -180,6 +181,8 @@ export interface Ctx {
   redraw(): void;
   readonly overflow?: Overflow;
   readonly messages?: StatusLog;
+  /** How fast the door keeps up (src/speed.ts): `status.speed` and `peek` read it. */
+  readonly speed?: SpeedMeter;
   readonly dispatch?: Dispatcher;
   flash(msg: string, ms?: number, details?: MessageDetails): void;
   /**
@@ -532,13 +535,15 @@ export class App implements Ctx {
   private readonly offStatus: () => void;
   private reportTimer: Timer | null = null;
   /**
-   * The door's own program status to its terminal (`doorReport`: the root the most urgent across its terminal tiles,
-   * each tile a child), at most five times a second however fast its programs report: the spec asks a terminal to
-   * rate-limit what a record causes outside it, and the door is that terminal for its tiles.
+   * The door's own program status to its terminal, through `DoorReporter`: the root says what a person away needs (a tile
+   * blocked on them, a failure, a long job's done) once it has held a few seconds, the tiles are children for a terminal
+   * that shows them, and none of it is sent more than five times a second however fast its programs report: the spec
+   * asks a terminal to rate-limit what a record causes outside it, and the door is that terminal for its tiles.
    */
+  private readonly reports = new DoorReporter(() => this.outline ?? this.location, () => this.now());
   private reportStatus() {
     if (this.reportTimer || this.closed) return;
-    this.reportTimer = setTimeout(() => { this.reportTimer = null; if (this.closed) return; try { this.display.programStatus?.(doorReport(statusHolders(this.drawer))); } catch { /* a report the terminal can't take is left out, never the door */ } }, 200);
+    this.reportTimer = setTimeout(() => { this.reportTimer = null; if (this.closed) return; try { this.display.programStatus?.(this.reports.report(statusHolders(this.drawer))); } catch { /* a report the terminal can't take is left out, never the door */ } }, 200);
   }
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
   readonly drawer: AgentDrawer;
@@ -587,6 +592,7 @@ export class App implements Ctx {
   constructor(private readonly term: AppTerm, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
     this.statusNote = new StatusBarNote(board, () => this.redraw(), text => this.flash(text, 12_000, { kind: "warning" }));
     this.started = now();
+    this.speed = new SpeedMeter(now);
     this.display = isDisplay(term) ? term : new Painter(term as RawTerm);
     // The door's own terminal: an image it lost is uploaded and placed again (PIE-795).
     const decoder = (term as { decoder?: KeyDecoder }).decoder, painter = this.display;
@@ -1055,8 +1061,8 @@ export class App implements Ctx {
       ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
       messages: this.messages.rows,
       pointers: this.agentPointers.list(),
-      // How the door is keeping up (a475084a): frames drawn, and the hover reports a busier moment folded into the newest.
-      speed: { ...this.speed },
+      // How the door is keeping up (a475084a): frames drawn against reports handled, the hover reports a busier moment folded into the newest, and the settle: the last input of a burst to the frame that shows it.
+      speed: this.speed.describe(),
       // Where the pointer rests on a cut-short value, and whether that value is being read in full (the pointer is the person's: this only says).
       hover: this.overflow.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
@@ -1258,8 +1264,8 @@ export class App implements Ctx {
   private hovering: Key | null = null;
   private hoverTimer: Timer | null = null;
   private hoverAt = 0;
-  /** What the door counts about its own speed, always on and free (a475084a): read by `peek`. */
-  readonly speed = { frames: 0, motionCoalesced: 0 };
+  /** What the door counts about its own speed, always on and free (a475084a, src/speed.ts): read by `peek`. */
+  readonly speed: SpeedMeter;
   private flushHover() {
     if (this.hoverTimer) { clearTimeout(this.hoverTimer); this.hoverTimer = null; }
     const held = this.hovering;
@@ -1276,15 +1282,21 @@ export class App implements Ctx {
     else if (!this.hoverTimer) this.hoverTimer = setTimeout(() => { this.hoverTimer = null; this.batched(() => this.flushHover()); }, wait);
   }
   private key(typed: Key) {
-    if (isHover(typed)) {
-      if (this.hovering) this.speed.motionCoalesced++;
-      this.hovering = typed;
-      if (!this.batching) this.settleHover();
-      return;
-    }
-    this.flushHover();
-    this.pressKey(typed);
+    this.speed.input();
+    this.keying++;
+    try {
+      if (isHover(typed)) {
+        if (this.hovering) this.speed.motionCoalesced++;
+        this.hovering = typed;
+        if (!this.batching) this.settleHover();
+        return;
+      }
+      this.flushHover();
+      this.pressKey(typed);
+    } finally { this.keying--; }
   }
+  /** An input report is being handled: a redraw asked meanwhile is the frame that shows it (SpeedMeter's settle). */
+  private keying = 0;
   private pressKey(typed: Key) {
     if (!isHover(typed)) this.lastInput = Date.now();
     if (!(typed.kind === "mouse" && (typed.action === "wheel-up" || typed.action === "wheel-down"))) this.changed = true;
@@ -1458,6 +1470,8 @@ export class App implements Ctx {
   private linkLabel = "";
   private linkChecked = 0;
   private tick() {
+    // A change to what the door tells its terminal has held long enough (DoorReporter): say it.
+    if (this.reports.due()) this.reportStatus();
     if (Date.now() - this.linkChecked >= 1000) {
       this.linkChecked = Date.now();
       this.linkLabel = linkUpdateLabel(outlinesDir());
@@ -1476,7 +1490,7 @@ export class App implements Ctx {
   /** The status bar's time, as it would read now: the uptime and the clock; and the drawer's chip, which changes on its own. */
   private timeShown(): string {
     const now = this.now();
-    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() }).plain}|${this.whatChanged.count()}|${this.linkLabel}`;
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}|${this.speed.slow() ?? ""}|${waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() }).plain}|${this.whatChanged.count()}|${this.linkLabel}`;
   }
 
   /** The drawer's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
@@ -1507,6 +1521,7 @@ export class App implements Ctx {
    */
   redraw() {
     if (this.closed) return;               // the door has ended (a key in this chunk quit): nothing more is painted
+    if (this.keying || this.batching) this.speed.asked();
     if (this.batching) { this.wanted = true; return; }
     this.changed = true;
     if (this.paintTimer) return;
@@ -1554,7 +1569,6 @@ export class App implements Ctx {
   private drawFrame() {
     const s = this.stack.at(-1);
     if (!s) return;
-    this.speed.frames++;
     const { cols, rows } = this.term.info;
     // The drawer (the host layer's, PIE-513) is laid over the screen's bottom rows: over one, the screen drew at
     // its full size under it; beside one, the screen drew in the rows above it (App.t).
@@ -1592,6 +1606,7 @@ export class App implements Ctx {
     const readable = this.overflow.draw(lines, cols, Date.now());
     if (readable.overlay) placements = uncover(placements, readable.overlay);
     this.display.show(readable.lines, placements);
+    this.speed.frame();
     this.schedulePublish();
   }
 
@@ -1605,6 +1620,7 @@ export class App implements Ctx {
     const held = this.whatChanged.machineryCount();
     const ext = held ? `+${held} machine` : this.machineryChanges && this.whatChanged.hasMachinery() ? "machine on" : "";
     const backup = this.backupAlert();
+    const slow = this.speed.slow();
     const count = this.whatChanged.count();
     const waiting = waitingText({ ...waitingCounts(waitingOnYou(this.drawer)), held: this.heldAsks.count(), asks: this.waitingAsks.count() });
     const items: StatusItem[] = [
@@ -1618,6 +1634,7 @@ export class App implements Ctx {
       { ...right("drawer", this.drawer.active ? this.drawer.chip() : "", "host.toggle"), alt: { action: "host.agent" }, ...(this.drawer.offersRestart ? { lastCell: { action: "agent.restart" } } : {}) },
       right("waiting", waiting.styled, "host.waiting"),
       right("offline", this.offline ? `${fg(C.lred)}offline` : "", "status.log"),
+      right("slow", slow ? `${fg(C.yellow)}${slow}` : "", "status.speed"),
       right("backup", backup ? `${fg(backup.status ? C.dark : C.lred)}${backup.text}` : "", "backups.alert"),
       right("new", count ? `${fg(C.yellow)}+${count} new` : "", "changes.open"),
       right("machinery", ext ? `${fg(C.dark)}${ext}` : "", "changes.machinery"),
