@@ -864,7 +864,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     for (let i = 0; i < FRAMES_IN_FLIGHT + 2; i++) { a.type("\x1b[0n"); await Bun.sleep(30); }
     await until(() => a.screen() === b.screen(), "the answered client shown the latest frame", 10_000);
     expect(framesToA()).toBeLessThanOrEqual(FRAMES_IN_FLIGHT + 2);
-    const speed = (await control({ cmd: "peek" })).screen.speed.clients;
+    const speed = (await control({ cmd: "peek" })).screen.speed.clients.slice(-2);          // ours are the last two attached
     expect(speed.map((c: any) => [c.acks, c.unacked])).toEqual([[true, 0], [false, 0]]);
     expect(speed[0].skipped).toBeGreaterThan(0);
     a.close(); b.close();
