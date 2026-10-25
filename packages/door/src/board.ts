@@ -84,6 +84,17 @@ export interface Board {
  * its own words (outline-core's `markTitleLine`).
  */
 export function titleLine(text: string): { line: number; text: string } {
+  // A function of the text alone, asked for every row of every list each frame (a showcase load asks it ~10⁴ times): answered once per text.
+  const known = TITLES.get(text);
+  if (known) return { ...known };
+  const found = titleLineOf(text);
+  if (TITLES.size >= TITLES_KEPT) TITLES.clear();
+  TITLES.set(text, found);
+  return { ...found };
+}
+const TITLES = new Map<string, { line: number; text: string }>();
+const TITLES_KEPT = 5000;
+function titleLineOf(text: string): { line: number; text: string } {
   const mark = markTitleLine(text);
   if (mark) return mark;
   const lines = text.split("\n");
@@ -109,7 +120,16 @@ export function bodyLinesOf(text: string): { text: string; literal: boolean }[] 
   return text.split("\n").flatMap((l, i) => (i < from || lit?.markers.has(i) ? [] : [{ text: l, literal: !!lit?.inside.has(i) }]));
 }
 /** A note's title as drawn: its first line, nothing in it a terminal acts on (an extension's write can store an escape). */
-export const subject = (m: Msg) => { const t = titleLine(m.text); return printable(stripMarks(presentLinks(t.text, false, null)), " ").trim() || (t.line < 0 ? "(empty)" : "(untitled)"); };
+export const subject = (m: Msg) => {
+  // A function of the text alone (links read with no source), drawn for every row of every list each frame: answered once per text.
+  const known = SUBJECTS.get(m.text);
+  if (known !== undefined) return known;
+  const t = titleLine(m.text), title = printable(stripMarks(presentLinks(t.text, false, null)), " ").trim() || (t.line < 0 ? "(empty)" : "(untitled)");
+  if (SUBJECTS.size >= TITLES_KEPT) SUBJECTS.clear();
+  SUBJECTS.set(m.text, title);
+  return title;
+};
+const SUBJECTS = new Map<string, string>();
 /** A title with its work id before it, unless the title already starts with it: "HUB-007 End-of-day update", as /notes rows read. */
 export const withWorkId = (workId: string | undefined, title: string) => (workId && !title.startsWith(workId) ? `${workId} ` : "") + title;
 /** A note as a list row reads it: its work id, then its title. */

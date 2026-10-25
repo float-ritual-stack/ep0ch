@@ -188,9 +188,19 @@ export class FacetsPane implements Pane {
   /** The rows the cursor walks: the picks, then each facet and, opened, its values, then the notes the selection leaves. */
   rows(): Row[] {
     if (!this.answer) return [];
+    // Asked a dozen times a frame (the cursor's row, what the tile shows, each tile's facts): built once for what it is built from.
+    const from = `${this.sort}|${this.zero}|${[...this.open].join(",")}|${this.clauses.map(c => `${c.key}\0${c.value}\0${c.mode}\0${c.path ? 1 : 0}`).join("\n")}`;
+    const kept = this.rowsKept;
+    if (kept && kept.answer === this.answer && kept.all === this.all && kept.from === from) return kept.rows;
+    const rows = this.build(this.answer);
+    this.rowsKept = { answer: this.answer, all: this.all, from, rows };
+    return rows;
+  }
+  private rowsKept: { answer: FacetAnswer; all: FacetAnswer | null; from: string; rows: Row[] } | null = null;
+  private build(answer: FacetAnswer): Row[] {
     const rows: Row[] = this.clauses.map(clause => ({ kind: "clause", clause }));
-    const here = new Map(this.answer.facets.map(f => [f.key, f]));
-    const listed = this.zero && this.all ? this.all.facets.map(f => f.key) : this.answer.facets.map(f => f.key);
+    const here = new Map(answer.facets.map(f => [f.key, f]));
+    const listed = this.zero && this.all ? this.all.facets.map(f => f.key) : answer.facets.map(f => f.key);
     // The facets in use (opened, or with a pick) come first, so what is being looked at is never far down a long list.
     const using = (k: string) => this.open.has(k) || this.clauses.some(c => c.key === k);
     const keys = [...new Set([...listed.filter(using), ...this.clauses.map(c => c.key), ...listed.filter(k => !using(k))])];
@@ -209,7 +219,7 @@ export class FacetsPane implements Pane {
       };
       walk(this.tree([...(f?.values ?? []), ...gone]), new Set(gone.map(g => g.value)));
     }
-    for (const note of this.answer.notes) rows.push({ kind: "note", note });
+    for (const note of answer.notes) rows.push({ kind: "note", note });
     return rows;
   }
   current(): Row | undefined { return this.rows()[this.at]; }
