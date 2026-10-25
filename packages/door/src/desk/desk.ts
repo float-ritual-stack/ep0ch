@@ -4888,7 +4888,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         run: () => set({ spines: spines[(spines.indexOf(at.spines) + 1) % spines.length] }) });
       rows.push({ label: "min-width · open page width (0 keeps all open)", value: String(at["min-width"]),
         run: () => set({ clear: "min-width" }), adjust: by => set({ "min-width": Math.max(0, at["min-width"] + by) }) });
-      for (const entry of this.dispatch.menu(tname, USER).filter(m => m.action === "layout.gather")) rows.push({
+      for (const entry of this.dispatch.menu(tname, USER, "layout.gather")) rows.push({
         label: entry.label, value: "", run: () => this.run(entry.action, { ...entry.args, node: id }, tname),
       });
     }

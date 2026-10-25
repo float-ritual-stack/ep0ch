@@ -266,8 +266,12 @@ const BLOCK = /^[0-9a-f-]{8,}$/;
 /** `#3` or `3`: a tile's number on screen (a name never starts with a digit). */
 const NUMBER = /^#?([1-9][0-9]{0,2})$/;
 
-/** The whereabouts each dispatcher gave while a listing runs (`Dispatcher.list`): null outside one. */
-let listing: Map<Dispatcher, Whereabouts> | null = null;
+/**
+ * What each dispatcher answered while a listing runs (`Dispatcher.list`): null outside one. A listing asks, for each action it
+ * weighs, who claims it, and a claim asks where the person is and which tile an address names: the same answers each time, since
+ * nothing moves while it runs. Asked once for each dispatcher.
+ */
+let listing: Map<Dispatcher, { where?: Whereabouts; tiles?: TileRef[]; resolved: Map<string, { tile: TileRef; dispatch: Dispatcher } | null> }> | null = null;
 
 export class Dispatcher {
   private nextConfirmation = 0;
@@ -346,11 +350,15 @@ export class Dispatcher {
    * (`list`) it is asked once for each dispatcher, not once for each action the listing weighs: nothing moves while it runs.
    */
   where(): Whereabouts {
-    const asked = listing;
-    if (!asked) return this.whereNow();
-    let w = asked.get(this);
-    if (!w) asked.set(this, w = this.whereNow());
-    return w;
+    const asked = this.asked();
+    return asked ? (asked.where ??= this.whereNow()) : this.whereNow();
+  }
+  /** This dispatcher's answers so far, while a listing runs. */
+  private asked() {
+    if (!listing) return null;
+    let a = listing.get(this);
+    if (!a) listing.set(this, a = { resolved: new Map() });
+    return a;
   }
   private whereNow(): Whereabouts {
     if (this.host.where) return this.host.where();
@@ -422,6 +430,12 @@ export class Dispatcher {
    * `drawer.agent`, a tile's id and a path, so no screen keeps a copy of the rule.
    */
   private resolve(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null {
+    const asked = o ? null : this.asked();
+    if (!asked) return this.resolveNow(sel, o);
+    if (!asked.resolved.has(sel)) asked.resolved.set(sel, this.resolveNow(sel));
+    return asked.resolved.get(sel)!;
+  }
+  private resolveNow(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null {
     if (this.host.resolveTile) return this.host.resolveTile(sel, o) ?? this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
     // A host that reads no tiles across layers keeps its own names: the host layer answers only what they don't.
     return this.named(sel, this.tilesNow()) ? null : this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
@@ -651,11 +665,12 @@ export class Dispatcher {
    * Tile `sel`'s menu (PIE-492, `tile.menu`): every row its actions declare (ActionDef.menu) in the sets that would run
    * them there, in the order a name is looked up (the screen's own sets, the tile actions, its kind's, a reader's note
    * actions), each as it would run for `actor` now: hidden where it isn't this tile's now, and with the reason where it
-   * would be refused. Nothing runs; nothing is drawn.
+   * would be refused. Nothing runs; nothing is drawn. `only` names the one action whose rows are wanted (a caller after a single
+   * action's entries doesn't weigh every action's claim on the tile).
    */
-  menu(sel: string, actor: Actor): MenuRow[] {
+  menu(sel: string, actor: Actor, only?: string): MenuRow[] {
     const resolved = this.resolve(sel);
-    if (resolved && resolved.dispatch.host.pointerScope !== this.host.pointerScope) return resolved.dispatch.menu(resolved.tile.id!, actor);
+    if (resolved && resolved.dispatch.host.pointerScope !== this.host.pointerScope) return resolved.dispatch.menu(resolved.tile.id!, actor, only);
     const tiles = this.tilesNow(), tile = this.tile(sel);
     if (!tile) throw new ActionRefused(`no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
     const out: MenuRow[] = [], where = this.where(), ctx = this.host.ctx();
@@ -664,11 +679,11 @@ export class Dispatcher {
     for (const r of this.regs) {
       if (!("set" in r)) {
         if (r.listed === false) continue;
-        try { out.push(...(r.delegate()?.menu(tile.id ?? tile.name, actor) ?? []).filter(row => owns(r, row.action))); } catch { /* the tile isn't one it reaches */ }
+        try { out.push(...(r.delegate()?.menu(tile.id ?? tile.name, actor, only) ?? []).filter(row => owns(r, row.action))); } catch { /* the tile isn't one it reaches */ }
         continue;
       }
       if (r.takes === "none" || (r.menuIn && !r.menuIn(tile))) continue;
-      for (const name of r.set.names()) {
+      for (const name of only === undefined ? r.set.names() : r.set.has(only) ? [only] : []) {
         const def = r.set.def(name)!, entries = def.menu === undefined ? [] : Array.isArray(def.menu) ? def.menu : [def.menu as MenuEntry<unknown, unknown>];
         if (!entries.length || !owns(r, name)) continue;
         let at: Target;
@@ -733,7 +748,10 @@ export class Dispatcher {
     return standsAsPerson(actor, this.where(), touch === "shape" || touch === "screen" ? touch : "tile");
   }
 
-  private tilesNow(): TileRef[] { return this.host.tiles?.() ?? []; }
+  private tilesNow(): TileRef[] {
+    const asked = this.asked();
+    return asked ? (asked.tiles ??= this.host.tiles?.() ?? []) : this.host.tiles?.() ?? [];
+  }
 
   /** What the draft rule says for a `draft` action, about the draft it would write. */
   private draftAnswer(def: ActionDef<unknown, unknown>, actor: Actor, d: DraftAt | null, invitation?: string): string | null {
