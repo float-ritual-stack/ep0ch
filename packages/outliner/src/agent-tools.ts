@@ -1314,6 +1314,9 @@ export async function setBlockProperties(
     if (!value || /[\]\n]/.test(value)) throw new WorkToolRefusal(`[${key}::…]: the value is one line of text without ]; give a non-empty value (null removes the key)`);
     return [key, value];
   });
+  const names = wanted.map(([key]) => key.toLowerCase());
+  const twice = wanted.find(([key], i) => names.indexOf(key.toLowerCase()) !== i);
+  if (twice) throw new WorkToolRefusal(`[${twice[0]}::…] is named twice in properties (keys match without regard to case); name each key once`);
   const block = await writableBlock(client, input.ref);
   const header = headerLine(block.text);
   if (header.line < 0) throw new WorkToolRefusal(`${block.id} is empty; it has no header line to set properties on`);
@@ -1329,9 +1332,13 @@ export async function setBlockProperties(
     if (chip.value === value) continue;
     changes[chip.key] = { previous: chip.value, value };
     if (value !== null) { replaced.push({ start: chip.start, end: chip.end, text: chipText({ key: chip.key, value }) }); continue; }
-    // A removed chip takes the blanks before it.
+    // A removed chip takes the blanks before it, and the ` -` separator before those (`Seed - [a::1] - [b::2]` loses " - [a::1]").
     let start = chip.start;
     while (start > header.offset && /[ \t]/.test(block.text[start - 1]!)) start--;
+    if (start < chip.start && block.text[start - 1] === "-" && start - 1 > header.offset && /[ \t]/.test(block.text[start - 2]!)) {
+      start--;
+      while (start > header.offset && /[ \t]/.test(block.text[start - 1]!)) start--;
+    }
     replaced.push({ start, end: chip.end, text: "" });
   }
   if (!Object.keys(changes).length) return { outcome: "unchanged", id: block.id, properties: {} };
@@ -1339,8 +1346,7 @@ export async function setBlockProperties(
   let next = line;
   for (const edit of replaced.sort((a, b) => b.start - a.start)) next = next.slice(0, edit.start - header.offset) + edit.text + next.slice(edit.end - header.offset);
   if (added.length) next = `${next.trimEnd()} ${added.join(" ")}`;
-  // The chips that were the line's tail are gone: its ` -` separator and blanks go too (unless it was written that way).
-  if (replaced.some(edit => !edit.text) && !/[ \t]-[ \t]*$/.test(line)) next = next.replace(/[ \t]+-[ \t]*$/, "").trimEnd();
+  if (replaced.some(edit => !edit.text)) next = next.trimEnd();
   const span: DraftPatchSpan = { observed: line, replacement: next, range: { start: header.offset, end: header.end } };
   const result = await patchDraft(client, { ref: block.id, revision, patches: [span], policy: "edit", ...(input.propose ? { propose: input.propose } : {}) }, actor, { suggest: false });
   return { ...result, id: block.id, properties: changes };

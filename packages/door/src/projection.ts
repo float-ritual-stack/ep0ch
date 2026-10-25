@@ -564,9 +564,9 @@ export function drawnPresses(read: ResourceProjectionRead): DrawnPress[] {
   return out;
 }
 
-/** Whether a line of the note has not been drawn yet (running, or waiting for its run): worth asking again for a moment. */
+/** Whether a line of the note is still being drawn (running now, or waiting for its first run): worth asking again for a moment. */
 export const drawingPending = (read: ResourceProjectionRead): boolean =>
-  read.projections.some(p => (p.kind === "output" || p.kind === "component") && p.status !== "ready" && p.status !== "stale" && (p.fetching || p.status === "not-run"));
+  read.projections.some(p => (p.kind === "output" || p.kind === "component") && (p.fetching || p.status === "not-run"));
 
 /** The action a head or a control runs when it isn't the extension's own: r, run it again (ask again). */
 export const RUN_AGAIN = "projection.refresh";

@@ -9848,13 +9848,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
           return (exact.length ? exact : list.filter(f => f.label.toLowerCase().includes(want))).filter(f => line === undefined || f.line === line - 1);
         };
         // Controls a render script drew on the note (a view's button, badge, card or row) are the service's projection of it, so a note open
-        // nowhere has them too. A line still being drawn is waited for a moment: the read itself asks the service to draw it.
+        // nowhere has them too. Lines still being drawn are waited for (the read itself asks the service to draw them), so which
+        // line answers a label never depends on which finished first.
         if (!matching(found).length && mayHaveProjections(m.text)) {
           for (const end = Date.now() + 10_000; ;) {
             const read = await host.ctx.board.readResourceProjections(m.id).catch(() => null);
             if (!read) break;
-            found.push(...drawnPresses(read).filter(d => !found.some(f => f.act === d.act && f.line === d.line && f.label === d.label)));
-            if (matching(found).length || !drawingPending(read) || Date.now() > end) break;
+            const drawn = drawnPresses(read);
+            if (!drawingPending(read) || Date.now() > end) { found.push(...drawn.filter(d => !found.some(f => f.act === d.act && f.line === d.line && f.label === d.label))); break; }
             await Bun.sleep(150);
           }
         }

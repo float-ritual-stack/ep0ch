@@ -13,7 +13,7 @@ import { subject, type Msg } from "../src/board";
 import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { external } from "../src/open";
-import { forgetProjectionAnswers, mayHaveProjections, projectionKeys, projectionLayout, relativeAge, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
+import { drawingPending, drawnPresses, forgetProjectionAnswers, mayHaveProjections, projectionKeys, projectionLayout, relativeAge, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
 import { bindExtensions } from "../src/extensions";
 import type { LinkTarget } from "../src/refs";
 import { MainMenu } from "../src/screens";
@@ -485,4 +485,40 @@ process.stdout.write(JSON.stringify({ ok: true, value: { writes: Array.from({ le
     expect(targets.find(t => t.refresh)?.refreshLine).toBeUndefined();
     expect(targets.find(t => t.block)).toMatchObject({ block: ticket.id });
   }, 30_000);
+});
+
+describe("the presses a note's render scripts drew (button.press note=)", () => {
+  const line = (anchor: number, more: Partial<ResourceProjection>): ResourceProjection => ({
+    anchor: { kind: "line", line: anchor, start: 0, end: 0 }, provider: "x", options: { unknown: [] }, status: "ready", fields: [], kind: "output", ...more,
+  });
+  const drawing = (view: unknown) => ({ ranAt: "2026-01-01T00:00:00Z", markdown: "", component: { data: null, view } });
+  const read = (...projections: ResourceProjection[]): ResourceProjectionRead => ({ blockId: "b", revision: 1, projections });
+
+  test("a button, a badge, a card and a table row are presses, each once, with the line that drew it", () => {
+    const view = { type: "stack", children: [
+      { type: "button", label: "forest", act: "wyrm do=forest" },
+      { type: "row", children: [{ type: "badge", label: "5", act: "ttt-move at=5" }, { type: "text", text: "no act here" }] },
+      { type: "card", title: "A Bog Rat", act: "wyrm do=hit", children: [] },
+      { type: "table", columns: ["who", "level"], rows: [["Gerald", "1"], ["Brindle", "2"]], acts: ["wyrm do=ambush target=g", "wyrm do=ambush target=b"] },
+    ] };
+    expect(drawnPresses(read(line(3, { output: drawing(view) })))).toEqual([
+      { label: "forest", act: "wyrm do=forest", line: 3 },
+      { label: "5", act: "ttt-move at=5", line: 3 },
+      { label: "A Bog Rat", act: "wyrm do=hit", line: 3 },
+      { label: "Gerald   1", act: "wyrm do=ambush target=g", line: 3 },
+      { label: "Brindle  2", act: "wyrm do=ambush target=b", line: 3 },
+    ]);
+  });
+
+  test("a line not drawn yet has no presses and is pending, even one that was drawn before and is drawing again", () => {
+    const view = { type: "button", label: "go", act: "go" };
+    const waiting = line(1, { status: "not-run" });
+    expect(drawnPresses(read(waiting))).toEqual([]);
+    expect(drawingPending(read(waiting))).toBe(true);
+    const again = line(1, { output: drawing(view), fetching: true });
+    expect(drawnPresses(read(again))).toHaveLength(1);
+    expect(drawingPending(read(again))).toBe(true);
+    expect(drawingPending(read(line(1, { output: drawing(view) })))).toBe(false);
+    expect(drawingPending(read(line(1, { status: "error", reason: "boom" })))).toBe(false);
+  });
 });

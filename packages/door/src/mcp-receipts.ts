@@ -63,13 +63,14 @@ const propertyKeys = (input: Record<string, unknown>): string[] =>
 const spansOf = (e: NetmailReceipt): { observed: string; replacement: string }[] => strings(e.input.patches) ? e.input.patches : [];
 
 /**
- * Whether write `l`, queued after `e`, takes `e`'s place: not refused, the same tool, and for a property the same key, for
+ * Whether write `l`, queued after `e`, takes `e`'s place: not refused, the same tool, and for a property the same keys (all of `e`'s), for
  * a patch a span that is over the same text (the one holds the other's passage, or its replacement). A comment or a new
  * block is never replaced.
  */
 function replaces(l: NetmailReceipt, e: NetmailReceipt): boolean {
   if (l.id === e.id || l.tool !== e.tool || l.state === "refused") return false;
-  if (e.tool === "outline_set_property") return propertyKeys(l.input).some(key => propertyKeys(e.input).includes(key));
+  // The later write takes its place only when it writes every key the earlier one did.
+  if (e.tool === "outline_set_property") return propertyKeys(e.input).every(key => propertyKeys(l.input).includes(key));
   if (e.tool !== "outline_patch") return false;
   const [a, b] = [spansOf(e), spansOf(l)];
   return a.some(x => b.some(y => [x.observed, x.replacement].some(t => t && (y.observed.includes(t) || t.includes(y.observed)))));

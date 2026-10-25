@@ -437,6 +437,16 @@ test("set-property with a properties map changes several chips as one revision: 
   await refused({ properties: { bed: "x]y" } }, "without ]");
   await refused({ properties: { bed: "s" }, key: "bed", value: "t" }, "not both");
   await refused({ properties: {} }, "at least one");
+  await refused({ properties: { bed: "s", BED: "t" } }, "named twice");
+  // A title's ` - ` separators go with the chips they led to, and no other.
+  const dashed = store.create("Seed - [a::1] - [b::2] - [c::3]\nBody.");
+  await agent("set-property", { ref: dashed.id, revision: dashed.revision, properties: { a: null } });
+  expect(store.get(dashed.id)!.text).toBe("Seed - [b::2] - [c::3]\nBody.");
+  await agent("set-property", { ref: dashed.id, revision: store.get(dashed.id)!.revision, properties: { b: null, c: null } });
+  expect(store.get(dashed.id)!.text).toBe("Seed\nBody.");
+  const spaced = store.create("Seed [a::1] [b::2] #tag\nBody.");
+  await agent("set-property", { ref: spaced.id, revision: spaced.revision, properties: { a: null } });
+  expect(store.get(spaced.id)!.text).toBe("Seed [b::2] #tag\nBody.");
   await refused({ properties: { bed: 4 } }, "a string");
 });
 
