@@ -5,7 +5,7 @@ import { join, sep } from "node:path";
 
 export function artifactResponse(root: string, request: Request, ancestors: string): Response {
   const headers = {
-    "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline' ${ARTIFACT_SCRIPT_SOURCES}; style-src 'self' 'unsafe-inline'; img-src * data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors ${ancestors}; object-src 'none'`,
+    "Content-Security-Policy": `default-src 'self'; script-src 'self' 'unsafe-inline' ${ARTIFACT_SCRIPT_SOURCES}; style-src 'self' 'unsafe-inline'; img-src * data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' https:; frame-ancestors ${ancestors}; object-src 'none'`,
     "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store",
   };
   const missing = () => new Response("Not found", { status: 404, headers });
