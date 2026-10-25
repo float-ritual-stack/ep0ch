@@ -126,8 +126,8 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
   const spill = async (g: string) => { await me("tile.group", { on: false }, g); render(); };
   /** The layout as read, without the ages a list of notes writes beside each one ("user · 7s": they tick on their own). */
   const steady = () => JSON.stringify(get(), (_, v) => typeof v === "string" ? v.replace(/(^|· )\d+[smhd]$/, "$1<age>") : v);
-  /** Until the layout reads the same twice running: a tile that loads its rows (the replies of a note a reader still shows) has finished. */
-  const settled = async () => { let last = ""; await until(() => { render(); const now = steady(); const same = now === last; last = now; return same; }, "the layout to settle"); };
+  /** Until the layout reads the same twice running with no request of the door's still out: a tile that loads its rows (the replies of a note a reader still shows) has finished. */
+  const settled = async () => { let last = ""; await until(() => { render(); const now = steady(); const same = now === last && (board as any).waiting.size === 0; last = now; return same; }, "the layout to settle"); };
 
   test("b reuses the grouped links and preview beside a detail (PIE-1120)", async () => {
     D().build({ root: { t: "leaf", kind: "reader", mode: "held", name: "detail", note: seeded.notes.hub.id }, focus: "detail" }, false);

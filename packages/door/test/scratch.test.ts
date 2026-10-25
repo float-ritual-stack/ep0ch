@@ -75,3 +75,14 @@ test.skipIf(!outliner)("a scratch host Bun ended at another test's timeout is st
     board.close();
   } finally { await scratch.dispose(); }
 }, 60_000);
+
+test.skipIf(!outliner)("a test that times out takes only itself: Bun ends the file's host, the next test of the file finds one up (PIE-1303)", async () => {
+  const dir = scratchDir("ep0ch-revive-"), mark = join(dir, "mark");
+  try {
+    const run = Bun.spawn(["bun", "test", "./test/fixtures/revive-timeout.fixture.ts"], { cwd: join(import.meta.dir, ".."), env: { ...process.env, REVIVE_MARK: mark } as Record<string, string>, stdout: "pipe", stderr: "pipe" });
+    const [out, err] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);
+    // The first test fails by its timeout (so the run exits 1), and Bun did end the host; the second one passed.
+    expect(err + out).toContain("killed 1 dangling process");
+    expect(existsSync(mark), err + out).toBe(true);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60_000);
