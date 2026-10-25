@@ -139,8 +139,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         painted = { top, lines: frame.lines, at: frames(), refused: !!A().refusedNow };
         return frame;
       };
+      const t0 = performance.now();
       try { return paint.apply(this, a); } catch { /* snap says it */ }
-      finally { if (top) { if (own) top.render = render!; else delete (top as { render?: unknown }).render; } }
+      finally { stats.paints++; stats.paintMs += performance.now() - t0; if (top) { if (own) top.render = render!; else delete (top as { render?: unknown }).render; } }
     };
     restore.push(() => { (App.prototype as any).paint = paint; });
     const run = external.run;
@@ -194,7 +195,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         // (a probe leaves that out): its rows are the screen's.
         const current = painted && painted.top === top && painted.at === frames() && !painted.refused && !A().changed && !A().paintTimer;
         try {
+          const l0 = performance.now();
           const drawn = current ? painted!.lines : top.render(app).lines;
+          if (!current) { stats.looks++; stats.lookMs += performance.now() - l0; }
           hint = plain(drawn.at(top instanceof MainMenu ? -2 : -1) ?? "");
           lines = drawn.slice(0, rows - 1).map(ageless);
         } finally { A().refusedNow = refused; }
@@ -231,15 +234,20 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   };
   const masks = new Map<string, Set<number>>();
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
-  const stats = { fresh: 0, freshMs: 0, second: 0 };
+  const stats = { fresh: 0, freshMs: 0, second: 0, paints: 0, paintMs: 0, looks: 0, lookMs: 0, pressMs: 0, settleMs: 0 };
   /**
    * A scenario is held to a budget (PARITY_BUDGET_MS, 60 s): past it the scenario fails by name, with the slowest key and the
    * slowest build, rather than running on to the test's own timeout (PIE-1307: one ran 570 s against a 600 s limit and took the
    * next scenario with it). Checked between probes and builds, so a hung settle (3 s at most) is the longest it overshoots.
    */
   const budget = Number(process.env.PARITY_BUDGET_MS ?? 60_000);
-  const worst = { t0: 0, key: "", keyMs: 0, build: 0 };
-  const timed = (key: string, since: number) => { const ms = performance.now() - since; if (ms > worst.keyMs) { worst.key = key; worst.keyMs = ms; } };
+  const worst = { t0: 0, label: "", key: "", keyMs: 0, build: 0 };
+  const keysLog = process.env.PARITY_KEYS;   // every probe's key and its milliseconds, one line each: what a scenario spends its time on
+  const timed = (key: string, since: number) => {
+    const ms = performance.now() - since;
+    if (ms > worst.keyMs) { worst.key = key; worst.keyMs = ms; }
+    if (keysLog) require("node:fs").appendFileSync(keysLog, `${worst.label}\t${key}\t${ms.toFixed(1)}\n`);
+  };
   const overBudget = (label: string, doing: string) => {
     const took = Date.now() - worst.t0;
     if (took > budget) throw new Error(`parity scenario "${label}" took over ${budget / 1000} s (${(took / 1000).toFixed(1)} s, ${stats.fresh} builds taking ${(stats.freshMs / 1000).toFixed(1)} s, ${stats.second} second checks) at ${doing}: the slowest key took ${worst.keyMs.toFixed(0)} ms (${worst.key || "none yet"}), the slowest build ${worst.build} ms`);
@@ -323,6 +331,14 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     press(k);
     if (k.kind === "mouse" && k.action === "down") press({ ...k, action: "up" });
   };
+  /** A probe's key: pressed, then waited out. Where the time goes (the door handling it, then painting and settling) is counted for the log. */
+  const go = async (k: Key) => {
+    const t0 = performance.now();
+    push(k);
+    const t1 = performance.now();
+    await settle();
+    stats.pressMs += t1 - t0; stats.settleMs += performance.now() - t1;
+  };
 
   // Hints: every key the hint row names is declared by an action the screen (or the shell, or the drawer) takes.
   const checkHint = (label: string, looked?: Snap) => {
@@ -355,7 +371,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const base = snap(mask);
     const runs: ActionRun[] = [];
     const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
-    try { push(k); await settle(); } finally { stop(); }
+    try { await go(k); } finally { stop(); }
     const after = snap(mask);
     if (same(base, after) || runs.length || (after.holds && after.top === base.top)) return null;
     return changes(base, after) || "the screen";
@@ -405,6 +421,17 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       sharedStates.add(id);
       return false;
     };
+    // The states this scenario has opened: a state is the action that opened it and the screen it left, so a second key that
+    // opens the same one (showcase.section.try by enter, l, right and tab) is the same state, probed once.
+    const reachedStates = new Set<string>();
+    const reached = (k: Key, runs: ActionRun[], after: Snap) => {
+      // Of the screen, not what a build or the clock changes: the tiles' ids (new each build), and the status bar under the rows.
+      const ids = (t: string) => t.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "#id");
+      const id = `${runs[0]?.scope}.${runs[0]?.name}\0${after.depth}\0${after.drawer}\0${ids(after.about)}\0${after.lines.slice(0, -1).join("\n")}`;
+      if (reachedStates.has(id)) { if (log) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} reaches the state ${runs[0]?.name} did, probed already\n`); return true; }
+      reachedStates.add(id);
+      return false;
+    };
     for (const k of [...PROBE_KEYS, ...await clicks()]) {
       if (dirty) { mask = await fresh(label, make, setup); dirty = false; last = null; }
       const base = last ?? snap(mask);
@@ -413,7 +440,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       if (process.env.PARITY_TRACE) require("node:fs").appendFileSync(process.env.PARITY_TRACE, `${label} ${named(k)}\n`);
       overBudget(label, `key ${named(k)}`);
       const pressed = performance.now();
-      try { push(k); await settle(); } finally { stop(); timed(named(k), pressed); }
+      try { await go(k); } finally { stop(); timed(named(k), pressed); }
       const after = snap(mask);
       last = after;
       if (same(base, after) && !runs.length) continue;
@@ -426,7 +453,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       if (runs.length) {
         if (!declares(tokens(runs), k)) findings.push({ screen: label, keys: named(k), problem: `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it` });
         if (log && opened) require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} opened by ${runs.map(r => `${r.scope}.${r.name}`).join(",")}\n`);
-        if (opened && !shared(k, runs)) states.push(k);
+        if (opened && !shared(k, runs) && !reached(k, runs, after)) states.push(k);
         continue;
       }
       if (after.holds && after.top === base.top) { if (log && k.kind !== "mouse") require("node:fs").appendFileSync(log, `# ${label}: ${named(k)} holds, no action\n`); if (k.kind !== "mouse") states.push(k); continue; }
@@ -461,7 +488,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
         overBudget(label, `keys ${named(k1)} ${named(k2)}`);
         const pressed = performance.now();
-        try { push(k2); await settle(); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
+        try { await go(k2); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
         const after = snap(mask);
         if (same(mid, after)) { cur = after; continue; }
         // Typing that keeps the state goes on from where it is (most second keys are text).
@@ -489,7 +516,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const runs: ActionRun[] = [];
     const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
     const pressed = performance.now();
-    try { push(k2); await settle(); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
+    try { await go(k2); } finally { stop(); timed(`${named(k1)} ${named(k2)}`, pressed); }
     const after = snap(mask);
     if (same(mid, after)) return null;
     if (runs.length) return declares(tokens(runs), k2, k1) ? null : `ran ${runs.map(r => r.name).join(", ")}, whose keys don't name it`;
@@ -629,11 +656,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     if (only && !only.includes(label)) continue;
     test(`${label}: every key and click it handles runs an action that names it`, async () => {
       const before = found.length + hintFound.length, t0 = Date.now();
-      stats.fresh = stats.freshMs = stats.second = 0;
-      worst.t0 = t0; worst.key = ""; worst.keyMs = 0; worst.build = 0;
+      for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
+      worst.t0 = t0; worst.label = label; worst.key = ""; worst.keyMs = 0; worst.build = 0;
       await audit(label, make, setup ?? []);
-      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${worst.key} ${worst.keyMs.toFixed(0)} ms, slowest build ${worst.build} ms)\n`);
-      stats.fresh = stats.freshMs = stats.second = 0;
+      if (log) require("node:fs").appendFileSync(log, `# ${label}: ${Date.now() - t0} ms (${stats.fresh} builds, ${stats.freshMs} ms building, ${stats.second} second checks; slowest key ${worst.key} ${worst.keyMs.toFixed(0)} ms, slowest build ${worst.build} ms; keys: ${stats.pressMs.toFixed(0)} ms handling, ${stats.settleMs.toFixed(0)} ms settling; ${stats.paints} paints ${stats.paintMs.toFixed(0)} ms, ${stats.looks} looks ${stats.lookMs.toFixed(0)} ms)\n`);
+      for (const k of Object.keys(stats) as (keyof typeof stats)[]) stats[k] = 0;
       const mine = [...found, ...hintFound].slice(before).map(f => `${f.screen}\t${f.keys}\t${f.problem}`);
       expect(mine).toEqual([]);
     }, budget + 60_000);
