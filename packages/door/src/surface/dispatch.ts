@@ -1,3 +1,4 @@
+import type { ResolveOpts } from "../desk/tile-address";
 import { fromPress } from "../session/session-term";
 import { modeActionKeys } from "./modes";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
@@ -56,6 +57,8 @@ export interface TileRef {
   aliases?: readonly string[];
   /** Its kind (`reader`, `pty`, a river column). */
   kind: string;
+  /** What it is for (`role:<role>` names it): set on the tile, else its kind's (PIE-1286). */
+  role?: string;
   /** How a refusal names it ("column 3"); its name by default. */
   label?: string;
   /** Drawn now (false: in a shut dock, off the strip). */
@@ -73,6 +76,12 @@ export interface TileRef {
   /** Why a note action can't run in it now (folded to a spine, a peek, off screen), when one can't. */
   readOnly?: string | null;
 }
+
+/** A request as it ran: the action, its arguments and the tile it ran on. */
+export interface RunRequest { action: string; args: Record<string, unknown>; tile?: { id: string | undefined; name: string; role?: string }; /** The request named its tile (`tile=`); else the action's default (the focused one) ran. */ named: boolean; /** What the action takes: a tile (its default is the focused one), or the screen. */ takes: Registration["takes"]; /** `safe`: it changes only the door's own view or layout, so running it again is a fair comparison. */ replay: import("./actions").Replay; /** The action set it ran in (`note`: acts at the cursor inside the tile). */ scope: string; actor: Actor; typed: boolean }
+const requestTracers = new Set<(r: RunRequest) => void>();
+/** Hear every request a dispatcher runs, with the tile it resolved to (the parity walk replays it by id and by role). Returns how to stop. */
+export function traceRequests(f: (r: RunRequest) => void): () => void { requestTracers.add(f); return () => { requestTracers.delete(f); }; }
 
 /**
  * One row of a tile's menu, as the dispatcher would run it: the action, its arguments and the tile (its stable id), the
@@ -161,7 +170,7 @@ export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req:
    * The host layer (the drawer, above every screen): the one place that resolves what `tile=` names across layers (a tile's
    * id, `drawer.agent`, an `@screen/tile` path), for every screen host, a desk or not. A screen's own names are its own.
    */
-  hostLayer?: { resolveTile?(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null; /** Why `sel` names no tile in the host layer (the drawer's program closed, say), with what to run: a refusal says it. */ unnamed?(sel: string): string | null } }
+  hostLayer?: { resolveTile?(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null; /** Why `sel` names no tile in the host layer (the drawer's program closed, say), with what to run: a refusal says it. */ unnamed?(sel: string): string | null } }
 
 /** The screen host a dispatcher serves. */
 export interface DispatchHost {
@@ -179,7 +188,7 @@ export interface DispatchHost {
   where?(): Whereabouts;
   /** The tiles `tile=` names, in order on screen. */
   tiles?(): TileRef[];
-  resolveTile?(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null;
+  resolveTile?(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null;
   /** `expected=`: why it's refused (the layout changed since that revision), or null. Absent: the screen has none. */
   revision?(expected: unknown): string | null;
   /** A tile's draft for the draft rule: the note it shows and the session it holds. */
@@ -402,7 +411,9 @@ export class Dispatcher {
    * everything below), else the host layer's (PIE-1285), which every screen host is asked, a desk or not. One place decides
    * `drawer.agent`, a tile's id and a path, so no screen keeps a copy of the rule.
    */
-  private resolve(sel: string, o?: { program?: true }): { tile: TileRef; dispatch: Dispatcher } | null {
+  private resolve(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null {
+    // `^` is relative to the tile the request acts from: the one with the keys, never a guess when nothing has them.
+    if (/^\^+$/.test(sel) && o?.from === undefined) o = { ...o, from: this.where().address ?? undefined };
     if (this.host.resolveTile) return this.host.resolveTile(sel, o) ?? this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
     // A host that reads no tiles across layers keeps its own names: the host layer answers only what they don't.
     return this.named(sel, this.tilesNow()) ? null : this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
@@ -586,6 +597,7 @@ export class Dispatcher {
     const seen = reg.set.defArgs(req.action, args, typed);
     const no = this.refusal(reg, def, req.action, at, args, seen, actor);
     if (no) throw new ActionRefused(no);
+    for (const t of requestTracers) t({ action: req.action, args: seen, ...(at.tile ? { tile: { id: at.tile.id, name: at.tile.name, ...(at.tile.role ? { role: at.tile.role } : {}) } } : {}), named: req.tile !== undefined, takes: reg.takes, replay: def.replay, scope: reg.set.scope, actor, typed });
     this.host.beforeAction?.(req.action);
     const confirmation = ++this.nextConfirmation;
     const ctx = this.host.ctx();

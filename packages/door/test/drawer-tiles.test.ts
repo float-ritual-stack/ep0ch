@@ -52,12 +52,13 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
   afterEach(() => { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; rmSync(state, { recursive: true, force: true }); });
 
   /** A door on the desk with a terminal tile running `cat` (named `kettle`), on a fake 140x40 terminal. */
-  async function door() {
+  async function door(saved?: unknown) {
     let key: (k: Key) => void = () => {};
     let painted: string[] = [];
     const term: any = { info: { cols: 140, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, paintRow() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     const app = new App(term, board, Date.now(), () => {});
-    const desk = new Desk(undefined, { layout: "desk" });
+    // `saved`: the desk comes back as a previous door left it (a session handover's), not as the named layout.
+    const desk = new Desk(undefined, saved === undefined ? { layout: "desk" } : { saved });
     app.push(desk);
     await desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle" }, tile: "reader" }, USER);
     const paint = () => { (app as any).paint(); return painted.map(plain); };
@@ -824,6 +825,158 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     }, 45_000);
   }
 
+  // PIE-1286, the probe (pie "pop it"): Evan's two buttons, unmodified, lift and drop the drawer's program wherever the
+  // program is and whichever screen is shown, through a door restart, a session handover and a restore under another name.
+  // The drawer's own program is the tile with role agent, a property of the tile that is saved with it, not a name or a key.
+  const POP_IT = ['::button{label="lift" act="agent.lift"}', '::button{label="popit" act="tile.zoom tile=role:agent reach=column"}'];
+  const POP_SCENES = [
+    "on the desk", "on the component library", "on the board", "on a screen mounted on the desk", "typing in the drawer",
+    "after a door restart", "after a handover with its program out on the desk", "restored from a file that saved the own tile under another name",
+  ] as const;
+  for (const scene of POP_SCENES) {
+    test(`pop it ${scene}: both buttons lift, drop and lift the drawer's program`, async () => {
+      let d = await door();
+      const alive: Awaited<ReturnType<typeof door>>[] = [d];
+      const bar = await board.createBlock(null, `Your status bar [status-bar::true]\n${POP_IT.join("\n")}`);
+      try {
+        d.key({ kind: "alt", ch: "a" }); d.paint();
+        await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+        const leaves = (n: any): any[] => !n ? [] : n.t === "leaf" ? [n] : [...(n.kids ?? []), ...(n.tabs ?? []), n.kid, n.a, n.b].flatMap(leaves);
+        const again = async (prepare: () => Promise<void>, saved?: () => unknown) => {
+          await prepare();
+          const left = saved?.();
+          d.app.quit();
+          d = await door(left); alive.push(d);
+          d.paint();
+          if (!d.app.drawer.open) d.key({ kind: "alt", ch: "a" });
+          if (!d.app.drawer.isAway()) await d.app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
+          d.paint();
+        };
+        if (scene === "on the component library") { d.app.push(openScreen("library")); d.paint(); }
+        else if (scene === "on the board") { d.app.push(openScreen("board")); d.paint(); }
+        else if (scene === "on a screen mounted on the desk") { await d.desk.dispatch.act({ action: "tile.open", args: { kind: "screen", screen: "board" } }, USER); d.paint(); }
+        else if (scene === "typing in the drawer") { expect(d.app.drawer.entered).toBe(true); }
+        else if (scene === "after a door restart") {
+          await again(async () => { await d.desk.dispatch.act({ action: "tile.drawer", tile: "replies" }, USER); });
+          await until(() => d.app.drawer.tile?.running === true, "the next door's own program runs");
+        } else if (scene === "after a handover with its program out on the desk") {
+          const out = await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER) as any;
+          // What the next daemon reads: the saved screen holds the program with its role, the drawer says its program is out.
+          expect(leaves(d.desk.savedState().root).filter(l => l.role === "agent").map(l => l.name)).toEqual([out.name]);
+          await again(async () => {}, () => d.desk.savedState());
+          expect(d.app.drawer.isAway()).toBe(true);
+          await until(() => leaves(d.desk.savedState().root).some(l => l.role === "agent" && (d.desk.pane(l.name) as PtyPane | undefined)?.running), "the program is back on the desk");
+        } else if (scene.startsWith("restored")) {
+          await again(async () => {
+            await d.desk.dispatch.act({ action: "tile.drawer", tile: "replies" }, USER);
+            d.app.quit();
+            const file = join(outlineState(), "drawer-tiles.json");
+            const saved = JSON.parse(readFileSync(file, "utf8"));
+            const own = leaves(saved.root).find(l => l.name === "drawer.agent");
+            expect(own).toBeTruthy();
+            Object.assign(own, { name: "shell", kept: "drawer.json#3:drawer.agent" });
+            writeFileSync(file, JSON.stringify(saved));
+            d = await door(); alive.push(d);
+            d.paint();
+            if (!d.app.drawer.open) d.key({ kind: "alt", ch: "a" });
+            await d.app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, USER);
+            d.paint();
+          });
+          await until(() => d.app.drawer.tile?.running === true, "the restored own program runs");
+        }
+        await d.A.statusNote.refresh(d.A.statusItems());
+        const click = (label: string) => {
+          const lines = d.paint(), row = lines.length - 1, x = lines[row]!.indexOf(label);
+          expect(x).toBeGreaterThanOrEqual(0);
+          d.key(mouse("down", x, row)); d.key(mouse("up", x, row));
+        };
+        const lifted = () => [...d.app.drawer.desks(), ...d.app.drawer.desks().flatMap((x: any) => x.descendDesks?.() ?? [])].map(x => x.liftedDesk?.lifted?.tile ?? null).find(t => t !== null) ?? null;
+        const settle = async (want: "up" | null, what: string) => { await until(() => (lifted() !== null) === (want === "up"), what); await Bun.sleep(30); expect(lifted() !== null).toBe(want === "up"); };
+        for (const label of ["lift", "popit"]) {
+          click(label); await settle("up", `${label}: lifts the drawer's program`);
+          const tile = lifted();
+          click(label); await settle(null, `${label}: drops it`);
+          click(label); await settle("up", `${label}: lifts it again`);
+          expect(lifted()).toBe(tile);
+          click(label); await settle(null, `${label}: drops it again`);
+        }
+        // Whichever button lifted it, it is the one program: nothing new was started.
+        expect(d.app.drawer.tabs()).toHaveLength(scene === "after a door restart" || scene.startsWith("restored") ? 2 : 1);
+      } finally { for (const x of alive) try { x.app.quit(); } catch { /* quit twice */ } await board.trash(bar.id); }
+    }, 60_000);
+  }
+
+  // PIE-1286: an address that names nothing is refused, with why and what to type; it never falls back to the tile in focus
+  // (that fallback made every broken "pop it" look half-working: an empty tile= zoomed whatever had the keys).
+  test("tile= that names nothing is refused with why, and never acts on the focused tile", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      await d.app.dispatch.press("host.leave", {});
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
+      const refused = async (tile: string, ...says: RegExp[]) => {
+        const rev = d.desk.layoutGet().rev, zoom = d.desk.layoutGet().tiles.map((t: any) => t.zoomed ?? null);
+        const why = await d.app.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile }, USER).then(() => "", (e: Error) => e.message);
+        expect([tile, why === ""]).toEqual([tile, false]);
+        for (const re of says) expect([tile, why]).toEqual([tile, expect.stringMatching(re)]);
+        expect(d.desk.layoutGet().rev).toBe(rev);
+        expect(d.desk.layoutGet().tiles.map((t: any) => t.zoomed ?? null)).toEqual(zoom);
+        expect(d.desk.lifted).toBeNull();
+        expect(d.app.drawer.desks().some(x => x.liftedDesk?.lifted)).toBe(false);
+      };
+      await refused("", /no tile/);
+      await refused("role:nothing", /no tile has the role nothing; roles here: .*agent/);
+      await refused("role:agent@nowhere", /no screen nowhere is on show/);
+      await refused("t-00000000-0000", /no tile has the id t-00000000-0000/);
+      await refused("reader@nowhere", /no screen nowhere is on show or mounted here/);
+      await refused("slotless@desk", /desk has no slot slotless; its slots: /);
+      // kettle was opened beside the reader, which the layout made: ^ is the reader, ^^ has nothing recorded.
+      expect((await d.app.dispatch.act({ action: "tile.info", tile: "^" }, USER) as any).name).toBe("reader");
+      await refused("^^", /\^\^ names the tile that opened reader, and nothing recorded opening it/);
+    } finally { d.app.quit(); }
+  });
+
+  // PIE-1286, the five kinds of address as a person writes them in a button, each reaching the tile it names from the
+  // desk, the drawer and a screen pushed over them: an exact id (and its prefix), a role, a slot, a name, and `^`.
+  test("tile= takes an id (or its 8+ character prefix), role:<role>, <slot>@<screen>, a name, and ^, from any screen host", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      await d.app.dispatch.press("host.leave", {});
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "side", to: "kettle" }, tile: "kettle" }, USER);
+      const info = (sel: string) => d.app.dispatch.act({ action: "tile.info", tile: sel }, USER) as Promise<any>;
+      const tiles = d.desk.layoutGet().tiles as { tile: string; name: string }[];
+      const id = (name: string) => tiles.find(t => t.name === name)!.tile;
+      const lib = openScreen("library") as any;
+      const hosts: [string, any][] = [["the desk", d.desk.dispatch], ["the drawer", d.app.drawer.desk!.dispatch], ["the library", lib.dispatch]];
+      for (const [where, dispatch] of hosts) {
+        if (where === "the library") { d.app.push(lib); d.paint(); }
+        const at = (sel: string) => dispatch.tile(sel)?.name;
+        // The screen shown is a layer too: its tiles by id, role and slot. The desk is covered once the library is shown.
+        if (where !== "the library") {
+          expect([at(id("kettle")), at(id("kettle").slice(0, 10))]).toEqual(["kettle", "kettle"]);
+          expect(at("role:tree@desk")).toBe("tree");
+          expect(at("reader@desk")).toBe("reader");
+        }
+        expect([at("role:agent"), at("drawer.agent"), at("role:agent@drawer")]).toEqual(["drawer.agent", "drawer.agent", "drawer.agent"]);
+      }
+      d.app.pop(); d.paint();
+      expect(d.desk.dispatch.tile("kettle")?.name).toBe("kettle");              // a name is the screen's own, matched last
+      await expect(d.app.dispatch.act({ action: "tile.info", tile: "role:reader" }, USER)).rejects.toThrow(/role:reader names 2 tiles: .*; use tile=<id> or role:reader@<screen>/);
+      // ^: the tile that opened this one, from the one with the keys.
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "side" }, USER);
+      expect((await info("^")).name).toBe("kettle");
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
+      expect(id("side")).toBeTruthy();
+      // A rename never changes what a tile is for.
+      await d.desk.dispatch.act({ action: "tile.title", args: { text: "woods" }, tile: "tree" }, USER);
+      expect(d.desk.dispatch.tile("role:tree")?.name).toBe("woods");
+      expect(d.desk.dispatch.tile("woods")?.id).toBe(id("tree"));
+    } finally { d.app.quit(); }
+  });
+
   // PIE-1285 (loki's root cause): what `tile=` names across layers (a tile's id, drawer.agent) is one rule of the host
   // layer that every screen host's dispatcher asks, a desk or not: from each registered screen and each screen that is
   // not a desk, the drawer's agent and every tile id of the drawer resolve to the same tile the host layer names.
@@ -944,10 +1097,18 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await d.desk.dispatch.act({ action: "tile.close", args: {}, tile: name }, USER).catch(() => d.desk.dispatch.act({ action: "tile.close", args: {}, tile: name }, USER));
       await until(() => !d.desk.pane(name), "the program's tile closed");
       // agent.back (what ⏎ and a click on the tab run), as an agent: the program's gone, so the tab runs its own again.
+      await until(() => !own.running, "the closed program ends");
       await d.app.act({ action: "agent.back", args: {}, as: AS });
-      d.paint();
+      d.key({ kind: "alt", ch: "a" }); d.paint();
       await until(() => d.app.drawer.tile?.running === true, "the drawer's own program again");
       expect(d.app.drawer.tile!.pid).not.toBe(pid);
+      // The tab that holds the place is the drawer's own program again, and the role says so.
+      expect(d.app.drawer.resolveTile("role:agent")?.tile.name).toBe("drawer.agent");
+      // A second tile with the role makes the address ambiguous: refused with both ids, never one of them guessed.
+      const other = d.kettle()!;
+      other.role = "agent";
+      expect(() => d.app.drawer.resolveTile("role:agent")).toThrow(/role:agent names 2 tiles: .*use tile=<id> or role:agent@<screen>/);
+      other.role = undefined;
     } finally { d.app.quit(); }
   });
 
@@ -959,17 +1120,20 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const own = d.app.drawer.tile!, key = own.home;
       await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
       expect(JSON.parse(readFileSync(join(state, "drawer.json"), "utf8")).out).toBe(key);
+      // The program's role goes with its saved tile: that is how the next door knows which tile it is.
+      const leaves = (n: any): any[] => !n ? [] : n.t === "leaf" ? [n] : [...(n.kids ?? []), ...(n.tabs ?? []), n.kid, n.a, n.b].flatMap(leaves);
+      expect(leaves(d.desk.savedState().root).filter(l => l.role === "agent")).toHaveLength(1);
       const e = await door();
       try {
         e.key({ kind: "alt", ch: "a" }); e.paint();
         await Bun.sleep(300);
         expect(e.app.drawer.tile!.running).toBe(false);
         expect(e.app.drawer.tile!.text().join(" ")).toContain("is on a screen · ⏎ or a click brings it back");
-        // Its program, found on the new door's desk by its key (as a handover adopts it), goes back into the own tab.
+        // Its program, restored on the new door's desk with the role it was saved with (as a handover adopts it), goes back into the own tab.
         await e.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "agent" } }, USER);
         e.paint();
         const back = e.desk.pane("agent") as PtyPane;
-        back.home = key;
+        back.role = "agent";
         expect(await e.desk.dispatch.act({ action: "tile.drawer", args: {}, tile: "agent" }, USER)).toMatchObject({ tile: "drawer.agent", back: true });
         expect(e.app.drawer.tile).toBe(back);
         expect(back.kind).toBe("drawer.own");
@@ -1252,7 +1416,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     const own = leaves.find(l => l.name === "drawer.agent");
     expect(own).toBeTruthy();
     own.name = "shell";
-    own.kept = "drawer.json:drawer.agent";
+    // The key the program started under is not necessarily the drawer's key now: a program that left for a screen and
+    // came back numbers the next own program's key (`drawer.json#<gen>`), as in Evan's door.
+    own.kept = "drawer.json#3:drawer.agent";
     writeFileSync(file, JSON.stringify(saved));
     const e = await door();
     try {

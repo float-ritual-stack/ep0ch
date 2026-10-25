@@ -52,6 +52,8 @@ export interface TileKind {
   readonly word?: string;
   /** How a message names one ("a terminal tile", an extension's "Tarot"); default "a <its first key's label> tile". */
   readonly noun?: string;
+  /** What its tiles are for when nothing says otherwise (`role:<role>` finds them): its kind's name by default. */
+  readonly role?: string;
   /** Its keys under ^W o, in the order the hint row lists them. */
   readonly keys?: readonly KindKey[];
   /** Build a tile from its saved spec (or tile.open's fields). */
@@ -217,6 +219,8 @@ export function kindsChanged(): void {
   for (const w of [...watchers]) { const o = w.deref(); if (!o) { watchers.delete(w); continue; } try { o.kindsChanged(); } catch { /* one desk's problem */ } }
 }
 export const tileKind = (kind: string): TileKind | undefined => registry.get(kind);
+/** What tile `p` is for (`role:<role>`, PIE-1286): the role it was made with, else its kind's, else its kind's name. */
+export const tileRole = (p: { role?: string; kind: string }): string => p.role ?? registry.get(p.kind)?.role ?? p.kind;
 export const isTileKind = (kind: string): boolean => registry.has(kind);
 /** A kind as a message says it (an agent "opened a terminal tile"), never its internal name (`pty`). */
 export function kindNoun(kind: string): string {

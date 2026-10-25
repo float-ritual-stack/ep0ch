@@ -54,6 +54,29 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
     } finally { d.dropLift(); app.pop(); }
   });
 
+  test("the addresses section (PIE-1286): a role, a slot and an id prefix each name their tile; a rename keeps the role; a miss is refused, never the focused tile", async () => {
+    (app as any).lastInput = 0;
+    await sc.dispatch.press("section.leave");
+    await sc.dispatch.press("section", { name: "addresses" });
+    screen();
+    const d = sc.tilesHere()!;
+    const info = async (tile: string) => (await d.dispatch.act({ action: "tile.info", tile }, USER) as { name: string }).name;
+    const id = (name: string) => (d.layoutGet().tiles as { name: string; tile: string }[]).find(t => t.name === name)!.tile;
+    expect(await info("role:stage")).toBe("second");
+    expect(await info("first@showcase")).toBe("first");
+    expect(await info(id("third").slice(0, 10))).toBe("third");
+    // A rename changes the label, never what the tile is for.
+    await d.dispatch.act({ action: "tile.title", args: { text: "centre" }, tile: "second" }, USER);
+    expect(await info("role:stage")).toBe("centre");
+    const rev = d.layoutGet().rev;
+    await expect(d.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: "role:nothing" }, USER)).rejects.toThrow(/no tile has the role nothing; roles here: .*stage/);
+    expect(d.layoutGet().rev).toBe(rev);
+    expect((d.layoutGet().tiles as { name: string; collapsed?: boolean }[]).some(t => t.collapsed)).toBe(false);
+    await d.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: "role:stage" }, USER);
+    expect((d.layoutGet().tiles as { name: string; collapsed?: boolean }[]).find(t => t.name === "centre")?.collapsed).toBe(true);
+    await sc.dispatch.press("section.leave");
+  });
+
   for (const place of ["screen", "group", "drawer", "drawer group"] as const) {
     const withLift = async (run: (owner: any, mouse: (button: number, x: number, y: number, release?: boolean) => void) => Promise<void>) => {
       await app.dispatch.press("host.toggle", { open: false });

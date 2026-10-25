@@ -10,6 +10,21 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### `tile=` has one address grammar, and the drawer's program is a tile with a role (PIE-1286)
+
+- **Five kinds of address, one resolver.** `t-<uuid>` (or 8+ characters of it) is that exact tile; `role:<role>[@<screen>]` is a
+  tile of that kind wherever it is; `<slot>@<screen>` is the place, whatever fills it; `^` is the tile that opened the one with
+  your keys; a name is matched last and is never an identity. No match is refused with why and what to type; it never acts on
+  the focused tile instead.
+- **The drawer's own program is `role:agent`** (`drawer.agent` stays as its alias). The role is a property of the tile, saved
+  with it, so `agent.lift` and `::button{act="tile.zoom tile=role:agent reach=column"}` keep working across a door restart, a
+  session handover and a restore from a `drawer-tiles.json` that saved the own tile under another name (Evan's door, Oct 25).
+  The guesses it replaces are gone: the program's told id, its program key and its saved name no longer decide which tile it is.
+- **Keys, clicks and menu rows address their tile by id**, through the path an `act` string takes (`^W Z`, `✦u`, `agent.lift`),
+  and the parity walk checks it: each targeted action a key ran is run again by `tile=t-<uuid>` and by role.
+- **Saved layouts.** A tile's slot (`slot`, the place a screen's spec gave it) is no longer the leaf's `role`, which now says
+  what the tile is for. One drawer saved by an older door has its own tile under another name: see the PR for the one command.
+
 ### Jev's figure suggestions are recorded, and whether each was followed is worked out (PIE-1251)
 
 - **Every suggestion a write's answer carries leaves a record** (`type::suggestion` under Records): the note and revision,

@@ -107,7 +107,7 @@ const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, l
 const repliesTile = () => new BacklinksPane("reader", false, ["children"]);
 
 /** A stage: its tiles (made here, the exhibits), how they're laid out by their place (default side by side), its title. */
-interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[]; agents?: (AgentLevel | undefined)[] }
+interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[]; agents?: (AgentLevel | undefined)[]; roles?: (string | undefined)[] }
 /**
  * A stage as a screen spec (PIE-515) on the desk, its tiles given (the showcase makes its own exhibits): each named by
  * its kind (reader, reader2), laid out as the stage says.
@@ -116,6 +116,7 @@ function stageDesk(st: Stage): Desk {
   const names = new Map<number, string>();
   st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p instanceof ReaderPane && p.kind === "reader" && p.holding ? "detail" : p.kind)));
   const ids = st.panes.map((_, i) => i);
+  st.roles?.forEach((role, i) => { if (role) st.panes[i]!.role = role; });
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
   const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)!, ...(st.panes[i] instanceof PreviewPane && "tile" in st.panes[i].source ? { source: `tile:${st.panes[i].source.tile}` } : {}), ...(st.panes[i]!.deliberate ? { deliberate: true } : {}), ...(st.agents?.[i] ? { agents: st.agents[i]! } : {}) })) as SavedTree;
   return new Desk({ name: "showcase", title: st.title, layout: { root, focus: names.get(0) } }, { given: new Map(st.panes.map((p, i) => [names.get(i)!, p])) });
@@ -406,6 +407,18 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; printf '\\033]8;id=example;https://example.com\\033\\\\Example website »\\033]8;;\\033\\\\\\n'; echo 'drag across this line: Plant out the courgettes'; echo 'copy from it as Claude Code does:'; printf '%s\\n' \"  printf '\\\\033]52;c;%s\\\\007' \\\"\\$(printf hello | base64)\\\"\"; exec sh"], label: "shell" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+    },
+  },
+  {
+    key: "addresses", need: "name a tile by what it is, where it sits or what opened it, not by a label that can change", part: "tile addresses (PIE-1286): one grammar for tile=, one resolver: t-<uuid> (or 8+ characters of it) is that exact tile, role:<role> a tile of that kind wherever it is (the drawer's program is role:agent), <slot>@<screen> the place whatever fills it, ^ the tile that opened the one with your keys, a name last; no match is refused with why and what to type", files: "src/desk/tile-address.ts, src/desk/desk.ts (resolveTile, addressable), src/drawer.ts (agentPane)",
+    aside: "Three readers: first, second (role:stage) and third, the third opened beside the second. Try each in the power bar (ctrl+k): tile.collapse tile=role:stage folds the second whatever it is called now; ^W n renames it and role:stage still names it · tile.info tile=first@showcase names the first by its place · tile.info tile=^ from third answers second, the tile that opened it · tile.zoom tile=role:nothing is refused saying which roles there are, and the tile in focus is not zoomed instead · copy the first characters of an id (tile.info lists them) after t- and it names the tile · a button written once keeps working: ::button{label=\"pop it\" act=\"tile.zoom tile=role:agent reach=column\"} lifts the drawer's program from any screen, after a restart, a handover or a restore",
+    stage(n, show) {
+      const first = new ReaderPane(true), second = new ReaderPane(true), third = new ReaderPane(true);
+      return deskOf({ title: "showcase · addresses", panes: [first, second, third], names: ["first", "second", "third"], roles: [undefined, "stage", undefined] }, show, [], d => {
+        // The third was opened beside the second: its opener is the second's id, kept with it.
+        (third as Pane).openedFrom = (d.layoutGet().tiles as { name: string; tile: string }[]).find(t => t.name === "second")?.tile;
+        if (n.notebook) d.setCurrent(n.notebook);
+      });
     },
   },
   {

@@ -348,7 +348,7 @@ running in it puts them in the drawer (`shell went into your drawer · alt+a sho
 | `agent.type` | `text` (`\n` ⏎, `\e` Esc) | the person types in the drawer | refused while the person types in it, and while it isn't running; said on the status bar. The agent is no screen's tile, so `tile.type` doesn't reach it |
 | `agent.knows` | | the chip says it: `· door tools`, `· started before update ⟳`, `· no door tools ⟳` | read-only: the agent process's own environment and start time against the installed Claude mod (`current`, `stale`, `no-door`, `unknown`, with why) |
 | `agent.restart` | | a click on the chip's `⟳`; `alt+R` | that agent's process alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (in Herdr: the session's own pane again). Refused while the person types in the drawer, or within 10s of their last key in the agent; said on the status bar |
-| `agent.lift` | `on`, `reach` (`column`, the default, or `full`) | `✦a`; a status-bar button (`::button{label="▲ lift" act="agent.lift"}`) | a **preset** (`preset()` in `src/surface/actions.ts`): `tile.zoom tile=drawer.agent reach=column` with its own name, so the toggle and which tile `drawer.agent` is are the zoom's and the tile grammar's. Its steps first: a program out on a screen that isn't shown comes back (`agent.back`), and a drawer that never ran it comes up and starts it, as `alt+a` does. Again, or `on=false`, drops it. An agent's is refused while the person types in the drawer, and never replaces the person's lift |
+| `agent.lift` | `on`, `reach` (`column`, the default, or `full`) | `✦a`; a status-bar button (`::button{label="▲ lift" act="agent.lift"}`) | a **preset** (`preset()` in `src/surface/actions.ts`): `tile.zoom tile=role:agent reach=column` with its own name, so the toggle and which tile the drawer's program is are the zoom's and the tile grammar's (`role:agent`, alias `drawer.agent`). Its steps first: a program out on a screen that isn't shown comes back (`agent.back`), and a drawer that never ran it comes up and starts it, as `alt+a` does. Again, or `on=false`, drops it. An agent's is refused while the person types in the drawer, and never replaces the person's lift |
 
 Its own program is told `EP0CH_TILE_ID=drawer.agent` and `EP0CH_TILE=claude` (`shell` for a shell), and its nest
 layer is `door:<pid>/drawer/drawer.agent:claude`. The Herdr launcher's `tile.herdr tile=drawer.agent` reaches the App on
@@ -485,6 +485,20 @@ thing after someone else's change.
   links that layout has gained since (the now tile's, to `middle`), on tiles that have none. The old daily agent
   tile is left out: the agent is the host layer's.
 - **Numbers.** `#3` (or `3`) is the tile numbered 3 on screen, where it is now.
+- **Five kinds of address, one resolver** (PIE-1286, `src/desk/tile-address.ts`; ui-router's named views). What `tile=`
+  takes beyond the screen asking is decided in one place, in this order, and a name is last and never an identity:
+  `t-<uuid>` (this exact tile; 8+ characters after `t-` name it when they are unique, else the refusal lists the ids),
+  `role:<role>[@<layer or screen>]` (a tile of this kind wherever it is: a role is set on the tile when it is made, kept with
+  its id in the saved layout, so a restart, a session handover or a restore keeps it; the drawer's own program is
+  `role:agent`, a reader `role:reader`, a kind's default is its name; `drawer.agent` is the alias of `role:agent`),
+  `<slot>@<screen>` (the place, whatever fills it now: a spec's tile name, where opens land `detail`, a columns key, on a
+  screen shown or mounted), `^` / `^^` (the tile that opened the one with your keys, or the one before it; each tile
+  records its opener) and a name. Nothing matching is refused with why and what to type (`no tile has the role x; roles
+  here: agent, reader`, `no screen x is on show or mounted here`); it never acts on the tile in focus instead. A key,
+  a click or a menu row addresses its tile by `t-<uuid>` through the same path (`Desk.run`, the hyper chords, the ^W
+  chords), so pointing and naming can't drift apart: `test/parity.ts` presses every key and click, and for each targeted
+  action it ran alone, runs it again as the act string says it, `tile=t-<uuid>` and `tile=role:<role>`, and the screen must
+  come out as the key left it. `tile.rename` (`^W n`) changes a name and title, never a role.
 - **`tile=<tile>`** (`parseActArgs` and the control socket read it) takes a
   name, an id, a number, an alias (a place: the board's `detail`, `float`, `lanes`),
   `focused`, or a block id (the tile showing that note: the agent's own draft of it first, then one on screen

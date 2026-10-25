@@ -172,11 +172,11 @@ export function savedNodes(n: any): any[] {
   if (n.t === "leaf") return [n];
   return [n, ...[...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b].flatMap(savedNodes)];
 }
-const leafField = (n: unknown, f: "name" | "kind" | "role"): string[] => savedNodes(n).flatMap(x => (x.t === "leaf" && typeof x[f] === "string" ? [x[f]] : []));
+const leafField = (n: unknown, f: "name" | "kind" | "slot"): string[] => savedNodes(n).flatMap(x => (x.t === "leaf" && typeof x[f] === "string" ? [x[f]] : []));
 /** The names of a saved tree's tiles, the kinds of them, and the keys of its containers. */
 export const leafNames = (n: unknown) => leafField(n, "name");
 /** The public names and preserved spec slots of the tiles in a layout. */
-export const slotNames = (n: unknown): string[] => [...leafNames(n), ...leafField(n, "role")];
+export const slotNames = (n: unknown): string[] => [...leafNames(n), ...leafField(n, "slot")];
 const leafKinds = (n: unknown) => leafField(n, "kind");
 export const containerKeys = (n: unknown): string[] => savedNodes(n).flatMap(x => (x.t !== "leaf" && typeof x.key === "string" ? [x.key] : []));
 /** A hint per focused kind, as data: its strings only. */
