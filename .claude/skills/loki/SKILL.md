@@ -11,6 +11,10 @@ owns ops tickets, triages requests, launches and briefs the builder agents, and 
 never deploy; they hand loki a merge sha. The rules in AGENTS.md and CONTRIBUTING.md still apply; this is the part
 only the deployer does.
 
+## Reorient first
+
+At session start and after every compaction, read pie's **Reorient here** note before anything else (`ep0ch show --ws pie 63132a65-e443-422f-85a7-10e5a64b9869 --machine float-2`) and run its checklist: am I the only loki, who else is running (Claude sessions and Codex), build log current, landed notes and deliveries synced, validate, builders to nudge (`~/.local/state/ep0ch/box-test.tsv`), free slots, hand-offs, health. Fix what's stale before new work.
+
 ## Deploy
 
 After a merge to main (yours, or a sha an agent hands you):
