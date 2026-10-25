@@ -910,6 +910,8 @@ async function lokiAccessRefusal(outlines: McpOutlines, caller: McpCaller): Prom
 const artifactToolDefinitions = (outline: Record<string, unknown>) => [
   { name: "artifact_put", description: "Save an artifact into the live artifact folder, outside the outline. Pass files (relative path to UTF-8 content) for a small site, or name, kind and content for one file. A lone jsx/tsx compiles at put. Reference it as [artifact::<name>]. Answers its url: the artifact's page in the web client, which opens for the signed-in person; to give someone outside a link use share_start with artifact=<name>. Requires write access.",
     inputSchema: { type: "object", properties: { outline, name: { type: "string" }, kind: { type: "string", enum: ["html", "jsx", "tsx", "svg", "mermaid", "md"] }, content: { type: "string" }, files: { type: "object", additionalProperties: { type: "string" } } }, required: ["name"], additionalProperties: false } },
+  { name: "artifact_upload_lease", description: "Get a one-time link to hand a FILE to ep0ch from a shell: a page, a zip or tar of a built site, an image. You (the model) cannot forward an attachment's bytes, but a code sandbox that has the file on disk can send it: run the curl this returns there, with the file. Nothing passes through you. One upload, good for an hour; a link preview or a failed transfer does not use it up. The file is checked (no links, no paths outside the folder, size caps), installed as the next version of the artifact, and a card for it lands in the outline's note for today. name is optional: left out, the file names itself by its page title. Show the curl in a code block, never as a clickable link, and don't paste it anywhere but a shell. Requires write access.",
+    inputSchema: { type: "object", properties: { outline, name: { type: "string", description: "The artifact's name (letters, numbers, dots, underscores, hyphens); sending it again is its next version. Optional." } }, additionalProperties: false } },
   { name: "artifact_list", description: "List the live artifacts with each one's url, its page in the web client (it opens for the signed-in person). To give someone outside a link to one, use share_start with artifact=<name>.", inputSchema: { type: "object", properties: { outline }, additionalProperties: false } },
   { name: "artifact_versions", description: "List the snapshots of an artifact; [artifact::name@number] pins one.", inputSchema: { type: "object", properties: { outline, name: { type: "string" } }, required: ["name"], additionalProperties: false } },
 ];
@@ -922,7 +924,8 @@ async function artifactTool(outlines: McpOutlines, name: string, args: Record<st
   const { board } = target;
   const status = withLevel(await board.mcpAccessStatus(), caller, board.address);
   if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
-  if (name === "artifact_put" && (!caller || !writesAt(status.level))) return toolError(writeRefusal(outlines, target, status.level));
+  if ((name === "artifact_put" || name === "artifact_upload_lease") && (!caller || !writesAt(status.level))) return toolError(writeRefusal(outlines, target, status.level));
+  if (name === "artifact_upload_lease") return uploadLease(outlines, board, args, caller!);
   try {
     if (name === "artifact_list") return toolText(await board.request("artifacts.list"));
     if (typeof args.name !== "string") return toolError("Give the artifact's name.");
@@ -937,6 +940,23 @@ async function artifactTool(outlines: McpOutlines, name: string, args: Record<st
   } catch (error) { return toolError((error as Error).message); }
 }
 
+/**
+ * artifact_upload_lease (PIE-1267): the outline makes it (`artifacts.lease`, which the host answers with its token).
+ * The answer carries the curl in a code block, which keeps most clients from fetching the secret link to preview it.
+ */
+async function uploadLease(outlines: McpOutlines, board: Board, args: Record<string, unknown>, caller: McpCaller): Promise<ToolResult> {
+  if (args.name !== undefined && typeof args.name !== "string") return toolError("name is the artifact's name, e.g. orrery; leave it out to let the file name itself.");
+  try {
+    const lease = await board.request<import("@ep0ch/outline-core/protocol").UploadLease>("artifacts.lease", { ...(args.name ? { name: args.name } : {}), mutation: { author: "agent", ...actorOf(caller) } });
+    outlines.log?.(`mcp artifact_upload_lease: ${actorOf(caller).actorId} (${caller.sub}) ${lease.id} for ${lease.outline}${lease.name ? ` as ${lease.name}` : ""} until ${lease.expiresAt}`);
+    return toolText({
+      id: lease.id, name: lease.name, outline: lease.outline, expiresAt: lease.expiresAt, url: lease.url, curl: lease.curl,
+      said: `Run this where the file is, replacing <file> (a code sandbox's attachment is under /mnt/user-data/uploads). Show it in a code block, not as a link:\n\n\`\`\`sh\n${lease.curl}\n\`\`\`\n\n` +
+        `One upload, good until ${lease.expiresAt}. The answer says what was installed; the card lands in ${lease.outline}'s note for today${lease.name ? `, as ${lease.name}` : ", named by the page's title"}. A zip is unpacked (one folder inside is fine); a tar works too.`,
+    });
+  } catch (error) { return toolError((error as Error).message); }
+}
+
 /** outline_new and outline_archive: offered to a caller when the server can reach its machine's outline host. */
 const adminTools = (outlines: McpOutlines, caller: McpCaller | undefined) => caller && outlines.admin ? outlineAdminDefinitions(outlines.admin.machine) : [];
 
@@ -948,7 +968,7 @@ const withPersona = <T extends { name: string; inputSchema: unknown }>(tools: T[
 
 /** The tools a caller is offered: the reads, the writes and shares where the outline takes writes, and the outline admin. */
 const toolList = (outlines: McpOutlines, writes: boolean, caller: McpCaller | undefined, loki: boolean) =>
-  withPersona([...artifactToolDefinitions(outlineProperty(outlines)).filter(t => writes || t.name !== "artifact_put"), snapshotDefinition(outlineProperty(outlines)), ...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller), ...(loki && caller && outlines.admin ? [lokiDefinition] : [])]);
+  withPersona([...artifactToolDefinitions(outlineProperty(outlines)).filter(t => (writes || t.name !== "artifact_put") && (t.name !== "artifact_upload_lease" || (writes && !!caller))), snapshotDefinition(outlineProperty(outlines)), ...toolsFor(outlines).filter(tool => writes || tool.name !== "script_run"), ...(writes ? [...writeToolDefinitions(outlineProperty(outlines)), writeStatusDefinition, ...shareToolDefinitions(outlineProperty(outlines))] : []), ...adminTools(outlines, caller), ...(loki && caller && outlines.admin ? [lokiDefinition] : [])]);
 
 /** Whether the write tools are offered: to a caller (the gateway's token, stdio's client), when some outline it can reach takes writes. One rule for both transports. */
 const writesOffered = (caller: McpCaller | undefined, listed: McpOutlineListing[]) => !!caller && listed.some(o => !!o.writes);
@@ -988,6 +1008,7 @@ const MCP_EXAMPLES: Record<string, Record<string, unknown>> = {
   outline_quote: { ref: "PIE-123", marks: ["2f6c1c0e-5b7a-4d61-9a43-7b0c8f0e1a11"], where: "inbox" },
   outline_write_status: { queueId: "q-1" },
   reader_view: {},
+  artifact_upload_lease: { name: "orrery" },
   share_start: { ref: "PIE-123", ttl: "1h" },
   share_list: {},
   share_revoke: { id: "3fa9c1d2" },
@@ -1052,7 +1073,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown, callerIn?: 
     try { return toolText(await outlines.admin.host("loki.lease.start", { ttl: args.ttl, by: actorOf(caller).actorId })); }
     catch (error) { return toolError((error as Error).message); }
   }
-  if (["artifact_put", "artifact_list", "artifact_versions"].includes(params.name)) return artifactTool(outlines, params.name, args, caller);
+  if (["artifact_put", "artifact_list", "artifact_versions", "artifact_upload_lease"].includes(params.name)) return artifactTool(outlines, params.name, args, caller);
   if (params.name === "outline_snapshot") return shareTool(outlines, "outline_snapshot", args, caller);
   if (params.name === "reader_view") return shareTool(outlines, "reader_view", args, caller);
   if (isShareTool(params.name) && caller) return shareTool(outlines, params.name, args, caller);

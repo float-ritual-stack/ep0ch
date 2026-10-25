@@ -18,7 +18,7 @@ import { styleSheetsFromBlocks } from "@ep0ch/outline-core/style-cascade";
 import { RULE_NAME } from "@ep0ch/outline-core/rules";
 import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
-import { PROTOCOL, GRAMMAR, SHARE_TTL, type McpAccessLevel, type McpAccessStatus, type ShareSession } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, SHARE_TTL, type McpAccessLevel, type McpAccessStatus, type ShareSession, type UploadLease } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
 import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readNewNoteIntent } from "./note-placement";
@@ -1954,7 +1954,8 @@ export class OutlinerServer {
     if (request.action.startsWith("artifacts.")) {
       try {
         if (this.readOnly && !["artifacts.show", "artifacts.list", "artifacts.versions"].includes(request.action)) throw new Error("This outline is read-only.");
-        const result = request.action === "artifacts.deploy" ? await deployArtifact(this.artifacts(), this.store, request.repo, request.mutation, request.domain)
+        const result = request.action === "artifacts.lease" ? this.uploadLease(request)
+          : request.action === "artifacts.deploy" ? await deployArtifact(this.artifacts(), this.store, request.repo, request.mutation, request.domain)
           : request.action === "artifacts.dns" ? await artifactDns(request.name, request.to)
           : request.action === "artifacts.backfill" ? await backfillArtifacts(this.artifacts(), this.store, request.catalogue)
           : await this.artifacts().request(request as import("@ep0ch/outline-core/artifacts").ArtifactRequest, this.store.workspaceRoot, this.outline?.name);
@@ -2521,6 +2522,11 @@ export class OutlinerServer {
         case "loki.lease.start":
         case "loki.lease.revoke":
         case "loki.lease.use":
+        case "uploads.take":
+        case "uploads.finish":
+        case "devices.add":
+        case "devices.list":
+        case "devices.revoke":
         case "web.sessions.start":
         case "web.sessions.resolve":
         case "web.sessions.list":
@@ -3560,6 +3566,7 @@ export class OutlinerServer {
         case "artifacts.deploy":
         case "artifacts.dns":
         case "artifacts.backfill":
+        case "artifacts.lease":
         case "artifacts.put":
         case "artifacts.show":
         case "artifacts.snapshot":
@@ -4102,6 +4109,19 @@ export class OutlinerServer {
   }
 
   private snapshotAddress?: () => string | undefined;
+  private leaser?: (input: { name?: string; outline: string; by: string }) => UploadLease;
+
+  /** How a lease for the artifacts inbox is made: the host's, since its token is the publisher's to check (PIE-1267). */
+  setUploadLeases(leaser: (input: { name?: string; outline: string; by: string }) => UploadLease): void {
+    this.leaser = leaser;
+  }
+
+  private uploadLease(request: Extract<import("@ep0ch/outline-core/artifacts").ArtifactRequest, { action: "artifacts.lease" }>): UploadLease {
+    const outline = this.outline?.name;
+    if (!this.leaser || !outline) throw new Error("A lease is made by the outline host for a named outline: ask the host's outline (ep0ch artifact lease --ws <outline>).");
+    const by = request.mutation?.author === "agent" ? request.mutation.actorId ?? "agent" : "you";
+    return this.leaser({ ...(request.name ? { name: request.name } : {}), outline, by });
+  }
 
   setSnapshotAddress(address: () => string | undefined): void {
     this.snapshotAddress = address;

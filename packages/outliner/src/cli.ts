@@ -1,4 +1,6 @@
 import { publishLoki } from "./publish-loki";
+import { publishUpload } from "./publish-upload";
+import { artifactLimit } from "./artifact-inbox";
 import { createBlockComment } from "./block-comments";
 import { readSavedView } from "./saved-view-read";
 import {inspectWorkspaceConnection} from './workspace-diagnostics';
@@ -112,6 +114,8 @@ Publishing and extensions
   loki lease [--ttl 1h] | lease --revoke
   web sessions [--json] | web revoke <id> | --all
                                        the signed-in web client's browsers (my.ep0ch.sh), and signing them out
+  device add <name> [--ws <outline>] | ls | revoke <name|id>
+                                       the phones and devices that may send a file to the artifacts inbox
 
 More in README.md, "Headless service and CLI".`;
 if (["--help", "-h", "help", undefined].includes(process.argv[2])) {
@@ -257,6 +261,10 @@ if (process.argv[2] === "door-open") {
 if (process.argv[2] === "loki") {
   const { runLokiCommand } = await import("./loki-cli");
   process.exit(await runLokiCommand(process.argv.slice(3)));
+}
+if (process.argv[2] === "device") {
+  const { runDeviceCommand } = await import("./device-cli");
+  process.exit(await runDeviceCommand(process.argv.slice(3)));
 }
 if (process.argv[2] === "web") {
   const { runWebCommand } = await import("./web-cli");
@@ -444,12 +452,13 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       const host = createOutlinerClient(resolveClientPaths());
       const gate = new SignInGate({
         loki: request => publishLoki(request, host, "http://127.0.0.1:3101", console.error),
+        upload: request => publishUpload(request, host, { outlines: resolveOutlinesFolder(), log: console.error }),
         snapshot: request => web.snapshot(request),
         readerWrite: request => web.readerWrite(request),
         settings, request: input => host.request(input as Parameters<typeof host.request>[0]),
         serve: (request, signedIn) => web.handle(request, "tailnet", signedIn), log: line => console.error(line),
       });
-      signinServer = Bun.serve({ hostname: "127.0.0.1", port: signinPort, idleTimeout: 30, fetch: (request, server) => gate.handle(publisherRequest(request, server.requestIP(request)?.address)) });
+      signinServer = Bun.serve({ hostname: "127.0.0.1", port: signinPort, idleTimeout: 30, maxRequestBodySize: artifactLimit() + 1024 * 1024, fetch: (request, server) => gate.handle(publisherRequest(request, server.requestIP(request)?.address)) });
     }
     console.log(JSON.stringify({
       status: "publishing", url: `http://127.0.0.1:${server.port}${publisher.basePath}/`,

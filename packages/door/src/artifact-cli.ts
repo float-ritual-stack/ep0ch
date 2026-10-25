@@ -15,10 +15,10 @@ export async function artifactCommand(input: string[], io: Out = { out: console.
     if (arg.startsWith("--") && !valued.includes(arg) && arg !== "--json") { io.err(`ep0ch: artifact doesn't take ${arg}`); return 2; }
   }
   const words = args.filter((a,i) => !valued.includes(a) && !valued.includes(args[i-1] ?? "") && a !== "--json");
-  if (!verb || !["put", "ls", "show", "versions", "snapshot", "rm", "import", "deploy", "dns", "backfill"].includes(verb) || words.length > 1 || (verb !== "ls" && verb !== "import" && verb !== "backfill" && !words[0])) {
-    io.err("ep0ch artifact put <file-or-folder> [--name <name>] | deploy <repo> [--domain <name>] | dns <name> --to vercel|float-2 | backfill [catalogue] | ls | show|versions|snapshot|rm <name> | import [--ws <name>] [--machine <machine>]"); return 2;
+  if (!verb || !["put", "ls", "show", "versions", "snapshot", "rm", "import", "deploy", "dns", "backfill", "lease"].includes(verb) || words.length > 1 || (verb !== "ls" && verb !== "import" && verb !== "backfill" && verb !== "lease" && !words[0])) {
+    io.err("ep0ch artifact put <file-or-folder> [--name <name>] | lease [<name>] [--ws <outline>] [--json] | deploy <repo> [--domain <name>] | dns <name> --to vercel|float-2 | backfill [catalogue] | ls | show|versions|snapshot|rm <name> | import [--ws <name>] [--machine <machine>]"); return 2;
   }
-  const board = ["import", "deploy", "dns", "backfill"].includes(verb!) || value("--ws") ? await boardFor(args) : await artifactHost(value("--machine"));
+  const board = ["import", "deploy", "dns", "backfill", "lease"].includes(verb!) || value("--ws") ? await boardFor(args) : await artifactHost(value("--machine"));
   if ("error" in board) { io.err(board.error); return 1; }
   try {
     let result: unknown;
@@ -35,6 +35,12 @@ export async function artifactCommand(input: string[], io: Out = { out: console.
         if (await tar.exited !== 0) throw new Error(await errors);
         result = await board.request("artifacts.upload.finish", { upload }, 240_000);
       } catch (error) { tar.kill(); await tar.exited; await board.request("artifacts.upload.abort", { upload }); throw error; }
+    } else if (verb === "lease") {
+      // A one-time link to send a file to the inbox (PIE-1267): the outline's, so the card lands in its note for today.
+      const lease = await board.request<import("@ep0ch/outline-core/protocol").UploadLease>("artifacts.lease", { ...(words[0] ? { name: words[0] } : {}), mutation: { author: "user" } });
+      io.out(args.includes("--json") ? JSON.stringify(lease, null, 2) : lease.curl);
+      if (!args.includes("--json")) io.err(`one upload${lease.name ? ` of ${lease.name}` : ""}, good until ${lease.expiresAt}; the card lands in ${lease.outline}'s note for today`);
+      return 0;
     } else if (verb === "deploy") result = await board.request("artifacts.deploy", { repo: words[0], domain: value("--domain") }, 900_000);
     else if (verb === "backfill") result = await board.request("artifacts.backfill", { catalogue: words[0] }, 900_000);
     else if (verb === "dns") result = await board.request("artifacts.dns", { name: words[0], to: value("--to") }, 240_000);

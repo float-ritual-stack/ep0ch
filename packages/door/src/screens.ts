@@ -587,6 +587,24 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       return snapshot;
     },
   }),
+  "artifact.lease": def({
+    summary: "upload a file: a one-time link to send a page, a zip or a tar (or an image) into the artifacts inbox from a shell, good for one upload for an hour. Prints the curl to run where the file is and copies it; the file is checked, installed as the next version of its artifact, and a card for it lands in this outline's note for today. name= names the artifact (left out, the file names itself by its page title). `ep0ch artifact lease` from a shell",
+    keys: "> artifact.lease (or: upload) in the power bar",
+    touches: "nothing", replay: "ask", says: out => `· upload link made${out.name ? ` for ${out.name}` : ""} · one upload, good until ${out.expiresAt}`,
+    args: { name: { type: "string", optional: true, about: "the artifact's name: letters, numbers, dots, underscores, hyphens; sending it again is its next version. Left out, the file names itself" } },
+    examples: [
+      { act: "artifact.lease", does: "makes a link whose upload names itself by its page title" },
+      { act: "artifact.lease name=orrery", does: "makes a link for the next version of orrery" },
+    ],
+    async run({ name }, { ctx }, actor) {
+      const lease = await ctx.board.request<import("@ep0ch/outline-core/protocol").UploadLease>("artifacts.lease", { ...(name ? { name } : {}), mutation: actor.kind === "user" ? { author: "user" } : { author: "agent", actorId: actor.id } });
+      if (actor.kind === "user") {
+        ctx.copy?.(lease.curl, "upload command");
+        ctx.flash(`Upload command copied · one upload, good until ${lease.expiresAt} · ${lease.curl}`, 20_000);
+      }
+      return lease;
+    },
+  }),
   "share.start": def({
     summary: "start a short-lived public link (a share session) to the outline, navigated as the tailnet's web client is: ref= is the page it opens on (an id, ((id)), a page name, [[page]] or PIE-123), only= narrows it to that note and what's under it; until it is revoked, or for ttl= (30m, 4h, 7d) when given, taking comments unless comments=false. The link goes on the clipboard and the status bar; [publish::never] notes stay hidden. `ep0ch share start` from a shell. An agent's is attributed to it",
     keys: "> share.start in the power bar",

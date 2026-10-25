@@ -7,9 +7,10 @@ import { join, dirname, extname, basename, resolve } from "node:path";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
 import { artifactReference, type ArtifactInfo, type ArtifactReader, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { artifactKey, artifactPageUrl, grantPath } from "./artifact-grants";
+import { artifactEntryLimit, artifactLimit, DROP_FILE, DROP_RESULTS, remoteInbox, type DropMeta, type DropResult } from "./artifact-inbox";
+import { looksTar, looksZip, stripRoot, unzip } from "./artifact-archive";
+import { handOver, pageTitle } from "./artifact-handover";
 
-const artifactLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_BYTES ?? 64 * 1024 * 1024);
-const artifactEntryLimit = () => Number(process.env.EP0CH_ARTIFACT_MAX_ENTRIES ?? 5000);
 const artifactSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 function artifactName(name: string): string {
   if (artifactReference(name)?.name !== name) throw new Error("Use an artifact name containing letters, numbers, dots, underscores or hyphens.");
@@ -56,11 +57,13 @@ export class ArtifactStore {
   readonly live: string;
   readonly compiler: ArtifactCompiler;
   private uploads = new Map<string, { name: string; path: string; bytes: number }>();
-  private watcher?: FSWatcher;
+  private watchers: FSWatcher[] = [];
+  private readonly outlines: string;
   private pending: Promise<void> = Promise.resolve();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private changes = new Map<string, number>();
   constructor(outlines: string) {
+    this.outlines = outlines;
     this.root = join(outlines, ".artifacts");
     this.live = join(this.root, "live");
     this.compiler = new ArtifactCompiler({ cacheDirectory: join(outlines, ".artifact-cache") });
@@ -115,40 +118,87 @@ export class ArtifactStore {
   }
   startWatcher() {
     this.prepare();
-    const inbox = process.env.EP0CH_ARTIFACT_INBOX ?? join(this.root, "inbox");
-    const settle = Number(process.env.EP0CH_ARTIFACT_SETTLE_MS ?? 10_000);
+    // The synced inbox (a laptop's mutagen mirrors it) and the server-side one (publish-upload.ts writes whole drops
+    // into it by rename), read the same way; only the second carries who sent it and where its card goes.
+    this.watchInbox(process.env.EP0CH_ARTIFACT_INBOX ?? join(this.root, "inbox"), false, Number(process.env.EP0CH_ARTIFACT_SETTLE_MS ?? 10_000));
+    this.watchInbox(remoteInbox(this.outlines), true, Number(process.env.EP0CH_ARTIFACT_REMOTE_SETTLE_MS ?? 100));
+  }
+  private watchInbox(inbox: string, remote: boolean, settle: number) {
     mkdirSync(inbox, { recursive: true });
+    // Answers nobody came back for (the sender's request gave up waiting) are not kept.
+    if (remote) for (const stale of existsSync(join(inbox, DROP_RESULTS)) ? readdirSync(join(inbox, DROP_RESULTS)) : []) {
+      const path = join(inbox, DROP_RESULTS, stale);
+      if (Date.now() - lstatSync(path).mtimeMs > 24 * 60 * 60_000) rmSync(path, { force: true });
+    }
     const enqueue = (name: string) => {
       if (!name || name.startsWith(".") || name === "receipts.log") return;
-      clearTimeout(this.timers.get(name));
-      const change = (this.changes.get(name) ?? 0) + 1;
-      this.changes.set(name, change);
-      const current = () => this.changes.get(name) === change;
-      this.timers.set(name, setTimeout(() => {
-        this.timers.delete(name);
+      const key = `${remote ? "remote:" : ""}${name}`;
+      clearTimeout(this.timers.get(key));
+      const change = (this.changes.get(key) ?? 0) + 1;
+      this.changes.set(key, change);
+      const current = () => this.changes.get(key) === change;
+      this.timers.set(key, setTimeout(() => {
+        this.timers.delete(key);
         this.pending = this.pending.then(async () => {
-          if (current() && existsSync(join(inbox, name))) await this.pickup(inbox, name, current);
+          if (current() && existsSync(join(inbox, name))) await this.pickup(inbox, name, current, remote);
         }).catch(error => console.error(`artifact ${name}: ${error.message}`));
       }, settle));
     };
-    this.watcher = watch(inbox, { recursive: true }, (_, file) => {
+    this.watchers.push(watch(inbox, { recursive: true }, (_, file) => {
       if (file && !String(file).split("/").some(part => part.startsWith("."))) enqueue(String(file).split("/")[0]!);
-    });
+    }));
     for (const name of readdirSync(inbox)) enqueue(name);
   }
-  private async pickup(inbox: string, entry: string, current: () => boolean) {
+  /** What a dropped entry holds, as the files to install: a folder, a zip or tar (opened under the archive rules), or one page or image. */
+  private readDrop(source: string, entry: string, explicit?: string): { name: string; files: Record<string, Buffer>; compile: boolean } {
+    const stat = lstatSync(source), folder = stat.isDirectory();
+    if (stat.isSymbolicLink() || (!folder && !stat.isFile())) throw new Error("Drop a regular file or folder, without links.");
+    if (folder) return { name: explicit ?? entry, files: readArtifactInput(source, true, true), compile: false };
+    const head = Buffer.alloc(512), fd = openSync(source, "r");
+    try { readSync(fd, head, 0, 512, 0); } finally { closeSync(fd); }
+    const extension = extname(entry).toLowerCase();
+    let files: Record<string, Buffer>, compile = false;
+    if (looksZip(head)) {
+      checkArtifactSize(1, stat.size);
+      files = unzip(readFileSync(source), { entries: artifactEntryLimit(), bytes: artifactLimit(), path: artifactPath });
+    } else if (looksTar(head) || extension === ".tar") {
+      const stage = join(this.root, `.${crypto.randomUUID()}.untar`);
+      mkdirSync(stage);
+      try { untar(source, stage); files = stripRoot(readArtifactInput(stage, true, true)); }
+      finally { rmSync(stage, { recursive: true, force: true }); }
+    } else if (/\.(html|jsx|tsx|svg|mermaid|md|png|jpe?g|gif|webp|pdf)$/i.test(entry)) {
+      files = readArtifactInput(source, false); compile = true;
+    } else throw new Error("Unknown artifact kind; use html, jsx, tsx, svg, mermaid or md, a zip or tar of a built folder, or an image or pdf.");
+    if (!Object.keys(files).length) throw new Error("The archive holds no files.");
+    if (explicit) return { name: explicit, files, compile };
+    // It names itself: a single page by its own title (a file called orrery.html with <title>ep0ch Orrery</title> is
+    // ep0ch-orrery), an archive by its file name unless that says nothing (upload, index), then by its page's title.
+    const stem = artifactSlug(basename(entry, extname(entry)));
+    const page = files["index.html"] ?? Object.entries(files).find(([path]) => /\.html?$/i.test(path))?.[1];
+    const titled = page ? artifactSlug(pageTitle(page.toString("utf8")) ?? "") : "";
+    const archive = looksZip(head) || looksTar(head) || extension === ".tar";
+    const empty = ["", "index", "upload", "file", "untitled", "artifact"].includes(stem);
+    const chosen = archive ? (empty ? titled : stem) : titled || (empty ? "" : stem);
+    return { name: chosen || `upload-${crypto.randomUUID().slice(0, 4)}`, files, compile };
+  }
+  private async pickup(inbox: string, entry: string, current: () => boolean, remote = false) {
     const source = join(inbox, entry);
+    let meta: DropMeta | undefined;
     try {
-      const stat = lstatSync(source), folder = stat.isDirectory();
-      if (stat.isSymbolicLink() || (!folder && !stat.isFile())) throw new Error("Drop a regular file or folder, without links.");
-      if (!folder && !/\.(html|jsx|tsx|svg|mermaid|md)$/i.test(entry)) throw new Error("Unknown artifact kind; use html, jsx, tsx, svg, mermaid or md, or a built folder.");
-      const name = folder ? entry : artifactSlug(basename(entry, extname(entry)));
-      const files = readArtifactInput(source, folder, true);
-      await this.put(name, files, { compile: !folder, rejectErrors: true });
+      if (remote) meta = JSON.parse(readFileSync(join(source, DROP_FILE), "utf8")) as DropMeta;
+      const { name, files, compile } = remote ? this.readDrop(join(source, "file", basename(meta!.filename)), basename(meta!.filename), meta!.name) : this.readDrop(source, entry);
+      await this.put(name, files, { compile, rejectErrors: true });
       const version = await this.snapshot(name);
       appendFileSync(join(inbox, "receipts.log"), `${new Date().toISOString()}\t${name}\t${version.version}\t${version.url ?? ""}\n`);
       // A save arriving during compilation belongs to the next pickup.
-      if (current()) rmSync(source, { recursive: true, force: true });
+      if (!current()) return;
+      if (meta) {
+        const page = Object.hasOwn(files, "index.html") ? files["index.html"] : Object.entries(files).find(([path]) => /\.html?$/i.test(path))?.[1];
+        const title = page ? pageTitle(page.toString("utf8")) : undefined;
+        const told = await handOver(this.outlines, meta, { installed: { name, version: version.version, ...(title ? { title } : {}) } });
+        this.answer(inbox, meta.id, { ok: true, name, version: version.version, ...(title ? { title } : {}), ...told });
+      }
+      rmSync(source, { recursive: true, force: true });
     } catch (error) {
       if (!current()) return;
       const failed = join(inbox, ".failed", entry);
@@ -158,10 +208,24 @@ export class ArtifactStore {
       mkdirSync(join(destination, "source"), { recursive: true });
       renameSync(source, join(destination, "source", entry));
       writeFileSync(join(destination, "reason.txt"), `${(error as Error).message}\n`);
+      if (meta) {
+        const reason = (error as Error).message;
+        const told = await handOver(this.outlines, meta, { reason });
+        this.answer(inbox, meta.id, { ok: false, reason, ...told });
+      }
     }
   }
+  /** Tells the publisher, which is holding the sender's request open, what became of drop `id`. */
+  private answer(inbox: string, id: string, result: DropResult) {
+    const folder = join(inbox, DROP_RESULTS);
+    mkdirSync(folder, { recursive: true });
+    const temporary = join(folder, `.${id}.tmp`);
+    writeFileSync(temporary, JSON.stringify(result));
+    renameSync(temporary, join(folder, `${id}.json`));
+  }
   async close() {
-    this.watcher?.close();
+    for (const watcher of this.watchers) watcher.close();
+    this.watchers = [];
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     await this.pending;
@@ -404,9 +468,10 @@ export class ArtifactStore {
 }
 
 // CLI emits POSIX ustar: reject links and extensions before any file reaches the live folder.
-function untar(path: string, folder: string): void {
+export function untar(path: string, folder: string): void {
   const fd = openSync(path, "r"), length = lstatSync(path).size;
   let at = 0, bytes = 0, entries = 0;
+  const seen = new Set<string>();
   try {
     for (;;) {
       const header = Buffer.alloc(512);
@@ -427,6 +492,8 @@ function untar(path: string, folder: string): void {
       if (kind === "5") { if (relative && relative !== ".") artifactPath(relative); }
       else if (kind === "0" || kind === "") {
         const target = join(folder, artifactPath(relative)); mkdirSync(dirname(target), { recursive: true });
+        if (seen.has(target)) throw new Error(`The archive lists ${relative} twice.`);
+        seen.add(target);
         const out = openSync(target, "w"), chunk = Buffer.alloc(64 * 1024);
         try {
           for (let offset = 0; offset < size;) {

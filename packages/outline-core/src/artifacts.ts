@@ -9,6 +9,8 @@ export type ArtifactRequest =
   | { action: "artifacts.deploy"; repo: string; domain?: string; mutation?: { author: "agent" | "user" | "system"; actorId?: string; sessionId?: string; taskId?: string } }
   | { action: "artifacts.dns"; name: string; to: "vercel" | "float-2" }
   | { action: "artifacts.backfill"; catalogue?: string }
+  /** A one-time link to hand a file to the inbox for this outline's day note (PIE-1267); the name is optional. */
+  | { action: "artifacts.lease"; name?: string; mutation?: { author: "agent" | "user" | "system"; actorId?: string; sessionId?: string; taskId?: string } }
   | { action: "artifacts.put"; name: string; files: Record<string, string> }
   | { action: "artifacts.show"; name: string; frame?: ArtifactReader }
   | { action: "artifacts.snapshot" | "artifacts.versions" | "artifacts.rm"; name: string }

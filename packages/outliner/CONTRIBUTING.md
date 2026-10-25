@@ -70,6 +70,7 @@ source evidence or distinguish authored glyphs from controls.
 
 - `src/publish-anchors.ts` carries source-line and fragment addresses through the existing publisher sentinels; fragment grammar and heading ids come from `src/fragments.ts`.
 - `src/loki-leases.ts` owns host-wide query leases, expiry, revocation and rate limits. `src/publish-loki.ts` proxies only admitted reads through the existing signed-in publisher; CLI and MCP mint through the host.
+- `src/upload-tokens.ts` owns upload leases and device tokens (host-wide, persisted as digests); `src/publish-upload.ts` is the one route that takes a file under them and `src/artifact-store.ts`'s watcher the one place a drop is installed; `src/artifact-archive.ts` owns the zip rules beside the tar path's `untar`; `src/artifact-handover.ts` writes the card and the record. A lease is asked of an outline (`artifacts.lease`) so the card has a home.
 - `src/env-file.ts` owns settings-file parsing (trim, then unquote; preserve empty values), shared with the door through its package export.
 - `src/store.ts` owns persistence and canonical graph invariants.
 - `src/server.ts` owns protocol dispatch, sequence, and subscriptions.

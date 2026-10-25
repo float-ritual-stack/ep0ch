@@ -96,6 +96,8 @@ export interface SignInGateOptions {
   /** The web client, answering a request the gate let through. */
   serve: (request: Request, signedIn: SignedIn) => Promise<Response>;
   loki?: (request: Request) => Promise<Response>;
+  /** The artifacts inbox's upload route (publish-upload.ts): its token is its credential, so it's answered before the sign-in. */
+  upload?: (request: Request) => Promise<Response>;
   snapshot?: (request: Request) => Promise<Response>;
   readerWrite?: (request: Request) => Promise<Response>;
   /** The issuer's keys (a local set under test); else its JWKS, from discovery. */
@@ -172,6 +174,7 @@ export class SignInGate {
     const reading = request.method === "GET" || request.method === "HEAD";
     try {
       if (path.startsWith("/loki/") && this.options.loki) return withGateHeaders(await this.options.loki(request));
+      if (path.startsWith("/_upload/") && this.options.upload) return withGateHeaders(await this.options.upload(request));
       // A write comes from a page of the origin it was sent to (CSRF), signed in or not.
       if (!reading && request.headers.get("origin") !== origin) {
         return withGateHeaders(new Response("A change comes from this site's own pages\n", { status: 403, headers: { "content-type": "text/plain; charset=utf-8" } }));

@@ -1968,6 +1968,12 @@ export type OutlinerRequestAction =
   | { id: string; action: "loki.lease.start"; ttl?: string; by: string }
   | { id: string; action: "loki.lease.revoke" }
   | { id: string; action: "loki.lease.use"; token: string; method: string; path: string }
+  /** Uploads into the artifacts inbox (PIE-1267, upload-tokens.ts): the route's two steps and a device's token (a lease is `artifacts.lease`, asked of the outline). */
+  | { id: string; action: "uploads.take"; token: string; method: string }
+  | { id: string; action: "uploads.finish"; claim: string; ok: boolean }
+  | { id: string; action: "devices.add"; name: string; outline: string }
+  | { id: string; action: "devices.list" }
+  | { id: string; action: "devices.revoke"; device: string }
   /**
    * The signed-in web client's sessions (web-sessions.ts), answered by the outline host for every outline: `start` after
    * a sign-in (answers the cookie's token once), `resolve` a cookie's token on each request (renewing it), `list`, and

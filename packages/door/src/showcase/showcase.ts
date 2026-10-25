@@ -1279,6 +1279,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "upload", need: "hand a file to ep0ch from a shell, claude.ai or a phone", part: "the artifacts inbox and its watcher, the lease pattern (upload-tokens.ts), the publisher's token route and the shell ActionSet", files: "outliner/src/upload-tokens.ts, outliner/src/publish-upload.ts, outliner/src/artifact-store.ts, outliner/src/artifact-archive.ts, src/screens.ts",
+    aside: "ctrl+k → > artifact.lease copies one curl command for one upload (an hour). The note says what is checked, where the card lands, and how a phone's Shortcut and a lost phone's revoke work. The lease here is real: curl a zip to it and the card appears in today's note.",
+    stage(n, show) {
+      const reader = new ReaderPane();
+      return deskOf({ title: "showcase · hand a file over", panes: [reader] }, show, [[reader, n.upload]]);
+    },
+  },
+  {
     key: "front-matter", need: "read and query the note's front matter", part: "outline-core header-line and property-grammar, the service property records and the reader's PropertyPanel", files: "outline-core/src/header-line.ts, outline-core/src/property-grammar.ts, src/surface/props-panel.ts",
     aside: "i or click the property count: block properties together, inline and line properties below, list values as chips · find connectTo=beans, connectto=frost, tag=neat or tag=epic · group=connectto puts the sowing note under beans and frost · the trailing #epic leaves the title; the source stays exactly as written",
     stage(n, show) {

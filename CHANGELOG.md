@@ -68,6 +68,19 @@ hour, and a snapshot's download and a lease keep their bounded lifetimes. Shares
 Protocol changed (`ShareSession.scope`, `ArtifactInfo.frame`, `shares.start artifact`): `ep0ch install --apply`.
 On float-2, the units that run the artifact server, its watcher and the host need `EP0CH_WEB_URL` (see the PR).
 
+### Hand a file to ep0ch from anywhere: a curl, a phone's share sheet, a card in today's note (PIE-1267)
+
+A page, a zip or a tar of a built site now reaches the artifacts inbox without the laptop's sync folder. Ask for a lease
+(`ep0ch artifact lease orrery`, `> artifact.lease` in the power bar, or the MCP tool `artifact_upload_lease` for an agent
+in claude.ai) and run the `curl -sS -T <file> '<link>/'` it prints where the file is: one upload, one hour, and a link
+preview, a HEAD or a dropped transfer never uses it up. The file is checked and installed as the next version, the answer
+says what was installed or why it was refused, and a card (titled by the page's `<title>`) lands in the outline's note for
+today, with a record line under `artifact-uploads`. Zips (and tars) are unpacked under the tar path's rules, plus caps on
+entry count and unpacked size, for the synced inbox too; a refused one waits in `.failed/` with its reason. `ep0ch device
+add <name>` makes a revocable token for a phone's "Send to ep0ch" Shortcut (the recipe is in the Artifacts hub). Protocol
+change: new host actions (`uploads.take`, `uploads.finish`, `devices.*`) and `artifacts.lease`; restart the publisher and
+`ep0ch-artifact-watch` after `ep0ch install --apply`. No schema change.
+
 ### Signed in, the site never locks a note against its owner (PIE-1265)
 
 `[publish::never]` now means "never share this outside". Signed in as yourself, the published site draws every note as
