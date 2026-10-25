@@ -67,6 +67,28 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     expect(JSON.parse(lease.text).url).toMatch(/^https:\/\/my\.ep0ch\.sh\/loki\/[A-Za-z0-9_-]+\/$/);
   });
 
+  test("a writer can mint a one-upload link for the artifacts inbox, shown as a curl in a code block; a reader is not offered it", async () => {
+    const names = async () => ((await rpc("tools/list")).body.result.tools as { name: string }[]).map(tool => tool.name);
+    expect(await names()).not.toContain("artifact_upload_lease");
+    await board.configureMcpAccess("full");
+    try {
+      expect(await names()).toContain("artifact_upload_lease");
+      const named = await tool("artifact_upload_lease", { outline: scratch.name, name: "orrery" });
+      expect(named.isError, named.text).toBe(false);
+      const lease = JSON.parse(named.text);
+      expect(lease).toMatchObject({ name: "orrery", outline: scratch.name });
+      expect(lease.url).toMatch(/^https:\/\/my\.ep0ch\.sh\/_upload\/[A-Za-z0-9_-]+\/$/);
+      expect(lease.said).toContain("```sh\ncurl -sS -T <file> '");
+      // A bad name is refused with what a name is, and a nameless lease is fine (the file names itself).
+      const bad = await tool("artifact_upload_lease", { outline: scratch.name, name: "not a name!" });
+      expect(bad.isError).toBe(true);
+      expect(bad.text).toContain("letters, numbers");
+      expect((await tool("artifact_upload_lease", { outline: scratch.name })).isError).toBe(false);
+    } finally { await board.configureMcpAccess("read"); }
+    const refused = await tool("artifact_upload_lease", { outline: scratch.name, name: "orrery" });
+    expect(refused.isError).toBe(true);
+  });
+
   test.each(["grant", "named path"])("Loki listing and minting respect the %s denial", async denial => {
     const previous = process.env.EP0CH_MCP_PATH_ACCESS;
     try {

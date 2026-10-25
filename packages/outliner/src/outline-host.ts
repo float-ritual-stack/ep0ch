@@ -1,10 +1,11 @@
 import { OutlineLinks } from "./outline-links";
 import { LokiLeases } from "./loki-leases";
+import { UploadTokens } from "./upload-tokens";
 import { ArtifactStore } from "./artifact-store";
-import type { ArtifactRequest } from "@ep0ch/outline-core/artifacts";
+import { artifactReference, type ArtifactRequest } from "@ep0ch/outline-core/artifacts";
 import { writeDotEp0ch } from "./outline-binding";
 import { Database } from "bun:sqlite";
-import { PROTOCOL, GRAMMAR, type OutlineAbout } from "@ep0ch/outline-core/protocol";
+import { PROTOCOL, GRAMMAR, type OutlineAbout, type UploadLease } from "@ep0ch/outline-core/protocol";
 import { composeActor } from "@ep0ch/outline-core/attribution";
 import { isWritablePropertyValue } from "@ep0ch/outline-core/property-grammar";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
@@ -85,7 +86,7 @@ export interface OutlineHostOptions {
 }
 
 // `web.sessions.*`: the signed-in web client's sessions (web-sessions.ts), the host's own since one opens every outline.
-const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS, "loki.lease.start", "loki.lease.revoke", "loki.lease.use", "mcp.access.files"]);
+const HOST_ACTIONS = new Set(["outlines.list", "echonet.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.archive", "outlines.unarchive", "outlines.pane", ...WEB_SESSION_ACTIONS, "loki.lease.start", "loki.lease.revoke", "loki.lease.use", "uploads.take", "uploads.finish", "devices.add", "devices.list", "devices.revoke", "mcp.access.files"]);
 /** How long a request relayed to another machine's host waits for its answer, and how big that answer may be. */
 const RELAY_WAIT_MS = 60_000;
 const RELAY_MAX_ANSWER = 64 * 2 ** 20;
@@ -196,6 +197,7 @@ export class OutlineHost {
   readonly defaultOutline: string | undefined;
   private readonly layout: ReturnType<typeof outlineLayout>;
   private readonly lokiLeases = new LokiLeases(message => this.log(message));
+  private uploadTokens?: UploadTokens;
   private webSessions: WebSessions | undefined;
   private artifactStore: ArtifactStore | undefined;
   private listener: Server | null = null;
@@ -692,6 +694,7 @@ export class OutlineHost {
       server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true, outlinesFolder: this.outlinesFolder });
       server.setOutline({ name });
       server.setHost(() => this.status());
+      server.setUploadLeases(input => this.startUploadLease(input));
       server.setSnapshotAddress(() => {
         for (const outline of this.opened.values()) {
           const url = outline.server.publisherAddress(true).publicUrl;
@@ -883,6 +886,28 @@ export class OutlineHost {
     };
   }
 
+  private uploads(): UploadTokens {
+    return this.uploadTokens ??= new UploadTokens(join(this.layout.hostDir, "upload-tokens.json"), message => this.log(message));
+  }
+
+  /** Where the web client is reached from outside (`EP0CH_WEB_URL`, the first when it lists several). */
+  private webOrigin(): string {
+    return (process.env.EP0CH_WEB_URL?.split(",")[0]?.trim() || "https://my.ep0ch.sh").replace(/\/+$/, "");
+  }
+
+  private requireOutline(name: string): void {
+    if (!this.list().outlines.some(outline => outline.name === name)) throw new Error(`This host has no outline ${name}: ep0ch outline list shows the ones it has`);
+  }
+
+  private startUploadLease(input: { name?: string; outline: string; by: string }): UploadLease {
+    const { name, outline } = input;
+    if (name !== undefined && (typeof name !== "string" || artifactReference(name)?.name !== name)) throw new Error("Name the artifact with letters, numbers, dots, underscores or hyphens, e.g. orrery (or leave the name out: the file names itself by its title)");
+    this.requireOutline(outline);
+    const { id, token, expiresAt } = this.uploads().startLease({ ...(name ? { name } : {}), outline, by: input.by });
+    const url = `${this.webOrigin()}/_upload/${token}/`;
+    return { id, ...(name ? { name } : {}), outline, url, expiresAt, curl: `curl -sS -T <file> '${url}'` };
+  }
+
   private handleHostAction(request: Record<string, unknown>): Promise<unknown> | unknown {
     switch (request.action) {
       case "outlines.list": return this.list();
@@ -903,6 +928,24 @@ export class OutlineHost {
       case "loki.lease.use":
         if (typeof request.token !== "string" || typeof request.method !== "string" || typeof request.path !== "string") throw new Error("Loki use needs token, method and path");
         return this.lokiLeases.use(request.token, request.method, request.path);
+      case "uploads.take":
+        if (typeof request.token !== "string" || !["GET", "HEAD", "PUT", "POST"].includes(String(request.method))) throw new Error("uploads.take needs token and method (GET, HEAD, PUT or POST)");
+        return this.uploads().take(request.token, request.method as "GET" | "HEAD" | "PUT" | "POST");
+      case "uploads.finish":
+        if (typeof request.claim !== "string") throw new Error("uploads.finish needs the claim uploads.take gave");
+        this.uploads().finish(request.claim, request.ok === true);
+        return { ok: true };
+      case "devices.add": {
+        if (typeof request.name !== "string" || typeof request.outline !== "string") throw new Error("devices.add needs a name and the outline its cards go to");
+        this.requireOutline(request.outline);
+        const { device, token } = this.uploads().addDevice({ name: request.name, outline: request.outline });
+        const url = `${this.webOrigin()}/_upload/${token}`;
+        return { device, token, url };
+      }
+      case "devices.list": return { devices: this.uploads().devices() };
+      case "devices.revoke":
+        if (typeof request.device !== "string") throw new Error("devices.revoke names the device (ep0ch device ls)");
+        return { revoked: this.uploads().revokeDevice(request.device) };
       case "web.sessions.start":
       case "web.sessions.resolve":
       case "web.sessions.list":

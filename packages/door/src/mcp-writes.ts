@@ -44,11 +44,11 @@ export type McpWriteTool = typeof MCP_WRITE_TOOLS[number];
  * Every tool whose answer or record names who made it (an actor id from `actorOf`, shown as `by`, stored on a mutation,
  * or logged as the sharer): these take `persona`, and a Claude Code session's mod fills it in on each
  * (packages/claude-mod/hooks/connector-persona.ts; a test keeps the two lists equal). The writes, their status,
- * outline_snapshot, script_run, the shares that start and end (share_start, share_revoke), loki_lease and the outline
+ * outline_snapshot, script_run, the shares that start and end (share_start, share_revoke), loki_lease, artifact_upload_lease (it names who asked for the link) and the outline
  * admin. Left out because their answer and record name no actor: the reads, share_list, reader_view and artifact_put (the
  * usage log names the connection's actor for every tool, and is not attribution).
  */
-export const PERSONA_TOOLS = [...MCP_WRITE_TOOLS, "outline_write_status", "outline_snapshot", "script_run", "share_start", "share_revoke", "loki_lease", "outline_new", "outline_archive"] as const;
+export const PERSONA_TOOLS = [...MCP_WRITE_TOOLS, "outline_write_status", "outline_snapshot", "script_run", "share_start", "share_revoke", "loki_lease", "artifact_upload_lease", "outline_new", "outline_archive"] as const;
 export const takesPersona = (name: string): boolean => (PERSONA_TOOLS as readonly string[]).includes(name);
 export const isWriteTool = (name: string): name is McpWriteTool => (MCP_WRITE_TOOLS as readonly string[]).includes(name);
 

@@ -172,6 +172,7 @@ export const marks: Record<string, string[]> = {
   "reading-line": ["The long row of runner beans", "Allotment notebook"],
   replies: ["Replies at the orchard", "Orchard row 1"],
   snapshot: ["A SQLite copy for analysis", "outline.snapshot"],
+  upload: ["Hand a file to ep0ch", "artifact.lease"],
   "front-matter": ["Early sowing notes", "A plan for the seed bed"],
   insert: ["Insert files beside a draft", "Ctrl+T", "Television shows its marks"],
 };

@@ -1305,7 +1305,7 @@ with dashes (`Moth Counter.jsx` → `moth-counter`); a folder keeps its name.
 The newest version is served from `.artifacts/live/<name>/`, outside the sync tree.
 The drop is then removed from the inbox; two-way Mutagen sync removes it from the
 laptop too. `EP0CH_ARTIFACT_INBOX` overrides the inbox path and
-`EP0CH_ARTIFACT_SETTLE_MS` overrides the 10000 ms settling period on the watcher.
+`EP0CH_ARTIFACT_SETTLE_MS` overrides the 10000 ms settling period on the watcher. A `.zip` or `.tar` dropped there is unpacked the same way an upload is (below).
 Dotfiles, including Mutagen's `.mutagen-temporary-*` files, are ignored.
 
 Each successful pickup appends a tab-separated line to `inbox/receipts.log`:
@@ -1338,6 +1338,42 @@ ep0ch artifact show moth-site --machine float-2
 ep0ch artifact versions moth-site --machine float-2
 ep0ch artifact rm moth-site@1 --machine float-2
 ```
+
+### Handing a file over from outside (PIE-1267)
+
+A model cannot forward an attachment's bytes, and a phone has no sync folder, so a file reaches the same inbox over
+`my.ep0ch.sh` instead:
+
+```sh
+ep0ch artifact lease orrery --ws pie        # prints: curl -sS -T <file> 'https://my.ep0ch.sh/_upload/<token>/'
+curl -sS -T orrery-site.zip 'https://my.ep0ch.sh/_upload/<token>/'
+```
+
+- **A lease** (`ep0ch artifact lease [<name>]`, the MCP tool `artifact_upload_lease`, the door's `> artifact.lease`) is
+  one name (or none: the file names itself by its page `<title>`), one upload, one hour. The link ends in `/` so
+  `curl -T` sends the file's own name. A `GET`, a `HEAD`, a link preview or an interrupted transfer never uses it up;
+  only a finished upload does (the same rule as a snapshot link, PIE-940). It is a bearer secret: show it in a code
+  block, never in a chat message. The host keeps leases in `.host/upload-tokens.json` (digests only, 0600), so a deploy
+  between minting and curling does not end one.
+- **The route** (`PUT` or `POST /_upload/<token>[/<filename>]`, `src/publish-upload.ts`) is answered before the sign-in,
+  like the Loki lease route, because the token is the credential. It takes a page, a zip, a tar, an image or a pdf up
+  to `EP0CH_ARTIFACT_MAX_BYTES`, writes it whole into `<outlines>/.artifacts/inbox-remote/<id>/` (a folder the watcher
+  also reads, so nothing flickers onto the laptop's synced inbox) and answers once the watcher has installed it:
+  `201 {name, version, title, card}`, `422 {reason}` for a refused file, or `202` if the check is still running after
+  `EP0CH_UPLOAD_WAIT_MS` (25 s). A zip needs no `Content-Type`; a phone's POST with no name is sniffed from its bytes.
+- **Archives** (the watcher, `src/artifact-archive.ts`, for the synced inbox too) follow the tar path's rules: no links,
+  no `..` or absolute names, no encryption or Zip64, and caps on the entry count (`EP0CH_ARTIFACT_MAX_ENTRIES`) and the
+  unpacked size, checked against the header's claim before anything is inflated and against what actually unpacks. One
+  folder inside a zip is stripped so `index.html` lands at the root; `__MACOSX/` and `.DS_Store` are dropped. A refused
+  archive waits in `inbox-remote/.failed/<id>/` with `reason.txt`.
+- **The card and the record.** After the install the watcher writes a card (`Title` then `[artifact::name]`) under today's
+  note in the lease's outline (`pages.follow` on the day, the way the reader lease finds it), or under `?note=<page
+  address>`, and a record line under the `artifact-uploads` page of `EP0CH_ARTIFACT_RECORDS`'s outline (default: the
+  card's), stamped `[machine::upload]` so default searches leave it out. A host that is down does not undo the install;
+  the answer says no card was written and the line to add by hand.
+- **A device** (`ep0ch device add "Evan's iPhone" --ws pie`, `device ls`, `device revoke <name|id>`) has a token of its own
+  that opens this route and nothing else, until revoked. Its link is shown once. A Shortcut posts to
+  `…/_upload/<token>/?name=<artifact>&note=<page>` with the file as the body; the Artifacts hub in pie has the recipe.
 
 The CLI streams a ustar archive through the outline service over its existing
 socket/SSH forward. MCP `artifact_put` accepts `{name, kind, content}` for one file

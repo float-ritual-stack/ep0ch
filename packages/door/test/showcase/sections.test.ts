@@ -55,6 +55,41 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
   });
 
 
+  test("the upload exhibit makes a lease through its power-bar action, takes a zip through the real route and lands a card in today's note", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "upload" }, as: "test-agent" });
+    await until(() => screen().includes("Hand a file to ep0ch"), "upload exhibit");
+    const { publishUpload } = await import(`${outliner}/src/publish-upload.ts`);
+    const { ArtifactStore } = await import(`${outliner}/src/artifact-store.ts`);
+    const { OutlinerClient } = await import(`${outliner}/src/client.ts`);
+    const { zip } = await import(`${outliner}/test/zip-fixture.ts`);
+    const old = process.env.EP0CH_ARTIFACT_REMOTE_SETTLE_MS;
+    process.env.EP0CH_ARTIFACT_REMOTE_SETTLE_MS = "20";
+    const client = new OutlinerClient(scratch.sock, 15_000, scratch.name);
+    const watcher = new ArtifactStore(scratch.outlines);
+    watcher.startWatcher();
+    const http = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => publishUpload(request, client, { outlines: scratch.outlines, log: () => {}, waitMs: 20_000 }) });
+    try {
+      const lease = await app.act({ action: "artifact.lease", args: { name: "showcase-lantern" }, as: "test-agent" }) as { url: string; curl: string };
+      expect(lease.curl).toContain("curl -sS -T <file>");
+      const file = join(scratch.root, "lantern-site.zip");
+      await Bun.write(file, zip([{ name: "lantern/index.html", data: "<!doctype html><title>Showcase Lantern</title><p>lit</p>" }]));
+      const curl = Bun.spawn(["curl", "-sS", "-T", file, `http://127.0.0.1:${http.port}${new URL(lease.url).pathname}`], { stdout: "pipe", stderr: "pipe" });
+      const said = JSON.parse(await new Response(curl.stdout).text());
+      expect(await curl.exited).toBe(0);
+      expect(said).toMatchObject({ ok: true, name: "showcase-lantern", version: 1, title: "Showcase Lantern" });
+      const d = new Date(), day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const page = await client.request({ action: "pages.resolve", address: day }) as { block: { id: string } };
+      const cards = await client.request({ action: "children", parentId: page.block.id }) as { text: string }[];
+      expect(cards.map(card => card.text)).toContain("Showcase Lantern\n[artifact::showcase-lantern]");
+    } finally {
+      http.stop(true);
+      await watcher.close();
+      if (old === undefined) delete process.env.EP0CH_ARTIFACT_REMOTE_SETTLE_MS; else process.env.EP0CH_ARTIFACT_REMOTE_SETTLE_MS = old;
+    }
+  });
+
+
   test("front matter: the properties panel separates scopes and draws list chips", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "front-matter" }, as: "test-agent" });

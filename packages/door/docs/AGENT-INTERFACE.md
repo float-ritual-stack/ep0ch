@@ -232,7 +232,7 @@ The optional label never changes the principal, outline access, or the named pat
 `outline_write_status` when following that queued write. A normal `outline_read` includes pending writes
 from every persona of the same principal and subject, so the agent can read its writes back. The same option is taken by every tool that
 records an actor (`PERSONA_TOOLS` in `src/mcp-writes.ts`): the note writes, `outline_write_status`, `outline_snapshot`,
-`script_run`, `share_start`, `share_revoke`, `loki_lease`, `outline_new` and `outline_archive`. Tools that record none
+`script_run`, `share_start`, `share_revoke`, `loki_lease`, `artifact_upload_lease`, `outline_new` and `outline_archive`. Tools that record none
 (the reads, `share_list`, `reader_view`, `artifact_put`) don't. The Claude mod fills it in for a Claude Code session's calls
 through the claude.ai connector (PIE-1256).
 

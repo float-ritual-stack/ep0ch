@@ -146,6 +146,10 @@ ${VIEW_USAGE}
   ep0ch artifact ls | show|versions|snapshot|rm <name> [--machine <ssh-name>]
   ep0ch artifact import --ws <name> [--machine <ssh-name>]
                                    live artifact folders and frozen snapshots, outside the outline
+  ep0ch artifact lease [<name>] [--ws <name>] [--json]
+                                   a one-time link to send a file (a page, a zip, a tar) into the inbox: prints the curl
+  ep0ch device add <name> [--ws <name>] | ls | revoke <name|id>
+                                   a phone's Shortcut token for the same inbox, made, listed and ended
 ${SHARE_USAGE}
   ep0ch loki lease [--ttl 1h] | lease --revoke
                                    a read-only Loki URL, or end all leases; run on the publisher host over ssh
@@ -284,6 +288,13 @@ if (args[0] === "keys") {
   if (at > 0 && args[at + 1]) { process.env.EP0CH_WS = args[at + 1]; args = [...args.slice(0, at), ...args.slice(at + 2)]; }
   const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
   const run = Bun.spawn([process.execPath, cli, "keys", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
+  process.exit(await run.exited);
+}
+if (args[0] === "device") {
+  const at = args.indexOf("--ws");
+  if (at > 0 && args[at + 1]) { process.env.EP0CH_WS = args[at + 1]; args = [...args.slice(0, at), ...args.slice(at + 2)]; }
+  const cli = join(import.meta.dir, "../../outliner/src/cli.ts");
+  const run = Bun.spawn([process.execPath, cli, "device", ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"], env: process.env });
   process.exit(await run.exited);
 }
 if (args[0] === "ext") {

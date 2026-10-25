@@ -703,6 +703,12 @@ for the signed-in person and nowhere else, and it is the only address to give th
 (artifacts.ep0ch.sh) is plumbing: never print, paste or hand out an address on it. To let someone outside see one,
 share it (`share_start artifact=<name>`) or share a page that frames it. `artifact.open` gives agents the page's
 address; `artifact.share` (the card's `[share]`) starts a share of the artifact.
+To hand over a file you cannot put yourself (an attachment in claude.ai, something on a phone), ask for a lease:
+MCP `artifact_upload_lease {outline, name?}` (or `ep0ch artifact lease [<name>] --ws <outline>`) returns a `curl -sS -T <file>
+'<link>/'` for a code sandbox or shell to run where the file is: one upload, one hour, a page, zip or tar. Show it in a code
+block, never as a link, and never paste it elsewhere. The answer says what was installed or why it was refused (links, `..`
+paths and oversized archives are); a card for it lands in the outline's note for today. A phone sends with its own token
+(`ep0ch device add <name>`), which the person makes.
 See the outliner README's **Artifacts** section for import, limits and deployment.
 
 ## Keys and secrets (for an extension that needs one)

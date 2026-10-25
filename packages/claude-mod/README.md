@@ -502,7 +502,7 @@ code as `packages/outline-core/src/tool-args.ts` (hooks can't import it); the do
   `EP0CH_MCP_PERSONAS` names, so a call through it from this session would be recorded as that default. The mod fills
   `persona` with the session's persona, the one the "writes as" line shows, when the call names none, on every
   tool that records an actor: the gateway's write tools, `outline_write_status`, `outline_snapshot`, `script_run`,
-  `share_start`, `share_revoke`, `loki_lease`, `outline_new` and `outline_archive` (the door's `PERSONA_TOOLS`).
+  `share_start`, `share_revoke`, `loki_lease`, `artifact_upload_lease`, `outline_new` and `outline_archive` (the door's `PERSONA_TOOLS`).
   Reads, `share_list`, `reader_view` and `artifact_put` record no actor and are left alone. A call that names a persona
   keeps it, and a session with no persona changes nothing. When an answer says it was recorded as another persona, the
   transcript says so once for each name (`hooks/connector-persona.ts`).

@@ -48,6 +48,7 @@ export const SEED = {
   title: "A title you can find",
   replies: "Replies at the orchard",
   snapshot: "A SQLite copy for analysis",
+  upload: "Hand a file to ep0ch",
   frontMatter: "## Early sowing notes",
   frontMatterAgent: "A plan for the seed bed,",
   markdownFigures: "Figures, written in Markdown",

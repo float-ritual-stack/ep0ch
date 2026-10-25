@@ -622,6 +622,18 @@ export interface NoteMoveReceipt {
 export interface LokiLease { id: string; url: string; expiresAt: string }
 export interface LokiLeaseUse { status: number; id?: string }
 
+/**
+ * A one-time upload link into the artifacts inbox (PIE-1267): one name (or none: the file then names itself), one upload, one hour. `url` ends in `/` so
+ * `curl -T <file> <url>` appends the file's name; it holds the secret, so it's shown in a code block and never logged.
+ */
+export interface UploadLease { id: string; name?: string; outline: string; url: string; expiresAt: string; curl: string }
+/** A device that may upload (`ep0ch device add`): its token is shown once, when it's made. */
+export interface UploadDevice { id: string; name: string; outline: string; createdAt: string; lastUsedAt?: string; revokedAt?: string }
+/** What the host says of a request to the upload route: who it may be, or why not. A write comes with the `claim` to settle. */
+export type UploadTake =
+  | { status: 200; claim?: string; who: { kind: "lease" | "device"; id: string; name?: string; outline: string; by: string; deviceName?: string }; expiresAt?: string }
+  | { status: 404 | 409 | 410; reason: string };
+
 /** An outline ask in the waiting-on-you list; call positions are zero-based source lines and offsets. */
 export interface WaitingAsk {
   properties: BlockProperty[];
