@@ -45,6 +45,9 @@ Part of the door-speed audit (a hover that moved nothing painted a whole frame; 
   (`ActionDef.repaints`: `true`, `false`, or from its answer). Left out, an action that touches `nothing` of the
   person's changed nothing shown, and every other did. An action that already asked for its paint (a `redraw()` of
   its own) gets no second one behind it; one that answers later is painted when it does.
+- **Whose redraw it was is known:** a redraw counts for the press whose action asked for it (not for another press running at
+  the same time), and a frame an inner press painted doesn't stand for what its outer action changed after it. A screen
+  host's `beforeAction` says when it changed what's shown (the desk dropping a hint card), and the press repaints for it.
 - **Parity checks it:** a key or click that changes the screen through an action must have asked for a repaint.
 - No protocol change.
 

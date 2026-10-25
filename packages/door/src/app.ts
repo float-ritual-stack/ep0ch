@@ -22,7 +22,7 @@ import { uncover, type Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, Offline, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
 import { ActionRefused, actionSet, asActor, agentLabel, traceActions, keyName, type ActRequest } from "./surface/actions";
-import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, type TileRef } from "./surface/dispatch";
+import { POINTER_ACTIONS, Dispatcher, GONE_ACTIONS, notePressRedraw, type TileRef } from "./surface/dispatch";
 import { stopCompletion, useCompletion } from "./surface/completer";
 import { AgentPointers, screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
@@ -180,8 +180,6 @@ export interface Ctx {
   replace(s: Screen): void;
   quit(): void;
   redraw(): void;
-  /** How many repaints have been asked for so far (DispatchCtx.redrawsAsked): an action that asked for its own needs no second. */
-  redrawsAsked?(): number;
   readonly overflow?: Overflow;
   readonly messages?: StatusLog;
   readonly dispatch?: Dispatcher;
@@ -1512,7 +1510,7 @@ export class App implements Ctx {
    * renders and no faster.
    */
   redraw() {
-    this.redraws++;
+    this.redraws++; notePressRedraw();
     if (this.closed) return;               // the door has ended (a key in this chunk quit): nothing more is painted
     if (this.batching) { this.wanted = true; return; }
     this.changed = true;
@@ -1521,7 +1519,7 @@ export class App implements Ctx {
     if (since >= FRAME_MS) return this.paint();
     this.paintTimer = setTimeout(() => { this.paintTimer = null; this.paint(); }, FRAME_MS - since);
   }
-  /** Repaints asked for, painted or folded into another (redrawsAsked). */
+  /** Repaints asked for, painted or folded into another (the parity pass counts them). */
   private redraws = 0;
   redrawsAsked(): number { return this.redraws; }
   private lastPaint = 0;

@@ -111,7 +111,6 @@ function frameCtx(f: FramedScreen): Ctx {
     replace: s => f.replace(s),
     quit: () => o().quit(),
     redraw: () => o().redraw(),
-    redrawsAsked: () => o().redrawsAsked?.() ?? 0,
     flash: (m, ms, details) => o().flash(m, ms, details),
     refuse: (m, at) => f.refuse(m, at),
     recordAction: (req, replay, run) => o().recordAction ? o().recordAction!(req, replay, run) : run(),
