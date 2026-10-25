@@ -656,7 +656,7 @@ return answer + (outcome(b) ? ' · ' + outcome(b) : '');
  */
 async function demoNotes(board: SocketBoard, missing: readonly SeedName[]): Promise<Partial<Record<SeedName, Msg>>> {
   const found: Partial<Record<SeedName, Msg>> = {};
-  const wanted = new Map(missing.map(name => [SEED[name], name] as const));
+  const wanted = new Map<string, SeedName>(missing.map(name => [SEED[name], name]));
   let level = Object.values((await board.listExtensions(false).catch(() => null))?.pages ?? {});
   for (let depth = 0; depth < 3 && level.length && wanted.size > Object.keys(found).length; depth++) {
     const kids = (await Promise.all(level.map(page => board.children(page).catch(() => [] as Msg[])))).flat();
