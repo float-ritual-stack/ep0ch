@@ -927,7 +927,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         id = o; names.set(id, l.name!);
       } else {
         // A tile the host made for its own spec (the showcase's exhibits), else one of its kind.
-        const pane = ((own || restore) && l.name ? this.given.get(l.name) : undefined) ?? makeTile({ ...l, kind });
+        // A given pane is found by its name, else by the program key it was saved with (the drawer's own program, saved
+        // under its program's name, `shell` or `claude`): the host's own pane, never a stranger adopting its program.
+        const placed = new Set(this.panes.values());
+        const given = !(own || restore) ? undefined
+          : (l.name ? this.given.get(l.name) : undefined)
+            ?? (l.kept ? [...this.given.values()].find(g => g instanceof PtyPane && g.keptAs === l.kept && !placed.has(g)) : undefined);
+        const pane = given ?? makeTile({ ...l, kind });
         {
           // The tile's saved id, when no tile here has it (a saved layout loaded twice gets new ones the second time).
           const saved = new RegExp(`^${this.idPrefix}(\\d+)$`).exec(l.id ?? "");
