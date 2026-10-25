@@ -732,7 +732,9 @@ test("artifact file refusals name the host, supported kinds and concrete repair 
   const show = (name: string) => client.request({ action: "artifacts.show", name });
   await expect(show(wrong)).rejects.toThrow(`.jsx, .tsx, .html, .svg or .mermaid`);
   await expect(show(wrong)).rejects.toThrow(`ep0ch artifact put '${wrong}' --name sketch --machine garden-host`);
-  for (const [file, name, code] of [[unreadable, "private", "EACCES"], [missing, "missing", "ENOENT"]]) {
+  // Root reads a mode-0 file anyway (a cloud sandbox runs tests as root): there, only the missing file can be refused.
+  const cases = [...(process.getuid?.() === 0 ? [] : [[unreadable, "private", "EACCES"]]), [missing, "missing", "ENOENT"]];
+  for (const [file, name, code] of cases) {
     await expect(show(file!)).rejects.toThrow(`on garden-host (${code})`);
     await expect(show(file!)).rejects.toThrow(`ep0ch artifact put '${file}' --name ${name} --machine garden-host`);
   }

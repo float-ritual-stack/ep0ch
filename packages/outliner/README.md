@@ -810,6 +810,13 @@ deployment, copy that file to the gurgle's `skins/dispatch.css` and set
 `[publish-skin::dispatch]` on the dispatch page. No live outline is changed by
 the showcase or tests.
 
+**The front page:** a note marked `[publish-home::true]` is the tailnet site's
+top level (its text, live figures and children, as its own page draws them);
+the outline's root notes are one link away, "every note" (`/?all`). With none
+marked, or the marked note locked with `[publish::never]` (for a reader who
+isn't the signed-in owner), the top level is the folder of root notes. In any folder, notes stamped `[machine::…]` (snapshots,
+records, logs) are folded below the rest.
+
 **Publish a block** by giving it a `[publish::…]` property:
 
 | Property | URL |
