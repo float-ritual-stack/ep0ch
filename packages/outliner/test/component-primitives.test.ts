@@ -250,7 +250,7 @@ test("a list draws as text, Markdown, a page's <ul> and CSV: its groups, its row
     "  ● Pea trellis · next",
     "  · Bean *poles*",
     "▾ Later (1)",
-    "  ▪ Needs a spade",
+    "  ■ Needs a spade",
     "  · Spade · shed",
   ].join("\n"));
   const markdown = renderComponent(output, "markdown").body;

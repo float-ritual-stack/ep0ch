@@ -569,7 +569,7 @@ function listTerminal(node: ListPrimitive): string[] {
   if (!node.rows.length) return [oneLine(node.empty ?? "nothing here")];
   return sections.flatMap(({ head, rows }) => [
     ...(head ? [`▾ ${oneLine(listHead(head))}${head.note ? ` · ${oneLine(head.note)}` : ""}`] : []),
-    ...rows.map((row) => `${head ? "  " : ""}${row.mark ? oneLine(row.mark) : row.do ? "·" : "▪"} ${oneLine(row.label)}${row.detail ? ` · ${oneLine(row.detail)}` : ""}`),
+    ...rows.map((row) => `${head ? "  " : ""}${row.mark ? oneLine(row.mark) : row.do ? "·" : "■"} ${oneLine(row.label)}${row.detail ? ` · ${oneLine(row.detail)}` : ""}`),
   ]);
 }
 /** The first row with a Markdown preview: what a page shows after the list (a page has no viewer state, so the first). */

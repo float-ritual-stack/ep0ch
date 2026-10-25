@@ -533,6 +533,9 @@ rows as the door's links tile. `::outlinks`, `::resources` and `::backlinks` lis
 after the name filter the rows (`::resources jira`), or a `((ref))` names whose links. Or a block closed by `::`
 before a blank line, each line `of:`, `filter:`, `title:` or `groups:` (Comark's `---` lines are allowed). Each
 row is a link the reader opens: a note, a ticket's block, a resource's stored content. Detail shows the source.
+A `^name` at the end of the first line (`::links{query="type=letter"} ^outbox`) names the component inside its note: the reader keeps
+its selection and filter under it, `((note^outbox))` opens its line, and `list=outbox` names it to `list.pick`, `list.open`, `list.filter`.
+An extension's view can return `view.list({ rows })` for the same list (selectable, filterable, a preview, one activation per row).
 A file whose folder now leads to another directory isn't read: its reader says where, and `ep0ch resource rebind
 <folder> --ws <outline>` reads it there. Run it only when the person moved the folder on purpose; a folder deleted and
 made again in the same place needs nothing.

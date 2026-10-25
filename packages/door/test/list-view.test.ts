@@ -70,7 +70,7 @@ describe("ListView", () => {
 
   test("a list view the reader doesn't draw is its rows as text, a section's header over them; a view with none says so", () => {
     const view = { type: "list", groups: [{ name: "sow", label: "Sow now", count: 1 }], rows: [{ id: "pea", label: "Pea trellis", detail: "next", group: "sow", do: { open: "x" } }, { id: "tip", label: "Dig first" }] };
-    expect(primitiveLines(view, 40).map(plain).map(l => l.trimEnd())).toEqual(["▪ Dig first", "▾ Sow now (1)", "  · Pea trellis · next"]);
+    expect(primitiveLines(view, 40).map(plain).map(l => l.trimEnd())).toEqual(["■ Dig first", "▾ Sow now (1)", "  · Pea trellis · next"]);
     expect(primitiveLines({ type: "list", rows: [], empty: "no seeds yet" }, 40).map(plain)).toEqual(["no seeds yet"]);
     expect(listRowsOf(view as never).map(r => r.id)).toEqual(["tip", "§group:sow", "pea"]);
     expect(listRowLines({ id: "a", label: "A long label that wraps over the width of a narrow tile", detail: "and more", mark: "→" }, { cols: 20, lines: 2 }).length).toBe(2);

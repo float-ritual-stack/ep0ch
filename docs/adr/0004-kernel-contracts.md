@@ -317,6 +317,14 @@ Activation = { open: string } | { run: { action: string, args?: Record<string, s
   preview slot. Detail: rows as text, ⏎ opens. The publisher: `<ul>`, the first row's preview after it. Markdown: a
   bulleted list. JSON: the rows. CSV: label and detail.
 
+**Built (PIE-747, Oct 25).** `ListRow`, `Activation` and the `list` primitive are outline-core's (`list-row.ts`) and the
+catalogue's (`component-primitives.ts`), landing with the primitive rather than with `components.answer`: Collections
+decided the answer is a `site.answer` producer (PIE-1281), so until it lands the links model's `LinkRow`s reach the one
+`ListView` through `linkListRow`. The list actions are registered once (`LISTVIEW_ACTIONS`) over a `ListHost` each tile
+lends. The tree draws its links with the same row drawer; its selection stays the tree's, because the rows it selects
+are notes and links in one list. `ListRow.do.run` is `{ action, args? }`; the reader runs it as a press. A row the door
+builds from the links model carries `pick` (door-side) so a header the tile folds can be selected.
+
 **Moves onto it.** The inline `::links`, the links tile's list, the tree's links under a row.
 
 **Stays the door's.** `ListView`, its keys (`j k`, `[ ]`, `/`, ⏎, alt+⏎, esc) and hit areas, every viewer's view

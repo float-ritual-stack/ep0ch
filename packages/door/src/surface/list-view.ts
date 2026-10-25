@@ -80,7 +80,7 @@ export function listRowLines<S>(r: ListViewRow<S>, o: RowDraw<S>): string[] {
 export function listRowsOf(node: Pick<ListPrimitive, "rows" | "groups">): ListViewRow[] {
   return listSections(node).flatMap(({ head, rows }) => [
     ...(head ? [{ id: `§group:${head.name ?? head.label}`, label: listHead(head), mark: "▾", tone: "warn" as const, pick: false, group: head.name ?? head.label, ...(head.note ? { detail: head.note } : {}) }] : []),
-    ...rows.map((r): ListViewRow => ({ ...r, mark: r.mark ?? (r.do ? "·" : "▪"), depth: head ? 1 : 0 })),
+    ...rows.map((r): ListViewRow => ({ ...r, mark: r.mark ?? (r.do ? "·" : "■"), depth: head ? 1 : 0 })),
   ]);
 }
 

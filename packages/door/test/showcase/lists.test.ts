@@ -522,6 +522,16 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     await until(() => screen().includes("test-agent: ◆ ") && screen().includes("test-agent: / titles"), "the agent's say-so lines on the lists", 5000);
     // Going in is the person's.
     await expect(app.act({ action: "list.enter", tile: "reader", args: { list: "2" }, as: "test-agent" })).rejects.toThrow(/the person's/);
+    // The person goes in and types a filter by keys: every letter is the filter's, a `p` too (it holds a following reader otherwise).
+    press({ kind: "enter" });
+    await person("list.enter", { list: "2" });
+    ch("/");
+    for (const c of "copy") ch(c);
+    await until(() => { screen(); return reader().surface.listsDrawn[1].view.filter() === "copy" && reader().surface.listsDrawn[1].view.visible().filter((r: any) => r.pick !== false).length === 2; }, "the typed filter narrowing the shelf to its two copy rows", 5000);
+    expect(reader().followMode).toBe("follows");
+    press({ kind: "esc" }); press({ kind: "esc" });
+    expect(reader().surface.listIn).toBeNull();
+    press({ kind: "esc" });          // back from the stage to the sections
     // Each row does one thing, as the person: a copy row copies, a run row runs its action.
     const copied = await person("list.open", { list: "2", n: 4 });
     expect(copied).toMatchObject({ copied: "Ask Ana about the bean seed\nWrite to the allotment society about the gate\nOrder the fruit-cage netting", clipboard: true });

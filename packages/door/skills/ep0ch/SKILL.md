@@ -227,10 +227,13 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `knows`, `runs` and `tiles`).
 - **Links** (one model on every screen: Outlinks, Resources, Backlinks). `links tile=<reader>` aims the
   screen's links tile at that reader's note (or opens one below it), leaving the person's keys where they are;
-  `backlinks.pick n=<row>` shows a row (a note, a ticket's block, a Resource's stored content) and
-  `backlinks.open n=<row> [where=origin|new]` opens it for real (a Resource is registered first if it must be):
-  `origin` in the tile the list's opens land in (a tile linked to it as a target, else the reader it lists the
-  links of), `new` in a new detail beside that reader; `backlinks.view filter=…` filters. In the outline tree,
+  `list.pick n=<row>` picks a row of a list (the links tile's, an inline `::links`, an extension's `list` view; `list=` names
+  which one, `list.blocks` numbers them) and `list.open n=<row> [where=home|new]` opens it for real (a Resource is registered
+  first if it must be): `home` in the tile the list's opens land in (a tile linked to it as a target, else the reader it lists the
+  links of), `new` in a new detail beside that reader; `backlinks.view filter=…` filters a links tile, `list.filter words=…` any
+  list. **Your pick and filter in a list are your own**: drawn in your tint, a line under the list says them, and nothing of
+  the person's moves (so no preview follows either: `list.open` is what shows a note). `list.step by=1` is the j key;
+  `list.enter` is the person's. In the outline tree,
   `tree.links n=<row>` shows a row's links under it and `tree.pick n=<row> [open=true]` picks one (`peek`'s
   `tree.rows` numbers them). A virtual branch opened in the tree lists its matches under its children; `tree.depth n=<row> depth=0..8|authored` sets how far they open (writes nothing). Folding a group (`backlinks.fold`) is the person's view.
 - **Move a note** (PIE-943): `note.move [id=<note>] to=<inbox|root|id|((ref))|[[page]]|Work ID> [position=<from 1>]`, or

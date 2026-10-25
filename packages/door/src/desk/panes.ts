@@ -653,7 +653,7 @@ export class ReaderPane implements Pane {
   key(k: Key, desk: DeskApi): boolean {
     const start = this.readOnly && !this.holdsKeys ? sessionStart(k) : null;
     if (start) { const why = this.refuses(start); if (why) { desk.ctx.flash(why); return true; } }
-    if (this.follows && !this.editing && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.mode", {}, { pane: this, desk }); return true; }
+    if (this.follows && !this.editing && !this.surface.typingFilter && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.mode", {}, { pane: this, desk }); return true; }
     if (this.follows && !this.editing && ch(k) === "P") { this.pickSource(desk); return true; }
     // O: a reader beside this one where its links open (the desk's tile.preview), so this one never navigates away.
     if (!this.holdsKeys && ch(k) === "O" && desk.perform) { void desk.perform("tile.preview", {}, undefined, this); return true; }

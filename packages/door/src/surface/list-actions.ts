@@ -69,7 +69,6 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
     args: {},
     run(_, { host }, actor) {
       const who = actorKey(actor), lists = host.lists();
-      if (!lists.length) throw new ActionRefused(host.none);
       return {
         lists: lists.map(l => {
           const mine = l.view.picked(PERSON), yours = who === PERSON ? null : l.view.picked(who);
