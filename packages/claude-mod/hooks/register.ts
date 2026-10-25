@@ -36,7 +36,7 @@ import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-pers
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
-import { baselineOf, capabilityArgs, facetCountsOf, firstIdOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleOutlinesOfConfig, settleTuningOfConfig, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
+import { baselineOf, capabilityArgs, facetCountsOf, firstIdOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settleNoteArgs, settleNotesOf, settlesFor, threadsOf, told, tuningOf, newestWith, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
@@ -1726,6 +1726,11 @@ function settleToast($: EngineInterface, text: string): void {
   $.ui.toast(`Settle check: ${text}`, { timeoutMs: 8000 })
 }
 
+/** The `settleTuning` option or EP0CH_SETTLE_TUNING, which beat the capability note's `settle-tuning`; undefined when neither is set. */
+async function settleTuningOverride($: EngineInterface, option: PluginOptions): Promise<string | undefined> {
+  return String(option.settleTuning ?? '').trim() || (await $.env.get('EP0CH_SETTLE_TUNING')) || undefined
+}
+
 /** Starts the check once a session, if this is the deployer's (or `settle` / EP0CH_SETTLE says on). Never throws. */
 function startSettleOnce($: EngineInterface, option: PluginOptions): Promise<void> {
   return (settleStarting ??= (async () => {
@@ -1733,7 +1738,7 @@ function startSettleOnce($: EngineInterface, option: PluginOptions): Promise<voi
     settleTimer = undefined
     const setting = String(option.settle ?? '').trim() || (await $.env.get('EP0CH_SETTLE')) || undefined
     if (!settlesFor(setting, await sessionPersona($))) return
-    const tuned = tuningOf(String(option.settleTuning ?? '').trim() || (await $.env.get('EP0CH_SETTLE_TUNING')) || undefined)
+    const tuned = tuningOf(await settleTuningOverride($, option))
     if (tuned.problems.length) settleToast($, `settleTuning: ${tuned.problems.join('; ')}`)
     const run = () => void runSettle($, option, tuned.config)
     settleTimer = $.clock.every(tuned.config.every * 60_000, run)
@@ -1755,24 +1760,38 @@ async function runSettle($: EngineInterface, option: PluginOptions, config: Sett
     if (!references?.workspace) await loadReferences($, option)
     const bound = references?.workspace
     if (!bound) return
-    const folderConfig = await $.fs.read(`${bound.root}/.ep0ch/config.toml`).then(String, () => null) ?? await $.fs.read(`${bound.root}/.ep0ch`).then(String, () => null)
-    // The folder's `settle-tuning` counts when neither the option nor EP0CH_SETTLE_TUNING names one, read on every check.
-    const folderTuning = !String(option.settleTuning ?? '').trim() && !(await $.env.get('EP0CH_SETTLE_TUNING')) ? settleTuningOfConfig(folderConfig) : undefined
-    if (folderTuning) {
-      const tuned = tuningOf(folderTuning)
-      if (tuned.problems.length) settleToast($, `settle-tuning in .ep0ch/config.toml: ${tuned.problems.join('; ')}`)
-      else config = tuned.config
-    }
-    // The override first (option, EP0CH_SETTLE_OUTLINES), then the folder's `settle-outlines` in .ep0ch/config.toml, then pie and gurgle.
-    const configured = String(option.settleOutlines ?? '').trim() || (await $.env.get('EP0CH_SETTLE_OUTLINES')) || undefined
-      || settleOutlinesOfConfig(folderConfig)
-    const named = outlinesOf(configured,
-      bound.outline ? { outline: bound.outline, ...(bound.machine ? { machine: bound.machine } : {}) } : null)
+    // The settings live on the settle capability note in the outlines (the folder's .ep0ch/config.toml holds names only and is never read for them).
+    // The option and the env var come first; the note is looked up in the outlines they name, else in pie and gurgle on the bound outline's machine.
+    const override = String(option.settleOutlines ?? '').trim() || (await $.env.get('EP0CH_SETTLE_OUTLINES'))?.trim() || undefined
+    const boundOutline = bound.outline ? { outline: bound.outline, ...(bound.machine ? { machine: bound.machine } : {}) } : null
+    let named = outlinesOf(override, boundOutline)
     if (named.problems.length) settleToast($, `settleOutlines: ${named.problems.join('; ')}`)
     const root = await outlinerRootOf($)
     if (!root || !named.outlines.length) return
     const at = (o: SettleOutline): Workspace => ({ root: bound.root, outline: o.outline, ...(o.machine ? { machine: o.machine } : {}), pinned: true })
     const cli = (o: SettleOutline, args: string[]) => $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: bound.root, env: envFor(at(o)), timeoutMs: SETTLE_TIMEOUT_MS })
+    // `every` is not read from the note: the timer was set at load. An outline that cannot answer leaves the check undone, as the facet reads do: its note may be the newest.
+    if (!override || !(await settleTuningOverride($, option))) {
+      const ran = await Promise.all(named.outlines.map(async o => {
+        const r = await cli(o, settleNoteArgs()).catch(() => null)
+        return { outline: o, why: r && r.exitCode !== 0 ? failureReasonOf(r.stderr) || r.stderr.trim() : '', notes: r?.exitCode === 0 ? settleNotesOf(r.stdout) : null }
+      }))
+      const failed = ran.find(r => !r.notes)
+      if (failed) return settleToast($, `${outlineLabel(failed.outline)} could not be read for its settle settings${failed.why ? `: ${failed.why}` : ''}.`)
+      const notes = ran.flatMap(r => r.notes!)
+      const listed = override ? null : newestWith(notes, 'outlines')
+      if (listed) {
+        const fromNote = outlinesOf(listed.outlines, boundOutline)
+        if (fromNote.problems.length) settleToast($, `settle-outlines on ((${listed.id})): ${fromNote.problems.join('; ')}`)
+        else named = fromNote
+      }
+      const tuning = (await settleTuningOverride($, option)) ? null : newestWith(notes, 'tuning')
+      if (tuning) {
+        const tuned = tuningOf(tuning.tuning)
+        if (tuned.problems.length) settleToast($, `settle-tuning on ((${tuning.id})): ${tuned.problems.join('; ')}`)
+        else config = tuned.config
+      }
+    }
     const asks = settleAsks(config)
     const now = await $.clock.now()
     const read = await Promise.all(named.outlines.map(async outline => {

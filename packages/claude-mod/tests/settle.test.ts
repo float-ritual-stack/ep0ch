@@ -1,5 +1,5 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
-import { baselineOf, facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleOutlinesOfConfig, settleTuningOfConfig, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
+import { baselineOf, facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleDiff, settlesFor, newestWith, settleNoteArgs, settleNotesOf, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
 
 tier('user')
 
@@ -96,12 +96,7 @@ describe('the settings', () => {
     expect(outlinesOf('gurgle@float-2, pie', null).outlines).toEqual([{ outline: 'gurgle', machine: 'float-2' }, { outline: 'pie' }])
     expect(outlinesOf('', { outline: 'garden', machine: 'float-2' }).outlines).toEqual([{ outline: 'pie', machine: 'float-2' }, { outline: 'gurgle', machine: 'float-2' }])
     expect(outlinesOf('', { outline: 'garden' }).outlines).toEqual([{ outline: 'pie' }, { outline: 'gurgle' }])
-    expect(settleOutlinesOfConfig('ws = "pie"\nsettle-outlines = "gurgle@float-2, pie@float-2" # both\n')).toBe('gurgle@float-2, pie@float-2')
-    expect(settleOutlinesOfConfig('ws = "pie"\n')).toBeUndefined()
-    const toml = "ws = 'pie'\nsettle-tuning = 'base=thread AND NOT type=quote AND NOT thread=pie-requests; quiet=90' # channels are not threads\n"
-    expect(settleTuningOfConfig(toml)).toBe('base=thread AND NOT type=quote AND NOT thread=pie-requests; quiet=90')
-    expect(tuningOf(settleTuningOfConfig(toml)).config.base).toBe('thread AND NOT type=quote AND NOT thread=pie-requests')
-    expect(settleTuningOfConfig('ws = "pie"\n')).toBeUndefined()
+    expect(tuningOf('base=thread AND NOT type=quote AND NOT thread=pie-requests; quiet=90').config.base).toBe('thread AND NOT type=quote AND NOT thread=pie-requests')
     expect(outlinesOf('Not A Name', null).problems.at(-1)).toContain('write it like: gurgle@float-2')
   })
   test('the deployer\'s persona runs it unless on or off says otherwise', () => {
@@ -122,5 +117,28 @@ describe('the service\'s answer', () => {
   })
   test('the question asks for one row and every value', () => {
     expect(facetArgs('thread')).toEqual(['list', '--query', 'thread', '--fields', 'id', '--limit', '1', '--facets', 'thread', '--facet-values', '1000'])
+  })
+})
+
+describe('the settings on the capability note', () => {
+  const row = (id: string, props: Record<string, string>, updatedAt: string) => ({ id, title: 'Settle', properties: Object.entries(props).map(([key, value]) => ({ key, value })), updatedAt })
+  test('asks for capability notes carrying either setting, with their update times', () => {
+    const argv = settleNoteArgs()
+    expect(argv[argv.indexOf('--query') + 1]).toBe('type=capability AND (settle-tuning OR settle-outlines)')
+    expect(argv[argv.indexOf('--fields') + 1]).toContain('timestamps')
+  })
+  test('the newest edited note carrying a setting wins, each setting on its own; an empty property is no setting', () => {
+    const notes = settleNotesOf(JSON.stringify({ blocks: [
+      row('a', { 'settle-tuning': 'chirps=9', 'settle-outlines': 'pie' }, '2026-10-24T10:00:00Z'),
+      row('b', { 'settle-tuning': 'chirps=2' }, '2026-10-25T10:00:00Z'),
+      row('c', { 'settle-tuning': '  ' }, '2026-10-26T10:00:00Z'),
+      row('d', {}, '2026-10-27T10:00:00Z'),
+    ] }))
+    expect(notes?.map(n => n.id)).toEqual(['a', 'b'])
+    expect(newestWith(notes!, 'tuning')?.tuning).toBe('chirps=2')
+    // The newer note has no outlines: the older one's still counts.
+    expect(newestWith(notes!, 'outlines')?.outlines).toBe('pie')
+    expect(newestWith([], 'tuning')).toBeNull()
+    expect(settleNotesOf('not json')).toBeNull()
   })
 })
