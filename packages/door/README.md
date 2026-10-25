@@ -1645,7 +1645,7 @@ it's the same process and the same conversation.
 - **Resume is by folder.** The same program in the same folder is the same session: starting it again attaches it.
   A new one continues the program's last conversation in that folder when there is one (claude and pi
   `--continue`, codex `resume --last`), whoever started it before. A claude folder whose transcripts hold only
-  settings lines, no user turn, has none: it starts plain, never into "No conversation found to continue".
+  settings lines, or only `claude -p` runs, has none: it starts plain, never into "No conversation found to continue".
 - **The agent panel.** `alt+g` on any screen opens it as a tab in your drawer: every session with its program,
   folder, persona, what it's doing (working, waiting on you, idle) and where it's shown. `j k` pick, `⏎` or a click
   jumps to it, `a` pulls it into your drawer, `d` docks it on the screen you're on, `n` starts a new one.

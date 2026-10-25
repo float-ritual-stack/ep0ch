@@ -50,7 +50,10 @@ describe("the model, without a door", () => {
     writeFileSync(join(claudeProjectDir(garden, env, home), "a1.jsonl"), settings.join("\n") + "\n");
     expect(resumeArgs("claude", garden, env, home)).toEqual([]);           // settings lines are not a conversation
     expect(sessionCommand("claude", [], garden, env)).toEqual(["claude"]);
-    writeFileSync(join(claudeProjectDir(garden, env, home), "a2.jsonl"), [settings[0], `{"parentUuid":null,"type":"user","message":{"role":"user","content":"water the beans"},"sessionId":"${sid}"}`].join("\n") + "\n");
+    // A `claude -p` run has a user turn too, but an interactive `claude --continue` refuses a folder holding only those.
+    writeFileSync(join(claudeProjectDir(garden, env, home), "a1b.jsonl"), `{"parentUuid":null,"type":"user","message":{"role":"user","content":"count the peas"},"entrypoint":"sdk-cli","sessionId":"${sid}"}\n`);
+    expect(resumeArgs("claude", garden, env, home)).toEqual([]);
+    writeFileSync(join(claudeProjectDir(garden, env, home), "a2.jsonl"), [settings[0], `{"parentUuid":null,"type":"user","message":{"role":"user","content":"water the beans"},"entrypoint":"cli","sessionId":"${sid}"}`].join("\n") + "\n");
     expect(resumeArgs("claude", garden, env, home)).toEqual(["--continue"]);
     expect(hasConversation("claude", garden, env, home)).toBe(true);
     expect(resumeArgs("claude", "/home/someone/potting-bench", env, home)).toEqual([]);
