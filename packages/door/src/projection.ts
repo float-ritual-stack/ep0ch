@@ -540,6 +540,34 @@ export interface ExtDraw {
   bare?: boolean;
 }
 
+/** A control a render script drew in a note: its words, the action line it runs and the note's line it was drawn under. */
+export interface DrawnPress { label: string; act: string; line: number }
+
+/**
+ * The presses the service's projections hold for a note: every `act` a line's view carries (a button, a badge, a card or
+ * a table row), found by the one drawing that decides which primitives press (`primitiveLines`' `press`), so a note open
+ * nowhere answers what a reader of it would be offered. Lines not drawn yet are not here.
+ */
+export function drawnPresses(read: ResourceProjectionRead): DrawnPress[] {
+  const out: DrawnPress[] = [];
+  for (const p of read.projections) {
+    const view = p.output?.component?.view;
+    if (!view || (p.status !== "ready" && p.status !== "stale")) continue;
+    try {
+      primitiveLines(view, 240, { press: (act, text) => {
+        const label = text.replace(/\x1b\[[\d;:]*m/g, "").replace(/^\[|\]$/g, "").trim();
+        if (!out.some(x => x.act === act && x.line === p.anchor.line && x.label === label)) out.push({ label, act, line: p.anchor.line });
+        return text;
+      } });
+    } catch { /* a primitive this door doesn't draw: the line's markdown has no presses */ }
+  }
+  return out;
+}
+
+/** Whether a line of the note has not been drawn yet (running, or waiting for its run): worth asking again for a moment. */
+export const drawingPending = (read: ResourceProjectionRead): boolean =>
+  read.projections.some(p => (p.kind === "output" || p.kind === "component") && p.status !== "ready" && p.status !== "stale" && (p.fetching || p.status === "not-run"));
+
 /** The action a head or a control runs when it isn't the extension's own: r, run it again (ask again). */
 export const RUN_AGAIN = "projection.refresh";
 

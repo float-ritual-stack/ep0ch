@@ -83,6 +83,11 @@ export interface ExtensionCallsOptions {
    */
   readonly scriptRender?: (source: ScriptSource, input: { blockId: string; line: number; argument: string | null; signal?: AbortSignal; deadlineMs: number; hidden?: string[]; site?: Pick<SiteAnswerRequest, "chain" | "props">; onCandidates?: (ids: string[]) => void }) => Promise<{ markdown: string; view?: Primitive; reads: { id: string; revision: number | null }[]; queries: { query: string; limit: number; ids: string[] }[]; untracked?: true; own?: string }>;
   readonly now?: () => number;
+  /**
+   * What installs an extension the repo offers but this outline hasn't (`script:<name>` or an extension id): the sentence a
+   * refusal appends, or undefined when nothing offered adds it.
+   */
+  readonly installFor?: (extensionId: string) => string | undefined;
   /** A block's handler results changed without a content change (an output ran): readers repaint it. */
   readonly changed?: (blockId: string) => void;
   /**
@@ -1094,9 +1099,15 @@ export class ExtensionCalls {
     return { rule: trigger.rule, ...(trigger.blocks ? { blocks } : {}) };
   }
 
+  /** The refusal for an extension that isn't served here; a script or extension the repo offers names its install. */
+  private notActive(id: string): string {
+    const install = this.options.installFor?.(id);
+    return `No extension ${id} is active here (outliner ext ls lists them)${install ? `; ${install}` : ""}`;
+  }
+
   private async actNow(request: ExtensionActRequest): Promise<ExtensionActResult> {
     const extension = this.registry.extension(request.extension);
-    if (!extension) throw new Error(`No extension ${request.extension} is active here (outliner ext ls lists them)`);
+    if (!extension) throw new Error(this.notActive(request.extension));
     const action = this.registry.action(extension.id, request.action);
     if (!action) throw new Error(`${extension.name} has no action ${request.action}`);
     // A script runs; its built-in `keep` (a render line's output kept as blocks) is the host's, not a run.
@@ -1278,7 +1289,7 @@ export class ExtensionCalls {
    */
   async bar(request: ExtensionBarRequest): Promise<ExtensionBarResult> {
     const extension = this.registry.extension(request.extension);
-    if (!extension) throw new Error(`No extension ${request.extension} is active here (outliner ext ls lists them)`);
+    if (!extension) throw new Error(this.notActive(request.extension));
     const source = (extension.manifest.bar ?? []).find((candidate) => candidate.id === request.source);
     if (!source) throw new Error(`${extension.name} has no bar source ${request.source}`);
     const near = request.near ? this.store.get(request.near) : null;

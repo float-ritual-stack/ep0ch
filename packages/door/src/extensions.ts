@@ -220,6 +220,15 @@ function cleaned(l: ExtensionList): ExtensionList {
 /** The last list read (null before it's read, or from a service without extensions). */
 export const extensionList = (): ExtensionList | null => current;
 
+/**
+ * What to run when a script isn't installed here but an extension the repo offers adds it (`extensions.list`'s `available`):
+ * its install, as the refusal says it, or null when no extension adds a script of that name.
+ */
+export function scriptInstallWords(name: string, available: readonly AvailableExtension[] | undefined = current?.available): string | null {
+  const provider = available?.find(e => e.scripts?.some(s => s.name === name));
+  return provider ? `Script ${name} is not installed; install with ep0ch act extensions.install id=${provider.id}` : null;
+}
+
 export function scriptBindings() {
   return scriptActions().flatMap(s => s.extension.script!.keys.map(key => ({ key, action: s.action.name })));
 }

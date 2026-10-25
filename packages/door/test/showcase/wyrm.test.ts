@@ -59,7 +59,7 @@ describe.skipIf(!outliner)("the showcase screen: the wyrm", () => {
     expect(events).toContainEqual(expect.stringContaining("wanders into Wyrmhold"));
   }, 40_000);
 
-  test("uninstalled, a press names the reinstall command; installed by act, the moves come back", async () => {
+  test("uninstalled, its moves name the reinstall command; installed by act, the screens and moves come back", async () => {
     const { app, board, seeded } = h;
     await app.dispatch.act({ action: "section", args: { name: "wyrm" } }, USER);
     const town = seeded.notes.wyrm!;
@@ -67,7 +67,9 @@ describe.skipIf(!outliner)("the showcase screen: the wyrm", () => {
     await app.loadExtensions(true);
     await until(() => !extensionList()?.extensions.some(e => e.id === "wyrm"), "wyrm removed from the door");
     expect((await board.get(town.id))!.text).toContain("wyrm-town::");
-    await expect(app.dispatch.act({ action: "button.press", args: { note: town.id, label: "join the realm" } }, AGENT)).rejects.toThrow("ep0ch act extensions.install id=wyrm");
+    // The screens went with the extension, so the town draws no join button now; the move itself names its install (`ep0ch act wyrm …`).
+    await expect(app.dispatch.act({ action: "button.press", args: { note: town.id, label: "join the realm" } }, AGENT)).rejects.toThrow("it has none");
+    await expect(app.act({ action: "wyrm", args: { do: "join" }, as: "test-agent" })).rejects.toThrow("ep0ch act extensions.install id=wyrm");
     const rows = await app.dispatch.act({ action: "bar.open", args: { scope: "&", query: "wyrm" } }, AGENT) as { rows: { label: string }[] };
     expect(rows.rows.some(r => r.label === "install Legend of the Ep0ch Wyrm")).toBe(true);
 

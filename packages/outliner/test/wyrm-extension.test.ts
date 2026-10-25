@@ -202,5 +202,12 @@ test("the sheet and the town board draw the chips, and uninstalling keeps the no
     expect(store.require(ember.id).text).toContain("wyrm-sheet::");
     await expect(client.request({ action: "extensions.act", extension: "script:wyrm", extensionAction: "run", blockId: ember.id, args: { do: "forest" }, clientId: "wyrm-player" }))
       .rejects.toThrow("No extension script:wyrm is active here");
+    // The refusal says which extension adds it and the command that installs it, to CLI and MCP callers as to the door.
+    await expect(client.request({ action: "extensions.act", extension: "script:wyrm", extensionAction: "run", blockId: ember.id, args: { do: "forest" }, clientId: "wyrm-player" }))
+      .rejects.toThrow("ep0ch act extensions.install id=wyrm");
+    // A name nothing adds has no install to name.
+    const nothing = await client.request({ action: "extensions.act", extension: "script:nothing-adds-this", extensionAction: "run", blockId: ember.id }).then(() => "", (e: Error) => e.message);
+    expect(nothing).toContain("No extension script:nothing-adds-this is active here");
+    expect(nothing).not.toContain("extensions.install");
   } finally { stop(); }
 }, 60_000);
