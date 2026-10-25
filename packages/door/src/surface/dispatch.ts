@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { fromPress } from "../session/session-term";
 import { modeActionKeys } from "./modes";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
@@ -156,7 +157,7 @@ export interface Delegation {
 }
 
 /** What a dispatcher's messages and repaints go through, and where it asks where the person is. */
-export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown): unknown; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number;
+export interface DispatchCtx { agentPointers?: AgentPointers; recordAction?(req: ActRequest, replay: import("./actions").Replay, run: () => unknown): unknown; flash(msg: string, ms?: number, details?: MessageDetails): void; redraw(): void; /** How many repaints have been asked for so far: the person's press adds none of its own when its action asked for one (PIE-1301). */ redrawsAsked?(): number; person?(): Whereabouts; /** The person's key refused (Ctx.refuse): said on the focused tile too, when it still answers press `at`. */ refuse?(msg: string, at?: number): void; pressNow?(): number;
   /**
    * The host layer (the drawer, above every screen): the one place that resolves what `tile=` names across layers (a tile's
    * id, `drawer.agent`, an `@screen/tile` path), for every screen host, a desk or not. A screen's own names are its own.
@@ -263,6 +264,16 @@ export function actorRule(def: Pick<ActionDef<unknown, unknown>, "touches" | "wh
 }
 
 const BLOCK = /^[0-9a-f-]{8,}$/;
+/** What the person's press has done so far, for the repaint after it (asPerson): the actions run, and whether any changed what's shown. */
+interface PressShown { ran: number; changed: boolean }
+const pressShown = new AsyncLocalStorage<PressShown>();
+const isThenable = (x: unknown): x is PromiseLike<unknown> => typeof (x as { then?: unknown } | null)?.then === "function";
+/** Whether a run changed what's shown (ActionDef.repaints): declared, or by what it touches of the person's (`nothing`: no). */
+function changesShown(def: ActionDef<any, any>, out: unknown, args: Record<string, unknown>): boolean {
+  const r = def.repaints;
+  return r === undefined ? def.touches !== "nothing" : typeof r === "function" ? r(out, args) : r;
+}
+
 /** `#3` or `3`: a tile's number on screen (a name never starts with a digit). */
 const NUMBER = /^#?([1-9][0-9]{0,2})$/;
 
@@ -521,16 +532,29 @@ export class Dispatcher {
     const ctx = this.host.ctx();
     // The key or click this answers: a refusal that lands after the person moved on is said on the status bar alone.
     const at = ctx?.pressNow?.();
+    // The repaint this press owes (PIE-1301): the actions it ran say whether they changed what's shown (runIn); the tail
+    // repaints for those that did, unless an action's own redraw already asked for the paint, and never for a press that
+    // ran actions that all changed nothing.
+    const shown: PressShown = { ran: 0, changed: false };
+    const asked = ctx?.redrawsAsked?.();
     const tell = (e: unknown) => {
       const failed = !(e instanceof ActionRefused || e instanceof Offline);
       const action = messageContext.getStore()?.action ?? "the action";
       const why = failed ? actionFailure(action, e) : e.message, said = failed ? why : say === true ? null : say === false ? why : say(why);
+      const before = ctx?.redrawsAsked?.();
       // Said where the person is looking (the focused tile's frame) as well as on the status bar (Ctx.refuse, PIE-727).
       if (said) messageContext.run({ ...messageContext.getStore(), kind: failed ? "error" : "refusal", ...(failed && e instanceof Error ? { stack: e.stack } : {}) }, () => (ctx?.refuse ? ctx.refuse(said, at) : ctx?.flash?.(said)));
-      ctx?.redraw?.();
+      // Saying it painted; a refusal that said nothing still shows what the action did before it was refused.
+      if (before === undefined || ctx?.redrawsAsked?.() === before) ctx?.redraw?.();
       return undefined;
     };
-    try { return Promise.resolve(fromPress(f)).then(r => { ctx?.redraw?.(); return r; }, tell); } catch (e) { return Promise.resolve(tell(e)); }
+    try {
+      const out = pressShown.run(shown, () => fromPress(f));
+      // An action that answers at once and asked for its paint (any `redraw()` it made) needs no second one behind it; one
+      // that answers later may have changed more by then, and is painted for.
+      const own = !isThenable(out) && asked !== undefined && ctx?.redrawsAsked?.() !== asked;
+      return Promise.resolve(out).then(r => { if (!own && (shown.ran === 0 || shown.changed)) ctx?.redraw?.(); return r; }, tell);
+    } catch (e) { return Promise.resolve(tell(e)); }
   }
 
   /**
@@ -613,6 +637,8 @@ export class Dispatcher {
           ctx?.flash?.(actor.kind === "agent" ? `${agentLabel(actor)} ${said}` : said.replace(/^· /, ""), ms);
         }
       }
+      const shown = pressShown.getStore();
+      if (shown) { shown.ran++; shown.changed ||= changesShown(def, out, seen); }
       return reg.answer ? reg.answer(out, at) : out;
     };
     return ran instanceof Promise ? ran.then(done) : done(ran);

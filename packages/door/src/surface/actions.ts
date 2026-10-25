@@ -120,6 +120,14 @@ export interface ActionDef<A, H> {
   /** Whether a restarted door may run it again by itself (Replay). */
   replay: Replay;
   /**
+   * Whether a run changed what's shown, so the dispatcher repaints after the person's press (PIE-1301): `true`, `false`,
+   * or from its answer and arguments (`out => out.changed`). Left out: an action touching `nothing` of the person's
+   * changed nothing shown (a read, a hover over bare cells), every other does. It adds no second paint to an action that
+   * already redrew itself; it is for one that touches nothing of the person's but changes what's drawn (an agent's tint,
+   * a form field), which says `true`, or one that touches the screen and often moves nothing, which says when.
+   */
+  repaints?: boolean | ((out: any, args: A) => boolean);
+  /**
    * `false`: a macro never records it. For a read that follows the pointer (text.hover fires on every mouse move), which
    * would fill a recording with thousands of steps and slow the door while it records.
    */

@@ -180,6 +180,8 @@ export interface Ctx {
   replace(s: Screen): void;
   quit(): void;
   redraw(): void;
+  /** How many repaints have been asked for so far (DispatchCtx.redrawsAsked): an action that asked for its own needs no second. */
+  redrawsAsked?(): number;
   readonly overflow?: Overflow;
   readonly messages?: StatusLog;
   readonly dispatch?: Dispatcher;
@@ -1510,6 +1512,7 @@ export class App implements Ctx {
    * renders and no faster.
    */
   redraw() {
+    this.redraws++;
     if (this.closed) return;               // the door has ended (a key in this chunk quit): nothing more is painted
     if (this.batching) { this.wanted = true; return; }
     this.changed = true;
@@ -1518,6 +1521,9 @@ export class App implements Ctx {
     if (since >= FRAME_MS) return this.paint();
     this.paintTimer = setTimeout(() => { this.paintTimer = null; this.paint(); }, FRAME_MS - since);
   }
+  /** Repaints asked for, painted or folded into another (redrawsAsked). */
+  private redraws = 0;
+  redrawsAsked(): number { return this.redraws; }
   private lastPaint = 0;
   private paintTimer: Timer | null = null;
   private batching = 0;

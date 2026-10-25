@@ -37,6 +37,17 @@ can't see the link (its socket to the client is local; sshd's window holds about
   started when one of its tests times out, so one slow test used to fail every test after it with `connect ENOENT …/host.sock`;
   now only the slow one fails (`test/scratch.ts` `revive`, asked by `test/preload.ts` before each test).
 
+### An action that changed nothing doesn't repaint, and none paints twice (PIE-1301)
+
+Part of the door-speed audit (a hover that moved nothing painted a whole frame; over ssh every key painted twice).
+
+- **The dispatcher's blanket redraw after every press is gone.** An action says whether it changed what's shown
+  (`ActionDef.repaints`: `true`, `false`, or from its answer). Left out, an action that touches `nothing` of the
+  person's changed nothing shown, and every other did. An action that already asked for its paint (a `redraw()` of
+  its own) gets no second one behind it; one that answers later is painted when it does.
+- **Parity checks it:** a key or click that changes the screen through an action must have asked for a repaint.
+- No protocol change.
+
 ### The lift works on every screen (PIE-1285)
 
 - **`lift` on the component library said "no tile drawer.agent on the component library".** The drawer is above every screen, so `tile=drawer.agent`, a tile's id and an `@screen/tile` path are read once, by the host layer (`HostLayer.resolveTile`), and every screen's dispatcher asks it when its own tiles name nothing. `agent.lift`, a `tile.zoom tile=drawer.agent` button and `✦a` lift and drop the drawer's agent from any screen; a tile name that doesn't exist is still refused.

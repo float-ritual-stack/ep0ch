@@ -351,12 +351,15 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     for (const k of [...PROBE_KEYS, ...await clicks()]) {
       if (dirty) { mask = await fresh(label, make, setup); dirty = false; last = null; }
       const base = last ?? snap(mask);
-      const runs: ActionRun[] = [];
-      const stop = traceActions(r => { if (keyed(r)) runs.push(r); });
+      const runs: ActionRun[] = [], every: ActionRun[] = [];
+      const stop = traceActions(r => { every.push(r); if (keyed(r)) runs.push(r); });
       if (process.env.PARITY_TRACE) require("node:fs").appendFileSync(process.env.PARITY_TRACE, `${label} ${named(k)}\n`);
+      const asked = A().redrawsAsked();
       try { push(k); await settle(); } finally { stop(); }
       const after = snap(mask);
       last = after;
+      // A screen an action changed was repainted (PIE-1301): the action redrew it, or said it changed what's shown (`repaints`).
+      if (every.length && !same(base, after) && A().redrawsAsked() === asked) findings.push({ screen: label, keys: named(k), problem: `ran ${every.map(r => r.name).join(", ")}, which changed the screen and asked for no repaint (declare repaints: true)` });
       if (same(base, after) && !runs.length) continue;
       dirty = true;
       if (same(base, after)) continue;          // ran an action that changed nothing (refused): fine
