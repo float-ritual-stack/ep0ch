@@ -146,6 +146,24 @@ describe("a list that names its stages (stages=, PIE-819)", () => {
     expect(p.spec()).toMatchObject({ stages: "next,doing,waiting" });
     expect((tileKind("backlinks")!.make({ kind: "backlinks", name: "l2", source: "tile:reader" } as any) as BacklinksPane).spec()).not.toHaveProperty("stages");
   });
+  test("describing a links tile lists its rows once, however many there are (a layout.get with one open stayed seconds long, PIE-1303)", () => {
+    new Desk();
+    const described = (copies: number) => {
+      const p = tileKind("backlinks")!.make({ kind: "backlinks", name: "links", source: "tile:reader" } as any) as BacklinksPane;
+      p.target = { id: "target", text: "Target note" } as any;
+      const c = fixture();
+      p.data = { ...c, sources: Array.from({ length: copies }, () => c.sources).flat() };
+      p.sel = 2;   // a row picked, as it is once anything has been selected: `sel` finds it among the rows
+      const rows = p.rows.bind(p);
+      let listed = 0;
+      p.rows = () => { listed += 1; return rows(); };
+      const d = p.describe() as { rows: unknown[] };
+      return { listed, shown: d.rows.length };
+    };
+    const few = described(1), many = described(8);
+    expect(many.shown).toBeGreaterThan(few.shown);
+    expect(many.listed).toBe(few.listed);
+  });
 });
 
 describe.skipIf(!outliner)("the view is Detail's: parity with pi-herdr-outliner's backlink-view.ts", () => {

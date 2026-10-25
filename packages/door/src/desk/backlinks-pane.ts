@@ -500,8 +500,11 @@ export class BacklinksPane implements Pane {
     const brief = this.target ? { id: this.target.id, title: subject(this.target) } : null;
     if (!this.data) return { source: this.source, target: brief, linkGroups: [...this.groups], loading: !!this.target && !this.problem, problem: this.problem || undefined };
     const o = this.opts();
-    // Detail's backlink view (its counts, options, kind groups), and every row as the list numbers them.
-    return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, undefined, this.across(o)), rows: this.rows().map((r, i) => describeLinkRow(r, i + 1, i === this.sel)), folded: [...this.shut], linkGroups: [...this.groups], typing: this.draft?.text ?? null };
+    // Detail's backlink view (its counts, options, kind groups), and every row as the list numbers them. The rows and
+    // the pick are found once: `sel` lists the rows to find its row, so asked per row it was a layout.get that took
+    // seconds with a few hundred links (PIE-1303).
+    const rows = this.rows(), sel = this.sel;
+    return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, undefined, this.across(o)), rows: rows.map((r, i) => describeLinkRow(r, i + 1, i === sel)), folded: [...this.shut], linkGroups: [...this.groups], typing: this.draft?.text ?? null };
   }
 
   run(desk: DeskApi, name: "backlinks" | "backlinks.view" | "backlinks.fold" | "backlinks.groups", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }

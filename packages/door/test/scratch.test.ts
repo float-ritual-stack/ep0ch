@@ -2,7 +2,8 @@
 import { expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { scratchDir, scratchRoot } from "./scratch";
+import { SocketBoard } from "../src/socket";
+import { outliner, Scratch, scratchDir, scratchRoot } from "./scratch";
 
 test("scratchDir removes its prefix's dirs whose test process is gone, and keeps live, unmarked, other-namespace and other dirs", async () => {
   const prefix = `ep0ch-prune-check-${process.pid}-`;
@@ -54,3 +55,23 @@ test("scratchRoot: the temp folder when it is short and names no outline above i
     rmSync(marked, { recursive: true, force: true });
   }
 });
+
+test.skipIf(!outliner)("a scratch host Bun ended at another test's timeout is started again for the next test, on the same outline (PIE-1303)", async () => {
+  const scratch = new Scratch();
+  try {
+    const board = new SocketBoard(await scratch.start());
+    await board.info();
+    const made = await board.request<{ id: string }>("create", { text: "A note that outlives the host" });
+    // What Bun does at a timeout: a SIGTERM to the file's processes, which lands while the next test is starting.
+    const old = scratch.pid!;
+    process.kill(old, "SIGTERM");
+    expect(await scratch.revive()).toBe(true);
+    expect(scratch.pid).not.toBe(old);
+    expect((await board.get(made.id))?.text).toContain("A note that outlives the host");
+    // A host that answers is left alone.
+    const now = scratch.pid;
+    expect(await scratch.revive()).toBe(false);
+    expect(scratch.pid).toBe(now);
+    board.close();
+  } finally { await scratch.dispose(); }
+}, 60_000);

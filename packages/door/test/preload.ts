@@ -15,8 +15,13 @@ process.env.OUTLINER_FIGURE_FIT = "off";
 // A test's budget is its own waits' (until()'s, 5 s and up), not Bun's 5 s default: under a loaded runner (CI's
 // --parallel=16) a test whose waits all held still ran past 5 s and was timed out. A timeout costs more than that test:
 // Bun ends every process the file started when a test times out ("killed N dangling processes"), the file's scratch
-// host among them, so each test after it in the file failed too, with "connect ENOENT …/host.sock".
+// host among them, so each test after it in the file failed too, with "connect ENOENT …/host.sock" (test/scratch.ts `revive` starts it again, below).
 setDefaultTimeout(30_000);
+// The scratch services a file holds register here (test/scratch.ts), and each test starts by having any that Bun ended
+// started again on the same folder, so one test's timeout is that test's alone.
+const scratches = new Set<{ revive(): Promise<boolean> }>();
+(globalThis as { [k: symbol]: unknown })[Symbol.for("ep0ch.test.scratches")] = scratches;
+beforeEach(async () => { for (const s of [...scratches]) await s.revive(); });
 
 // A door a test starts (`bun src/main.ts …`) runs in its own process, not as a session that would outlive the test
 // (test/session.test.ts starts its sessions itself).

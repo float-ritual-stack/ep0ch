@@ -124,6 +124,10 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
   /** The desk's layout again: tree | reader | (thread over activity), the keys in the tree. */
   const fresh = async () => { await mine("layout.load", { name: "desk" }); render(); await mine("tile.focus", {}, "tree"); };
   const spill = async (g: string) => { await me("tile.group", { on: false }, g); render(); };
+  /** The layout as read, without the ages a list of notes writes beside each one ("user · 7s": they tick on their own). */
+  const steady = () => JSON.stringify(get(), (_, v) => typeof v === "string" ? v.replace(/(^|· )\d+[smhd]$/, "$1<age>") : v);
+  /** Until the layout reads the same twice running: a tile that loads its rows (the replies of a note a reader still shows) has finished. */
+  const settled = async () => { let last = ""; await until(() => { render(); const now = steady(); const same = now === last; last = now; return same; }, "the layout to settle"); };
 
   test("b reuses the grouped links and preview beside a detail (PIE-1120)", async () => {
     D().build({ root: { t: "leaf", kind: "reader", mode: "held", name: "detail", note: seeded.notes.hub.id }, focus: "detail" }, false);
@@ -178,6 +182,8 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     expect(app.drawer.entered).toBe(false);
     await app.act({ action: "tile.drawer", args: { on: false }, tile: g, as: AS });
     await spill(g);
+    // The detail this test opened goes: left showing a note, it would show its replies (with ages that tick) in every layout read after.
+    await act("tile.close", {}, "outside");
   });
 
   test("picking tiles: shift+click on titles and ^W space pick, esc lets go; an agent's picks are its own; ^W G gathers the picked, in the arrangement they had", async () => {
@@ -325,12 +331,13 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     for (const linked of [false, true]) {
       if (linked) await me("tile.link", { to: `${g}/reader` }, "tree");
       await me("layout.lock", { on: true });
-      const before = get();
+      await settled();
+      const before = steady();
       try {
         for (const run of [me, act]) {
           for (const args of [{ to: `${g}/reader` }, { to: `${g}/peer` }, ...(linked ? [{ verb: "open" }] : []), {}]) {
             await expect(run("tile.link", args, "tree")).rejects.toThrow(/locked/);
-            expect(get()).toEqual(before);
+            expect(steady()).toEqual(before);
           }
         }
       } finally {
@@ -382,11 +389,12 @@ describe.skipIf(!outliner)("gathering tiles into a group, against a scratch outl
     await me("tile.open", { kind: "detail", name: "outside" }, "tree");
     await me("tile.link", { to: tile("outside").tile }, `${g}/replies`);
     await me("layout.lock", { on: true }, `${g}/replies`);
-    const before = get();
+    await settled();
+    const before = steady();
     try {
       for (const args of [{ to: tile("outside").tile }, { verb: "open" }, {}]) {
         await expect(me("tile.link", args, `${g}/replies`)).rejects.toThrow(/locked/);
-        expect(get()).toEqual(before);
+        expect(steady()).toEqual(before);
       }
     } finally {
       await me("layout.lock", { on: false }, `${g}/replies`);
