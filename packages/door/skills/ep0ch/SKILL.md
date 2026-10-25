@@ -209,7 +209,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   txn=<id>` takes the whole transaction back. A script's run is one already. A person's press of a button (`::button`,
   `[label](act: …)`, a view's `button`) runs an action line as them: `button.press label="Review"` (or `n=` from `elements`) presses it as you, in the
   reader they hold too (it opens and moves nothing they read; a mismatch lists the buttons the note has); `tile=` names another reader and
-  `note=<id>` presses a button of a note open nowhere, neither moving the person's focus; a layout change you make glides (`motion=fantasia` on an action in a transaction asks for
+  `note=<id>` presses a button of a note open nowhere (a `::button`, a link, or a control its render script drew: the service's projection answers, waiting a moment for a line still drawing), neither moving the person's focus; a layout change you make glides (`motion=fantasia` on an action in a transaction asks for
   the wandering path; `settle` or none is the plain ease) unless the person's `motion.set` is calm or off, which caps your hint;
   `peek` and `layout.get` always read the settled layout; `layout.stop` (the person's Esc while a script run is rearranging the screen) stops the run and puts its layout changes back; a script `act()` with no door refused names the doors (`door=<client>` picks one).
 - **The drawer** (every screen; the host layer's, PIE-498, PIE-513): `host.toggle [open=true|false]`, `host.size
