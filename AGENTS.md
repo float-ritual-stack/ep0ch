@@ -84,6 +84,7 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
 
 ## The workboard
 
+- **Working in pie? Reorient first:** the **Reorient here** note `63132a65-e443-422f-85a7-10e5a64b9869` has the live board and a section for every agent (loki's checklist above it).
 - Issues are roadmap items (PIE-n) on the outline's workboard. Before planning work, changing roadmap state, or
   reporting delivery, read the live **How this workboard works** block `d5b3e557-a166-4c50-baad-7a0ed8db8fe6` (`ep0ch
   show --ws pie d5b3e557-a166-4c50-baad-7a0ed8db8fe6`, or `outline_read`). It owns the working flow; [the roadmap
