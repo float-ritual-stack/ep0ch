@@ -2,7 +2,8 @@
 # agent-restart: restart a Claude Code background session without losing what it has in flight, so it picks up a
 # changed ~/.bashrc (a new env var, a new tool on PATH).
 #   scripts/agent-restart <session id | short id | name | --all> [--when-idle (default) | --now] [--if-update]
-#                         [--fresh-daemon] [--check-env VAR] [--dry-run]
+#                         [--fresh-daemon] [--check-env VAR] [--dry-run] [--bg]
+#   scripts/agent-restart --ls                the background sessions, the version each runs and the installed one
 # A Claude Code update ("restart to apply") is the same restart: --if-update restarts only a session whose process runs an
 # older version than the installed `claude`, and --all does it for every background session, one at a time.
 # 1. Preflight: the job's state (~/.claude/jobs/<id8>/state.json) names the builders still running (kind agent, doneAt 0;
@@ -18,15 +19,68 @@
 # Fire and forget (--bg detaches it, which it must be to restart the session that runs it):
 #   scripts/agent-restart --all --if-update --bg          after a Claude Code update
 #   scripts/agent-restart loki --fresh-daemon --check-env OTEL_TRACES_EXPORTER --bg   after a ~/.bashrc change
+# `ep0ch agent ls` and `ep0ch agent restart [--machine <ssh-name>]` are the person-facing front door to this script (the
+# door's src/agent-cli.ts runs it here or over ssh); this stays the one implementation.
 # Log: ~/.local/state/ep0ch/agent-restart.log. First used Oct 25 (pie c8a1d788 has what the trial found).
 set -uo pipefail
 
-usage="scripts/agent-restart <session id | short id | name | --all> [--when-idle|--now] [--if-update] [--fresh-daemon] [--check-env VAR] [--dry-run] [--bg]"
+usage="scripts/agent-restart <session id | short id | name | --all> [--when-idle|--now] [--if-update] [--fresh-daemon] [--check-env VAR] [--dry-run] [--bg] | --ls [--json]"
 target=${1:?usage: $usage}
+
+agents() { claude agents --json 2>/dev/null; }
+# The Claude Code version a process runs (its binary is versions/<v>) and the one `claude` points at now.
+running_version() { basename "$(readlink -f /proc/"$1"/exe 2>/dev/null)"; }
+installed_version() { basename "$(readlink -f "$(command -v claude)")"; }
+
+command -v claude >/dev/null || { echo "agent-restart: no claude on $(hostname)'s PATH for $(id -un): this machine has no Claude Code session to restart (install it, or run this where the sessions are: ep0ch agent ... --machine <ssh-name>)" >&2; exit 127; }
+
+# A name (`loki-sr (2)`, or the start of one: `loki`), a short id or a whole session id, resolved against the running
+# sessions: prints the whole session id, or says why not (nothing, or several) on stderr and fails.
+resolve_session() {
+  local id
+  id=$(agents | python3 -c "
+import json, sys
+t = sys.argv[1]
+rows = json.load(sys.stdin)
+hits = [r for r in rows if r.get('sessionId','').startswith(t) or r.get('id') == t] or [r for r in rows if r.get('name') == t] or [r for r in rows if (r.get('name') or '').startswith(t)]
+if len(hits) > 1: sys.exit('agent-restart: ' + repr(t) + ' names ' + str(len(hits)) + ' sessions: ' + ', '.join(r.get('id') or r['sessionId'][:8] for r in hits) + '; pass one of those ids (ep0ch agent ls lists them)')
+print(hits[0]['sessionId'] if hits else '')" "$1") || return 2
+  [ -n "$id" ] || { echo "agent-restart: no running session matches \"$1\" (ep0ch agent ls, or claude agents --json, lists them)" >&2; return 2; }
+  echo "$id"
+}
+
+# --ls: the background sessions (the ones with a job id) as JSON rows, for `ep0ch agent ls`.
+if [ "$target" = --ls ]; then
+  installed=$(installed_version)
+  sep=$'\x1f'   # not whitespace, so an empty field (a session with no name) stays a field
+  rows=$(agents | python3 -c "
+import json, sys
+for r in json.load(sys.stdin):
+    if r.get('id'): print(chr(31).join(str(r.get(k) or '') for k in ('name', 'id', 'sessionId', 'status', 'pid', 'cwd')))")
+  while IFS=$sep read -r name id sid status pid cwd; do
+    [ -n "$id" ] || continue
+    running=""; [ -n "$pid" ] && running=$(running_version "$pid")
+    printf '%s\n' "$name$sep$id$sep$sid$sep$status$sep$cwd$sep$running$sep$installed"
+  done <<< "$rows" | python3 -c "
+import json, sys
+rows = []
+for line in sys.stdin:
+    name, id, sid, status, cwd, running, installed = line.rstrip('\n').split(chr(31))
+    rows.append({'name': name, 'id': id, 'sessionId': sid, 'status': status, 'cwd': cwd, 'running': running or None, 'installed': installed, 'behind': bool(running) and running != installed})
+print(json.dumps(rows))"
+  exit 0
+fi
 # --bg: detach from the terminal (and from the session it may restart) and say where the log is: fire and forget.
 for a in "$@"; do
   if [ "$a" = --bg ] && [ -z "${AGENT_RESTART_DETACHED:-}" ]; then
     args=(); for b in "$@"; do [ "$b" = --bg ] || args+=("$b"); done
+    # A name that matches nothing, or several, is said here, to the caller, not into a log nobody is watching.
+    if [ "$target" != --all ]; then
+      sid=$(resolve_session "$target") || exit 2
+      args[0]=$sid
+    elif [ -z "$(agents | python3 -c "import json,sys; print('\n'.join(r['sessionId'] for r in json.load(sys.stdin) if r.get('id')))")" ]; then
+      echo "agent-restart: no background sessions (claude agents --json lists none with a job id)"; exit 0
+    fi
     AGENT_RESTART_DETACHED=1 setsid nohup "$0" "${args[@]}" >/dev/null 2>&1 </dev/null &
     echo "agent-restart: running in the background (pid $!); it waits for a safe moment. Log: ~/.local/state/ep0ch/agent-restart.log"
     exit 0
@@ -48,8 +102,6 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-agents() { claude agents --json 2>/dev/null; }
-
 # --all: every background session (the ones with a job id), one after another; the daemon is made fresh only once.
 if [ "$target" = --all ]; then
   ids=$(agents | python3 -c "import json,sys; print('\n'.join(r['sessionId'] for r in json.load(sys.stdin) if r.get('id')))")
@@ -63,15 +115,7 @@ if [ "$target" = --all ]; then
   exit 0
 fi
 
-# A name (`loki-sr (2)`, or the start of one: `loki`), a short id or a whole session id, resolved against the running sessions.
-id=$(agents | python3 -c "
-import json, sys
-t = sys.argv[1]
-rows = json.load(sys.stdin)
-hits = [r for r in rows if r.get('sessionId','').startswith(t) or r.get('id') == t] or [r for r in rows if r.get('name') == t] or [r for r in rows if (r.get('name') or '').startswith(t)]
-if len(hits) > 1: sys.exit('agent-restart: ' + repr(t) + ' names ' + str(len(hits)) + ' sessions: ' + ', '.join(r.get('id') or r['sessionId'][:8] for r in hits) + '; pass one of those ids')
-print(hits[0]['sessionId'] if hits else '')" "$target") || exit 2
-[ -z "$id" ] && { echo "agent-restart: no running session matches \"$target\" (claude agents --json lists them)" >&2; exit 2; }
+id=$(resolve_session "$target") || exit 2
 
 job=$HOME/.claude/jobs/${id:0:8}/state.json
 log=$HOME/.local/state/ep0ch/agent-restart.log
@@ -85,8 +129,8 @@ status() { agents | python3 -c "import json,sys; print(next((r.get('status') or 
 
 # --if-update: the version its process runs (the versions/<v> binary) against the one `claude` now points at.
 if [ "$ifupdate" = 1 ]; then
-  running=$(basename "$(readlink -f /proc/"$(listed | head -1)"/exe 2>/dev/null)")
-  installed=$(basename "$(readlink -f "$(command -v claude)")")
+  running=$(running_version "$(listed | head -1)")
+  installed=$(installed_version)
   if [ -z "$running" ] || [ "$running" = "$installed" ]; then say "already on $installed ($([ -n "$running" ] && echo running "$running" || echo "its process unreadable")): nothing to do"; exit 0; fi
   say "runs $running, $installed is installed: restarting it for the update"
   fresh=1   # the daemon runs the old version too
