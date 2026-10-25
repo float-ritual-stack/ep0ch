@@ -813,6 +813,32 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   }, 60_000);
 
+  // PIE-1285 (Evan, Oct 25): a note's button `agent.lift`, pressed in a reader on the library screen with the drawer up and its
+  // program running, lifts that program and starts nothing: no new shell tile, no second process.
+  test("a note's agent.lift button, clicked in a reader on the library screen, lifts the drawer's running program and starts nothing", async () => {
+    const d = await door();
+    try {
+      const note = await board.createBlock(null, 'Fold bottom\n::box{bg=sunken border=round tone=amber pad=1}\n::button{label="Fold the bottom" act="agent.lift"}\n::');
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
+      const own = d.app.drawer.tile!, pid = own.pid;
+      const lib = openScreen("library") as any; d.app.push(lib); d.paint();
+      await lib.dispatch.act({ action: "tile.open", args: { kind: "reader", name: "note" }, tile: "library" }, USER);
+      await lib.dispatch.act({ action: "open", args: { id: note.id }, tile: "note" }, USER);
+      const procs = () => d.app.drawer.desks().flatMap(x => x.layoutGet().tiles.map((t: { name: string; kind: string }) => `${t.name}:${t.kind}`)).sort();
+      const before = procs();
+      const lines = d.paint(), row = lines.findIndex(l => l.includes("Fold the bottom")), x = lines[row]!.indexOf("Fold the bottom") + 2;
+      expect(row).toBeGreaterThanOrEqual(0);
+      d.key(mouse("down", x, row)); d.key(mouse("up", x, row));
+      await until(() => d.app.drawer.desks().some(k => k.liftedDesk?.lifted), "the drawer's program is lifted");
+      expect(procs()).toEqual(before);
+      expect(d.app.drawer.tile).toBe(own);
+      expect(d.app.drawer.tile!.pid).toBe(pid);
+      expect(d.app.drawer.desks().flatMap(k => k.liftedDesk?.lifted ? [k.liftedDesk.liftsPane(own)] : [])).toEqual([true]);
+    } finally { d.app.quit(); }
+  }, 30_000);
+
   // PIE-892: the drawer's own program leaves whole. Its tab holds the place and starts nothing (a second client of a
   // Herdr session was a mirror nobody could type in or close), says where it went, and ⏎ or a click brings it back.
   test("the drawer's own tab leaves onto the screen whole: its tab starts nothing and says where it went; a click brings the same program back, no restart; a running close asks before ending it", async () => {
