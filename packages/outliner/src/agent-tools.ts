@@ -17,9 +17,11 @@ import { valueLinkOccurrences, problemWords, hasWords } from "@ep0ch/outline-cor
 import { parseMachineryMode, type MachineryMode } from "@ep0ch/outline-core/machinery";
 import { describeReferenceWarning, referenceWarnings } from "@ep0ch/outline-core/reference-warnings";
 import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
+import { FIX_BEFORE_DONE, shapeNext, shapeWarnings } from "@ep0ch/outline-core/write-shape";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
 import { figureShape, suggestFigure } from "./figure-fit";
+import { figureRowReport } from "./figure-rows";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
 import { annotationPropertyProblem } from "@ep0ch/outline-core/annotation-marks";
@@ -550,8 +552,10 @@ export interface EditResult {
   warnings?: string[];
   /** The components the saved text holds, by id (PIE-721): what the note now draws besides its prose. */
   components?: string[];
-  /** The figure the saved text would read best as, when Jev is sure (figure-fit.ts, PIE-721): said, never applied. */
-  suggestion?: { component: string; said: string };
+  /** The live figures this write added or changed, with the rows each returned (figure-rows.ts, PIE-1270). */
+  figures?: string[];
+  /** The next check, always (PIE-1270): read the note as drawn before calling the write done. */
+  next?: string;
 }
 
 /** A short line diff: the changed lines between the common head and tail, `-` then `+`, at most `max` lines. */
@@ -797,10 +801,20 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
   };
 }
 
-/** What a write's answer says about the text it wrote; `suggest` (a create's or an edit's, with the text before) asks figure-fit too. */
-async function warned(client: AgentToolsClient, text: string, near?: string, self = near, suggest?: { before?: string }): Promise<{ warnings?: string[]; components?: string[]; suggestion?: { component: string; said: string } }> {
-  const [{ warnings, components }, suggestion] = await Promise.all([writtenReading(client, text, near, self), suggest ? figureSuggestion(client, text, suggest.before) : null]);
-  return { ...(warnings.length ? { warnings } : {}), ...(components.length ? { components } : {}), ...(suggestion ? { suggestion } : {}) };
+/**
+ * What a write's answer says about the text it wrote (PIE-1270): the references and components it read, then what to fix
+ * before calling it done: the house rules measured in code (outline-core's write-shape), and, when `gate` is given (a
+ * create's or an edit's, with the text before), the figure it would read best as (figure-fit.ts). Every finding is a
+ * warning worded as a gate, never a refusal; `next` always ends the answer.
+ */
+async function warned(client: AgentToolsClient, text: string, near?: string, self = near, gate?: { before?: string }): Promise<{ warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
+  const [{ warnings, components }, fit, rows] = await Promise.all([
+    writtenReading(client, text, near, self),
+    gate ? figureSuggestion(client, text, gate.before) : null,
+    gate && near ? figureRowReport(client, near, text, gate.before) : null,
+  ]);
+  const all = [...warnings, ...(gate ? shapeWarnings(text, gate.before) : []), ...(rows?.warnings ?? []), ...(fit ? [FIX_BEFORE_DONE + fit.said] : [])];
+  return { ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(near ? { next: shapeNext(near) } : {}) };
 }
 
 // ─── Create ────────────────────────────────────────────────────────────────
@@ -810,7 +824,7 @@ export async function createBlock(
   client: AgentToolsClient,
   input: { parent: string; text: string; position?: number },
   actor: AgentActor,
-): Promise<{ id: string; ref: string; revision: number; parentId: string | null; warnings?: string[]; components?: string[]; suggestion?: { component: string; said: string } }> {
+): Promise<{ id: string; ref: string; revision: number; parentId: string | null; warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
   const text = requireText(input.text, "The new block's text");
   if (typeof input.parent !== "string" || !input.parent.trim()) throw new WorkToolRefusal("Give the parent: a reference, or root");
   const parentId = input.parent.trim() === "root" ? null : (await writableBlock(client, input.parent)).id;
@@ -884,8 +898,10 @@ export interface CommentResult {
   actorId?: string;
   lifecycle: string;
   deduplicated?: boolean;
-  /** References the comment kept that lead nowhere, with a did-you-mean (PIE-761): sent anyway. */
+  /** References the comment kept that lead nowhere, with a did-you-mean (PIE-761), and what to fix before calling it done (PIE-1270): sent anyway. */
   warnings?: string[];
+  /** The next check (PIE-1270): read the note it is on as drawn. */
+  next?: string;
 }
 
 function commentResult(record: AnnotationRecord, extra: Partial<CommentResult> = {}): CommentResult {
@@ -930,7 +946,9 @@ export async function commentOn(
   // A kind nobody else's thread has (a typo of one that's in use?): kept, as anything written is, and said (PIE-871).
   const kind = input.properties?.kind;
   const said = typeof kind === "string" ? await newKindWarning(client, kind.trim()) : null;
-  return said ? { ...result, warnings: [...(result.warnings ?? []), said] } : result;
+  // The house rules, measured on the body (PIE-1270): a margin comment is read as quickly as a note, so a wall in it is told too.
+  const warnings = [...(result.warnings ?? []), ...(said ? [said] : []), ...shapeWarnings(body, undefined, { kind: "comment" })];
+  return { ...result, ...(warnings.length ? { warnings } : {}), ...(result.blockId ? { next: shapeNext(result.blockId) } : {}) };
 }
 
 /** What to say about a thread's kind no other thread in the outline has: the kinds in use, the nearest first. */
@@ -1200,9 +1218,9 @@ export async function patchDraft(
   client: AgentToolsClient,
   input: { ref: string; revision: number; patches: DraftPatchSpan[]; mark?: string; policy?: DraftPatchPolicyName; allowStructural?: boolean; propose?: DraftPatchInput["propose"] },
   actor: AgentActor,
-  /** `suggest: false`: a write that isn't the note's words (a property set) asks figure-fit nothing. */
+  /** `suggest: false`: a write that isn't the note's words (a property set) asks figure-fit nothing, measures nothing and has no next check. */
   o: { suggest?: boolean } = {},
-): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; suggestion?: { component: string; said: string } }> {
+): Promise<DraftPatchResult & { warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
   const revision = requireRevision(input.revision);
   const policy = input.policy ?? "edit";
   if (!DRAFT_PATCH_POLICIES.includes(policy)) throw new WorkToolRefusal(`policy is ${DRAFT_PATCH_POLICIES.join(" or ")}`);
@@ -1233,9 +1251,18 @@ export async function patchDraft(
   const after = await read();
   if (after === undefined || after === was) return result;
   const before = new Set(await referenceWarningsFor(client, was, block.id));
-  const [now, suggestion] = await Promise.all([writtenReading(client, after, block.id), o.suggest === false ? null : figureSuggestion(client, after, was)]);
-  const warnings = now.warnings.filter(w => !before.has(w));
-  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(suggestion ? { suggestion } : {}) };
+  const [now, suggestion, rows] = await Promise.all([
+    writtenReading(client, after, block.id),
+    o.suggest === false ? null : figureSuggestion(client, after, was),
+    o.suggest === false ? null : figureRowReport(client, block.id, after, was),
+  ]);
+  const warnings = [
+    ...now.warnings.filter(w => !before.has(w)),
+    ...(o.suggest === false ? [] : shapeWarnings(after, was)),
+    ...(rows?.warnings ?? []),
+    ...(suggestion ? [FIX_BEFORE_DONE + suggestion.said] : []),
+  ];
+  return { ...result, ...(warnings.length ? { warnings } : {}), ...(now.components.length ? { components: now.components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(o.suggest === false ? {} : { next: shapeNext(block.id) }) };
 }
 
 // ─── One header property ───────────────────────────────────────────────────

@@ -709,6 +709,75 @@ test("agent operations take ref and its aliases; two aliases for different notes
   expect((await agent("view-order", { view: note.id })).stderr).not.toContain("is not an argument");
 });
 
+// PIE-1270: the house rules are measured on what a write left. Each finding is a warning worded as a gate, the note is
+// saved as written, and every answer ends with the next check.
+test("a write measures the note: a 200-character title and a wall each answer a fix to make before done; a tidy note answers none", async () => {
+  const { store, agent } = await setup();
+  const wall = "The borlotti came in two sizes. Nobody counted the small ones. The jars ran out before the lentils did. We reordered at noon. The order came on Friday.";
+  const text = `Seed swap: ${"how the jars were sorted and counted and labelled ".repeat(4)}\n\n${wall}`;
+  const made = await agent("create", { parent: "root", text });
+  expect(made.exitCode, made.stderr).toBe(0);
+  expect(store.require(made.json.id).text).toBe(text);
+  const fixes = (made.json.warnings as string[]).filter(w => w.startsWith("fix before you call this done: "));
+  expect(fixes).toHaveLength(2);
+  expect(fixes[0]).toContain("title line is");
+  expect(fixes[1]).toContain("is 5 sentences");
+  expect(made.json.next).toContain(`ep0ch show ${made.json.id}`);
+
+  const tidy = await agent("create", { parent: "root", text: "Seed swap, Saturday\n\n- [ ] Which table does Evan want?\n\n> [!tip] Bring labels\n> Jars are provided." });
+  expect(tidy.exitCode, tidy.stderr).toBe(0);
+  expect(tidy.json.warnings).toBeUndefined();
+  expect(tidy.json.next).toContain(`ep0ch show ${tidy.json.id}`);
+
+  // An edit is told what it added, not what the note already was.
+  const old = store.require(made.json.id);
+  const appended = await agent("edit", { ref: old.id, expectedRevision: old.revision, append: "One more line." });
+  expect(appended.json.warnings).toBeUndefined();
+  expect(appended.json.next).toContain(old.id);
+  const clean = store.require(tidy.json.id);
+  const walled = await agent("edit", { ref: clean.id, expectedRevision: clean.revision, append: wall });
+  expect(walled.json.warnings).toEqual([expect.stringContaining("fix before you call this done: line 8 (\"The borlotti")]);
+
+  // A patch and a comment are measured the same way; a property set is not the note's words.
+  const patched = await agent("patch", { ref: clean.id, revision: store.require(clean.id).revision, patches: [{ observed: "Jars are provided.", replacement: wall }] });
+  expect(patched.exitCode, patched.stderr).toBe(0);
+  expect(patched.json.next).toContain(clean.id);
+  const commented = await agent("comment", { ref: clean.id, whole: true, body: wall });
+  expect(commented.json.warnings).toEqual([expect.stringContaining("fix before you call this done: line 1")]);
+  const set = await agent("set-property", { ref: clean.id, revision: store.require(clean.id).revision, key: "status", value: "draft" });
+  expect(set.json.next).toBeUndefined();
+  expect(set.json.warnings).toBeUndefined();
+});
+
+// PIE-1270: an agent can't see a figure draw over MCP, so a write reports the rows each live figure it added returned,
+// and a figure that matches nothing is something to fix before calling the write done.
+test("a written live figure reports its rows; one that matches nothing is a fix before done; an unchanged figure isn't asked again", async () => {
+  const { store, agent } = await setup();
+  store.create("Borlotti [type::seed]");
+  store.create("Lentils [type::seed]");
+  const figure = (query: string) => ["Seeds", "::graph-table", "---", `query: ${query}`, "---", "::"].join("\n");
+
+  const found = await agent("create", { parent: "root", text: figure("type=seed") });
+  expect(found.exitCode, found.stderr).toBe(0);
+  expect(found.json.figures).toEqual(["graph-table on line 2: 2 rows"]);
+  expect(found.json.warnings).toBeUndefined();
+
+  const none = await agent("create", { parent: "root", text: figure("type=sead") });
+  expect(none.json.figures).toEqual(["graph-table on line 2: 0 rows"]);
+  expect(none.json.warnings).toEqual([expect.stringMatching(/^fix before you call this done: the graph-table on line 2 \(query: type=sead\) returned 0 rows/)]);
+
+  const note = store.require(none.json.id);
+  const again = await agent("edit", { ref: note.id, expectedRevision: note.revision, append: "A line below." });
+  expect(again.json.figures).toBeUndefined();
+  expect(again.json.warnings).toBeUndefined();
+  const fixed = await agent("edit", { ref: note.id, expectedRevision: store.require(note.id).revision, text: figure("type=seed") });
+  expect(fixed.json.figures).toEqual(["graph-table on line 2: 2 rows"]);
+
+  const stat = await agent("create", { parent: "root", text: ["Counts", "::graph-stat", "---", "items:", "  - label: seeds", "    query: type=seed", "  - label: none", "    query: type=sead", "---", "::"].join("\n") });
+  expect(stat.json.figures).toEqual(["graph-stat on line 2: 2, 0 rows"]);
+  expect(stat.json.warnings).toEqual([expect.stringContaining('matched 0 rows ("none")')]);
+});
+
 // PIE-721: a write says what its components will draw, and what in them won't draw as written, without refusing it.
 test("a written figure is confirmed in components; a typo in its name or a key, or YAML that doesn't read, is a warning", async () => {
   const { store, agent } = await setup();
@@ -738,7 +807,10 @@ test("a written figure is confirmed in components; a typo in its name or a key, 
 // PIE-721: a create or an edit that gives a note a figure's shape, with none of its own, says which figure would draw
 // it, when Jev is sure; prose gets nothing, and a note is told once. Jev is a fake here (OUTLINER_JEV_ENDPOINT),
 // answering by the note it is sent.
-test("a written note shaped like a timeline answers with a suggestion, once; prose, a figure, a comment and a property set ask nothing", async () => {
+/** The figure-fit gate in a write's warnings (PIE-1270: said as something to fix, not a suggestion): the entry naming the figure, or undefined. */
+const figureGate = (json: { warnings?: string[] }) => json.warnings?.find(w => w.startsWith("fix before you call this done: ") && w.includes("would draw it"));
+
+test("a written note shaped like a timeline answers with a gate to fix, once; prose, a figure, a comment and a property set ask nothing", async () => {
   const asked: string[] = [];
   const fake = Bun.serve({
     port: 0, hostname: "127.0.0.1",
@@ -759,13 +831,13 @@ test("a written note shaped like a timeline answers with a suggestion, once; pro
   const season = ["Garden year", "- 2026-03: seeds sown", "- 2026-05: first flowers", "- 2026-08: open garden"].join("\n");
   const made = await agent("create", { parent: "root", text: season });
   expect(made.exitCode, made.stderr).toBe(0);
-  expect(made.json.suggestion.component).toBe("graph-timeline");
-  expect(made.json.suggestion.said).toStartWith("this reads as a timeline: ::graph-timeline would draw it");
+  expect(figureGate(made.json)).toStartWith("fix before you call this done: this reads as a timeline: ::graph-timeline would draw it");
+  expect(made.json.suggestion).toBeUndefined();
 
   const prose = await agent("create", { parent: "root", text: "Why the beds face south\n\nThe light lands there first." });
-  expect(prose.json.suggestion).toBeUndefined();
+  expect(figureGate(prose.json)).toBeUndefined();
   const chosen = await agent("create", { parent: "root", text: `${season}\n::graph-timeline\n---\n---\n- 2026-10: seed collecting\n::` });
-  expect(chosen.json.suggestion).toBeUndefined();
+  expect(figureGate(chosen.json)).toBeUndefined();
   // Only the shaped note without a figure was sent.
   expect(asked).toEqual([season]);
 
@@ -773,18 +845,18 @@ test("a written note shaped like a timeline answers with a suggestion, once; pro
   const year = store.require(made.json.id);
   const grown = await agent("edit", { ref: year.id, expectedRevision: year.revision, text: `${season}\n- 2026-10: seed collecting` });
   expect(grown.exitCode, grown.stderr).toBe(0);
-  expect(grown.json.suggestion).toBeUndefined();
+  expect(figureGate(grown.json)).toBeUndefined();
   const set = await agent("set-property", { ref: year.id, revision: store.require(year.id).revision, key: "status", value: "draft" });
   expect(set.exitCode, set.stderr).toBe(0);
   const commented = await agent("comment", { ref: year.id, whole: true, body: "- 2026-03: early\n- 2026-05: late\n- 2026-08: on time" });
   expect(commented.exitCode, commented.stderr).toBe(0);
-  expect(commented.json.suggestion).toBeUndefined();
+  expect(figureGate(commented.json)).toBeUndefined();
   expect(asked).toHaveLength(1);
 
   // Prose that an edit turns into dated lines is told.
   const musing = store.require(prose.json.id);
   const turned = await agent("edit", { ref: musing.id, expectedRevision: musing.revision, text: season.replace("Garden year", "Bed rotation") });
-  expect(turned.json.suggestion.component).toBe("graph-timeline");
+  expect(figureGate(turned.json)).toContain("::graph-timeline would draw it");
   expect(asked).toHaveLength(2);
 });
 
@@ -804,11 +876,11 @@ test.each([...REFERENCE_CASES, ...CALLOUT_CASES])("callout-shaped write: $title"
   const saved = await agent("create", { parent: "root", text: c.text });
   expect(saved.exitCode, saved.stderr).toBe(0);
   expect(store.require(saved.json.id).text).toBe(c.text);
-  if (c.component === "none") expect(saved.json.suggestion).toBeUndefined();
+  if (c.component === "none") expect(figureGate(saved.json)).toBeUndefined();
   else {
-    expect(saved.json.suggestion?.component, c.title).toBe(c.component);
+    expect(figureGate(saved.json), c.title).toContain(`::${c.component}`);
     const callout = /^> \[![^\]]+\][+-]? ?(.*)$/m.exec(c.text);
-    expect(saved.json.suggestion.said).toContain(callout ? `the callout "${callout[1]}"` : "this reads as");
+    expect(figureGate(saved.json)).toContain(callout ? `the callout "${callout[1]}"` : "this reads as");
   }
 });
 

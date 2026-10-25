@@ -69,6 +69,26 @@ const NOTE_HOLDS =
   "so fix them now.";
 
 /**
+ * The house rules for a note, said where an agent writes (PIE-1270): a rule read once at the start of a session fades,
+ * one next to every call doesn't. `write-shape.ts` measures them in the answer (its `SHAPE_LIMITS`, which a test holds
+ * these numbers to; this code can't import it, since the mod carries a copy), so each is followed by the answer that
+ * says what to fix.
+ */
+const WRITE_RULES =
+  "Evan reads on a phone or between other work: lead with the conclusion; keep the title line short (under about 70 characters) " +
+  "with the detail in the body; a section is one component (a figure, a callout, a check, a compare) plus at most three short lines, " +
+  "and a paragraph is at most three sentences; a number a query can count goes in a live figure, never in prose. A question for Evan " +
+  "goes first as one `- [ ]` line, and the note gets `[needs::sysop: the decision]`. A fragment of an idea still forming is " +
+  "`[type::chirp]`; a request is only something ready to work on. Before you finish, check: no paragraph over three sentences, no count typed " +
+  "in prose. The answer measures what you wrote and the rows each live figure returned: every `warnings` entry that starts " +
+  "\"fix before you call this done\" (a figure suggestion and a figure with 0 rows too) is yours to fix, and `next` says how to check it.";
+
+/** The same for a margin comment: no title, nothing to mark, the same wall rule and the same answer. */
+const COMMENT_RULES =
+  "Evan reads comments between other work: lead with the point, keep a paragraph to at most three sentences, and put a question for him first. " +
+  "The answer measures what you wrote: every `warnings` entry that starts \"fix before you call this done\" is yours to fix.";
+
+/**
  * The tools a session lists up front instead of behind tool search (PIE-721): where an agent starts, reads, learns the
  * components and writes a note. Each surface marks the ones it registers (the mod with `isDeferred: false`, the
  * gateway with `_meta` `anthropic/alwaysLoad`); the rest wait behind tool search.
@@ -213,7 +233,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     target: "ref",
     description:
       "Rewrite {note}, checked against the revision you read with outline_read: its whole `text`, one " +
-      "`replaceSection` (the text under a heading, subheadings included, as Detail folds it), or an `append` at the end. Give exactly one. With append, `at: \"^log\"` adds an output region after that anchor through placement: a held draft gets it in place, or outcome: proposed at a conflict; it returns the placement receipt instead of a diff. " +
+      "`replaceSection` (the text under a heading, subheadings included, as Detail folds it), or an `append` at the end. " + WRITE_RULES + " Give exactly one. With append, `at: \"^log\"` adds an output region after that anchor through placement: a held draft gets it in place, or outcome: proposed at a conflict; it returns the placement receipt instead of a diff. " +
       "Refused before anything is written: an empty or whitespace-only result, a stale revision (read again, then " +
       "edit in the same turn), and dropping a [page::…] property or an ^anchor other notes link to (pass allowStructural: true only " +
       "when removing them is the point). Returns the new revision and a short diff. Use it for rewriting your own " +
@@ -253,7 +273,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     writes: true,
     target: "parent",
     description:
-      "Create a block under {parent}, at `position` among its siblings (0 is first; default last). " +
+      "Create a block under {parent}, at `position` among its siblings (0 is first; default last). " + WRITE_RULES + " " +
       "Returns its id, ((ref)) and revision. " + NOTE_HOLDS,
     properties: {
       parent: { type: "string", description: "The parent: a ref, or root" },
@@ -274,7 +294,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     target: "ref",
     description:
       "Start a comment thread on {note}, as you: on an exact `quote` of its source text (add start, near, prefix or " +
-      "suffix when the quote repeats), or on the `whole` note. With a quote and no body it's a highlight. properties (open: kind, tags, color as a theme tone, or any key) are written on the thread; an @name line in the body asks an agent that answers in threads, in the thread. Returns the thread id for outline_reply and " +
+      "suffix when the quote repeats), or on the `whole` note. " + COMMENT_RULES + " With a quote and no body it's a highlight. properties (open: kind, tags, color as a theme tone, or any key) are written on the thread; an @name line in the body asks an agent that answers in threads, in the thread. Returns the thread id for outline_reply and " +
       "outline_resolve_thread. A requestId makes a retry return the same thread. `ref` may be a Resource " +
       "(`resource:<id>` or a `[file::path]` token) instead of a note: the quote is exact text of the file as " +
       "outline_read returned it, `from` names the note whose link opened it, and the file is never written.",
@@ -388,7 +408,7 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     target: "ref",
     description:
       "Small edits to {note} the person may be typing in, without waiting for their save (draft.patch); for " +
-      "rewriting your own pages, such as a status page, use outline_edit. Each patch names the exact `observed` text " +
+      "rewriting your own pages, such as a status page, use outline_edit. " + WRITE_RULES + " Each patch names the exact `observed` text " +
       "(never empty) and its `replacement`, against the `revision` outline_read returned; all apply as one edit or " +
       "none. A live draft gets it in place; otherwise it is an ordinary edit of the saved note. policy `edit` (the " +
       "default) has outline_edit's guard (allowStructural likewise); `prose` keeps every link, anchor and property. " +

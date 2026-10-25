@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The write tools hold the house rules where the writing happens, and the answer says what to fix (PIE-1270)
+
+Agents followed "write notes Evan can read" after a reminder and drifted back, because the rule was read once. Now it is next to every call:
+
+- **The rules are in the write tools' descriptions** (`outline_create`, `outline_edit`, `outline_patch`, `outline_comment`, for MCP, the Claude mod and the CLI alike): conclusion first, a title line under about 70 characters, a section of one component plus three short lines, a paragraph of three sentences, counts in live figures, a question for Evan first as one `- [ ]` with `[needs::sysop: …]`.
+- **The answer measures what was written**, in code (outline-core's `write-shape.ts`): a long title, a paragraph past three sentences or 500 characters, twelve lines of prose with no figure or callout, a callout inside a callout, a question for Evan below the top with no `[needs::sysop]`. Each is a `warnings` entry starting "fix before you call this done", and the answer always ends with `next`, the check to make (`ep0ch show <id>`). An edit is told what it added, not what the note already was. Nothing is refused: the note is saved as written.
+- **A live figure reports its rows.** A `::graph-*` with a `query:` or `view:` that a write added or changed comes back in `figures` ("graph-table on line 2: 14 rows"), asked of the service as the page and the door ask it; one that returns 0 rows, or can't be asked, is a "fix before you call this done" warning with the service's own words (the nearest property keys). Over MCP an agent can't see a figure draw, so this is how it finds out.
+- **The descriptions add the self-check** (no paragraph over three sentences, no count typed in prose) **and the chirp rule** (an idea still forming is `[type::chirp]`; a request is something ready to work on). The ep0ch-outline skill gains graph-props in its shape table, the two-part question convention, suggest mode, and the script traps.
+- **The figure suggestion is now a gate.** A note that reads as a timeline, a table or a check answers with "fix before you call this done: this reads as a …" in `warnings`; the `suggestion` field is gone.
+
+No protocol change. The MCP gateway's `said` now reads "N to fix before you call this done (warnings)" and carries `next`. The judgments code can't make (is this a title or a paragraph, does this ask Evan) are PIE-1251's.
+
 ### An extension ships its screens, and an agent presses what a script drew (PIE-1264)
 
 What the wyrm door game ran into building on scripts, fixed in the parts it used:

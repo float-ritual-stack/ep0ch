@@ -27,15 +27,15 @@ describe("the gateway's guide, alone", () => {
     expect(gatewaySkills().map(s => s.name)).toContain("ep0ch-outline");
   });
 
-  test("a write's reading: its warnings and components lifted, said in a clause; nothing when it says nothing", () => {
+  test("a write's reading: its warnings, components and next check lifted, said in a clause; nothing when it says nothing", () => {
     expect(writeReading({ id: "x", components: ["graph-stat"], warnings: ["a", "b"] })).toEqual({
       fields: { components: ["graph-stat"], warnings: ["a", "b"] },
-      said: "; 2 warnings about what was written (warnings): saved as written, fix them now",
+      said: "; 2 to fix before you call this done (warnings): saved as written, fix them now",
     });
     expect(writeReading({ id: "x" })).toEqual({ fields: {}, said: "" });
-    expect(writeReading({ id: "x", suggestion: { component: "graph-timeline", said: "this reads as a timeline: ::graph-timeline would draw it" } })).toEqual({
-      fields: { suggestion: { component: "graph-timeline", said: "this reads as a timeline: ::graph-timeline would draw it" } },
-      said: "; this reads as a timeline: ::graph-timeline would draw it (suggestion)",
+    expect(writeReading({ id: "x", next: "read it as drawn: ep0ch show x" })).toEqual({
+      fields: { next: "read it as drawn: ep0ch show x" },
+      said: "; next: read it as drawn: ep0ch show x",
     });
     expect(writeReading(undefined)).toEqual({ fields: {}, said: "" });
   });
@@ -123,7 +123,8 @@ describe.skipIf(!outliner)("the gateway over stdio", () => {
     expect(answer.outcome).toBe("applied");
     expect(answer.components).toEqual(["graph-stat"]);
     expect(answer.warnings).toEqual(["the ::graph-stats on line 2 isn't a component: did you mean ::graph-stat?"]);
-    expect(answer.said).toContain("; 1 warning about what was written (warnings): saved as written, fix it now");
+    expect(answer.said).toContain("; 1 to fix before you call this done (warnings): saved as written, fix it now; next: ");
+    expect(answer.next).toContain("ep0ch show");
     expect((await board.get(answer.detail.id))?.text).toBe(written);
   });
 });
