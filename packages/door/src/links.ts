@@ -739,6 +739,7 @@ export function renderLinkBlock(spec: LinkBlockSpec, note: string | undefined, W
   blocks?.seen?.({
     n, key, title, view, entered, previewId, previews: previewing, query: spec.query, groups,
     ...(spec.query ? { about: spec.query } : {}),
+    detail: { groups, preview: previewId },
     describeRow: (row, i) => ({ kind: row.source!.kind, ...(linkBlock(row.source) ? { id: linkBlock(row.source)! } : {}), n: i }),
   });
   const body = drawn.lines;

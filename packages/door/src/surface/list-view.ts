@@ -221,7 +221,7 @@ export class ListView<S = unknown> {
     return rows.map((r, i) => ({
       n: i + 1, id: r.id, text: r.label, ...(r.detail ? { detail: r.detail } : {}), ...(r.group ? { group: r.group } : {}),
       ...(describeRow?.(r, i + 1) ?? {}),
-      ...(r.id === mine && (who !== PERSON || this.picks.has(who)) ? { selected: true as const } : {}),
+      ...(r.id === mine ? { selected: true as const } : {}),
       ...(this.others().filter(o => o.who !== who && o.row?.id === r.id).length ? { pickedBy: this.others().filter(o => o.who !== who && o.row?.id === r.id).map(o => o.who) } : {}),
     }));
   }
@@ -306,6 +306,8 @@ export interface ListHandle<S = unknown> {
   entered: boolean;
   /** Its question or source, when it has one (`list.blocks` says it). */
   about?: string;
+  /** What only its host says of it (a links component's groups and the block its preview shows), merged into `list.blocks`. */
+  detail?: Record<string, unknown>;
   /** Adds what only the host knows about a row (its kind, the note it stands for). */
   describeRow?(row: ListViewRow<S>, n: number): Partial<ListRowInfo>;
 }

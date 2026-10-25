@@ -3909,7 +3909,6 @@ export class NoteSurface {
 
   /** Open a row of list `l` for real: the element it is drawn as, opened as `element.open` opens it (fresh: alt+⏎). */
   private async openListRow(l: ListHandle<any>, row: ListViewRow<any>, where: "home" | "new", actor: Actor, host: SurfaceHost, standing: boolean): Promise<unknown> {
-    if (!standing && host.focused !== false) throw new ActionRefused("this reader has the person's keys; opening a row there would move what they're reading · an agent opens the row's note with open id= (list.blocks gives it), naming no tile");
     const at = this.linkRowElement(l.key, row.id);
     if (!at) throw new ActionRefused(`${row.label} isn't drawn in ${l.title} now`);
     return NOTE_ACTIONS.run("element.open", { n: at.n, ...(at.row !== undefined ? { row: at.row } : {}), ...(where === "new" ? { fresh: true } : {}) }, { surface: this, host, standing }, actor);

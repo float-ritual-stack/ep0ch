@@ -2659,6 +2659,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       {
         set: LISTVIEW_ACTIONS, takes: "tile", pick: "first", seen: true, noun: "a list",
         in: t => { const p = this.pane(t.name); return (p instanceof ReaderPane && p.surface.listsDrawn.length > 0) || isListTile(p); },
+        // A links tile's open lands in its home reader and never takes the person's keys; a reader's inline list opens in the reader itself.
+        touchesAt: (action, at) => (action === "list.open" && isListTile(this.pane(at.tile!.name)) ? "nothing" : undefined),
         on: (at, how) => {
           const p = this.pane(at.tile!.name);
           return { host: isListTile(p) ? p.listHost(this) : reader(at.tile).surface.listHost((how.given as SurfaceHost | undefined) ?? reader(at.tile).host(this)), standing: how.standing };

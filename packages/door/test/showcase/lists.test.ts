@@ -122,8 +122,11 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(links().status).toContain("Stage: open · Sort: Title");
     expect(cellOf("Sort: ")).toEqual(sortAt);
     await app.act({ action: "backlinks.view", tile: "backlinks", args: { stage: "all", sort: "updated-desc" }, as: "test-agent" });
-    // A pick previews; the detail keeps the shed.
+    // An agent's pick is its own, in its tint (ADR 0004): the preview the person follows stays. The person's pick previews; the detail keeps the shed.
     await app.act({ action: "list.pick", tile: "backlinks", args: { n: first.n }, as: "test-agent" });
+    expect(shows("preview")).not.toBe(first.id);
+    expect((stage().pane("backlinks") as any).list.picked("test-agent")?.id).toBeDefined();
+    await stage().dispatch.act({ action: "list.pick", tile: "backlinks", args: { n: first.n } }, { kind: "user" });
     await until(() => shows("preview") === first.id, "the preview following the pick", 5000);
     expect(shows("detail")).toBe(seeded.notes.shed.id);
     // Alt+Enter swaps the destination and keeps its former note as a spine.
@@ -172,9 +175,10 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     const detail = () => stage().pane("detail") as any;
     const tree = () => stage().pane("tree") as any;
     const person = (action: string, args: Record<string, unknown> = {}, tile = "detail") => stage().dispatch.act({ action, tile, args }, { kind: "user" });
-    const rows = () => (detail()?.surface.linkBlocksDrawn[0]?.rows ?? []).filter((r: any) => r.id && r.id !== seeded.notes.shed.id);
+    const pickable = () => (detail()?.surface.linkBlocksDrawn[0]?.view.pickable() ?? []) as { id: string; do?: { open: string } }[];
+    const rows = () => pickable().map(r => ({ key: r.id, id: r.do?.open })).filter(r => r.id && r.id !== seeded.notes.shed.id);
     await until(() => shows("detail") === seeded.notes.shed.id && rows().length > 0, "the shed held, its own ::links drawn", 8000);
-    const row = rows()[0], n = detail().surface.linkBlocksDrawn[0].rows.findIndex((r: any) => r.key === row.key) + 1;
+    const row = rows()[0]!, n = pickable().findIndex(r => r.id === row.key) + 1;
     await tree().loaded;
     const treeWas = tree().selected()?.id ?? null;
     // A pick (a click, j k inside it) selects the row, and the preview of the detail's selection follows; nothing else moves.
@@ -442,8 +446,8 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(await app.act({ action: "section", args: { name: "links-block" }, as: "test-agent" })).toMatchObject({ key: "links-block" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "links-block")).top; };
     const reader = () => stage().pane("reader") as any;
-    const blocks = async () => ((await app.act({ action: "list.blocks", tile: "reader", as: "test-agent" })) as any).blocks;
-    await until(() => reader()?.surface.linkBlocksDrawn[0]?.rows.length === 3, "the outbox's three waiting letters", 8000);
+    const blocks = async () => ((await app.act({ action: "list.blocks", tile: "reader", as: "test-agent" })) as any).lists;
+    await until(() => reader()?.surface.linkBlocksDrawn[0]?.view.pickable().length === 3, "the outbox's three waiting letters", 8000);
     let b = (await blocks())[0];
     expect(b).toMatchObject({ n: 1, title: "Outbox", query: "type=letter mail=waiting", groups: ["matches"], entered: false });
     expect(b.rows.map((r: any) => r.text).sort()).toEqual(["Ask Ana about the bean seed", "Order the fruit-cage netting", "Write to the allotment society about the gate"]);
@@ -458,22 +462,24 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     const first = b.rows.find((r: any) => r.selected);
     expect(first.n).toBe(1);
     expect(b.preview).toBe(first.id);
-    // An agent's pick answers the row and moves nothing of the person's.
+    // An agent's pick is its own, in its tint: it moves nothing of the person's.
     const read = await app.act({ action: "list.pick", tile: "reader", args: { n: 2 }, as: "test-agent" }) as any;
     expect(read).toMatchObject({ row: 2, moved: false });
     expect((await blocks())[0].rows.find((r: any) => r.selected).n).toBe(1);
+    expect((await blocks())[0]).toMatchObject({ yours: { picked: expect.any(String) } });
+    expect((reader().surface.linkBlocksDrawn[0].view as any).others()).toMatchObject([{ who: "test-agent", row: { label: read.text } }]);
     // The person's pick (a key or a click) moves the selection, the [ ] position with it, and the preview follows.
     await stage().dispatch.act({ action: "list.pick", tile: "reader", args: { n: 2 } }, { kind: "user" });
-    await until(() => reader().surface.linkBlocksDrawn[0]?.preview === read.id, "the preview following the pick", 5000);
+    await until(() => reader().surface.linkBlocksDrawn[0]?.previewId === read.id, "the preview following the pick", 5000);
     // The preview is the reader's own drawing of an embed of it: its » title, then its text.
     await until(() => screen().includes(`» ${read.text.slice(0, 20)}`), "the picked letter drawn in the preview", 8000);
     expect(reader().surface.inView()?.link?.listRow?.row).toBeDefined();
     // Going in is the person's.
     await expect(app.act({ action: "list.enter", tile: "reader", as: "test-agent" })).rejects.toThrow(/the person's/);
     await stage().dispatch.act({ action: "list.enter", tile: "reader" }, { kind: "user" });
-    expect(reader().surface.linksIn).toBe(reader().surface.linkBlocksDrawn[0].key);
+    expect(reader().surface.listIn).toBe(reader().surface.linkBlocksDrawn[0].key);
     await stage().dispatch.act({ action: "list.enter", tile: "reader", args: { on: false } }, { kind: "user" });
-    expect(reader().surface.linksIn).toBeNull();
+    expect(reader().surface.listIn).toBeNull();
     // ⏎ on a row opens it where the reader's opens land: here, the reader itself.
     await app.act({ action: "list.open", tile: "reader", args: { n: 3 }, as: "test-agent" });
     await until(() => reader().surface.msg?.id === b.rows[2].id, "the third letter in the reader", 5000);
@@ -488,7 +494,7 @@ describe.skipIf(!outliner)("the showcase screen: lists: trash, links, tags, thre
     expect(await app.act({ action: "section", args: { name: "questions" }, as: "test-agent" })).toMatchObject({ key: "questions" });
     const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "questions")).top; };
     const reader = () => stage().pane("reader") as any;
-    const rows = () => (reader()?.surface.linkBlocksDrawn[0]?.rows ?? []).map((r: any) => r.text as string);
+    const rows = () => (reader()?.surface.linkBlocksDrawn[0]?.view.pickable() ?? []).map((r: any) => r.label as string);
     await until(() => rows().length === SOCIETY_NOTES.length - SOCIETY_LINKED_BACK, "the notes the page doesn't link back", 8000);
     expect(rows()).not.toContain(SOCIETY_NOTES[0]!.title);
     expect(rows()).toContain("Garlic in before the first frost");

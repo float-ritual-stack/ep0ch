@@ -53,7 +53,7 @@ const LIST_ARG = { type: "string", optional: true, about: "which list: its numbe
 
 /** A row of `list` by `n` (from 1, as list.blocks numbers them, among the rows `who` sees) or `id` (a row's, or the block it opens, or its start). */
 function rowIn(list: ListHandle, who: string, { n, id }: { n?: number; id?: string }): ListViewRow {
-  const rows = list.view.visible(who);
+  const rows = list.view.pickable(who);
   if (!rows.length) throw new ActionRefused(`${list.title} lists nothing${list.view.filter(who) ? ` that ${list.view.filter(who)} leaves` : " yet"}`);
   const opens = (r: ListViewRow) => (r.do && "open" in r.do ? r.do.open : undefined);
   const row = id !== undefined ? rows.find(r => r.id === id) ?? rows.find(r => !!opens(r) && opens(r)!.startsWith(id)) : rows[n! - 1];
@@ -74,7 +74,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
         lists: lists.map(l => {
           const mine = l.view.picked(PERSON), yours = who === PERSON ? null : l.view.picked(who);
           return {
-            n: l.n, key: l.key, title: l.title, ...(l.about ? { query: l.about } : {}), entered: l.entered,
+            n: l.n, key: l.key, title: l.title, ...(l.about ? { query: l.about } : {}), ...(l.detail ?? {}), entered: l.entered,
             ...(l.view.filter(PERSON) ? { filter: l.view.filter(PERSON) } : {}),
             ...(mine ? { selected: mine.id } : {}),
             ...(who !== PERSON ? { yours: { ...(yours ? { picked: yours.id } : {}), ...(l.view.filter(who) ? { filter: l.view.filter(who) } : {}) } } : {}),
@@ -106,7 +106,7 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
       l.view.pick(who, row.id);
       if (who === PERSON) await host.picked(l, row);
       host.redraw();
-      return { list: l.n, title: l.title, row: l.view.visible(who).indexOf(row) + 1, text: row.label, ...(row.do && "open" in row.do ? { id: row.do.open } : {}), moved: who === PERSON };
+      return { list: l.n, title: l.title, row: l.view.pickable(who).findIndex(r => r.id === row.id) + 1, text: row.label, ...(row.do && "open" in row.do ? { id: row.do.open } : {}), moved: who === PERSON };
     },
   }),
   "list.step": def({
@@ -124,14 +124,14 @@ export const LISTVIEW_ACTIONS = actionSet<ListOn>()("listview", {
       if (!row) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} the pick in ${l.title}`);
       if (who === PERSON) await host.picked(l, row);
       host.redraw();
-      return { list: l.n, title: l.title, row: l.view.visible(who).indexOf(row) + 1, text: row.label, moved: who === PERSON };
+      return { list: l.n, title: l.title, row: l.view.pickable(who).findIndex(r => r.id === row.id) + 1, text: row.label, moved: who === PERSON };
     },
   }),
   "list.open": def({
     summary: "open a row of a list for real: n= its number, id= its block, default the picked one; list= which list. where=home (default) opens it where the host's opens land, as ⏎ does (a reader's link, else the reader itself, kept in its history); where=new in a new detail beside, as alt+⏎. A row's activation runs as you, under your rules: an agent's is refused where it would move what the person is reading, and never moves their keys",
     keys: "⏎ on a row or in the list, a double click (home) · alt+⏎, an alt-, ctrl- or middle-click (new); the click that gives the list the keys only selects",
-    // The host decides what an open moves: a reader refuses an agent's where the person is reading, a links tile opens in its home.
-    touches: "nothing", replay: "ask",
+    // In a reader this is the most it touches (an agent's open there would move what the person reads); a links tile's lowers it (Registration.touchesAt).
+    touches: "tile", replay: "ask", way: "opening a row there would move what they're reading · an agent opens the row's note with open id= (list.blocks gives it), naming no tile",
     args: {
       list: LIST_ARG,
       n: { type: "number", optional: true, about: "the row, from 1; default the picked one" },
