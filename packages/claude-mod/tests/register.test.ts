@@ -1444,7 +1444,7 @@ describe('the settle check (PIE-1268)', () => {
     })
     await start($, s)
     expect(s.wakes).toHaveLength(1)
-    expect(s.wakes[0]).toContain("thread zucchini settled: 4 chirps, 2 Evan's, quiet 90 min, no capability or hub note yet")
+    expect(s.wakes[0]).toContain("thread zucchini settled: 4 chirps, 2 Evan's, quiet 90 min, nothing shapes it yet")
     // Warming, too thin and already shaped threads are not in it.
     for (const name of ['beans', 'thin', 'tickets']) expect(s.wakes[0]).not.toContain(`thread ${name}`)
     // A new settled thread is a change; a thread first seen shaped was shaped before, and says nothing.

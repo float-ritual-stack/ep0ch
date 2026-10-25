@@ -374,7 +374,7 @@ has the steps for a wake.
   note or a hub, `type=hub` or `type=thread`, carries the thread: put `[thread::<x>]` on the note you shape it on and the
   tickets cut from it, or on its hub), else quiet.
 - **A wake** is one prompt naming the `wake-max` newest newly settled threads (`thread <x> settled: <n> chirps, <m>
-  Evan's, quiet <t> min, no capability or hub note yet …`: one carrying the `thread` would have shaped it).
+  Evan's, quiet <t> min, nothing shapes it yet …`).
   A thread already told isn't told again until it is touched and goes quiet again; the others, and a wake that did not go,
   are named at the next check. What was told is kept in `$.store` (`settle.threads`). **The first check wakes nothing:**
   threads already settled are recorded as known, and one build-log line says how many (`Settle check baseline: …`); only

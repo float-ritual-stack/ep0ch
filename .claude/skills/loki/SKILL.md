@@ -107,8 +107,8 @@ file: edit it like any rule. `EP0CH_FRESHNESS=off` stops the sweep for a session
 The Claude mod (`packages/claude-mod/hooks/settle.ts`) runs the check in your sessions every 30 minutes (PIE-1268, the
 capability ((46e391fb-dcd7-46eb-a6f2-f8f71d45f5cb|Settle, then shape))). Per `[thread::…]` it counts the notes, Evan's
 own among them, and the last touch, across `settleOutlines`; a thread with at least 3 notes (one of them Evan's), quiet
-for an hour, wakes you once: `thread <x> settled: <n> chirps, <m> Evan's, quiet <t> min, no capability or hub note yet …`. A ticket, a
-capability note or a hub (`type=hub`, `type=thread`) carrying the `thread` shapes it, so a stream with a home never wakes you. Up to
+for an hour, wakes you once: `thread <x> settled: <n> chirps, <m> Evan's, quiet <t> min, nothing shapes it yet …`. A ticket, a
+capability note or a hub (`type=hub`, `type=thread`) carrying the `thread` shapes it (the default `shaped-query`), so a stream with a home never wakes you. Up to
 five a wake; the rest come at the next check. The pie "Threads" page (hub › Browse) shows warming and shaped live;
 each move into or out of settled or shaped is already a line under the day's build log, so you don't write it.
 

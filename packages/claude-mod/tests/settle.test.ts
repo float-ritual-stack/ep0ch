@@ -78,7 +78,7 @@ describe('the first check', () => {
 describe('the words', () => {
   const [t] = threadsOf(counts({ backlog: [5, 74] }), counts({ backlog: [2, 74] }), counts({}), NOW, SETTLE_DEFAULTS)
   test('a wake line gives the counts and says how to shape it: a note that carries its thread', () => {
-    expect(wakeLine(t!, NOW)).toBe('thread backlog settled: 5 chirps, 2 Evan\'s, quiet 74 min, no capability or hub note yet (write [thread::backlog] on the one you shape it on)')
+    expect(wakeLine(t!, NOW)).toBe('thread backlog settled: 5 chirps, 2 Evan\'s, quiet 74 min, nothing shapes it yet (write [thread::backlog] on its capability note, its hub or its tickets)')
   })
   test('the wake counts the threads it names and the ones it leaves for the next check', () => {
     expect(wakeText(['a', 'b'], 3)).toContain('5 threads have gone quiet')

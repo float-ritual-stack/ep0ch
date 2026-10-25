@@ -299,9 +299,9 @@ export function agoOf(ms: number): string {
   return min < 120 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.round(min / 1440)} d`
 }
 
-/** One thread's wake line. A settled thread has no capability or hub note carrying it (one would have shaped it), so it says how to give it one. */
+/** One thread's wake line. Nothing the shaped query reads carries a settled thread, so it says how to shape it. */
 export function wakeLine(t: Thread, now: number): string {
-  return `thread ${t.thread} settled: ${t.chirps} chirps, ${t.evan} Evan's, quiet ${agoOf(now - t.last)}, no capability or hub note yet (write [thread::${t.thread}] on the one you shape it on)`
+  return `thread ${t.thread} settled: ${t.chirps} chirps, ${t.evan} Evan's, quiet ${agoOf(now - t.last)}, nothing shapes it yet (write [thread::${t.thread}] on its capability note, its hub or its tickets)`
 }
 
 /** The prompt that wakes the deployer: one line per thread (cut at `max`), and what to do with them. */
