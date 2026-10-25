@@ -2,7 +2,7 @@
 // action the person ran, on top of the action's own redraw: a hover that moved nothing painted a whole frame, and an
 // action that redrew itself painted twice (the second 16 ms behind the first, over ssh). Now an action says whether it
 // changed what's shown (`repaints`; touching `nothing` means no, anything else yes), and the tail adds a paint only when
-// the action's own redraw didn't already ask for one. Frames are counted where they're drawn. Scratch services only.
+// the action's own redraw didn't already ask for one. Frames are the door's own count (`speed.frames`, PIE-1300). Scratch services only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -14,16 +14,17 @@ import { outliner, Scratch } from "./scratch";
 describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App;
-  let frames = 0;
   const A = () => app as any;
+  /** The frames the door has painted (peek's `speed.frames`). */
+  const frames = () => A().speed.frames as number;
   /** The frame floor is 16 ms; a press waits past it so two presses are never one paint. */
   const settle = () => Bun.sleep(40);
   /** `n` presses of an action, each answered and let go; the frames they painted. */
   async function painted(action: string, n = 1): Promise<number> {
     await settle();
-    const before = frames;
+    const before = frames();
     for (let i = 0; i < n; i++) { await app.dispatch.press(action); await settle(); }
-    return frames - before;
+    return frames() - before;
   }
 
   const toys: Record<string, ActionDef<any, any>> = {
@@ -38,6 +39,8 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
     "probe.screen": def({ summary: "changes the screen and leaves the repaint to the dispatcher", touches: "screen", replay: "safe", args: {}, run: () => "moved" }),
     // Touches the screen and redraws itself: still one frame.
     "probe.screen.self": def({ summary: "changes the screen and redraws itself", touches: "screen", replay: "safe", args: {}, run: (_: unknown, { ctx }: { ctx: { redraw(): void } }) => { ctx.redraw(); return "moved"; } }),
+    // The reader's actions answer as promises that wait for nothing: its own redraw is the one frame there too.
+    "probe.wrapped": def({ summary: "changes the screen, redraws itself and answers as a promise", touches: "screen", replay: "safe", args: {}, run: (_: unknown, { ctx }: { ctx: { redraw(): void } }) => { ctx.redraw(); return Promise.resolve("moved"); } }),
     // An action that presses another, as an authored press or a button does: the inner one's verdict is the press's.
     "probe.press.noop": def({ summary: "presses an action that changes nothing", touches: "nothing", replay: "safe", args: {}, run: (_: unknown, { ctx }: { ctx: { press?(n: string): Promise<unknown> } }) => ctx.press!("probe.noop") }),
     "probe.press.screen": def({ summary: "presses an action that changes the screen", touches: "nothing", replay: "safe", args: {}, run: (_: unknown, { ctx }: { ctx: { press?(n: string): Promise<unknown> } }) => ctx.press!("probe.screen") }),
@@ -54,8 +57,6 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
     const term = { info: { cols: 120, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
-    const draw = A().drawFrame.bind(app);
-    A().drawFrame = () => { frames++; return draw(); };
     for (const [name, d] of Object.entries(toys)) (SHELL_ACTIONS as any).define(name, d);
     await settle();
   }, 30_000);
@@ -75,6 +76,7 @@ describe.skipIf(!outliner)("what repaints after the person's action (PIE-1301)",
     expect(await painted("probe.screen")).toBe(1);
     expect(await painted("probe.screen.self")).toBe(1);
     expect(await painted("probe.self")).toBe(1);
+    expect(await painted("probe.wrapped")).toBe(1);
   });
 
   test("an action that touches nothing of the person's but changes what's shown says so; or its answer does", async () => {

@@ -538,6 +538,8 @@ export class Dispatcher {
     // A press made from inside another's action shares its accounting: what the inner one changed, the outer one owes.
     const shown: PressShown = pressShown.getStore() ?? { ran: 0, changed: false };
     const asked = ctx?.redrawsAsked?.();
+    let sameTurn = true;
+    setImmediate(() => { sameTurn = false; });
     const tell = (e: unknown) => {
       const failed = !(e instanceof ActionRefused || e instanceof Offline);
       const action = messageContext.getStore()?.action ?? "the action";
@@ -551,10 +553,17 @@ export class Dispatcher {
     };
     try {
       const out = pressShown.run(shown, () => fromPress(f));
-      // An action that answers at once and asked for its paint (any `redraw()` it made) needs no second one behind it; one
-      // that answers later may have changed more by then, and is painted for.
-      const own = !isThenable(out) && asked !== undefined && ctx?.redrawsAsked?.() !== asked;
-      return Promise.resolve(out).then(r => { if (!own && (shown.ran === 0 || shown.changed)) ctx?.redraw?.(); shown.changed = false; return r; }, tell);
+      // An action that answered within this turn (at once, or through promises that waited on nothing but each other: the
+      // reader's actions all answer as promises) and asked for its paint (any `redraw()` it made) needs no second one behind
+      // it. One that waited for something may have changed more by then, and is painted for.
+      const moved = () => asked !== undefined && ctx?.redrawsAsked?.() !== asked;
+      const early = !isThenable(out) && moved();
+      return Promise.resolve(out).then(r => {
+        const own = isThenable(out) ? sameTurn && moved() : early;
+        if (!own && (shown.ran === 0 || shown.changed)) ctx?.redraw?.();
+        shown.changed = false;
+        return r;
+      }, tell);
     } catch (e) { return Promise.resolve(tell(e)); }
   }
 
