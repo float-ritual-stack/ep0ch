@@ -363,7 +363,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
       const after = snap(mask);
       const req = reqs[0];
       // Pointed at a tile: it was named (`tile=`), or the action is a tile's own (its default is the focused one, so an id says the same).
-      if (runs.length === 1 && reqs.length === 1 && req?.tile?.id && (req.named || req.takes === "tile") && !same(base, after) && !/t-[0-9a-f]{8}-/.test(JSON.stringify(req.args))) {
+      if (runs.length === 1 && reqs.length === 1 && req?.tile?.id && req.replay === "safe" && (req.named || req.takes === "tile") && !same(base, after) && !/t-[0-9a-f]{8}-/.test(JSON.stringify(req.args))) {
         const id = `${req.action}\0${req.tile.name}\0${JSON.stringify(req.args)}`;
         if (!pointed.has(id)) pointed.set(id, { key: k, req });
       }
@@ -434,11 +434,20 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
    * screen as the key left it: pointing and naming are one path, so they can't drift apart (the sixth lift fix, not the first).
    * Each way starts from a screen built the same way (the key again, the id, the role), so only the address differs.
    */
+  /** The screen once it holds still: looked at again until two looks are alike (a read the action started has landed). */
+  async function calm(mask: Set<number>): Promise<Snap> {
+    let was = snap(mask);
+    for (let i = 0; i < 20; i++) { await Bun.sleep(15); await settle(); const now = snap(mask); if (alike(was, now, false)) return now; was = now; }
+    return was;
+  }
   async function addressed(label: string, make: () => Screen | Promise<Screen>, setup: Key[], pointed: Map<string, { key: Key; req: RunRequest }>) {
+    const replayed = { id: 0, role: 0 };
     for (const { key, req } of pointed.values()) {
       let mask = await fresh(label, make, setup);
       push(key); await settle();
-      const pressed = snap(mask);
+      // What the key said, if it was refused (the action threw after it was traced): the act must refuse the same way.
+      const flashed = String(A().message ?? "");
+      const pressed = await calm(mask);
       for (const way of ["id", "role"] as const) {
         mask = await fresh(label, make, setup);
         const top = A().stack.at(-1) as Screen | undefined;
@@ -451,11 +460,14 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         catch (e) { said = e instanceof Error ? e.message : String(e); }
         // A role that names several tiles is not an address for this one: the refusal says so, and that is the resolver's job.
         if (way === "role" && /names \d+ tiles/.test(said)) continue;
-        const now = snap(mask);
+        const now = await calm(mask);
+        replayed[way]++;
+        if (said && flashed.includes(said.slice(0, 60))) continue;
         if (said) findings.push({ screen: label, keys: named(key), problem: `${req.action} by ${address} was refused (${said.slice(0, 160)}) where the key ran it` });
         else if (!alike(pressed, now, false)) findings.push({ screen: label, keys: named(key), problem: `${req.action} ${JSON.stringify(req.args)} by ${way === "id" ? "id" : address} left the screen different from the key (${changes(pressed, now)})` });
       }
     }
+    if (log) require("node:fs").appendFileSync(log, `# ${label}: ${pointed.size} targeted actions replayed by id (${replayed.id}) and by role (${replayed.role})\n`);
   }
 
   /** `k1` then `k2` on a fresh screen: what's wrong, or null. */

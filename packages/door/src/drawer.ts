@@ -1281,6 +1281,7 @@ export class AgentDrawer {
     this.out = null; this.left = null; this.save();
     if (h instanceof DrawerTile && h.away) {
       h.away = null;
+      h.role = ROLE_AGENT;          // the tab holding the place is the drawer's own program again
       if (this.persist) h.home = this.gen ? `drawer.json#${this.gen}` : "drawer.json";
       this.host.flash(`${h.shows} isn't running any more · your drawer's own program starts here again`);
       this.host.redraw();

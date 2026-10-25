@@ -1102,6 +1102,13 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       d.key({ kind: "alt", ch: "a" }); d.paint();
       await until(() => d.app.drawer.tile?.running === true, "the drawer's own program again");
       expect(d.app.drawer.tile!.pid).not.toBe(pid);
+      // The tab that holds the place is the drawer's own program again, and the role says so.
+      expect(d.app.drawer.resolveTile("role:agent")?.tile.name).toBe("drawer.agent");
+      // A second tile with the role makes the address ambiguous: refused with both ids, never one of them guessed.
+      const other = d.kettle()!;
+      other.role = "agent";
+      expect(() => d.app.drawer.resolveTile("role:agent")).toThrow(/role:agent names 2 tiles: .*use tile=<id> or role:agent@<screen>/);
+      other.role = undefined;
     } finally { d.app.quit(); }
   });
 
