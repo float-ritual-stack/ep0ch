@@ -19,7 +19,7 @@ import { openInEditor } from "../src/surface/editor";
 import { SocketBoard } from "../src/socket";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello } from "../src/session/protocol";
-import { SessionTerm, type Link } from "../src/session/session-term";
+import { FRAMES_IN_FLIGHT, SessionTerm, type Link } from "../src/session/session-term";
 import { doorMode, runEnv } from "../src/session/client";
 import { sessionEnv, startSession } from "../src/session/start";
 import { ancestors, detachedSaying, takeLock } from "../src/session/daemon";
@@ -452,6 +452,149 @@ describe("two clients on one session", () => {
   });
 });
 
+// PIE-1163, Evan Oct 21 tethered over ssh: after a wifi drop mid-drag he watched a replay of every frame. The daemon
+// can't see the link (the client's socket is local; the slow hop is sshd to the Mac), so it asks the terminal: each frame
+// is followed by CSI 5 n, the terminal answers CSI 0 n once it has taken everything before it, and a client with
+// FRAMES_IN_FLIGHT frames unanswered is not painted (Rows.paint diffs against what it last wrote, so the rows that
+// changed meanwhile are remembered by that) until an answer comes; then it is painted with the latest.
+describe("a slow link gets the latest frame, never a queue of old ones (PIE-1163)", () => {
+  /** A session whose screen says which frame it is, and the frames a client's terminal was sent, by number. */
+  function counting() {
+    const term = new SessionTerm();
+    let n = 0;
+    const app = new App(term, { supports: () => null, protocol: null } as any, Date.now(), () => {});
+    app.push({ title: "plot board", noDrawer: true, key: () => {}, render: (ctx: any) => ({ lines: Array.from({ length: ctx.t.rows - 1 }, (_, i) => (i ? `row ${i}` : `frame ${n}`)) }) } as any);
+    const paint = () => (app as any).paint();
+    const make = (to: number) => { for (; n < to; ) { n++; paint(); } };
+    const frames = (l: ReturnType<typeof fakeLink>) => l.sent.filter((m): m is Extract<DaemonMsg, { t: "output" }> => m.t === "output" && m.text.includes("\x1b[?2026l"));
+    const numbers = (l: ReturnType<typeof fakeLink>) => frames(l).map(m => Number(/frame (\d+)/.exec(m.text)?.[1] ?? NaN));
+    return { term, app, paint, make, frames, numbers };
+  }
+  const answer = "\x1b[0n";
+
+  test("a reader that stops answering while 200 frames are made gets the latest one next when it resumes, not the backlog", async () => {
+    const { term, make, numbers } = counting();
+    const a = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true }));
+    expect(numbers(a)).toEqual([0]);                      // the screen as it was when the terminal attached
+    make(1);                                              // frame 1: the second in flight
+    await Bun.sleep(200);                                 // the terminal reads nothing, answers nothing
+    make(200);
+    expect(numbers(a)).toEqual([0, 1]);                   // 2..199 were never sent
+    expect(term.speed()[0]).toMatchObject({ id: ca.id, unacked: FRAMES_IN_FLIGHT, skipped: 199 });
+    term.input(ca, answer);                               // it takes the first: the latest is painted, once
+    expect(numbers(a)).toEqual([0, 1, 200]);
+    expect(a.text()[0]).toBe("frame 200");
+    term.input(ca, answer); term.input(ca, answer);       // nothing more was made: nothing more is sent
+    expect(numbers(a)).toEqual([0, 1, 200]);
+    expect(term.speed()[0]).toMatchObject({ unacked: 0 });
+    make(201);                                            // and it goes on as before
+    expect(numbers(a)).toEqual([0, 1, 200, 201]);
+  });
+
+  test("every frame asks to be answered, in order after its synchronized update; the answers never reach the screen as keys", () => {
+    const { term, app, paint, frames } = counting();
+    const keys: unknown[] = [];
+    (app as any).stack.at(-1).key = (k: unknown) => { keys.push(k); };
+    const a = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true }));
+    paint();
+    expect(frames(a)[0]!.text.endsWith("\x1b[?2026l\x1b[5n")).toBe(true);
+    term.input(ca, answer + "j" + answer);
+    expect(keys).toEqual([{ kind: "char", ch: "j" }]);
+    // Nor into a program typed to in a terminal tile (raw input): it would see ESC [ 0 n.
+    const typed: string[] = [];
+    term.rawSink = () => b => typed.push(b);
+    term.invalidate(); paint();
+    expect(term.speed()[0]!.unacked).toBe(1);
+    term.input(ca, "ab" + answer + "cd");
+    expect(typed.join("")).toBe("abcd");
+    expect(term.speed()[0]!.unacked).toBe(0);               // counted all the same
+  });
+
+  test("an answer alone isn't the person: it doesn't give the client the keys, nor reset how long it has been left alone", async () => {
+    const { term } = counting();
+    const a = fakeLink(80, 24), b = fakeLink(60, 20);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true })), cb = term.attach(b.link, hello(60, 20, { acks: true }));
+    const idle = cb.lastInput;
+    term.input(cb, answer);
+    expect(term.activeClient).toBe(ca);
+    expect(cb.lastInput).toBe(idle);
+    term.input(cb, "j");
+    expect(term.activeClient).toBe(cb);
+  });
+
+  test("a terminal that doesn't answer CSI 5 n (said at attach) is painted every frame, as before, and is asked nothing", () => {
+    const { term, make, numbers, frames } = counting();
+    const a = fakeLink(80, 24);
+    term.attach(a.link, hello(80, 24));
+    make(50);
+    expect(numbers(a)).toEqual(Array.from({ length: 51 }, (_, i) => i));      // the one drawn at attach, then each
+    expect(frames(a).some(m => m.text.includes("\x1b[5n"))).toBe(false);
+  });
+
+  test("a client that never answers isn't left dark: after a while the latest frame goes anyway, and it is counted", async () => {
+    const { term, make, numbers } = counting();
+    term.ackStaleMs = 60;
+    const a = fakeLink(80, 24);
+    term.attach(a.link, hello(80, 24, { acks: true }));
+    make(5);
+    expect(numbers(a)).toEqual([0, 1]);
+    await until(() => numbers(a).length === 3, "the latest frame to go after the stale time", 1000);
+    expect(numbers(a)).toEqual([0, 1, 5]);
+    expect(term.speed()[0]).toMatchObject({ ackTimeouts: 1 });
+  });
+
+  test("the round trip of the answers is measured for each client, beside the frames waiting", async () => {
+    const { term, make } = counting();
+    const a = fakeLink(80, 24), b = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true })), cb = term.attach(b.link, hello(80, 24, { acks: true }));
+    make(1);
+    await Bun.sleep(40);
+    term.input(ca, answer); term.input(ca, answer);
+    const [sa, sb] = term.speed();
+    expect(sa!.id).toBe(ca.id);
+    expect(sa!.ackMs).toBeGreaterThanOrEqual(35);
+    expect(sa!.unacked).toBe(0);
+    expect(sb!.id).toBe(cb.id);
+    expect(sb!.unacked).toBeGreaterThan(0);               // the other one is still waiting: one client's pace is not the other's
+  });
+
+  test("a program that has the terminal isn't sent a late answer: the run waits for the frames in flight (or gives up), and the window starts again after", async () => {
+    const { term, make, paint, numbers } = counting();
+    const a = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24, { acks: true }));
+    make(1);
+    const ran = term.handOver(["sh", "-l"]);
+    await Bun.sleep(30);
+    expect(a.sent.some(m => m.t === "run")).toBe(false);  // the answers would have gone to the shell
+    term.input(ca, answer); term.input(ca, answer);
+    await until(() => a.sent.some(m => m.t === "run"), "the run, once everything sent was answered", 1000);
+    const run = a.sent.find(m => m.t === "run") as Extract<DaemonMsg, { t: "run" }>;
+    term.ran(ca, run.id, 0);
+    expect(await ran).toBe(0);
+    paint();
+    expect(numbers(a).at(-1)).toBe(1);
+    expect(term.speed()[0]).toMatchObject({ unacked: 1 });
+  });
+
+  test("catching up after a stall draws every row again, and frees no image: the terminal still has them", () => {
+    const { term, paint } = counting();
+    const a = fakeLink(80, 24);
+    term.attach(a.link, hello(80, 24, { kitty: true }));
+    paint();
+    const deletes = () => a.sent.filter(m => m.t === "output" && m.text.includes("\x1b_Ga=d")).length;
+    const uploads = () => a.sent.filter(m => m.t === "output" && /\x1b_G[^\x1b]*a=t/.test(m.text)).length;
+    const up = uploads();
+    expect(up).toBeGreaterThan(0);                        // the tube under the text is an image
+    a.setBacklog(64 << 20);
+    term.invalidate(); paint();
+    a.setBacklog(0);
+    expect(a.text()[0]).toBe("frame 0");
+    expect({ deletes: deletes(), uploads: uploads() }).toEqual({ deletes: 0, uploads: up });
+  });
+});
+
 /** A client speaking the protocol over the session socket, with a mirror for a terminal. */
 class RawClient {
   readonly mirror: Mirror;
@@ -706,6 +849,26 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect((await control({ cmd: "peek" })).screen.speed.frames - before).toBeLessThanOrEqual(5);
 
     a.close();
+  }, 60_000);
+
+  // PIE-1163, over the real socket: the client's terminal answers CSI 5 n after each frame, and this one has stopped.
+  test("a client whose terminal stopped answering is sent no more than the frames in flight of a long burst, and the latest when it answers", async () => {
+    const a = await RawClient.attach(sessionSocket(dir), 120, 40, { acks: true }), b = await RawClient.attach(sessionSocket(dir), 120, 40);
+    await until(() => a.screen().includes("outline") && b.screen().includes("outline"), "both clients drawn", 10_000);
+    const framesToA = () => a.got.filter(m => m.t === "output" && m.text.includes("\x1b[?2026l")).length;
+    for (let i = 0; i < 31; i++) { b.type("\t"); await Bun.sleep(25); }
+    await until(() => (a.text()[39] ?? "").length > 0, "the burst handled", 10_000);
+    await Bun.sleep(300);
+    expect(framesToA()).toBeLessThanOrEqual(FRAMES_IN_FLIGHT);
+    expect(a.screen()).not.toBe(b.screen());                   // it was left where it was; b has moved on
+    for (let i = 0; i < FRAMES_IN_FLIGHT + 2; i++) { a.type("\x1b[0n"); await Bun.sleep(30); }
+    await until(() => a.screen() === b.screen(), "the answered client shown the latest frame", 10_000);
+    expect(framesToA()).toBeLessThanOrEqual(FRAMES_IN_FLIGHT + 2);
+    const speed = (await control({ cmd: "peek" })).screen.speed.clients;
+    expect(speed.map((c: any) => [c.acks, c.unacked])).toEqual([[true, 0], [false, 0]]);
+    expect(speed[0].skipped).toBeGreaterThan(0);
+    a.close(); b.close();
+    for (let i = 0; i < 50 && (await infoOn(sessionSocket(dir)))!.clients.length; i++) await Bun.sleep(100);
   }, 60_000);
 
   test("a terminal tile's program copies (OSC 52): the client with the keys gets it once, a watcher never; a read, or an agent's, is dropped", async () => {

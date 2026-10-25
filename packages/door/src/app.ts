@@ -84,6 +84,8 @@ export type AppTerm = Pick<Term, "info" | "write" | "onKey" | "onResize" | "inva
     typingOn?(): unknown;
     /** The session's terminals, for `peek` (a session's). */
     session?(): unknown;
+    /** How each attached terminal's frames-in-flight window stands (a session's): unanswered frames, skipped, the answer's round trip (PIE-1163). */
+    speed?(): unknown;
   };
 
 export type { Video };
@@ -1051,7 +1053,10 @@ export class App implements Ctx {
     const b = this.board;
     const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
-    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
+    return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}),
+      // How the door keeps up, per attached terminal: the frames its terminal hasn't answered (a stalled link holds them) and the answer's round trip.
+      ...(this.term.speed ? { speed: { clients: this.term.speed() } } : {}),
+      nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(), ...(this.bar ? { bar: this.bar.describe() } : {}),
       messages: this.messages.rows,
       pointers: this.agentPointers.list(),
