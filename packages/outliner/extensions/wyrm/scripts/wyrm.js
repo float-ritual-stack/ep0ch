@@ -41,23 +41,10 @@ const valueOf = (note, key) => note.properties.find(p => p.key === key)?.values[
 const numberOf = (note, key) => Number(valueOf(note, key) ?? 0);
 const typeOf = note => valueOf(note, "type");
 
-/** The note's first line with each changed chip replaced, added, or (value null) removed. */
-function header(text, changes) {
-  const lines = text.split("\n");
-  let first = lines[0];
-  for (const [key, value] of Object.entries(changes)) {
-    const chip = new RegExp(`\\s*\\[${key.replace(/[-.]/g, m => "\\" + m)}::[^\\]]*\\]`);
-    if (value === null || value === undefined || value === "") first = first.replace(chip, "");
-    else if (chip.test(first)) first = first.replace(chip, ` [${key}::${value}]`);
-    else first = `${first} [${key}::${value}]`;
-  }
-  lines[0] = first;
-  return lines.join("\n");
-}
-
+/** Each changed chip in one write: replaced, added, or (value null) removed. */
 async function save(note, changes) {
-  const text = header(note.text, changes);
-  if (text !== note.text) await tools.outline_edit({ ref: note.id, expectedRevision: note.revision, text });
+  const properties = Object.fromEntries(Object.entries(changes).map(([key, value]) => [key, value === null || value === undefined || value === "" ? null : String(value)]));
+  await tools.outline_set_property({ ref: note.id, revision: note.revision, properties });
 }
 
 /** A death from an earlier day is over: that player has risen, whole, though their note says so only at their next move. */

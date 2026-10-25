@@ -91,6 +91,9 @@ describe('the formatter: one row per tool', () => {
       .toBe('✎ ((0f3c2a1b…)) · set [crop::leek] · applied')
     expect(words(toolRowOf(done('outline_set_property', input, { outcome: 'unchanged', key: 'crop', value: 'leek' })))).toBe('✎ ((0f3c2a1b…)) · set [crop::leek] · (no change)')
     expect(toolRowOf(done('outline_set_property', input, { outcome: 'proposed', reason: 'the text changed under it' }))!.warning).toBe('proposed, not applied: the text changed under it')
+    // Several at once: each chip, a null removing its key.
+    expect(words(toolRowOf(done('outline_set_property', { ref: NOTE, revision: 3, properties: { crop: 'leek', row: null } }, { outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved' }] }))))
+      .toBe('✎ ((0f3c2a1b…)) · set [crop::leek] [row::] removed · applied')
   })
 
   test('outline_create: the new block (pressable) once made, its parent, and the body', () => {

@@ -456,20 +456,30 @@ export const AGENT_TOOL_DEFINITIONS: readonly AgentToolDefinition[] = [
     writes: true,
     target: "ref",
     description:
-      "Set one [key::value] property on the header line of {note} (the chips that end its first line): the value replaced " +
-      "where the key is, or the chip added at the line's end. Against the `revision` outline_read returned, as one " +
-      "outline_patch span, so it has the patch's rules: a live draft gets it in place, and a note that changed since " +
+      "Set [key::value] properties on the header line of {note} (the chips that end its first line): the value replaced " +
+      "where the key is, or the chip added at the line's end. One property is `key` and `value`; several are " +
+      "`properties: { key: value, key: null }` (null removes the key), all in one write that takes one revision. Against the " +
+      "`revision` outline_read returned, as one outline_patch span, so it has the patch's rules: a live draft gets it in place, and a note that changed since " +
       "is refused if it cannot rebase; re-read and retry in the same turn. A key written more than once is a list: edit it with outline_patch.",
     properties: {
       ref: REF,
-      key: { type: "string", description: "The property key: letters, digits, - and _" },
+      key: { type: "string", description: "The property key: letters, digits, - and _ (with value; or use properties for several)" },
       value: { type: "string", description: "One line, without ]" },
+      properties: { type: "object", description: "Several at once: { key: \"one line, without ]\", other: null }; a null value removes that key. Instead of key and value" },
       revision: EXPECTED,
     },
-    required: ["ref", "key", "value", "revision"],
+    required: ["ref", "revision"],
     command(input) {
       if (!nonEmpty(input.ref) || typeof input.revision !== "number") return "Give the ref and the revision you read.";
-      if (!nonEmpty(input.key) || !nonEmpty(input.value)) return "Give the key and a non-empty value.";
+      if (input.properties !== undefined) {
+        if (input.key !== undefined || input.value !== undefined) return "Give either key and value (one property) or properties (several), not both.";
+        if (typeof input.properties !== "object" || input.properties === null || Array.isArray(input.properties)) return "properties is an object: { key: value, key: null } (null removes the key).";
+        const values = Object.values(input.properties as Record<string, unknown>);
+        if (!values.length) return "Give at least one property in properties: { key: value } (null removes the key).";
+        if (values.some(v => v !== null && typeof v !== "string")) return "Each value in properties is a string (one line, without ]), or null to remove the key.";
+        return { operation: "set-property", input: inputOf(input, ["ref", "properties", "revision"]) };
+      }
+      if (!nonEmpty(input.key) || !nonEmpty(input.value)) return "Give the key and a non-empty value, or properties: { key: value } for several.";
       return { operation: "set-property", input: inputOf(input, ["ref", "key", "value", "revision"]) };
     },
   },

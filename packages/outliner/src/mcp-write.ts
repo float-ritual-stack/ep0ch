@@ -66,7 +66,7 @@ interface AgentTools {
   editComment(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; mark: string; revision: number }>;
   resolveThread(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ thread: string; lifecycle: string }>;
   patchDraft(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult>;
-  setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key: string; value: string }>;
+  setBlockProperty(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<PatchResult | { outcome: "unchanged"; key?: string; value?: string; properties?: Record<string, unknown> }>;
   assignWorkId(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; workId: string; page: string }>;
   moveBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
   trashBlock(c: unknown, input: Record<string, unknown>, actor: WriteActor): Promise<{ outcome: "applied" | "unchanged"; said: string } & Record<string, unknown>>;
@@ -197,8 +197,9 @@ export async function applyWrite(board: WriteBoard, write: McpWrite, o: ApplyOpt
       return patched(await tools.patchDraft(client, { ref: write.blockId, ...write.input, revision: o.revision ?? write.revision, propose }, o.actor), "patch");
     case "outline_set_property": {
       const r = await tools.setBlockProperty(client, { ref: write.blockId, ...write.input, revision: o.revision ?? write.revision, propose }, o.actor);
-      if (r.outcome === "unchanged") return { outcome: "unchanged", uri: o.uri(write.blockId), said: `[${r.key}::${r.value}] is already set`, detail: r };
-      return patched(r, `[${String(write.input.key)}::${String(write.input.value)}]`);
+      const several = write.input.properties && typeof write.input.properties === "object" ? Object.entries(write.input.properties as Record<string, unknown>) : null;
+      if (r.outcome === "unchanged") return { outcome: "unchanged", uri: o.uri(write.blockId), said: several ? "every property is already as asked" : `[${r.key}::${r.value}] is already set`, detail: r };
+      return patched(r, several ? several.map(([key, value]) => value === null ? `[${key}::] removed` : `[${key}::${String(value)}]`).join(" ") : `[${String(write.input.key)}::${String(write.input.value)}]`);
     }
     case "outline_move":
     case "outline_trash": {
