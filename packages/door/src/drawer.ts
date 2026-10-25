@@ -1909,12 +1909,12 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     ],
     to: { action: "tile.zoom", tile: DRAWER_TILE_ID, args: { reach: "column" } },
     // A lift of it (not a drop) comes with the person's keys, as alt+a gives them: the program in the drawer pulls it up and
-    // goes into it, one on a screen takes the focus there.
+    // goes into it (host.enter is the person's own), one on a screen takes the focus there.
     first: [
       { action: "agent.back", when: ({ on }, { drawer }) => on !== false && !drawer.liftsOwn() && drawer.awayUnseen() },
       { action: "host.toggle", args: { open: true }, when: ({ on }, { drawer }) => on !== false && !drawer.liftsOwn() && !drawer.isAway() && !drawer.shown },
       { action: "tile.focus", tile: DRAWER_TILE_ID, when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsOwn() && drawer.standsFor(actor) },
-      { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsOwn() && drawer.standsFor(actor) && !drawer.isAway() && !drawer.entered },
+      { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsOwn() && actor.kind === "user" && !drawer.isAway() && !drawer.entered },
     ],
   }),
   "agent.restart": def({
