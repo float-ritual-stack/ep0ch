@@ -150,14 +150,10 @@ describe.skipIf(!outliner)("the real script behind the fake ssh", () => {
       mkdirSync(join(home, ".claude/jobs", s.id), { recursive: true });
       writeFileSync(join(home, ".claude/jobs", s.id, "state.json"), JSON.stringify({ fan: [], cwd: home, respawnFlags: [] }));
     }
-    // A login shell may put other directories first on PATH (the CI image's /etc/profile does something like it: a `claude`
-    // that isn't ours answered, and the script found no list of sessions). The other machine's own ~/.profile, which a
-    // real one has too, puts its tools first again; the made-up decoy stands for whatever the image adds ahead of them.
-    mkdirSync(join(dir, "decoy"));
-    writeFileSync(join(dir, "decoy/claude"), "#!/bin/sh\necho 'a claude that is not ours'\n", { mode: 0o755 });
-    writeFileSync(join(home, ".profile"), `PATH="${join(dir, "decoy")}:$PATH"\nPATH="${join(dir, "bin")}:$PATH"\nexport PATH\n`);
     writeFileSync(join(dir, "bin/ssh"), `#!/bin/sh\nexec ${process.execPath} ${join(outliner!, "test/fake-ssh.ts")} "$@"\n`, { mode: 0o755 });
-    writeFileSync(join(dir, "bin/ep0ch"), `#!/bin/sh\nexec ${process.execPath} ${MAIN} "$@"\n`, { mode: 0o755 });
+    // The other machine's `ep0ch` is its own install: its HOME and its tools. (The ssh's login shell is not trusted to keep
+    // either: CI's image resets HOME to the runner's home, which hid the made-up sessions from the script.)
+    writeFileSync(join(dir, "bin/ep0ch"), `#!/bin/sh\nHOME=${home}\nPATH=${join(dir, "bin")}:$PATH\nexport HOME PATH\nexec ${process.execPath} ${MAIN} "$@"\n`, { mode: 0o755 });
   });
   afterAll(() => {
     for (const pid of [behindPid, quotePid, kittyPid, ptyHostPid]) try { process.kill(pid); } catch { /* gone */ }
