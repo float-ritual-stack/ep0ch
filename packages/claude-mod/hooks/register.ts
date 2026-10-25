@@ -36,7 +36,7 @@ import { CONNECTOR_PERSONA_MATCH, personaFilled, slipOf } from './connector-pers
 import { actorOf, BIND_TOOL, machineNameOf, checkedInput, COMPONENTS_TOOL, droppedNote, componentsArgv, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf, sessionPersonaOf, SHOW_TOOL } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import { createPageArgv, entryArgv, entryOf, findPageArgv, pageIdOf, unwrapPeer } from './peer-log'
-import { capabilityArgs, facetCountsOf, firstIdOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type Change, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
+import { baselineOf, capabilityArgs, facetCountsOf, firstIdOf, logLine, mergedCounts, outlineLabel, outlinesOf, settleAsks, settleOutlinesOfConfig, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleConfig, type SettleOutline, type SettleStore, type Thread, type ThreadCount } from './settle'
 import { type StatusInput } from './program-status'
 import { notified, permissionAsked, PST_ARGV, questionAsked, sequenceOf, sessionEnded, sessionStarted, statusSetting, stopFailed, ttyArgv, turnEnded, working } from './claude-status'
 import { fileTouchesOff, fileTouchGlobsOf, projectOf, touchAllowed, touchInputOf, touchOf } from './file-touches'
@@ -1755,7 +1755,10 @@ async function runSettle($: EngineInterface, option: PluginOptions, config: Sett
     if (!references?.workspace) await loadReferences($, option)
     const bound = references?.workspace
     if (!bound) return
-    const named = outlinesOf(String(option.settleOutlines ?? '').trim() || (await $.env.get('EP0CH_SETTLE_OUTLINES')) || undefined,
+    // The override first (option, EP0CH_SETTLE_OUTLINES), then the folder's `settle-outlines` in .ep0ch/config.toml, then pie and gurgle.
+    const configured = String(option.settleOutlines ?? '').trim() || (await $.env.get('EP0CH_SETTLE_OUTLINES')) || undefined
+      || settleOutlinesOfConfig(await $.fs.read(`${bound.root}/.ep0ch/config.toml`).then(String, () => null) ?? await $.fs.read(`${bound.root}/.ep0ch`).then(String, () => null))
+    const named = outlinesOf(configured,
       bound.outline ? { outline: bound.outline, ...(bound.machine ? { machine: bound.machine } : {}) } : null)
     if (named.problems.length) settleToast($, `settleOutlines: ${named.problems.join('; ')}`)
     const root = await outlinerRootOf($)
@@ -1776,9 +1779,18 @@ async function runSettle($: EngineInterface, option: PluginOptions, config: Sett
     }))
     if (read.some(r => !r)) return
     const [all, evan, shaped] = [0, 1, 2].map(i => mergedCounts(read.map(r => r![i]!)))
-    const diff = settleDiff((await $.store.get(SETTLE_KEY).catch(() => undefined) ?? {}) as SettleStore, threadsOf(all!, evan!, shaped!, now, config))
+    const kept = await $.store.get(SETTLE_KEY).catch(() => undefined)
+    const threads = threadsOf(all!, evan!, shaped!, now, config)
+    const diff = settleDiff((kept ?? {}) as SettleStore, threads)
+    if (kept === undefined) {
+      // The first check: what is already settled is recorded as known, not announced; only threads that settle from now on wake.
+      const baseline = baselineOf(diff.next, threads)
+      await $.store.set(SETTLE_KEY, baseline.store)
+      await logSettleChanges($, bound, root, [baseline.line])
+      return
+    }
     await $.store.set(SETTLE_KEY, diff.next)
-    await logSettleChanges($, bound, root, diff.changes, now)
+    await logSettleChanges($, bound, root, diff.changes.map(change => logLine(change, now)))
     if (diff.wake.length) await wakeSettled($, config, named.outlines, diff.wake, now, cli, diff.next)
   } catch (error) {
     settleToast($, error instanceof Error ? error.message : String(error))
@@ -1818,16 +1830,16 @@ async function wakeSettled(
 }
 
 /** One line a change under the bound outline's newest build log, written as the session's persona. No build log: said once, nothing invented. */
-async function logSettleChanges($: EngineInterface, bound: Workspace, root: string, changes: Change[], now: number): Promise<void> {
-  if (!changes.length) return
+async function logSettleChanges($: EngineInterface, bound: Workspace, root: string, lines: string[]): Promise<void> {
+  if (!lines.length) return
   const env = envFor(bound)
   const logs = await $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...listArgs(BUILD_LOG_QUERY, LIST_LIMIT, 'id,title,timestamps')], { cwd: bound.root, env, timeoutMs: SETTLE_TIMEOUT_MS })
     .then(r => (r.exitCode === 0 ? listedOf(r.stdout) : null), () => null)
   const newest = [...(logs?.blocks ?? [])].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))[0]
-  if (!newest) return settleToast($, `${changes.length} thread ${changes.length === 1 ? 'change' : 'changes'} not logged: ${bound.outline ?? 'the outline'} has no note with [type::build-log].`)
+  if (!newest) return settleToast($, `${lines.length} settle ${lines.length === 1 ? 'line' : 'lines'} not logged: ${bound.outline ?? 'the outline'} has no note with [type::build-log].`)
   const actor = await actorFor($, {})
-  const texts = changes.slice(0, SETTLE_LOG_MAX).map(change => logLine(change, now))
-  if (changes.length > SETTLE_LOG_MAX) texts.push(`and ${changes.length - SETTLE_LOG_MAX} more thread state changes`)
+  const texts = lines.slice(0, SETTLE_LOG_MAX)
+  if (lines.length > SETTLE_LOG_MAX) texts.push(`and ${lines.length - SETTLE_LOG_MAX} more thread state changes`)
   for (const text of texts) {
     const ran = await $.process.run(['ep0ch', 'new', text, '--near', newest.id, '--as', actor], { cwd: bound.root, env, timeoutMs: SETTLE_TIMEOUT_MS })
     if (ran.exitCode !== 0) return settleToast($, `a thread change was not logged: ${failureReasonOf(ran.stderr) || ran.stderr.trim()}`)

@@ -1,5 +1,5 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
-import { facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
+import { baselineOf, facetArgs, facetCountsOf, logLine, mergedCounts, outlinesOf, SETTLE_DEFAULTS, settleOutlinesOfConfig, settleDiff, settlesFor, threadsOf, told, tuningOf, wakeLine, wakeText, type SettleStore } from '../hooks/settle'
 
 tier('user')
 
@@ -59,6 +59,15 @@ describe('one thread across outlines', () => {
   })
 })
 
+describe('the first check', () => {
+  test('records what is settled as told, so only a thread that settles later wakes', () => {
+    const threads = threadsOf(counts({ a: [4, 200], b: [5, 300], c: [9, 5] }), counts({ a: [1, 200], b: [1, 300], c: [1, 5] }), counts({}), NOW, SETTLE_DEFAULTS)
+    const baseline = baselineOf(settleDiff({}, threads).next, threads)
+    expect(baseline.line).toBe('Settle check baseline: 2 settled threads at the first run, recorded, not announced (0 shaped, 1 warming)')
+    expect(settleDiff(baseline.store, threads).wake).toEqual([])
+  })
+})
+
 describe('the words', () => {
   const [t] = threadsOf(counts({ backlog: [5, 74] }), counts({ backlog: [2, 74] }), counts({}), NOW, SETTLE_DEFAULTS)
   test('a wake line gives the counts and the capability link, or says how to give it one', () => {
@@ -83,9 +92,12 @@ describe('the settings', () => {
     expect(bad.problems.join('\n')).toContain('unknown key "nope"')
     expect(bad.problems.at(-1)).toContain('write it like: chirps=3')
   })
-  test('outlines are name[@machine]; with none named it is the bound one', () => {
+  test('outlines are name[@machine]; with none named they are pie and gurgle on the bound outline\'s machine', () => {
     expect(outlinesOf('gurgle@float-2, pie', null).outlines).toEqual([{ outline: 'gurgle', machine: 'float-2' }, { outline: 'pie' }])
-    expect(outlinesOf('', { outline: 'garden' }).outlines).toEqual([{ outline: 'garden' }])
+    expect(outlinesOf('', { outline: 'garden', machine: 'float-2' }).outlines).toEqual([{ outline: 'pie', machine: 'float-2' }, { outline: 'gurgle', machine: 'float-2' }])
+    expect(outlinesOf('', { outline: 'garden' }).outlines).toEqual([{ outline: 'pie' }, { outline: 'gurgle' }])
+    expect(settleOutlinesOfConfig('ws = "pie"\nsettle-outlines = "gurgle@float-2, pie@float-2" # both\n')).toBe('gurgle@float-2, pie@float-2')
+    expect(settleOutlinesOfConfig('ws = "pie"\n')).toBeUndefined()
     expect(outlinesOf('Not A Name', null).problems.at(-1)).toContain('write it like: gurgle@float-2')
   })
   test('the deployer\'s persona runs it unless on or off says otherwise', () => {

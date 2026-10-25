@@ -366,18 +366,20 @@ has the steps for a wake.
   Nothing here decides what a thread is: `settle.ts` joins the three answers, and the outlines' (a thread is one thread
   wherever its notes are: counts add, the newest touch wins, tickets in any outline shape it), and applies the thresholds.
 - **States:** warming (touched within `quiet` minutes), settled (at least `chirps` notes, `evan` of them the person's,
-  quiet for `quiet` minutes and for no more than `within`), shaped (a roadmap item carries the thread: put
+  quiet for `quiet` minutes and for no more than `within`, three days: older threads are never newly settled), shaped (a roadmap item carries the thread: put
   `[thread::<x>]` on tickets cut from it), else quiet.
 - **A wake** is one prompt naming the `wake-max` newest newly settled threads (`thread <x> settled: <n> chirps, <m>
   Evan's, quiet <t> min, capability <link>`; the capability is the `type=capability` note carrying the same `thread`).
   A thread already told isn't told again until it is touched and goes quiet again; the others, and a wake that did not go,
-  are named at the next check. What was told is kept in `$.store` (`settle.threads`).
+  are named at the next check. What was told is kept in `$.store` (`settle.threads`). **The first check wakes nothing:**
+  threads already settled are recorded as known, and one build-log line says how many (`Settle check baseline: …`); only
+  a thread that settles from then on wakes.
 - **Build log:** each move into or out of settled or shaped is a child of the newest `[type::build-log]` note, written as
   the session's persona (best effort: a line that can't be written is said once, not retried). No build log: one toast,
   nothing invented. An outline that can't be read leaves the whole check undone.
 - **Who and where:** a session whose persona is `loki`; `settle` (option) or `EP0CH_SETTLE` = `on` or `off` decides
-  outright. The outlines are `settleOutlines` or `EP0CH_SETTLE_OUTLINES` (`gurgle@float-2, pie@float-2`; default the
-  session's own). `settleTuning` or `EP0CH_SETTLE_TUNING` is `chirps=3; evan=1; quiet=60; within=10080; every=30;
+  outright. The outlines are, first match wins, `settleOutlines` or `EP0CH_SETTLE_OUTLINES` (`gurgle@float-2, pie@float-2`), then
+  `settle-outlines = "…"` in the folder's `.ep0ch/config.toml`, else `pie` and `gurgle` on the bound outline's machine. `settleTuning` or `EP0CH_SETTLE_TUNING` is `chirps=3; evan=1; quiet=60; within=4320; every=30;
   wake-max=5; base=…; evan-query=…; shaped-query=…` (minutes; the queries are in the views' grammar). The defaults are
   guesses to tune from a week of real threads.
 - A host older than `list --facets` is one toast naming `ep0ch install --apply`; the check changes nothing until it

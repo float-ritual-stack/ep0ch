@@ -1391,7 +1391,7 @@ describe('the settle check (PIE-1268)', () => {
    * it), answering the three facet questions by their query, the capability and build-log lookups, and recording the
    * wakes (prompt.submit) and the lines written under the build log (`ep0ch new`).
    */
-  function settleSession(on: On, threads: Record<string, Fake>, persona: object | null = LOKI, env: Record<string, string> = {}, noFacets = false, byOutline: Record<string, Record<string, Fake>> = {}) {
+  function settleSession(on: On, threads: Record<string, Fake>, persona: object | null = LOKI, env: Record<string, string> = {}, noFacets = false, byOutline: Record<string, Record<string, Fake>> = {}, config: { fresh?: boolean; toml?: string } = {}) {
     const session = sessionIn(on, WORKSPACE, run => {
       const query = run.argv[run.argv.indexOf('--query') + 1] ?? ''
       if (run.argv[0] === 'ep0ch' && run.argv[1] === 'where') return result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona } }), '')
@@ -1409,9 +1409,11 @@ describe('the settle check (PIE-1268)', () => {
       if (query.includes('type=capability')) return result(0, JSON.stringify({ blocks: query.includes('"zucchini"') ? [{ id: CAPABILITY, title: 'Zucchini' }] : [] }), '')
       if (query.includes('type=build-log')) return result(0, JSON.stringify({ blocks: [{ id: LOG, title: 'Build log, Oct 25', properties: [], createdAt: '2026-10-25T00:00:00Z' }] }), '')
       return succeeding(run)
-    }, '', { EP0CH_SETTLE_OUTLINES: '', ...env })
+    }, '', { EP0CH_SETTLE_OUTLINES: 'garden', ...env })
     on('tool.register', ($, e) => ({ value: { tool: `mcp__ep0ch__${e.name}` } }))
-    mock.store(on)
+    // A store that already holds a check (the first one only records a baseline).
+    mock.store(on, config.fresh ? {} : { 'settle.threads': {} })
+    on('fs.read', ($, e, next) => (e.path.endsWith('/.ep0ch/config.toml') && config.toml !== undefined ? { value: config.toml } : next(e)) as any)
     const wakes: string[] = []
     let dropping = false
     on('prompt.submit', ($, e) => { wakes.push(e.text); return (dropping ? { drop: 'busy' } : { text: e.text }) as any })
@@ -1544,6 +1546,51 @@ describe('the settle check (PIE-1268)', () => {
     expect(s.wakes[0]).toContain('thread beans settled: 4 chirps, 2 Evan\'s')
     expect(s.wakes[0]).not.toContain('thread zucchini')
     expect(s.asked()).toBe(6)
+  })
+
+  test('the first check records what is already settled without waking, and says so in the build log; a thread that settles later wakes', async ($, on) => {
+    const s = settleSession(on, { old1: { count: 4, evan: 2, ago: 200 }, old2: { count: 3, evan: 1, ago: 300 }, fresh: { count: 3, evan: 1, ago: 40 } }, LOKI, {}, false, {}, { fresh: true })
+    await start($, s)
+    expect(s.wakes).toEqual([])
+    expect(s.lines()).toEqual(['Settle check baseline: 2 settled threads at the first run, recorded, not announced (0 shaped, 1 warming)'])
+    // fresh goes quiet for the window: it settles now, and wakes.
+    await s.session.clock.advance(31 * MIN)
+    expect(s.wakes).toHaveLength(1)
+    expect(s.wakes[0]).toContain('thread fresh settled')
+    expect(s.wakes[0]).not.toContain('old1')
+  })
+
+  test('a thread quiet for longer than the horizon (3 days) is never newly settled', async ($, on) => {
+    const s = settleSession(on, { stale: { count: 5, evan: 2, ago: 4 * 24 * 60 } })
+    await start($, s)
+    expect(s.wakes).toEqual([])
+  })
+
+  describe('which outlines it reads', () => {
+    const byOutline = { pie: { a: { count: 3, evan: 1, ago: 100 } }, gurgle: { b: { count: 3, evan: 1, ago: 100 } }, garden: {}, extra: { c: { count: 3, evan: 1, ago: 100 } } }
+    const TOML = 'ws = "garden"\nsettle-outlines = "extra@far-box"\n'
+
+    test("with nothing named: pie and gurgle on the outline's machine", async ($, on) => {
+      const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: '' }, false, byOutline)
+      await start($, s)
+      expect(s.wakes[0]).toContain('thread a settled')
+      expect(s.wakes[0]).toContain('thread b settled')
+      expect(s.wakes[0]).not.toContain('thread c')
+    })
+
+    test("the folder's settle-outlines in .ep0ch/config.toml names others", async ($, on) => {
+      const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: '' }, false, byOutline, { toml: TOML })
+      await start($, s)
+      expect(s.wakes[0]).toContain('thread c settled')
+      expect(s.wakes[0]).not.toContain('thread a')
+    })
+
+    test('EP0CH_SETTLE_OUTLINES beats the folder', async ($, on) => {
+      const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: 'pie' }, false, byOutline, { toml: TOML })
+      await start($, s)
+      expect(s.wakes[0]).toContain('thread a settled')
+      expect(s.wakes[0]).not.toContain('thread c')
+    })
   })
 
   test('a host that cannot answer list --facets is one toast and no wake', async ($, on) => {

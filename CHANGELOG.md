@@ -36,9 +36,10 @@ warming while it is being touched, settled once it has 3 notes (one of them your
 roadmap items carry it. A newly settled thread wakes the session with its counts and capability note (the five newest
 at a time), and each move into or out of settled or shaped is a line under the day's build log. pie's new Threads page
 shows warming and shaped live. `outliner list` takes `--facets <key,…>` (and `--facet-values <n>`) for the service's
-value counts of any key over every match. To read gurgle too, set `EP0CH_SETTLE_OUTLINES=gurgle@float-2,pie@float-2`
-in loki's environment; `EP0CH_SETTLE=on|off` and `EP0CH_SETTLE_TUNING` change who runs it and the thresholds
-(`packages/claude-mod/README.md`). No protocol change.
+value counts of any key over every match. It reads `pie` and `gurgle` on the outline's machine
+(`settle-outlines` in `.ep0ch/config.toml`, or `EP0CH_SETTLE_OUTLINES`, name others); the first check only records what
+is already settled, so only threads that settle afterwards wake. `EP0CH_SETTLE=on|off` and `EP0CH_SETTLE_TUNING` change
+who runs it and the thresholds (`packages/claude-mod/README.md`). No protocol change.
 
 ### Signed in, the site never locks a note against its owner (PIE-1265)
 

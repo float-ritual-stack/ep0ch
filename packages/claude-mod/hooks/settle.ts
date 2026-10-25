@@ -55,7 +55,7 @@ export const SETTLE_DEFAULTS: SettleConfig = {
   chirps: 3,
   evan: 1,
   quiet: 60,
-  within: 7 * 24 * 60,
+  within: 3 * 24 * 60,
   base: `${THREAD_KEY} AND NOT type=roadmap-item`,
   evanQuery: 'by:user OR actor=evan OR text~"Evan, "',
   shapedQuery: `type=roadmap-item AND ${THREAD_KEY}`,
@@ -65,7 +65,7 @@ export const SETTLE_DEFAULTS: SettleConfig = {
 const NUMBERS = ['every', 'chirps', 'evan', 'quiet', 'within', 'wakeMax'] as const
 const TEXTS: Record<string, 'base' | 'evanQuery' | 'shapedQuery'> = { base: 'base', 'evan-query': 'evanQuery', 'shaped-query': 'shapedQuery' }
 const NUMBER_KEYS: Record<string, (typeof NUMBERS)[number]> = { every: 'every', chirps: 'chirps', evan: 'evan', quiet: 'quiet', within: 'within', 'wake-max': 'wakeMax' }
-export const TUNING_FORM = 'chirps=3; evan=1; quiet=60; within=10080; every=30; wake-max=5; base=<query>; evan-query=<query>; shaped-query=<query>'
+export const TUNING_FORM = 'chirps=3; evan=1; quiet=60; within=4320; every=30; wake-max=5; base=<query>; evan-query=<query>; shaped-query=<query>'
 
 /**
  * The `settleTuning` option or EP0CH_SETTLE_TUNING: `key=value` pairs separated by `;`. Minutes for quiet, within and
@@ -103,11 +103,11 @@ export type SettleOutline = { outline: string; machine?: string }
 
 /**
  * The outlines the check reads: `name[@machine]` separated by commas or spaces (`gurgle@float-2, pie@float-2`), else
- * the bound one. A name that isn't an outline's or a machine that isn't an ssh config name is a problem.
+ * pie and gurgle on the bound outline's machine. A name that isn't an outline's or a machine that isn't an ssh config name is a problem.
  */
 export function outlinesOf(text: string | undefined, bound: SettleOutline | null): { outlines: SettleOutline[]; problems: string[] } {
   const words = (text ?? '').split(/[,\s]+/).filter(Boolean)
-  if (!words.length) return { outlines: bound ? [bound] : [], problems: [] }
+  if (!words.length) return { outlines: bound ? DEFAULT_OUTLINES.map(outline => ({ outline, ...(bound.machine ? { machine: bound.machine } : {}) })) : [], problems: [] }
   const outlines: SettleOutline[] = []
   const problems: string[] = []
   for (const word of words) {
@@ -117,6 +117,15 @@ export function outlinesOf(text: string | undefined, bound: SettleOutline | null
   }
   if (problems.length) problems.push('write it like: gurgle@float-2, pie@float-2')
   return { outlines, problems }
+}
+
+/** The outlines a session reads when nothing names them: the ones the person works in, on the bound outline's machine. */
+export const DEFAULT_OUTLINES = ['pie', 'gurgle'] as const
+
+/** `settle-outlines = "gurgle@float-2, pie"` in a folder's `.ep0ch/config.toml` (or an old `.ep0ch` file), or undefined. */
+export function settleOutlinesOfConfig(text: string | null | undefined): string | undefined {
+  const m = /^\s*settle-outlines\s*=\s*(?:"([^"\n]*)"|'([^'\n]*)')\s*(?:#.*)?$/m.exec(text ?? '')
+  return (m?.[1] ?? m?.[2])?.trim() || undefined
 }
 
 /** The outline as the store and the wake name it: `gurgle@float-2`, or `pie` here. */
@@ -252,6 +261,18 @@ export function settleDiff(store: SettleStore, threads: readonly Thread[]): { wa
     if (from !== t.state && (from === null ? t.state === 'settled' : matters(from) || matters(t.state))) changes.push({ thread: t, from })
   }
   return { wake, changes, next }
+}
+
+/**
+ * The first check's baseline: the store as `settleDiff` left it with every thread already settled marked told, so only
+ * a thread that settles from now on wakes, and the one line that says so for the build log. 
+ */
+export function baselineOf(next: SettleStore, threads: readonly Thread[]): { store: SettleStore; line: string } {
+  const settled = threads.filter(t => t.state === 'settled')
+  return {
+    store: told(next, settled),
+    line: `Settle check baseline: ${settled.length} settled ${settled.length === 1 ? 'thread' : 'threads'} at the first run, recorded, not announced (${threads.filter(t => t.state === 'shaped').length} shaped, ${threads.filter(t => t.state === 'warming').length} warming)`,
+  }
 }
 
 /** The store with these threads marked told, up to their newest touch: only a wake that went marks them, so a failed one is tried again. */
