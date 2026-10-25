@@ -221,6 +221,14 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
 
   test("the settle tuning: the capability note's settle-tuning property reads back through the real CLI, the newest edit winning (PIE-1299)", async () => {
     const { tuningNoteArgs, tuningNotesOf, newestTuning, tuningOf } = await mod("settle.ts");
+    const listed = async () => {
+      const p = Bun.spawn(["bun", OUTLINER_CLI, ...tuningNoteArgs()], { cwd: scratch.workspace, stdout: "pipe", stderr: "pipe", env: { ...clean, ...env, FORCE_COLOR: "3" } });
+      const [stdout, exitCode] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+      expect(exitCode).toBe(0);
+      return tuningNotesOf(stdout);
+    };
+    // An outline no note of which carries the property answers an empty list, not an error: the check must not read that as a failed read.
+    expect(await listed()).toEqual([]);
     const board = new SocketBoard(env.EP0CH_SOCKET!, undefined, scratch.name);
     try {
       for (const text of [
@@ -230,10 +238,7 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
         "A plain note [settle-tuning::chirps=7]",
       ]) await board.request("create", { parentId: null, text, author: "agent" });
     } finally { board.close(); }
-    const p = Bun.spawn(["bun", OUTLINER_CLI, ...tuningNoteArgs()], { cwd: scratch.workspace, stdout: "pipe", stderr: "pipe", env: { ...clean, ...env, FORCE_COLOR: "3" } });
-    const [stdout, exitCode] = await Promise.all([new Response(p.stdout).text(), p.exited]);
-    expect(exitCode).toBe(0);
-    const notes = tuningNotesOf(stdout);
+    const notes = await listed();
     expect(notes.map((n: { tuning: string }) => n.tuning).sort()).toEqual(["chirps=2; base=thread AND NOT thread=lounge", "chirps=9"]);
     const newest = newestTuning(notes);
     // The service stamps the update time; the reader must have taken it (a note edited last wins, whichever it is).

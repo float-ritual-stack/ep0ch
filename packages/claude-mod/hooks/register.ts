@@ -1771,9 +1771,15 @@ async function runSettle($: EngineInterface, option: PluginOptions, config: Sett
     const at = (o: SettleOutline): Workspace => ({ root: bound.root, outline: o.outline, ...(o.machine ? { machine: o.machine } : {}), pinned: true })
     const cli = (o: SettleOutline, args: string[]) => $.process.run(['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args], { cwd: bound.root, env: envFor(at(o)), timeoutMs: SETTLE_TIMEOUT_MS })
     // The tuning is a property of the settle capability note, read from the outlines on every check (the option and EP0CH_SETTLE_TUNING beat it).
+    // `every` is not: the timer was set at load. An outline that cannot answer leaves the check undone, as the facet reads do: its note may be the newest.
     if (!(await settleTuningOverride($, option))) {
-      const found = (await Promise.all(named.outlines.map(o => cli(o, tuningNoteArgs()).then(r => (r.exitCode === 0 ? tuningNotesOf(r.stdout) : null), () => null)))).flatMap(notes => notes ?? [])
-      const note = newestTuning(found)
+      const ran = await Promise.all(named.outlines.map(async o => {
+        const r = await cli(o, tuningNoteArgs()).catch(() => null)
+        return { outline: o, why: r && r.exitCode !== 0 ? failureReasonOf(r.stderr) || r.stderr.trim() : '', notes: r?.exitCode === 0 ? tuningNotesOf(r.stdout) : null }
+      }))
+      const failed = ran.find(r => !r.notes)
+      if (failed) return settleToast($, `${outlineLabel(failed.outline)} could not be read for its settle-tuning${failed.why ? `: ${failed.why}` : ''}.`)
+      const note = newestTuning(ran.flatMap(r => r.notes!))
       if (note) {
         const tuned = tuningOf(note.tuning)
         if (tuned.problems.length) settleToast($, `settle-tuning on ((${note.id})): ${tuned.problems.join('; ')}`)

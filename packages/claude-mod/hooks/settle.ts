@@ -1,4 +1,4 @@
-import { listArgs, listedOf } from './workboard-now'
+import { LIST_LIMIT, listArgs, listedOf } from './workboard-now'
 import { MACHINE_NAME, OUTLINE_NAME } from './mention-message'
 
 /**
@@ -133,7 +133,7 @@ export const TUNING_KEY = 'settle-tuning'
 
 /** `list`'s argv for the notes carrying the tuning: any outline's capability notes with the property, rows with their update time. */
 export function tuningNoteArgs(): string[] {
-  return listArgs(`type=capability AND ${TUNING_KEY}`, 20, 'id,title,properties,timestamps')
+  return listArgs(`type=capability AND ${TUNING_KEY}`, LIST_LIMIT, 'id,title,properties,timestamps')
 }
 
 export type TuningNote = { id: string; tuning: string; updatedAt: number }

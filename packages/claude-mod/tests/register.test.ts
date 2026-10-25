@@ -1391,7 +1391,7 @@ describe('the settle check (PIE-1268)', () => {
    * it), answering the three facet questions by their query, the capability and build-log lookups, and recording the
    * wakes (prompt.submit) and the lines written under the build log (`ep0ch new`).
    */
-  function settleSession(on: On, threads: Record<string, Fake>, persona: object | null = LOKI, env: Record<string, string> = {}, noFacets = false, byOutline: Record<string, Record<string, Fake>> = {}, config: { fresh?: boolean; toml?: string; tuning?: Record<string, { id: string; tuning: string; updatedAt: string }[]> } = {}) {
+  function settleSession(on: On, threads: Record<string, Fake>, persona: object | null = LOKI, env: Record<string, string> = {}, noFacets = false, byOutline: Record<string, Record<string, Fake>> = {}, config: { fresh?: boolean; toml?: string; tuning?: Record<string, { id: string; tuning: string; updatedAt: string }[]>; tuningFails?: string[] } = {}) {
     const session = sessionIn(on, WORKSPACE, run => {
       const query = run.argv[run.argv.indexOf('--query') + 1] ?? ''
       if (run.argv[0] === 'ep0ch' && run.argv[1] === 'where') return result(0, JSON.stringify({ inDoor: false, here: { machine: 'garden-host', folder: WORKSPACE, persona } }), '')
@@ -1407,6 +1407,7 @@ describe('the settle check (PIE-1268)', () => {
         return result(0, JSON.stringify({ blocks: [], facets: [{ key: 'thread', count: rows.length, values: rows }] }), '')
       }
       if (query === 'type=capability AND settle-tuning') {
+        if (config.tuningFails?.includes(run.init?.env?.EP0CH_WS ?? '')) return result(1, '', 'error: the host timed out')
         const rows = (config.tuning?.[run.init?.env?.EP0CH_WS ?? ''] ?? []).map(n => ({ id: n.id, title: 'Settle, then shape', properties: [{ key: 'settle-tuning', value: n.tuning }], updatedAt: n.updatedAt }))
         return result(0, JSON.stringify({ blocks: rows }), '')
       }
@@ -1629,6 +1630,14 @@ describe('the settle check (PIE-1268)', () => {
       await start($, s)
       expect(s.wakes).toEqual([])
       expect(s.session.toasts.filter(t => t.includes(`settle-tuning on ((${CAPABILITY}))`))).toHaveLength(1)
+    })
+
+    test('an outline that cannot answer the tuning lookup leaves the check undone, so another outline\'s older tuning is not taken for the newest', async ($, on) => {
+      const s = settleSession(on, {}, LOKI, { EP0CH_SETTLE_OUTLINES: 'gurgle, pie' }, false, { gurgle: two, pie: two }, { tuning: { gurgle: [NOTE] }, tuningFails: ['pie'] })
+      await start($, s)
+      expect(s.wakes).toEqual([])
+      expect(s.asked()).toBe(0)
+      expect(s.session.toasts.filter(t => t.includes('pie could not be read for its settle-tuning: the host timed out'))).toHaveLength(1)
     })
 
     test('the folder config is never read for it: a settle-tuning line in .ep0ch/config.toml counts for nothing', async ($, on) => {
