@@ -296,12 +296,13 @@ export class PtyPane implements Pane {
   }
   /**
    * Without prompt marks (a shell with no OSC 133 integration), only the tile's own process exiting would drop a job's
-   * working or blocked. So the job that reported is noted by the terminal's foreground process group, and once the
-   * foreground is another group (the job ended and the shell took the terminal back), it's a new prompt: working and
-   * blocked go. Checked every 2s while such a record stands, only where /proc says (Linux).
+   * working or blocked, or say its agent is gone (an agent killed before it could clear its report). So the job that
+   * reported is noted by the terminal's foreground process group, and once the foreground is another group (the job
+   * ended and the shell took the terminal back), it's a new prompt: working and blocked go, and the agent it was.
+   * Checked every 2s while such a record or agent stands, only where /proc says (Linux).
    */
   private watchForeground() {
-    const r = this.status.urgent(), live = !!r && this.status.records.list().some(x => x.state === "working" || x.state === "blocked");
+    const r = this.status.urgent(), live = !!r && (this.status.app !== null || this.status.records.list().some(x => x.state === "working" || x.state === "blocked"));
     if (!live) { this.stopForegroundWatch(); return; }
     const fg = foregroundGroup(this.pid);
     if (fg === null) return;
@@ -368,6 +369,7 @@ export class PtyPane implements Pane {
     const data = (d: Uint8Array) => {
       this.run.output?.(d);
       this.lastOutput = Date.now();
+      let left = false;
       const text = Buffer.from(d).toString("latin1");
       modes(text, true);
       for (const c of clip.feed(text)) this.copied(c);
@@ -378,10 +380,10 @@ export class PtyPane implements Pane {
         const seen = this.exitTail + text;
         this.exitTail = seen.slice(-320);
         const gone = EXITED.exec(seen);
-        // Its records go once the emulator has read everything before the exit line (its reports included).
-        if (gone && this.agentExit === null) { this.agentExit = Number(gone[1]); this.exitTail = ""; term.write("", () => this.status.exited()); }
+        // Its records go once the emulator has read what this read holds (a report just before the exit line included).
+        if (gone && this.agentExit === null) { this.agentExit = Number(gone[1]); this.exitTail = ""; left = true; }
       }
-      term.write(d, () => this.soon());
+      term.write(d, () => { if (left) this.status.exited(); this.soon(); });
     };
     // The host had to drop some of its output (this daemon fell behind): the emulator starts over from all it kept.
     this.resync = replay => {
@@ -410,10 +412,13 @@ export class PtyPane implements Pane {
       const replayed = Buffer.from(kept.replay).toString("latin1");
       modes(replayed, false);
       // The agent had exited before the handover: its exit line is in what the host kept.
-      if (this.wrapped && this.agentExit === null) { const all = [...replayed.matchAll(new RegExp(EXITED.source, "g"))]; if (all.length) this.agentExit = Number(all.at(-1)![1]); }
+      let leftBefore = false;
+      if (this.wrapped && this.agentExit === null) { const all = [...replayed.matchAll(new RegExp(EXITED.source, "g"))]; if (all.length) { this.agentExit = Number(all.at(-1)![1]); leftBefore = true; } }
       const proc = kept.proc;
       term.write(kept.replay, () => {
         replaying = false;
+        // Whatever it reported before it left (the replay holds it) is no agent's now.
+        if (leftBefore) this.status.exited();
         const c = this.cols, r = this.rows;
         if (term.cols !== c || term.rows !== r) term.resize(c, r);
         const same = kept.cols === c && kept.rows === r;

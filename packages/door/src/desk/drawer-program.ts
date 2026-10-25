@@ -47,10 +47,12 @@ export interface DrawerProgram {
 
 /**
  * The agent kinds Herdr supports (`herdr agent start --kind`), and aider, each by the command that starts it. Found
- * on PATH, they're offered; Herdr detects them in its panes. Read from Herdr's own list when it's updated.
+ * on PATH, they're offered; Herdr detects them in its panes. Read from Herdr's own list when it's updated. The third
+ * word, where there is one, is the `app` the agent names itself with in its OSC 7501 reports when that isn't its
+ * program's name (`agentOfApp`, src/desk/agent-sessions.ts): the Claude mod and Claude Code say `claude-code`.
  */
-export const KNOWN_AGENTS: readonly [name: string, cmd: string][] = [
-  ["claude", "claude"], ["codex", "codex"], ["pi", "pi"], ["gemini", "gemini"], ["opencode", "opencode"], ["aider", "aider"],
+export const KNOWN_AGENTS: readonly [name: string, cmd: string, app?: string][] = [
+  ["claude", "claude", "claude-code"], ["codex", "codex"], ["pi", "pi"], ["gemini", "gemini"], ["opencode", "opencode"], ["aider", "aider"],
   ["amp", "amp"], ["cursor", "cursor-agent"], ["copilot", "copilot"], ["goose", "goose"], ["droid", "droid"], ["qwen", "qwen"],
   ["kimi", "kimi"], ["grok", "grok"], ["hermes", "hermes"], ["cline", "cline"], ["kilo", "kilo"], ["letta", "letta"],
 ];

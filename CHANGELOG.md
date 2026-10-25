@@ -53,6 +53,20 @@ Evan, Oct 25: over ssh, sweep the mouse and stop, and the highlights replayed th
 - **`peek` shows how the door keeps up:** `speed` (`frames` painted, `motionCoalesced` hover reports folded into a newer one) and `hover` (where the pointer
   rests and the cut-short value being read).
 
+### A terminal knows its agent from the agent's own report, on every machine (PIE-1296)
+
+On the Mac, a claude running in the drawer was reporting `claude-code` over OSC 7501 and still listed no session, so
+alt+g's `agent.start` started a second one beside it (and that one, `--continue` with nothing to continue, exited).
+
+- **The report is the answer.** The latest root OSC 7501 report's `app` names the agent in a terminal tile (`claude-code` is
+  claude), as soon as it starts: the Claude mod reports once when a session starts, so an idle claude is known too.
+  `agent.start` for it attaches to that tile instead of starting another.
+- **It goes when the program says so.** A `clear` that leaves no record, the program exiting, a new prompt (OSC 133 A)
+  or a reset ends it, and on Linux so does the shell taking the terminal back from an agent that was killed before it
+  could clear. Its `done` and `error` records still stay for you.
+- **Programs that report nothing (codex, pi) are found as before:** their processes by name (Linux `/proc`), else the tile's
+  own command. The wrapper's printed "exited" line is still read, for the exit code the drawer shows.
+
 ### One list, drawn the same everywhere: the `list` primitive and the door's ListView (PIE-747)
 
 Asked Oct 25 ("i want it"): a real list in every client without a door feature. An extension (marginalia's notebook, a

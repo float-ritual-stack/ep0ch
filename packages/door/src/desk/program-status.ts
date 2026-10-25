@@ -51,6 +51,13 @@ export class TileStatus {
   readonly records = new StatusRecords();
   /** When its records last changed (Date.now()). */
   at = 0;
+  /**
+   * Who runs here, by what the program says (the `app` of the latest root report): the one answer to "which
+   * agent is in this terminal" that needs no /proc (agent-sessions.ts `agentOfApp` reads it). It is not a record: `idle`,
+   * `done` and `error` stay for the person after the program is gone, but the program isn't there. So it goes when the
+   * program says so (a `clear` that leaves no record), exits, a new prompt begins (OSC 133 A) or the terminal is reset.
+   */
+  app: string | null = null;
 
   /**
    * One OSC 7501 body the program wrote. The feature query is answered through `reply` (null while a kept program's
@@ -59,14 +66,19 @@ export class TileStatus {
   feed(body: string, reply: ((bytes: string) => void) | null): void {
     const p = parseProgramStatus(body);
     if (p.t === "query") { reply?.(PROGRAM_STATUS_QUERY); return; }
-    if (p.t === "report" && this.records.apply(p.report)) this.changed();
+    if (p.t !== "report") return;
+    const applied = this.records.apply(p.report);
+    // Only the root record names who runs here: a door's child records name its tiles' programs, not the door's.
+    if (p.report.state === "clear") { if (this.records.size === 0) this.app = null; }
+    else if (p.report.id === "") this.app = p.report.app ?? null;
+    if (applied) this.changed();
   }
   /** The program exited: `working` and `blocked` go; `done` and `error` stay for the person. */
-  exited(): void { if (this.records.exited()) this.changed(); }
+  exited(): void { this.app = null; if (this.records.exited()) this.changed(); }
   /** A new shell prompt (OSC 133 A). */
-  prompt(): void { if (this.records.prompt()) this.changed(); }
+  prompt(): void { this.app = null; if (this.records.prompt()) this.changed(); }
   /** A full reset (RIS). */
-  reset(): void { if (this.records.reset()) this.changed(); }
+  reset(): void { this.app = null; if (this.records.reset()) this.changed(); }
   /** The person saw it: `done` and `error` go. True when something went. */
   seen(): boolean { const gone = this.records.seen(); if (gone) this.changed(); return gone; }
   /** The record asking most of the person, or null. */

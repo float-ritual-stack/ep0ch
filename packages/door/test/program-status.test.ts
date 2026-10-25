@@ -25,6 +25,24 @@ function tile(script: string, label = "prog"): PtyPane {
 afterEach(() => { for (const p of tiles.splice(0)) p.dispose(); });
 const states = (p: PtyPane) => p.status.records.list().map(r => `${r.id || "root"}:${r.state}`).join(" ");
 
+describe("who runs in a tile (TileStatus.app)", () => {
+  test("the root report's app: a nested door's child records name its tiles' agents, not this tile's", () => {
+    const s = new TileStatus();
+    s.feed("state=idle:app=ep0ch", null);
+    s.feed("state=working:id=claude.1:app=claude-code", null);
+    expect(s.app).toBe("ep0ch");
+    s.feed("state=idle:app=claude-code", null);
+    expect(s.app).toBe("claude-code");
+    s.feed("state=clear:id=other", null);                    // a child going leaves the root
+    expect(s.app).toBe("claude-code");
+    s.feed("state=idle", null);                              // the root report replaces its record whole: no app now
+    expect(s.app).toBeNull();
+    s.feed("state=idle:app=claude-code", null);
+    s.feed("state=clear", null);
+    expect(s.app).toBeNull();
+  });
+});
+
 describe.skipIf(!cttyPrefix())("a terminal tile reads its program's status", () => {
   test("a report becomes the tile's record, whole; its header shows the state; the waiting list and the status bar count it", async () => {
     const p = tile(`printf '${osc(`state=working:app=build:progress=40:msg=${b64("compiling")}`)}'; sleep 0.3; printf '${osc(`state=blocked:kind=permission:msg=${b64("Allow deploy?")}`)}'; sleep 30`);
@@ -80,6 +98,18 @@ describe.skipIf(!cttyPrefix() || !Bun.which("bash") || !existsSync("/proc/self/s
     await until(() => p.status.urgent()?.state === "working", "the job's report", 5000);
     await until(() => draw(p).includes("job-over"), "the job ends", 5000);
     await until(() => p.status.records.size === 0, "working dropped once the shell is back in the foreground", 6000);
+  }, 20_000);
+
+  test("an agent that reported idle and was killed without clearing: once the shell has the terminal back, it is no agent here (its idle record stays)", async () => {
+    const p = new PtyPane({ cmd: ["bash", "--norc", "--noprofile", "-i"], label: "shell" });
+    tiles.push(p);
+    draw(p);
+    await Bun.sleep(300);
+    p.input(`PS1='$ '; sh -c "printf '${osc("state=idle:app=claude-code")}'; sleep 1; echo agent-over"\r`);
+    await until(() => p.status.app === "claude-code", "the agent's report", 5000);
+    await until(() => draw(p).includes("agent-over"), "the agent ends", 5000);
+    await until(() => p.status.app === null, "no agent once the shell is back in the foreground", 6000);
+    expect(states(p)).toBe("root:idle");
   }, 20_000);
 });
 

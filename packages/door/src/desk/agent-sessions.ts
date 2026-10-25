@@ -10,9 +10,12 @@
 // A terminal is a session when:
 // - it was started as one (`agent.start`, `ep0ch agent`, the agent panel's new): its PtySpec carries `session`, saved
 //   with its tile, so it is one after a restart too;
-// - an agent program runs in it, found the way Herdr finds one: the terminal's processes by name (KNOWN_AGENTS), read
-//   from /proc (a `claude` typed in a `^W o s` shell is a session from then on, until it exits); without /proc, the
-//   tile's own command;
+// - its program says which agent it is: the `app` of its latest OSC 7501 report (the tile's `status.app`; the Claude mod
+//   reports once when a session starts, so an idle claude is known too), until it clears its report, exits, or a prompt
+//   begins (`agentOfApp`, the same on every machine);
+// - an agent program that reports nothing (codex, pi) runs in it, found the way Herdr finds one: the terminal's
+//   processes by name (KNOWN_AGENTS), read from /proc (a `claude` typed in a `^W o s` shell is a session from then on,
+//   until it exits); without /proc, the tile's own command;
 // - it is the drawer's own tab running an agent (the same rule: it runs one).
 //
 // Identity is the folder plus the program, so resuming is the program's own "continue the last conversation in this
@@ -70,6 +73,14 @@ export interface AgentSession {
 export function agentOf(argv: readonly string[]): string | null {
   const known = (a: string | undefined) => KNOWN_AGENTS.find(([, c]) => c === basename(a ?? ""))?.[0] ?? null;
   return known(argv[0]) ?? (INTERPRETERS.test(basename(argv[0] ?? "")) ? known(argv[1]) : null);
+}
+/**
+ * The agent an OSC 7501 report's `app` names (`claude-code` is claude; a program that names itself by its own name,
+ * `codex`, is that), else null: the door's own report (`ep0ch`), a build job's are no agent. The one place the word an
+ * agent reports with becomes the program the door calls it.
+ */
+export function agentOfApp(app: string | null | undefined): string | null {
+  return app ? KNOWN_AGENTS.find(([name, , reports]) => app === name || app === reports)?.[0] ?? null : null;
 }
 /** What runs an agent that is a script: its argv[1] is the agent. */
 const INTERPRETERS = /^(node|nodejs|bun|deno|sh|bash|dash|zsh|python3?)$/;
@@ -148,13 +159,17 @@ export function asSession(p: PtyPane, o: { own?: boolean; proc?: string; now?: n
   // The launcher's tile shows an agent that runs in Herdr: its agent is the launcher's --agent, in the tile's folder.
   if (p.herdr) return { program: mark?.program ?? programName(p.run.cmd), folder: p.run.cwd ?? process.cwd(), persona: mark?.persona ?? null, config: mark?.config ?? null, how: o.own ? "drawer" : mark ? "started" : "found", pane: p };
   const proc = o.proc ?? "/proc";
-  const live = proc !== "/proc" || hasProc() ? agentIn(p.pid, proc, o.now) : null;
-  if (!mark && !live) {
+  // What the program says it is (OSC 7501's app, kept by the tile) is the answer; its processes are looked at only for
+  // what they know that a report doesn't (the folder it runs in, its persona) and for programs that send no reports.
+  const said = agentOfApp(p.status.app);
+  let live = proc !== "/proc" || hasProc() ? agentIn(p.pid, proc, o.now) : null;
+  if (said && live && live.program !== said) live = null;
+  if (!mark && !live && !said) {
     // No /proc to look in (macOS): the tile's own command says, while its agent hasn't exited.
     if (proc === "/proc" && hasProc()) return null;
     if (!isAgentCmd(p.run.cmd) || p.agentExit !== null) return null;
   }
-  const program = mark?.program ?? live?.program ?? programName(p.run.cmd);
+  const program = mark?.program ?? said ?? live?.program ?? programName(p.run.cmd);
   const folder = live?.cwd ?? p.run.cwd ?? process.cwd();
   return { program, folder, persona: mark?.persona ?? live?.persona ?? null, config: mark?.config ?? null, how: o.own ? "drawer" : mark ? "started" : "found", pane: p };
 }
