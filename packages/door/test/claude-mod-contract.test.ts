@@ -394,7 +394,7 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       const asked = peekArgv({ full: true });
       expect(asked).toEqual({ argv: ["ep0ch", "peek", "--json"], reads: "full" });
       const full = peekOf(json.stdout, "full");
-      expect(full.screen).toMatchObject({ outline: whole.outline, speed: whole.speed });
+      expect(full.screen).toMatchObject({ stack: whole.stack, speed: whole.speed });
       expect(typeof full.text).toBe("string");
       expect(peekOf(speed.stdout, "section")).toEqual({ section: JSON.parse(speed.stdout) });
       expect(peekArgv({ section: "speed", full: true })).toContain("one part of the state");
