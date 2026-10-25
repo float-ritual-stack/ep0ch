@@ -214,6 +214,19 @@ function isDraftAnswer(line: string): boolean {
   }
 }
 
+/**
+ * A request that waits for a script run's answer (PIE-1264). It never holds its connection: the run's own calls into the
+ * door that asked (`scripts.act`, answered by `scripts.answer`, and whatever the action then reads) come back over it.
+ */
+function waitsForRun(line: string): boolean {
+  if (!line.includes('"extensions.act"') && !line.includes('"scripts.run"') && !line.includes('"scripts.sequence"')) return false;
+  try {
+    return ["extensions.act", "scripts.run", "scripts.sequence"].includes((JSON.parse(line) as { action?: string }).action ?? "");
+  } catch {
+    return false;
+  }
+}
+
 /** Provenance the request declared for its mutation; self-reported by the client. */
 function normalizeFollowProvenance(mutation: MutationProvenance): MutationProvenance {
   if (!mutation || !["user", "agent", "system"].includes(mutation.author)) throw new Error("follow-authored mutation must identify user, agent, or system");
@@ -4662,6 +4675,9 @@ export class OutlinerServer {
         } else if (line.includes('"drafts.answer"') && isDraftAnswer(line)) {
           // A door's answer is never queued behind the request on its connection that waits for it.
           void this.respond(socket, line);
+        } else if (waitsForRun(line)) {
+          const received = performance.now();
+          void this.turns.next(actionOf(line)).then(() => this.respond(socket, line, received));
         } else {
           const received = performance.now();
           // Each request waits its turn on the loop (Turns): a burst of whole-outline reads never holds it.

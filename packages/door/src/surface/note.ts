@@ -4447,6 +4447,8 @@ export class NoteSurface {
         if (invitation && r.undo) INVITES.bind(invitation, r.undo);
         if (r.undo) EXT_UNDO.push({ undo: r.undo, label: button.label, by: partyOf(actor), context: note!.id });
         host.redraw();
+        // The step that stopped it, in its own words, to an agent (PIE-1264); the person hears it from `scripts.ended`.
+        if (r.state === "failed" && actor.kind !== "user") throw new ActionRefused(r.message ?? `${button.label} failed`);
         return r;
       }
       let req;

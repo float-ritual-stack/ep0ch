@@ -67,12 +67,14 @@ describe.skipIf(!outliner)("the showcase screen: scripts in place", () => {
     const agent = { kind: "agent" as const, id: "test-agent" };
     await board.createBlock(null, "Gate [script::cellar-gate] [results::keep]\n```js\nreturn 'the cellar is closed: it needs candles >= 4';\n```");
     await board.createBlock(null, "Latch [script::cellar-latch]\n```js\nthrow new Error('the latch is stuck');\n```");
-    const note = await board.createBlock(null, "Cellar\n::button{label=Gate act=cellar-gate}\n::button{label=Latch act=cellar-latch}");
+    const note = await board.createBlock(null, "Cellar\n::button{label=Gate act=cellar-gate}\n::button{label=Latch act=cellar-latch}\n::button{label=Both}\n((cellar-gate))\n((cellar-latch))\n::");
     try {
       await app.loadExtensions(true);
       const said = await app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Gate" } }, agent) as { message: string; state: string };
       expect(said).toMatchObject({ message: "the cellar is closed: it needs candles >= 4", state: "done" });
       await expect(app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Latch" } }, agent)).rejects.toThrow("the latch is stuck");
+      // A sequence button too: the step that stopped it, in its own words.
+      await expect(app.dispatch.act({ action: "button.press", args: { note: note.id, label: "Both" } }, agent)).rejects.toThrow("the latch is stuck");
     } finally {
       await board.trash(note.id, USER);
     }

@@ -3,7 +3,8 @@
 // and "working" is never the final word: a run still going after the wait says how to follow or stop it.
 // Scratch services in temp folders; every note and name is made up.
 import { expect, test } from "bun:test";
-import { setup } from "./script-harness";
+import { createConnection } from "node:net";
+import { setup, until } from "./script-harness";
 
 type Answer = { message: string; state?: string; answer?: string; undo: string };
 
@@ -47,4 +48,29 @@ test("a run still going after the wait says so and how to stop it, never just wo
   expect(act.message).toContain("still running");
   expect(act.message).toContain(`script.stop run=${act.undo}`);
   await client.request({ action: "scripts.stop", run: act.undo });
+});
+
+test("a request waiting for a run's answer doesn't hold its connection: the door's own callbacks come over it", async () => {
+  const { server, create, extensionOf } = await setup();
+  create("Kettle [script::kettle]\n```js\nwhile (true) await wait(25);\n```");
+  const extension = await extensionOf("kettle");
+  const socket = createConnection(server.socketPath);
+  const seen: { id: string; at: number }[] = [];
+  const start = Date.now();
+  let buffer = "";
+  socket.setEncoding("utf8");
+  socket.on("data", chunk => {
+    buffer += chunk;
+    for (let n = buffer.indexOf("\n"); n >= 0; n = buffer.indexOf("\n")) {
+      const line = buffer.slice(0, n);
+      buffer = buffer.slice(n + 1);
+      seen.push({ id: JSON.parse(line).id, at: Date.now() - start });
+    }
+  });
+  await new Promise(resolve => socket.once("connect", resolve));
+  socket.write(`${JSON.stringify({ id: "press", action: "extensions.act", extension: extension.id, extensionAction: "run" })}\n`);
+  socket.write(`${JSON.stringify({ id: "callback", action: "children", parentId: null })}\n`);
+  await until("both answers", () => seen.length === 2);
+  socket.destroy();
+  expect(seen.map(s => s.id)).toEqual(["callback", "press"]);
 });
