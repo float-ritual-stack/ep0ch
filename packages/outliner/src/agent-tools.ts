@@ -623,28 +623,29 @@ async function componentsRead(client: AgentToolsClient, text: string): Promise<C
  */
 async function figureSuggestion(client: AgentToolsClient, text: string, before?: string, at?: Omit<SuggestionWrite, "source">): Promise<{ component: string; said: string } | null> {
   if (process.env.OUTLINER_FIGURE_FIT === "off" || figureShape(text) !== "shaped") return null;
-  type Asked = { fit: FigureFit; reading?: FigureFitReading } | "quiet" | "unavailable" | null;
+  type Asked = { fit: FigureFit; reading?: FigureFitReading } | { quiet: FigureFitReading | undefined } | "unavailable" | null;
   const ask = async (): Promise<Asked> => {
     const schemas = await schemasOf(client);
     if (!schemas || figureShape(text, schemas) !== "shaped" || (before !== undefined && figureShape(before, schemas) === "shaped")) return null;
     const answer = await suggestFigure(text, schemas, { timeoutMs: FIGURE_FIT_BUDGET_MS });
     if ("unavailable" in answer) return "unavailable";
-    return answer.fit ? { fit: answer.fit, reading: answer.reading } : "quiet";
+    return answer.fit ? { fit: answer.fit, reading: answer.reading } : { quiet: answer.reading };
   };
   // The whole ask (schemas, key, prompt and Jev) is bounded, since the write's answer waits on it.
   const asked = await Promise.race([ask().catch((): Asked => null), Bun.sleep(FIGURE_FIT_BUDGET_MS).then((): Asked => "unavailable")]);
   if (!asked) return null;
   // PIE-1251: what Jev said is a fact, recorded only once the writer is about to hear it (an ask that outlived the budget is
   // not a suggestion anyone was told), and awaited so a one-shot CLI doesn't exit before it lands.
-  if (typeof asked === "string") {
-    if (at) await tallyAsk(client, asked);
-    return null;
-  }
-  if (at) {
-    await recordSuggestion(client, asked.fit, asked.reading, { ...at, source: "write" });
+  // The bookkeeping is bounded too: the writer's answer never waits on it past the budget (a record not made in time is lost, not retried).
+  const keep = async () => {
+    if (asked === "unavailable") return void await tallyAsk(client, "unavailable");
+    if ("quiet" in asked) return void await tallyAsk(client, "quiet", asked.quiet);
+    await recordSuggestion(client, asked.fit, asked.reading, { ...at!, source: "write" });
     const schemas = await schemasOf(client);
     if (schemas) await settleOpen(client, schemas);
-  }
+  };
+  if (at) await Promise.race([keep().catch(() => undefined), Bun.sleep(RECORD_BUDGET_MS)]);
+  if (asked === "unavailable" || "quiet" in asked) return null;
   return { component: asked.fit.component, said: asked.fit.said };
 }
 
@@ -656,10 +657,12 @@ async function figureSuggestion(client: AgentToolsClient, text: string, before?:
 async function settleSuggestions(client: AgentToolsClient, noteId: string, text: string): Promise<void> {
   if (process.env.OUTLINER_FIGURE_FIT === "off" || !componentBlocks(text.split("\n")).length) return;
   const schemas = await schemasOf(client);
-  if (schemas) await settleNote(client, noteId, schemas);
+  if (schemas) await Promise.race([settleNote(client, noteId, schemas), Bun.sleep(RECORD_BUDGET_MS)]);
 }
 /** At most this long added to a write's answer by its figure suggestion, whatever Jev does. */
 const FIGURE_FIT_BUDGET_MS = 1500;
+/** And at most this long for the suggestion's record and the settling of earlier ones (jev-suggestions.ts). */
+const RECORD_BUDGET_MS = 3000;
 
 /** What a figure-fit sweep found: each note it would tell, and the margin thread it left when asked to. */
 export interface FigureSweep {

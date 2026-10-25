@@ -40,10 +40,13 @@ export function writerOf(actorId: string): { writer: string; harness: string } {
 }
 
 /** The prompt revisions a reading was made with, as short names: `figure-fit.json:1a2b3c4d5e6f`. */
-const promptOf = (reading?: FigureFitReading) => reading?.prompt.map(p => `${p.path.split("/").pop()}:${p.sha256.slice(0, 12)}`).join(" ") || "unknown";
+export const promptRevOf = (reading?: FigureFitReading) => reading?.prompt.map(p => `${p.path.split("/").pop()}:${p.sha256.slice(0, 12)}`).join(" ") || "unknown";
 
 /** A value written as a property chip: one line, with nothing that reads as a bracket or a `::` opener. */
 const chipValue = (v: string) => v.replace(/[\[\]\r\n]+/g, " ").replace(/:{2,}/g, ":").trim().slice(0, 200) || "none";
+
+/** Every value a record is stamped with, as a chip may hold it: actor ids and titles are the writer's own words. */
+const clean = (props: Record<string, string>) => Object.fromEntries(Object.entries(props).map(([k, v]) => [k, chipValue(v)]));
 
 const propsOf = (text: string) => Object.fromEntries(parsePropertyRecords(text).map(p => [p.key, p.value]));
 
@@ -57,33 +60,69 @@ export interface SuggestionWrite {
   thread?: string;
 }
 
-/** A suggestion a writer was told, as a fact. Never throws. */
-export async function recordSuggestion(client: SuggestionClient, fit: FigureFit, reading: FigureFitReading | undefined, at: SuggestionWrite): Promise<void> {
+const dayOf = (at: Date | number) => new Date(at).toISOString().slice(0, 10);
+
+/** A suggestion a writer was told, as a fact, and the day's run brought up to date. Never throws. */
+export async function recordSuggestion(client: SuggestionClient, fit: FigureFit, reading: FigureFitReading | undefined, at: SuggestionWrite, now = new Date()): Promise<void> {
   try {
-    await writeRecord(board(client), "suggestion", {
-      note: at.note, revision: String(at.revision), ...writerOf(at.actorId), component: fit.component,
-      gate: String(fit.gate), confidence: String(fit.confidence), callout: chipValue(fit.callouts?.join(" / ") ?? "none"),
-      prompt: promptOf(reading), source: at.source, thread: at.thread ?? "none",
-    }, JEV);
+    const day = dayOf(now);
+    await writeRecord(board(client), "suggestion", clean({
+      day, note: at.note, revision: String(at.revision), ...writerOf(at.actorId), component: fit.component,
+      gate: String(fit.gate), confidence: String(fit.confidence), callout: fit.callouts?.join(" / ") ?? "none",
+      model: reading?.model ?? "unknown", "prompt-rev": promptRevOf(reading), source: at.source, thread: at.thread ?? "none",
+    }), JEV);
+    await updateRun(client, day, { reading });
   } catch { /* the write has landed; a record that can't be made is not its failure */ }
 }
 
-/** Jev was asked and said nothing (`quiet`), or couldn't be asked (`unavailable`): one count up on the day's tally. Never throws. */
-export async function tallyAsk(client: SuggestionClient, what: "quiet" | "unavailable", now = new Date()): Promise<void> {
-  try {
-    const day = now.toISOString().slice(0, 10);
-    const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=suggestion-day day=${day}`, machinery: "show", limit: 1 } });
-    const tally = found.blocks[0];
-    if (!tally) {
-      await writeRecord(board(client), "suggestion-day", { day, quiet: what === "quiet" ? "1" : "0", unavailable: what === "unavailable" ? "1" : "0" }, JEV, { title: `Jev's asks ${day}` });
-      return;
-    }
-    const chip = new RegExp(`\\[${what}::(\\d+)\\]`);
-    const count = Number(chip.exec(tally.text)?.[1]);
-    if (!Number.isFinite(count)) return;
-    // A conflict (another writer counted first) loses this one count rather than looping: the tally is a rate, not a ledger.
-    await client.request<Block>({ action: "update", blockId: tally.id, text: tally.text.replace(chip, `[${what}::${count + 1}]`), expectedRevision: tally.revision, mutation: { author: "agent", actorId: "jev/figure-fit" } });
-  } catch { /* best-effort */ }
+/** Jev was asked and said nothing (`quiet`, with its reading), or couldn't be asked (`unavailable`): counted on the day's run. Never throws. */
+export async function tallyAsk(client: SuggestionClient, what: "quiet" | "unavailable", reading?: FigureFitReading, now = new Date()): Promise<void> {
+  try { await updateRun(client, dayOf(now), { [what]: 1, reading }); } catch { /* best-effort */ }
+}
+
+/** The key the lab's runs share (`experiment::figure-fit-live` is this one: Jev as asked while agents write). */
+export const LIVE_EXPERIMENT = "figure-fit-live";
+
+const countOf = async (client: SuggestionClient, where: string, group: string) =>
+  Object.fromEntries(((await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", limit: 1, group } })).groups ?? []).map(g => [g.value ?? "", g.count]));
+
+const setChip = (text: string, key: string, value: string | number) => {
+  const chip = new RegExp(`\\[${key}::[^\\]]*\\]`);
+  return chip.test(text) ? text.replace(chip, () => `[${key}::${value}]`) : text;
+};
+const chipNumber = (text: string, key: string) => Number(new RegExp(`\\[${key}::(\\d+(?:\\.\\d+)?)\\]`).exec(text)?.[1]) || 0;
+
+/**
+ * The day's run, one note per outline per day (`type::jev-run`, the run-level keys kitty's lab runs share, so one query
+ * reads both): `items` (asks Jev answered), `suggested`, `agreed` (followed), `agreement`, `different`, `ignored`, the
+ * quiet and unavailable asks, tokens, model and prompt revision. The counts are derived here from the suggestion and
+ * outcome records of the day, never carried by hand; `quiet`, `unavailable` and tokens are the tally itself. The one
+ * record that is rewritten, as a rate: a conflicting write loses a count rather than looping.
+ */
+async function updateRun(client: SuggestionClient, day: string, change: { quiet?: number; unavailable?: number; reading?: FigureFitReading }): Promise<void> {
+  const find = async () => (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where: `type=jev-run experiment=${LIVE_EXPERIMENT} run=${day}`, machinery: "show", limit: 1 } })).blocks[0];
+  let run = await find();
+  if (!run) {
+    const zero = Object.fromEntries(["items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out"].map(k => [k, "0"]));
+    await writeRecord(board(client), "jev-run", { experiment: LIVE_EXPERIMENT, run: day, model: "unknown", "prompt-rev": "unknown", ...zero }, JEV, { title: `figure-fit ${day}` });
+    run = await find();
+    if (!run) return;
+  }
+  const suggested = (await countOf(client, `type=suggestion day=${day}`, "day"))[day] ?? 0;
+  const outcomes = await countOf(client, `type=suggestion-outcome day=${day}`, "outcome");
+  const quiet = chipNumber(run.text, "quiet") + (change.quiet ?? 0);
+  let text = run.text;
+  const set = (key: string, value: string | number) => { text = setChip(text, key, value); };
+  set("suggested", suggested); set("agreed", outcomes.followed ?? 0); set("different", outcomes.different ?? 0); set("ignored", outcomes.ignored ?? 0);
+  set("agreement", suggested ? Math.round((outcomes.followed ?? 0) / suggested * 100) / 100 : 0);
+  set("quiet", quiet); set("items", suggested + quiet);
+  set("unavailable", chipNumber(run.text, "unavailable") + (change.unavailable ?? 0));
+  if (change.reading) {
+    set("model", change.reading.model); set("prompt-rev", chipValue(promptRevOf(change.reading)));
+    set("tokens-in", chipNumber(run.text, "tokens-in") + (change.reading.usage?.input ?? 0));
+    set("tokens-out", chipNumber(run.text, "tokens-out") + (change.reading.usage?.output ?? 0));
+  }
+  if (text !== run.text) await client.request<Block>({ action: "update", blockId: run.id, text, expectedRevision: run.revision, mutation: { author: "agent", actorId: "jev/figure-fit" } });
 }
 
 // ── The rule ───────────────────────────────────────────────────────────────
@@ -123,17 +162,18 @@ export function judgeSuggestion(
   const suggested = (schema && blockNameOf(schema)) ?? s.component;
   const had = new Set(figuresIn(baseline, schemas));
   const window = after.filter(w => Date.parse(w.savedAt) - s.at <= FOLLOW_WITHIN_MS).slice(0, FOLLOW_WITHIN_WRITES);
+  // The whole window is read for the figure suggested before another figure settles it as a different one.
+  const followed = window.find(w => figuresIn(w.text, schemas).includes(suggested) && !had.has(suggested));
+  if (followed) return { outcome: "followed", because: `revision ${followed.revision} draws ${suggested}` };
   for (const write of window) {
-    const drawn = figuresIn(write.text, schemas);
-    if (drawn.includes(suggested) && !had.has(suggested)) return { outcome: "followed", because: `revision ${write.revision} draws ${suggested}` };
-    const other = drawn.find(name => !had.has(name));
+    const other = figuresIn(write.text, schemas).find(name => !had.has(name));
     if (other) return { outcome: "different", because: `revision ${write.revision} draws ${other} instead` };
   }
   const closed = window.length >= FOLLOW_WITHIN_WRITES || now - s.at > FOLLOW_WITHIN_MS;
   return closed ? { outcome: "ignored", because: `${window.length} later write${window.length === 1 ? "" : "s"} within a day drew no figure` } : null;
 }
 
-async function read(client: SuggestionClient, where: string, limit = 500): Promise<Block[]> {
+async function read(client: SuggestionClient, where: string, limit = 1000): Promise<Block[]> {
   return (await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { where, machinery: "show", limit } })).blocks;
 }
 
@@ -141,11 +181,11 @@ const openOf = (suggestions: Block[], outcomes: Block[]): OpenSuggestion[] => {
   const settled = new Set(outcomes.map(o => propsOf(o.text).suggestion));
   return suggestions.filter(b => !settled.has(b.id)).map(b => {
     const p = propsOf(b.text);
-    return { id: b.id, note: p.note!, revision: Number(p.revision), at: Date.parse(b.createdAt), component: p.component!, ...(p.thread && p.thread !== "none" ? { thread: p.thread } : {}), writer: p.writer, harness: p.harness };
+    return { id: b.id, note: p.note!, revision: Number(p.revision), at: Date.parse(b.createdAt), component: p.component!, ...(p.thread && p.thread !== "none" ? { thread: p.thread } : {}), writer: p.writer, harness: p.harness, day: p.day };
   }).filter(s => s.note && Number.isFinite(s.revision) && s.component);
 };
 
-type OpenWithWho = OpenSuggestion & { writer?: string; harness?: string };
+type OpenWithWho = OpenSuggestion & { writer?: string; harness?: string; day?: string };
 
 /**
  * Settles what can be settled of one note's open suggestions against its revisions: a verdict from `judgeSuggestion`
@@ -176,10 +216,13 @@ async function settle(client: SuggestionClient, note: string, open: OpenWithWho[
     const after = await Promise.all(later.map(async r => ({ revision: r.revision, savedAt: r.savedAt, text: await text(r.revision) })));
     const verdict = judgeSuggestion(s, baseline, after, schemas, now, lifecycle);
     if (!verdict) continue;
-    await writeRecord(board(client), "suggestion-outcome", {
-      suggestion: s.id, note, outcome: verdict.outcome, component: s.component, writer: s.writer ?? "unknown", harness: s.harness ?? "unknown", because: chipValue(verdict.because),
-    }, JEV);
+    // Settled by another pass while this one read the revisions: one outcome per suggestion.
+    if ((await read(client, `type=suggestion-outcome suggestion=${s.id}`, 1)).length) continue;
+    await writeRecord(board(client), "suggestion-outcome", clean({
+      day: s.day ?? dayOf(s.at), suggestion: s.id, note, outcome: verdict.outcome, component: s.component, writer: s.writer ?? "unknown", harness: s.harness ?? "unknown", because: verdict.because,
+    }), JEV);
     written++;
+    await updateRun(client, s.day ?? dayOf(s.at), {}).catch(() => undefined);
   }
   return written;
 }

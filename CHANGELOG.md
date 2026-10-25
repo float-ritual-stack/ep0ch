@@ -14,7 +14,7 @@ are its record. The outliner's entries from then are kept below, under
 
 - **Every suggestion a write's answer carries leaves a record** (`type::suggestion` under Records): the note and revision,
   who wrote (persona and harness), the figure, Jev's gate and confidence, the callout it named, the prompt revision. An ask
-  where Jev stayed quiet is a count on that day's `suggestion-day` note, not a note each.
+  where Jev stayed quiet is a count on that day's `type::jev-run` note (`experiment::figure-fit-live`, the run-level keys the lab's runs share: items, agreed, agreement, tokens), not a note each.
 - **Followed, a different figure or ignored is derived, never typed.** A later write that draws the suggested figure within
   five writes or a day (or a figure-fit thread marked Kept) is followed; one that draws another is a different figure;
   neither is ignored. The verdict is a `suggestion-outcome` record, written once. A "Jev's suggestions" view in pie counts

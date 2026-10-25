@@ -6,10 +6,11 @@ export const RECORD_FIELDS = {
   deploy: ["sha", "host", "protocol", "grammar", "observed", "previous", "when", "who", "session", "from", "to", "local", "clients", "sessions", "failed", "details"],
   finding: ["ticket", "pr", "source", "failure", "likelihood", "cost"],
   "finding-closed": ["finding", "fixed", "dismissed"],
-  // Jev's figure suggestions (PIE-1251, jev-suggestions.ts): a fact per suggestion, a fact per settled outcome, and a daily tally of quiet asks.
-  suggestion: ["note", "revision", "writer", "harness", "component", "gate", "confidence", "callout", "prompt", "source", "thread"],
-  "suggestion-outcome": ["suggestion", "note", "outcome", "component", "writer", "harness", "because"],
-  "suggestion-day": ["day", "quiet", "unavailable"],
+  // Jev's figure suggestions (PIE-1251, jev-suggestions.ts): a fact per suggestion, a fact per settled outcome, and the day's
+  // run (`jev-run`, the keys kitty's lab runs share, so one query reads both): asks, agreement, tokens.
+  suggestion: ["day", "note", "revision", "writer", "harness", "component", "gate", "confidence", "callout", "model", "prompt-rev", "source", "thread"],
+  "suggestion-outcome": ["day", "suggestion", "note", "outcome", "component", "writer", "harness", "because"],
+  "jev-run": ["experiment", "run", "model", "prompt-rev", "items", "agreed", "agreement", "suggested", "different", "ignored", "quiet", "unavailable", "tokens-in", "tokens-out"],
 } as const;
 export type RecordKind = keyof typeof RECORD_FIELDS;
 interface Note { id: string }
@@ -31,7 +32,7 @@ function recordTemplate(kind: RecordKind): string {
     "[recorded::{{now.iso}}]",
     ...RECORD_FIELDS[kind].map(key => kind === "deploy" && ["when", "who", "session", "from", "to", "local", "clients"].includes(key)
       ? `\n${key === "clients" ? "Client legs" : key[0]!.toUpperCase() + key.slice(1)}: {{props.${key}}}`
-      : ["run", "finding", "previous"].includes(key)
+      : ["run", "finding", "previous"].includes(key) && kind !== "jev-run"
       ? `[${key}::(({{props.${key}}}))]`
       : ["clients", "local", "summary", "report", "failure", "likelihood", "cost", "dismissed", "sessions", "failed", "details"].includes(key)
         ? `\n${key}:\n{{props.${key}}}` : `[${key}::{{props.${key}}}]`),

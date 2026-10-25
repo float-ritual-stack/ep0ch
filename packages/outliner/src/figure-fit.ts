@@ -45,6 +45,8 @@ export interface FigureFitReading {
   gate: number;
   model: string;
   prompt: PromptRevision[];
+  /** The tokens Jev says the evaluation used, when it says (the API's `usage`). */
+  usage?: { input: number; output: number };
 }
 
 export type FigureFitAnswer =
@@ -126,7 +128,7 @@ export function figureFitRequest(text: string, options: Record<string, string>, 
   };
 }
 
-type JevAnswers = { model?: string; answers?: Record<string, { type?: string; choice?: string; probabilities?: Record<string, number>; confidence?: number; noul?: number }> };
+type JevAnswers = { model?: string; usage?: { input_tokens?: number; output_tokens?: number }; answers?: Record<string, { type?: string; choice?: string; probabilities?: Record<string, number>; confidence?: number; noul?: number }> };
 
 /** Jev's answer read, or why it can't be: every number in range, the choice one of the options. */
 export function readFigureFit(response: JevAnswers, options: Record<string, string>, prompt: PromptRevision[]): FigureFitReading | { error: string } {
@@ -138,6 +140,7 @@ export function readFigureFit(response: JevAnswers, options: Record<string, stri
   return {
     choice: which.choice, probabilities: which.probabilities ?? {}, confidence: which.confidence, structured, prose,
     gate: (structured + (1 - prose)) / 2, model: response.model ?? JEV_MODEL, prompt,
+    ...(Number.isFinite(response.usage?.input_tokens) && Number.isFinite(response.usage?.output_tokens) ? { usage: { input: response.usage!.input_tokens!, output: response.usage!.output_tokens! } } : {}),
   };
 }
 
