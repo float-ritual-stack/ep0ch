@@ -998,6 +998,7 @@ test("the top level: tool-written notes fold away, and a [publish-home::true] no
   expect(listed).not.toContain("Snapshot of garden");
   expect(folded).toContain("Snapshot of garden");
   expect(folded).toMatch(/<summary>1 written by tools/);
+  expect(listed).toMatch(/<h2>Inside <span class="dim">\d+ · 1 by tools<\/span><\/h2>/);
 
   const porch = store.create("Front porch [publish-home::true]\nWhat the garden is doing this week.", null, "user");
   await until("the front page", async () => (await page("/pub/")).includes("What the garden is doing this week."));

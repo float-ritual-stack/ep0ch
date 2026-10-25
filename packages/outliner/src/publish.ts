@@ -1244,7 +1244,9 @@ export class Publisher {
       if (path === "/" && accept.includes("text/html")) {
         const index = await this.readIndex();
         const home = url.searchParams.has("all") ? undefined : await this.homeEntry(index);
-        return await this.serveFolder(home ?? null, index, undefined, home !== undefined);
+        const front = home ? await this.serveFolder(home, index, undefined, true) : undefined;
+        // Gone between the question and the page (deleted, moved to Trash): the folder, never a 404.
+        return front && front.status !== 404 ? front : await this.serveFolder(null, index);
       }
       if (path === "/" || path === "" || path === "/index" || path === "/index.html") {
         if (path !== "/index.html" && accept.includes("text/plain") && !accept.includes("text/html")) {
@@ -1708,7 +1710,10 @@ export class Publisher {
       const read = await Promise.all(views.map((view) => readViewLane(host, view, viewTitles.get(view.id) || "a view")));
       lanes += `<section class="inside"><h2>${views.length > 1 ? "Board" : "View"} <span class="dim">${views.length}</span></h2>\n${boardHtml(read)}</section>\n`;
     }
-    const listed = [...children, ...machinery].slice(0, MAX_LISTED_CHILDREN);
+    // The notes people wrote get the list's room first; the tool-written ones what's left of it, in their fold.
+    const people = children.slice(0, MAX_LISTED_CHILDREN);
+    const byTools = machinery.slice(0, Math.max(0, MAX_LISTED_CHILDREN - people.length));
+    const listed = [...people, ...byTools];
     const named = [...new Set(listed.flatMap(rowReferences))].slice(0, MAX_BLOCK_READ_IDS);
     const [counts, titles, notes] = await Promise.all([
       this.childCounts(listed.slice(0, MAX_COUNTED_CHILDREN).map((block) => block.id)),
@@ -1718,15 +1723,12 @@ export class Publisher {
     const links = new Map(notes.map((note) => [note.id, note]));
     const unlocked = !share && this.signedInOwner();
     const row = (child: Block) => folderRow(child, titles.get(child.id) ?? "", index, base, counts.get(child.id), links, unlocked);
-    const shownRows = listed.filter((block) => !isMachinery(block.properties)).map(row);
-    const toolRows = listed.filter((block) => isMachinery(block.properties)).map(row);
-    const total = children.length + machinery.length;
-    const more = total > MAX_LISTED_CHILDREN ? `<p class="dim">and ${total - MAX_LISTED_CHILDREN} more (open it in the door to see them all)</p>\n` : "";
-    const tools = toolRows.length
-      ? `<details class="machinery"><summary>${toolRows.length} written by tools <span class="dim">(snapshots, records, logs)</span></summary>\n<ul class="kids">\n${toolRows.join("\n")}\n</ul>\n</details>\n`
+    const moreOf = (n: number) => n > 0 ? `<p class="dim">and ${n} more (open it in the door to see them all)</p>\n` : "";
+    const tools = machinery.length
+      ? `<details class="machinery"><summary>${machinery.length} written by tools <span class="dim">(snapshots, records, logs)</span></summary>\n${byTools.length ? `<ul class="kids">\n${byTools.map(row).join("\n")}\n</ul>\n` : ""}${moreOf(machinery.length - byTools.length)}</details>\n`
       : "";
-    const inside = total
-      ? `<section class="inside"><h2>Inside <span class="dim">${children.length}</span></h2>\n${shownRows.length ? `<ul class="kids">\n${shownRows.join("\n")}\n</ul>\n` : ""}${tools}${more}</section>\n`
+    const inside = children.length || machinery.length
+      ? `<section class="inside"><h2>Inside <span class="dim">${children.length}${machinery.length ? ` · ${machinery.length} by tools` : ""}</span></h2>\n${people.length ? `<ul class="kids">\n${people.map(row).join("\n")}\n</ul>\n` : ""}${moreOf(children.length - people.length)}${tools}</section>\n`
       : "";
     const bookmarks = system.find((block) => getProperty(block.properties, "system-view")?.toLowerCase() === "bookmarks");
     const top = share ? "" : `<footer>${bookmarks ? `<a href="${escapeHtml(`${base}/p/${bookmarks.id}`)}">bookmarks</a> · ` : ""}<a href="${escapeHtml(`${base}/index`)}">published notes</a> · <a href="${escapeHtml(`${base}/shares`)}">shares</a> · <a href="${escapeHtml(`${this.webRoot}/o/`)}">outlines</a> · <a href="${escapeHtml(`${base}/sessions`)}">sessions</a></footer>`;
