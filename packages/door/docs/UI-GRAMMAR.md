@@ -975,6 +975,8 @@ came from geometry kept from the start of a drag).
 
 ### Key map and clash audit
 
+**One key, one meaning** (Evan, Oct 24: "I hit `-` often, I expect 'collapse the current thing to a spine' … then boom, all gone"). A key does the same thing in the drawer, on a screen, in a group and in a float. A place that can't do it says why, or does the nearest thing with the same meaning (a lone drawer tile's `-` folds the drawer to a strip, PIE-1254), never something else. A per-place custom becomes a trap once places share the tile system, so key tests carry drawer and group rows.
+
 X-ray uses bare Ctrl press/release reports from Kitty, a press-only Ctrl toggle,
 or `ctrl+]` then `?`. Traditional terminals cannot report bare Ctrl: use the
 leader. A terminal tile keeps its existing `ctrl+]` escape and double-press path.

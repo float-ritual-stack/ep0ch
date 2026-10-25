@@ -92,6 +92,7 @@ own. Both histories are kept: `git log --follow` and `git blame` reach back into
 - When a live request fails, follow the [connection
   diagnostics](packages/outliner/CONTRIBUTING.md#connecting-to-the-running-service) before declaring the host
   unavailable or leaving workboard updates pending.
+- **A request is a chirp first, and nothing waits on Evan's go.** A #pie-request that isn't a clear bug goes under its idea's capability note; quiet threads get shaped, then ticketed and built; a free slot takes the next item. The workboard block's "Requests are chirps" section owns this.
 - **A roadmap item's title is plain words,** with no `[key::value]` in it: the header parser takes the brackets as
   properties.
 
