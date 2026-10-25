@@ -78,7 +78,7 @@ export interface TileRef {
 }
 
 /** A request as it ran: the action, its arguments and the tile it ran on. */
-export interface RunRequest { action: string; args: Record<string, unknown>; tile?: { id: string | undefined; name: string; role?: string }; /** The request named its tile (`tile=`); else the action's default (the focused one) ran. */ named: boolean; /** What the action takes: a tile (its default is the focused one), or the screen. */ takes: Registration["takes"]; /** `safe`: it changes only the door's own view or layout, so running it again is a fair comparison. */ replay: import("./actions").Replay; actor: Actor; typed: boolean }
+export interface RunRequest { action: string; args: Record<string, unknown>; tile?: { id: string | undefined; name: string; role?: string }; /** The request named its tile (`tile=`); else the action's default (the focused one) ran. */ named: boolean; /** What the action takes: a tile (its default is the focused one), or the screen. */ takes: Registration["takes"]; /** `safe`: it changes only the door's own view or layout, so running it again is a fair comparison. */ replay: import("./actions").Replay; /** The action set it ran in (`note`: acts at the cursor inside the tile). */ scope: string; actor: Actor; typed: boolean }
 const requestTracers = new Set<(r: RunRequest) => void>();
 /** Hear every request a dispatcher runs, with the tile it resolved to (the parity walk replays it by id and by role). Returns how to stop. */
 export function traceRequests(f: (r: RunRequest) => void): () => void { requestTracers.add(f); return () => { requestTracers.delete(f); }; }
@@ -597,7 +597,7 @@ export class Dispatcher {
     const seen = reg.set.defArgs(req.action, args, typed);
     const no = this.refusal(reg, def, req.action, at, args, seen, actor);
     if (no) throw new ActionRefused(no);
-    for (const t of requestTracers) t({ action: req.action, args: seen, ...(at.tile ? { tile: { id: at.tile.id, name: at.tile.name, ...(at.tile.role ? { role: at.tile.role } : {}) } } : {}), named: req.tile !== undefined, takes: reg.takes, replay: def.replay, actor, typed });
+    for (const t of requestTracers) t({ action: req.action, args: seen, ...(at.tile ? { tile: { id: at.tile.id, name: at.tile.name, ...(at.tile.role ? { role: at.tile.role } : {}) } } : {}), named: req.tile !== undefined, takes: reg.takes, replay: def.replay, scope: reg.set.scope, actor, typed });
     this.host.beforeAction?.(req.action);
     const confirmation = ++this.nextConfirmation;
     const ctx = this.host.ctx();

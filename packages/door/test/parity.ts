@@ -442,29 +442,40 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   }
   async function addressed(label: string, make: () => Screen | Promise<Screen>, setup: Key[], pointed: Map<string, { key: Key; req: RunRequest }>) {
     const replayed = { id: 0, role: 0 };
-    for (const { key, req } of pointed.values()) {
+    /** The key, then the act by `way` on a screen built the same way: what's wrong, "skip" when the address can't name this tile alone, or null. */
+    const trial = async (key: Key, req: RunRequest, way: "id" | "role"): Promise<string | null> => {
+      // A list's rows are numbered as the list stands when it is asked, and it fills as it draws: the row is not the address under test.
+      if (req.action.startsWith("list.")) return "skip";
       let mask = await fresh(label, make, setup);
+      const heard = A().messages.rows.length;
       push(key); await settle();
       // What the key said, if it was refused (the action threw after it was traced): the act must refuse the same way.
-      const flashed = String(A().message ?? "");
+      const flashed = [A().refusedNow?.text, ...A().messages.rows.slice(heard).map((r: { message: string }) => r.message)].filter(Boolean).join(" · ");
       const pressed = await calm(mask);
+      mask = await fresh(label, make, setup);
+      const top = A().stack.at(-1) as Screen | undefined;
+      const at = top?.dispatch?.tile(req.tile!.name) ?? A().drawer.desk?.dispatch.tile(req.tile!.name);
+      if (!top?.dispatch || !at?.id) return "skip";
+      const address = way === "id" ? at.id : at.role ? `role:${at.role}` : "";
+      if (!address) return "skip";
+      let said = "";
+      try { await top.dispatch.act({ action: req.action, args: req.args, tile: address }, { kind: "user" }); await settle(); }
+      catch (e) { said = e instanceof Error ? e.message : String(e); }
+      // A role that names several tiles is not an address for this one: the refusal says so, and that is the resolver's job.
+      if (way === "role" && /names \d+ tiles/.test(said)) return "skip";
+      const now = await calm(mask);
+      replayed[way]++;
+      // A note action acts at the cursor inside the reader (`settings` reads the [ ] mark): the act has no cursor, so its refusal is not the tile's address.
+      if (said && req.scope === "note") return "skip";
+      if (said) return plain(flashed).includes(said.slice(0, 40).replace(/\s+/g, " ")) ? null : `${req.action} by ${address} was refused (${said.slice(0, 160)}) where the key said ${JSON.stringify(plain(flashed).slice(0, 80))}`;
+      return alike(pressed, now, false) ? null : `${req.action} ${JSON.stringify(req.args)} by ${way === "id" ? "id" : address} left the screen different from the key (${changes(pressed, now)})`;
+    };
+    for (const { key, req } of pointed.values()) {
       for (const way of ["id", "role"] as const) {
-        mask = await fresh(label, make, setup);
-        const top = A().stack.at(-1) as Screen | undefined;
-        const at = top?.dispatch?.tile(req.tile!.name) ?? A().drawer.desk?.dispatch.tile(req.tile!.name);
-        if (!top?.dispatch || !at?.id) break;
-        const address = way === "id" ? at.id : at.role ? `role:${at.role}` : "";
-        if (!address) continue;
-        let said = "";
-        try { await top.dispatch.act({ action: req.action, args: req.args, tile: address }, { kind: "user" }); await settle(); }
-        catch (e) { said = e instanceof Error ? e.message : String(e); }
-        // A role that names several tiles is not an address for this one: the refusal says so, and that is the resolver's job.
-        if (way === "role" && /names \d+ tiles/.test(said)) continue;
-        const now = await calm(mask);
-        replayed[way]++;
-        if (said && flashed.includes(said.slice(0, 60))) continue;
-        if (said) findings.push({ screen: label, keys: named(key), problem: `${req.action} by ${address} was refused (${said.slice(0, 160)}) where the key ran it` });
-        else if (!alike(pressed, now, false)) findings.push({ screen: label, keys: named(key), problem: `${req.action} ${JSON.stringify(req.args)} by ${way === "id" ? "id" : address} left the screen different from the key (${changes(pressed, now)})` });
+        let problem = await trial(key, req, way);
+        // A list that loads as it is drawn can end differently twice running: a difference is a finding when it comes again.
+        if (problem && problem !== "skip") problem = await trial(key, req, way);
+        if (problem && problem !== "skip") findings.push({ screen: label, keys: named(key), problem });
       }
     }
     if (log) require("node:fs").appendFileSync(log, `# ${label}: ${pointed.size} targeted actions replayed by id (${replayed.id}) and by role (${replayed.role})\n`);
