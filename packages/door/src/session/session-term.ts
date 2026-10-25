@@ -121,6 +121,12 @@ export class SessionTerm implements Display {
 
   onKey(f: (k: Key) => void) { this.keyHandler = f; }
   onBatch(f: (run: () => void) => void) { this.batch = f; }
+  /**
+   * Everything one socket read held is one batch (PIE-1300): the frames a busy link delivered together are handled, then
+   * the screen is painted once, and a burst of hover reports is folded into the newest (App.key). Without it each
+   * `input` frame was a batch of its own and painted for its own report. Batches nest: `input` still opens its own.
+   */
+  readBatch(run: () => void) { this.batch(run); }
   onResize(f: () => void) { this.resizeHandler = f; }
   /** No terminal is attached: the session renders nothing (a busy terminal tile cost a frame per write, seen by nobody). */
   unseen(): boolean { return !this.clients.length; }

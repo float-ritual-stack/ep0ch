@@ -279,18 +279,21 @@ export async function serve(args: string[]): Promise<never> {
     sock.on("data", (chunk: Buffer) => {
       let msgs: ClientMsg[];
       try { msgs = frames.push(chunk); } catch (e) { link.close({ t: "bye", reason: "refused", message: (e as Error).message, code: 2 }); return; }
-      for (const m of msgs) {
-        // The session is ending: nothing more is taken, and a new terminal is told so.
-        if (over) { if (m.t === "hello") link.close({ t: "bye", reason: "ended", message: "the session is ending" }); continue; }
-        try { handle(m); }
-        catch (e) {
-          if (e instanceof Offline) app.flash(e.message, undefined, errorDetails(e));
-          else {
-            logClient(`exception in handle(${m.t}): ${e instanceof Error ? e.stack : String(e)}`);
-            throw e;
+      // One read, one batch (PIE-1300): the frames it held are handled together and painted once.
+      term.readBatch(() => {
+        for (const m of msgs) {
+          // The session is ending: nothing more is taken, and a new terminal is told so.
+          if (over) { if (m.t === "hello") link.close({ t: "bye", reason: "ended", message: "the session is ending" }); continue; }
+          try { handle(m); }
+          catch (e) {
+            if (e instanceof Offline) app.flash(e.message, undefined, errorDetails(e));
+            else {
+              logClient(`exception in handle(${m.t}): ${e instanceof Error ? e.stack : String(e)}`);
+              throw e;
+            }
           }
         }
-      }
+      });
     });
     function handle(m: ClientMsg) {
       switch (m.t) {

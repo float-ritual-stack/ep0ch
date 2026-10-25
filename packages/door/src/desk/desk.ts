@@ -59,7 +59,7 @@ import { containerKeys, leafNames, slotNames, madeScreen, mountProblem, newNoteR
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, bgRgb, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, tailFrom, pad, paint, RESET, selected, surfaceBg, UNBOLD, width } from "../style";
 import { theme, themed } from "../theme";
-import { ch, type Key, type TileProgram } from "../term";
+import { ch, isHover, type Key, type TileProgram } from "../term";
 import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
   agentLevel, allTiles, apply as applyOp, autoName, chainOf, wireTarget, selectTargets, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, placement, layers as policyLayers, leaf, leaves,
@@ -4319,7 +4319,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         return this.run("tile.menu", {}, this.nameOf(b.id));
       }
     }
-    if (k.kind === "mouse" && k.action === "drag" && k.button === 3) return;
+    if (isHover(k)) return;
     if (k.kind === "esc" && (this.hintCard || this.xray)) {
       const inMode = this.linking || this.dragging || this.floatDrag || this.drag || this.prefix || this.overlayOpen() || this.pickedBy(USER).length;
       this.run("hint.dismiss");

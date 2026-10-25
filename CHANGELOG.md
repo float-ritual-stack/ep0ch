@@ -39,6 +39,20 @@ options and their `EP0CH_SETTLE_*` variables still override. The folder config i
   newest twenty transcripts; pi and codex as before), now decides a start and a restart both: a restart of a fresh
   claude runs plain instead of adding `--continue` blindly. No protocol change.
 
+### Sweeping the mouse over ssh paints where the pointer is now, not every cell it crossed (PIE-1300)
+
+Evan, Oct 25: over ssh, sweep the mouse and stop, and the highlights replayed the path for dozens of seconds. A flick of 200 reports took
+2.6 s to settle and a key typed after it waited as long; the door painted a whole frame for every cell the pointer crossed.
+
+- **Hover reports are handled at most once a frame, and the newest wins.** The door asks the terminal for a report for every cell
+  (`?1003h`); `App.key` now holds the newest no-button motion and handles it when the batch being read ends, or when a frame has passed since the last
+  one, whatever size the link cuts the reads in. A click, a key, a press, a release or a drag with a button held is never held or dropped: it is
+  handled at once, after the hover before it.
+- **The session daemon handles one socket read as one batch,** so the frames a busy link delivers together paint once, not once each.
+- **`text.hover` redraws only when what the pointer reveals changed** (`Overflow.hover` says so).
+- **`peek` shows how the door keeps up:** `speed` (`frames` painted, `motionCoalesced` hover reports folded into a newer one) and `hover` (where the pointer
+  rests and the cut-short value being read).
+
 ### One list, drawn the same everywhere: the `list` primitive and the door's ListView (PIE-747)
 
 Asked Oct 25 ("i want it"): a real list in every client without a door feature. An extension (marginalia's notebook, a

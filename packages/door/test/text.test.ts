@@ -104,3 +104,26 @@ test("a revealed cut-off value scrolls in its own cells and leaves the rest of t
   expect(later[1]!.slice(4, 24)).not.toBe("a long title that do");
   expect(later[0]).toBe(before[0]);
 });
+
+test("hover says whether the pointer's move changed what is revealed, so a redraw happens only then (PIE-1300)", () => {
+  const canvas = new Canvas(60, 4);
+  canvas.text(4, 1, pad("a long title that does not fit in twenty cells at all", 20));
+  canvas.text(4, 2, pad("another long title, also cut off before its end", 20));
+  const overflow = new Overflow();
+  overflow.draw(canvas.lines(), 60, 0);
+  // Plain cells, then a value comes under the pointer.
+  expect(overflow.hover(0, 0)).toBe(false);
+  expect(overflow.hover(50, 3)).toBe(false);
+  expect(overflow.hover(8, 1)).toBe(true);
+  // Until the next draw shows it, the same value is still news; once drawn, moving about inside it is not.
+  overflow.draw(canvas.lines(), 60, 0);
+  expect(overflow.hover(9, 1)).toBe(false);
+  expect(overflow.hover(23, 1)).toBe(false);
+  // Another value is news, and so is leaving for plain cells.
+  expect(overflow.hover(8, 2)).toBe(true);
+  overflow.draw(canvas.lines(), 60, 0);
+  expect(overflow.hover(40, 2)).toBe(true);
+  overflow.draw(canvas.lines(), 60, 0);
+  expect(overflow.hover(41, 2)).toBe(false);
+  expect(overflow.describe()).toEqual({ pointer: { x: 41, y: 2 }, reading: null });
+});
