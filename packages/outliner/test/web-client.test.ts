@@ -987,3 +987,32 @@ test("older reader bookmarks retain their day and block after another bookmark i
     }
   } finally { setSystemTime(); }
 });
+
+// The front page (Oct 25): a note marked [publish-home::true] is the top level's page, with every root note one link
+// away; what tools write ([machine::…]) is folded below the rest of a folder, never mixed into it.
+test("the top level: tool-written notes fold away, and a [publish-home::true] note is the front page with every note one link away", async () => {
+  const snap = store.create("Snapshot of garden [machine::snapshot]", null, "user");
+  const before = await page("/pub/");
+  const [listed, folded] = before.split('<details class="machinery">');
+  expect(listed).toContain("Field notes");
+  expect(listed).not.toContain("Snapshot of garden");
+  expect(folded).toContain("Snapshot of garden");
+  expect(folded).toMatch(/<summary>1 written by tools/);
+
+  const porch = store.create("Front porch [publish-home::true]\nWhat the garden is doing this week.", null, "user");
+  await until("the front page", async () => (await page("/pub/")).includes("What the garden is doing this week."));
+  const front = await page("/pub/");
+  expect(front).toContain(`<a href="/pub/?all">every note</a>`);
+  expect(front).toMatch(/<footer>updated /);
+  expect(front).toContain(`/pub/index">published notes</a>`);
+  const all = await page("/pub/?all");
+  expect(all).not.toContain("every note");
+  expect(all).toContain("Field notes");
+  expect(all).toContain("Front porch");
+
+  // Locked, it is no front page: the folder again.
+  await edit(porch, "Front porch [publish-home::true] [publish::never]\nWhat the garden is doing this week.");
+  await until("the folder again", async () => !(await page("/pub/")).includes("every note"));
+  store.delete(porch.id);
+  store.delete(snap.id);
+});
