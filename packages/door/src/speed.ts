@@ -68,8 +68,11 @@ export class SpeedMeter {
     this.ring.push({ at: b.last + b.shown, ms: b.shown });
     if (this.ring.length > SETTLE_RING) this.ring.shift();
   }
-  /** A burst that has been quiet for its gap is over. */
-  private settled(): void { if (this.burst && this.now() - this.burst.last > BURST_GAP_MS) this.close(); }
+  /**
+   * A burst that has been shown and quiet for its gap is over. One not yet shown is not: a slow paint is itself longer than
+   * the gap, and reading the meter while it draws (the status bar does) must not end the burst it is measuring.
+   */
+  private settled(): void { if (this.burst && this.burst.shown !== null && this.now() - this.burst.last > BURST_GAP_MS) this.close(); }
 
   /** The settle over the bursts kept. */
   settle(): Settle { this.settled(); return settleOf(this.ring.map(b => b.ms)); }

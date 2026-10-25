@@ -32,6 +32,15 @@ describe("the settle", () => {
     expect(m.settle()).toEqual({ p50: null, p95: null, worst: null, n: 0 });
   });
 
+  test("reading the meter while a slow frame draws doesn't end the burst it is measuring", () => {
+    const { m, clock } = meter();
+    m.input(); m.asked();
+    clock.t += 250;                                                                     // the paint, longer than a burst's gap
+    m.slow();                                                                           // the status bar asks while it draws
+    m.frame();
+    expect(m.settle()).toEqual({ p50: 250, p95: 250, worst: 250, n: 1 });
+  });
+
   test("p50, p95 and the worst over the bursts kept, the ring holding the latest", () => {
     const { m, clock, press } = meter();
     for (let i = 1; i <= 100; i++) { press(i); clock.t += 500; }
