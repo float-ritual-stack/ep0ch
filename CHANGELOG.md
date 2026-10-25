@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A links tile with hundreds of rows no longer makes every layout read take seconds (PIE-1303)
+
+- **`layout.get` (and so `act` and the parity probes) listed a links tile's rows once per row.** With a note open that has a few
+  hundred links or replies, one read of the layout took seconds of the door's time (keys and paint wait behind it); it now lists
+  them once. Found as the reason `group-gather.test.ts` went red under load.
+- **Door tests: a scratch host Bun ended at a test's timeout is started again for the next test.** Bun ends every process a file
+  started when one of its tests times out, so one slow test used to fail every test after it with `connect ENOENT …/host.sock`;
+  now only the slow one fails (`test/scratch.ts` `revive`, asked by `test/preload.ts` before each test).
+
 ### The lift works on every screen (PIE-1285)
 
 - **`lift` on the component library said "no tile drawer.agent on the component library".** The drawer is above every screen, so `tile=drawer.agent`, a tile's id and an `@screen/tile` path are read once, by the host layer (`HostLayer.resolveTile`), and every screen's dispatcher asks it when its own tiles name nothing. `agent.lift`, a `tile.zoom tile=drawer.agent` button and `✦a` lift and drop the drawer's agent from any screen; a tile name that doesn't exist is still refused.

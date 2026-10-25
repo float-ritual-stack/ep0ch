@@ -111,9 +111,32 @@ function watchHost(p: Subprocess, root: string, current: () => Subprocess | null
     // A clean exit (the host stops on SIGTERM) nobody here asked for: most likely Bun's, which ends a file's processes
     // when one of its tests times out ("killed N dangling processes").
     const why = code === 0 || p.signalCode === "SIGTERM" ? ": it was told to stop; a test in this file timing out does that (bun test ends the file's processes)" : "";
-    console.error(`scratch host ${root} exited while its tests held it (code ${code}, signal ${p.signalCode ?? "none"}${why}); the tests after it here can't reach it. Its log ends:\n${tail}`);
+    console.error(`scratch host ${root} exited while its tests held it (code ${code}, signal ${p.signalCode ?? "none"}${why}); the next test starts it again (revive), but a request the running one still has open fails. Its log ends:\n${tail}`);
   });
   return p;
+}
+
+/** The scratch services this process holds, for the preload's `beforeEach` (`revive`): it can't import this file for every test. */
+const HELD = Symbol.for("ep0ch.test.scratches");
+const holding = (): { add(s: { revive(): Promise<boolean> }): void; delete(s: { revive(): Promise<boolean> }): void } | undefined => (globalThis as { [k: symbol]: unknown })[HELD] as never;
+
+/**
+ * Bun ends every process a file started when one of its tests times out (see watchHost), a scratch host among them, so
+ * a timeout would fail each test after it in the file too ("connect ENOENT …/host.sock"), whatever those tests do. Each
+ * test starts by asking its host to answer (one round trip); a host that doesn't and has ended is started again on the
+ * same folder (its outlines are on disk), so a test's failure stays that test's. A host that doesn't answer but still
+ * runs is slow, not gone: it's left alone. `answers`/`start` are the service's own.
+ */
+async function revived(p: Subprocess | null, root: string, answers: () => Promise<boolean>, start: () => Promise<unknown>): Promise<boolean> {
+  if (!p) return false;
+  const gone = () => p.exitCode !== null || p.signalCode !== null;
+  if (!gone() && await answers()) return false;
+  // Bun's kill is a SIGTERM that lands a moment after the timeout, and the host stops gracefully: wait for it, bounded.
+  await Promise.race([p.exited, Bun.sleep(8000)]);
+  if (!gone()) return false;
+  console.error(`scratch host ${root} had ended (Bun ends a file's processes when a test of it times out); started again for the next test`);
+  await start();
+  return true;
 }
 
 export class Scratch {
@@ -124,6 +147,7 @@ export class Scratch {
   constructor(root?: string, readonly name = "scratch") {
     this.root = root ?? scratchDir("ep0ch-scratch-");
     for (const d of ["outlines", "config", "door"]) mkdirSync(join(this.root, d), { recursive: true, mode: 0o700 });
+    holding()?.add(this);
   }
   /** The outlines folder the host serves. */
   get outlines() { return join(this.root, "outlines"); }
@@ -183,7 +207,12 @@ export class Scratch {
     try { await b.info(); return await seedShowcase(b, { ticketsConfig: join(this.root, "config"), ...(outliner ? { rulesFrom: outliner } : {}) }); } finally { b.close(); }
   }
 
-  async dispose() { await this.stop(2000); rmSync(this.root, { recursive: true, force: true }); }
+  /** Starts the host again when it has ended under the tests (Bun's, at a test's timeout); true when it did. The preload asks before every test. */
+  async revive(): Promise<boolean> {
+    return revived(this.proc, this.root, async () => { const b = new (await import("../src/socket")).SocketBoard(this.sock, 2000); try { await b.info(); return true; } catch { return false; } finally { b.close(); } }, async () => { this.proc = null; await this.start(); });
+  }
+
+  async dispose() { holding()?.delete(this); await this.stop(2000); rmSync(this.root, { recursive: true, force: true }); }
 }
 
 /** The outliner package with the outline host: EP0CH_OUTLINER_HOST, else `outliner`. */
@@ -198,9 +227,11 @@ export const hostOutliner = [process.env.EP0CH_OUTLINER_HOST, outliner]
 export class ScratchHost {
   readonly root: string;
   private proc: Subprocess | null = null;
+  private defaultOutline: string | undefined;
   constructor() {
     this.root = scratchDir("ep0ch-host-");
     for (const d of ["outlines", "config", "door", "folders", "home"]) mkdirSync(join(this.root, d), { recursive: true });
+    holding()?.add(this);
   }
   get outlines() { return join(this.root, "outlines"); }
   get config() { return join(this.root, "config"); }
@@ -213,6 +244,7 @@ export class ScratchHost {
   folder(name: string): string { const p = join(this.root, "folders", name); mkdirSync(p, { recursive: true }); return p; }
 
   async start(defaultOutline?: string): Promise<string> {
+    this.defaultOutline = defaultOutline;
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>), ...this.env,
     };
@@ -243,5 +275,10 @@ export class ScratchHost {
     if (!(await Promise.race([p.exited.then(() => true), Bun.sleep(5000).then(() => false)]))) { p.kill(9); await p.exited; }
   }
 
-  async dispose() { await this.stop(); rmSync(this.root, { recursive: true, force: true }); }
+  /** As `Scratch.revive`. */
+  async revive(): Promise<boolean> {
+    return revived(this.proc, this.root, async () => !!(await (await import("../src/discover")).hostLive(this.sock, 2000)), async () => { this.proc = null; await this.start(this.defaultOutline); });
+  }
+
+  async dispose() { holding()?.delete(this); await this.stop(); rmSync(this.root, { recursive: true, force: true }); }
 }
