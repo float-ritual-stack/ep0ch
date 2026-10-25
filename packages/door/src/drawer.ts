@@ -1221,6 +1221,8 @@ export class AgentDrawer {
    * Not running yet, the drawer comes up and starts it first, as alt+a does. Lifted already (or on=false), it drops.
    */
   lift(on: boolean | undefined, reach: ZoomReach, actor: Actor): { tile: string; name: string; lifted: ZoomReach | null; in?: "drawer" | "screen" } {
+    // Out, but its program has since closed: the tab is the drawer's own again (as bringBack finds), and starts as any does.
+    if (this.out && !this.awayPane() && !this.outAlive()) this.free();
     if (!this.p && !this.out && on !== false) this.set(true, actor);
     // Out on a screen (take), the own tab only holds its place: the program is the tile that left, or after a handover
     // the one with its key, on the screen it went to or the one shown.
