@@ -47,6 +47,7 @@ import { stateDir, writeState } from "./state";
 import { alertMark, readAlert } from "./backup/alert";
 import type { AgentSession } from "./desk/agent-sessions";
 import { AgentDrawer, DRAWER_ACTIONS, DRAWER_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
+import { namesAgent } from "./desk/tile-address";
 import type { HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
 import type { Pane } from "./desk/panes";
@@ -1158,7 +1159,7 @@ export class App implements Ctx {
   recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
-    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },
+    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && namesAgent(req.tile), on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.hostLayer.desks()[0]?.focusedDesk() ?? this.stack.at(-1) : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },

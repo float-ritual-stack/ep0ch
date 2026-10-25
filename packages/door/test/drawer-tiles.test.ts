@@ -944,8 +944,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await d.desk.dispatch.act({ action: "tile.close", args: {}, tile: name }, USER).catch(() => d.desk.dispatch.act({ action: "tile.close", args: {}, tile: name }, USER));
       await until(() => !d.desk.pane(name), "the program's tile closed");
       // agent.back (what ⏎ and a click on the tab run), as an agent: the program's gone, so the tab runs its own again.
+      await until(() => !own.running, "the closed program ends");
       await d.app.act({ action: "agent.back", args: {}, as: AS });
-      d.paint();
+      d.key({ kind: "alt", ch: "a" }); d.paint();
       await until(() => d.app.drawer.tile?.running === true, "the drawer's own program again");
       expect(d.app.drawer.tile!.pid).not.toBe(pid);
     } finally { d.app.quit(); }
@@ -959,17 +960,20 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       const own = d.app.drawer.tile!, key = own.home;
       await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
       expect(JSON.parse(readFileSync(join(state, "drawer.json"), "utf8")).out).toBe(key);
+      // The program's role goes with its saved tile: that is how the next door knows which tile it is.
+      const leaves = (n: any): any[] => !n ? [] : n.t === "leaf" ? [n] : [...(n.kids ?? []), ...(n.tabs ?? []), n.kid, n.a, n.b].flatMap(leaves);
+      expect(leaves(d.desk.savedState().root).filter(l => l.role === "agent")).toHaveLength(1);
       const e = await door();
       try {
         e.key({ kind: "alt", ch: "a" }); e.paint();
         await Bun.sleep(300);
         expect(e.app.drawer.tile!.running).toBe(false);
         expect(e.app.drawer.tile!.text().join(" ")).toContain("is on a screen · ⏎ or a click brings it back");
-        // Its program, found on the new door's desk by its key (as a handover adopts it), goes back into the own tab.
+        // Its program, restored on the new door's desk with the role it was saved with (as a handover adopts it), goes back into the own tab.
         await e.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "agent" } }, USER);
         e.paint();
         const back = e.desk.pane("agent") as PtyPane;
-        back.home = key;
+        back.role = "agent";
         expect(await e.desk.dispatch.act({ action: "tile.drawer", args: {}, tile: "agent" }, USER)).toMatchObject({ tile: "drawer.agent", back: true });
         expect(e.app.drawer.tile).toBe(back);
         expect(back.kind).toBe("drawer.own");
@@ -1252,7 +1256,9 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     const own = leaves.find(l => l.name === "drawer.agent");
     expect(own).toBeTruthy();
     own.name = "shell";
-    own.kept = "drawer.json:drawer.agent";
+    // The key the program started under is not necessarily the drawer's key now: a program that left for a screen and
+    // came back numbers the next own program's key (`drawer.json#<gen>`), as in Evan's door.
+    own.kept = "drawer.json#3:drawer.agent";
     writeFileSync(file, JSON.stringify(saved));
     const e = await door();
     try {

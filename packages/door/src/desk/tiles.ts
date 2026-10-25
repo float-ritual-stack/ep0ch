@@ -24,7 +24,9 @@ export interface TileSpec {
   kind: TileKindName;
   /** The tile's name: what links, previews, `act tile=` and `peek` call it. See `tileNameProblem`. */
   name?: string;
-  /** The spec slot this tile fills, kept when its public name changes. */
+  /** The slot this tile fills on its screen (a spec's tile name), kept when its public name changes: the place, whatever fills it. */
+  slot?: string;
+  /** What the tile is for (`agent`, `reader`), set by what made it and kept with its id; absent, its kind's (`tileRole`). */
   role?: string;
   writtenTitle?: string;
   systemTitle?: boolean;
@@ -142,6 +144,7 @@ export function makeTile(given: Partial<TileSpec> & { kind: TileKindName }): Pan
   if (!k) return new UnavailableTile(s.kind, missingKind(s.kind), s.state ?? {});
   const p = k.make(s);
   p.deliberate = s.deliberate;
+  if (s.role) p.role = s.role;
   p.writtenTitle = s.writtenTitle;
   p.systemTitle = s.systemTitle;
   return p;
