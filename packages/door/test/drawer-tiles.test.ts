@@ -677,45 +677,66 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
       expect(d.desk.pane(name)).toBe(own);
       const r = await d.app.dispatch.press("agent.lift", {}) as any;
-      expect(r).toMatchObject({ lifted: "column", in: "screen" });
+      expect(r).toMatchObject({ zoomed: true, name: "cat" });
       expect(d.desk.liftsPane(own)).toBe(true);
       expect(d.app.drawer.made?.lifted ?? null).toBeNull();
       await d.app.dispatch.press("agent.lift", {});
       expect(d.desk.lifted).toBeNull();
+      // Out on a screen that a pushed one now covers (q goes back): drawer.agent names no program here, so it comes home
+      // first (agent.back) and is lifted in the drawer; never the tab holding its place, never a refusal.
+      d.app.push(otherScreen()); d.paint();
+      const r2 = await d.app.dispatch.press("agent.lift", {}) as any;
+      expect(r2).toMatchObject({ zoomed: true });
+      expect(d.app.drawer.isAway()).toBe(false);
+      expect(d.app.drawer.made!.liftsPane(own)).toBe(true);
+      await d.app.dispatch.press("agent.lift", {});
+      expect(d.app.drawer.made!.lifted).toBeNull();
     } finally { d.app.quit(); }
   });
 
   // PIE-1279 (Evan, Oct 25): a status-bar button that lifts toggles. A status click drops a lift first (PIE-1189: work that
-  // moves to a bar must not land under it), which ate the toggle: the second click dropped, then lifted again.
-  test("a status-bar lift button toggles: lifts, drops, lifts again; so does a tile.zoom column button; another button still drops the lift", async () => {
-    const d = await door();
-    try {
-      const bar = await board.createBlock(null, 'Your status bar [status-bar::true]\n::button{label="lift" act="agent.lift"}\n::button{label="pop" act="tile.zoom tile=kettle reach=column"}\n::button{label="note" act="status.log"}');
-      d.key({ kind: "alt", ch: "a" }); d.paint();
-      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
-      await d.A.statusNote.refresh(d.A.statusItems());
-      const click = (label: string) => {
-        const lines = d.paint(), row = lines.length - 1, x = lines[row]!.indexOf(label);
-        expect(x).toBeGreaterThanOrEqual(0);
-        d.key(mouse("down", x, row)); d.key(mouse("up", x, row));
-      };
-      const lifted = () => d.app.drawer.desks().map(x => x.liftedDesk?.lifted?.tile ?? null).find(Boolean) ?? null;
-      const settle = async (want: string | null, what: string) => { await until(() => lifted() === want, what); await Bun.sleep(30); expect(lifted()).toBe(want); };
-      click("lift"); await until(() => lifted() !== null, "the first click lifts the agent");
-      const agent = lifted();
-      click("lift"); await settle(null, "the second click drops it");
-      click("lift"); await settle(agent, "the third click lifts it again");
-      click("lift"); await settle(null, "the fourth click drops it");
-      // The same for a bar button that zooms a column.
-      click("pop"); await until(() => lifted() !== null, "pop lifts the kettle");
-      const kettle = lifted();
-      click("pop"); await settle(null, "pop again drops it");
-      click("pop"); await settle(kettle, "pop a third time lifts it");
-      // A bar button that does other work still drops the lift first (PIE-1189).
-      click("note"); await settle(null, "a button that does other work drops the lift");
-      await board.trash(bar.id);
-    } finally { d.app.quit(); }
-  }, 30_000);
+  // moves to a bar must not land under it), which ate the toggle: the second click dropped, then lifted again. And
+  // agent.lift is tile.zoom on drawer.agent with its start step, so the two buttons do the same, whatever the drawer's
+  // program has been through and whatever screen is shown.
+  for (const scene of ["", "after its program exited and restarted", "with a screen pushed (q goes back)"] as const) {
+    test(`a status-bar lift button and a tile.zoom drawer.agent button both toggle: lift, drop, lift ${scene}; a button doing other work still drops the lift`.replace("  ", " "), async () => {
+      const d = await door();
+      try {
+        const bar = await board.createBlock(null, 'Your status bar [status-bar::true]\n::button{label="lift" act="agent.lift"}\n::button{label="popit" act="tile.zoom tile=drawer.agent reach=column"}\n::button{label="note" act="status.log"}');
+        d.key({ kind: "alt", ch: "a" }); d.paint();
+        await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+        if (scene.startsWith("after")) {
+          d.app.drawer.tile!.kill();
+          await until(() => d.app.drawer.tile?.running === false, "the program exited");
+          await d.app.dispatch.press("agent.restart");
+          await until(() => d.app.drawer.tile?.running === true, "the program runs again");
+        }
+        if (scene.startsWith("with")) { d.app.push(otherScreen()); d.paint(); }
+        await d.A.statusNote.refresh(d.A.statusItems());
+        const click = (label: string) => {
+          const lines = d.paint(), row = lines.length - 1, x = lines[row]!.indexOf(label);
+          expect(x).toBeGreaterThanOrEqual(0);
+          d.key(mouse("down", x, row)); d.key(mouse("up", x, row));
+        };
+        const lifted = () => d.app.drawer.desks().map(x => x.liftedDesk?.lifted?.tile ?? null).find(t => t !== null) ?? null;
+        const settle = async (want: "up" | null, what: string) => { await until(() => (lifted() !== null) === (want === "up"), what); await Bun.sleep(30); expect(lifted() !== null).toBe(want === "up"); };
+        for (const label of ["lift", "popit"]) {
+          click(label); await settle("up", `${label}: the first click lifts the drawer's agent`);
+          const tile = lifted();
+          click(label); await settle(null, `${label}: the second click drops it`);
+          click(label); await settle("up", `${label}: the third click lifts it again`);
+          expect(lifted()).toBe(tile);
+          // By act, the same: the lift is what drops it.
+          await d.app.dispatch.press(label === "lift" ? "agent.lift" : "tile.zoom", label === "lift" ? {} : { reach: "column" }, label === "lift" ? undefined : "drawer.agent");
+          await settle(null, `${label}: by act too, it drops`);
+        }
+        // A bar button that does other work still drops the lift first (PIE-1189).
+        click("lift"); await settle("up", "lifted again");
+        click("note"); await settle(null, "a button that does other work drops the lift");
+        await board.trash(bar.id);
+      } finally { d.app.quit(); }
+    }, 45_000);
+  }
 
   // PIE-892: the drawer's own program leaves whole. Its tab holds the place and starts nothing (a second client of a
   // Herdr session was a mirror nobody could type in or close), says where it went, and ⏎ or a click brings it back.

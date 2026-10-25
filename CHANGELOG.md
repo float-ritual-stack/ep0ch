@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A status-bar button that lifts toggles, and `agent.lift` is `tile.zoom` on the drawer's agent (PIE-1279)
+
+Evan, Oct 25: a `::button{label="lift" act="agent.lift"}` lifted the agent the first time, and the second click did nothing, as did every one after.
+
+- **A status-bar click no longer undoes what its action did to a lift.** A click on the bar dropped any lift first (so work that moved to the bar didn't land under it), then ran the button: a lift button saw nothing lifted and lifted again. Now the action runs, and a lift it left as it found it drops after; one it lifted, dropped or moved is its own. Both `agent.lift` and `tile.zoom tile=drawer.agent reach=column` buttons toggle (lift, drop, lift).
+- **`agent.lift` is a preset.** A new `preset()` in the action sets (an action defined as another with arguments bound, its own name, summary and `actions` row, and steps run first) makes it `tile.zoom` on `drawer.agent` at `reach=column`, after starting the drawer's program when it never ran, or bringing it home when it was left on a screen that isn't shown. Which tile is the drawer's agent is the tile grammar's answer alone (`drawer.agent` names the running program, in the drawer or out on the screen shown), so a stale or second tab can't be lifted instead of the live one.
+- **A status click drops its lift a moment later**, once the button's action has finished, not before it starts.
+
+No protocol change.
+
 ### The write tools hold the house rules where the writing happens, and the answer says what to fix (PIE-1270)
 
 Agents followed "write notes Evan can read" after a reminder and drifted back, because the rule was read once. Now it is next to every call:

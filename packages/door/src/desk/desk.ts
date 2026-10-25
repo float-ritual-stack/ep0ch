@@ -1218,7 +1218,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const desk of desks) for (const id of desk.panes.keys()) if (desk.tileId(id) === sel) return found(desk, id);
     // `program`: the tile a program runs in (`open from=`), which it names by what it was told. The id it was told (EP0CH_TILE_ID) beats a name: the drawer's own program keeps `drawer.agent` wherever it runs, and its
     // tab holds a tile of that name while it is out on a screen.
-    const toldId = !o.program ? [] : desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && (p.toldId ?? p.tileId) === sel).map(([id]) => ({ desk, id })));
+    // `drawer.agent` is that program in every grammar, not only an `open from=`'s: the tile a lift or a zoom of it reaches.
+    const program = o.program || sel === DRAWER_TILE_ID;
+    const toldId = !program ? [] : desks.flatMap(desk => [...desk.panes].filter(([, p]) => p instanceof PtyPane && p.running && (p.toldId ?? p.tileId) === sel).map(([id]) => ({ desk, id })));
     if (toldId.length === 1) return found(toldId[0]!.desk, toldId[0]!.id);
     const named = desks.flatMap(desk => [...desk.names].filter(([id, name]) => name === sel && desk.panes.has(id)).map(([id]) => ({ desk, id })));
     if (named.length > 1) throw new ActionRefused(`several tiles named ${sel}: ${named.map(({ desk, id }) => `${this.pathTo(desk.panes.get(id)!)} (${desk.tileId(id)})`).join(", ")}; use tile=<id>`);
@@ -6171,7 +6173,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   get lifted() { return this.layout.lift; }
-  /** Pane `p` is the tile lifted on this desk (agent.lift toggles by it). */
+  /** Pane `p` is the tile lifted on this desk. */
   liftsPane(p: Pane): boolean { const l = this.layout.lift; return !!l && this.panes.get(l.tile) === p; }
   get liftedDesk() { return this.descend().find(d => d.lifted); }
   private liftedRect: Rect | null = null;

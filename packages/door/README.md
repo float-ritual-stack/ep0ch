@@ -1621,7 +1621,7 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   `claude`). With the agent in Herdr, its pane closes with it and the launcher makes the session's pane again,
   with today's variables, and starts it there, continuing. An agent's `agent.restart` is refused while you're typing in the agent, or
   within 10s of your last key in it.
-- **Agents.** `host.toggle [open=true|false]` and `host.size share=0.2…0.9`, `agent.type text=…`, `agent.knows`, `agent.lift` (`✦a`, or a status-bar button: the agent lifted as a column wherever it is) and `agent.restart` work on every screen through
+- **Agents.** `host.toggle [open=true|false]` and `host.size share=0.2…0.9`, `agent.type text=…`, `agent.knows`, `agent.lift` (`✦a`, or a status-bar button: `tile.zoom` on the drawer's agent as a column; the same button again drops it) and `agent.restart` work on every screen through
   `ep0ch act`. An agent's pull waits until you've been idle 2s and you aren't typing, is said on the status bar
   and in the drawer's title (`pulled up by an agent (<id>)`), and never gives the agent your keys. An agent can't
   put it away or resize it while you're typing in it.

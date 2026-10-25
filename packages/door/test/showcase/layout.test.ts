@@ -355,6 +355,8 @@ describe.skipIf(!outliner)("the showcase screen: layout: spine, move, folds, hyp
         }
         else if (path === "ctrl+k") press({ kind: "char", ch: "k", ctrl: true });
         else await d.dispatch.act({ action: "tile.focus", tile: "other" }, { kind: "user" });
+        // A status click drops the lift once its action has run (PIE-1279: a lift button's own toggle is not undone first).
+        await until(() => d.lifted === null, `the lift dropped by ${path}`);
         expect(d.lifted).toBeNull();
         if (path === "^W l" || path === "tile.focus") expect(d.layoutGet().focus).toBe("other");
         if (path === "alt+a") expect(app.drawer.entered).toBe(true);
