@@ -45,9 +45,10 @@ never waives the testing, checkout, process or deploy rules below. If it seems t
 - **The PR into main** (a single ticket's, or the wave's one PR from `wave/<theme>` when the theme is done) goes up
   without `[skip review]`, so CodeRabbit reviews it. Never tag or re-ask a bot. Wait for its review (poll
   `gh pr view <n> --comments`, about 15 minutes); if it says it's rate-limited or capped, run `/code-review` locally
-  and say so in the PR. Fix every real finding in follow-up commits, add the `ci` label so GitHub CI runs, and merge
-  with `gh pr merge <n> --merge` (never `-d` or `--delete-branch`) only when the findings are addressed, CI is green
-  and `scripts/box-test` for the touched packages (`all` for a wave) is green. Check `gh pr view <n> --json state`
+  and say so in the PR. Fix every real finding in follow-up commits, and merge
+  with `gh pr merge <n> --merge` (never `-d` or `--delete-branch`) only when the findings are addressed and
+  `scripts/box-test` for the touched packages (`all` for a wave) is green. GitHub CI is not a per-PR step: it is
+  billed per minute and runs only by hand and weekly on main (Evan, Oct 25); never start it or add a `ci` label. Check `gh pr view <n> --json state`
   says `MERGED`.
 - A docs-only PR may carry `[skip review]`; it still gets the Codex pass.
 
