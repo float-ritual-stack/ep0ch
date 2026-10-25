@@ -685,6 +685,38 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  // PIE-1279 (Evan, Oct 25): a status-bar button that lifts toggles. A status click drops a lift first (PIE-1189: work that
+  // moves to a bar must not land under it), which ate the toggle: the second click dropped, then lifted again.
+  test("a status-bar lift button toggles: lifts, drops, lifts again; so does a tile.zoom column button; another button still drops the lift", async () => {
+    const d = await door();
+    try {
+      const bar = await board.createBlock(null, 'Your status bar [status-bar::true]\n::button{label="lift" act="agent.lift"}\n::button{label="pop" act="tile.zoom tile=kettle reach=column"}\n::button{label="note" act="status.log"}');
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      await d.A.statusNote.refresh(d.A.statusItems());
+      const click = (label: string) => {
+        const lines = d.paint(), row = lines.length - 1, x = lines[row]!.indexOf(label);
+        expect(x).toBeGreaterThanOrEqual(0);
+        d.key(mouse("down", x, row)); d.key(mouse("up", x, row));
+      };
+      const lifted = () => d.app.drawer.desks().map(x => x.liftedDesk?.lifted?.tile ?? null).find(Boolean) ?? null;
+      const settle = async (want: string | null, what: string) => { await until(() => lifted() === want, what); await Bun.sleep(30); expect(lifted()).toBe(want); };
+      click("lift"); await until(() => lifted() !== null, "the first click lifts the agent");
+      const agent = lifted();
+      click("lift"); await settle(null, "the second click drops it");
+      click("lift"); await settle(agent, "the third click lifts it again");
+      click("lift"); await settle(null, "the fourth click drops it");
+      // The same for a bar button that zooms a column.
+      click("pop"); await until(() => lifted() !== null, "pop lifts the kettle");
+      const kettle = lifted();
+      click("pop"); await settle(null, "pop again drops it");
+      click("pop"); await settle(kettle, "pop a third time lifts it");
+      // A bar button that does other work still drops the lift first (PIE-1189).
+      click("note"); await settle(null, "a button that does other work drops the lift");
+      await board.trash(bar.id);
+    } finally { d.app.quit(); }
+  }, 30_000);
+
   // PIE-892: the drawer's own program leaves whole. Its tab holds the place and starts nothing (a second client of a
   // Herdr session was a mirror nobody could type in or close), says where it went, and ⏎ or a click brings it back.
   test("the drawer's own tab leaves onto the screen whole: its tab starts nothing and says where it went; a click brings the same program back, no restart; a running close asks before ending it", async () => {

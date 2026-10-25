@@ -67,6 +67,8 @@ const STATUS_BUTTON_ACTIONS = actionSet<{ surface: NoteSurface; host: SurfaceHos
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
+/** A lift as a status click compares it: which tile, reached how. */
+const liftKey = (l: { tile: unknown; reach: string } | null | undefined) => l ? `${String(l.tile)}/${l.reach}` : "";
 
 export interface Frame { lines: string[]; placements?: Placement[] }
 
@@ -1289,11 +1291,16 @@ export class App implements Ctx {
       return;
     }
     if (k.kind === "mouse" && k.y === this.term.info.rows - 1 && k.action === "down") {
-      for (const d of this.drawer.desks()) d.liftedDesk?.dropLift();
+      // The bar is chrome over the screen, not "elsewhere" (PIE-1189): work that moves to it must not land under a lift, so
+      // a lift the click's action left as it found it drops. One an action itself lifted, dropped or moved (agent.lift,
+      // tile.zoom: a bar button that toggles the lift) is that action's; dropping it first made the second click lift again.
+      const lifts = this.drawer.desks().flatMap(d => d.liftedDesk ? [{ desk: d.liftedDesk, was: liftKey(d.liftedDesk.lifted) }] : []);
+      const dropUntouched = () => { for (const l of lifts) if (l.desk.lifted && liftKey(l.desk.lifted) === l.was) l.desk.dropLift(); };
       const hit = this.statusBoxes.find(h => k.x >= h.from && k.x < h.to);
       const alt = k.button === 2 || ((k.mods ?? 0) & 8) !== 0;
       const req = hit ? (alt ? hit.item.alt ?? hit.item.click : k.x === hit.to - 1 && hit.item.lastCell ? hit.item.lastCell : hit.item.click) : { action: alt ? "status.bar.edit" : "status.log" };
-      if (req) void this.dispatch.press(req.action, req.args, req.tile);
+      if (req) void this.dispatch.press(req.action, req.args, req.tile).finally(dropUntouched);
+      else dropUntouched();
       return;
     }
     // The hyper layer (PIE-699): ⌃⌥⇧⌘ and a key, before any tile's own keys (a draft's and a terminal tile's too). Each chord
