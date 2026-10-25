@@ -656,8 +656,7 @@ async function figureSuggestion(client: AgentToolsClient, text: string, before?:
  */
 async function settleSuggestions(client: AgentToolsClient, noteId: string, text: string): Promise<void> {
   if (process.env.OUTLINER_FIGURE_FIT === "off" || !componentBlocks(text.split("\n")).length) return;
-  const schemas = await schemasOf(client);
-  if (schemas) await Promise.race([settleNote(client, noteId, schemas), Bun.sleep(RECORD_BUDGET_MS)]);
+  await Promise.race([schemasOf(client).then(schemas => schemas && settleNote(client, noteId, schemas)).catch(() => undefined), Bun.sleep(RECORD_BUDGET_MS)]);
 }
 /** At most this long added to a write's answer by its figure suggestion, whatever Jev does. */
 const FIGURE_FIT_BUDGET_MS = 1500;

@@ -16,8 +16,8 @@ are its record. The outliner's entries from then are kept below, under
   who wrote (persona and harness), the figure, Jev's gate and confidence, the callout it named, the prompt revision. An ask
   where Jev stayed quiet is a count on that day's `type::jev-run` note (`experiment::figure-fit-live`, the run-level keys the lab's runs share: items, agreed, agreement, tokens), not a note each.
 - **Followed, a different figure or ignored is derived, never typed.** A later write that draws the suggested figure within
-  five writes or a day (or a figure-fit thread marked Kept) is followed; one that draws another is a different figure;
-  neither is ignored. The verdict is a `suggestion-outcome` record, written once. A "Jev's suggestions" view in pie counts
+  five writes or a day (or a figure-fit thread marked Kept) is followed; one that draws another is a different figure once that window has closed
+  (the suggested one could still follow); neither is ignored. The verdict is a `suggestion-outcome` record, written once. A "Jev's suggestions" view in pie counts
   them by figure and writer over 7 and 30 days.
 - The records writer (`ep0ch record`) moved from the door to the outliner (`@ep0ch/outliner/records`) so the service can write
   records itself; the door imports it from there.

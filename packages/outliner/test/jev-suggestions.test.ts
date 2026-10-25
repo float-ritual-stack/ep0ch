@@ -51,7 +51,7 @@ async function setup() {
 }
 
 test("a write that gets a suggestion leaves a record, and later writes decide whether it was followed, a different figure, or ignored", async () => {
-  const { store, agent, records } = await setup();
+  const { store, agent, records, client } = await setup();
   const first = await agent("create", { parent: "root", text: SEASON });
   expect(first.exitCode, first.stderr).toBe(0);
   const [fact] = await records("suggestion");
@@ -72,11 +72,15 @@ test("a write that gets a suggestion leaves a record, and later writes decide wh
   expect(outcome).toMatchObject({ suggestion: fact!.id, note: note.id, outcome: "followed", component: "graph-timeline", writer: "loki", harness: "claude-code", day: today });
   expect((await records("jev-run")).find(r => r.run === today)).toMatchObject({ suggested: "1", agreed: "1", agreement: "1", different: "0", ignored: "0" });
 
-  // Another note whose next write adds another figure: a different figure. Settled once, however often the note is written.
+  // Another note whose next write adds another figure: a different figure, once the window has closed (the suggested one
+  // could still follow). Settled once, however often the note is written.
   const second = await agent("create", { parent: "root", text: SEASON.replace("Garden year", "Bed rotation") });
   const other = store.require(second.json.id);
   const swapped = await agent("edit", { ref: other.id, expectedRevision: other.revision, text: CHECK.replace("Garden year", "Bed rotation") });
   expect(swapped.exitCode, swapped.stderr).toBe(0);
+  expect((await records("suggestion-outcome")).filter(o => o.note === other.id)).toEqual([]);
+  const schemas = (await client.request<{ schemas: ComponentSchema[] }>({ action: "components.schemas" })).schemas;
+  expect(await settleOpen(client, schemas, Date.now() + 25 * 3600_000)).toBeGreaterThan(0);
   const settled = (await records("suggestion-outcome")).filter(o => o.note === other.id);
   expect(settled).toHaveLength(1);
   expect(settled[0]).toMatchObject({ outcome: "different" });
@@ -109,7 +113,8 @@ const later = (hours: number, text: string, revision = 2) => ({ revision, savedA
 test("the rule: followed, different, ignored, still open, and a Kept margin thread", () => {
   const s = { component: "graph-timeline", at };
   expect(judgeSuggestion(s, SEASON, [later(1, TIMELINE)], schemas, at + 2 * 3600_000)).toMatchObject({ outcome: "followed" });
-  expect(judgeSuggestion(s, SEASON, [later(1, CHECK)], schemas, at + 2 * 3600_000)).toMatchObject({ outcome: "different" });
+  expect(judgeSuggestion(s, SEASON, [later(1, CHECK)], schemas, at + 2 * 3600_000)).toBeNull();
+  expect(judgeSuggestion(s, SEASON, [later(1, CHECK)], schemas, at + 25 * 3600_000)).toMatchObject({ outcome: "different" });
   // Open while the window runs; ignored when the day is out or five writes passed without a figure.
   expect(judgeSuggestion(s, SEASON, [later(1, `${SEASON}\nx`)], schemas, at + 2 * 3600_000)).toBeNull();
   expect(judgeSuggestion(s, SEASON, [], schemas, at + 25 * 3600_000)).toMatchObject({ outcome: "ignored" });
@@ -117,8 +122,8 @@ test("the rule: followed, different, ignored, still open, and a Kept margin thre
   // The figure arriving after the day is too late; a Kept thread counts as followed whatever the text says.
   expect(judgeSuggestion(s, SEASON, [later(30, TIMELINE)], schemas, at + 31 * 3600_000)).toMatchObject({ outcome: "ignored" });
   expect(judgeSuggestion(s, SEASON, [], schemas, at + 3600_000, "kept")).toMatchObject({ outcome: "followed" });
-  // The suggested figure anywhere in the window is followed, even when another figure came first.
-  expect(judgeSuggestion(s, SEASON, [later(1, CHECK), later(2, TIMELINE.replace("::graph-timeline", "::graph-timeline").concat(`\n${CHECK.split("\n").slice(4).join("\n")}`), 3)], schemas, at + 3 * 3600_000)).toMatchObject({ outcome: "followed" });
+  // The suggested figure anywhere in the window is followed, even when another figure came first (CHECK is the first write).
+  expect(judgeSuggestion(s, SEASON, [later(1, CHECK), later(2, `${CHECK}\n${TIMELINE.split("\n").slice(4).join("\n")}`, 3)], schemas, at + 3 * 3600_000)).toMatchObject({ outcome: "followed" });
   // A figure the note already had is not an answer.
   expect(judgeSuggestion(s, TIMELINE, [later(1, `${TIMELINE}\nx`)], schemas, at + 3600_000)).toBeNull();
 });

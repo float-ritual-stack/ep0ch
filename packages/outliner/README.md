@@ -2922,8 +2922,8 @@ run-level keys the lab's runs share (`model`, `prompt-rev`, `items`, `agreed`, `
 stayed quiet is a count on it, never a note each, and its tokens come from Jev's own `usage`. The counts are recomputed
 from the day's suggestion and outcome records; the note is the one record rewritten, as a rate.
 Whether it was followed is derived by `judgeSuggestion`, never typed: **followed** when one of the note's next five
-writes within a day draws that figure (or the margin thread was marked Kept), **different** when such a write draws
-another figure the note didn't have, **ignored** when the day or the five writes pass with neither. The verdict is
+writes within a day draws that figure (or the margin thread was marked Kept), **different** when the window closes with another figure drawn instead,
+**ignored** when it closes with neither. The verdict is
 written once as a `suggestion-outcome` record when a later write to the note (or the next suggestion, or the sweep)
 settles it; records never change. The "Jev's suggestions" view in pie counts them over their properties, for the last 7
 and 30 days.

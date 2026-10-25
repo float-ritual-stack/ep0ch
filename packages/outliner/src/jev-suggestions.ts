@@ -146,8 +146,8 @@ export interface OpenSuggestion {
  *
  * - followed: one of the note's next `FOLLOW_WITHIN_WRITES` writes within a day draws the figure suggested, or the
  *   margin thread was marked Kept (the ticket's reading of Kept);
- * - different: such a write draws another figure the note didn't have;
- * - ignored: neither, and the window has closed (that many writes, or a day).
+ * - different: the window has closed (that many writes, or a day) and one of them drew another figure the note didn't have;
+ * - ignored: it closed with neither.
  */
 export function judgeSuggestion(
   s: Pick<OpenSuggestion, "component" | "at">,
@@ -162,15 +162,17 @@ export function judgeSuggestion(
   const suggested = (schema && blockNameOf(schema)) ?? s.component;
   const had = new Set(figuresIn(baseline, schemas));
   const window = after.filter(w => Date.parse(w.savedAt) - s.at <= FOLLOW_WITHIN_MS).slice(0, FOLLOW_WITHIN_WRITES);
-  // The whole window is read for the figure suggested before another figure settles it as a different one.
+  // The whole window is read for the figure suggested before anything else settles it, so a different figure waits for the
+  // window to close: the suggested one may still follow it.
   const followed = window.find(w => figuresIn(w.text, schemas).includes(suggested) && !had.has(suggested));
   if (followed) return { outcome: "followed", because: `revision ${followed.revision} draws ${suggested}` };
+  const closed = window.length >= FOLLOW_WITHIN_WRITES || now - s.at > FOLLOW_WITHIN_MS;
+  if (!closed) return null;
   for (const write of window) {
     const other = figuresIn(write.text, schemas).find(name => !had.has(name));
     if (other) return { outcome: "different", because: `revision ${write.revision} draws ${other} instead` };
   }
-  const closed = window.length >= FOLLOW_WITHIN_WRITES || now - s.at > FOLLOW_WITHIN_MS;
-  return closed ? { outcome: "ignored", because: `${window.length} later write${window.length === 1 ? "" : "s"} within a day drew no figure` } : null;
+  return { outcome: "ignored", because: `${window.length} later write${window.length === 1 ? "" : "s"} within a day drew no figure` };
 }
 
 async function read(client: SuggestionClient, where: string, limit = 1000): Promise<Block[]> {
