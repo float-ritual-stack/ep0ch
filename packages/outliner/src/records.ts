@@ -6,6 +6,10 @@ export const RECORD_FIELDS = {
   deploy: ["sha", "host", "protocol", "grammar", "observed", "previous", "when", "who", "session", "from", "to", "local", "clients", "sessions", "failed", "details"],
   finding: ["ticket", "pr", "source", "failure", "likelihood", "cost"],
   "finding-closed": ["finding", "fixed", "dismissed"],
+  // Jev's figure suggestions (PIE-1251, jev-suggestions.ts): a fact per suggestion, a fact per settled outcome, and a daily tally of quiet asks.
+  suggestion: ["note", "revision", "writer", "harness", "component", "gate", "confidence", "callout", "prompt", "source", "thread"],
+  "suggestion-outcome": ["suggestion", "note", "outcome", "component", "writer", "harness", "because"],
+  "suggestion-day": ["day", "quiet", "unavailable"],
 } as const;
 export type RecordKind = keyof typeof RECORD_FIELDS;
 interface Note { id: string }
@@ -34,7 +38,7 @@ function recordTemplate(kind: RecordKind): string {
   ].join("\n");
 }
 
-export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho) {
+export async function writeRecord(board: RecordWriter, kind: RecordKind, props: Record<string, string>, who: RecordWho, o: { title?: string } = {}) {
   const find = async (where: string) => (await board.request<{ blocks: Note[] }>("blocks.query", { query: { where, machinery: "show" } })).blocks[0];
   const deploy = kind === "deploy";
   let root = await find(deploy ? "system-view=deploys" : "system-records=true");
@@ -46,7 +50,7 @@ export async function writeRecord(board: RecordWriter, kind: RecordKind, props: 
     if (name === kind) template = found;
   }
   const result = await board.request<{ stamped: Note[]; warnings: string[] }>("template.stamp", {
-    of: template!.id, parent: root.id, title: deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`, props, ...who,
+    of: template!.id, parent: root.id, title: o.title ?? (deploy ? `Deploy ${props.when ?? new Date().toISOString()} on ${props.host ?? "unknown"}` : `${kind} ${new Date().toISOString()}`), props, ...who,
   });
   return { id: result.stamped[0]!.id, warnings: result.warnings };
 }

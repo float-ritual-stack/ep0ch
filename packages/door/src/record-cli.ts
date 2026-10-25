@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { sessionPersona } from "@ep0ch/outline-core/outline-location";
 import { disk, hostSocketOf } from "./discover";
 import { boardFor } from "./notes-cli";
-import { RECORD_FIELDS, writeRecord, type RecordKind } from "./records";
+import { RECORD_FIELDS, writeRecord, type RecordKind } from "@ep0ch/outliner/records";
 import { runningSessions } from "./session/place";
 import { run } from "./setup/facts";
 import { hostRequest } from "./socket";

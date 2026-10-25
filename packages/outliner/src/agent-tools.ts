@@ -20,7 +20,8 @@ import { syntaxWarnings } from "@ep0ch/outline-core/syntax-warnings";
 import { FIX_BEFORE_DONE, shapeNext, shapeWarnings } from "@ep0ch/outline-core/write-shape";
 import { componentReading, type ComponentReading } from "@ep0ch/outline-core/component-warnings";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
-import { figureShape, suggestFigure } from "./figure-fit";
+import { figureShape, suggestFigure, type FigureFit, type FigureFitReading } from "./figure-fit";
+import { recordSuggestion, settleNote, settleOpen, tallyAsk, type SuggestionWrite } from "./jev-suggestions";
 import { figureRowReport } from "./figure-rows";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { useCallsOf, type TemplateUseAnswer } from "@ep0ch/outline-core/template-use";
@@ -620,16 +621,42 @@ async function componentsRead(client: AgentToolsClient, text: string): Promise<C
  * sure enough. On unless OUTLINER_FIGURE_FIT is `off` (the tests' preloads set it): a feature that waits for someone to
  * switch it on is one nobody switched on (Evan, Oct 22). Null when Jev can't be asked; it never throws, since the write has landed.
  */
-async function figureSuggestion(client: AgentToolsClient, text: string, before?: string): Promise<{ component: string; said: string } | null> {
+async function figureSuggestion(client: AgentToolsClient, text: string, before?: string, at?: Omit<SuggestionWrite, "source">): Promise<{ component: string; said: string } | null> {
   if (process.env.OUTLINER_FIGURE_FIT === "off" || figureShape(text) !== "shaped") return null;
-  const ask = async () => {
+  type Asked = { fit: FigureFit; reading?: FigureFitReading } | "quiet" | "unavailable" | null;
+  const ask = async (): Promise<Asked> => {
     const schemas = await schemasOf(client);
     if (!schemas || figureShape(text, schemas) !== "shaped" || (before !== undefined && figureShape(before, schemas) === "shaped")) return null;
     const answer = await suggestFigure(text, schemas, { timeoutMs: FIGURE_FIT_BUDGET_MS });
-    return "fit" in answer && answer.fit ? { component: answer.fit.component, said: answer.fit.said } : null;
+    if ("unavailable" in answer) return "unavailable";
+    return answer.fit ? { fit: answer.fit, reading: answer.reading } : "quiet";
   };
   // The whole ask (schemas, key, prompt and Jev) is bounded, since the write's answer waits on it.
-  return Promise.race([ask().catch(() => null), Bun.sleep(FIGURE_FIT_BUDGET_MS).then(() => null)]);
+  const asked = await Promise.race([ask().catch((): Asked => null), Bun.sleep(FIGURE_FIT_BUDGET_MS).then((): Asked => "unavailable")]);
+  if (!asked) return null;
+  // PIE-1251: what Jev said is a fact, recorded only once the writer is about to hear it (an ask that outlived the budget is
+  // not a suggestion anyone was told), and awaited so a one-shot CLI doesn't exit before it lands.
+  if (typeof asked === "string") {
+    if (at) await tallyAsk(client, asked);
+    return null;
+  }
+  if (at) {
+    await recordSuggestion(client, asked.fit, asked.reading, { ...at, source: "write" });
+    const schemas = await schemasOf(client);
+    if (schemas) await settleOpen(client, schemas);
+  }
+  return { component: asked.fit.component, said: asked.fit.said };
+}
+
+/**
+ * Whether the suggestions made on this note were followed (jev-suggestions.ts, PIE-1251): asked after a write, only when
+ * the note now draws a component at all (a note with none can be neither followed nor answered with another figure), so
+ * an ordinary write pays nothing. Writes the verdict as a record; never throws.
+ */
+async function settleSuggestions(client: AgentToolsClient, noteId: string, text: string): Promise<void> {
+  if (process.env.OUTLINER_FIGURE_FIT === "off" || !componentBlocks(text.split("\n")).length) return;
+  const schemas = await schemasOf(client);
+  if (schemas) await settleNote(client, noteId, schemas);
 }
 /** At most this long added to a write's answer by its figure suggestion, whatever Jev does. */
 const FIGURE_FIT_BUDGET_MS = 1500;
@@ -666,6 +693,8 @@ export async function sweepFigures(client: AgentToolsClient, input: { under: str
   const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query: { subtreeRootId: root, where: "NOT type=annotation", sort: "updated desc", limit: limit + 1 } });
   const rows = found.blocks.filter(b => b.id !== root).slice(0, limit);
   const sweep: FigureSweep = { checked: rows.length, shaped: 0, told: 0, suggested: [] };
+  // PIE-1251: the sweep is also when a day-old suggestion nobody followed is settled as ignored.
+  if (process.env.OUTLINER_FIGURE_FIT !== "off") await settleOpen(client, schemas);
   const failed: { id: string; error: string }[] = [];
   for (const block of rows) {
     if (figureShape(block.text, schemas) !== "shaped") continue;
@@ -679,6 +708,8 @@ export async function sweepFigures(client: AgentToolsClient, input: { under: str
       const thread = input.comment
         ? (await commentOn(client, { ref: block.id, whole: true, kind: "figure-fit", requestId: `figure-fit:${block.id}:${block.revision}`, body: `${answer.fit.said}. A suggestion only, nothing was changed: mark it Seen to set it aside.` }, actor!)).thread
         : undefined;
+      // Only a thread the writer can see is a suggestion told: a listing without `comment` tells nobody.
+      if (thread) await recordSuggestion(client, answer.fit, answer.reading, { note: block.id, revision: block.revision, actorId: actor!.actorId, source: "sweep", thread });
       sweep.suggested.push({ id: block.id, title: blockDisplayTitle(block), component: answer.fit.component, confidence: answer.fit.confidence, ...(thread ? { thread } : {}) });
     } catch (error) {
       failed.push({ id: block.id, error: (error as Error).message });
@@ -766,7 +797,7 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
       id: updated.id, ref: `((${updated.id}))`, revision: updated.revision, previousRevision: block.revision,
       diff: shortDiff(block.text, updated.text), section: updated.section,
       ...(dropped.length ? { dropped } : {}),
-      ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text })),
+      ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text, at: { note: updated.id, revision: updated.revision, actorId: actor.actorId } })),
     };
   } else {
     const addition = requireText(input.append, "The text to append");
@@ -797,7 +828,7 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
     previousRevision: block.revision,
     diff: shortDiff(block.text, updated.text),
     ...(dropped.length ? { dropped } : {}),
-    ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text })),
+    ...(await warned(client, updated.text, updated.id, updated.id, { before: block.text, at: { note: updated.id, revision: updated.revision, actorId: actor.actorId } })),
   };
 }
 
@@ -807,12 +838,13 @@ export async function editBlock(client: AgentToolsClient, input: EditInput, acto
  * create's or an edit's, with the text before), the figure it would read best as (figure-fit.ts). Every finding is a
  * warning worded as a gate, never a refusal; `next` always ends the answer.
  */
-async function warned(client: AgentToolsClient, text: string, near?: string, self = near, gate?: { before?: string }): Promise<{ warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
+async function warned(client: AgentToolsClient, text: string, near?: string, self = near, gate?: { before?: string; at?: Omit<SuggestionWrite, "source"> }): Promise<{ warnings?: string[]; components?: string[]; figures?: string[]; next?: string }> {
   const [{ warnings, components }, fit, rows] = await Promise.all([
     writtenReading(client, text, near, self),
-    gate ? figureSuggestion(client, text, gate.before) : null,
+    gate ? figureSuggestion(client, text, gate.before, gate.at) : null,
     gate && near ? figureRowReport(client, near, text, gate.before) : null,
   ]);
+  if (gate && near) await settleSuggestions(client, near, text);
   const all = [...warnings, ...(gate ? shapeWarnings(text, gate.before) : []), ...(rows?.warnings ?? []), ...(fit ? [FIX_BEFORE_DONE + fit.said] : [])];
   return { ...(all.length ? { warnings: all } : {}), ...(components.length ? { components } : {}), ...(rows?.figures.length ? { figures: rows.figures } : {}), ...(near ? { next: shapeNext(near) } : {}) };
 }
@@ -834,7 +866,7 @@ export async function createBlock(
     await client.requireCompatibleService();
     block = await client.request<Block>({ action: "move", blockId: block.id, expectedRevision: block.revision, parentId, position, mutation: mutationOf(actor) });
   }
-  return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId, ...(await warned(client, block.text, block.id, block.id, {})) };
+  return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId, ...(await warned(client, block.text, block.id, block.id, { at: { note: block.id, revision: block.revision, actorId: actor.actorId } })) };
 }
 
 // ─── A view's hand-set order ────────────────────────────────────────────────
@@ -1253,9 +1285,10 @@ export async function patchDraft(
   const before = new Set(await referenceWarningsFor(client, was, block.id));
   const [now, suggestion, rows] = await Promise.all([
     writtenReading(client, after, block.id),
-    o.suggest === false ? null : figureSuggestion(client, after, was),
+    o.suggest === false ? null : figureSuggestion(client, after, was, { note: block.id, revision: (result.outcome === "applied" ? result.edits.find(e => e.blockId === block.id)?.revision : undefined) ?? block.revision, actorId: actor.actorId }),
     o.suggest === false ? null : figureRowReport(client, block.id, after, was),
   ]);
+  if (o.suggest !== false) await settleSuggestions(client, block.id, after);
   const warnings = [
     ...now.warnings.filter(w => !before.has(w)),
     ...(o.suggest === false ? [] : shapeWarnings(after, was)),

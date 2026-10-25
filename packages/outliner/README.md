@@ -2912,6 +2912,18 @@ prose out. The request is made three ways:
 
 All three need Jev's key (`TYPESAFE_API_KEY`, or the `typesafe` with-secrets group). Tests never ask the real Jev.
 
+**Is Jev right, and does anyone listen** (PIE-1251, `src/jev-suggestions.ts`). A suggestion a writer was told is a
+record under Records (`ep0ch record suggestion`'s kind, `src/records.ts`): the note and the revision written, the writer
+(persona and harness, from the actor id), the figure, Jev's gate and confidence, the callout it named, the prompt
+revision. The sweep's margin thread is the same record with `source: sweep` and the thread. An ask where Jev stayed quiet
+or couldn't answer is one count up on the day's `suggestion-day` note (`quiet`, `unavailable`), never a note each.
+Whether it was followed is derived by `judgeSuggestion`, never typed: **followed** when one of the note's next five
+writes within a day draws that figure (or the margin thread was marked Kept), **different** when such a write draws
+another figure the note didn't have, **ignored** when the day or the five writes pass with neither. The verdict is
+written once as a `suggestion-outcome` record when a later write to the note (or the next suggestion, or the sweep)
+settles it; records never change. The "Jev's suggestions" view in pie counts them over their properties, for the last 7
+and 30 days.
+
 The public `createBlockComment` helper in `src/block-comments.ts` accepts request
 identity, a `BlockCommentInput`, author and provenance. Protocol80 adds the
 `block-comment` operation to the existing `annotations.batch` transaction and

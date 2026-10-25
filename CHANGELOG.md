@@ -10,6 +10,18 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Jev's figure suggestions are recorded, and whether each was followed is worked out (PIE-1251)
+
+- **Every suggestion a write's answer carries leaves a record** (`type::suggestion` under Records): the note and revision,
+  who wrote (persona and harness), the figure, Jev's gate and confidence, the callout it named, the prompt revision. An ask
+  where Jev stayed quiet is a count on that day's `suggestion-day` note, not a note each.
+- **Followed, a different figure or ignored is derived, never typed.** A later write that draws the suggested figure within
+  five writes or a day (or a figure-fit thread marked Kept) is followed; one that draws another is a different figure;
+  neither is ignored. The verdict is a `suggestion-outcome` record, written once. A "Jev's suggestions" view in pie counts
+  them by figure and writer over 7 and 30 days.
+- The records writer (`ep0ch record`) moved from the door to the outliner (`@ep0ch/outliner/records`) so the service can write
+  records itself; the door imports it from there.
+
 ### The door tells its terminal only what deserves a nudge, and `peek` and the speed measure get easier to use (PIE-1310, PIE-1308, PIE-1309, PIE-1302)
 
 - **Tern, Ghostty and Rex no longer get an `ep0ch - done` for every Claude turn (PIE-1310).** The door's own program status

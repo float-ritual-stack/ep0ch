@@ -31,6 +31,8 @@ export interface FigureFit {
   confidence: number;
   /** The choice's probability for the figure named. */
   probability: number;
+  /** The callout(s) the suggestion is about (their titles, outermost first), when the figure was read from a callout's rows. */
+  callouts?: string[];
 }
 
 /** Jev's answers for one note, kept whole for the eval: every figure's probability and both gates. */
@@ -65,10 +67,19 @@ const figureWord = (s: ComponentSchema) => s.title.replace(/\s*\(.*$/, "").trim(
  * `::graph-`, or with `schemas` any of the outline's figures by the name it is written with (an extension's too).
  */
 export function figureShape(text: string, schemas: readonly ComponentSchema[] = []): "shaped" | "no-shape" | "has-figure" {
-  const figures = new Set(schemas.filter(s => s.group === "figures").map(blockNameOf));
   const subjects = figureSubjects(text);
-  if (subjects.some(s => componentBlocks(s.text.split("\n")).some(b => b.name.startsWith("graph-") || figures.has(b.name)))) return "has-figure";
+  if (subjects.some(s => figuresIn(s.text, schemas).length)) return "has-figure";
   return subjects.some(s => shapedRows(s.text, !!s.callouts)) ? "shaped" : "no-shape";
+}
+
+/**
+ * The figures a text draws, by the name each is written with (`graph-timeline`; an extension's own name): every
+ * `::graph-` component and any of the outline's figures. The one answer to "does this note hold a figure", for the
+ * shape check and for whether a suggestion was followed (jev-suggestions.ts).
+ */
+export function figuresIn(text: string, schemas: readonly ComponentSchema[] = []): string[] {
+  const figures = new Set(schemas.filter(s => s.group === "figures").map(blockNameOf));
+  return componentBlocks(text.split("\n")).map(b => b.name).filter(name => name.startsWith("graph-") || figures.has(name));
 }
 
 function shapedRows(text: string, callout = false): boolean {
@@ -189,6 +200,7 @@ export async function suggestFigure(text: string, schemas: readonly ComponentSch
   if ("unavailable" in reading) return reading;
   const answer = fitOf(reading, schemas, o.thresholds);
   const callouts = figureSubject(text).callouts;
+  if (answer.fit && callouts) answer.fit.callouts = callouts;
   if (answer.fit && callouts) answer.fit.said = `the callout ${callouts.map(title => `"${title}"`).join(" with ")} ${answer.fit.said.replace(/^this /, "")}`;
   return answer;
 }
