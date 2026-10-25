@@ -376,7 +376,7 @@ describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302
       expect(Object.keys(JSON.parse(speed.stdout))).toEqual(["since", "frames", "reports", "motionCoalesced", "settle"]);
       // `text` is the screen's lines, plain by default and an array with --json; --json with a section is still JSON.
       const lines = await run(["ep0ch", "peek", "text"], { env });
-      expect(lines.stdout.trimEnd().split("\n").length).toBe(whole.text.length - (whole.text.at(-1) === "" ? 1 : 0));
+      expect(lines.stdout).toBe(whole.text.join("\n") + "\n");
       expect(JSON.parse((await run(["ep0ch", "peek", "text", "--json"], { env })).stdout)).toEqual(whole.text);
       expect(JSON.parse((await run(["ep0ch", "peek", "--json", "speed"], { env })).stdout)).toEqual(JSON.parse(speed.stdout));
       // The default is text a few KB long, not the state.

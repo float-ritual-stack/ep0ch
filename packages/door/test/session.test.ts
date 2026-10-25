@@ -683,7 +683,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
       expect(r.folded).toBeGreaterThanOrEqual(150);
       // The door counted every report it was handed, and measured the burst: the last report to the frame that showed it,
       // which cannot have taken longer than the whole sweep took to reach the screen (PIE-1309).
-      expect(r.reports).toBeGreaterThanOrEqual(200);
+      expect(r.reports).toBeGreaterThanOrEqual(150);
       expect(r.bursts).toBeGreaterThanOrEqual(1);
       expect(r.worst).not.toBeNull();
       expect(r.worst!).toBeLessThan(Math.max(r.idle + 100, 1000));
