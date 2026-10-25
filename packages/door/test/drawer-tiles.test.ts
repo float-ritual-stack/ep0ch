@@ -1238,6 +1238,33 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { two.quit(); }
   });
 
+  test("saved under another name: the drawer's own tile comes back as its own, so drawer.agent still names it (Evan's door, Oct 25)", async () => {
+    const d = await door();
+    d.paint();
+    await d.app.act({ action: "tile.drawer", args: {}, tile: "replies", as: AS });
+    d.app.quit();
+    // As in Evan's door: the own tile was saved as `shell` (its program's name), with the own program's key.
+    const file = join(outlineState(), "drawer-tiles.json");
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    const leaves: any[] = [];
+    const walk = (n: any) => { if (!n) return; if (n.t === "leaf") leaves.push(n); for (const k of n.kids ?? []) walk(k); for (const k of n.tabs ?? []) walk(k); };
+    walk(saved.root);
+    const own = leaves.find(l => l.name === "drawer.agent");
+    expect(own).toBeTruthy();
+    own.name = "shell";
+    own.kept = "drawer.json:drawer.agent";
+    writeFileSync(file, JSON.stringify(saved));
+    const e = await door();
+    try {
+      expect(e.app.drawer.desk).toBeTruthy();                    // the drawer's desk is made, restored from the saved file
+      e.paint();
+      expect(e.app.drawer.tile).toBeTruthy();
+      const a = e.app.drawer.agentPane();
+      expect(a?.pane).toBe(e.app.drawer.tile!);
+      expect(e.app.drawer.resolveTile("drawer.agent")?.tile.id).toBe(a!.desk.answerFor(a!.pane)!.tile.id);
+    } finally { e.app.quit(); }
+  });
+
   test("saved: the next door's drawer has the tile back (drawer-tiles.json), the dock as it was", async () => {
     const d = await door();
     await d.app.act({ action: "tile.drawer", args: {}, tile: "replies", as: AS });
