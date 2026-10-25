@@ -259,7 +259,7 @@ function codexHas(folder: string, home: string): boolean {
   return false;
 }
 
-/** Whether Claude kept a conversation for `folder`: one of the newest few transcripts has a real turn, not only settings lines. */
+/** Whether Claude kept a conversation for `folder`: one of the newest twenty transcripts has a real turn, not only settings lines. */
 function claudeHas(folder: string, env: Record<string, string | undefined>, home: string): boolean {
   const dir = claudeProjectDir(folder, env, home), files: { path: string; at: number }[] = [];
   try {
@@ -267,7 +267,7 @@ function claudeHas(folder: string, env: Record<string, string | undefined>, home
   } catch { return false; }
   // Claude leaves transcripts of only `last-prompt`, `agent-setting` and `mode` lines (a start closed before a prompt),
   // and refuses `--continue` for them ("No conversation found to continue"): a user line is the turn.
-  for (const f of files.sort((a, b) => b.at - a.at).slice(0, 5)) {
+  for (const f of files.sort((a, b) => b.at - a.at).slice(0, 20)) {
     try { if (head(f.path, 65536).includes('"type":"user"')) return true; } catch { /* gone */ }
   }
   return false;

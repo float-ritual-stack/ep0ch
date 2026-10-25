@@ -26,7 +26,7 @@ options and their `EP0CH_SETTLE_*` variables still override. The folder config i
 
 - **`alt+g` in a new folder no longer ends in "No conversation found to continue".** Claude leaves a transcript of settings lines only (no
   user turn) when a start closes before a prompt, and the door took any `.jsonl` for a conversation. One question, `hasConversation` (claude: a
-  user turn in the head of the newest few transcripts; pi and codex as before), now decides a start and a restart both: a restart of a fresh
+  user turn in the head of the newest twenty transcripts; pi and codex as before), now decides a start and a restart both: a restart of a fresh
   claude runs plain instead of adding `--continue` blindly. No protocol change.
 
 ### One list, drawn the same everywhere: the `list` primitive and the door's ListView (PIE-747)
