@@ -942,6 +942,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           this.nextId = Math.max(this.nextId, id + 1);
           this.panes.set(id, pane);
           if (restore) tileRegistry.restore(pane, { id: l.id });
+          // A saved arrangement loaded again (a layout, a screen note) makes new tiles: each remembers the saved one it was made from.
+          else if (l.id?.startsWith("t-") && !given) tileRegistry.restore(pane, { copiedFrom: l.id });
           names.set(id, l.name && ![...names.values()].includes(l.name) ? l.name : auto(kind));
           fresh.push(id);
         }
@@ -1237,7 +1239,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const host = this.ctx?.hostLayer;
     return [...new Set(roots ? roots.flatMap(r => r.descend()) : this.relatives())].flatMap(desk => {
       const screen = host?.isDrawer(desk.top()) ? "drawer" : desk.spec.name, slots = desk.slotsFilled();
-      return [...desk.panes].map(([id, pane]) => ({ value: { desk, id, pane }, id: desk.tileId(id), name: desk.nameOf(id), role: tileRegistry.roleOf(pane), ...(tileRegistry.openerOf(pane) ? { from: tileRegistry.openerOf(pane) } : {}), slots: slots.get(id) ?? [], screen, where: this.pathTo(pane) ?? desk.nameOf(id) }));
+      return [...desk.panes].map(([id, pane]) => ({ value: { desk, id, pane }, id: desk.tileId(id), name: desk.nameOf(id), role: tileRegistry.roleOf(pane), ...(tileRegistry.openerOf(pane) ? { from: tileRegistry.openerOf(pane) } : {}), ...(tileRegistry.copiedFrom(pane) ? { copiedFrom: tileRegistry.copiedFrom(pane) } : {}), slots: slots.get(id) ?? [], screen, where: this.pathTo(pane) ?? desk.nameOf(id) }));
     });
   }
 
