@@ -804,7 +804,7 @@ export class AgentDrawer {
   /** The drawer's lift the person went into with the drawer down (put away or folded), else null. */
   private liftIn: Desk["lifted"] = null;
   /** That lift is still up: their keys are in its tile. One dropped (or lifted again since, an agent's too) isn't. */
-  private inLift(): boolean { return !!this.liftIn && this.d?.lifted === this.liftIn; }
+  private inLift(): boolean { return !!this.liftIn && this.d?.liftedDesk?.lifted === this.liftIn; }
   /** The person's keys are in the drawer's lifted tile, gone into with the drawer down (on its folded strip isn't). */
   get inLifted(): boolean { return this.entered && this.liftIn !== null; }
   /** Where the screen shown lets the host layer appear: its policy's `host` (a screen without a drawer: none). */
@@ -819,13 +819,13 @@ export class AgentDrawer {
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
     return {
       actor, standing: standsAsPerson(actor, this.host.person?.() ?? NOBODY, "shape"), protectTyping: actor.kind === "agent" && !this.host.person?.().yolo && !INVITES.covers(actor.invitation, "shape", actor.run), area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
-      person: { focus: this.entered ? this.keys : HOST_SCREEN, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || !!this.host.person?.().busy, ...(this.host.person ? { held: actorRule({ touches: "screen", host: true }, actor, this.host.person(), {}) } : {}) },
+      person: { focus: this.liftIn !== null && !this.inLift() ? HOST_SCREEN : this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || !!this.host.person?.().busy, ...(this.host.person ? { held: actorRule({ touches: "screen", host: true }, actor, this.host.person(), {}) } : {}) },
     };
   }
   /** One operation on the host layer, for `actor`: its new state and where the keys are now, or the refusal thrown. */
   private do(op: Op<string>, actor: Actor) {
     // A lift the person went into has dropped: their keys were back on the screen from then (entered says so).
-    if (this.liftIn !== null && this.keys !== HOST_SCREEN && !this.inLift()) { this.liftIn = null; this.keys = HOST_SCREEN; }
+    if (this.liftIn !== null && this.keys !== HOST_SCREEN && !this.inLift()) { this.liftIn = null; this.keys = HOST_SCREEN; this.d?.stopTyping(); }
     const r = applyLayout(this.layer, op, this.ctx(actor, this.rows, this.cols));
     if (!r.ok) throw new ActionRefused(r.refused);
     const moved = this.keys !== r.focus;
@@ -1470,7 +1470,8 @@ export class AgentDrawer {
    */
   enter(send?: string, restart = false): { entered: boolean; restarted?: boolean } {
     // A tile of it lifted with the drawer down is gone into where it is (PIE-1359): the drawer stays down.
-    if (this.d?.lifted && !drawerUp(this)) return this.intoLift(send);
+    const lifted = this.d?.liftedDesk;
+    if (lifted && !drawerUp(this)) return this.intoLift(lifted, send, restart);
     if (!this.shown) throw new ActionRefused("the drawer is put away · alt+a pulls it up");
     this.leftAt = 0; this.openedBy = null; this.liftIn = null;
     this.do({ op: "focus", tile: HOST_TILES }, USER);
@@ -1492,14 +1493,17 @@ export class AgentDrawer {
    * Into the drawer's tile lifted while the drawer is down: the person's keys go to it (a terminal there takes them), the
    * drawer left put away or folded. The lift dropped, they're the screen's again.
    */
-  private intoLift(send?: string): { entered: boolean } {
-    const d = this.d!, name = d.liftedName()!, p = d.pane(name);
-    // Its focus first: a keys move drops a lift whose tile hasn't them (dropLiftElsewhere).
-    d.run("tile.focus", {}, name);
+  private intoLift(d: Desk, send?: string, restart = false): { entered: boolean; restarted?: boolean } {
+    const name = d.liftedName()!, p = d.pane(name);
+    // Its focus first (and its group's, lifted from one): a keys move drops a lift whose tile hasn't them (dropLiftElsewhere).
+    d.focusLift();
     this.liftIn = d.lifted; this.leftAt = 0; this.openedBy = null;
     // Quiet: the host layer's focus never slides a shut drawer up.
     this.do({ op: "focus", tile: HOST_TILES, quiet: true }, USER);
-    if (p instanceof PtyPane && p.running) d.run("tile.enter", send ? { send } : {}, name);
+    if (p instanceof PtyPane && !p.running && p.exited !== null) {
+      if (restart) { d.run("tile.restart", {}, name); this.host.redraw(); return { entered: true, restarted: true }; }
+      this.host.flash(`${name} exited`);
+    } else if (p instanceof PtyPane && p.running) d.run("tile.enter", send ? { send } : {}, name);
     this.host.redraw();
     return { entered: true };
   }
@@ -1686,8 +1690,8 @@ export interface DrawerOn extends Again { drawer: AgentDrawer; ctx: Ctx; here: S
 /** The drawer's actions: on every screen, as the shell's are. */
 export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   "host.enter": def({
-    summary: "go into the drawer: the person's keys go to the tab it shows until ctrl+]; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
-    keys: "ctrl+], click in the drawer, ⏎ on an exited agent; ctrl+] then ctrl+] sends ctrl+] to it",
+    summary: "go into the drawer: the person's keys go to the tab it shows until ctrl+]; with the drawer put away or folded, to its tile lifted above the screen (the drawer stays down) until the lift drops; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
+    keys: "ctrl+], click in the drawer or in its lifted tile, ⏎ on an exited agent; ctrl+] then ctrl+] sends ctrl+] to it",
     touches: "screen", replay: "safe",
     person: "going into the drawer takes the person's keys; an agent pulls it up with host.toggle and leaves their keys where they are",
     args: { send: { type: "string", optional: true, about: "bytes to give the agent first (a literal ctrl+])" }, restart: { type: "boolean", optional: true, about: "run an agent that exited again, as ⏎ on it does" } },
@@ -1952,7 +1956,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
       { action: "host.enter", when: ({ on }, { drawer }, actor) => on !== false && !drawer.liftsAgent() && actor.kind === "user" && drawerUp(drawer) && (drawer.liftPick()?.inDrawer ?? false) && !drawer.entered },
     ],
     then: [
-      { action: "host.enter", when: (_a, { drawer }, actor, out) => actor.kind === "user" && !!(out as { zoomed?: boolean } | undefined)?.zoomed && !drawerUp(drawer) && !!drawer.made?.lifted && !drawer.inLifted },
+      { action: "host.enter", when: (_a, { drawer }, actor, out) => actor.kind === "user" && !!(out as { zoomed?: boolean } | undefined)?.zoomed && !drawerUp(drawer) && !!drawer.made?.liftedDesk && !drawer.inLifted },
     ],
   }),
   "agent.restart": def({

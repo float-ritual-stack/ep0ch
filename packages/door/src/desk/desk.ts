@@ -2371,7 +2371,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** A repaint, while the desk is the screen shown (kept in the background, its programs don't repaint the menu). */
   /** Repaint when drawn: shown, or (your drawer's desk put away) a tile of it lifted above the screen (PIE-1359). */
-  redraw() { if (this.onScreen || (this.layout.lift && this.ctx?.hostLayer?.isDrawer(this))) this.ctx?.redraw(); }
+  redraw() { if (this.onScreen || (this.layout.lift && this.ctx?.hostLayer?.isDrawer(this.top()))) this.ctx?.redraw(); }
 
   private arrivals = new Map<number, { by: string; note?: string; remaining: number; at: number }>();
   private arriving(id: number): boolean { return (this.arrivals.get(id)?.remaining ?? 0) > 0; }
@@ -6667,6 +6667,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   get liftedDesk() { return this.descend().find(d => d.lifted); }
   /** The lifted tile's name on this desk, or null. */
   liftedName(): string | null { const l = this.layout.lift; return l ? this.nameOf(l.tile) : null; }
+  /** The lifted tile here gets the focus, and its group on each desk holding this one, so the person's keys reach it. */
+  focusLift() {
+    const name = this.liftedName();
+    if (!name) return;
+    this.run("tile.focus", {}, name);
+    for (let d: Desk = this, h = d.holder?.desk(); h; d = h, h = d.holder?.desk()) h.run("tile.focus", {}, h.nameOfPane(d.holder!.tile));
+  }
   private liftedRect: Rect | null = null;
   // Cards, completion and hints can extend beyond a column lift.
   private overlayHits: Rect[] = [];

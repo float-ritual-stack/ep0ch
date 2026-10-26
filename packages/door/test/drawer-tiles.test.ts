@@ -837,6 +837,41 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       });
     }
 
+    // Groups are a regression area: a terminal lifted from a group in the put-away drawer takes the keys the same way.
+    test("with the drawer put away, a terminal lifted from a group in it takes the person's click and keys, and repaints", async () => {
+      const d = await door();
+      try {
+        await d.desk.dispatch.act({ action: "tile.group", args: { with: "reader", name: "bundle" }, tile: "kettle" }, USER);
+        d.paint();
+        const inner = (d.desk.pane("bundle") as any).inner as Desk;
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "bundle" }, USER);
+        expect(d.inDrawer("bundle")).toBe(true);
+        if (d.app.drawer.open) await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
+        d.paint();
+        expect(d.app.drawer.shown).toBe(false);
+        await inner.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: "kettle" }, USER);
+        d.paint();
+        expect(inner.lifted).toBeTruthy();
+        const r = (inner as any).liftedRect;
+        const x = r.col + Math.floor(r.cols / 2), y = r.row + Math.floor(r.rows / 2);
+        d.key(mouse("down", x, y)); d.key(mouse("up", x, y)); d.paint();
+        await until(() => d.app.drawer.entered, "the click took the keys");
+        expect(d.app.drawer.shown).toBe(false);
+        // A terminal in a group takes keys as keys (the group's desk passes them in), not the raw sink.
+        for (const ch of "prick out the seedlings") d.key(char(ch));
+        d.key({ kind: "enter" });
+        const kettle = inner.pane("kettle") as PtyPane;
+        await until(() => kettle.text().join("").includes("prick out the seedlings"), "the grouped terminal took the keys");
+        let asked = 0;
+        const redraw = d.A.redraw.bind(d.A);
+        d.A.redraw = () => { asked++; redraw(); };
+        inner.redraw();
+        expect(asked).toBe(1);
+        await inner.dispatch.act({ action: "tile.zoom", args: { reach: "column", on: false }, tile: "kettle" }, USER);
+        expect(d.app.drawer.entered).toBe(false);
+      } finally { d.app.quit(); }
+    });
+
     test("with no agent tab left, lift opens a new one running the last agent picked and lifts it", async () => {
       const d = await door();
       try {
