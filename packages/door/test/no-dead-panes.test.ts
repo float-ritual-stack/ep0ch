@@ -96,7 +96,7 @@ describe("no dead panes", () => {
       app.drawer.set(true, { kind: "user" });
       const first = app.drawer.newAgentTab({ kind: "user" });
       (app as any).paint();
-      const p = app.drawer.desk!.pane(first.name) as any;
+      const p = app.drawer.desk!.pane(String(first.name)) as any;
       await until(() => !!p.running && text(p).includes("slow stand-in here"), "the drawer's agent runs", 8000);
       const pid = p.pid;
       delete process.env.EP0CH_DAILY_AGENT;
