@@ -862,9 +862,10 @@ target's text or id. Titles in the index and page titles follow the same rule.
 Links and embeds written in code stay as written. At most 1,000 blocks of a
 subtree are published, and the page says so when it is cut off.
 
-**Embeds show their content, published or not.** An embed `!((block))` or
-`!((block^anchor))` shows the embedded note's text (or the anchor's slice: a heading's section, a paragraph, a list
-item and its children, a figure, or a whole blockquote or callout when the anchor ends its last line, PIE-592) as a
+**Embeds show their content, published or not.** An embed `!((block))`,
+`!((block^anchor))` or `![[page^anchor]]` (PIE-1247) shows the embedded note's text (or the anchor's slice: a
+heading's section, a paragraph, a list item and its children, a figure anchored on its opening line, or a whole
+blockquote or callout when the anchor ends its last line or a callout's head, PIE-592) as a
 quote, in published blocks and in rendered markdown attachments alike, whether
 or not that note is published. The service's transclusion rules apply
 (`transclusions.read`): the whole page is one document, so at most 16 embeds

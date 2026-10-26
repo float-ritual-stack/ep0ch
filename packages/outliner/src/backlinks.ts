@@ -131,8 +131,12 @@ function backlinkOccurrence(
   const key = occurrence.propertyKey;
   return key !== undefined
     ? { kind: "property", propertyKey: key, ...base }
-    : { kind: occurrence.kind as "block" | "page" | "work-id", ...base };
+    : { kind: occurrence.kind as "block" | "page" | "work-id", ...(fragmentOf(occurrence) ? { fragmentId: fragmentOf(occurrence) } : {}), ...base };
 }
+
+/** The anchor a reference aims at (`((id^anchor))`, `[[page^anchor]]`, PIE-1247), if any. */
+const fragmentOf = (occurrence: BacklinkRelationOccurrence): string | undefined =>
+  "fragmentId" in occurrence ? occurrence.fragmentId : undefined;
 
 function parentContext(block: Block, blocksById: ReadonlyMap<string, Block>): string {
   const titles: string[] = [];
@@ -152,14 +156,15 @@ function referenceGroups(
   const groups = new Map<string, BacklinkReferenceGroup>();
   for (const occurrence of occurrences) {
     const propertyKey = occurrence.propertyKey;
-    const key = propertyKey !== undefined ? `property:${propertyKey}` : occurrence.kind;
+    const fragmentId = propertyKey === undefined ? fragmentOf(occurrence) : undefined;
+    const key = propertyKey !== undefined ? `property:${propertyKey}` : `${occurrence.kind}${fragmentId ? `^${fragmentId}` : ""}`;
     const group = groups.get(key);
     if (group) {
       group.count += 1;
     } else if (propertyKey !== undefined) {
       groups.set(key, { kind: "property", propertyKey, count: 1 });
     } else {
-      groups.set(key, { kind: occurrence.kind as "block" | "page" | "work-id", count: 1 });
+      groups.set(key, { kind: occurrence.kind as "block" | "page" | "work-id", ...(fragmentId ? { fragmentId } : {}), count: 1 });
     }
   }
   return [...groups.values()];

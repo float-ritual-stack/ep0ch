@@ -1,5 +1,5 @@
-// The link grammar of a note: block references `((id))`, `((id^fragment|label))`, page links `[[address|label]]`,
-// embeds `!((id^fragment))`, Markdown links and the fragment anchor `^id` at a line's end. The service indexes and
+// The link grammar of a note: block references `((id))`, `((id^fragment|label))`, page links `[[address|label]]` and
+// `[[address^fragment]]`, embeds `!((id^fragment))` and `![[address^fragment]]`, Markdown links and the fragment anchor `^id` at a line's end. The service indexes and
 // resolves what these scans find; every client draws a link where they find one, so a link the service reads is the
 // link the reader shows, label and all. Code is opaque (PIE-764): a link written in a code span or fenced code is text,
 // so every scan here leaves code out (`CodeScope`). Pure: no I/O.
@@ -147,12 +147,6 @@ export function blockReferenceEnvelopeRanges(text: string): BlockReferenceEnvelo
   return ranges;
 }
 
-// ── embeds ───────────────────────────────────────────────────────────────────────────────────────────────────
-
-/** `!((id))` and `!((id^fragment))`: a transclusion (no label). */
-export const EMBED_PATTERN_SOURCE = String.raw`!\(\(((?:[a-z0-9][a-z0-9-]{0,31}:)?[A-Za-z0-9_-]{8,})(?:\^(${FRAGMENT_ID_SOURCE}))?\)\)`;
-export const embedPattern = () => new RegExp(EMBED_PATTERN_SOURCE, "g");
-
 // ── page links ───────────────────────────────────────────────────────────────────────────────────────────────
 
 const CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
@@ -240,6 +234,9 @@ export function pageAddressText(address: string): string {
 
 export const PAGE_ADDRESS_MAX_LENGTH = 512;
 
+/** The `^anchor` that ends a page link's address (`[[Spring plan^sowing]]`), blanks before it allowed. */
+const PAGE_FRAGMENT = new RegExp(String.raw`\s*\^(${FRAGMENT_ID_SOURCE})\s*$`);
+
 export interface NormalizedPageAddress {
   displayAddress: string;
   normalizedAddress: string;
@@ -248,6 +245,8 @@ export interface NormalizedPageAddress {
 export interface PageAddressReference extends NormalizedPageAddress {
   outline?: string;
   label?: string;
+  /** `[[Spring plan^sowing]]` (PIE-1247): the anchor in the page it points at; the address is the page's alone. */
+  fragmentId?: string;
   /** Held by another page link of the scan (`[[[[2026-10-06]] - thoughts]]`'s inner one): a link, never drawn alone. */
   nested?: true;
   start: number;
@@ -298,16 +297,19 @@ export function pageAddressReferences(text: string, code?: CodeScope): PageAddre
   for (const span of pageLinkSpans(text, codeRanges)) {
     const authored = text.slice(span.start + 2, span.end - 2);
     const separator = labelBar(authored);
-    const target = separator < 0 ? authored : authored.slice(0, separator);
+    const written = separator < 0 ? authored : authored.slice(0, separator);
     const label = separator < 0 ? undefined : authored.slice(separator + 1).trim();
     if (separator >= 0 && !label) continue;
+    // A `^anchor` ending the address points into the page, as `((id^anchor))` does (PIE-1247).
+    const fragment = PAGE_FRAGMENT.exec(written);
+    const target = fragment && fragment.index > 0 ? written.slice(0, fragment.index) : written;
     const address = tryNormalizePageAddress(target);
     if (!address) continue;
     while (holding.length && holding[holding.length - 1]! <= span.start) holding.pop();
     const nested = holding.length > 0;
     holding.push(span.end);
     const { outline } = qualifiedReference(address.displayAddress);
-    references.push({ ...address, ...(outline ? { outline } : {}), ...(label ? { label } : {}), ...(nested ? { nested: true as const } : {}), start: span.start, end: span.end });
+    references.push({ ...address, ...(outline ? { outline } : {}), ...(label ? { label } : {}), ...(fragment && fragment.index > 0 ? { fragmentId: fragment[1]! } : {}), ...(nested ? { nested: true as const } : {}), start: span.start, end: span.end });
   }
   return outsideCode(text, references, codeRanges);
 }
@@ -336,18 +338,54 @@ export function withoutFragmentAnchor(line: string): string {
   return match ? line.slice(0, match.index).trimEnd() : line;
 }
 
+// ── embeds of either kind ────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A page embed as a transclusion target (PIE-1247): `![[Spring plan^sowing]]` is the target `[[Spring plan]]` with the
+ * fragment `sowing`. A block id never starts with `[[`, so the one target string names a block or a page, and the
+ * service resolves the page when it reads it.
+ */
+export const pageEmbedTarget = (address: string) => `[[${address}]]`;
+
+/** The page address a transclusion target names (`[[Spring plan]]`), or null for a block id. */
+export function embeddedPageAddress(target: string): string | null {
+  return target.startsWith("[[") && target.endsWith("]]") && target.length > 4 ? target.slice(2, -2) : null;
+}
+
+/** One embed in a line or a note: where it starts (its `!`), what was written, its target and fragment. */
+export interface EmbedOccurrence {
+  start: number; end: number;
+  /** `outline:id` for a qualified block embed, else the block id, or the page's `[[page]]`. */
+  target: string;
+  /** A block embed's id without its outline. */
+  blockId?: string;
+  fragmentId?: string;
+}
+
+/**
+ * The embeds of `text` in reading order: `!((id))`, `!((id^fragment))`, `![[page]]` and `![[page^fragment]]`, each
+ * as one target string (`pageEmbedTarget` for a page). Code is text (`CodeScope`), as for every link.
+ */
+export function embedOccurrences(text: string, code?: CodeScope): EmbedOccurrence[] {
+  if (!text.includes("!((") && !text.includes("![[")) return [];
+  return linkOccurrences(text, code).flatMap(l =>
+    l.kind === "block" && l.embed ? [{ start: l.start, end: l.end, target: l.outline ? `${l.outline}:${l.blockId}` : l.blockId, blockId: l.blockId, ...(l.fragmentId ? { fragmentId: l.fragmentId } : {}) }]
+    : l.kind === "page" && l.embed ? [{ start: l.start, end: l.end, target: pageEmbedTarget(l.displayAddress), ...(l.fragmentId ? { fragmentId: l.fragmentId } : {}) }]
+    : []);
+}
+
 // ── a note's links, in reading order ─────────────────────────────────────────────────────────────────────────
 
 export type LinkOccurrence =
   | ({ kind: "block"; embed: boolean } & BlockReferenceOccurrence)
-  | ({ kind: "page" } & PageAddressReference)
+  | ({ kind: "page"; embed: boolean } & PageAddressReference)
   | { kind: "markdown"; text: string; url: string; start: number; end: number };
 
 const overlaps = (a: { start: number; end: number }, b: { start: number; end: number }) => a.start < b.end && b.start < a.end;
 
 /**
  * The links of `text` in reading order, none overlapping: Markdown links, block references (`embed`: an unlabelled
- * one written `!((…))`, whose `start` is its `!`) and page links. Where a Markdown link or image and a reference
+ * one written `!((…))`, whose `start` is its `!`) and page links (`embed` likewise: `![[…]]`). Where a Markdown link or image and a reference
  * overlap, the one that holds the other is the link (`[see ((id))](url)` is a web link, `((id|[docs](url)))` a
  * reference); a page link inside a `((…))` is the reference's label. A link in code is text (`CodeScope`: a whole note
  * by default; a caller scanning one line passes `"inline"`).
@@ -371,7 +409,9 @@ export function linkOccurrences(text: string, code?: CodeScope): LinkOccurrence[
   for (const page of pageAddressReferences(text, codeRanges)) {
     // A page link an address holds is drawn as part of the one holding it.
     if (page.nested || markdown.some(range => overlaps(page, range)) || envelopes.some(range => overlaps(page, range))) continue;
-    out.push({ kind: "page", ...page });
+    // `![[page]]`, `![[page^anchor]]` (PIE-1247): an unlabelled page link written with `!` embeds it, as `!((…))` does.
+    const embed = page.label === undefined && text[page.start - 1] === "!";
+    out.push({ kind: "page", embed, ...page, start: embed ? page.start - 1 : page.start });
   }
   return outsideCode(text, out, codeRanges).sort((a, b) => a.start - b.start);
 }

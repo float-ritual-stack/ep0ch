@@ -14,9 +14,9 @@
 import type { CompletionKind } from "./completion-triggers";
 import type { PickRecord, SourceAnswer, SourceTrigger } from "./completion-source";
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 270;
+export const PROTOCOL = 271;
 /** Parse/draw rules, independent of whether a write can land correctly. */
-export const GRAMMAR = 5;
+export const GRAMMAR = 6;
 
 /** A stale renderer can keep working; surface this once in the client's own message channel. */
 export function grammarWarning(grammar: number): string | undefined {

@@ -219,8 +219,9 @@ per match). A prop the template doesn't declare is a warning with the nearest na
 ## Link, don't direct
 
 Point at a block with its link: `((id|short label))`, or `((id^anchor|label))` for a passage. Never write
-directions ("the draft is in the outbox below"). Look the id up and link it. `[[page]]` for a named page,
-`!((id))` to show a block's text in place (it stays canonical). The same holds in chat: give the link.
+directions ("the draft is in the outbox below"). Look the id up and link it. `[[page]]` for a named page
+(`[[page^anchor]]` for a part of it), `!((id))` or `![[page^anchor]]` to show a block's text or one part in place (it
+stays canonical). The same holds in chat: give the link.
 A link in a property's value is an edge too (PIE-874): `[via::[[HUB-23]]]`, `[ticket::PC-582]` (a value that is
 exactly a ticket key) or `[related::((id)), notes]` show in the target's backlinks labelled by the property (`via`,
 `ticket`), so write the fact once, in the property, not again in the body.
@@ -469,10 +470,14 @@ column keeps its title column and one more and says `+n columns`; stat tiles wra
 decision's side note goes under its row; `compare` stacks; `matrix` cuts its heads; `quadrant` shows dots and a
 legend. Write for the content, not the pane: the figure fits itself.
 
-**Addressing a figure.** An anchor alone on the line after a figure's closing `::` names the figure
-(`::graph-quadrant … ::` then `^quadrant`): `((id^quadrant|the quadrant))` lands on it, lit, and the service's
-fragment slice is the whole block, so an embed `!((id^quadrant))` shows just the figure. Headings and paragraphs
-take `^anchor` at their line's end as before.
+**Addressing any element (PIE-1247).** Any element's line takes an `^anchor` at its end: a figure's opening line
+(`::graph-quadrant ^quadrant`), a callout's head line or last line, a list item, a paragraph, a heading. Never add a
+heading just to aim at a figure. `((id^quadrant|the quadrant))` lands on it, lit, and the service's fragment slice
+is the whole block, so `!((id^quadrant))` embeds just the figure, and its `query:` with `this` or `parent:this` still
+reads the note it lives in. By page: `[[Spring plan^quadrant]]` links, `![[Spring plan^quadrant]]` embeds. (So a page name can't end in `^word`: that reads as an anchor.)
+Choosing a part in `((` / `!((` / `[[page^` completion writes its anchor for you; write one by hand only for a
+durable reference, never to mark or comment on a line. (An anchor alone on the line after a figure's closing `::`
+still names it.) Backlinks group by the anchor each one aims at.
 
 Live blocks also take `limit:`, `sort:` and `direction: desc|asc` (default `updated`, `desc`). `sort:` is
 `updated`, `created` or any property key (`sort: due`; `property:created` for a property so named): numbers compare

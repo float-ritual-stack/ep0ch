@@ -981,7 +981,6 @@ function blockReferenceEnvelopeRanges(text) {
   }
   return ranges;
 }
-var EMBED_PATTERN_SOURCE = String.raw`!\(\(((?:[a-z0-9][a-z0-9-]{0,31}:)?[A-Za-z0-9_-]{8,})(?:\^(${FRAGMENT_ID_SOURCE}))?\)\)`;
 var CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 function pageLinkSpans(text, code = []) {
   const spans = [];
@@ -1058,6 +1057,7 @@ function bracketsClose(address) {
   return true;
 }
 var PAGE_ADDRESS_MAX_LENGTH = 512;
+var PAGE_FRAGMENT = new RegExp(String.raw`\s*\^(${FRAGMENT_ID_SOURCE})\s*$`);
 function normalizePageAddress(input) {
   const displayAddress = input.trim();
   if (!displayAddress)
@@ -1088,10 +1088,12 @@ function pageAddressReferences(text, code) {
   for (const span of pageLinkSpans(text, codeRanges)) {
     const authored = text.slice(span.start + 2, span.end - 2);
     const separator = labelBar(authored);
-    const target = separator < 0 ? authored : authored.slice(0, separator);
+    const written = separator < 0 ? authored : authored.slice(0, separator);
     const label = separator < 0 ? undefined : authored.slice(separator + 1).trim();
     if (separator >= 0 && !label)
       continue;
+    const fragment = PAGE_FRAGMENT.exec(written);
+    const target = fragment && fragment.index > 0 ? written.slice(0, fragment.index) : written;
     const address = tryNormalizePageAddress(target);
     if (!address)
       continue;
@@ -1100,7 +1102,7 @@ function pageAddressReferences(text, code) {
     const nested = holding.length > 0;
     holding.push(span.end);
     const { outline } = qualifiedReference(address.displayAddress);
-    references.push({ ...address, ...outline ? { outline } : {}, ...label ? { label } : {}, ...nested ? { nested: true } : {}, start: span.start, end: span.end });
+    references.push({ ...address, ...outline ? { outline } : {}, ...label ? { label } : {}, ...fragment && fragment.index > 0 ? { fragmentId: fragment[1] } : {}, ...nested ? { nested: true } : {}, start: span.start, end: span.end });
   }
   return outsideCode(text, references, codeRanges);
 }
@@ -1125,7 +1127,8 @@ function linkOccurrences(text, code) {
   for (const page of pageAddressReferences(text, codeRanges)) {
     if (page.nested || markdown.some((range) => overlaps(page, range)) || envelopes.some((range) => overlaps(page, range)))
       continue;
-    out.push({ kind: "page", ...page });
+    const embed = page.label === undefined && text[page.start - 1] === "!";
+    out.push({ kind: "page", embed, ...page, start: embed ? page.start - 1 : page.start });
   }
   return outsideCode(text, out, codeRanges).sort((a, b) => a.start - b.start);
 }

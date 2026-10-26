@@ -1744,6 +1744,8 @@ interface BacklinkOccurrenceBase {
 export type BacklinkOccurrence =
   | (BacklinkOccurrenceBase & {
       kind: "block" | "page" | "work-id";
+      /** The anchor it aims at (`((id^anchor))`, `[[page^anchor]]`, PIE-1247). */
+      fragmentId?: string;
     })
   | (BacklinkOccurrenceBase & {
       kind: "property";
@@ -1753,6 +1755,8 @@ export type BacklinkOccurrence =
 export type BacklinkReferenceGroup =
   | {
       kind: "block" | "page" | "work-id";
+      /** Grouped by the anchor aimed at too (PIE-1247): `((id^sowing))` and `((id))` are two groups. */
+      fragmentId?: string;
       count: number;
     }
   | {

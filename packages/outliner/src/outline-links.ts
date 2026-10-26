@@ -9,7 +9,7 @@ import { OutlinerClient } from "./client";
 import { resolveBlockReferencesWithStatus } from "./references";
 import type { Block, HostedOutlineList } from "./types";
 import { readAuthoredLinks } from "./authored-links";
-import { blockReferenceOccurrences, pageAddressReferences, normalizePageAddress, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceOccurrences, embeddedPageAddress, pageAddressReferences, normalizePageAddress, qualifiedReference } from "@ep0ch/outline-core/link-syntax";
 import { readTransclusionsAsync } from "./transclusions";
 import { blockReferenceDisplayText } from "./references";
 import type { OutlinerStore } from "./store";
@@ -137,6 +137,14 @@ export class OutlineLinks {
       const stores = await Promise.all([from, ...this.names().filter(n => n !== from)].map(async name => ({ name, store: await this.open(name) })));
       const locations = new Map<string, { outline: string; machine?: string }>();
       const result = await readTransclusionsAsync(async id => {
+        // A page embed (`[[page]]`, `[[outline:page]]`, PIE-1247): that outline's page, here.
+        const page = embeddedPageAddress(id);
+        if (page !== null) {
+          const q = qualifiedReference(page), entry = stores.find(s => s.name === (q.outline ?? from));
+          const block = entry?.store.embedTarget(`[[${q.target}]]`) ?? null;
+          if (block && entry!.name !== from) locations.set(id, { outline: entry!.name });
+          return block;
+        }
         const q = qualifiedReference(id);
         for (const { name, store } of stores) {
           if (q.outline && q.outline !== name) continue;

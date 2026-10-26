@@ -102,7 +102,8 @@ export function outlinerLinkUri(
   ) {
     throw new Error(`Invalid outliner ${kind} target: ${normalized}`);
   }
-  if (options.fragmentId && (kind !== "block" || !isFragmentId(options.fragmentId))) {
+  // A page link may point into its page too (`[[page^anchor]]`, PIE-1247).
+  if (options.fragmentId && ((kind !== "block" && kind !== "page") || !isFragmentId(options.fragmentId))) {
     throw new Error(`Invalid outliner fragment target: ${options.fragmentId}`);
   }
   const query = new URLSearchParams();
@@ -174,7 +175,7 @@ export function parseOutlinerLinkUri(uri: string): OutlinerLinkTarget {
     (intentValues.length === 1 && intentValues[0] !== "reveal") ||
     fragmentValues.length > 1 ||
     (fragmentValues.length === 1 &&
-      (kind !== "block" || !isFragmentId(fragmentValues[0]!))) ||
+      ((kind !== "block" && kind !== "page") || !isFragmentId(fragmentValues[0]!))) ||
     (kind === "reference" && (occurrenceKeys.some(key =>
       parsed.searchParams.getAll(key).length !== 1 ||
       !/^\d+$/.test(parsed.searchParams.get(key)!)
@@ -319,7 +320,11 @@ export async function resolveOutlinerLinkTarget(
     action: "pages.resolve",
     address: target.value,
   });
-  if (resolution.block) return { block: resolution.block, outline: resolution.outline, machine: resolution.machine };
+  if (resolution.block) {
+    // `[[page^anchor]]`: at the anchor when the page has it once, else the page itself.
+    const at = target.kind === "page" && target.fragmentId && resolveFragment(resolution.block.text, target.fragmentId).status === "resolved";
+    return { block: resolution.block, outline: resolution.outline, machine: resolution.machine, ...(at ? { fragmentId: target.fragmentId } : {}) };
+  }
   if (target.kind === "work") {
     throw new Error(`Work ID address is unresolved: ${target.value}`);
   }
@@ -572,7 +577,7 @@ function genericLinkSpans(
       spans.push({
         start: reference.start,
         end: reference.end,
-        uri: outlinerLinkUri("page", reference.address),
+        uri: outlinerLinkUri("page", reference.address, reference.fragmentId ? { fragmentId: reference.fragmentId } : {}),
         presentation: reference.label ?? reference.address,
       });
     } else if (reference.kind === "work-id") {

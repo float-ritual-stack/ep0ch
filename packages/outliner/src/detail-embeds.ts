@@ -8,6 +8,7 @@ import {atomicDocument, concatDocuments, observeDocument, sourceDocument, sliceD
 import type { RequestInput } from "./client";
 import {isChecklistView,projectChecklistView} from './checklist-views';
 import { resolveFragmentSlice, stripFragmentAnchors } from "./fragments";
+import { embeddedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING } from "./transclusions";
 import { propertyReferenceOccurrences } from "./reference-occurrences";
 import { MAX_NOTE_VALUES, EMPTY_VALUE, hasWords, markdownValueWords, pairValues, problemWords, valueWords } from "@ep0ch/outline-core/site-values";
@@ -28,6 +29,7 @@ import type {
   Block,
   BlockCollectionCompleteness,
   OutlinerServiceStatus,
+  PageAddressResolution,
   SavedViewReadResult,
   WorkspaceSnapshot,
 } from "./types";
@@ -137,8 +139,9 @@ function explicitFallback(
   fragmentId?: string,
 ): ProjectedEmbed {
   const reference = embedReference(blockId, fragmentId);
+  const page = embeddedPageAddress(blockId);
   return {
-    text: `!((${reference})) · ${detail}`,
+    text: `${page === null ? `!((${reference}))` : `![[${page}${fragmentId ? `^${fragmentId}` : ""}]]`} · ${detail}`,
     state: { blockId, ...(fragmentId ? { fragmentId } : {}), status, count: 0 },
   };
 }
@@ -822,7 +825,9 @@ export async function projectDetailRead(
   const loadTarget = (blockId: string): Promise<Block> => {
     let pending = targetCache.get(blockId);
     if (!pending) {
-      pending = requester.request<Block>({ action: "get", blockId });
+      // A page embed whose page isn't there (`targetIds` resolved the others to their notes): missing, as a block's is.
+      pending = embeddedPageAddress(blockId) !== null ? Promise.reject(new Error(`Block not found: ${blockId}`))
+        : requester.request<Block>({ action: "get", blockId });
       targetCache.set(blockId, pending);
     }
     return pending;
@@ -862,9 +867,19 @@ export async function projectDetailRead(
     return { ...inserted, embeds: [], ...(projections?.length ? { resourceProjections: projections } : {}), ...valued };
   }
 
+  // A page embed (`![[page^anchor]]`, PIE-1247) is the note its page resolves to, by the service's page registry; one
+  // whose page isn't there keeps its `[[page]]` target and says MISSING TARGET.
+  const pages = new Map<string, Promise<string>>();
+  const targetIds = await Promise.all(matches.map((match, index) => {
+    const page = embeddedPageAddress(match[1]);
+    if (page === null || index >= MAX_DETAIL_EMBEDS) return match[1];
+    if (!pages.has(page)) pages.set(page, requester.request<PageAddressResolution>({ action: "pages.resolve", address: page })
+      .then(r => (r.status !== "missing" && r.block ? r.block.id : match[1]), () => match[1]));
+    return pages.get(page)!;
+  }));
   const cache = new Map<string, Promise<ProjectedEmbed>>();
-  for (const match of matches.slice(0, MAX_DETAIL_EMBEDS)) {
-    const blockId = match[1]!;
+  for (const [index, match] of matches.slice(0, MAX_DETAIL_EMBEDS).entries()) {
+    const blockId = targetIds[index]!;
     const fragmentId = match[2];
     const cacheKey = embedReference(blockId, fragmentId);
     if (cache.has(cacheKey)) continue;
@@ -896,7 +911,7 @@ export async function projectDetailRead(
     output += sourceChunk;
     mappedParts.push(sliceDocument(source, consumed, start));
     outputLine += newlineCount(sourceChunk);
-    const blockId = match[1]!;
+    const blockId = targetIds[index]!;
     const fragmentId = match[2];
     let projected: ProjectedEmbed;
     if (index >= MAX_DETAIL_EMBEDS) {

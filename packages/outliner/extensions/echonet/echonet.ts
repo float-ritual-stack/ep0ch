@@ -410,7 +410,7 @@ function localProse(origin: Origin, text: string): string {
     } else if (link.kind === "page" && !link.outline) {
       const id = origin.page(link.displayAddress);
       const label = pageAddressText(link.label ?? link.displayAddress);
-      local = id ? `[${label}](${uri(id)})` : `${label} (in ${origin.node.outline})`;
+      local = id ? `[${label}](${uri(id)}${link.fragmentId ? `#${link.fragmentId}` : ""})` : `${label} (in ${origin.node.outline})`;
     }
     if (local !== undefined) out = out.slice(0, link.start) + local + out.slice(link.end);
   }

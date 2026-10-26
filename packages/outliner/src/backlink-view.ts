@@ -107,7 +107,7 @@ function matchesText(source: BacklinkSource, query: SearchQuery | null): boolean
     source.facets?.kindLabel ?? "",
     source.facets?.stage?.value ?? "",
     ...source.referenceGroups.map((group) =>
-      group.kind === "property" ? group.propertyKey : group.kind
+      group.kind === "property" ? group.propertyKey : `${group.kind}${group.fragmentId ? ` ^${group.fragmentId}` : ""}`
     ),
     ...source.occurrences.map((occurrence) => occurrence.snippet),
   ]);

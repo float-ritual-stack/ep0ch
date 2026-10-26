@@ -10,9 +10,10 @@ import type { FragmentKind } from "@ep0ch/outline-core/protocol";
 const HEADING_PATTERN = /^(#{1,6})\s+(.+?)\s*$/;
 
 /**
- * The kinds are outline-core's (`protocol.ts`, on the wire). `component` (PIE-580): an anchor on a line of its own right
- * after a component block's closing `::` names that block (a figure, a `::links`), so `((id^quadrant))` lands on the
- * figure and its slice is the whole block.
+ * The kinds are outline-core's (`protocol.ts`, on the wire). `component`: an anchor at the end of a component's opening
+ * line (`::graph-timeline ^landed`, PIE-1247; the component's own `^name`, PIE-747), or (PIE-580) on a line of its own
+ * right after its closing `::`, names that block (a figure, a `::links`), so `((id^landed))` lands on the figure and its
+ * slice is the whole block.
  */
 export type { FragmentKind };
 
@@ -152,10 +153,22 @@ export function fragmentAnchors(text: string): FragmentAnchor[] {
   return note.anchors.map(anchor => ({ ...anchor }));
 }
 
+type Component = { start: number; end: number; name: string };
+interface ComponentMemo { all?: Component[]; byEnd?: Map<number, Component>; byStart?: Map<number, Component> }
+const componentsOf = (lines: readonly string[], memo: ComponentMemo) => (memo.all ??= componentBlocks(lines));
 /** The component blocks of `lines` by the line of their closing `::`, found once per parse. */
-function componentsByEnd(lines: readonly string[], memo: { map?: Map<number, { start: number; end: number; name: string }> }) {
-  memo.map ??= new Map(componentBlocks(lines).filter(c => c.end > c.start).map(c => [c.end, c]));
-  return memo.map;
+function componentsByEnd(lines: readonly string[], memo: ComponentMemo) {
+  memo.byEnd ??= new Map(componentsOf(lines, memo).filter(c => c.end > c.start).map(c => [c.end, c]));
+  return memo.byEnd;
+}
+/** The component blocks of `lines` by their opening line (a one-line `::links ((id))` too). */
+function componentsByStart(lines: readonly string[], memo: ComponentMemo) {
+  memo.byStart ??= new Map(componentsOf(lines, memo).map(c => [c.start, c]));
+  return memo.byStart;
+}
+/** The component an anchor on line `lineIndex` (with `content` before it) names: on its opening line, or alone after its `::`. */
+function anchoredComponent(lines: readonly string[], lineIndex: number, content: string, memo: ComponentMemo): Component | undefined {
+  return componentsByStart(lines, memo).get(lineIndex) ?? (!content ? componentsByEnd(lines, memo).get(lineIndex - 1) : undefined);
 }
 
 /**
@@ -192,9 +205,19 @@ function quoteFragment(lines: readonly string[], q: Quote): { kind: "quote" | "c
   return { kind: "quote", label: words || `Line ${q.startLine + 1}` };
 }
 
+/**
+ * The quote or callout an anchor on line `lineIndex` names whole: one at the end of its last line (PIE-592), on a
+ * callout's `> [!type] title` line (PIE-1247), or on an output region's header (PIE-956). One on another line of a quote
+ * is that line's own.
+ */
+function quoteOfAnchor(note: ParsedNote, lines: readonly string[], lineIndex: number): Quote | undefined {
+  return note.quotes.find(q => q.endLine === lineIndex || (q.startLine === lineIndex && (outputHeader(lines[lineIndex]!) !== null
+    || CALLOUT_HEAD.test(contentBeforeAnchor(lines[lineIndex]!, fragmentAnchorMatch(lines[lineIndex]!))))));
+}
+
 function parseAnchors(text: string, note: ParsedNote): FragmentAnchor[] {
   const lines = text.split(/\r?\n/);
-  const components: { map?: Map<number, { start: number; end: number; name: string }> } = {};
+  const components: ComponentMemo = {};
   const offsets = lineOffsets(text);
   const items = new Map(note.listItems.map(item => [item.span.startLine, item]));
   const codeLines = note.codeLines;
@@ -207,11 +230,11 @@ function parseAnchors(text: string, note: ParsedNote): FragmentAnchor[] {
     const content = contentBeforeAnchor(line, match);
     const heading = content.match(HEADING_PATTERN);
     const item = items.get(lineIndex);
-    // An anchor alone on the line after a component's `::` is the component's (PIE-580).
-    const component = !content && componentsByEnd(lines, components).get(lineIndex - 1);
-    // One at the end of a quote's last line is the whole quote's or callout's (PIE-592).
-    // An output region's anchor sits on its header (PIE-956): its slice is the whole callout whichever line it is on.
-    const quote = !component ? note.quotes.find(q => q.endLine === lineIndex || (q.startLine === lineIndex && outputHeader(line) !== null)) : undefined;
+    // An anchor on a component's opening line is the component's (PIE-1247), as is one alone on the line after its
+    // `::` (PIE-580).
+    const component = anchoredComponent(lines, lineIndex, content, components);
+    // One at the end of a quote's last line, or on a callout's head, is the whole quote's or callout's.
+    const quote = !component ? quoteOfAnchor(note, lines, lineIndex) : undefined;
     const quoted = quote ? quoteFragment(lines, quote) : null;
     anchors.push({
       id: match[1]!,
@@ -250,11 +273,11 @@ export function resolveFragmentSlice(
   let endLine = anchor.lineIndex;
   if (anchor.kind === "quote" || anchor.kind === "callout") {
     // The whole quote or callout, every `>` line of it.
-    const q = parsedNote(text).quotes.find(q => q.endLine === anchor.lineIndex || (q.startLine === anchor.lineIndex && outputHeader(lines[q.startLine]!) !== null))!;
+    const q = quoteOfAnchor(parsedNote(text), lines, anchor.lineIndex)!;
     startLine = q.startLine; endLine = q.endLine;
   } else if (anchor.kind === "component") {
-    // The whole block, from its `::name` line to its `::`; the anchor's own line stays out of the slice.
-    const block = componentsByEnd(lines, {}).get(anchor.lineIndex - 1)!;
+    // The whole block, from its `::name` line to its `::`; an anchor on a line of its own stays out of the slice.
+    const block = anchoredComponent(lines, anchor.lineIndex, contentBeforeAnchor(lines[anchor.lineIndex]!, fragmentAnchorMatch(lines[anchor.lineIndex]!)), {})!;
     startLine = block.start; endLine = block.end;
   } else if (anchor.kind === "list-item") {
     const item = parsedNote(text).listItems.find(item => item.span.startLine === anchor.lineIndex)!;
@@ -355,9 +378,10 @@ export function fragmentCandidates(
 }
 
 /**
- * The paragraphs, list items, quotes and callouts of `text` with no anchor yet, each on the line its anchor would go on: a list item's
- * first line, a paragraph's last. Left out: code, component blocks, property-only lines, and a paragraph that runs into
- * the note's first line (the title: link the note itself).
+ * The components, paragraphs, list items, quotes and callouts of `text` with no anchor yet, each on the line its anchor
+ * would go on: a component's opening line, a list item's first line, a paragraph's last. Left out: code, the lines
+ * inside a component, property-only lines, and a paragraph that runs into the note's first line (the title: link the
+ * note itself).
  */
 function passages(text: string, lines: readonly string[]): FragmentCandidate[] {
   const note = parsedNote(text);
@@ -370,15 +394,25 @@ function passages(text: string, lines: readonly string[]): FragmentCandidate[] {
   }
   const itemAnchored = new Set<number>();
   for (const [l, owner] of ownerOf) if (fragmentAnchorMatch(lines[l] ?? "")) itemAnchored.add(owner);
-  const component = new Set<number>();
-  for (const c of componentBlocks(lines)) for (let l = c.start; l <= c.end + 1; l++) component.add(l);
+  const component = new Set<number>(), inside: { start: number; end: number }[] = [];
+  const out: FragmentCandidate[] = [];
+  for (const c of componentBlocks(lines)) {
+    // A component is one passage (PIE-1247), offered on its opening line, where its anchor goes; one inside another
+    // component is part of that one, and one anchored already (on its opener, or after its `::`) is an anchor.
+    const nested = inside.some(o => o.start < c.start && c.start <= o.end);
+    inside.push(c);
+    for (let l = c.start; l <= c.end + 1; l++) component.add(l);
+    if (nested || c.id) continue;
+    const after = lines[c.end + 1];
+    if (c.end > c.start && after !== undefined && fragmentAnchorMatch(after) && !contentBeforeAnchor(after, fragmentAnchorMatch(after))) continue;
+    out.push({ kind: "component", label: componentLabel(lines, c), lineIndex: c.start });
+  }
   // A quote or callout is one passage (PIE-592), offered on its last line, where its anchor goes; its lines are its own.
   const quoted = new Set<number>();
-  const out: FragmentCandidate[] = [];
   for (const q of note.quotes) {
     for (let l = q.startLine; l <= q.endLine; l++) quoted.add(l);
-    // Anchored already on its last line (its own anchor); one on an earlier line is that line's, not the quote's.
-    if (fragmentAnchorMatch(lines[q.endLine] ?? "")) continue;
+    // Anchored already on its last line or a callout's head (its own anchor); one on another line is that line's.
+    if (fragmentAnchorMatch(lines[q.endLine] ?? "") || (quoteOfAnchor(note, lines, q.startLine) === q && fragmentAnchorMatch(lines[q.startLine] ?? ""))) continue;
     out.push({ ...quoteFragment(lines, q), lineIndex: q.endLine });
   }
   const skip = (i: number) => note.codeLines.has(i) || component.has(i) || quoted.has(i);
@@ -428,8 +462,9 @@ function uniqueFragmentId(base: string, usedIds: ReadonlySet<string>): string {
 }
 
 /**
- * Give the fragment on `lineIndex` its anchor: a heading (`## Beds ^beds`), or (PIE-762) a list item's first line or a
- * paragraph's last, as `fragmentCandidates` offers them in `passage` mode. A line that has one keeps it; anything else
+ * Give the fragment on `lineIndex` its anchor: a heading (`## Beds ^beds`), or (PIE-762) a list item's first line, a
+ * paragraph's last or (PIE-1247) a component's opening line (`::graph-timeline ^graph-timeline`), as
+ * `fragmentCandidates` offers them in `passage` mode. A line that has one keeps it; anything else
  * is refused.
  */
 export function ensureFragmentAnchor(
@@ -444,7 +479,7 @@ export function ensureFragmentAnchor(
   const heading = content.match(HEADING_PATTERN);
   const passage = heading ? null : passages(text, lines).find(p => p.lineIndex === lineIndex);
   if (!heading && !passage && !existing) {
-    throw new Error(`Fragment target is not a heading, paragraph or list item that can take an anchor: line ${lineIndex + 1}`);
+    throw new Error(`Fragment target is not a heading, component, callout, quote, paragraph or list item that can take an anchor: line ${lineIndex + 1}`);
   }
   if (existing) return { text, fragmentId: existing[1]!, created: false };
   // A front-matter property line (`- re:: why`): an anchor written after its value would become part of the value.

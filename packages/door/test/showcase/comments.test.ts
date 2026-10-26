@@ -665,7 +665,7 @@ describe.skipIf(!outliner)("the showcase screen: comments and drafts: composer, 
     type("^vent");
     p = await settled("the vent line");
     await until(() => !!pop()?.target.query.endsWith("vent") && !pop()!.loading, "narrowed to vent", 8000);
-    expect(pop()!.items.map(i => i.label)).toEqual(["Ana mends the vent hinge · adds ^ana-mends-the"]);
+    expect(pop()!.items.map(i => i.label)).toEqual(["- Ana mends the vent hinge · adds ^ana-mends-the"]);
     press({ kind: "enter" });
     await until(() => d()!.text.endsWith(`((${meeting}^ana-mends-the))`), "refined to the new anchor", 8000);
     expect((await board.get(meeting))!.text).toContain("- Ana mends the vent hinge ^ana-mends-the");

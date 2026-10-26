@@ -13,6 +13,7 @@ import type { InlineListDraw } from "./surface/inline-list";
 // Steps inside an embed are the service's too (PIE-472): each ready projection carries the checklist steps
 // in what it shows, so the reader can offer their status controls where they're drawn.
 import { anchorsOfText, nearestAnchor } from "@ep0ch/outline-core/reference-warnings";
+import { embeddedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import type { Msg } from "./board";
 import { bodyMatch, matchWords, subject } from "./board";
 import type { DocEnv } from "./doc";
@@ -64,6 +65,13 @@ export function invalidateEmbeds() { outlineChanged(null); }
 const stale = (e: Entry) => changedSince(e.at, e.deps) || ((e.volatile || e.state.kind === "failed") && anyChangeSince(e.at));
 
 const refOf = (id: string, fragment?: string) => `${id}${fragment ? `^${fragment}` : ""}`;
+/** A `refOf` key back as its target: a page's `[[page]]` (PIE-1247) may hold a `^` of its own, so its end is its `]]`. */
+function targetOf(k: string): { blockId: string; fragmentId?: string } {
+  const at = k.startsWith("[[") ? k.indexOf("^", k.lastIndexOf("]]")) : k.indexOf("^");
+  return at < 0 ? { blockId: k } : { blockId: k.slice(0, at), fragmentId: k.slice(at + 1) };
+}
+/** The note a projection shows: a page embed's (`[[page]]`) is the note its page resolved to. */
+const noteOf = (n: TransclusionNode) => (embeddedPageAddress(n.blockId) !== null ? n.resolvedBlockId ?? n.blockId : n.blockId);
 
 // ── asking the service ────────────────────────────────────────────────────────────────────────────────
 
@@ -93,7 +101,7 @@ async function flush(b: SocketBoard) {
     for (let from = 0; from < keys.length; from += 64) {
       // The service takes 64 targets at a time.
       const part = keys.slice(from, from + 64);
-      const targets = part.map(k => { const [blockId, fragmentId] = k.split("^"); return { blockId: blockId!, ...(fragmentId ? { fragmentId } : {}) }; });
+      const targets = part.map(targetOf);
       try {
         const r = await b.readTransclusions(targets, host || undefined);
         part.forEach((k, i) => q.get(k)!.forEach(w => w.resolve(r.results[i] ?? null)));
@@ -107,7 +115,9 @@ async function flush(b: SocketBoard) {
 /** The notes a projection shows or names, and whether a view's results are in it. */
 function depsOf(n: TransclusionNode, out: { ids: Set<string>; volatile: boolean } = { ids: new Set(), volatile: false }) {
   out.ids.add(n.blockId);
-  if (n.kind === "view") out.volatile = true;
+  if (n.resolvedBlockId) out.ids.add(n.resolvedBlockId);
+  // A page embed whose page isn't there yet (PIE-1247) is asked again on any change: the note that takes the name is new.
+  if (n.kind === "view" || (n.status !== "ready" && embeddedPageAddress(n.blockId) !== null)) out.volatile = true;
   for (const e of n.embeds ?? []) depsOf(e, out);
   return out;
 }
@@ -223,7 +233,10 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
   return [S(fg(C.lred) + `${shortRef(id, fragment)} · TARGET FAILED · ${printable(st.error)}` + RESET)];
 }
 
-const shortRef = (id: string, fragment?: string) => `!((${drawShortId(id)}${fragment ? `^${fragment}` : ""}))`;
+const shortRef = (id: string, fragment?: string) => {
+  const page = embeddedPageAddress(id), at = fragment ? `^${fragment}` : "";
+  return page === null ? `!((${drawShortId(id)}${at}))` : `![[${printable(page)}${at}]]`;
+};
 
 /** Tag `text` as link `to` in `sink` (or leave it as text without one). */
 const tagged = (sink: LinkTarget[] | undefined, to: LinkTarget, text: string) => (sink ? linkTag(sink.push(to) - 1) + text + LINK_END : text);
@@ -318,17 +331,17 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
       const title = node.title ? ` in “${printable(node.title)}”` : "";
       const said = S(fg(C.lred) + `${ref} · ${printable(node.message ?? node.status)}${title}` + RESET);
       // On a row of its own, so a narrow preview doesn't cut it; a click on it opens that passage.
-      return near ? [said, S(fg(C.lred) + "  did you mean " + LINK_ON + tagged(sink, { block: node.blockId, fragment: near }, `^${near}`) + LINK_OFF + fg(C.lred) + "?" + RESET)] : [said];
+      return near ? [said, S(fg(C.lred) + "  did you mean " + LINK_ON + tagged(sink, { block: noteOf(node), fragment: near }, `^${near}`) + LINK_OFF + fg(C.lred) + "?" + RESET)] : [said];
     }
     return [S(fg(calm ? C.yellow : C.lred) + `${ref} · ${printable(node.message ?? node.status)}` + RESET)];
   }
-  const target = node.block;
+  const target = node.block, id = noteOf(node);
   if (node.kind === "view") {
     const v = views.get(node);
     return v ? (list ? list(viewRegion(target, v, w, sink), w) : viewRegion(target, v, w, sink)) : [S(fg(C.dark) + `${ref} · reading…` + RESET)];
   }
   const title = printable(node.title ?? subject(target));
-  const out = [heading(node.blockId, node.fragmentId, node.fragmentId ? `» ${title} ^${node.fragmentId}` : `» ${title}`, w, sink, C.dark, !node.fragmentId && isOpenProposal(target) ? target : null)];
+  const out = [heading(id, node.fragmentId, node.fragmentId ? `» ${title} ^${node.fragmentId}` : `» ${title}`, w, sink, C.dark, !node.fragmentId && isOpenProposal(target) ? target : null)];
   // The embeds inside, matched to the service's list by what they name, in order.
   const children = new Map<string, TransclusionNode[]>();
   for (const e of node.embeds ?? []) { const k = refOf(e.blockId, e.fragmentId); children.set(k, [...(children.get(k) ?? []), e]); }
@@ -341,7 +354,7 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
   const task = (noteLine: number, box: string) => {
     const step = node.checklist?.find(s => s.span.startLine === noteLine);
     if (!step || !sink || node.revision === undefined) return null;
-    return LINK_ON + tagged(sink, { role: "task", block: node.blockId, task: { block: node.blockId, revision: node.revision, step, via: ref } }, box) + LINK_OFF;
+    return LINK_ON + tagged(sink, { role: "task", block: id, task: { block: id, revision: node.revision, step, via: ref } }, box) + LINK_OFF;
   };
   const part = node.fragment ? { text: node.fragment.text, startLine: node.fragment.startLine } : null;
   for (const l of body(target, part, Math.max(4, w - 2), { embed, task })) out.push(S(" " + l));

@@ -562,7 +562,7 @@ const linksOf = (m: Msg): Link[] => linkOccurrences(m.text).map(linkOf);
 /** One link of outline-core's scan as the reader follows it. */
 const linkOf = (l: LinkOccurrence): Link => {
   if (l.kind === "block") return { block: l.blockId, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
-  if (l.kind === "page") return { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) };
+  if (l.kind === "page") return { page: l.displayAddress, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
   return { url: l.url, label: l.text };
 };
 /**
@@ -570,7 +570,7 @@ const linkOf = (l: LinkOccurrence): Link => {
  * null for one that has no such words (a resource token, a picture).
  */
 export const refOfLink = (l: Link): string | null =>
-  l.block ? `((${l.block}${l.fragment ? `^${l.fragment}` : ""}))` : l.page !== undefined ? `[[${l.page}]]` : l.url !== undefined ? l.url : l.tag !== undefined ? `#${l.tag}` : null;
+  l.block ? `((${l.block}${l.fragment ? `^${l.fragment}` : ""}))` : l.page !== undefined ? `[[${l.page}${l.fragment ? `^${l.fragment}` : ""}]]` : l.url !== undefined ? l.url : l.tag !== undefined ? `#${l.tag}` : null;
 /** `edit.follow`'s `ref=` back to the link it names: what `refOfLink` writes, or one link written whole. */
 function linkOfRef(ref: string): Link | null {
   const text = ref.trim();
