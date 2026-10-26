@@ -660,8 +660,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const home = this.homeName(id);
     return {
       deliberate: p?.deliberate, clearsOnClose: p?.clearsOnClose?.(), history: p instanceof ReaderPane,
-      kind: this.unregistered.get(id)?.kind ?? p?.kind ?? "tile",
-      ...(k?.policy ? { policy: k.policy } : {}), ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), following: p instanceof ReaderPane && p.follows && !p.holding, pinned: p instanceof ReaderPane && p.followMode === "pinned", available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.holding && !this.layout.altReaders.has(id),
+      ...this.kindFacts(id),
+      ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), following: p instanceof ReaderPane && p.follows && !p.holding, pinned: p instanceof ReaderPane && p.followMode === "pinned", available: !actor || !p || !this.keptFrom(p, actor), lists: !!p && (k?.lists?.(p) ?? (!!k?.previews && !(p instanceof ReaderPane))), notes: !!k?.accepts?.notes, showing: this.showing(p)?.id, held: p instanceof ReaderPane && p.holding && !this.layout.altReaders.has(id),
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
       ...(k?.follower ? { follower: true } : {}),

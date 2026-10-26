@@ -85,8 +85,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const flushPaint = () => {
     const a = A();
     if (!a?.paintTimer) return false;
-    clearTimeout(a.paintTimer); a.paintTimer = null;
-    a.paint();
+    a.flush();   // the door's own "paint now": the timer cleared, the frame made
     return true;
   };
   const settle = async () => {
@@ -254,7 +253,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
    * slowest build, rather than running on to the test's own timeout (PIE-1307: one ran 570 s against a 600 s limit and took the
    * next scenario with it). Checked between probes and builds, so a hung settle (3 s at most) is the longest it overshoots.
    */
-  const budget = new ScenarioBudget(Number(process.env.PARITY_BUDGET_MS ?? 60_000));
+  const budget = new ScenarioBudget(Number(process.env.PARITY_BUDGET_MS) > 0 ? Number(process.env.PARITY_BUDGET_MS) : 60_000);
   const keysLog = process.env.PARITY_KEYS;   // every probe's key and its milliseconds, one line each: what a scenario spends its time on
   let scenario = "";
   const timed = (key: string, since: number) => {

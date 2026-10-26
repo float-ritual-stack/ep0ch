@@ -20,7 +20,8 @@ screen after each probe took 143 ms a build, about 60% of the facets scenario, i
   whole on float-2 (a scenario at most about 40 s).
 - **The door is settled when its paint has been made and no host answer is awaited,** not after a sleep. The outline host is asked
   each read once while nothing changes. A scenario's setup keys are pressed as one chunk of input after the first build has reached
-  the same screen both ways. A state two keys open the same way is probed once.
+  the same screen both ways. A state two keys open the same way is probed once, and a second key whose action names it is not built
+  again to confirm (the docs name these narrowings in `packages/door/docs/AGENT-INTERFACE.md`).
 - **A scenario over `PARITY_BUDGET_MS` (60 s) fails by its own name** with its slowest key and build, instead of running on to the
   test's timeout and taking the next scenario with it. `PARITY_KEYS=<file>` writes every probe's milliseconds.
 - **The door itself got cheaper where the tests found waste:** the power bar's action list weighs each action with one answer to
