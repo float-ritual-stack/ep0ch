@@ -223,9 +223,9 @@ describe.skipIf(!outliner)("the showcase screen: the sections: index, note, gall
     await until(() => tiles().find(t => t.name === "any line")?.showing?.id === seeded.notes.lineAsksAll.id, "the any-line view", 10_000);
     const minutes = seeded.notes.lineAsksMinutes.id;
     const header = await board.readSavedView(seeded.notes.lineAsksHeader.id), all = await board.readSavedView(seeded.notes.lineAsksAll.id);
-    expect(header.blocks.map(b => [b.id, b.lineMatches?.length ?? 0])).toEqual([[minutes, 0]]);
+    expect(header.blocks.map(b => [b.id, b.propertyMatches?.length ?? 0])).toEqual([[minutes, 0]]);
     expect(all.blocks.map(b => b.id)).toEqual([minutes]);
-    expect(all.blocks[0]!.lineMatches?.map(m => [m.scope, m.line, m.task, m.value])).toEqual([["block", 0, undefined, "chair: approve the minutes"], ["inline", 11, "todo", "members: Saturday or Sunday"]]);
+    expect(all.blocks[0]!.propertyMatches?.map(m => [m.scope, m.line, m.task, m.value])).toEqual([["block", 0, undefined, "chair: approve the minutes"], ["inline", 11, "todo", "members: Saturday or Sunday"]]);
     await until(() => screen().includes("line 12 to do"), "the row saying its line", 5000);
     // Following the row opens the minutes at line 12, lit, as a ::fields row does.
     const f = await app.act({ action: "element.open", tile: "any line", args: { n: 2 }, as: "test-agent" }) as any;

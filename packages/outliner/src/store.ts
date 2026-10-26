@@ -327,10 +327,11 @@ function propertyRecordFromRow(row: PropertyRow): PropertyRecord {
 }
 
 function propertyMatchContexts(records: readonly PropertyRecord[], tasks?: ReadonlyMap<number, ChecklistStatus>) {
-  return records.map(({ key, value, ordinal, start, end, line, column, scope }) => ({
+  return records.map(({ key, value, ordinal, raw, start, end, line, column, scope }) => ({
     key,
     value,
     ordinal,
+    raw,
     start,
     end,
     line,

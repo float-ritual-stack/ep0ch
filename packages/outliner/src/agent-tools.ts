@@ -30,7 +30,7 @@ import { randomUUID } from "node:crypto";
 import { checkToolArgs, closest } from "@ep0ch/outline-core/tool-args";
 import { AGENT_OPERATION_SPECS } from "./agent-tool-specs";
 import { createBlockComment } from "./block-comments";
-import { resourceTextRevision } from "@ep0ch/outline-core/protocol";
+import { matchFacts, resourceTextRevision } from "@ep0ch/outline-core/protocol";
 import { authoredResourceReferenceOccurrences, type AuthoredResourceReference } from "./resource-references";
 import { resourceCommentSource } from "./resource-comments";
 import type { ResourceDescription } from "./resources";
@@ -64,11 +64,9 @@ import type {
   MutationProvenance,
   ProjectedBlock,
   ResolvedBlockReferences,
-  ChecklistStatus,
   PropertyFilter,
   PropertyMatchContext,
   PropertyQueryScope,
-  PropertyScope,
   VirtualBranchOrder,
   VisibleBlockCollection,
 } from "./types";
@@ -461,8 +459,8 @@ export interface FindInput {
   propertyScope?: string;
 }
 
-/** A chip a line-scope find matched (PIE-1277): where it is (`line` counts from 1) and, on a step, the step's status. */
-export interface FindMatch { key: string; value: string; line: number; scope: PropertyScope; task?: ChecklistStatus }
+/** A chip a line-scope find matched (PIE-1277), as outline-core's matchFacts gives it: `line` counts from 1. */
+export type FindMatch = ReturnType<typeof matchFacts>;
 
 export interface FindRow {
   id: string;
@@ -487,10 +485,13 @@ function findRow(block: Block & { propertyMatches?: PropertyMatchContext[] }): F
     created: block.createdAt,
     updated: block.updatedAt,
     ...(workId ? { workId } : {}),
-    ...(block.propertyMatches?.length ? { matches: block.propertyMatches.map(m => ({
-      key: m.key, value: m.value, line: m.line + 1, scope: m.scope, ...(m.task ? { task: m.task } : {}),
-    })) } : {}),
+    ...(block.propertyMatches?.length ? { matches: block.propertyMatches.map(matchFacts) } : {}),
   };
+}
+
+function propertyScopeInput(value: string): PropertyQueryScope {
+  try { return normalizePropertyQueryScope(value.trim().toLowerCase()); }
+  catch { throw new WorkToolRefusal(`propertyScope is block, line, inline or all, not ${value}: "all" reads a [key::value] on any line, as well as the note's own`); }
 }
 
 /**
@@ -498,11 +499,6 @@ function findRow(block: Block & { propertyMatches?: PropertyMatchContext[] }): F
  * next (id, title, revision). `text`, `property`, `hasKey`, `query` and `under`
  * combine; `view` stands alone. `complete: false` means more matched than `limit`.
  */
-function propertyScopeInput(value: string): PropertyQueryScope {
-  try { return normalizePropertyQueryScope(value.trim().toLowerCase()); }
-  catch { throw new WorkToolRefusal(`propertyScope is block, line, inline or all, not ${value}: "all" reads a [key::value] on any line, as well as the note's own`); }
-}
-
 export async function findBlocks(client: AgentToolsClient, input: FindInput): Promise<{ blocks: FindRow[]; complete: boolean; total?: number }> {
   const limit = boundedInteger(input.limit, "limit", 20, 1, 200);
   const given = (key: keyof FindInput) => typeof input[key] === "string" && (input[key] as string).trim() !== "";

@@ -8,6 +8,9 @@ import { withoutHeaderDashes } from "@ep0ch/outline-core/header-line";
 import { markTitleLine } from "@ep0ch/outline-core/annotation-marks";
 import { prop } from "./props";
 
+import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
+import { statusWord } from "@ep0ch/outline-core/checklist-marks";
+
 export interface Msg {
   /** Door-local provenance, carried between tiles; never sent as block data. */
   address?: import("./desk/outline-boards").NoteAddress;
@@ -49,14 +52,15 @@ export interface Msg {
    * offset and line (from 0) in the note's text, its scope, and on a checklist step the step's status. Opening the row
    * lands on the first one off the note's own header.
    */
-  lineMatches?: LineMatch[];
+  propertyMatches?: PropertyMatch[];
 }
 
-/** One matched chip of a line-scope question (the service's `propertyMatches`). */
-export interface LineMatch { key: string; value: string; ordinal: number; start: number; end: number; line: number; scope: "block" | "line" | "inline"; task?: string }
-
 /** The first chip a row matched on a line of its own, not the note's header: where the row opens. */
-export const bodyMatch = (m: Msg): LineMatch | undefined => m.lineMatches?.find(x => x.scope !== "block");
+export const bodyMatch = (m: Pick<Msg, "propertyMatches">): PropertyMatch | undefined => m.propertyMatches?.find(x => x.scope !== "block");
+
+/** Where a row matched, as its row says it: "line 12 to do club-ask: members: Saturday or Sunday". */
+export const matchWords = (x: PropertyMatch, withValue = true) =>
+  `line ${x.line + 1}${x.task ? ` ${statusWord(x.task)}` : ""} ${x.key}${withValue ? `: ${x.value}` : ""}`;
 
 export interface Caller {
   id: string;

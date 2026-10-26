@@ -1,3 +1,4 @@
+import { PROPERTY_QUERY_SCOPES as QUERY_SCOPES } from "@ep0ch/outline-core/protocol";
 import { MACHINE_KEY, parseMachineryMode } from "@ep0ch/outline-core/machinery";
 import { StillCounting } from "./site-budget";
 import { matchesFilters, normalizePropertyKey } from "./properties";
@@ -27,12 +28,7 @@ const KEYED_RANGE = new RegExp(`^(${PROPERTY_KEY_SOURCE})(<=|>=|<|>)(.*)$`, "s")
 const CHILD_COUNT = /^child(?:>=(\d{1,4}))?:/i;
 
 const BOOLEAN_OPERATORS = new Set(["and", "not", "or"]);
-const PROPERTY_QUERY_SCOPES = new Set<PropertyQueryScope>([
-  "block",
-  "line",
-  "inline",
-  "all",
-]);
+const PROPERTY_QUERY_SCOPES = new Set<PropertyQueryScope>(QUERY_SCOPES);
 
 export function normalizePropertyQueryScope(value: unknown): PropertyQueryScope {
   if (typeof value !== "string" || !PROPERTY_QUERY_SCOPES.has(value as PropertyQueryScope)) {

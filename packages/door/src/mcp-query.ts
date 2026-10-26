@@ -4,13 +4,13 @@
 // (notes-cli.ts's selectNotes): this file pages that answer and turns the ids into block records. No second engine.
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { pathsOf, selectNotes, type NotesBoard } from "./notes-cli";
-import type { LineMatch } from "./board";
+import type { PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { callRegistry, callShown } from "./mcp-calls";
 import { foldIds, type Changes, type FoldedRow } from "./mcp-orient";
 
 export const QUERY_LIMIT = { fallback: 20, max: 50 } as const;
 
-export interface QueryRow { record: BlockRecord; changes?: Changes; path?: string; /** Where a line-scope query or view matched it (PIE-1277). */ matched?: LineMatch[] }
+export interface QueryRow { record: BlockRecord; changes?: Changes; path?: string; /** Where a line-scope query or view matched it (PIE-1277). */ matched?: PropertyMatch[] }
 
 export interface QueryAnswer {
   query?: string;

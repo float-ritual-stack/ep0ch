@@ -634,6 +634,22 @@ export type UploadTake =
   | { status: 200; claim?: string; who: { kind: "lease" | "device"; id: string; name?: string; outline: string; by: string; deviceName?: string }; expiresAt?: string }
   | { status: 404 | 409 | 410; reason: string };
 
+/** Which chips a question reads (PIE-1277): the note's own header (`block`), bare `key:: value` lines, `[key::value]` in the text, or all of them. */
+export const PROPERTY_QUERY_SCOPES = ["block", "line", "inline", "all"] as const;
+
+/**
+ * A chip a question matched a note on (`blocks.query` and `views.read` rows' `propertyMatches`, when the question's
+ * scope reaches past the header): where it is in the note's text (`line` from 0), as written (`raw`), and on a
+ * checklist step the step's status (`task`). A chip on a ticked step is settled and never matches.
+ */
+export interface PropertyMatch {
+  key: string; value: string; ordinal: number; start: number; end: number; line: number; column: number;
+  scope: "block" | "line" | "inline"; raw?: string; task?: import("./checklist-marks").ChecklistStatus;
+}
+
+/** A match as a tool or the CLI gives it to a person or an agent: `line` counts from 1, `task` only on a step. */
+export const matchFacts = (m: PropertyMatch) => ({ key: m.key, value: m.value, line: m.line + 1, scope: m.scope, ...(m.task ? { task: m.task } : {}) });
+
 /** An outline ask in the waiting-on-you list; call positions are zero-based source lines and offsets. */
 export interface WaitingAsk {
   properties: BlockProperty[];

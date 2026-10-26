@@ -32,7 +32,8 @@ import { sh } from "./setup/links";
 import { summarySegments } from "./props";
 import { projectionsPending, resourceChanged } from "./projection";
 import { previewTitle, SocketBoard, type IndexBlock } from "./socket";
-import type { LineMatch } from "./board";
+import { matchWords } from "./board";
+import { matchFacts, PROPERTY_QUERY_SCOPES, type PropertyMatch } from "@ep0ch/outline-core/protocol";
 import { readState } from "./state";
 import { MARKS, TAGS, visible } from "./style";
 import { NoteSurface, type SurfaceHost } from "./surface/note";
@@ -233,7 +234,7 @@ export interface Selection { ids: string[]; query?: string; view?: string; under
 
 /** The flags that select notes and take a value, and the query clause each date flag writes. */
 export const SELECT_FLAGS = ["--query", "--view", "--under", "--sort", "--direction", "--property-scope", "--updated-after", "--updated-before", "--created-after", "--created-before"];
-const PROPERTY_SCOPES = ["block", "line", "inline", "all"];
+const PROPERTY_SCOPES: readonly string[] = PROPERTY_QUERY_SCOPES;
 const DATE_CLAUSES: Record<string, string> = {
   "--updated-after": "updated >", "--updated-before": "updated <", "--created-after": "created >", "--created-before": "created <",
 };
@@ -296,7 +297,7 @@ async function resolveNote(board: SocketBoard, ref: string): Promise<{ id: strin
  * query, the subtree and words through `query.matches`), or else the notes a query, a subtree and words hold for, in
  * outline order (`blocks.query`). The outline evaluates all of it. `truncated` says what was cut at its limits.
  */
-export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string; hint?: string; matches?: Map<string, LineMatch[]> } | { error: string }> {
+export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string; hint?: string; matches?: Map<string, PropertyMatch[]> } | { error: string }> {
   const named = await resolveNotes(board, [...s.ids, ...(s.view ? [s.view] : []), ...(s.under ? [s.under] : [])]);
   const bad = named.find((n): n is { error: string } => "error" in n);
   if (bad) return { error: bad.error };
@@ -305,7 +306,7 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
   if (s.under) s = { ...s, under: (named.at(-1) as { id: string }).id };
   const expression = selectionQuery(s), text = s.words.join(" ").trim() || undefined;
   const filtered = !!(expression || text || s.under || s.sort);
-  let truncated: string | undefined, hint: string | undefined, matches: Map<string, LineMatch[]> | undefined;
+  let truncated: string | undefined, hint: string | undefined, matches: Map<string, PropertyMatch[]> | undefined;
   let found: string[] = [];
   const refused = (e: unknown) => {
     const why = (e as Error).message;
@@ -325,7 +326,7 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
       }
       members.push(...r.blocks.map(b => b.id));
       // A view that reads line chips ([property-scope::all]) says where each member matched.
-      for (const b of r.blocks) if (b.lineMatches) (matches ??= new Map()).set(b.id, b.lineMatches);
+      for (const b of r.blocks) if (b.propertyMatches) (matches ??= new Map()).set(b.id, b.propertyMatches);
       if (r.nextOffset === undefined) break;
       if (members.length >= MAX_VIEW_MEMBERS) { truncated = `the view's first ${MAX_VIEW_MEMBERS} members`; break; }
       offset = r.nextOffset;
@@ -421,19 +422,16 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
 }
 
 /** Notes as block records, a JSON array with its keys sorted (outline-core's recordJson); with `matches`, where a line-scope query matched each. */
-async function printRecords(board: SocketBoard & { address: BoardAddress }, ids: string[], io: Out, matches?: Map<string, LineMatch[]>): Promise<number> {
+async function printRecords(board: SocketBoard & { address: BoardAddress }, ids: string[], io: Out, matches?: Map<string, PropertyMatch[]>): Promise<number> {
   const { records } = await board.records(ids);
-  io.out(recordJson(records.map(record => ({ uri: blockUri(board, record.id), ...record, ...(matches?.get(record.id) ? { matches: matches.get(record.id)!.map(lineMatchFacts) } : {}) }))).trimEnd());
+  io.out(recordJson(records.map(record => ({ uri: blockUri(board, record.id), ...record, ...(matches?.get(record.id) ? { matches: matches.get(record.id)!.map(matchFacts) } : {}) }))).trimEnd());
   return 0;
 }
 
-/** A matched chip as a reader or an agent gives it (PIE-1277): `line` counts from 1, `task` is the step's status when it sits on one. */
-export const lineMatchFacts = (m: LineMatch) => ({ key: m.key, value: m.value, line: m.line + 1, scope: m.scope, ...(m.task ? { task: m.task } : {}) });
-
 /** Where a note matched, off its own header: "line 30 needs: sysop: …" (and "to do" on an open step). */
-function matchedWhere(matches: readonly LineMatch[]): string | undefined {
+function matchedWhere(matches: readonly PropertyMatch[]): string | undefined {
   const lines = matches.filter(m => m.scope !== "block");
-  return lines.length ? lines.map(m => `line ${m.line + 1}${m.task ? ` ${m.task === "todo" ? "to do" : m.task}` : ""} ${m.key}: ${m.value}`).join("; ") : undefined;
+  return lines.length ? lines.map(m => matchWords(m)).join("; ") : undefined;
 }
 
 /** How long `show` waits for what a reader reads after the note (link titles, embeds, steps, projections) to stop arriving. */

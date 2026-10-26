@@ -5,9 +5,9 @@
 // `responseFor` with an `McpOutlines` saying which outlines they read; each outline's own access setting gates every
 // read and write, and every answer says where it came from (`source`: live or mirror, and `asOf`). A write to a mirror's
 // outline never touches the mirror: it queues for the outline's home machine (src/mcp-netmail.ts).
-import { boardFor, canonicalLocalMachineName, everyNote, lineMatchFacts, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
+import { boardFor, canonicalLocalMachineName, everyNote, type BoardAddress, type Found, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
-import { MCP_ACCESS_LEVELS, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
+import { matchFacts, MCP_ACCESS_LEVELS, PROPERTY_QUERY_SCOPES, type HostedOutlineList, type HostedOutlineSummary, type McpAccessLevel, type McpAccessStatus, type OutlineAbout, type OutlineSnapshot } from "@ep0ch/outline-core/protocol";
 import { actorLabel, mintCallId, parseSessionId } from "@ep0ch/outline-core/attribution";
 import { localAdmin, outlineAdminDefinitions, outlineArchive, outlineNew, OUTLINE_ADMIN_EXAMPLES, type McpOutlineAdmin } from "./mcp-outlines";
 import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
@@ -419,7 +419,8 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
     try { under = (await resolveBoardRef(board, args.under.trim())).id; }
     catch (e) { return toolError(`under: ${(e as Error).message} (in ${board.address.outline}@${board.address.machine})`); }
   }
-  if (args.propertyScope !== undefined && !["block", "line", "inline", "all"].includes(args.propertyScope as string)) return toolError(`propertyScope is block, line, inline or all; got ${JSON.stringify(args.propertyScope)}. all reads a [needs::…] on any line as well as the note's own header.`);
+  const propertyScope = typeof args.propertyScope === "string" ? args.propertyScope.trim().toLowerCase() : args.propertyScope;
+  if (propertyScope !== undefined && !(PROPERTY_QUERY_SCOPES as readonly unknown[]).includes(propertyScope)) return toolError(`propertyScope is ${PROPERTY_QUERY_SCOPES.join(", ")}; got ${JSON.stringify(args.propertyScope)}. all reads a [needs::…] on any line as well as the note's own header.`);
   if (args.includeOwn !== undefined && typeof args.includeOwn !== "boolean") return toolError("includeOwn is true or false: true keeps the rows only your own call changed (they are left out of a recent-activity read by default).");
   // Recent activity (an `updated` range or sort, or fold) leaves out what this call itself just wrote: it isn't news to it.
   const recent = !!query && /\bupdated\s*(?:<=|>=|<|>)/i.test(query) || sort?.field === "updated" || args.fold === true;
@@ -428,13 +429,13 @@ async function queryTool(outlines: McpOutlines, args: Record<string, unknown>, s
     ...(omitOwn ? { omitCall: omitOwn } : {}),
     ...(query ? { query: callRegistry().resolveIn(query) } : {}), ...(view ? { view } : {}), limit, offset, ...(sort ? { sort } : {}), ...(under ? { under } : {}),
     ...(args.fold === true ? { fold: true } : {}), ...(fields?.fields.includes("path") ? { path: true } : {}),
-    ...(typeof args.propertyScope === "string" ? { propertyScope: args.propertyScope } : {}),
+    ...(typeof propertyScope === "string" ? { propertyScope } : {}),
   });
   if ("error" in answer) return toolError(answer.error);
   const { rows, ...page } = answer;
   const matches: unknown[] = [];
   for (const [i, { record: r, changes, path, matched }] of rows.entries()) {
-    const uri = blockUri(board, r.id), extra = { ...(changes ? { changes } : {}), ...(matched ? { lines: matched.map(lineMatchFacts) } : {}) };
+    const uri = blockUri(board, r.id), extra = { ...(changes ? { changes } : {}), ...(matched ? { matches: matched.map(matchFacts) } : {}) };
     // A stub keeps what the revision doesn't vouch for: a path moves when an ancestor is renamed, a fold's count when a comment is added.
     if (seen?.has(pairOf(r.id, r.revision))) { matches.push({ ...unchangedStub(r.id, r.revision, uri), ...(fields?.fields.includes("path") && path !== undefined ? { path: pathOf(path) } : {}), ...extra }); continue; }
     if (fields) { matches.push({ ...projectRecord(r, fields.fields, { uri, ...(path !== undefined ? { path: pathOf(path) } : {}) }), ...extra }); continue; }
@@ -784,7 +785,7 @@ function toolsFor(outlines: McpOutlines) {
         sort: { type: "string", description: `The order, by the service: "updated desc", "created", or "<property key> asc" (direction asc by default). Not with view: a saved view has its own order.` },
         fields: { type: ["string", "array"], items: { type: "string" }, description: `The columns of each row instead of the whole record: ${FIELD_NAMES.join(", ")}, or any property key ("id,title,updated,actor,path"). id and revision are always there; the body never is (outline_read).` },
         under: { type: "string", description: "Only blocks under this note (its subtree): its id, ((id)), [[page]] or Work ID, as ref names a block" },
-        propertyScope: { type: "string", enum: ["block", "line", "inline", "all"], description: "Which chips the query reads: block (the note's own header, the default) or all, for a [needs::…] on any line too (a ticked - [x] step's chips no longer match). Each row then names its lines: key, value, line (from 1), and task on a step. A view says its own with [property-scope::all]." },
+        propertyScope: { type: "string", enum: ["block", "line", "inline", "all"], description: "Which chips the query reads: block (the note's own header, the default) or all, for a [needs::…] on any line too (a ticked - [x] step's chips no longer match). Each row then names its matches: key, value, line (from 1), and task on a step. A view says its own with [property-scope::all]." },
         includeOwn: { type: "boolean", default: false, description: "Keep the rows only your own call changed. A recent-activity read (an updated range or sort, or fold) leaves them out by default, with a count (ownOmitted), since what you just wrote isn't news to you; another session's writes always show" },
         call: CALL_PROPERTY,
         fold: { type: "boolean", default: false, description: "Fold proposals, comments and deliveries into the note they belong to, with a count (changes: {count, proposals, comments, deliveries, summary, ids}); total counts folded rows" },

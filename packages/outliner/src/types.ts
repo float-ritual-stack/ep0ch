@@ -173,16 +173,8 @@ export interface PropertyParsePreview {
   tokens: PropertyRecord[];
 }
 
-export interface PropertyMatchContext extends BlockProperty {
-  ordinal: number;
-  start: number;
-  end: number;
-  line: number;
-  column: number;
-  scope: PropertyScope;
-  /** The checklist step's status when the chip sits on one (`- [ ] … [key::value]`): an open box is a to-do (PIE-1277). */
-  task?: ChecklistStatus;
-}
+/** A chip a question matched a row on: outline-core's wire type (PIE-1277). */
+export type PropertyMatchContext = import("@ep0ch/outline-core/protocol").PropertyMatch;
 
 export type PropertyPatchOperation =
   | { op: "replace"; ordinal: number; key?: string; value: string }

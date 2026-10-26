@@ -288,3 +288,36 @@ test("waiting asks include a [needs::sysop: …] buried on a step, at its line, 
     expect(store.queryBlocks({ where: "needs", propertyScope: "all" }).hint).toBeUndefined();
   } finally { store.close(); rmSync(root, {recursive: true, force: true}); }
 });
+
+// PIE-1277 review: what a line-scope question matches on, exactly.
+test("line scope: a comparison names the chip that holds, NOT asks the header, a ticked figure row settles, a scoped view plans no write", () => {
+  const root = mkdtempSync(join(tmpdir(), "line-scope-edges-"));
+  const store = new OutlinerStore(join(root, "outline.sqlite"));
+  try {
+    const costs = store.create("Shed budget\n\n- [ ] timber [cost::100]\n- [ ] screws [cost::5]");
+    const cheap = store.queryBlocks({ where: "cost < 10", propertyScope: "all" }).blocks.find(b => b.id === costs.id)!;
+    expect(cheap.propertyMatches?.map(m => [m.value, m.line])).toEqual([["5", 3]]);
+
+    // A body line listing a done ticket never hides the note's own ask.
+    const log = store.create("Build log [asks::chair: sign off]\n\n- PIE-1 shipped [work-stage::done]");
+    expect(store.queryBlocks({ where: "asks NOT work-stage=done", propertyScope: "all" }).blocks.map(b => b.id)).toContain(log.id);
+
+    // A ::graph-check row is a step too: ticked, its chip settles.
+    const figure = "Plan\n\n::graph-check\n---\ntitle: Plan\n---\n- [x] Lime the soil [asks::gardener: done]\n::";
+    const planned = store.create(figure);
+    expect(store.queryBlocks({ where: "asks", propertyScope: "all" }).blocks.map(b => b.id)).not.toContain(planned.id);
+
+    const view = store.create("Asks [type::virtual-branch] [query::asks] [property-scope::all]");
+    const plan = store.planViewWrites({ viewIds: [view.id], blockId: costs.id });
+    expect(JSON.stringify(plan)).toContain("reads chips on any line");
+  } finally { store.close(); rmSync(root, {recursive: true, force: true}); }
+});
+
+test("a capability's decision step with its own [needs::sysop: …] is one ask, not two", () => {
+  const root = mkdtempSync(join(tmpdir(), "waiting-dedupe-"));
+  const store = new OutlinerStore(join(root, "outline.sqlite"));
+  try {
+    const note = store.create("Ports [type::capability]\n\n## Decisions for Evan\n- [ ] Which port? [needs::sysop: 8080 or 9090]");
+    expect(waitingAsks(store).filter(a => a.block === note.id).map(a => [a.kind, a.line])).toEqual([["decision", 3]]);
+  } finally { store.close(); rmSync(root, {recursive: true, force: true}); }
+});
