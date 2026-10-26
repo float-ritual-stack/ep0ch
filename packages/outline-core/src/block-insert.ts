@@ -14,9 +14,14 @@ export function landingLine(lines: readonly string[], line: number): number {
   let at = Math.max(0, Math.min(line, lines.length - 1));
   const holders = [...codeBlocks(lines).fences.map(f => ({ start: f.start, end: f.end })), ...componentBlocks(lines)];
   for (;;) {
-    const holder = holders.find(h => at >= h.start && at < h.end);
-    if (holder) { at = holder.end; continue; }
-    if (at + 1 < lines.length && (lines[at] ?? "").trim() && (lines[at + 1] ?? "").trim()) { at++; continue; }
+    // Inside a fence or a component (its closing line included): its closing line, and no further.
+    const holder = holders.find(h => at >= h.start && at <= h.end);
+    if (holder) return holder.end;
+    if (at + 1 < lines.length && (lines[at] ?? "").trim() && (lines[at + 1] ?? "").trim()) {
+      // A block running into a fence or a component ends before it: the part goes between them.
+      if (holders.some(h => h.start === at + 1)) return at;
+      at++; continue;
+    }
     return at;
   }
 }

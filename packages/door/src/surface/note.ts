@@ -6696,12 +6696,14 @@ export class NoteSurface {
     const blank = (row: number) => { const l = lineOf(row); return l === undefined || (l >= 0 && !(text[l] ?? "").trim()); };
     let row = pos.row, last = lineOf(row);
     if (last === undefined) return null;
+    // On a drawn edge (a figure's or callout's border): the block's line is above it.
+    for (let up = row - 1; last === -1 && up >= d.top; up--) { const l = lineOf(up); if (l === undefined || (l >= 0 && !(text[l] ?? "").trim())) break; if (l >= 0) last = l; }
     // Down the block under the pointer: its rows, drawn edges (-1) included, to the row before a blank line.
     while (!blank(row) && !blank(row + 1) && row + 1 < d.top + d.body.length) { row++; const l = lineOf(row); if (l !== undefined && l >= 0) last = l; }
     if (last < 0) return null;
-    // Never inside a fence or a component the rows didn't show whole (outline-core's one landing rule).
-    const line = landingLine(text, last);
-    return { line, row: line === last ? row - this.scroll + d.heroRows + 1 : -1, draft: false };
+    // outline-core's one landing rule (the service's too): never inside a fence or a component, whose closing line
+    // isn't drawn; the drop line goes under the block as drawn.
+    return { line: landingLine(text, last), row: row - this.scroll + d.heroRows + 1, draft: false };
   }
 
   /**

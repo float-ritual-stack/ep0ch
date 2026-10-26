@@ -1,17 +1,19 @@
-// PIE-1357: a part dropped into the person's own draft: a block of its own, one undo step, and the cursor and a
-// selection's other end (a backward one too) moved down with the lines above them. Made-up text.
+// PIE-1357: a part the person drops into the note they're typing in comes as their own draft.patch: it lands at the
+// cursor's block too, one undo step. An agent's patch there is still refused (it becomes a proposal). Made-up text.
 import { expect, test } from "bun:test";
 import { Draft } from "../src/edit";
 import { USER } from "../src/socket";
 
-test("insertBlock: blank lines around the part, one undo, a backward selection kept on its words", () => {
-  const d = new Draft("n1", 1, "Pad\nA\nB\nC");
-  // Select backward from C to A: the cursor on A, the other end on C.
-  d.place(3, 1); d.place(1, 0, true);
-  const selected = d.selectedText();
-  d.insertBlock(2, "((n2^part))");
-  expect(d.text).toBe("Pad\nA\nB\n\n((n2^part))\n\nC");
-  expect(d.selectedText()).toBe(selected!.replace("B\nC", "B\n\n((n2^part))\n\nC"));
-  d.undo(USER);
-  expect(d.text).toBe("Pad\nA\nB\nC");
+const patch = (d: Draft) => ({ patchId: "p1", revision: d.base, patches: [{ observed: "Kept here.", range: { start: 4, end: 14 }, replacement: "Kept here.\n\n((n2^part))" }] });
+
+test("the person's own patch at the cursor lands, one undo step; an agent's there is refused", () => {
+  const mine = new Draft("n1", 1, "Pad\nKept here.");
+  mine.place(1, 4);
+  expect(mine.applyPatch(patch(mine), USER)).toEqual({ applied: true });
+  expect(mine.text).toBe("Pad\nKept here.\n\n((n2^part))");
+  mine.undo(USER);
+  expect(mine.text).toBe("Pad\nKept here.");
+  const theirs = new Draft("n1", 1, "Pad\nKept here.");
+  theirs.place(1, 4);
+  expect(theirs.applyPatch(patch(theirs), { kind: "agent", id: "fern" })).toMatchObject({ applied: false });
 });

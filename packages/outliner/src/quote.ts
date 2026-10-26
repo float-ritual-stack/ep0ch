@@ -107,7 +107,7 @@ export function readQuoteInput(input: unknown): QuoteInput {
   const words = typeof text === "string" && text.trim() ? { text } : {};
   const base = { subjects: out, as: (as ?? "reference") as QuoteAs, ...words };
   const kind = place === undefined ? "inbox" : (place as { kind?: unknown })?.kind;
-  if (kind === "inbox" || kind === "note" || kind === "detached" || kind === "text") return { ...base, place: { kind } };
+  if (kind === "inbox" || kind === "note" || kind === "detached") return { ...base, place: { kind } };
   if (kind === "under") return { ...base, place: { kind, blockId: id((place as { blockId?: unknown }).blockId, "place under") } };
   if (kind === "into") {
     const p = place as { blockId?: unknown; line?: unknown; observed?: unknown };

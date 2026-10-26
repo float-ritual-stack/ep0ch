@@ -1407,7 +1407,7 @@ export class OutlinerStore {
    * `into` a note is the server's (`quoteInto`): it goes through draft.patch.
    */
   quote(input: QuoteInput, mutation: MutationProvenance): { block: Block; placement: Placement; marks: string[]; subjects: QuotedSubject[] } {
-    if (input.place.kind === "into" || input.place.kind === "text") throw new Error("quote into a note or as text is the server's (draft.patch, or the client's own draft)");
+    if (input.place.kind === "into") throw new Error("quote into a note goes through draft.patch (the server's quote)");
     const place = input.place;
     return this.database.transaction(() => {
       const { quoted, marks, on } = this.quotedSubjectsFromCurrentRead(input.subjects, mutation);

@@ -1,4 +1,4 @@
-import { blockAfter, landingLine } from "@ep0ch/outline-core/block-insert";
+import { landingLine } from "@ep0ch/outline-core/block-insert";
 import { ReaderPosition, PositionRows } from "./reader-position";
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
@@ -391,24 +391,6 @@ export class Draft {
   }
 
   /**
-   * A part dropped into this draft (PIE-1357): `block` after line `after` (from 0; past the end, after the last), as
-   * a block of its own (outline-core's blockAfter: a blank line around it). One undo step, by `by`; the cursor and
-   * what the person is typing stay where they are, moved down when it lands above them.
-   */
-  insertBlock(after: number, block: string, by: Actor = USER) {
-    this.settle();
-    this.record(by, "a dropped part");
-    const before = this.text, at = Math.max(0, Math.min(after, this.lines.length - 1));
-    const added = blockAfter(this.lines, at, block).split("\n");
-    this.lines.splice(at, 1, ...added);
-    // The cursor and a selection's other end each move down when below the insert (a backward selection's too).
-    if (this.row > at) this.row += added.length - 1;
-    if (this.anchor && this.anchor.row > at) this.anchor = { ...this.anchor, row: this.anchor.row + added.length - 1 };
-    this.note = "";
-    if (this.text !== before) this.wrote(by, "the dropped part");
-  }
-
-  /**
    * Put media line `line` in at the cursor (PIE-592): on its own line, after the cursor's line when that has text. One
    * undo step, as a paste is.
    */
@@ -752,7 +734,10 @@ export class Draft {
       const mark = markStart(text, p.mark);
       if (mark >= 0 && located.spans.some(sp => sp.end > mark)) return no("it reaches the mark or below it; a patch changes only text above the mark");
     }
-    if (!p.force && !p.output) {
+    // The person's own write into the draft they're typing in (a part they dropped there, PIE-1357) is theirs to place:
+    // no cursor or typing guard, as their own keys have none. An agent's patch keeps them; proposals are for it.
+    const own = by.kind === "user";
+    if (!p.force && !p.output && !own) {
       const c = this.offsetOf(this.row, this.col), a = this.anchor ? this.offsetOf(this.anchor.row, this.anchor.col) : c;
       if (p.replyTo && located.spans.some(sp => sp.start <= c && c <= sp.end)) return no("the cursor is on the ask being answered");
       if (located.spans.some(sp => (sp.start < c && c < sp.end) || (sp.start < a && a < sp.end))) return no("the cursor is in that passage");
@@ -1110,6 +1095,9 @@ export class Draft {
   }
 
   /** The source place under a cell of the text as last drawn (`x`, `y` from the text's top left). */
+  posAt(x: number, y: number): { row: number; col: number } {
+    return this.posIn(this.shown.rows, this.top + Math.max(0, y), Math.max(0, x));
+  }
   /**
    * Where a part dropped at host cell `x`, `y` lands (PIE-1357): after the block of lines under it (down to the line
    * before a blank one), and the host row its drop line is drawn on, under that block. Null off the text.
@@ -1127,9 +1115,7 @@ export class Draft {
     return { line, row: row > f.row && row < f.row + f.rows ? row : -1 };
   }
 
-  posAt(x: number, y: number): { row: number; col: number } {
-    return this.posIn(this.shown.rows, this.top + Math.max(0, y), Math.max(0, x));
-  }
+
 
   /** The draft as terminal lines, soft-wrapped at `w`, with the cursor and selection drawn; the cursor kept on screen unless scrolled away. */
   render(w: number, h: number): string[] {

@@ -104,8 +104,6 @@ export interface DeskApi {
   openTag?(r: Pane, tag: string, actor: Actor, standing?: boolean): Promise<TagList>;
   openQuery?(r: Pane, query: string, actor: Actor, standing?: boolean): Promise<TagList>;
   /** Reader `p`'s note in the outline: its cursor moves there (its dock opening); nothing else moves (PIE-794). */
-  /** The person's own open draft of note `id` in a reader here (PIE-1357: a part dropped there lands in it), else null. */
-  ownDraftOf?(id: string): import("../edit").Draft | null;
   revealInOutline?(p: Pane): Promise<{ revealed: string; outline: string }>;
   /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): the tree's ⏎ doesn't take the keys to a reader then. */
   routes?(pane: Pane): boolean;
@@ -962,17 +960,6 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
       const blockId = page ? (await desk.ctx.board.resolvePage(page)).block?.id : referencedBlock(named)?.blockId ?? named;
       if (!blockId) throw new ActionRefused(`no page is named ${page}: name the note by its id, ((id)) or [[page]]`);
       const part = { ...(anchor ? { anchor } : {}), ...(line !== undefined ? { line: line - 1 } : {}), ...(copy ? { as: "copy" as const } : {}) };
-      // The person's own draft of that note, open here (a new note not saved yet, an edit): the part lands in it, one
-      // undoable edit, never a proposal (PIE-1357). An agent's goes through draft.patch, as every agent write does.
-      const own = actor.kind === "agent" ? null : desk.ownDraftOf?.(blockId) ?? null;
-      if (own) {
-        const t = await pane.surface.materialize({ kind: "text" }, pane.host(desk), actor, part);
-        if (!("text" in t)) throw new ActionRefused("the service didn't answer the part's lines");
-        const n = Math.max(0, Number(at) - 1), was = own.lines.length;
-        own.insertBlock(after !== undefined && own.lines[n] !== after && own.lines.filter(l => l === after).length === 1 ? own.lines.indexOf(String(after)) : n, t.text, actor);
-        desk.redraw();
-        return { into: { blockId, outcome: "applied", draft: true }, part: t.subjects[0]!.ref, ...(t.subjects[0]!.anchored ? { anchored: true } : {}), said: `put ${copy ? "a copy" : "a reference"} into your edit (${own.lines.length - was} lines) · ctrl+z takes it back` };
-      }
       const r = await pane.surface.materialize({ kind: "into", blockId, line: Math.max(0, Number(at) - 1), ...(after !== undefined ? { observed: String(after) } : {}) }, pane.host(desk), actor, part);
       if (!("into" in r)) throw new ActionRefused("the service made a block, not an edit of that note");
       return { into: r.into, part: r.subjects[0]!.ref, ...(r.subjects[0]!.anchored ? { anchored: true } : {}), said: r.said };

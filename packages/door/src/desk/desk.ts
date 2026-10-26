@@ -2291,15 +2291,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * the screen beside does when this screen has none. Nothing else moves: not the current note, the reader, its mode or
    * the keys. A held reader's own navigation never moves the outline: this is how to find where it is.
    */
-  /** DeskApi.ownDraftOf (PIE-1357): the person's own open draft of note `id` in a reader here (an edit, a new note not saved yet). */
-  ownDraftOf(id: string): Draft | null {
-    for (const pane of this.panes.values()) {
-      const s = pane instanceof ReaderPane && pane.msg?.id === id ? pane.surface.drafting : null;
-      if (s && s.openedBy.kind === "user") return s.draft;
-    }
-    return null;
-  }
-
   async revealInOutline(p: Pane): Promise<{ revealed: string; outline: string }> {
     const m = p instanceof ReaderPane ? p.msg : null;
     if (!m) throw new ActionRefused("nothing in that reader to find in the outline");

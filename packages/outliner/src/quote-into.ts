@@ -2,8 +2,7 @@
 // after the note's line as one `draft.patch`, the edit every agent and producer sends: a draft held open takes it in
 // place, a line rewritten since makes it a proposal beside the note, never a write over the person's words.
 import type { DraftPatchRouter } from "./draft-patch-router";
-import { blockAfter } from "@ep0ch/outline-core/block-insert";
-import { elementAt } from "./fragments";
+import { blockAfter, landingLine } from "@ep0ch/outline-core/block-insert";
 import { markBelow } from "./place";
 import { quoteLine, readQuoteInput, type QuoteInput } from "./quote";
 import type { OutlinerStore } from "./store";
@@ -11,11 +10,6 @@ import type { MutationProvenance, QuoteReceipt } from "./types";
 
 export { readQuoteInput };
 
-/** `quote` with place text (PIE-1357): the subjects read (anchors written) and the lines `as` writes, put nowhere: the client's own draft takes them. */
-export function quoteText(store: Pick<OutlinerStore, "quoteSubjects">, input: QuoteInput, mutation: MutationProvenance): QuoteReceipt {
-  const subjects = store.quoteSubjects(input.subjects, mutation);
-  return { text: subjects.map(s => quoteLine(s, input.as)).join("\n"), subjects };
-}
 
 export async function quoteInto(store: Pick<OutlinerStore, "quoteSubjects">, drafts: Pick<DraftPatchRouter, "read" | "patch">, input: QuoteInput, mutation: MutationProvenance): Promise<QuoteReceipt> {
   if (input.place.kind !== "into") throw new Error("quoteInto needs place into");
@@ -32,10 +26,9 @@ export async function quoteInto(store: Pick<OutlinerStore, "quoteSubjects">, dra
     line = at[0]!;
   }
   if (line >= lines.length) throw new Error(`${blockId} has ${lines.length} lines: line ${line + 1} isn't one of them`);
-  // Dropped on a part of several lines (a figure's opening line, a callout's first): after the whole part, never inside
-  // it. A heading's section is no such part: a drop in it stays on its line.
-  const part = elementAt(draft.text, line);
-  if (part && part.kind !== "heading") line = part.end;
+  // Dropped on a block of several lines (a figure, a callout, a paragraph): after the whole of it, never inside a code
+  // fence or a component. outline-core's landing rule, the one the door's drop line shows (PIE-1357).
+  line = landingLine(lines, line);
   const subjects = store.quoteSubjects(input.subjects, mutation);
   const inserted = subjects.map(s => quoteLine(s, input.as)).join("\n");
   const start = lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0), observed = lines[line]!;

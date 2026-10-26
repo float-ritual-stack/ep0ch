@@ -65,14 +65,14 @@ test("into a note: a reference (!((…)) for a figure, ((…)) for a list item) 
   const pad = store.create("Sticky pad\nKept beside the plan:\nThe end.", null, "user");
   const figure = await quote({ subjects: [{ kind: "element", blockId: plan.id, line: 3, revision: plan.revision }], place: { kind: "into", blockId: pad.id, line: 1 } });
   expect(figure).toMatchObject({ into: { blockId: pad.id, outcome: "applied" } });
-  // A block of its own (PIE-1357): a blank line before and after it.
-  expect(store.get(pad.id)!.text).toBe(`Sticky pad\nKept beside the plan:\n\n!((${plan.id}^bed-jobs))\n\nThe end.`);
+  // After the whole block it was dropped on, a block of its own (PIE-1357): a blank line before it.
+  expect(store.get(pad.id)!.text).toBe(`Sticky pad\nKept beside the plan:\nThe end.\n\n!((${plan.id}^bed-jobs))`);
   const plan2 = store.get(plan.id)!;
-  await quote({ subjects: [{ kind: "element", blockId: plan.id, line: 13, revision: plan2.revision }], place: { kind: "into", blockId: pad.id, line: 3 } });
-  expect(store.get(pad.id)!.text.split("\n").slice(3, 7)).toEqual([`!((${plan.id}^bed-jobs))`, "", `((${plan.id}^stake-the-peas))`, ""]);
+  await quote({ subjects: [{ kind: "element", blockId: plan.id, line: 13, revision: plan2.revision }], place: { kind: "into", blockId: pad.id, line: 4 } });
+  expect(store.get(pad.id)!.text.split("\n").slice(4, 7)).toEqual([`!((${plan.id}^bed-jobs))`, "", `((${plan.id}^stake-the-peas))`]);
   // A copy: the figure's own lines, its query with them, its anchor left in the plan.
   await quote({ subjects: [{ kind: "element", blockId: plan.id, anchor: "bed-jobs" }], place: { kind: "into", blockId: pad.id, line: 0 }, as: "copy" });
-  expect(store.get(pad.id)!.text.split("\n").slice(1, 9)).toEqual(["", "::graph-table", "---", "title: Bed jobs", 'query: "parent:this"', "---", "::", ""]);
+  expect(store.get(pad.id)!.text.split("\n").slice(3, 11)).toEqual(["", "::graph-table", "---", "title: Bed jobs", 'query: "parent:this"', "---", "::", ""]);
 });
 
 test("refused, nothing written: a stale line, a line no part holds, a note into itself, a mark copied", async () => {

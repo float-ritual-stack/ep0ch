@@ -17,3 +17,10 @@ test("a drop lands after the block it's on, never inside a code fence or a compo
   expect(landingLine(note, 11)).toBe(13);
   expect(landingLine(note, 15)).toBe(15);
 });
+
+test("a drop on a fence or a component lands after its closing line, not after the paragraph right under it", async () => {
+  const { landingLine } = await import("../src/block-insert");
+  expect(landingLine(["```", "x", "```", "Next para"], 1)).toBe(2);
+  expect(landingLine(["::graph-stat", "- a: 1", "::", "Text right under"], 0)).toBe(2);
+  expect(landingLine(["Para", "::graph-stat", "- a: 1", "::"], 0)).toBe(0);
+});
