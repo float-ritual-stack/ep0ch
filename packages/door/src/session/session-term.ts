@@ -84,7 +84,7 @@ export class SessionClient {
   /** It just took the session at another size: its clicks were aimed at the old frame until it's painted again. */
   fresh = false;
   constructor(readonly id: number, readonly hello: Hello, readonly link: Link) {
-    this.info = { cols: clamp(hello.cols, 80), rows: clamp(hello.rows, 25), cellW: clamp(hello.cellW, 9), cellH: clamp(hello.cellH, 18), kitty: !!hello.kitty, pst: !!hello.pst, sized: !!hello.sized };
+    this.info = { cols: clamp(hello.cols, 80), rows: clamp(hello.rows, 25), cellW: clamp(hello.cellW, 9), cellH: clamp(hello.cellH, 18), kitty: !!hello.kitty, pst: !!hello.pst, tree: !!hello.tree, sized: !!hello.sized };
     this.acks = !!hello.acks;
     this.rows = new ClientRows(s => { if (this.sending) this.link.send({ t: "output", text: s }); }, this.info);
     // A frame that goes out is followed by the query its terminal answers once it has taken the frame (never one that doesn't go out).

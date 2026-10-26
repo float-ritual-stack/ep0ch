@@ -9,6 +9,7 @@ import type { MentionMessage, MentionScope } from "./mentions-types";
 import type { FragmentCandidateQuery } from "./fragment-search";
 import type { AuthoredResourceReference } from "./resource-references";
 import type { PromptRevision } from "./ai-prompts";
+import type { SuggestionKeep } from "./jev-suggestions";
 import type { ViewCreatePlan, ViewMovePlan } from "./view-writes";
 import type { DraftHolderAnswer, DraftHolderRequest, DraftPatchInput } from "./draft-patch";
 import type {
@@ -2600,6 +2601,8 @@ export type OutlinerRequestAction =
   /** Every component's schema (PIE-618): the built-ins with the outline's own styles and types as values, and the extensions'. */
   | { id: string; action: "components.schemas" }
   | { id: string; action: "components.usage" }
+  /** What a writer asks the service to keep of an ask to Jev (PIE-1251): the suggestion's record and the day's run, made by the service whether or not the writer waits. */
+  | { id: string; action: "suggestions.keep"; keep: SuggestionKeep }
   /** What a rule note (its text, not saved) draws on a sample note's text: a component page's rule variations (PIE-618). */
   | { id: string; action: "rules.preview"; note: string; text: string }
   | ({ id: string; action: "references.backlinks"; query: BacklinkQuery; sourceTarget?: { block: Block; outline: string; addresses: string[] } } & WatchFields)

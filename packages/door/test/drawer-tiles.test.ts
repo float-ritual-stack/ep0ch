@@ -701,6 +701,51 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  // PIE-1286 (Evan's laptop, Oct 25): `agent.lift` said "no tile drawer.agent on the desk; tiles: #1 detail2 ..." with a tab
+  // named claude shown in the drawer and `/bin/zsh` as the drawer's program. The own tab had been closed, so the drawer's
+  // program was nowhere, and the refusal listed the screen's tiles. The drawer says which tile is its program; when it has
+  // none, the refusal says so and what to run.
+  test("agent.lift with the drawer's own tab closed and another tab shown: the refusal says the program is closed and what to run, not the screen's tiles", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      const drawer = d.app.drawer.desk!;
+      d.app.drawer.tile!.kill();
+      await until(() => d.app.drawer.tile?.running === false, "the program exited");
+      await drawer.dispatch.act({ action: "tile.close", tile: "drawer.agent" }, USER);
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      expect(d.app.describe().drawer.tile).toMatchObject({ name: "kettle" });
+      for (const sel of [{ action: "agent.lift" }, { action: "tile.zoom", tile: DRAWER_TILE_ID, args: { reach: "column" } }]) {
+        const why = await d.app.dispatch.act({ args: {}, ...sel }, USER).then(() => "", (e: Error) => e.message);
+        expect(why).toContain("the drawer's own program is closed");
+        expect(why).toContain("host.agent");
+        expect(why).not.toContain("tiles:");
+      }
+      // The tab that is there is still reached by its own name.
+      await d.app.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: "kettle" }, USER);
+      expect(d.app.drawer.desks().some(x => x.liftedDesk?.lifted)).toBe(true);
+    } finally { d.app.quit(); }
+  });
+
+  // PIE-1286: what the drawer's program was once told (EP0CH_TILE_ID) is the program's word for where it ran; it names no tile
+  // now. A tile that was the drawer's program and sits as an ordinary tab keeps that id, and `drawer.agent` is still the own tab.
+  test("drawer.agent is the drawer's own tab, never an ordinary tile whose program was once told that id", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      const own = d.app.drawer.tile!, kettle = d.kettle()!;
+      kettle.toldId = DRAWER_TILE_ID;
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "kettle" }, USER);
+      own.kill();
+      await until(() => own.running === false, "the own program exited");
+      const drawer = d.app.drawer.desk!;
+      expect(drawer.dispatch.tile(DRAWER_TILE_ID)?.name).toBe("drawer.agent");
+      expect(d.desk.dispatch.tile(DRAWER_TILE_ID)?.name).toBe("drawer.agent");
+    } finally { d.app.quit(); }
+  });
+
   // PIE-1279 (Evan, Oct 25): a status-bar button that lifts toggles. A status click drops a lift first (PIE-1189: work that
   // moves to a bar must not land under it), which ate the toggle: the second click dropped, then lifted again. And
   // agent.lift is tile.zoom on drawer.agent with its start step, so the two buttons do the same, whatever the drawer's
@@ -1191,6 +1236,33 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect(back?.surface.draft).toBeTruthy();
       expect(back.unsaved()).toBe(true);
     } finally { two.quit(); }
+  });
+
+  test("saved under another name: the drawer's own tile comes back as its own, so drawer.agent still names it (Evan's door, Oct 25)", async () => {
+    const d = await door();
+    d.paint();
+    await d.app.act({ action: "tile.drawer", args: {}, tile: "replies", as: AS });
+    d.app.quit();
+    // As in Evan's door: the own tile was saved as `shell` (its program's name), with the own program's key.
+    const file = join(outlineState(), "drawer-tiles.json");
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    const leaves: any[] = [];
+    const walk = (n: any) => { if (!n) return; if (n.t === "leaf") leaves.push(n); for (const k of n.kids ?? []) walk(k); for (const k of n.tabs ?? []) walk(k); };
+    walk(saved.root);
+    const own = leaves.find(l => l.name === "drawer.agent");
+    expect(own).toBeTruthy();
+    own.name = "shell";
+    own.kept = "drawer.json:drawer.agent";
+    writeFileSync(file, JSON.stringify(saved));
+    const e = await door();
+    try {
+      expect(e.app.drawer.desk).toBeTruthy();                    // the drawer's desk is made, restored from the saved file
+      e.paint();
+      expect(e.app.drawer.tile).toBeTruthy();
+      const a = e.app.drawer.agentPane();
+      expect(a?.pane).toBe(e.app.drawer.tile!);
+      expect(e.app.drawer.resolveTile("drawer.agent")?.tile.id).toBe(a!.desk.answerFor(a!.pane)!.tile.id);
+    } finally { e.app.quit(); }
   });
 
   test("saved: the next door's drawer has the tile back (drawer-tiles.json), the dock as it was", async () => {

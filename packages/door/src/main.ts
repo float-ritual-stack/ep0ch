@@ -188,7 +188,11 @@ ${DOCS_USAGE}
                                    names. A folder deleted and made again in the same place needs nothing
   ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
-  ep0ch peek | actions | snap <png> | open <id|ep0ch://outline@machine/b/id|file:/path> [--json] | act <action> [key=value ...]
+  ep0ch peek [<section>] [--json] [--xray]
+                                   what the door shows now: by default the compact text (where, the person, speed,
+                                   and the screen as text, a few KB); --json one JSON object and nothing else (the
+                                   whole state, and the screen as "text"); a <section> (speed, person, layout, …) just that part
+  ep0ch actions | snap <png> | open <id|ep0ch://outline@machine/b/id|file:/path> [--json] | act <action> [key=value ...]
                                    drive a running door; EP0CH_CONTROL names which one, else the one on
                                    this folder's outline, else the only one running. open <id> is
                                    act open id=<id>; a URI names its outline and machine first; open file:<path>

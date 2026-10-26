@@ -20,6 +20,7 @@ export class AttachedTilePane implements Pane {
   /** `source`: the reader whose comment it draws, by name. */
   constructor(public source: string, readonly attachment: "comment" | "sources" | "list-preview" | "edit-preview" = "comment") {}
 
+  renamedTile(from: string, to: string) { if (this.source === from) this.source = to; }
   title() { if (this.attachment === "edit-preview") return `edit preview · ${this.source}`; if (this.attachment === "list-preview") return `list children · ${this.source}`; if (this.attachment === "sources") return `sources · ${this.source}`; return `${this.listing ? "comments" : "comment"} · ${this.source}`; }
   /** It shows the reader's thread list (m), not a comment being written. */
   private listing = false;

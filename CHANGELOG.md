@@ -49,6 +49,42 @@ can't see the link (its socket to the client is local; sshd's window holds about
 - **`peek` shows it:** `speed.clients` has each terminal's `unacked` frames, `skipped` paints, `ackMs` and `ackTimeouts`.
   No protocol bump: `Hello.acks` is optional.
 
+### Jev's figure suggestions are recorded, and whether each was followed is worked out (PIE-1251)
+
+- **Every suggestion a write's answer carries leaves a record** (`type::suggestion` under Records): the note and revision,
+  who wrote (persona and harness), the figure, Jev's gate and confidence, the callout it named, the prompt revision. An ask
+  where Jev stayed quiet is a count on that day's `type::jev-run` note (`experiment::figure-fit-live`, the run-level keys the lab's runs share: items, agreed, agreement, tokens), not a note each.
+- **Followed, a different figure or ignored is derived, never typed.** A later write that draws the suggested figure within
+  five writes or a day (or a figure-fit thread marked Kept) is followed; one that draws another is a different figure once that window has closed
+  (the suggested one could still follow); neither is ignored. The verdict is a `suggestion-outcome` record, written once. A "Jev's suggestions" view in pie counts
+  them by figure and writer over 7 and 30 days.
+- **The records land when the write came through the Claude mod's CLI too.** A note written through `outline_create` was told "this reads as a stat" and pie held
+  no record: the CLI exits when its answer is printed, and the first write's bookkeeping (the Records page's templates, a create each, 0.4 to 1 s on pie under load) was cut off after two.
+  The writer now sends one request, `suggestions.keep`, and the service makes the records itself, finishing whether or not the writer waits; the MCP gateway, the CLI and scripts keep the same way.
+  A new request, so `PROTOCOL` moves: `ep0ch install --apply` on each machine.
+- The records writer (`ep0ch record`) moved from the door to the outliner (`@ep0ch/outliner/records`) so the service can write
+  records itself; the door imports it from there.
+
+### The door tells its terminal only what deserves a nudge, and `peek` and the speed measure get easier to use (PIE-1310, PIE-1308, PIE-1309, PIE-1302)
+
+- **Tern, Ghostty and Rex no longer get an `ep0ch - done` for every Claude turn (PIE-1310).** The door's own program status
+  (OSC 7501) used to follow its tiles: working, idle and done flipped the root every turn. Now the root changes only when a
+  tile is blocked on you, a tile failed, or a job that ran two minutes or more is done, and only once the change has held four
+  seconds (a tile answered within them sends nothing). A program rewording its ask is the same nudge, sent once; the time a job waited on you isn't its run time. Each report says who, where and what: `scribe in garden · approve:
+  Allow Edit: src/seeds.ts?`, `scribe in garden failed: stopped on an API error`, `scribe in garden · 4 min: <its last
+  line>` (`finished after 4 min` without one); when it clears, `nothing waits on you in garden`. A terminal that shows the tile
+  records (Herdr's sidebar) is still sent each tile as a child; the others hear the root alone. `EP0CH_PROGRAM_STATUS=children`
+  or `root` says which for a terminal the door can't tell; `0` is still off.
+- **`ep0ch peek` is the compact text by default (PIE-1302).** A few KB: where the door is, `person`, `speed`, and the screen as
+  text (at the door's own width: a second render at another width is not side-effect free). `ep0ch peek --json` is the whole
+  state and the screen's `text` as one JSON object and nothing else (it printed the screen after the object, so `| jq` failed:
+  PIE-1308); `ep0ch peek <section>` (`speed`, `person`, `layout`, …) is one part as JSON. The Claude mod's `door_peek` takes
+  `full: true` and `section` for the same; the four narrow-width drawing fixes of PIE-1302 are not in this change.
+- **`peek`'s `speed` measures how fast the door settles (PIE-1309).** `since`, `frames`, `reports`, `motionCoalesced` and
+  `settle {p50, p95, worst, n}`: the time from the last input of a burst to the frame that shows it, over the latest 200
+  bursts. When the last minute's p95 has stayed over 100 ms for a minute the status bar says `slow: N ms to settle` (a click is
+  the new `status.speed` action: the numbers, and the same object); nothing when it's fine.
+
 ### A links tile with hundreds of rows no longer makes every layout read take seconds (PIE-1303)
 
 - **`layout.get` (and so `act` and the parity probes) listed a links tile's rows once per row.** With a note open that has a few
@@ -71,6 +107,16 @@ Part of the door-speed audit (a hover that moved nothing painted a whole frame; 
   host's `beforeAction` says when it changed what's shown (the desk dropping a hint card), and the press repaints for it.
 - **Parity checks it:** a key or click that changes the screen through an action must have asked for a repaint.
 - No protocol change.
+
+### A mounted screen acts and looks like one screen (PIE-1283, PIE-1305)
+
+Evan, Oct 25: four screens mounted in screens drew four hint rows and a box inside every box, and a click on a tile's menu refused with "several tiles named reader".
+
+- **The tile menu opens on the tile you clicked.** The person's click, key and right-click go to the dispatcher by the tile's id, so two tiles named `reader` in different layers never refuse the person. Only an agent's `tile=reader` is refused, naming the paths (`calls/reader`) or ids to use.
+- **A mount is named for its screen**: `tile.open kind=screen screen=who` is `who` (a part is named for the part, a group is `group`, a second is numbered), so names don't clash in the first place.
+- **One rename.** `^W n` (`tile.title`, "rename this tile…") renames any tile, mounted or not: a name-shaped text becomes its name and its title together, so `tile=yo` and the path `who/yo` resolve it; a title with spaces is written on the tile and the name stays. A name already taken in its layer is refused.
+- **One hint row, one box.** A mounted screen draws no hint row of its own: the outermost screen's one row says the keys of the tile that has focus at any depth. A tile with a screen in it is its header (name, ▲ full, ⏎ in) with no second box around tiles that already have frames. A mounted screen's shut-dock handle and lock chip, which lived on its hint row, are not drawn (use the key or the tile menu).
+- **Kitchen sink:** section `nested-mounts` mounts the last callers' screen with who's online in it.
 
 ### The lift works on every screen (PIE-1285)
 
@@ -105,6 +151,20 @@ Evan, Oct 25: over ssh, sweep the mouse and stop, and the highlights replayed th
 - **`text.hover` redraws only when what the pointer reveals changed** (`Overflow.hover` says so).
 - **`peek` shows how the door keeps up:** `speed` (`frames` painted, `motionCoalesced` hover reports folded into a newer one) and `hover` (where the pointer
   rests and the cut-short value being read).
+
+### A terminal knows its agent from the agent's own report, on every machine (PIE-1296)
+
+On the Mac, a claude running in the drawer was reporting `claude-code` over OSC 7501 and still listed no session, so
+alt+g's `agent.start` started a second one beside it (and that one, `--continue` with nothing to continue, exited).
+
+- **The report is the answer.** The latest root OSC 7501 report's `app` names the agent in a terminal tile (`claude-code` is
+  claude), as soon as it starts: the Claude mod reports once when a session starts, so an idle claude is known too.
+  `agent.start` for it attaches to that tile instead of starting another.
+- **It goes when the program says so.** A `clear` that leaves no record, the program exiting, a new prompt (OSC 133 A)
+  or a reset ends it, and on Linux so does the shell taking the terminal back from an agent that was killed before it
+  could clear. Its `done` and `error` records still stay for you.
+- **Programs that report nothing (codex, pi) are found as before:** their processes by name (Linux `/proc`), else the tile's
+  own command. The wrapper's printed "exited" line is still read, for the exit code the drawer shows.
 
 ### One list, drawn the same everywhere: the `list` primitive and the door's ListView (PIE-747)
 

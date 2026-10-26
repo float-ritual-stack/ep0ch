@@ -370,10 +370,11 @@ has the steps for a wake.
   Nothing here decides what a thread is: `settle.ts` joins the three answers, and the outlines' (a thread is one thread
   wherever its notes are: counts add, the newest touch wins, tickets in any outline shape it), and applies the thresholds.
 - **States:** warming (touched within `quiet` minutes), settled (at least `chirps` notes, `evan` of them the person's,
-  quiet for `quiet` minutes and for no more than `within`, three days: older threads are never newly settled), shaped (a roadmap item carries the thread: put
-  `[thread::<x>]` on tickets cut from it), else quiet.
+  quiet for `quiet` minutes and for no more than `within`, three days: older threads are never newly settled), shaped (a roadmap item, a `type=capability`
+  note or a hub, `type=hub` or `type=thread`, carries the thread: put `[thread::<x>]` on the note you shape it on and the
+  tickets cut from it, or on its hub), else quiet.
 - **A wake** is one prompt naming the `wake-max` newest newly settled threads (`thread <x> settled: <n> chirps, <m>
-  Evan's, quiet <t> min, capability <link>`; the capability is the `type=capability` note carrying the same `thread`).
+  Evan's, quiet <t> min, nothing shapes it yet …`).
   A thread already told isn't told again until it is touched and goes quiet again; the others, and a wake that did not go,
   are named at the next check. What was told is kept in `$.store` (`settle.threads`). **The first check wakes nothing:**
   threads already settled are recorded as known, and one build-log line says how many (`Settle check baseline: …`); only
@@ -595,7 +596,8 @@ agent's `outline_comment`). The thread is stored in the outline, beside the file
 
 When Claude runs in a door tile (`EP0CH_CONTROL` set), it also gets
 `door_where`, `door_peek`, `door_act { action, args?, tile? }` and
-`door_open { ref }`. They run `ep0ch where --json`, `ep0ch peek` and
+`door_open { ref }`. `door_peek` is the compact text by default (a few KB: where, the person, the door's speed, the screen as text);
+`full: true` adds the whole structured state (`ep0ch peek --json`) and `section: "speed"` is one part of it. They run `ep0ch where --json`, `ep0ch peek` and
 `ep0ch act …` on that socket; `door_open` is the same open as a click or `show`
 ([Where a note opens](#where-a-note-opens)). Without
 `EP0CH_CONTROL` they are not offered, and a call is refused.

@@ -60,8 +60,8 @@ class Home {
     const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
     return { out, err };
   }
-  /** `peek`: its JSON (the screen as text follows it). */
-  async peek(): Promise<any> { const r = await this.cli("peek"); const at = r.out.indexOf("\n}\n"); try { return JSON.parse(r.out.slice(0, at + 2)); } catch { this.said = r.err || r.out; return null; } }
+  /** `peek --json`: its JSON (the screen as text is its `text`). */
+  async peek(): Promise<any> { const r = await this.cli("peek", "--json"); try { return JSON.parse(r.out); } catch { this.said = r.err || r.out; return null; } }
   said = "";
   /** The home tile's own account (its kind's peek), once it has one. */
   async home(): Promise<any> { return (await this.peek())?.state?.home ?? null; }
@@ -204,8 +204,7 @@ describe.skipIf(!outliner)("an outline the machine doesn't have (PIE-545): the h
     const m = new Home(join(dir, "work"), ["--machine", "box-a", "--ws", "rowan"]);
     try {
       await m.on(p => p.state?.home?.missing && p.state.home.here.outlines, "the offers again");
-      const screen = await m.cli("peek");
-      const lines = screen.out.slice(screen.out.indexOf("\n}\n") + 3).split("\n");
+      const lines: string[] = JSON.parse((await m.cli("peek", "--json")).out).text;
       const row = lines.findIndex(l => l.includes("cancel: open nothing"));
       expect(row).toBeGreaterThan(0);
       const col = lines[row]!.indexOf("cancel") + 1;

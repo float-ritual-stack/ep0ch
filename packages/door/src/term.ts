@@ -10,6 +10,15 @@ import { isStatusQueryReply, PROGRAM_STATUS_OSC, PROGRAM_STATUS_QUERY } from "@e
  * status to it: `EP0CH_PROGRAM_STATUS=0` (or off, no) never does.
  */
 export const programStatusWanted = (env: Record<string, string | undefined> = process.env) => !/^(0|off|no|false)$/i.test(env.EP0CH_PROGRAM_STATUS?.trim() ?? "");
+/**
+ * Whether the terminal that answered shows the door's tiles one by one (Herdr's sidebar), so the door sends them as
+ * children of its report (PIE-1310): every other terminal hears the root alone, which is all a notification needs.
+ * `EP0CH_PROGRAM_STATUS=children` says yes to a terminal this can't tell, `root` says no to Herdr.
+ */
+export const programStatusTree = (env: Record<string, string | undefined> = process.env) => {
+  const v = env.EP0CH_PROGRAM_STATUS?.trim().toLowerCase();
+  return v === "children" ? true : v === "root" ? false : env.HERDR_ENV === "1";
+};
 import { paintable } from "./text";
 
 export type Key =
@@ -130,9 +139,13 @@ function terminalGuard(): { dismiss(): void } | null {
   } catch { return null; }
 }
 
-/** `sized`: the terminal has Kitty's text sizing (OSC 66, src/text-sizing.ts). `pst`: the terminal answered the Program Status Protocol's query (OSC 7501): the door reports its own status to it. */
+/**
+ * `sized`: the terminal has Kitty's text sizing (OSC 66, src/text-sizing.ts). `pst`: the terminal answered the Program
+ * Status Protocol's query (OSC 7501): the door reports its own status to it. `tree`: it shows the records of a report
+ * one by one, so the door sends its tiles too (programStatusTree); else only the root.
+ */
 export interface TermInfo {
-  cols: number; rows: number; cellW: number; cellH: number; kitty: boolean; pst?: boolean; sized?: boolean;
+  cols: number; rows: number; cellW: number; cellH: number; kitty: boolean; pst?: boolean; tree?: boolean; sized?: boolean;
   /** The terminal answers `CSI 5 n` (status) in order, after taking everything sent before it: the session can count frames in flight on it (PIE-1163). */
   acks?: boolean;
 }
@@ -376,7 +389,7 @@ export class KeyDecoder {
       if (m) { this.pending = p.slice(m[0].length); this.mouseKey(m); continue; }
       // An OSC the terminal answered (the Program Status Protocol's query, OSC 7501 ; ?): read whole, never typed.
       m = p.match(/^\x1b\](\d*);([^\x07\x1b]*)(?:\x07|\x1b\\)/);
-      if (m) { if (this.probing && m[1] === String(PROGRAM_STATUS_OSC) && isStatusQueryReply(m[2]!)) this.info.pst = true; this.pending = p.slice(m[0].length); continue; }
+      if (m) { if (this.probing && m[1] === String(PROGRAM_STATUS_OSC) && isStatusQueryReply(m[2]!)) { this.info.pst = true; this.info.tree = programStatusTree(); } this.pending = p.slice(m[0].length); continue; }
       // The cursor report that answers the text sizing probe (src/text-sizing.ts): only while probing, else it is a key.
       m = this.probing ? p.match(/^\x1b\[(\d+);(\d+)R/) : null;
       if (m) { const seen = (this.probing!.cursor ??= []); seen.push(Number(m[2])); this.info.sized = sizedAnswer(seen); this.pending = p.slice(m[0].length); continue; }

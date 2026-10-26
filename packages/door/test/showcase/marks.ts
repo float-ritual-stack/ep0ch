@@ -175,5 +175,6 @@ export const marks: Record<string, string[]> = {
   snapshot: ["A SQLite copy for analysis", "outline.snapshot"],
   upload: ["Hand a file to ep0ch", "artifact.lease"],
   "front-matter": ["Early sowing notes", "A plan for the seed bed"],
+  "nested-mounts": ["calls", "last callers"],
   insert: ["Insert files beside a draft", "Ctrl+T", "Television shows its marks"],
 };

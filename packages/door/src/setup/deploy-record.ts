@@ -4,7 +4,7 @@ import { configuredMachineName, hostMachineName } from "@ep0ch/outliner/machine-
 import { disk, resolveTarget } from "../discover";
 import { forwardTo } from "../machine";
 import { hostRequest } from "../socket";
-import { writeRecord } from "../records";
+import { writeRecord } from "@ep0ch/outliner/records";
 import { runningSessions } from "../session/place";
 import { defaultStateDir } from "../state";
 import { pluginCode, run } from "./facts";

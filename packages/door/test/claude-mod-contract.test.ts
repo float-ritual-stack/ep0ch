@@ -355,3 +355,53 @@ describe("the mod reads a real door's tile answers", () => {
     } finally { ctl.close(); h.app.pop(); desk.dispose(); }
   });
 });
+
+describe("peek, read by the mod's own reader and by a script (PIE-1308, PIE-1302)", () => {
+  const h = useShowcaseScreen();
+  test("--json is one JSON object and nothing else; the default is the compact text; a section is its part alone", async () => {
+    const { peekArgv, peekOf } = await mod("outline-tools.ts");
+    const ctl = await startControl({ app: h.app, mirror: new Mirror(100, 30), info: () => ({ cols: 100, rows: 30, cellW: 9, cellH: 16, kitty: false }) }, join(h.scratch.root, "peek.sock"));
+    try {
+      const env = { ...h.scratch.env, EP0CH_CONTROL: ctl.path };
+      // A script: `ep0ch peek --json | jq .speed` needs stdout to parse whole, with the screen's text in the object.
+      const json = await run(["ep0ch", "peek", "--json"], { env });
+      expect({ code: json.exitCode, error: json.stderr }).toEqual({ code: 0, error: "" });
+      const whole = JSON.parse(json.stdout);
+      expect(whole.speed).toMatchObject({ frames: expect.any(Number), reports: expect.any(Number), settle: { n: expect.any(Number) } });
+      expect(typeof whole.speed.since).toBe("string");
+      expect(Array.isArray(whole.text)).toBe(true);
+      // `peek speed` is just that object.
+      const speed = await run(["ep0ch", "peek", "speed"], { env });
+      expect(JSON.parse(speed.stdout)).toEqual({ ...whole.speed, ...JSON.parse(speed.stdout) });
+      expect(Object.keys(JSON.parse(speed.stdout))).toEqual(["since", "frames", "reports", "motionCoalesced", "settle"]);
+      // `text` is the screen's lines, plain by default and an array with --json; --json with a section is still JSON.
+      const lines = await run(["ep0ch", "peek", "text"], { env });
+      expect(lines.stdout).toBe(whole.text.join("\n") + "\n");
+      expect(JSON.parse((await run(["ep0ch", "peek", "text", "--json"], { env })).stdout)).toEqual(whole.text);
+      expect(JSON.parse((await run(["ep0ch", "peek", "--json", "speed"], { env })).stdout)).toEqual(JSON.parse(speed.stdout));
+      // The default is text a few KB long, not the state.
+      const compact = await run(["ep0ch", "peek"], { env });
+      expect(compact.exitCode).toBe(0);
+      expect(compact.stdout).toContain("person {");
+      expect(compact.stdout.length).toBeLessThan(json.stdout.length / 4);
+      expect(compact.stdout.trimStart().startsWith("{")).toBe(false);
+      // A section that isn't one says which there are.
+      const nope = await run(["ep0ch", "peek", "nope"], { env });
+      expect(nope.exitCode).toBe(1);
+      expect(nope.stderr).toContain("its sections: screen, stack");
+      // The mod: the compact text by default, the whole state when it asks for it, one part by its name.
+      expect(peekOf(compact.stdout)).toEqual({ text: compact.stdout.trimEnd() });
+      const asked = peekArgv({ full: true });
+      expect(asked).toEqual({ argv: ["ep0ch", "peek", "--json"], reads: "full" });
+      const full = peekOf(json.stdout, "full");
+      expect(full.screen).toMatchObject({ stack: whole.stack, speed: whole.speed });
+      expect(typeof full.text).toBe("string");
+      expect(peekOf(speed.stdout, "section")).toEqual({ section: JSON.parse(speed.stdout) });
+      expect(peekArgv({ section: "speed", full: true })).toContain("one part of the state");
+      // A name every object has is no section.
+      const proto = await run(["ep0ch", "peek", "constructor"], { env });
+      expect(proto.exitCode).toBe(1);
+      expect(proto.stderr).toContain("peek has no section constructor");
+    } finally { ctl.close(); }
+  });
+});

@@ -49,6 +49,8 @@ export class PreviewPane extends ReaderPane {
   reads = 0;
   constructor(public source: PreviewSource) { super(false); }
 
+  renamedTile(from: string, to: string) { if ("tile" in this.source && this.source.tile === from) this.source = { tile: to }; }
+
   /** What its title calls it in place of its source (the board's: "follows the board"). */
   override label: string | null = null;
   /** What the list it follows quotes of its selection (the backlinks: the mention), said in place of its label. */

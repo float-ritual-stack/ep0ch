@@ -23,6 +23,8 @@ export interface Hello {
   kitty: boolean;
   /** The terminal answered the Program Status Protocol's query (OSC 7501): the session reports its status to it. Left out by an older client: none. */
   pst?: boolean;
+  /** The terminal shows a report's records one by one (Herdr's sidebar): the session sends its tiles as children too, else only the root. Left out by an older client: the root alone. */
+  tree?: boolean;
   /** The terminal has Kitty's text sizing (OSC 66): readers draw their title at double height for it. Left out by an older client: no. */
   sized?: boolean;
   /**
