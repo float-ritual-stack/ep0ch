@@ -815,6 +815,10 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     const sweep = Array.from({ length: 200 }, (_, i) => motion(cuts[i === 199 ? 1 : i % cuts.length]!));
     const click: ClientMsg = { t: "input", text: "\x1b[<0;40;10M\x1b[<0;40;10m" };
     const nextTurn = () => new Promise<void>(res => setImmediate(res));
+    // The door paints at most once a frame period (App.redraw's 16 ms), so what a burst may paint is what its time holds, not a number
+    // that holds on a quiet machine only (a loaded one sends two hundred reports slowly and paints more, still a few for the hundred):
+    // the frames of its duration and a few for the last report and what comes after it. Unfolded, it is a paint for each report.
+    const FRAME_MS = 16, allowed = (sending: number) => Math.max(10, Math.ceil(sending / FRAME_MS) + 6);
     /** The frames the daemon painted for what was sent, and when the last of them arrived. */
     const sent = async (shape: "one write" | "200 writes", ...after: ClientMsg[]) => {
       await quiet();
@@ -822,17 +826,18 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
       const t0 = performance.now();
       if (shape === "one write") a.sendAll([...sweep, ...after]);
       else { for (const m of sweep) { a.send(m); await nextTurn(); } for (const m of after) a.send(m); }
+      const sending = performance.now() - t0;
       await quiet();
       const speed = (await control({ cmd: "peek" })).screen.speed;
-      return { frames: a.drawn.filter(t => t >= t0).length, idle: Math.max(0, ...a.drawn.filter(t => t >= t0)) - t0, painted: speed.frames - before.frames, folded: speed.motionCoalesced - before.motionCoalesced };
+      return { sending, frames: a.drawn.filter(t => t >= t0).length, idle: Math.max(0, ...a.drawn.filter(t => t >= t0)) - t0, painted: speed.frames - before.frames, folded: speed.motionCoalesced - before.motionCoalesced };
     };
 
     for (const shape of ["one write", "200 writes"] as const) {
       // The motion alone: a few frames, soon over, the pointer where the last report put it (that label revealed, the others not).
       let r = await sent(shape);
-      expect(r.frames).toBeLessThanOrEqual(10);
+      expect(r.frames).toBeLessThanOrEqual(allowed(r.sending));
       expect(r.idle).toBeLessThan(500);
-      expect(r.painted).toBeLessThanOrEqual(10);
+      expect(r.painted).toBeLessThanOrEqual(allowed(r.sending));
       // Nearly every report was folded into a newer one, however the link cut them into reads.
       expect(r.folded).toBeGreaterThanOrEqual(150);
       const now = cuts.map(look);
@@ -844,9 +849,9 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
       a.type("1");
       for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== "tree"; i++) await Bun.sleep(100);
       r = await sent(shape, click);
-      expect(r.frames).toBeLessThanOrEqual(10);
+      expect(r.frames).toBeLessThanOrEqual(allowed(r.sending));
       expect(r.idle).toBeLessThan(500);
-      expect(r.painted).toBeLessThanOrEqual(10);
+      expect(r.painted).toBeLessThanOrEqual(allowed(r.sending));
       expect(cuts.map(look)).toEqual(plain);
       const screen = (await control({ cmd: "peek" })).screen;
       expect(screen.person.focus).toBe("reader");

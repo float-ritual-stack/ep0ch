@@ -55,8 +55,8 @@ Before a PR claims a change works:
    - **Focused runs on float-2** go through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: two at
      once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`, `EP0CH_TEST_MEM`), in the
      foreground, never `--parallel`: five agents' parallel runs once froze float-2. Each door `parity-*` file takes
-     about four minutes whole and more than the 3 GB cap's memory; run it in parts with `PARITY_ONLY` (see the
-     ep0ch-core skill), or in a box.
+     two to four minutes whole (a scenario well under a minute, held to `PARITY_BUDGET_MS`, 60 s: past it the scenario fails by
+     name with its slowest key); run it in parts with `PARITY_ONLY` (see the ep0ch-core skill), or in a box.
      Name the files from the package or from the root (`packages/door/test/edit.test.ts`): from the root, the root
      `bunfig.toml` runs every package's own `test/preload.ts` (`scripts/test-preload.ts`), which Bun otherwise reads
      only from the folder it starts in.

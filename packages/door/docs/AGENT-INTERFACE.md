@@ -885,8 +885,21 @@ without running an action whose `keys` names it fails, as does a hint that
 names an undeclared key. Rows that change by themselves (a clock, a terminal's prompt) are masked, and a change
 with no action is checked once more on a fresh screen before it fails. The second keys of a state an action
 opened are probed once in a file: the shell's (a picker, a new note, the drawer) on the first screen that opens it,
-a screen's own on the first scenario of that screen; a prefix no action opened, on every scenario. `PARITY_ONLY=<screen,…>`,
+a screen's own on the first scenario of that screen; a prefix no action opened, on every scenario; and within a scenario a state
+that two keys open the same way (the same action, the same screen left) once. `PARITY_ONLY=<screen,…>`,
 `PARITY_DEPTH=1` and `PARITY_LOG=<file>` narrow it while working on one screen.
+
+How long it takes is kept down mostly by what the probe waits on (PIE-1307), and in four places by what it skips, each narrowing
+what a run can see: a state that two keys open the same way (the same action, the same rows and description) is probed once; a second
+key whose action names it is not built again to confirm, when the keys before it left the state as entered; a look at the screen
+reuses the frame the door painted when nothing has asked for another; the host's reads are answered again from memory while nothing
+changes. A finding that goes missing after a change to the probe starts there. The door is settled when no answer from the
+host is awaited and its pending paint has been made (`test/settle.ts` and `flushPaint` in `test/parity.ts`), never after a sleep. The
+outline host is asked each read once while nothing changes (`test/board-reads.ts`). A scenario's setup keys are pressed as one chunk of
+input, as a paste arrives, after the first build has reached the same screen both ways (else they paint between keys; `PARITY_PACED=1` always does). A scenario is held
+to `PARITY_BUDGET_MS` (60 s): past it, it fails by its own name with its slowest key and build (`test/parity-budget.ts`), rather than
+running on to the test's timeout and taking the next scenario with it. `PARITY_KEYS=<file>` writes every probe's key and milliseconds;
+`PARITY_LOG=<file>` ends each scenario with its totals: builds, keys handled and settled, paints and what they took.
 
 What the probe doesn't reach: a terminal tile's own keys (they're its program's), the logon and logoff, the
 message a key flashes on the status bar (it runs out on a timer), the drawer's own rows (its terminal's), and

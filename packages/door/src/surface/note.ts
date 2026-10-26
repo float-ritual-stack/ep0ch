@@ -12,7 +12,7 @@ import { Inspector } from "./inspector";
 import { coerceActionArgs } from "./actions";
 import { errorDetails } from "../status-log";
 import { messageContext } from "../status-log";
-import { mentionsExtension as mentionsExtensionLine } from "../extensions";
+import { mentionsExtension as mentionsExtensionLine, mentionsStamp } from "../extensions";
 import { Canvas, LINE_BOX } from "../canvas";
 import { CONFIRM_HINT, hintStatus } from "./hint-card";
 import { heroLook } from "./hero-look";
@@ -575,8 +575,20 @@ const linkText = (l: Link, text: string, src: Source | null) => l.block
  * literal-region markers (PIE-422) are hidden, as Detail hides them; `literal` holds the body lines inside
  * a region, where `[key::value]` is text, and `unterminated` the note line of an opener without a closer.
  */
-export function readableSource(m: Msg, src: Source | null): { text: string; lines: number[]; anchors: (string | undefined)[]; literal: Set<number>; unterminated: number | null } {
-  const tokens = tokensOf(m.text, src);
+export function readableSource(m: Msg, src: Source | null): ReadableSource {
+  // A function of the text and the tokens the service gave it, asked several times a frame by a reader and by what it draws
+  // (the folds, the cursor, the hint): answered once while none of what it reads changes: the text, the tokens, the extensions listed.
+  const tokens = tokensOf(m.text, src), given = tokens?.state === "ready" ? tokens.tokens : tokens?.state ?? null, mentions = mentionsStamp();
+  const kept = READABLE.get(m.text);
+  if (kept && kept.given === given && kept.mentions === mentions) return kept.read;
+  const read = readableSourceOf(m, tokens);
+  if (READABLE.size >= 200) READABLE.clear();
+  READABLE.set(m.text, { given, mentions, read });
+  return read;
+}
+type ReadableSource = { text: string; lines: number[]; anchors: (string | undefined)[]; literal: Set<number>; unterminated: number | null };
+const READABLE = new Map<string, { given: unknown; mentions: RegExp | null; read: ReadableSource }>();
+function readableSourceOf(m: Msg, tokens: ReturnType<typeof tokensOf>): ReadableSource {
   const hidden = metadataLines(m.text, tokens?.state === "ready" ? tokens.tokens : null);
   const lit = literalLines(m.text);
   // The title may come from a later line (a marker or a props-only line first): what's above it isn't body.
