@@ -757,12 +757,12 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           if (how === "folded") await d.app.dispatch.act({ action: "tile.collapse", tile: "drawer.agent", args: { on: true } }, USER);
           else await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
           const as = () => ({ open: d.app.drawer.open, folded: d.app.drawer.folded });
-          const before = as(), entered = d.app.drawer.entered;
+          const before = as();
           expect(before).toEqual(how === "folded" ? { open: true, folded: true } : { open: false, folded: false });
           expect(await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER)).toMatchObject({ zoomed: true });
           expect(drawer.liftsPane(own)).toBe(true);
           expect(as()).toEqual(before);
-          expect(d.app.drawer.entered).toBe(entered);
+          expect(d.app.drawer.entered).toBe(true);                 // the person's lift takes their keys, the drawer down too (PIE-1359)
           await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER);
           expect(drawer.lifted).toBeNull();
           expect(as()).toEqual(before);
@@ -772,7 +772,105 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
           expect(d.app.drawer.entered).toBe(true);
         } finally { d.app.quit(); }
       });
+
+      // PIE-1359 (a regression from PIE-1336): the lift is the person's way into that program, the drawer down or not. Their
+      // keys and clicks go to the lifted tile itself, the drawer stays as it is, and ✦a again gives the keys back to the screen.
+      for (const onStrip of how === "folded" ? [false, true] : [false]) test(`with the drawer ${how}${onStrip ? " and the person on its strip" : ""}, ✦a lifts the agent with the person's keys in it, a click in it keeps them there, and ✦a again hands them back`, async () => {
+        const d = await door();
+        try {
+          d.key({ kind: "alt", ch: "a" }); d.paint();
+          const own = d.app.drawer.tile!;
+          await until(() => own.running === true, "the agent tab runs");
+          if (how === "folded") await d.app.dispatch.act({ action: "tile.collapse", tile: "drawer.agent", args: { on: true } }, USER);
+          else await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
+          if (how === "folded" && !onStrip) d.key({ kind: "esc" });       // back on the screen, the strip left folded
+          const as = () => ({ open: d.app.drawer.open, folded: d.app.drawer.folded });
+          const before = as();
+          expect(d.app.drawer.entered).toBe(onStrip);
+          const sink = () => (d.A.term.rawSink?.() ?? null) as ((s: string) => void) | null;
+          const type = (s: string) => { const f = sink(); if (!f) throw new Error("no raw sink: the keys aren't the agent's"); f(s); };
+          const echoed = (s: string) => until(() => own.text().some(l => l.includes(s)), `${s} reached the agent`);
+          d.key({ kind: "hyper", ch: "a" });
+          await until(() => d.app.drawer.desk!.liftsPane(own), "the agent lifted");
+          d.paint();
+          expect(as()).toEqual(before);                                    // the drawer stays as it is (PIE-1336)
+          expect(d.app.drawer.entered).toBe(true);
+          type("sow the leeks\r");
+          await echoed("sow the leeks");
+          // What it prints repaints the door: the lift is drawn though the drawer isn't.
+          let asked = 0;
+          const redraw = d.A.redraw.bind(d.A);
+          d.A.redraw = () => { asked++; redraw(); };
+          d.app.drawer.desk!.redraw();
+          expect(asked).toBe(1);
+          d.paint();
+          expect(d.app.drawer.desk!.liftsPane(own)).toBe(true);           // typing kept the lift up
+          // A click inside the lifted tile, then typing: still the agent's.
+          const r = (d.app.drawer.desk as any).liftedRect;
+          const x = r.col + Math.floor(r.cols / 2), y = r.row + Math.floor(r.rows / 2);
+          d.key(mouse("down", x, y)); d.key(mouse("up", x, y)); d.paint();
+          expect(d.app.drawer.desk!.liftsPane(own)).toBe(true);
+          type("thin the carrots\r");
+          await echoed("thin the carrots");
+          expect(as()).toEqual(before);
+          // ✦a again drops it: the keys are the screen's, the drawer still as it was.
+          d.key({ kind: "hyper", ch: "a" });
+          await until(() => !d.app.drawer.desk!.lifted, "the lift dropped");
+          d.paint();
+          expect(d.app.drawer.entered).toBe(false);
+          expect(d.A.person().keys).toBe("screen");
+          expect(as()).toEqual(before);
+          // An agent's lift never takes the person's keys, the drawer down too (once they've been idle, as an agent waits for).
+          d.A.lastInput = Date.now() - 10_000;
+          await d.app.dispatch.act({ action: "agent.lift", args: {} }, { kind: "agent", id: AS });
+          expect(d.app.drawer.desk!.liftsPane(own)).toBe(true);
+          expect(d.app.drawer.entered).toBe(false);
+          expect(d.A.person().keys).toBe("screen");
+          // The person's click in it takes them: always.
+          d.paint();
+          d.key(mouse("down", x, y)); d.key(mouse("up", x, y)); d.paint();
+          await until(() => d.app.drawer.entered, "the click took the keys");
+          type("water the beans\r");
+          await echoed("water the beans");
+          expect(as()).toEqual(before);
+        } finally { d.app.quit(); }
+      });
     }
+
+    // Groups are a regression area: a terminal lifted from a group in the put-away drawer takes the keys the same way.
+    test("with the drawer put away, a terminal lifted from a group in it takes the person's click and keys, and repaints", async () => {
+      const d = await door();
+      try {
+        await d.desk.dispatch.act({ action: "tile.group", args: { with: "reader", name: "bundle" }, tile: "kettle" }, USER);
+        d.paint();
+        const inner = (d.desk.pane("bundle") as any).inner as Desk;
+        await d.desk.dispatch.act({ action: "tile.drawer", tile: "bundle" }, USER);
+        expect(d.inDrawer("bundle")).toBe(true);
+        if (d.app.drawer.open) await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
+        d.paint();
+        expect(d.app.drawer.shown).toBe(false);
+        await inner.dispatch.act({ action: "tile.zoom", args: { reach: "column" }, tile: "kettle" }, USER);
+        d.paint();
+        expect(inner.lifted).toBeTruthy();
+        const r = (inner as any).liftedRect;
+        const x = r.col + Math.floor(r.cols / 2), y = r.row + Math.floor(r.rows / 2);
+        d.key(mouse("down", x, y)); d.key(mouse("up", x, y)); d.paint();
+        await until(() => d.app.drawer.entered, "the click took the keys");
+        expect(d.app.drawer.shown).toBe(false);
+        // A terminal in a group takes keys as keys (the group's desk passes them in), not the raw sink.
+        for (const ch of "prick out the seedlings") d.key(char(ch));
+        d.key({ kind: "enter" });
+        const kettle = inner.pane("kettle") as PtyPane;
+        await until(() => kettle.text().join("").includes("prick out the seedlings"), "the grouped terminal took the keys");
+        let asked = 0;
+        const redraw = d.A.redraw.bind(d.A);
+        d.A.redraw = () => { asked++; redraw(); };
+        inner.redraw();
+        expect(asked).toBe(1);
+        await inner.dispatch.act({ action: "tile.zoom", args: { reach: "column", on: false }, tile: "kettle" }, USER);
+        expect(d.app.drawer.entered).toBe(false);
+      } finally { d.app.quit(); }
+    });
 
     test("with no agent tab left, lift opens a new one running the last agent picked and lifts it", async () => {
       const d = await door();

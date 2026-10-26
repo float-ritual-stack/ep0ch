@@ -621,7 +621,7 @@ export class App implements Ctx {
     // screen says where it goes (Term keeps mouse and ctrl+]).
     // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
     (term as { rawSink?: unknown }).rawSink = () => {
-      const sink = this.probing ? null : this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
+      const sink = this.probing ? null : this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null;
       return sink ? (bytes: string) => {
         this.drawer.desks().map(d => d.liftedDesk).find(Boolean)?.dropLiftElsewhere();
         sink(bytes);
@@ -1197,7 +1197,7 @@ export class App implements Ctx {
    */
   person(): Whereabouts {
     const s = this.stack.at(-1);
-    const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostAddress: this.drawer.made?.keys().address, hostTile: ((t: string | null) => (t ? `drawer:${t}` : null))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
+    const w0 = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.entered, hostAddress: this.drawer.made?.keys().address, hostTile: ((t: string | null) => (t ? `drawer:${t}` : null))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
     const w: Whereabouts = this.agentsYolo ? { ...w0, yolo: true } : w0;
     // The power bar holds their keys while it's open.
     // (A hold on navigation alone, the showcase's, doesn't count as busy here: a real hold replaces it.)

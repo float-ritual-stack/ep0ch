@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### ✦a's lifted agent takes your keys and clicks with the drawer down (PIE-1359)
+
+- **With the drawer put away or folded, ✦a lifted the agent but your keys stayed on the screen behind:** the first key
+  dropped the lift, and a click in it said "the drawer is put away". Now the lift is your way into that program: what
+  you type and click goes to the lifted tile, the drawer stays as it was (PIE-1336), and ✦a again (or a
+  click outside it) gives the keys back to the screen. A click in a lifted agent always gives it your keys, and what it
+  prints draws as it comes (the drawer put away no longer held its repaints back). An agent's
+  lift still never takes your keys.
+
 ### A dropped part lands in your edit, shows where it will land, and has room around it (PIE-1357)
 
 - **Your own edit takes it.** Dropping a part on a note you're writing (a new note not saved yet, an edit) puts it in
