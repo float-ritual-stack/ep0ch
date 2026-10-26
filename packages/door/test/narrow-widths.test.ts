@@ -28,9 +28,11 @@ describe("figures at 40 columns", () => {
     expect(out[at + 1]!.slice(col)).toMatch(/^intake flow/);
   });
 
-  test("a Work ID hangs its title only when it leads one (ID, a separator, the title)", () => {
+  test("a Work ID hangs only a title it leads, never other text after it", () => {
     expect(rowLines("PC-12 / the intake flow", 12, Infinity)).toEqual(["PC-12 / the", "intake flow"]);
     expect(rowLines("PC-12 · the intake flow", 16, Infinity)).toEqual(["PC-12 · the", "        intake", "        flow"]);
+    // A note's label in the power bar: the id, then its title (noteLabel).
+    expect(rowLines("PC-12 the intake flow", 16, Infinity)).toEqual(["PC-12 the intake", "      flow"]);
   });
 });
 

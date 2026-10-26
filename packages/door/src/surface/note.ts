@@ -1627,7 +1627,7 @@ export class NoteSurface {
     const propsText = !this.panel && count ? `i ${count} propert${count === 1 ? "y" : "ies"}` : "";
     const props = propsText ? `${fg(C.dark)} · ${propsText}` : "";
     if (own) {
-      const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (this.panel ? "" : fg(C.dark) + ` · i ${count} propert${count === 1 ? "y" : "ies"}`), w) + RESET] : [];
+      const summaryRows = summary ? [pad(fg(C.lgreen) + summaryLine + (propsText ? fg(C.dark) + ` · ${propsText}` : ""), w) + RESET] : [];
       return { rows: [...own, ...summaryRows].map(l => " ".repeat(gx) + l), summary, summaryRow: own.length, summaryLinks: summary ? summaryLinks.map(l => ({ ...l, from: l.from + gx, to: l.to + gx })) : [], title: null, own: true };
     }
     // The note's title leads the header (PIE-657): the crumbs are an eyebrow above it, dim; the title is the one bright
@@ -1646,7 +1646,7 @@ export class NoteSurface {
     const accent = fg(focused ? C.lcyan : C.cyan) + BOLD;
     const lead = `${fg(C.dark)}${meta}`;
     // The summary's values follow the byline on the same line; its links shift by what comes before them.
-    const before = `${meta}${count && !this.panel ? ` · i ${count} propert${count === 1 ? "y" : "ies"}` : ""}${summary ? " · " : ""}`;
+    const before = `${meta}${propsText ? ` · ${propsText}` : ""}${summary ? " · " : ""}`;
     const merged = `${lead}${props}${fg(C.dark)} · ${summaryLine}${said}`;
     // One line while it fits; in a narrow tile the summary (whose values are links) goes to a line of its own rather than
     // being cut off the end of the byline.

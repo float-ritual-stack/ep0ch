@@ -79,6 +79,16 @@ describe("a styled heading is the heading it was", () => {
     expect(rows("A paragraph\n*** [rule::fade]", 100)[1]).toMatch(/^▓.*▓$/);
   });
 
+  test("narrow, a long styled heading wraps under its disclosure, and a copy takes its words joined as written (PIE-1302)", () => {
+    const body = "## Order the seed trays before the frost arrives [heading::band]\nx";
+    const doc = renderDoc(body, { ...ENV, width: 24, folds: { points: foldPoints(body), folded: new Set() } });
+    const lines = doc.lines.map(visible), first = lines.findIndex(l => l.startsWith("▾ Order"));
+    expect(lines.slice(first, first + 3).map(l => l.trimEnd())).toEqual(["▾ Order the seed trays", "  before the frost", "  arrives"]);
+    // The disclosure and the hang are drawing; the rows after the first join with the space the wrap took.
+    for (let r = first; r < first + 3; r++) expect(doc.trims.get(r)?.cuts).toContainEqual([0, 2]);
+    expect([doc.wraps?.get(first + 1), doc.wraps?.get(first + 2)]).toEqual([" ", " "]);
+  });
+
   test("an unknown style draws the heading as written, without the property", () => {
     expect(rows("## Beds [heading::nope]\nx", 100)).toEqual(["## Beds", "x"]);
   });

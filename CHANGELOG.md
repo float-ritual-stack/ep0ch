@@ -17,7 +17,7 @@ are its record. The outliner's entries from then are kept below, under
 - **A styled heading too narrow for its band** (under 48 columns, or too long) draws its words in the heading's ink:
   `▾ Due Monday`, not `▾ ## Due Monday`. A heading with no style, or a style nobody declared, still shows its `#`s.
 - **A table cell's next row starts at the cell's edge:** a cell like `PC-12 / acceptance` no longer hangs its next
-  row six cells in. A Work ID still hangs its title when it leads one (`PLOT-3 — Mend the netting`).
+  row six cells in. A Work ID still hangs a title it leads (`PLOT-3 — Mend the netting`, `PLOT-3 Mend the netting`).
 - **The byline's property count moves to the next line whole** (`i 14 properties`) when the date leaves no room,
   with the summary after it where that fits. It was cut to `i 14 proper…`.
 
