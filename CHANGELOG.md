@@ -22,6 +22,18 @@ are its record. The outliner's entries from then are kept below, under
 - Wire change: `extensions.list` entries carry `settings`, and the new `extensions.configure` request writes them
   (PROTOCOL bump).
 
+### A lock says which layout it is; alt+k opens the power bar (PIE-1346)
+
+- **Your drawer's lock names itself.** Locking or unlocking says so on the status bar, naming the layout ("locked your
+  drawer · a click on ▣ drawer locked (or ^W P) unlocks it"), and a refusal names it too ("your drawer is locked:
+  closing details5 is refused"). It used to say "the screen" for both.
+- **You can see which is locked.** The hint row's chip reads `▣ screen locked` or `▣ drawer locked` (both when both
+  are), and a locked drawer's frame shows it; a click on either chip unlocks that layout.
+- **The power bar's lock row is the layout your keys are in:** "lock your drawer", "unlock the screen". The bar's
+  tile-menu rows come from the tile your keys are in, in the drawer too.
+- **`alt+k` opens the power bar,** like `ctrl+k`, and both now work with your keys in the drawer (not in a terminal
+  tab). The lock has no key: it's the chip, the bar's row and `^W P`.
+
 ### Completion asks one set of sources, ranks them with one matcher, and extensions add their own (PIE-1340)
 
 - **Extensions add rows where you type.** An extension's `sources[]` entry with `triggers` (`[[`, `key::` with its

@@ -80,7 +80,7 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     expect(box).toBeGreaterThan(ROWS - 10);
     const shown = all.slice(box, ROWS - 2).join("\n");
     expect(shown).toContain("q menu");
-    expect(shown).toContain("alt+k lock");
+    expect(shown).toContain("^N new");
     expect(shown).toContain("any key closes");
     // Esc only puts it away; any other key puts it away and does what it does.
     key({ kind: "esc" });
@@ -149,7 +149,7 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     app.push(w);
     key(char("?"));
     const all = lines().join("\n");
-    expect(all).toContain("alt+k lock");
+    expect(all).toContain("^N new");
     expect(all).not.toContain("alt+d daily");
     key({ kind: "esc" });
     app.pop();

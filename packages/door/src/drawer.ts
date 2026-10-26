@@ -65,7 +65,8 @@ import { basename, resolve as resolvePath } from "node:path";
 import { words } from "./text";
 import { WHAT_CHANGED_KIND_NAME, type WhatChangedPane } from "./desk/what-changed";
 import { realTileDeps, tileOf, type TileOfAnswer, type TileProc } from "./tile-of";
-import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
+import { isBarKey } from "./shell-keys";
+import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, lockChipText, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
 import { ActionRefused, actionSet, def, preset, agentLabel, type ActRequest, type Again } from "./surface/actions";
@@ -180,6 +181,8 @@ export class AgentDrawer {
   private keys: string = HOST_SCREEN;
   /** Who pulled it up, when that was an agent (said in the drawer's title until the person uses it). */
   openedBy: Actor | null = null;
+  /** The ▣ chip on the drawer's frame while its layout is locked (PIE-1346), where it was last drawn: a click unlocks it. */
+  private lockAt: { from: number; to: number } | null = null;
   /** The screen shown lets the drawer be drawn (not the logon or the logoff). Set by the App before each paint. */
   active = false;
   /** Where the drawer was last drawn (full width, above the status bar), and the chip on the status bar. */
@@ -1318,9 +1321,15 @@ export class AgentDrawer {
     const canvas = new Canvas(cols, r.rows);
     canvas.clear({ col: 0, row: 0, cols, rows: r.rows }, bg(C.black));
     // Folded: the strip is the drawer's title and how it opens, as a spine says it; its tiles aren't drawn (and don't type).
+    // Its layout locked (PIE-1346): the frame says so, as the hint row's chip does, so a refusal from in here isn't a riddle.
+    const lockChip = this.desk?.screenLocked() ? lockChipText(this.desk.layoutSelf()) : "";
+    const lock = lockChip ? ` ${chipStyle(C.yellow, C.black)}${lockChip}${bg(C.black)}` : "";
+    /** Where the lock chip lands on the frame, after `head`: a click there unlocks the drawer (as the hint row's chip does). */
+    const lockFrom = (head: string) => { this.lockAt = lockChip ? { from: r.col + width(head) + 1, to: r.col + width(head) + 1 + width(lockChip) } : null; };
     if (this.folded) {
       const edge = this.entered ? C.yellow : C.brown;
-      canvas.text(0, 0, `${fg(edge)}${"═".repeat(2)} ${fg(this.entered ? C.yellow : C.white)}${this.chipText()} ${fg(C.dark)}· + ⏎ or a click opens it · esc leaves ${fg(edge)}${"═".repeat(Math.max(0, cols))}${RESET}`, cols);
+      lockFrom(`══ ${this.chipText()}`);
+      canvas.text(0, 0, `${fg(edge)}${"═".repeat(2)} ${fg(this.entered ? C.yellow : C.white)}${this.chipText()}${lock} ${fg(C.dark)}· + ⏎ or a click opens it · esc leaves ${fg(edge)}${"═".repeat(Math.max(0, cols))}${RESET}`, cols);
       return { rect: r, lines: canvas.lines(), placements: [] };
     }
     const pane = this.shownPane(), p = pane instanceof PtyPane ? pane : null;
@@ -1328,7 +1337,8 @@ export class AgentDrawer {
     const watching = this.state() === "watching";
     const where = watching ? ` · ${fg(C.lcyan)}another door has it${fg(C.yellow)}` : p?.herdr ? ` · in Herdr (${p.herdr.pane})` : "";
     const edge = this.dropHover ? C.yellow : this.entered ? C.yellow : C.brown;
-    const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: ${this.dropHover} ${this.dropSays} ${bg(C.black)}` : `${fg(this.entered ? C.yellow : C.white)}${this.chipText()}${fg(C.yellow)}${where}${by} ${fg(C.dark)}· ↕ drag this edge · ⤓ drop a tile here`;
+    const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: ${this.dropHover} ${this.dropSays} ${bg(C.black)}` : `${fg(this.entered ? C.yellow : C.white)}${this.chipText()}${fg(C.yellow)}${where}${by}${lock} ${fg(C.dark)}· ↕ drag this edge${lock ? "" : " · ⤓ drop a tile here"}`;
+    if (this.dropHover) this.lockAt = null; else lockFrom(`══ ${this.chipText()}${where}${by}`);
     canvas.text(0, 0, `${fg(edge)}${"═".repeat(2)} ${title} ${fg(edge)}${"═".repeat(Math.max(0, cols))}${RESET}`, cols);
     let placements: Placement[] = [];
     const d = this.desk;
@@ -1392,6 +1402,8 @@ export class AgentDrawer {
       // Esc and q step back out of the drawer (to the screen) where its tab isn't using them; never the screen's back.
       // A terminal there that exited isn't using them either.
       if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !d.draggedTile() && !d.linkingFrom()) { run("host.leave", { quiet: true }); return true; }
+      // ctrl+k, cmd+k or alt+k: the power bar, from the drawer too (PIE-1346), folded or not, as on a screen: never typing or in a terminal tile.
+      if (isBarKey(k) && !this.foldPrefix && !d.rawKeys() && !d.holdsKeys()) { void this.host.ctx?.()?.press?.("bar.open"); return true; }
       if (this.folded) return this.stripKey(k, d);
       const ctx = this.host.ctx?.();
       if (ctx) d.key(k, ctx);
@@ -1555,6 +1567,8 @@ export class AgentDrawer {
       if (k.action === "down" && this.entered) run("host.leave", { quiet: true });
       return false;
     }
+    // Its ▣ chip, on the frame (folded or not): a click unlocks the drawer, its own layout.lock.
+    if (k.action === "down" && k.y === r.row && this.lockAt && k.x >= this.lockAt.from && k.x < this.lockAt.to && this.desk) { this.desk.pressLock(); return true; }
     // Folded: a click on the strip opens it, with the person's keys on it (it has no edge to drag).
     if (this.folded) {
       if (k.action === "down" && this.desk) { this.do({ op: "focus", tile: HOST_TILES }, USER); this.leftAt = 0; this.openedBy = null; this.desk.run("tile.collapse", { on: false }, this.shownTab() ?? undefined); }

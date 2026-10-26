@@ -31,6 +31,7 @@ import { NEW_NOTE_ACTIONS } from "./new-note";
 import { TEMPLATE_ACTIONS } from "./template-stamp";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, BOLD, C, chip, fg, headOf, pad, RESET, tailFrom, UNBOLD, width } from "./style";
+import { isBarKey } from "./shell-keys";
 import { printable, withRowLimit } from "./text";
 import { SpeedMeter } from "./speed";
 import { isHover, OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type KeyDecoder, type Term, type TermInfo, type TileProgram } from "./term";
@@ -158,6 +159,8 @@ export interface Ctx {
   t: TermInfo;
   /** The host layer's drawer, where a tile goes to travel across screens (absent: none here). */
   readonly hostLayer?: HostLayer;
+  /** Where the person's keys are (PIE-1346): the desk holding their focused tile (your drawer's, a group's), else the screen shown. */
+  keysScreen?(): Screen | undefined;
   /** "What changed" includes machinery (`changes.machinery`); off by default. */
   machineryChanges?: boolean;
   /** Agents are in yolo (`agents.yolo`): no person guard holds one back. Off by default, for this door's run. */
@@ -1162,13 +1165,14 @@ export class App implements Ctx {
    * the request names the tile (tile=) or no block; with block= it runs on that block, tile or none.
    */
   readonly agentPointers = new AgentPointers();
+  keysScreen(): Screen | undefined { return this.hostLayer.desks()[0]?.focusedDesk() ?? this.stack.at(-1); }
   readonly recording = new MacroRecording();
   recordAction(req: ActRequest, replay: import("./surface/actions").Replay, run: () => unknown) { return this.board.inScriptRun ? run() : this.recording.run(req, replay, run); }
 
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && namesAgent(req.tile), on: () => ({ drawer: this.drawer }) },
     { set: DRAWER_ACTIONS, takes: "none", fixed: () => this.drawer.agentRef(), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>, tile?: string) => this.dispatch.act({ action: name, args, ...(tile ? { tile } : {}) }, how.actor) }) },
-    { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.hostLayer.desks()[0]?.focusedDesk() ?? this.stack.at(-1) : this.stack.at(-1) }) },
+    { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: how.standing ? this.keysScreen() : this.stack.at(-1) }) },
     { set: TEMPLATE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, standing: how.standing, here: this.stack.at(-1) }) },
     { set: MACRO_ACTIONS, takes: "none", on: () => ({ ctx: this, recording: this.recording }) },
     { set: STATUS_BUTTON_ACTIONS, takes: "none", claims: req => (req.action === "button.press" || req.action === "button.slot") && req.args?.note !== undefined && req.tile === undefined,
@@ -1403,9 +1407,9 @@ export class App implements Ctx {
     if (k.kind === "alt" && k.ch === "w" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("host.waiting"); return; }
     // alt+o: what changed since you looked, the list in your drawer (changes.open), on the same screens.
     if (k.kind === "alt" && k.ch === "o" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("changes.open"); return; }
-    // ctrl+k (cmd+k where the terminal sends super): the power bar, on every screen, never while typing or in a terminal tile.
+    // The power bar's keys (isBarKey): on every screen, never while typing or in a terminal tile; the drawer asks the same of its tab.
     const kTop = this.stack.at(-1);
-    if (((k.kind === "char" && k.ctrl && k.ch === "k") || (k.kind === "super" && k.ch === "k")) && !kTop?.rawKeys?.() && !kTop?.holdsKeys?.() && !kTop?.noDrawer) { void this.dispatch.press("bar.open"); return; }
+    if (isBarKey(k) && !kTop?.rawKeys?.() && !kTop?.holdsKeys?.() && !kTop?.noDrawer) { void this.dispatch.press("bar.open"); return; }
     // ctrl+n: a new note (PIE-544), on every screen, in an edit too (PIE-591), but never in a filter, a picker or a terminal tile.
     const nTop = this.stack.at(-1);
     if (k.kind === "char" && k.ctrl && k.ch === "n" && !nTop?.rawKeys?.() && (!nTop?.holdsKeys?.() || nTop.newNoteWhileTyping?.()) && !nTop?.noDrawer) { void this.dispatch.press("note.new"); return; }

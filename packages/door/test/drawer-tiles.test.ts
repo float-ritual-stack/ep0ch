@@ -1241,6 +1241,104 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  test("a lock names its layout: the drawer's is said, shown, refused in its name and unlocked where it says; the screen's stays as it was (PIE-1346)", async () => {
+    const d = await door();
+    try {
+      const note = await board.createBlock(null, "Cold frame: vent it on sunny days");
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", name: "details5", note: note.id }, tile: "reader" }, USER);
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: "details5" }, USER);
+      // In the drawer, the keys on details5.
+      if (!d.app.drawer.entered) { d.key({ kind: "alt", ch: "a" }); d.paint(); }
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.focus", tile: "details5" }, USER);
+      d.paint();
+      expect(d.app.drawer.entered).toBe(true);
+      /** The power bar's actions row for `query`, picked as the person picks it: alt+k opens the bar (ctrl+k's twin, no longer a lock). */
+      const pickRow = async (query: string) => {
+        d.key({ kind: "alt", ch: "k" });
+        expect(d.A.bar).toBeTruthy();
+        await d.app.dispatch.press("bar.open", { scope: "actions", query });
+        const rows = d.A.bar.describe().rows as { label: string }[];
+        expect(rows[0]?.label).toBe(query);
+        await d.app.dispatch.press("bar.pick", {});
+        d.paint();
+      };
+      // The row says which layout it locks: the drawer's, where the keys are. Locking it is said, naming it.
+      await pickRow("lock your drawer");
+      expect(d.app.drawer.desk!.layoutGet().locked).toBe(true);
+      expect(d.desk.layoutGet().locked).toBeFalsy();
+      expect(d.A.message).toContain("locked your drawer · a click on ▣ drawer locked (or ^W P) unlocks it");
+      // The hint row's chip says which layout is locked.
+      const locked = d.paint();
+      expect(locked.some(l => l.includes("▣ drawer locked"))).toBe(true);
+      expect(locked.some(l => l.includes("▣ screen locked"))).toBe(false);
+      // The drawer's own frame says it (the hint row's chip is under the open drawer).
+      expect(locked.find(l => l.startsWith("══"))).toContain("▣ drawer locked");
+      // ^W x on details5 is refused in the drawer's name, with its own way out.
+      d.key(ctrl("w")); d.key(char("x"));
+      expect(d.inDrawer("details5")).toBe(true);
+      expect(d.A.message).toContain("your drawer is locked: closing details5 is refused · a click on ▣ drawer locked (or ^W P) unlocks it");
+      // The power bar's row unlocks the drawer, said; ^W x closes details5 then.
+      await pickRow("unlock your drawer");
+      expect(d.app.drawer.desk!.layoutGet().locked).toBeFalsy();
+      expect(d.desk.layoutGet().locked).toBeFalsy();
+      expect(d.A.message).toContain("unlocked your drawer");
+      expect(d.paint().some(l => l.includes("▣ drawer locked"))).toBe(false);
+      // A click on the frame's chip unlocks it too, the way every refusal says.
+      await pickRow("lock your drawer");
+      const frame = d.paint().findIndex(l => l.startsWith("══"));
+      d.key(mouse("down", d.paint()[frame]!.indexOf("▣") + 1, frame));
+      await until(() => !d.app.drawer.desk!.layoutGet().locked, "the frame's chip unlocks the drawer");
+      expect(d.A.message).toContain("unlocked your drawer");
+      // Put away, a locked drawer shows on the hint row's chip, and a click there unlocks it; the screen's own lock untouched throughout.
+      await pickRow("lock your drawer");
+      await d.app.dispatch.act({ action: "host.toggle", args: { open: false } }, USER);
+      const hint = d.paint().findIndex(l => l.includes("▣ drawer locked"));
+      expect(hint).toBeGreaterThan(-1);
+      d.key(mouse("down", d.paint()[hint]!.indexOf("▣ drawer locked") + 1, hint));
+      await until(() => !d.app.drawer.desk!.layoutGet().locked, "the hint row's chip unlocks the drawer");
+      expect(d.desk.layoutGet().locked).toBeFalsy();
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.focus", tile: "details5" }, USER);
+      d.key(ctrl("w")); d.key(char("x"));
+      expect(d.inDrawer("details5")).toBe(false);
+    } finally { d.app.quit(); }
+  });
+
+  test("a group in the drawer has its own lock and names it; ctrl+k and alt+k open the bar from a folded drawer (PIE-1346)", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", name: "details5" }, tile: "reader" }, USER);
+      const g = (await d.desk.dispatch.act({ action: "tile.group", args: { with: "details5", name: "potting" }, tile: "reader" }, USER) as any).name as string;
+      await d.desk.dispatch.act({ action: "tile.drawer", tile: g }, USER);
+      if (!d.app.drawer.entered) { d.key({ kind: "alt", ch: "a" }); d.paint(); }
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.focus", tile: `${g}/details5` }, USER);
+      d.paint();
+      // The bar's row from inside the group is the group's lock, by its name; the drawer's and the screen's stay as they were.
+      d.key({ kind: "alt", ch: "k" });
+      await d.app.dispatch.press("bar.open", { scope: "actions", query: `lock group ${g}` });
+      expect((d.A.bar.describe().rows as { label: string }[])[0]?.label).toBe(`lock group ${g}`);
+      await d.app.dispatch.press("bar.pick", {});
+      d.paint();
+      expect(d.A.message).toContain(`locked group ${g} · ^W P in it, or the power bar's "unlock group ${g}", unlocks it`);
+      expect(d.app.drawer.desk!.layoutGet().locked).toBeFalsy();
+      expect(d.desk.layoutGet().locked).toBeFalsy();
+      const inner = (d.app.drawer.desk!.pane(g) as any).inner as Desk;
+      expect(inner.layoutGet().locked).toBe(true);
+      await expect(inner.dispatch.act({ action: "tile.close", tile: "details5" }, USER)).rejects.toThrow(`group ${g} is locked: closing details5 is refused`);
+      await inner.dispatch.act({ action: "layout.lock", args: { on: false }, tile: "details5" }, USER);
+      // Folded to its strip, the drawer still opens the bar on ctrl+k and alt+k.
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.collapse", args: { on: true }, tile: g }, USER);
+      d.paint();
+      expect(d.app.drawer.folded).toBe(true);
+      for (const k of [ctrl("k"), { kind: "alt", ch: "k" } as Key]) {
+        d.key(k);
+        expect(d.A.bar).toBeTruthy();
+        await d.app.dispatch.press("bar.close", {});
+        expect(d.A.bar).toBeFalsy();
+      }
+    } finally { d.app.quit(); }
+  });
+
   test("leaving a screen with a program running carries it into your drawer, said", async () => {
     const d = await door();
     try {
