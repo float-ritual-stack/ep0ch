@@ -3459,7 +3459,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (id === this.focus && this.keysHere()) canvas.backdrop(values);
       canvas.shadow(r, values);
       lay(id, r, false, true);
-      if (this.floatDrag?.id !== id) this.raised.floats.push({ rect: r, shade });
+      this.raised.floats.push({ rect: r, shade });
       canvas.under(r, bgRgb(floatTheme(values).bg));
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     }
@@ -6627,8 +6627,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private raised: { floats: { rect: Rect; shade: Rect }[]; menus: Rect[] } = { floats: [], menus: [] };
   /**
    * What this desk drew that may sit above your drawer (PIE-1221; the order is `layerOrder`'s, read by the host layer's
-   * `covers`), in the screen's cells: its floats, each with its shadow (`shade`), the one being dragged left out so a drop
-   * into the drawer still finds the drawer; and its menus (a picker, a hint card, a completion list), shadows included.
+   * `covers`), in the screen's cells: its floats, each with its shadow (`shade`; one dragged by its title stays the
+   * screen's over the drawer, so the drag keeps moving it), and its menus (a picker, a hint card, a completion list),
+   * shadows included.
    */
   drawnAbove(): { floats: { rect: Rect; shade: Rect }[]; menus: Rect[] } {
     const o = this.screenOrigin, at = (r: Rect): Rect => ({ ...r, col: r.col + o.col, row: r.row + o.row });
