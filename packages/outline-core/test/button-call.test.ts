@@ -96,6 +96,12 @@ test("of= scripts: {slot} values fill from the line, the slots are not forwarded
   expect(filled.props).toEqual({ page: ["[[a]]", "[[b]]"] });
 });
 
+test("a script's slot value is the value itself, spaces and all; an action line quotes it once", () => {
+  const call = buttonCallAt(['::button{of=say message={text} text="hello world"}'], 0)!;
+  expect(call.props).toEqual({ message: ["hello world"] });
+  expect(call.steps[0]!.source).toBe('say message="hello world"');
+});
+
 test("withButtonSlot writes one slot onto the line and leaves the rest as written", () => {
   const line = '::button{label="pop it" act="tile.zoom tile={target} reach=column" target=} ^pop';
   expect(withButtonSlot(line, "target", "drawer.agent")).toBe('::button{label="pop it" act="tile.zoom tile={target} reach=column" target=drawer.agent} ^pop');

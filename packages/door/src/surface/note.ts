@@ -3382,10 +3382,14 @@ export class NoteSurface {
     // Asked once per value while this edit lasts: the next edit asks again (a tile closed since).
     let tiles = BUTTON_TILES.get(d);
     if (!tiles) BUTTON_TILES.set(d, (tiles = new Map()));
+    // Read once per text: a button with a body is read with its body, so its key is the lines it spans.
     const looks = new Map<string, ReturnType<typeof buttonLineLook>>();
-    const lookOf = (text: string) => {
-      if (!looks.has(text)) looks.set(text, buttonLineLook(text, ask));
-      const look = looks.get(text)!;
+    const lookOf = (line: number) => {
+      const text = d.lines[line] ?? "";
+      if (!text.includes("::button")) return null;
+      const key = `${text}\n${d.lines.slice(line + 1, line + 40).join("\n")}`;
+      if (!looks.has(key)) looks.set(key, buttonLineLook(d.lines, line, ask));
+      const look = looks.get(key)!;
       for (const t of look?.tiles ?? []) if (!tiles.has(t.sel)) {
         tiles.set(t.sel, undefined);
         void ask.tile(t.sel).then(why => { tiles!.set(t.sel, why); host.redraw(); });
@@ -3394,8 +3398,8 @@ export class NoteSurface {
     };
     const INK = { name: C.lcyan, eq: C.dark, value: C.yellow, action: C.lgreen, arg: C.cyan } as const;
     return {
-      inks: (_line, text) => {
-        const look = lookOf(text);
+      inks: line => {
+        const look = lookOf(line);
         if (!look) return null;
         return [...look.parts.map(p => ({ from: p.from, to: p.to, fg: INK[p.is] })),
           ...look.marks.map(m => ({ from: m.from, to: m.to, fg: C.lred, under: true })),
@@ -3403,7 +3407,7 @@ export class NoteSurface {
       },
       under: (line, w) => {
         if (line !== d.row) return [];
-        const look = lookOf(d.lines[line] ?? "");
+        const look = lookOf(line);
         if (!look) return [];
         const why = [...look.marks.map(m => m.message), ...look.tiles.map(t => tiles!.get(t.sel)).filter((x): x is string => !!x)];
         const say = why.length ? fg(C.lred) + `✗ ${why[0]}${why.length > 1 ? ` · and ${why.length - 1} more` : ""}`
@@ -7218,9 +7222,11 @@ export class NoteSurface {
     const key = param ?? (cur?.kind === "param" ? cur.key : undefined);
     const now = s.query.params.find(x => x.key === key);
     if (!key) throw new ActionRefused(`say which parameter: param=<${s.query.params.map(x => x.key).join("|") || "name"}>`);
-    const write = (given: string) => this.inTurn(async () => {
+    const write = (typed: string) => this.inTurn(async () => {
       // The line as the source was read: a line another client changed since is refused, never rewritten as if it were this one.
-      // A button's slots are on its opening line (a body's steps follow it).
+      // A button's slots are on its opening line (a body's steps follow it), kept as button.slot keeps them (a tile by identity).
+      const button = s.kind === "button" ? buttonCallAt(s.query.text.split("\n"), 0) : null;
+      const given = button ? await this.slotValue(button, key, typed, host, actor) : typed;
       const before = s.kind === "button" ? s.query.text.split("\n")[0]! : s.query.text;
       const after = s.kind === "use" ? withUseProps(before, { [key]: given }) : s.kind === "handler" ? withSlotProps(before, { [key]: given }) : s.kind === "button" ? withButtonSlot(before, key, given) : null;
       if (after === null) throw new ActionRefused(`that value can't be written on line ${s.line + 1}: it holds one line, and none of { }`);

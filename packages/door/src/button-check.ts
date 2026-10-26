@@ -30,11 +30,15 @@ export interface ButtonLook { parts: ButtonPart[]; marks: ButtonMarkSpan[]; tile
 const OWN = new Set(["label", "act", "of", "alt"]);
 const cp = (s: string) => [...s].length;
 
-/** The reading of `line` when it opens a `::button{…}`, else null. Sync: a tile= is listed for the caller to ask about. */
-export function buttonLineLook(line: string, ask: Pick<ButtonLookups, "args" | "actions">): ButtonLook | null {
+/**
+ * The reading of line `i` of `lines` when it opens a `::button{…}`, else null; a button with a body is read with it (its steps'
+ * marks and tiles have no place on the opening line: `from` -1). Sync: a tile= is listed for the caller to ask about.
+ */
+export function buttonLineLook(lines: readonly string[], i: number, ask: Pick<ButtonLookups, "args" | "actions">): ButtonLook | null {
+  const line = lines[i] ?? "";
   const open = COMPONENT_OPEN.exec(line);
   if (!open || open[1] !== "button" || !open[3]) return null;
-  const call = buttonCallAt([line], 0);
+  const call = buttonCallAt(lines, i);
   if (!call) return null;
   const parts: ButtonPart[] = [], marks: ButtonMarkSpan[] = [], tiles: ButtonLook["tiles"] = [];
   const at = cp(line.slice(0, line.indexOf(open[3]) + 1)), inner = open[3].slice(1, -1);
@@ -87,6 +91,19 @@ export function buttonLineLook(line: string, ask: Pick<ButtonLookups, "args" | "
       else if (takes && arg !== "as" && !takes.includes(arg)) marks.push({ from: s, to: s + cp(arg), kind: "arg", message: `${action} takes no ${arg}= (it takes ${takes.length ? takes.join(", ") : "no arguments"})` });
     });
   }
+  // A body's steps: their action, arguments and tile=, said without a place on this line.
+  if (call.endLine > call.line) for (const step of call.steps) {
+    if (step.kind !== "act") continue;
+    const [action, ...words] = lineWords(step.source), takes = action ? ask.args(action) : null;
+    if (action && takes === null && /^[a-z][\w-]*\.[\w.-]+$/.test(action)) { const near = closest(action, ask.actions()); marks.push({ from: -1, to: -1, kind: "action", message: `no action ${action} here${near ? `; did you mean ${near}?` : ""}` }); }
+    for (const w of words) {
+      const k = w.indexOf("=");
+      if (k <= 0) continue;
+      const arg = w.slice(0, k), val = w.slice(k + 1);
+      if (arg === SELECTOR) { if (val && !val.includes("{")) tiles.push({ from: -1, to: -1, sel: val }); }
+      else if (takes && arg !== "as" && !takes.includes(arg)) marks.push({ from: -1, to: -1, kind: "arg", message: `${action} takes no ${arg}= (it takes ${takes.length ? takes.join(", ") : "no arguments"})` });
+    }
+  }
   // A filled slot read as a tile= (`target=t-…` for `tile={target}`): its value is the tile the press names.
   for (const slot of call.slots) {
     if (!slot.value || !slotArgs(call, slot.key).some(u => u.arg === SELECTOR)) continue;
@@ -105,7 +122,7 @@ export interface ButtonMark { line: number; message: string }
 export async function buttonMarks(text: string, ask: ButtonLookups): Promise<ButtonMark[]> {
   const lines = text.split("\n"), out: ButtonMark[] = [];
   for (const call of buttonCallsOf(text)) {
-    const look = buttonLineLook(lines[call.line] ?? "", ask);
+    const look = buttonLineLook(lines, call.line, ask);
     if (!look) continue;
     const say = (message: string) => out.push({ line: call.line, message: `the ::button on line ${call.line + 1}: ${message}` });
     for (const m of look.marks) if (m.kind !== "misread") say(m.message);

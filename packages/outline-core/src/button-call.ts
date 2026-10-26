@@ -106,11 +106,12 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
     if (named.has(p.key) && !slots.some(s => s.key === p.key)) slots.push({ key: p.key, value: p.value });
     else rest.push(p);
   }
-  const slotted = (text: string) => text.replace(SLOT_REF, (whole, key: string) => { const s = slots.find(x => x.key === key); return s && s.value ? wordOf(s.value) : whole; });
+  // In an action line a value is one word (quoted when it needs it); in a script's value it is the value itself.
+  const slotted = (text: string, raw = false) => text.replace(SLOT_REF, (whole, key: string) => { const s = slots.find(x => x.key === key); return s && s.value ? (raw ? s.value : wordOf(s.value)) : whole; });
   const props: Record<string, string[]> = {};
   // Own keys only: a slot may be any word, `constructor` or `__proto__` included, and none reaches Object.prototype.
   if (of) for (const { key, value } of rest) {
-    const v = slotted(value);
+    const v = slotted(value, true);
     if (Object.hasOwn(props, key)) props[key]!.push(v);
     else Object.defineProperty(props, key, { value: [v], enumerable: true, writable: true, configurable: true });
   }
@@ -124,7 +125,7 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
     } else if (act || of) {
       const value = (act || of)!;
       const values = value.startsWith("[") ? buttonList(value) : [value];
-      steps = values.map(source => ({ kind: act ? "act" : "script", ...(act && refsOf(source).length ? { written: source } : {}), source: act ? slotted(source) : actionLine({ action: source, args: Object.fromEntries(rest.map(p => [p.key, slotted(p.value)])) }) }));
+      steps = values.map(source => ({ kind: act ? "act" : "script", ...(act && refsOf(source).length ? { written: source } : {}), source: act ? slotted(source) : actionLine({ action: source, args: Object.fromEntries(rest.map(p => [p.key, slotted(p.value, true)])) }) }));
     }
   } catch (error) { problem = (error as Error).message; }
   if (!steps.length) problem ??= '::button needs what it runs: write one action or ((script)) per line, then ::, or use act= / of=';
