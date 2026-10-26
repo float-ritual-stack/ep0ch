@@ -1466,6 +1466,16 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
       }
       if (handover === 1) at = await hand(at);
     }
+    // The program out on the desk, through a handover: the terminal host adopts it by its key, the tile comes back with its role.
+    const out = await control({ cmd: "act", action: "tile.drawer", tile: "role:agent", args: { on: false }, as: "test-agent" });
+    const away = await running("role:agent");
+    expect([away.terminal.pid, away.name]).toEqual([before.terminal.pid, out.name]);
+    at = await hand(at);
+    await until(() => at.screen().includes("outline"), "the desk after the handover with the program out", 10_000);
+    const gone = await running("role:agent");
+    expect([gone.terminal.pid, gone.tile]).toEqual([before.terminal.pid, away.tile]);              // the same program, the same tile, out on the desk
+    expect((await control({ cmd: "act", action: "agent.lift", as: "test-agent" })).zoomed).toBe(true);
+    expect((await control({ cmd: "act", action: "tile.zoom", tile: "role:agent", args: { reach: "column" }, as: "test-agent" })).zoomed).toBe(false);
     at.close();
   }, 120_000);
 

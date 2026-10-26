@@ -5,10 +5,11 @@
  * (`kept: "drawer.json:drawer.agent"`, or `drawer.json#<n>:…` once it had left for a screen and come back), and may have lost
  * its name (`shell`) and place: that leaf gets role `agent`, and in the drawer's own file its name, slot and kind too.
  *
- *   ep0ch session end --all --yes     # first: a running session holds the old layout and saves over this one
- *                                     # (or, to keep the agent running, run this right before `ep0ch install --apply`)
+ *   ep0ch session end --all --yes     # first: a running session writes its old layout back over this one, at a handover too.
+ *                                     # This ends the programs in its tiles (the drawer's claude resumes with --continue).
  *   bun packages/door/scripts/migrations/tile-roles.ts [<state dir>]          # says what it would change
  *   bun packages/door/scripts/migrations/tile-roles.ts [<state dir>] --write  # changes it
+ *   ep0ch install --apply             # or just start the door: it reads the new words
  *
  * In the door's state dir (EP0CH_STATE, else $XDG_STATE_HOME/ep0ch-door), every folder's drawer-tiles.json and every other
  * saved layout (*.json) that holds such a leaf. Run once on each machine that matters (float-2 for pie), then delete this file.
@@ -19,28 +20,37 @@ import { stateDir } from "../../src/state";
 
 const OWN_KEY = /^drawer\.json(#\d+)?:drawer\.agent$/;
 
-/** A saved layout in the new words, the drawer's own program's leaf given its role; the leaves it changed. `drawer`: the drawer's own file. */
+/**
+ * A saved layout in the new words, the drawer's own program's leaf given its role; the leaves it changed. `drawer`: the drawer's
+ * own file. A layout the new door saved carries `records: 1`; one that does is left alone (so this is safe to run again, and
+ * after a new door has saved), and one that doesn't is migrated and marked.
+ */
 export function migrateLayout(v: unknown, drawer: boolean): { value: unknown; changed: number } {
   let changed = 0;
-  const walk = (x: unknown): unknown => {
-    if (Array.isArray(x)) return x.map(walk);
+  const walk = (x: unknown, old: boolean): unknown => {
+    if (Array.isArray(x)) return x.map(y => walk(y, old));
     if (!x || typeof x !== "object") return x;
     const o = x as Record<string, unknown>;
-    const mine = o.t === "leaf" && typeof o.kept === "string" && OWN_KEY.test(o.kept);
-    const out: Record<string, unknown> = Object.fromEntries(Object.entries(o).map(([k, y]) => [k, walk(y)]));
+    // A saved layout (it has a tree): old unless the new door marked it.
+    const layout = !!o.root && typeof o.root === "object" && "t" in (o.root as object);
+    const isOld = layout ? o.records === undefined : old;
+    const out: Record<string, unknown> = Object.fromEntries(Object.entries(o).map(([k, y]) => [k, walk(y, isOld)]));
+    if (layout && o.records === undefined) { out.records = 1; changed++; }
+    if (!isOld || o.t !== "leaf") return out;
+    const mine = typeof o.kept === "string" && OWN_KEY.test(o.kept);
     if (mine && out.role !== "agent") {
       changed++;
       out.role = "agent";
       if (drawer) Object.assign(out, { kind: "drawer.own", name: "drawer.agent", slot: "drawer.agent" });
       else if (out.slot === undefined && typeof o.role === "string") out.slot = o.role;
-    } else if (o.t === "leaf" && typeof o.role === "string" && o.slot === undefined) {
+    } else if (typeof o.role === "string" && o.slot === undefined) {
       changed++;
       out.slot = o.role;
       delete out.role;
     }
     return out;
   };
-  return { value: walk(v), changed };
+  return { value: walk(v, false), changed };
 }
 
 function main() {

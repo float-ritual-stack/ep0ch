@@ -978,6 +978,72 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
     } finally { d.app.quit(); }
   });
 
+  // PIE-1286, Evan's real file: the own tile saved by an older door as a plain terminal named for its program, known only by the
+  // key it runs under (no role, and `role: shell` meaning its slot). The one-off (scripts/migrations/tile-roles.ts) gives it its role.
+  test("a drawer-tiles.json saved by an older door: run through the one-off, the drawer's own tile answers role:agent and drawer.agent", async () => {
+    const { migrateLayout } = await import("../scripts/migrations/tile-roles");
+    const d = await door();
+    await d.app.act({ action: "tile.drawer", args: {}, tile: "replies", as: AS });
+    d.app.quit();
+    const file = join(outlineState(), "drawer-tiles.json");
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    const walk = (n: any, f: (l: any) => void) => { if (!n) return; if (n.t === "leaf") f(n); for (const k of n.kids ?? []) walk(k, f); for (const k of n.tabs ?? []) walk(k, f); };
+    walk(saved.root, l => {
+      if (l.name === "drawer.agent") { for (const k of ["slot", "role"]) delete l[k]; Object.assign(l, { kind: "pty", name: "shell", role: "shell", kept: "drawer.json:drawer.agent", cmd: ["cat"] }); }
+      else { l.role = l.slot; delete l.slot; }
+    });
+    delete saved.records;
+    const legacy = JSON.stringify(saved);
+    writeFileSync(file, legacy);
+    // Before: nothing names the program (the older door's file, read by this door).
+    const before = await door();
+    try { expect(before.app.drawer.desk).toBeTruthy(); before.paint(); expect(before.app.drawer.resolveTile("role:agent")).toBeNull(); } finally { before.app.quit(); }
+    await until(() => readFileSync(file, "utf8") !== legacy, "that door's save on the way out", 3000).catch(() => {});      // it lands before the one-off's
+    writeFileSync(file, JSON.stringify(migrateLayout(saved, true).value));
+    const e = await door();
+    try {
+      expect(e.app.drawer.desk).toBeTruthy();                    // the drawer's desk is made, restored from the migrated file
+      e.paint();
+      const a = e.app.drawer.agentPane();
+      expect(a?.pane).toBe(e.app.drawer.tile!);
+      expect(e.app.drawer.resolveTile("drawer.agent")?.tile.id).toBe(e.app.drawer.resolveTile("role:agent")?.tile.id);
+      expect(e.app.drawer.tabs().map(t => t.name)).toEqual(["drawer.agent", "replies2"]);
+    } finally { e.app.quit(); }
+  });
+
+  // PIE-1286: the address names one tile or is refused with the ids; the lift never throws from a step it asks first.
+  test("two tiles with role agent: the lift is refused with both ids, not thrown from a step; closing one lifts the other", async () => {
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      await d.app.dispatch.press("host.leave", {});
+      tileRegistry.setRole(d.kettle()!, "agent");
+      for (const sel of [{ action: "agent.lift" }, { action: "tile.zoom", tile: "role:agent", args: { reach: "column" } }]) {
+        const why = await d.app.dispatch.act({ args: {}, ...sel }, USER).then(() => "", (e: Error) => e.message);
+        expect([sel.action, why]).toEqual([sel.action, expect.stringMatching(/role:agent names 2 tiles: .*use tile=<id>/)]);
+      }
+      tileRegistry.setRole(d.kettle()!, undefined);
+      expect((await d.app.dispatch.act({ action: "agent.lift", args: {} }, USER) as any).zoomed).toBe(true);
+    } finally { d.app.quit(); }
+  });
+
+  // PIE-1286: ✦z and ✦u address the tile with the keys by its id, and with the keys in the drawer that is the drawer's tile.
+  test("a hyper chord with the keys in the drawer lifts the drawer's tile, not the screen's", async () => {
+    const { useHyper } = await import("../src/hyper");
+    useHyper(true);
+    const d = await door();
+    try {
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => d.app.drawer.tile?.running === true, "the drawer's own program runs");
+      expect(d.app.drawer.entered).toBe(true);
+      d.key({ kind: "hyper", ch: "u" });
+      await until(() => d.app.drawer.desks().some(x => x.liftedDesk?.lifted), "the lift");
+      expect(d.desk.lifted).toBeNull();
+      expect(d.app.drawer.made!.liftsPane(d.app.drawer.tile!)).toBe(true);
+    } finally { d.app.quit(); useHyper(null); }
+  });
+
   // PIE-1285 (loki's root cause): what `tile=` names across layers (a tile's id, drawer.agent) is one rule of the host
   // layer that every screen host's dispatcher asks, a desk or not: from each registered screen and each screen that is
   // not a desk, the drawer's agent and every tile id of the drawer resolve to the same tile the host layer names.

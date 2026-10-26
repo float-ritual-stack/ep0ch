@@ -24,7 +24,7 @@ are its record. The outliner's entries from then are kept below, under
   and the parity walk checks it: each targeted action a key ran is run again by `tile=t-<uuid>` and by role.
 - **One tile registry** (`src/desk/tile-registry.ts`) holds a tile's id, role, opener and copy lineage; the pane, the desk and the drawer keep none of them. An action gets the tile's id from the dispatcher, and the drawer remembers only whether its program is out, not which tile it is.
 - **Saved layouts.** A tile's slot (`slot`, the place a screen's spec gave it) is no longer the leaf's `role`, which now says
-  what the tile is for. One drawer saved by an older door has its own tile under another name: see the PR for the one command.
+  what the tile is for. An older saved layout moves to the new words with one command, with the sessions ended first (a running session writes its old layout back over it): `ep0ch session end --all --yes`, then `bun packages/door/scripts/migrations/tile-roles.ts <state dir> --write` (without `--write` it says what it would change), then start the door. It also gives the drawer's own program its role in a drawer-tiles.json an older door saved under another name, where `drawer.agent` would otherwise answer "closed".
 
 ### Jev's figure suggestions are recorded, and whether each was followed is worked out (PIE-1251)
 

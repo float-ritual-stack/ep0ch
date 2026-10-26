@@ -2,7 +2,6 @@
 import { describe, expect, test } from "bun:test";
 import { tileRegistry } from "../src/desk/tile-registry";
 import { ReaderPane } from "../src/desk/panes";
-import { Desk } from "../src/desk/desk";
 
 const pane = () => new ReaderPane(true);
 
@@ -53,10 +52,5 @@ describe("the tile registry", () => {
     tileRegistry.followRemap([b2], remapped);
     expect(tileRegistry.openerOf(b2)).toBe(tileRegistry.idOf(a2));
     expect(tileRegistry.paneIn(door, tileRegistry.idOf(a2))).toBe(a2);
-  });
-  test("a desk keeps no id of its own: its tile's id is the registry's", () => {
-    const d = new Desk(undefined, { layout: "desk" });
-    const layout = d.layoutGet() as { tiles: { name: string; tile: string }[] };
-    for (const t of layout.tiles) expect(tileRegistry.knownId(d.pane(t.name)!)).toBe(t.tile);
   });
 });

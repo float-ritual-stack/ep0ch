@@ -4,11 +4,11 @@ import { describe, expect, test } from "bun:test";
 import { parseTileAddress, resolveAddress, resolveRelative, whyNone, type AddressCandidate } from "../src/desk/tile-address";
 
 const tile = (id: string, name: string, role: string, o: Partial<AddressCandidate<string>> = {}): AddressCandidate<string> =>
-  ({ value: name, id, name, role, slots: [], screen: "desk", where: `@desk/${name}`, ...o });
+  ({ value: name, id, name, role, slots: [], screen: "desk", where: () => `@desk/${name}`, ...o });
 const TILES = [
   tile("t-3a4f9c21-0000-4000-8000-000000000001", "tree", "tree", { slots: ["tree"] }),
   tile("t-3a4f9c21-0000-4000-8000-000000000002", "notes", "reader", { slots: ["detail"], from: "t-3a4f9c21-0000-4000-8000-000000000001" }),
-  tile("t-77aa1100-0000-4000-8000-000000000003", "shell", "agent", { screen: "library", where: "@library/shell", from: "t-gone0000-0000-4000-8000-000000000009" }),
+  tile("t-77aa1100-0000-4000-8000-000000000003", "shell", "agent", { screen: "library", where: () => "@library/shell", from: "t-gone0000-0000-4000-8000-000000000009" }),
 ];
 
 describe("parseTileAddress", () => {

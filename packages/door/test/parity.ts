@@ -440,6 +440,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     for (let i = 0; i < 20; i++) { await Bun.sleep(15); await settle(); const now = snap(mask); if (alike(was, now, false)) return now; was = now; }
     return was;
   }
+  const REPLAYED = new Set(["desk: tree", "desk: reader on a note", "desk: thread", "desk: activity"]);
   async function addressed(label: string, make: () => Screen | Promise<Screen>, setup: Key[], pointed: Map<string, { key: Key; req: RunRequest }>) {
     const replayed = { id: 0, role: 0 };
     /** The key, then the act by `way` on a screen built the same way: what's wrong, "skip" when the address can't name this tile alone, or null. */
@@ -478,6 +479,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         if (problem && problem !== "skip") findings.push({ screen: label, keys: named(key), problem });
       }
     }
+    // A walk that replays nothing proves nothing: these scenarios have tiles with actions of their own, so none replayed means the trace broke.
+    if (REPLAYED.has(label) && replayed.id === 0) findings.push({ screen: label, keys: "-", problem: "no targeted action was replayed by id: the request trace (traceRequests) or the filter found none" });
     if (log) require("node:fs").appendFileSync(log, `# ${label}: ${pointed.size} targeted actions replayed by id (${replayed.id}) and by role (${replayed.role})\n`);
   }
 

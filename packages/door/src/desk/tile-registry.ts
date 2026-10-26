@@ -2,7 +2,9 @@
 // name, its screen or its program: its id (`t-<uuid>`, kept through moves, tabs, saves and restores), what it is for (its
 // role), the tile that opened it and, for a copy, the tile it was copied from. A desk joins a pane to it as the pane is
 // made or restored, the drawer when it makes its own program; the resolver (tile-address.ts) reads it; nothing else keeps
-// a tile's id, role or opener (not the pane, not a desk's name map, not the drawer, not a program's told id).
+// which tile this is (not the pane, not a desk's name map, not the drawer). A terminal program's `tileId` is what it was told
+// (EP0CH_TILE_ID) and, for the drawer's own, the key the terminal host keeps it under: they say what the program was
+// given, and no address is decided from them but a caller naming its own tile by what it was told (`open from=`).
 //
 // A name is a label the layout keeps; a screen and a slot are where the layout put the tile. They change when a tile is
 // renamed or moved; the record doesn't, so an address made of the record survives them.
@@ -38,8 +40,6 @@ export const tileRegistry = {
   knownId: (pane: Pane): string | undefined => records.get(pane)?.id,
   /** What the tile is for: the role it was made with, else its kind's, else the kind's name. */
   roleOf: (pane: { kind: string }): string => records.get(pane as Pane)?.role ?? tileKind(pane.kind)?.role ?? pane.kind,
-  /** The role set on the tile itself (what a save writes), if any. */
-  explicitRole: (pane: Pane): string | undefined => records.get(pane)?.role,
   setRole(pane: Pane, role: string | undefined) { if (role === undefined) { const r = records.get(pane); if (r) delete r.role; } else record(pane).role = role; },
   /** The tile that opened it (its id), if one is recorded. */
   openerOf: (pane: Pane): string | undefined => records.get(pane)?.openedFrom,
@@ -85,6 +85,3 @@ export const tileRegistry = {
     for (const pane of panes) { const up = records.get(pane)?.openedFrom; if (up !== undefined && remapped.has(up)) tileRegistry.setOpener(pane, remapped.get(up)); }
   },
 };
-
-/** What tile `p` is for (`role:<role>`): the registry's answer. */
-export const tileRole = (p: { kind: string }): string => tileRegistry.roleOf(p);

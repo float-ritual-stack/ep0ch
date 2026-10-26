@@ -1,4 +1,4 @@
-import type { ResolveOpts } from "../desk/tile-address";
+import { parseTileAddress, type ResolveOpts } from "../desk/tile-address";
 import { fromPress } from "../session/session-term";
 import { modeActionKeys } from "./modes";
 import { rankTextSearchMatches } from "@ep0ch/outline-core/search-match";
@@ -413,7 +413,7 @@ export class Dispatcher {
    */
   private resolve(sel: string, o?: ResolveOpts): { tile: TileRef; dispatch: Dispatcher } | null {
     // `^` is relative to the tile the request acts from: the one with the keys, never a guess when nothing has them.
-    if (/^\^+$/.test(sel) && o?.from === undefined) o = { ...o, from: this.where().address ?? undefined };
+    if (parseTileAddress(sel).kind === "relative" && o?.from === undefined) o = { ...o, from: this.where().address ?? undefined };
     if (this.host.resolveTile) return this.host.resolveTile(sel, o) ?? this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;
     // A host that reads no tiles across layers keeps its own names: the host layer answers only what they don't.
     return this.named(sel, this.tilesNow()) ? null : this.host.ctx()?.hostLayer?.resolveTile?.(sel, o) ?? null;

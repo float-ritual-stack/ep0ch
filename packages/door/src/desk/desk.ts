@@ -934,6 +934,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // whatever it is called now, never a program key.
         const given = !(own || restore) ? undefined : this.given.get(l.slot ?? l.name ?? "");
         const pane = given ?? makeTile({ ...l, kind });
+        // A layout loaded again (not this door's own tile coming back) makes new tiles: a role it recorded was the old tile's, and
+        // the drawer's program may be the only one with role agent.
+        if (!given && !restore) tileRegistry.setRole(pane, undefined);
         {
           // The tile's saved id, when no tile here has it (a saved layout loaded twice gets new ones the second time).
           const saved = new RegExp(`^${this.idPrefix}(\\d+)$`).exec(l.id ?? "");
@@ -950,7 +953,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       }
       if (l.id) references.set(l.id, this.tileId(id));
       if (l.openedFrom && !(reuse && o !== undefined)) openers.push([id, l.openedFrom]);
-      if (l.copiedFrom && !(reuse && o !== undefined)) tileRegistry.restore(this.panes.get(id)!, { copiedFrom: l.copiedFrom });
+      if (restore && l.copiedFrom && !(reuse && o !== undefined)) tileRegistry.restore(this.panes.get(id)!, { copiedFrom: l.copiedFrom });
       if (l.slot ?? l.name) slots.set((l.slot ?? l.name)!, id);
       this.panes.get(id)!.writtenTitle = l.writtenTitle;
       this.panes.get(id)!.systemTitle = l.systemTitle;
@@ -973,7 +976,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Floats (PIE-511) come back where they were, each its own tile.
     const floats: Float<number>[] = (Array.isArray(spec.floats) ? spec.floats : []).filter(f => f?.tile?.t === "leaf" && isRect(f.rect)).map(f => ({ id: tileOf(f.tile), rect: { ...f.rect } }));
     // Who opened each tile is kept as the opener's saved id: it names the opener's tile in this layout (a layout loaded again has new ids).
-    for (const [id, saved] of openers) tileRegistry.setOpener(this.panes.get(id)!, references.get(saved) ?? saved);
+    // (An opener outside a layout that is only loaded again is some other tile of the saved arrangement: it is no one's here.)
+    for (const [id, saved] of openers) tileRegistry.setOpener(this.panes.get(id)!, references.get(saved) ?? (restore ? saved : undefined));
     let tree = root;
     // What the new layout has no place for: kept when it holds work (in one shut dock on the right), else closed.
     const kept: number[] = [];
@@ -1239,7 +1243,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const host = this.ctx?.hostLayer;
     return [...new Set(roots ? roots.flatMap(r => r.descend()) : this.relatives())].flatMap(desk => {
       const screen = host?.isDrawer(desk.top()) ? "drawer" : desk.spec.name, slots = desk.slotsFilled();
-      return [...desk.panes].map(([id, pane]) => ({ value: { desk, id, pane }, id: desk.tileId(id), name: desk.nameOf(id), role: tileRegistry.roleOf(pane), ...(tileRegistry.openerOf(pane) ? { from: tileRegistry.openerOf(pane) } : {}), ...(tileRegistry.copiedFrom(pane) ? { copiedFrom: tileRegistry.copiedFrom(pane) } : {}), slots: slots.get(id) ?? [], screen, where: this.pathTo(pane) ?? desk.nameOf(id) }));
+      return [...desk.panes].map(([id, pane]) => ({ value: { desk, id, pane }, id: desk.tileId(id), name: desk.nameOf(id), role: tileRegistry.roleOf(pane), ...(tileRegistry.openerOf(pane) ? { from: tileRegistry.openerOf(pane) } : {}), ...(tileRegistry.copiedFrom(pane) ? { copiedFrom: tileRegistry.copiedFrom(pane) } : {}), slots: slots.get(id) ?? [], screen, where: () => this.pathTo(pane) ?? desk.nameOf(id) }));
     });
   }
 
@@ -1445,7 +1449,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const to = n.policy?.opensInto, id = to ? this.idNamed(to) : undefined;
       if (id !== undefined) n.policy = { ...n.policy, opensInto: this.tileId(id) };
     }
-    return saved;
+    // `records`: this layout's tiles are in the registry's words (a leaf's `role` is what it is for, `slot` its place): scripts/migrations/tile-roles.ts leaves it alone.
+    return { ...saved, records: 1 };
   }
   /** The layout as saved: tile specs in the tree of containers (each with its policy), the focus, the open rule, the screen's policy. */
   layoutSpec(): LayoutSpec { return { ...this.saved(), focus: this.panes.has(this.focus) ? this.tileId(this.focus) : 0, rule: this.rule, ...(this.layoutName ? { name: this.layoutName } : {}) }; }
