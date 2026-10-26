@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { hostLive } from "../src/discover";
 import { hostRequest } from "../src/socket";
-import { until } from "./scratch";
+import { ownScratch, stopUnder, until, wholeEnv } from "./scratch";
 
 const linux = process.platform === "linux";
 const top = resolve(import.meta.dir, "../../..");
@@ -22,6 +22,8 @@ const top = resolve(import.meta.dir, "../../..");
 const N = Number(/^export const SCHEMA_VERSION = (\d+);/m.exec(readFileSync(join(top, "packages/outliner/src/schema.ts"), "utf8"))![1]);
 const M = N + 1, STEP_FILE = `${String(M).padStart(4, "0")}-seed-trays.ts`;
 const root = mkdtempSync(join(tmpdir(), "ep0ch-im-"));
+// Its host, link and sessions leave this process's tree (setsid, as systemd's would): this test owns them (PIE-1360).
+ownScratch(root);
 const repo = join(root, "repo"), origin = join(root, "origin.git"), home = join(root, "home"), outlines = join(root, "outlines");
 const state = join(root, "state"), bin = join(root, "bin"), units = join(root, "units");
 const clientRepo = join(root, "client-repo"), clientHome = join(root, "client-home"), clientOutlines = join(root, "client-outlines"), clientBin = join(root, "client-bin");
@@ -29,15 +31,15 @@ const sshLog = join(root, "ssh.jsonl");
 const bun = process.execPath;
 const sock = join(outlines, ".host", "host.sock");
 
-/** The whole environment every command here runs with: nothing inherited, so nothing reaches the person's stack. */
-const env: Record<string, string> = {
+/** The whole environment every command here runs with: nothing inherited, so nothing reaches the person's stack (box-test's run mark aside). */
+const env: Record<string, string> = wholeEnv({
   HOME: home, PATH: [bin, dirname(bun), "/usr/bin", "/bin"].join(":"), EP0CH_OUTLINES: outlines, EP0CH_STATE: state,
   EP0CH_WS: "allotment", EP0CH_AGENT: "wren", CLAUDE_CODE_SESSION_ID: "garden-session", EP0CH_MACHINE_NAME: "garden-host",
   EP0CH_SSH: join(bin, "ssh"), FAKE_SSH_OWNER_FILE: process.env.FAKE_SSH_OWNER_FILE!, FAKE_SSH_HOME: clientHome, FAKE_SSH_OUTLINES: clientOutlines,
   FAKE_SSH_STATE: join(root, "client-state"), FAKE_SSH_BIN: clientBin, FAKE_SSH_LOG: sshLog, FAKE_SSH_REFUSE: "away",
   XDG_CONFIG_HOME: join(home, ".config"), XDG_STATE_HOME: join(home, ".local/state"), TMPDIR: tmpdir(), LANG: "C.UTF-8",
   GIT_AUTHOR_NAME: "Wren", GIT_AUTHOR_EMAIL: "wren@example.com", GIT_COMMITTER_NAME: "Wren", GIT_COMMITTER_EMAIL: "wren@example.com",
-};
+});
 
 const sh = (cmd: string[], cwd = root, ms = 120_000) => {
   const r = Bun.spawnSync(cmd, { cwd, env, stdout: "pipe", stderr: "pipe", timeout: ms });
@@ -189,6 +191,8 @@ afterAll(async () => {
   await ep0ch("session", "end", "--all", "--yes").catch(() => undefined);
   try { fakeSystemctl("stop", "ep0ch-link"); } catch {}
   try { fakeSystemctl("stop", "outliner-host.service"); } catch { /* gone */ }
+  // Whatever the steps above missed (a session of the client's, a host a failed restart started again).
+  stopUnder(root);
   rmSync(root, { recursive: true, force: true });
 }, 60_000);
 
