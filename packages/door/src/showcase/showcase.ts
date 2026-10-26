@@ -232,6 +232,21 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "completion", need: "see what a completion row is before choosing it: what kind of thing, a dim detail, and its docs wrapped beside the list (PIE-1339)",
+    part: "the completer's rows and docs panel (PIE-1339, PIE-1245): each row draws its own fields (CompletionItem's label, detail, kind, docs), never a switch on its kind; the docs go beside the list when 30 columns are free, else under it, each sized to what it holds (bar/list-preview.ts listWithDocs, Helix's completion.rs rule); ⏎ and tab both insert unless the footer says ⏎ is a new line (enterKeeps); the popup's keys are actions: complete.ask, complete.move, complete.accept, complete.dismiss, complete.preview",
+    files: "src/surface/completer.ts (renderCompletion, enterKeeps, COMPLETION_ACTIONS), src/bar/list-preview.ts, src/surface/note.ts (the complete.* forwards)",
+    aside: "Go in (⏎): the reader is writing a comment that ends in ((Gree, and its popup is open: each row says what it is at its right edge (block, anchor, page) with a dim detail after its title; the lit row's docs wrap beside the list on a wide screen, under it on a narrow one · ↑↓ or the wheel light another row and the docs follow · ⏎ or tab inserts it · shift+↑↓, PgUp/PgDn or the wheel over the docs scroll them · esc closes it · type ## Calls :: on a new line: the footer says ⏎ is a new line until you choose with ↑↓ or tab · ctrl+n and ctrl+p stay a new note and the edit preview (UI-GRAMMAR §7) · act: complete.ask, complete.move by=1, complete.accept, complete.dismiss",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · completion", panes: [r], names: ["guide"] }, show, [[r, n.deepLinks]], d => {
+        // The person's own keys would do this: a comment on the guide ending in ((Gree, then tab asks for its list.
+        void d.press(r, NOTE_ACTIONS, "passage.select")
+          .then(() => d.press(r, NOTE_ACTIONS, "comment.write", { body: "Ask about the beds, see ((Gree" }))
+          .then(() => d.press(r, NOTE_ACTIONS, "complete.ask"));
+      });
+    },
+  },
+  {
     key: "composer", need: "write a comment, question or reply where the person is reading: at the passage, floating beside it, split beside the note or in a popup",
     part: "the composer's placements (PIE-770, src/surface/composer.ts): the comment session's draft (CommentSession, one DraftSession, the one edit control: renderEditor) drawn in the reader's own note, a box of rows under the passage (inline), laid over it (floating, popup) or sharing the reader's rect (split); composer.place is the setting, comment.place (ctrl+o, the box's chip) moves the one being written; PIE-785: the comment stays open when the keys go to another tile (Desk.leaveSession, keepsOnFocusAway) and is the person's again when they come back, a floating box drags and sizes (comment.move: its top edge, its ◢ corner, ctrl+g's comment.grip mode) for this sitting only (CommentSession.float), and following a link with it unsent asks in the power bar (askInBar, src/bar/ask.ts; comment.leaving answers: save and continue keeps it unsent through its DraftSession, discard lets it go); a posted thread and the preview draw references and embeds through the reader's renderer (NoteSurface.snippet)",
     files: "src/surface/composer.ts, src/comment.ts (composerFrame), src/surface/note.ts (layOut, overComposer, renderSplit, comment.place, comment.move, comment.grip, comment.leaving, askLeave), src/surface/editor.ts, src/screens.ts (composer.place), src/desk/desk.ts (leaveSession, reenter)",

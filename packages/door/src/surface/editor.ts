@@ -16,7 +16,7 @@ import type { LinkTarget } from "../refs";
 import { rule, words } from "../text";
 import { ownTerminal, type Handover, type TileProgram, type Key } from "../term";
 import { agentLabel } from "./actions";
-import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
+import { popupHint, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 
 export interface EditFrame {
   look?: StyleValues;
@@ -205,7 +205,8 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
 
 /** The keys line for a draft, the same words everywhere: `ctrl+s save · esc done · ctrl+x ctrl+e $EDITOR · …`. */
 export function editHint(d: Draft, o: { save: "save" | "send" | "create"; reload?: string | null; close?: "done" | "back"; place?: string; move?: boolean; follow?: boolean }): string {
-  if (completionOf(d)) return `${COMPLETION_HINT} · ctrl+s ${o.save}`;
+  const pop = completionOf(d);
+  if (pop) return `${popupHint(pop)} · ctrl+s ${o.save}`;
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
   const last = d.undos.at(-1);
   const undo = last ? ` · ctrl+z undo${last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";

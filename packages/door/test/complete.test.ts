@@ -19,8 +19,9 @@ import { BUILTIN_HEADING_STYLES } from "@ep0ch/outline-core/heading-styles";
 import { Draft } from "../src/edit";
 import { Refused, SocketBoard, USER, type Actor } from "../src/socket";
 import { visible } from "../src/style";
-import { COMPLETION_HINT, completerFor, completionKey, completionOf, renderCompletion } from "../src/surface/completer";
+import { Completer, enterKeeps, popupHint, completerFor, completionKey, completionOf, renderCompletion, type CompletionState } from "../src/surface/completer";
 import { editHint } from "../src/surface/editor";
+import { declaredKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -49,6 +50,97 @@ describe("the pure half, as the outliner has it", () => {
     expect(pageAddressCompletion(w, "HOME-001|the squeak", "HOME").insertion).toBe("[[HOME-001|the squeak]]");
     expect(pageAddressCompletion({ ...w, title: "Oil [[the]] hinges" }, "HOME", "HOME").insertion).toBe("[[HOME-001]]");
     expect(pageAddressCompletion({ address: "seeds", blockId: "b", kind: "page", title: "Seed list" }, "se", "HOME")).toEqual({ label: "seeds · Seed list", insertion: "[[seeds]]" });
+  });
+});
+
+describe("the popup's look (PIE-1339, PIE-1245): kind and detail on each row, the docs wrapped beside the list or under it", () => {
+  const DOCS = "Watering notes for the greenhouse: the seedlings want water every morning before the glass warms, and the tomatoes only every other day once they flower.";
+  const state = (line = "see ((gree", over: Partial<CompletionState> = {}): CompletionState => ({
+    target: { kind: "block", start: 4, end: line.length, query: line.slice(6) }, index: 0, loading: false, truncated: null, message: "",
+    at: { row: 0, col: line.length, line },
+    items: [
+      { label: "Greenhouse meeting", detail: "Garden club", kind: "block", insertion: "((m1))", docs: DOCS },
+      { label: "^a10  We agreed to water", kind: "anchor", insertion: "((m1^a10))", docs: "paragraph in Greenhouse meeting" },
+      { label: "Green beds", detail: "Oct 14", kind: "page", insertion: "[[green-beds]]" },
+    ], ...over,
+  });
+  const draw = (s: CompletionState, w: number) => renderCompletion(s, w, 14, [], 4).map(visible);
+
+  test("at 120 columns the docs wrap beside the list, the first word drawn and none cut; each row has its kind at the right", () => {
+    const s = state(), lines = draw(s, 120);
+    const row = lines.find(l => l.includes("Greenhouse meeting"))!;
+    expect(row).toMatch(/» Greenhouse meeting {2}Garden club +block +│ Watering notes/);
+    expect(lines.find(l => l.includes("^a10"))).toMatch(/anchor +│/);
+    expect(lines.find(l => l.includes("Green beds"))).toMatch(/Green beds {2}Oct 14 +page +│/);
+    expect(s.previewRect!.col).toBeGreaterThan(s.listWidth! - 1);
+    // Wrapped over the rows it has, at the width it's drawn: the whole description, word by word.
+    const docs = lines.map(l => l.slice(s.previewRect!.col, s.previewRect!.col + s.previewRect!.cols).trim()).filter(Boolean);
+    expect(docs.join(" ")).toContain(DOCS.slice(0, 60));
+    expect(docs.join(" ").replace(/\s+/g, " ")).toContain("once they flower.");
+    expect(docs.every(l => l.length <= s.previewRect!.cols)).toBe(true);
+    expect(lines.some(l => l.includes("↑↓ move · ⏎/tab inserts"))).toBe(true);
+  });
+
+  test("at 80 columns the docs go under the list, sized to what they hold; a short list keeps them beside", () => {
+    const short = state();
+    draw(short, 80);
+    expect(short.previewRect!.col).toBeGreaterThan(30);
+    const s = state(), long = "^decision  We agreed to move the seedlings to the south bench once the heater is fixed";
+    s.items.push({ label: long, kind: "anchor", insertion: "((m1^decision))" });
+    const lines = draw(s, 80);
+    expect(s.previewRect!.row).toBeGreaterThan(3);
+    expect(s.previewRect!.col).toBeLessThanOrEqual(1);
+    expect(lines.find(l => l.includes("Greenhouse meeting"))).not.toContain("│ Watering");
+    const text = lines.slice(s.previewRect!.row).map(l => l.replace(/│/g, "")).join(" ").replace(/\s+/g, " ");
+    expect(text).toContain("Watering notes for the greenhouse");
+    expect(text).toContain("once they flower.");
+  });
+
+  test("docs under the list scroll to their last line (Codex review)", () => {
+    const s = state();
+    s.items[0]!.docs = Array.from({ length: 20 }, (_, i) => `line ${i + 1} of the watering notes.`).join(" ");
+    const c = new Completer(new Draft("made-up", 0, s.at.line), {} as never, () => {});
+    c.state = s;
+    for (let i = 0; i < 40; i++) { draw(s, 60); c.previewBy(1, USER); }
+    expect(draw(s, 60).join(" ")).toContain("line 20 of the watering notes.");
+  });
+
+  test("the wheel over a list still finding its rows does nothing, and throws nothing (code review)", () => {
+    const d = new Draft("made-up", 0, "((gar");
+    d.place(0, 5);
+    const c = new Completer(d, {} as never, () => {});
+    c.state = { target: { kind: "block", start: 0, end: 5, query: "gar" }, at: { row: 0, col: 5, line: d.text }, index: 0, loading: true, truncated: null, message: "finding references...", items: [] };
+    expect(() => c.move(1)).not.toThrow();
+  });
+
+  test("an insert the service refuses is said in the footer and never escapes as a rejection (Codex review)", async () => {
+    const d = new Draft("made-up", 0, "((garden");
+    d.place(0, 8);
+    const c = new Completer(d, { blockContext: async () => ({ selected: null, ancestors: [] }) } as never, () => {});
+    c.state = { target: { kind: "block", start: 0, end: 8, query: "garden" }, at: { row: 0, col: 8, line: d.text }, index: 0, loading: false, truncated: null, message: "", items: [{ label: "Garden", kind: "block", blockId: "gone", insertion: "((gone))" }] };
+    let escaped: unknown = null;
+    const on = (e: unknown) => { escaped = e; };
+    process.on("unhandledRejection", on);
+    completionKey(d, K("enter"), c);
+    await Bun.sleep(30);
+    process.off("unhandledRejection", on);
+    expect(escaped).toBeNull();
+    expect(d.text).toBe("((garden");
+    expect(c.state!.message).toContain("no longer there");
+  });
+
+  test("Enter inserts as Tab does; the footer says when it's a new line instead (nothing typed yet, or the row changes nothing)", () => {
+    expect(enterKeeps(state())).toBeNull();
+    const bare = state("## Calls ::", { target: { kind: "value", start: 9, end: 11, query: "", headingShort: true } as any });
+    expect(enterKeeps(bare)).toBe("new line");
+    expect(popupHint(bare)).toContain("tab inserts · ⏎ new line");
+    expect(enterKeeps({ ...bare, picked: true })).toBeNull();
+    const done = state("[[green-beds]]", { target: { kind: "page", start: 0, end: 14, query: "green-beds" }, index: 2 });
+    expect(enterKeeps(done)).toBe("new line");
+    const yaml = state("title: Fo", { target: { kind: "yaml-value", start: 7, end: 9, query: "Fo", component: "graph-meter" } as any });
+    expect(enterKeeps(yaml)).toBe("new line");
+    const filter = state("stage:do", { target: { kind: "filter-value", start: 6, end: 8, query: "do", key: "stage" } as any, line: true });
+    expect(enterKeeps(filter)).toBe("applies");
   });
 });
 
@@ -145,7 +237,7 @@ describe("callout types after > [! (PIE-538): the outline's one list, in the sam
     // An alias finds its type: this outline's own, with its icon.
     for (const ch of "di") completionKey(d, char(ch), c);
     await until(() => !!c.state && !c.state.loading && c.state.items[0]?.insertion === "[!recipe]", "the outline's own type");
-    expect(c.state!.items[0]).toMatchObject({ label: "♨ recipe (dish)", kind: "callout · this outline's" });
+    expect(c.state!.items[0]).toMatchObject({ label: "♨ recipe (dish)", kind: "callout", detail: "this outline's" });
     for (let i = 0; i < 2; i++) completionKey(d, { kind: "backspace" } as Key, c);
     for (const ch of "wa") completionKey(d, char(ch), c);
     await until(() => !!c.state && !c.state.loading && c.state.target.query === "wa", "warning");
@@ -199,11 +291,30 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     expect(completionOf(d)).toBeNull();
   });
 
+  test("every key the open list takes runs one of its actions, which names that key (PIE-1339): the parity walk's rule, from an open popup", async () => {
+    const keys: Key[] = [K("down"), K("up"), { kind: "down", shift: true } as Key, { kind: "pgdn" } as Key, K("tab"), K("enter"), K("esc")];
+    for (const k of keys) {
+      const { d, c } = typing("## Calls [heading-p");
+      await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the keys");
+      // Docs longer than they're shown, so shift+↓ and PgDn scroll them.
+      c.state!.items[0]!.docs = "Where a heading's glyph track repeats: ".repeat(20);
+      renderCompletion(c.state!, 40, 12);
+      const runs: ActionRun[] = [];
+      const stop = traceActions(r => runs.push(r));
+      completionKey(d, k, c);
+      stop();
+      const name = ("shift" in k && k.shift ? "shift+" : "") + keyName(k)!;
+      expect(runs.map(r => r.name), name).toHaveLength(1);
+      expect([...declaredKeys(runs[0]!.keys)], `${runs[0]!.name} names ${name}`).toContain(name);
+      c.dismiss();
+    }
+  });
+
   test("[heading:: offers the built-in styles and the outline's own; a value typed inside a closed property replaces through its ]", async () => {
     const { d, c } = typing("## Calls [heading::pl");
     await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the styles");
     expect(c.state!.items.map(i => i.insertion)).toEqual(["plot]"]);
-    expect(c.state!.items[0]!.context).toContain("this outline's");
+    expect(c.state!.items[0]!.docs).toContain("this outline's");
     completionKey(d, K("down"), c); completionKey(d, K("up"), c);
     completionKey(d, K("enter"), c);
     await until(() => d.lines[1] === "## Calls [heading::plot]", "the outline's own style");
@@ -781,7 +892,8 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     let p = await e.settled();
     expect(p.items.some(i => i.kind === "page")).toBe(true);
     expect(e.screen()).toContain("references 1/");
-    expect(editHint(e.d, { save: "save" })).toBe(`${COMPLETION_HINT} · ctrl+s save`);
+    expect(editHint(e.d, { save: "save" })).toBe(`${popupHint(p)} · ctrl+s save`);
+    expect(popupHint(p)).toStartWith("↑↓ move · ⏎/tab inserts");
     e.type("HOME");
     await until(() => !e.pop()!.loading && e.pop()!.items.every(i => i.kind === "work-id"), "filtered to Work IDs");
     p = e.pop()!;
@@ -866,7 +978,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("enter")); e.type("((compost");
     let p = await e.settled();
     expect(p.items[0]).toMatchObject({ blockId: ids.compost, kind: "block", insertion: `((${ids.compost}))`, label: "Turn the compost" });
-    await until(() => !!e.pop()?.items[0]?.context, "the selected candidate's context");
+    await until(() => !!e.pop()?.items[0]?.docs, "the selected candidate's context");
     e.press(K("down")); e.press(K("up"));
     e.press(K("enter"));
     await until(() => !e.pop(), "the insertion");
@@ -1011,7 +1123,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("enter")); e.type("[[zzzz-nothing");
     const p = await e.settled();
     // Only the offer of a new page (PIE-592), which Enter never takes unless the person went to it.
-    expect(p.items.map(i => i.kind)).toEqual(["new page"]);
+    expect(p.items.map(i => i.kind)).toEqual(["new"]);
     expect(p.message).toContain("no page is named zzzz-nothing yet");
     expect(e.screen()).toContain("no page is named zzzz-nothing yet");
     e.press(K("enter"));                                                  // splits the line, as always
@@ -1328,7 +1440,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       const y = lines.findIndex(l => l.includes(label));
       expect(y).toBeGreaterThan(0);
       expect(lines[y]).toContain(" │ ");
-      expect(lines.some(l => l.includes(COMPLETION_HINT))).toBe(true);
+      expect(lines.some(l => l.includes("↑↓ move · ⏎/tab inserts"))).toBe(true);
       const previewX = lines[y]!.indexOf(" │ ") + 4;
       for (let n = 0; n < 2; n++) {
         key({ kind: "mouse", action: "down", button: 0, x: previewX, y });
@@ -1336,7 +1448,7 @@ describe.skipIf(!outliner)("a click on a candidate, through each host (board, de
       }
       expect(rd.draft!.text).not.toContain("[[greenhouse-calendar]]");
       size.cols = 80;
-      expect(screen().some(l => l.includes("↑↓ ⏎ tab esc"))).toBe(true);
+      expect(screen().some(l => l.includes("↑↓ move · ⏎/tab inserts"))).toBe(true);
       size.cols = 160;
       screen();
       const x = lines[y]!.indexOf(label);
