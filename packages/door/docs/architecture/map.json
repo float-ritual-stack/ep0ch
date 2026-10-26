@@ -391,11 +391,12 @@
     {
       "id": "door.tile-address", "name": "Tile addresses and roles", "group": "door", "chapter": "actions", "ladder": "provisional", "dependsOn": ["door.dispatch", "door.layout", "door.drawer"],
       "does": "One grammar for naming a tile beyond the screen asking (PIE-1286; ui-router's named views): an exact id (or 8+ characters of it), a role (a property of the tile, saved with it: the drawer's program is role:agent), a slot on a screen (the place, whatever fills it), ^ (the tile that opened this one) and, last, a name. No match is refused with why and what to type; nothing falls back to the focused tile.",
-      "built": "tile-address.ts parses an address and resolves it over the tiles a desk lists (AddressCandidate); Desk.resolveTile answers it for the whole family (screen, mounts, drawer) and the host layer asks it for every screen host. Pane.role and Pane.openedFrom are saved on the tile's leaf, so a restart, a handover or a restore keeps them; a pane the host gives fills its slot. Keys, clicks and menu rows address by t-<uuid> through the path an act string takes, and the parity walk replays each targeted action by id and by role.",
+      "built": "tile-address.ts parses an address and resolves it over the tiles a desk lists (AddressCandidate); Desk.resolveTile answers it for the whole family (screen, mounts, drawer) and the host layer asks it for every screen host. The tile registry (tile-registry.ts) is the one place a tile's id, role, opener and copy lineage live, saved on its leaf, so a restart, a handover or a restore keeps them; a pane the host gives fills its slot. Keys, clicks and menu rows address by t-<uuid> through the path an act string takes, and the parity walk replays each targeted action by id and by role.",
       "refs": [
         { "r": "door", "p": "src/desk/tile-address.ts", "l": 43, "m": "export function parseTileAddress" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1229, "m": "  addressable(" },
-        { "r": "door", "p": "src/drawer.ts", "l": 1264, "m": "private findAgent(" }
+        { "r": "door", "p": "src/desk/tile-registry.ts", "l": 34, "m": "export const tileRegistry" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1236, "m": "  addressable(" },
+        { "r": "door", "p": "src/drawer.ts", "l": 1268, "m": "private findAgent(" }
       ]
     },
     {

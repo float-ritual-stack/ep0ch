@@ -22,6 +22,7 @@ are its record. The outliner's entries from then are kept below, under
   The guesses it replaces are gone: the program's told id, its program key and its saved name no longer decide which tile it is.
 - **Keys, clicks and menu rows address their tile by id**, through the path an `act` string takes (`^W Z`, `✦u`, `agent.lift`),
   and the parity walk checks it: each targeted action a key ran is run again by `tile=t-<uuid>` and by role.
+- **One tile registry** (`src/desk/tile-registry.ts`) holds a tile's id, role, opener and copy lineage; the pane, the desk and the drawer keep none of them. An action gets the tile's id from the dispatcher, and the drawer remembers only whether its program is out, not which tile it is.
 - **Saved layouts.** A tile's slot (`slot`, the place a screen's spec gave it) is no longer the leaf's `role`, which now says
   what the tile is for. One drawer saved by an older door has its own tile under another name: see the PR for the one command.
 
