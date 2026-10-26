@@ -1,26 +1,26 @@
-import { subtitleOf } from "@ep0ch/outline-core/block-record";
+import {completionTargetAtCursor,type CompletionTarget} from "@ep0ch/outline-core/completion-triggers";
+import {insertSelection,insertText,mergeSourceAnswers,pickKey,triggerOf,type SourceRow} from "@ep0ch/outline-core/completion-source";
+import type {CompletionRowsRequest,CompletionRowsResult} from "@ep0ch/outline-core/protocol";
 import type {OutlinerRequester} from "./client-target";
-import {completionTargetAtCursor, pageAddressCompletion, pageCompletionLookupQuery, type CompletionTarget} from './completion';
-import {rankBlockFocusMatches} from './block-focus';
-import {ensureFragmentAnchor, fragmentCandidates, parseFragmentCompletionQuery, resolveFragment} from './fragments';
+import {resolveFragment} from './fragments';
 import {blockDisplayTitle} from './references';
 import {propertyInspectorAuthoredText} from './property-inspector';
-import type {ReferencedPathCandidate} from './files';
-import type {Block, BlockSearchQuery, GotoSearchCollection, PageAddressCollection, SelectionContext, VisibleBlockCollection} from './types';
-import type {FragmentCandidateCollection, FragmentCandidateQuery} from './fragment-search';
+import type {Block, PageAddressCollection, SelectionContext} from './types';
 import type {TextBuffer} from './text-buffer';
 
-export interface ReferenceCompletionItem {
-  label:string;
-  subtitle?:string;
+// Detail's, Tree's and Quick Capture's completion (PIE-1340): the token at the cursor by outline-core's one detector,
+// the rows from the service's completion sources and the extensions' (`completion.rows`), merged by outline-core's
+// one matcher with the picks every client shares, so these show the rows the door shows for the same token. Each row
+// keeps its kind, detail and docs; what Detail draws of them is its own.
+
+/** A row as these editors hold it: the contract's row with its insert as the text it writes. */
+export interface ReferenceCompletionItem extends Omit<SourceRow,"insert"> {
   insertion:string;
-  blockId?:string;
-  address?:string;
-  fragmentId?:string;
-  kind?:string;
+  selection?:{start:number;end:number};
+  /** The lit row's docs once read again from its note (ancestors and how it starts); `docs` until then. */
   context?:string;
-  /** A heading that gets its anchor when chosen: in another note through the service, in the draft as `line`. */
-  anchor?:{blockId:string;fragmentId:string;lineIndex:number;line:string;text?:string;expectedRevision:number};
+  /** Kept for the list's subtitle: the row's detail. */
+  subtitle?:string;
 }
 export interface ReferenceCompletionState {
   start:number;end:number;index:number;items:ReferenceCompletionItem[];
@@ -29,83 +29,52 @@ export interface ReferenceCompletionState {
   message?:string;
   loading?:boolean;
   generation?:number;
+  /** What the list is: `references`, `agents`, `in Greenhouse meeting`. */
+  heading?:string;
+  /** The key a pick is counted under (`completion.picked`). */
+  pickKey?:string;
+  /** What was typed: the letters the list lights. */
+  query?:string;
+  /** Its one row is a new page nobody has chosen yet: ⏎ is the editor's (a new line), ↓ or a click chooses it. */
+  lone?:boolean;
 }
 export interface ReferenceCompletionProvider {
-  queryBlocks(query:BlockSearchQuery):Promise<VisibleBlockCollection>;
+  /** The service's completion sources for the token (`completion.rows`). */
+  completionRows(request:CompletionRowsRequest):Promise<CompletionRowsResult>;
+  /** Count a pick, so every client ranks it higher next time (`completion.picked`). */
+  completionPicked?(key:string,insert:string):Promise<unknown>;
   queryPageAddresses(query:string|undefined,limit:number):Promise<PageAddressCollection>;
-  completeFiles(query:string):Promise<ReferencedPathCandidate[]>;
   readContext(blockId:string):Promise<SelectionContext>;
   updateBlock(input:{blockId:string;text:string;expectedRevision:number}):Promise<Block>;
-  /** The service's fragment completion over every note (PIE-424, PIE-295); without it, the first 500 blocks are searched here. */
-  fragmentCandidates?(query:FragmentCandidateQuery):Promise<FragmentCandidateCollection>;
   /** The service writes a heading's anchor, revision-checked. */
   ensureFragment?(input:{blockId:string;lineIndex:number;expectedRevision:number}):Promise<{fragmentId:string;created:boolean}>;
-  /** The one search (`tree.search`, src/search-match.ts), from the note being edited; `((` uses it when given. */
-  searchBlocks?(query:string,contextBlockId?:string):Promise<GotoSearchCollection>;
+  /** Make a page nobody has written yet (`pages.follow`), before it's linked. */
+  followPage?(address:string):Promise<{created:boolean;status:string;block?:Block}>;
 }
-const unsupportedAction=(error:unknown)=>/unsupported action|unknown action/i.test(error instanceof Error?error.message:String(error));
 export interface CompletionDraft {blockId:string;text:string}
 const LIMIT=20;
 function snippet(text:string):string {
   return propertyInspectorAuthoredText(text).split(/\r?\n/).slice(1).join(' ').replace(/\s+/g,' ').trim().slice(0,240);
 }
-export async function lookupReferenceCompletion(provider:ReferenceCompletionProvider,target:CompletionTarget,prefix:string|null,draft?:CompletionDraft):Promise<ReferenceCompletionState> {
-  let items:ReferenceCompletionItem[]=[],truncatedLimit:number|null=null,message='',incompleteness='';
-  if(target.kind==='file') {
-    const files=await provider.completeFiles(target.query);
-    items=files.slice(0,LIMIT).map(file=>({label:file.sourcePath,kind:file.isDirectory?'folder':'file',insertion:`[file::${file.sourcePath}${file.isDirectory?'':']'}`}));
-    if(files.length>LIMIT)truncatedLimit=LIMIT;
-    message='No matching files';
-  } else if(target.kind==='page') {
-    const result=await provider.queryPageAddresses(pageCompletionLookupQuery(target.query,prefix)||undefined,LIMIT);
-    items=result.addresses.map(address=>({...pageAddressCompletion(address,target.query,prefix),subtitle:address.subtitle,blockId:address.blockId,address:address.address,kind:address.kind}));
-    if(result.completeness.kind==='truncated')truncatedLimit=result.completeness.limit;
-    message='No matching named addresses; [[target|label]] labels a target, ((...)) searches blocks';
-  } else {
-    const fragment=parseFragmentCompletionQuery(target.query);
-    if(fragment&&provider.fragmentCandidates){
-      // The service searches every note by its own fragment rules (PIE-424); PIE-295's 500-block cap is gone.
-      try{
-        const found=await provider.fragmentCandidates({...(fragment.blockQuery?{noteQuery:fragment.blockQuery}:{}),fragmentQuery:fragment.fragmentQuery,mode:fragment.mode,limit:LIMIT,...(draft?{draft}:{})});
-        items=found.items.map(hit=>{
-          const fragmentId=hit.fragmentId??hit.anchor!.fragmentId;
-          return {label:`${hit.title} › ${hit.kind==='heading'?'#':'¶'} ${hit.label}${hit.fragmentId?` · ^${hit.fragmentId}`:' · create anchor'}`,blockId:hit.blockId,fragmentId,kind:'fragment',insertion:`((${hit.blockId}^${fragmentId}))`,
-            ...(hit.anchor?{anchor:{blockId:hit.blockId,fragmentId,lineIndex:hit.lineIndex,line:hit.anchor.line,expectedRevision:hit.revision}}:{})};
-        });
-        if(found.completeness.kind==='truncated'){truncatedLimit=found.completeness.limit;incompleteness=`Showing first ${found.completeness.limit} fragments`;}
-        const message='No matching block fragments';
-        return {start:target.start,end:target.end,index:0,items,truncatedLimit,incompleteness,message:items.length?incompleteness:message};
-      }catch(error){if(!unsupportedAction(error))throw error;}
-    }
-    if(!fragment&&provider.searchBlocks){
-      // Goto's ranker: punctuation, word order and typos forgiven, nearer the draft's note first; `((` alone lists what's linked around it.
-      const found=await provider.searchBlocks(target.query,draft?.blockId);
-      items=found.matches.slice(0,LIMIT).map(match=>({label:match.title,subtitle:match.subtitle,blockId:match.block.id,kind:'block',context:[match.path,snippet(match.snippet)].filter(Boolean).join(' › '),insertion:`((${match.block.id}))`}));
-      if(found.matches.length>LIMIT)truncatedLimit=LIMIT;
-      return {start:target.start,end:target.end,index:0,items,truncatedLimit,incompleteness,message:items.length?(truncatedLimit?`Showing first ${truncatedLimit} matches`:''):'No matching blocks'};
-    }
-    const result=await provider.queryBlocks(fragment?{limit:500}:{text:target.query||undefined,limit:LIMIT});
-    if(result.completeness.kind==='truncated'){truncatedLimit=result.completeness.limit;incompleteness=fragment?`Searched only ${result.blocks.length} blocks; more blocks were not checked`:'';}
-    if(!fragment)items=result.blocks.map(block=>({label:blockDisplayTitle(block),subtitle:subtitleOf(block),blockId:block.id,kind:'block',context:snippet(block.text),insertion:`((${block.id}))`}));
-    else {
-      const blocks=fragment.blockQuery?rankBlockFocusMatches(result.blocks,fragment.blockQuery,50).map(match=>match.block):result.blocks;
-      if(fragment.blockQuery&&result.blocks.length>blocks.length)incompleteness=[incompleteness,`Checked fragments in ${blocks.length} ranked blocks; other blocks were not checked`].filter(Boolean).join(' · ');
-      let candidates=0;
-      outer: for(const block of blocks){
-        const source=block.id===draft?.blockId?draft.text:block.text;
-        for(const candidate of fragmentCandidates(source,fragment.fragmentQuery,fragment.mode)){
-          candidates++;
-          if(items.length>=LIMIT)break outer;
-          const anchor=candidate.fragmentId?{text:source,fragmentId:candidate.fragmentId,created:false}:ensureFragmentAnchor(source,candidate.lineIndex);
-          items.push({label:`${blockDisplayTitle(block)} › ${candidate.kind==='heading'?'#':'¶'} ${candidate.label}${candidate.fragmentId?` · ^${candidate.fragmentId}`:' · create anchor'}`,blockId:block.id,fragmentId:anchor.fragmentId,kind:'fragment',context:snippet(source),insertion:`((${block.id}^${anchor.fragmentId}))`,...(anchor.created?{anchor:{blockId:block.id,fragmentId:anchor.fragmentId,lineIndex:candidate.lineIndex,line:anchor.text.split(/\r?\n/)[candidate.lineIndex]!,text:anchor.text,expectedRevision:block.revision}}:{})});
-        }
-      }
-      if(candidates>LIMIT){truncatedLimit=LIMIT;incompleteness=[incompleteness,`Showing first ${LIMIT} fragments`].filter(Boolean).join(' · ');}
-    }
-    message=fragment?'No matching block fragments':'No matching blocks';
-  }
-  return {start:target.start,end:target.end,index:0,items,truncatedLimit,incompleteness,message:items.length?(incompleteness||(truncatedLimit?`Showing first ${truncatedLimit} matches`:'')):[incompleteness?`Partial search: ${incompleteness}`:'',message].filter(Boolean).join(' · ')};
+const HEADINGS:Partial<Record<string,string>>={page:'references',block:'references',file:'files',agent:'agents',value:'values',key:'properties',callout:'callout types',component:'components'};
+
+export async function lookupReferenceCompletion(provider:ReferenceCompletionProvider,target:CompletionTarget,draft?:CompletionDraft):Promise<ReferenceCompletionState> {
+  const r=await provider.completionRows({target:{kind:target.kind,query:target.query,...(target.key?{key:target.key}:{}),...(target.component?{component:target.component}:{})},limit:LIMIT,...(draft?{near:draft.blockId,draft}:{})});
+  const items:ReferenceCompletionItem[]=mergeSourceAnswers(r.answers,target.query,{picks:r.picks}).map(({insert,from:_f,tier:_t,...row})=>{
+    const selection=insertSelection(insert);
+    return {...row,insertion:insertText(insert),...(selection?{selection}:{}),...(row.detail?{subtitle:row.detail}:{}),...(row.docs?{context:row.docs}:{})};
+  });
+  const truncatedLimit=r.answers.find(a=>a.truncated)?.truncated??null;
+  const partial=r.answers.map(a=>a.partial).find(Boolean)??'';
+  const problems=r.answers.map(a=>a.problem).filter(Boolean).join(' · ');
+  const empty=r.answers.map(a=>a.empty).filter(Boolean).join(' · ')||'No matches';
+  const heading=r.answers.map(a=>a.heading).find(Boolean)??HEADINGS[target.kind]??'completions';
+  const message=items.length?[partial||(truncatedLimit?`Showing first ${truncatedLimit} matches`:''),problems].filter(Boolean).join(' · '):[partial&&`Partial search: ${partial}`,empty,problems].filter(Boolean).join(' · ');
+  return {start:target.start,end:target.end,index:0,items,truncatedLimit,incompleteness:partial,message,heading,query:target.query,pickKey:pickKey({trigger:triggerOf(target.kind),kind:target.kind,key:target.key})};
 }
+
+/** Whether a token with nothing to offer still shows its words: a reference does; a property or a component doesn't open. */
+const SAYS_EMPTY=new Set(['page','block','file']);
 
 /** One editor-local lookup lane. No canonical text or anchor writes until acceptance. */
 export class ReferenceCompletionSession {
@@ -114,7 +83,7 @@ export class ReferenceCompletionSession {
   private accepting=false;
   private selectedInsertion?:string;
   private snapshot?:{text:string;row:number;column:number;buffer:TextBuffer};
-  constructor(private provider:ReferenceCompletionProvider,private buffer:()=>TextBuffer,private prefix:()=>string|null,private changed:()=>void,private active:()=>boolean,private draft:()=>CompletionDraft|undefined=()=>undefined){}
+  constructor(private provider:ReferenceCompletionProvider,private buffer:()=>TextBuffer,private changed:()=>void,private active:()=>boolean,private draft:()=>CompletionDraft|undefined=()=>undefined){}
   dismiss():void {this.generation++;this.state=null;this.snapshot=undefined;this.changed();}
   private current(generation:number):boolean {
     const b=this.buffer(),s=this.snapshot;
@@ -127,9 +96,12 @@ export class ReferenceCompletionSession {
     this.snapshot={text:b.text,row:b.row,column:b.column,buffer:b};
     this.state={start:target.start,end:target.end,index:0,items:[],generation,loading:true,message:'Finding references…'};this.changed();
     try{
-      const result=await lookupReferenceCompletion(this.provider,target,this.prefix(),this.draft());
+      const result=await lookupReferenceCompletion(this.provider,target,this.draft());
       if(!this.current(generation))return;
+      if(!result.items.length&&!SAYS_EMPTY.has(target.kind)){this.dismiss();return;}
       result.index=Math.max(0,result.items.findIndex(item=>item.insertion===selected));
+      // A new page alone on the list is chosen on purpose (↓, a click, tab): ⏎ stays the editor's until then.
+      if(result.items.length===1&&result.items[0]!.newPage)result.lone=true;
       this.selectedInsertion=result.items[result.index]?.insertion;
       result.generation=generation;this.state=result;this.changed();void this.enrich(generation);
     }catch(error){if(this.current(generation)){this.state={start:target.start,end:target.end,index:0,items:[],message:`Lookup failed: ${error instanceof Error?error.message:String(error)}`};this.changed();}}
@@ -142,7 +114,9 @@ export class ReferenceCompletionSession {
       item.context=context.selected?[...context.ancestors.map(blockDisplayTitle),snippet(context.selected.text)].filter(Boolean).join(' › '):'Target unavailable';this.changed();
     }catch(error){if(this.current(generation)&&this.state?.items[this.state.index]===item){item.context=`Context unavailable: ${error instanceof Error?error.message:String(error)}`;this.changed();}}
   }
-  move(delta:number):void{if(!this.state)return;this.state.index=Math.max(0,Math.min(this.state.items.length-1,this.state.index+delta));this.selectedInsertion=this.state.items[this.state.index]?.insertion;this.changed();void this.enrich();}
+  /** Whether ⏎ inserts the lit row: there is one, and it isn't a lone new page nobody chose on purpose (↓ first, PIE-592). */
+  get chooses():boolean{return !!this.state?.items.length&&!this.state.lone;}
+  move(delta:number):void{if(!this.state)return;this.state.lone=false;this.state.index=Math.max(0,Math.min(this.state.items.length-1,this.state.index+delta));this.selectedInsertion=this.state.items[this.state.index]?.insertion;this.changed();void this.enrich();}
   async accept(index=this.state?.index??0,renderedGeneration?:number):Promise<boolean>{
     const state=this.state,item=state?.items[index],generation=this.generation;
     if(this.accepting||!state||!item||(renderedGeneration!==undefined&&renderedGeneration!==generation)||!this.current(generation))return false;
@@ -163,15 +137,19 @@ export class ReferenceCompletionSession {
           if(resolveFragment(source,item.fragmentId).status!=='resolved')throw Error('Fragment changed or is ambiguous; search again');
         }
         if(item.anchor&&item.blockId!==this.draft()?.blockId){
-          const anchor=item.anchor;
-          if(this.provider.ensureFragment){
-            // The service writes the anchor, revision-checked; a different id than offered means the note moved on.
-            const written=await this.provider.ensureFragment({blockId:anchor.blockId,lineIndex:anchor.lineIndex,expectedRevision:anchor.expectedRevision});
-            if(written.fragmentId!==anchor.fragmentId)throw Error('Fragment changed; search again');
-          }else if(anchor.text!==undefined)await this.provider.updateBlock({blockId:anchor.blockId,text:anchor.text,expectedRevision:anchor.expectedRevision});
-          else throw Error('This service cannot add the anchor; search again');
+          if(!this.provider.ensureFragment)throw Error('This service cannot add the anchor; search again');
+          // The service writes the anchor, revision-checked; a different id than offered means the note moved on.
+          const written=await this.provider.ensureFragment({blockId:item.blockId,lineIndex:item.anchor.lineIndex,expectedRevision:item.anchor.revision});
+          if(written.fragmentId!==item.fragmentId)throw Error('Fragment changed; search again');
           if(!this.current(generation))return false;
         }
+      }
+      // A new page (PIE-592): made before it's linked, so the link never names nothing.
+      if(item.newPage){
+        if(!this.provider.followPage)throw Error('This editor cannot make a page; write it as [[name]] and follow it');
+        const made=await this.provider.followPage(item.newPage);
+        if(!this.current(generation))return false;
+        if(!made.block)throw Error(made.status==='deleted'?`[[${item.newPage}]] is a page in the trash: restore it there`:`The page wasn't made (${made.status})`);
       }
       const b=this.buffer();
       b.editTogether(()=>{
@@ -179,20 +157,21 @@ export class ReferenceCompletionSession {
         b.replaceLine(item.anchor.lineIndex,item.anchor.line);
       }
       b.replaceCurrentLine(state.start,state.end,item.insertion);
-      });this.dismiss();return true;
+      });
+      if(state.pickKey)void this.provider.completionPicked?.(state.pickKey,item.insertion).catch(()=>{});
+      this.dismiss();return true;
     }catch(error){if(this.current(generation)){state.message=error instanceof Error?error.message:String(error);this.changed();}return false;}finally{this.accepting=false;}
   }
 }
 
 export function referenceCompletionProvider(client:OutlinerRequester,actorId:string):ReferenceCompletionProvider {
   return {
-    queryBlocks:query=>client.request({action:"blocks.query",query}),
-    fragmentCandidates:query=>client.request({action:"fragments.candidates",query}),
+    completionRows:request=>client.request({action:"completion.rows",...request}),
+    completionPicked:(key,insert)=>client.request({action:"completion.picked",key,insert}),
     ensureFragment:input=>client.request({action:"fragments.ensure",...input,mutation:{author:"user",actorId}}),
     queryPageAddresses:(query,limit)=>client.request({action:"pages.complete",query,limit}),
-    searchBlocks:(query,contextBlockId)=>client.request({action:"tree.search",query,...(contextBlockId?{contextBlockId}:{})}),
-    completeFiles:prefix=>client.request({action:"files.complete",prefix}),
     readContext:blockId=>client.request({action:"blocks.context",blockId}),
     updateBlock:input=>client.request({action:"update",...input,mutation:{author:"user",actorId}}),
+    followPage:address=>client.request({action:"pages.follow",address,author:"user"}),
   };
 }

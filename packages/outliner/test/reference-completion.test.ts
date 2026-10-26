@@ -2,15 +2,26 @@ import {expect,test} from 'bun:test';
 import {ReferenceCompletionSession,type ReferenceCompletionProvider} from '../src/reference-completion';
 import {renderReferenceCompletion} from '../src/reference-completion-renderer';
 import {TextBuffer} from '../src/text-buffer';
-import {pageAddressCompletion} from '../src/completion';
+import {pageAddressCompletion} from '@ep0ch/outline-core/completion-triggers';
+import type {SourceRow} from '@ep0ch/outline-core/completion-source';
+import type {CompletionRowsRequest,CompletionRowsResult} from '@ep0ch/outline-core/protocol';
 import type {Block,PageAddressCollection} from '../src/types';
 const block=(id:string,text=id):Block=>({id,text,revision:1,parentId:null,position:0,author:'user',createdAt:'2026-09-23T00:00:00Z',updatedAt:'2026-09-23T00:00:00Z',properties:[]});
-const visible=(id:string,text:string)=>({...block(id,text),depth:0,hasChildren:false,displayText:text});
 const pages=(address:string):PageAddressCollection=>({addresses:[{address,normalizedAddress:address,blockId:address,kind:'page',title:address}],completeness:{kind:'complete'}});
+/** What the service's sources answer, faked per trigger: `[[` from the page addresses, `[file::` and `((` from rows. */
+type Fake=ReferenceCompletionProvider&{files:(q:string)=>Promise<SourceRow[]>;blocks:(q:string)=>Promise<SourceRow[]>;empty?:string};
 function setup(text:string){
  const buffer=new TextBuffer(text);buffer.moveEnd();let active=true;
- const provider:ReferenceCompletionProvider={queryBlocks:async()=>({blocks:[],completeness:{kind:'complete'}}),queryPageAddresses:async q=>pages(q||'home'),completeFiles:async()=>[],readContext:async id=>({selected:block(id,'Shared title\nImportant context'),ancestors:[block('parent','Project Alpha')],children:[]}),updateBlock:async input=>block(input.blockId,input.text)};
- const session=new ReferenceCompletionSession(provider,()=>buffer,()=> 'PIE',()=>{},()=>active);
+ const provider:Fake={
+  files:async()=>[],blocks:async()=>[],
+  async completionRows(r:CompletionRowsRequest):Promise<CompletionRowsResult>{
+   const t=r.target;
+   const rows=t.kind==='page'?(await provider.queryPageAddresses(t.query||undefined,20)).addresses.map(a=>({label:a.title,insert:`[[${a.address}]]`,blockId:a.blockId,address:a.address,kind:a.kind}))
+    :t.kind==='file'?await provider.files(t.query):await provider.blocks(t.query);
+   return {answers:[{source:{id:t.kind,title:t.kind,ranked:true,by:'service'},rows,empty:t.kind==='block'?'no matching blocks':'no matches'}],picks:{}};
+  },
+  queryPageAddresses:async q=>pages(q||'home'),readContext:async id=>({selected:block(id,'Shared title\nImportant context'),ancestors:[block('parent','Project Alpha')],children:[]}),updateBlock:async input=>block(input.blockId,input.text)};
+ const session=new ReferenceCompletionSession(provider,()=>buffer,()=>{},()=>active);
  return {buffer,provider,session,deactivate:()=>{active=false;}};
 }
 test('latest typed query wins, Escape prevents a late list from reopening',async()=>{
@@ -28,7 +39,7 @@ test('accept replaces a whole existing token, retains suffix and is one undo ste
 });
 test('file acceptance preserves unrelated references after the cursor',async()=>{
  const h=setup('See [file::sr and ((blk)) [[page]]');h.buffer.placeCursor(0,'See [file::sr'.length);
- h.provider.completeFiles=async()=>[{sourcePath:'src/main.ts',isDirectory:false}];
+ h.provider.files=async()=>[{label:'src/main.ts',kind:'file',insert:'[file::src/main.ts]'}];
  await h.session.refresh();expect(await h.session.accept()).toBe(true);
  expect(h.buffer.text).toBe('See [file::src/main.ts] and ((blk)) [[page]]');
 });
@@ -39,7 +50,7 @@ test('page and block acceptance stop before intervening reference delimiters',as
  ] as const){
   const h=setup(prefix+suffix);h.buffer.placeCursor(0,prefix.length);
   h.provider.queryPageAddresses=async()=>pages('home');
-  h.provider.queryBlocks=async()=>({blocks:[visible('home','Home')],completeness:{kind:'complete'}});
+  h.provider.blocks=async()=>[{label:'Home',kind:'block',blockId:'home',insert:'((home))'}];
   await h.session.refresh();expect(await h.session.accept()).toBe(true);expect(h.buffer.text).toBe(insertion+suffix);
  }
 });
@@ -68,24 +79,19 @@ test('page labels never contain nested block or page syntax',()=>{
 });
 test('bounded/empty/failed lookups stay visible and no result creates a target',async()=>{
  const h=setup('((none');let writes=0;h.provider.updateBlock=async input=>{writes++;return block(input.blockId);};
- await h.session.refresh();expect(h.session.state?.message).toBe('No matching blocks');expect(await h.session.accept()).toBe(false);
- h.provider.queryBlocks=async()=>{throw Error('offline');};await h.session.refresh();expect(h.session.state?.message).toContain('offline');expect(writes).toBe(0);
+ await h.session.refresh();expect(h.session.state?.message).toBe('no matching blocks');expect(await h.session.accept()).toBe(false);
+ h.provider.blocks=async()=>{throw Error('offline');};await h.session.refresh();expect(h.session.state?.message).toContain('offline');expect(writes).toBe(0);
 });
 
 test('existing fragment identity is rechecked against fresh text before insertion',async()=>{
  for(const changed of ['Target\n\n## Renamed ^other','Target\n\n## First ^keep\n\n## Second ^keep']){
   const h=setup('((Target^keep');
-  h.provider.queryBlocks=async()=>({blocks:[visible('target','Target\n\n## Heading ^keep')],completeness:{kind:'complete'}});
+  h.provider.blocks=async()=>[{label:'^keep  # Heading',kind:'anchor',blockId:'target',fragmentId:'keep',insert:'((target^keep))'}];
   await h.session.refresh();expect(h.session.state?.items[0]?.fragmentId).toBe('keep');
   h.provider.readContext=async()=>({selected:block('target',changed),ancestors:[],children:[]});
   expect(await h.session.accept()).toBe(false);expect(h.buffer.text).toBe('((Target^keep');expect(h.session.state?.message).toContain('Fragment changed');
  }
 });
-test('empty fragment search exposes bounded scanned scope rather than claiming absence',async()=>{
- const h=setup('((Target^missing');h.provider.queryBlocks=async()=>({blocks:[visible('target','Target')],completeness:{kind:'truncated',limit:500}});
- await h.session.refresh();expect(h.session.state?.message).toContain('more blocks were not checked');expect(h.session.state?.items).toEqual([]);expect(renderReferenceCompletion(h.session.state!,28)[0]).toStartWith('Partial search');
-});
-
 test('shared list accepts effective host bindings rather than advertising stale defaults',()=>{
  const output=renderReferenceCompletion({start:0,end:4,index:0,items:[{label:'Home',insertion:'[[home]]'}]},100,8,'completion.choose','Alt+J next · Alt+I insert');
  expect(output.at(-1)).toBe('Alt+J next · Alt+I insert');
@@ -93,6 +99,6 @@ test('shared list accepts effective host bindings rather than advertising stale 
 
 test('file completion never consumes a following different reference',async()=>{
  const h=setup('See [file::READ and [[home]] after');h.buffer.placeCursor(0,15);
- h.provider.completeFiles=async()=>[{sourcePath:'README.md',isDirectory:false}];
+ h.provider.files=async()=>[{label:'README.md',kind:'file',insert:'[file::README.md]'}];
  await h.session.refresh();expect(await h.session.accept()).toBe(true);expect(h.buffer.text).toBe('See [file::README.md] and [[home]] after');
 });

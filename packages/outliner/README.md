@@ -1025,8 +1025,8 @@ listener is untouched (below): read-only, marked notes only.
   text, so it shows them in place.
 - **Completion in the comment and reply boxes** (PIE-789): `[[` a page, a Work ID or an alias (`pages.complete`), `((`
   a note (`tree.search`, as `((id))`), `#` a tag the outline already has (`properties.catalog`). The page sends the line
-  being written and the cursor (`<base>/_marginalia/complete`); the outliner's own completion rules
-  (`src/completion.ts`) find the token and write what the door writes. Nothing is required: what's typed is saved as
+  being written and the cursor (`<base>/_marginalia/complete`); outline-core's trigger detector
+  (`completion-triggers.ts`) finds the token and the insertion is what the door writes. Nothing is required: what's typed is saved as
   typed. Through a share that takes comments, `[[` and `((` offer only notes inside it, and `#` nothing.
 - **The owner's own pages.** The tailnet listener and the signed-in one (my.ep0ch.sh) are the owner reading his own
   outline, so nothing there is held back by `[publish::]` except the `never` lock: a `[publish::false]` note and an
@@ -2167,7 +2167,7 @@ bodies and replies. The annotation document also scrolls through its full eviden
 | `Ctrl+S` | Save a block or writable filesystem Resource, or add an annotation |
 | `Esc` | Cancel the complete edit session and return to Tree |
 
-Inline completion shares bounded lookup, insertion and contextual rows with Tree editing. The selected candidate loads its ancestry and short body context. Named pages/aliases/Work IDs remain distinct from canonical blocks/fragments. Empty, failed and truncated lookup states are visible; newer typing or dismissal invalidates older replies. Acceptance rechecks targets and symbolic addresses, replaces the complete active token, and preserves surrounding text. Local fragment creation and insertion form one undo step. No Jev call is made per keystroke.
+Inline completion shares bounded lookup, insertion and contextual rows with Tree editing and Quick Capture, and asks the service's completion sources (`completion.rows`, PIE-1340): the rows the door lists for the same token, extensions' sources among them, ranked by outline-core's one matcher with the picks every client shares. Each row shows its kind at the right and its detail dim; the lit row's docs sit under the list, and its ancestry and short body context load when it's selected. `[[name` that no page has offers a new page, which ⏎ takes only after ↓. Named pages/aliases/Work IDs remain distinct from canonical blocks/fragments. Empty, failed and truncated lookup states are visible; newer typing or dismissal invalidates older replies. Acceptance rechecks targets and symbolic addresses, replaces the complete active token, and preserves surrounding text. Local fragment creation and insertion form one undo step. No Jev call is made per keystroke.
 
 Long physical lines wrap without changing raw text. Continuation rows remain associated with one physical line number, and keyboard or pointer selection maps back to exact authored source. Bracketed paste replaces the selection and remains one edit even when terminal payload chunks arrive separately. Keyboard cursor movement keeps the active edge visible.
 

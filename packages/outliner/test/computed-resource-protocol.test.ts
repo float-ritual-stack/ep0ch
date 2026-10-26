@@ -177,6 +177,9 @@ function computedDetailEffects(
     async queryPageAddresses() {
       return { addresses: [], completeness: { kind: "complete" } };
     },
+    async completionRows() { return { answers: [], picks: {} }; },
+    async completionPicked() { return {}; },
+    async followPage() { return { created: false, status: "missing" }; },
     async readFile() {
       return unavailable();
     },

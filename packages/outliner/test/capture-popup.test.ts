@@ -231,7 +231,7 @@ describe("CapturePopupController", () => {
 
 function completionProvider():ReferenceCompletionProvider{
  const target:Block={id:'target',text:'Home\nUseful context',revision:1,parentId:null,position:0,author:'user',createdAt:'now',updatedAt:'now',properties:[]};
- return {queryBlocks:async()=>({blocks:[{...target,depth:0,hasChildren:false,displayText:target.text}],completeness:{kind:'complete'}}),queryPageAddresses:async()=>({addresses:[{address:'home',normalizedAddress:'home',blockId:target.id,title:'Home',kind:'page'}],completeness:{kind:'complete'}}),completeFiles:async()=>[],readContext:async()=>({selected:target,ancestors:[],children:[]}),updateBlock:async()=>{throw Error('unexpected write');}};
+ return {completionRows:async r=>({answers:[{source:{id:'s',title:'s',ranked:true,by:'service'},rows:r.target.kind==='page'?[{label:'home · Home',insert:'[[home]]',blockId:target.id,address:'home',kind:'page'}]:[{label:'Home',insert:`((${target.id}))`,blockId:target.id,kind:'block'}]}],picks:{}}),queryPageAddresses:async()=>({addresses:[{address:'home',normalizedAddress:'home',blockId:target.id,title:'Home',kind:'page'}],completeness:{kind:'complete'}}),readContext:async()=>({selected:target,ancestors:[],children:[]}),updateBlock:async()=>{throw Error('unexpected write');}};
 }
 test('capture completion inserts at a multiline cursor with one undo and preserves save receipt',async()=>{
  const h=popup({completionProvider:completionProvider()});h.controller.handlePaste('First line\nSee [[ho trailing');h.controller.buffer.placeCursor(1,8);await h.controller.completions!.refresh();

@@ -428,7 +428,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let mode: TreeMode = "browse";
   let quickBuffer = new TextBuffer();
   let quickCompletion: MutableQuickCompletion | null = null;
-  const completions=new ReferenceCompletionSession(referenceCompletionProvider(effects,"tree"),()=>quickBuffer,()=>workIdPrefix,
+  const completions=new ReferenceCompletionSession(referenceCompletionProvider(effects,"tree"),()=>quickBuffer,
     ()=>{quickCompletion=completions.state?{...completions.state,truncatedLimit:completions.state.truncatedLimit??null}:null;effects.invalidate();},
     ()=>["edit","add-child","add-sibling"].includes(mode),()=>quickEditSource?{blockId:quickEditSource.id,text:quickBuffer.text}:undefined);
 
@@ -2947,7 +2947,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       if (quickCompletion && ["up","down","return","tab","escape"].includes(key.name??"")) {
         if (key.name === "up") moveQuickCompletion(-1);
         else if (key.name === "down") moveQuickCompletion(1);
-        else if (key.name === "return" && !quickCompletion.items.length) await finishInput();
+        else if (key.name === "return" && !completions.chooses) await finishInput();
         else if (key.name === "return" || key.name === "tab") await applyQuickCompletion();
         else if (key.name === "escape") {if(mode==="filter")quickCompletion=null;else completions.dismiss();}
         effects.invalidate();

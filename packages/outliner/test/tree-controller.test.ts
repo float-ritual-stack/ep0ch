@@ -1,4 +1,5 @@
 import {OutlinerUiConfig} from "../src/ui-config";
+import { completionRows } from "../src/completion-sources";
 import { OutlinerStore } from "../src/store";
 import {initTheme} from "@earendil-works/pi-coding-agent";
 initTheme(undefined,false);
@@ -196,6 +197,17 @@ function harness(
           for (const source of collection.blocks) documents.set(source.id, source);
           return { ...collection, blocks: collection.blocks.map(source => treeIndexFixture(source, id => documents.get(id) ?? null)) } as T;
         }
+        // Completion (PIE-1340): the service's real sources, run over this fake's answers.
+        if (response === undefined && input.action === "completion.rows") {
+          const svc = { request: async <U>(action: string, rest: Record<string, unknown>): Promise<U> => {
+            const answer = await result.effects.request<U>({ action, ...rest } as RequestInput);
+            if (action === "references.resolve") return { ...(answer as object), workIdPrefix: lastIndex?.workIdPrefix ?? null } as U;
+            if (answer === undefined) throw new Error(`no ${action} here`);
+            return answer;
+          } };
+          return await completionRows(svc, input as never, [], async () => [], {}) as T;
+        }
+        if (response === undefined && input.action === "completion.picked") return {} as T;
         if (response === undefined && input.action === "annotations.list") return [] as T;
         if (response === undefined && input.action === "references.backlinks") return {targetBlockId:input.query.targetBlockId,sources:[],completeness:{kind:"complete"}} as T;
         if (response === undefined && input.action === "get") return (documents.get(input.blockId) ?? null) as T;
@@ -2116,7 +2128,8 @@ describe("createTreeController", () => {
       const opening = controller.handleKeypress("", { name: "tab" }, "pass");
       await started.promise;
       if (lookup !== "loading") await opening;
-      expect(controller.view().quickCompletion?.items).toEqual([]);
+      // Nothing matches but a new page to make, which ⏎ never takes unless chosen (↓ first).
+      expect((controller.view().quickCompletion?.items ?? []).map(item => item.kind)).toEqual(lookup === "empty" ? ["new"] : []);
       await controller.handleKeypress("", { name: "return" }, "pass");
       expect(fake.calls).toContainEqual(expect.objectContaining({ action: "update", blockId: selected.id, text: "[[draft" }));
       expect(controller.view().mode).toBe("browse");
@@ -2154,10 +2167,11 @@ describe("createTreeController", () => {
       action: "pages.complete",
       query: "ho",
       limit: 20,
+      contextBlockId: "selected",
     }]);
     expect(fake.calls.some((call) => call.action === "tree.query")).toBe(false);
     expect(controller.view().quickCompletion?.items[0]).toMatchObject({
-      label: "home — Home",
+      label: "home · Home",
       insertion: "[[home]]",
       blockId: "home-id",
     });
@@ -2199,6 +2213,7 @@ describe("createTreeController", () => {
       action: "pages.complete",
       query: "PIE-175",
       limit: 20,
+      contextBlockId: "selected",
     });
     await controller.handleKeypress("", { name: "tab" }, "pass");
     expect(controller.view().quickInput).toBe(

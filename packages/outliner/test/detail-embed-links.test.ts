@@ -13,7 +13,7 @@ import {linkOutlinerMarkdown, parseOutlinerLinkUri} from '../src/outliner-links'
 import type {Block} from '../src/types';
 import { resolveBlockReferencesWithStatus } from '../src/references';
 import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from '@ep0ch/outline-core/link-syntax';
-import {completionTargetAtCursor} from '../src/completion';
+import {referenceTargetAtCursor as completionTargetAtCursor} from '@ep0ch/outline-core/completion-triggers';
 
 const plain = (value: string) => value;
 const theme: MarkdownTheme = {heading:plain,link:plain,linkUrl:plain,code:plain,codeBlock:plain,codeBlockBorder:plain,

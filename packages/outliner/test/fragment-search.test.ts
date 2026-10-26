@@ -124,7 +124,7 @@ test("Detail's completion (the shared session) finds a heading in a 600+ note ou
   const target = await client.request<Block>({ action: "create", text: "Orchard log\n## Pruning the plums" });
   for (let i = 0; i < 620; i++) await client.request<Block>({ action: "create", text: `Filler note ${i}\n## Heading ${i}` });
   const buffer = new TextBuffer("See ((Orchard#prun"); buffer.moveEnd();
-  const session = new ReferenceCompletionSession(referenceCompletionProvider(client, "detail"), () => buffer, () => null, () => {}, () => true);
+  const session = new ReferenceCompletionSession(referenceCompletionProvider(client, "detail"), () => buffer, () => {}, () => true);
   await session.refresh();
   expect(session.state?.message ?? "").not.toContain("Searched only");
   expect(session.state?.items[0]).toMatchObject({ blockId: target.id, fragmentId: "pruning-the-plums", anchor: { lineIndex: 1 } });

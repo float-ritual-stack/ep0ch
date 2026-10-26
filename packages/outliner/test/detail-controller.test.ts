@@ -10,6 +10,8 @@ import type {OutlinerNavigationTarget} from "../src/types";
 import { DetailReadingSurface } from "../src/detail-reading-surface";
 import { CURSOR_MARKER, stripTerminalSequences } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "bun:test";
+import { completionRows } from "../src/completion-sources";
+import { ensureFragmentAnchor, fragmentCandidates as fragmentCandidatesOf } from "../src/fragments";
 import {
   attentionClientState,
   normalizeAttentionMark,
@@ -530,6 +532,42 @@ function createHarness(
     async queryBlocks(query) {
       calls.queries.push(query);
       return queryResults.shift() ?? { blocks: [], completeness: { kind: "complete" } };
+    },
+    // The service's completion sources (PIE-1340), run for real over a little service made of this harness's fakes.
+    async completionRows(request) {
+      const blocks = () => queryResults[0]?.blocks ?? [];
+      const svc = { async request<T>(action: string, input: Record<string, unknown>): Promise<T> {
+        if (action === "references.resolve") return { workIdPrefix: "PIE" } as T;
+        if (action === "pages.complete") return await effects.queryPageAddresses(input.query as string | undefined, input.limit as number) as T;
+        if (action === "files.complete") return await effects.completeFiles(input.prefix as string) as T;
+        if (action === "extensions.list") return { extensions: [] } as T;
+        if (action === "tree.search") {
+          calls.queries.push({ text: input.query as string });
+          return { matches: blocks().filter(b => !input.query || b.id === input.query || b.text.toLowerCase().includes(String(input.query).toLowerCase())).map(b => ({ block: { id: b.id }, title: b.text.split("\n")[0]!, path: "", snippet: b.text })), completeness: { kind: "complete" } } as T;
+        }
+        if (action === "fragments.candidates") {
+          const q = input.query as { blockIds?: string[]; fragmentQuery: string; mode: "heading" | "id" | "passage"; draft?: { blockId: string; text: string } };
+          const items = blocks().filter(b => !q.blockIds || q.blockIds.includes(b.id)).flatMap(b => {
+            const text = q.draft?.blockId === b.id ? q.draft.text : b.text;
+            return fragmentCandidatesOf(text, q.fragmentQuery, q.mode === "passage" ? "id" : q.mode).map(c => {
+              const anchor = c.fragmentId ? null : ensureFragmentAnchor(text, c.lineIndex);
+              return { blockId: b.id, title: b.text.split("\n")[0]!, revision: b.revision, kind: c.kind, label: c.label, lineIndex: c.lineIndex,
+                ...(c.fragmentId ? { fragmentId: c.fragmentId } : { anchor: { fragmentId: anchor!.fragmentId, line: anchor!.text.split("\n")[c.lineIndex]! } }) };
+            });
+          });
+          return { items, completeness: { kind: "complete" } } as T;
+        }
+        throw new Error(`the harness has no ${action}`);
+      } };
+      return completionRows(svc, request, [], async () => [], {});
+    },
+    async completionPicked() { return {}; },
+    async followPage() { return { created: false, status: "missing" }; },
+    async ensureFragment(input) {
+      const target = (queryResults[0]?.blocks ?? []).find(b => b.id === input.blockId)!;
+      const made = ensureFragmentAnchor(target.text, input.lineIndex);
+      calls.updates.push({ blockId: input.blockId, text: made.text, expectedRevision: input.expectedRevision });
+      return { fragmentId: made.fragmentId, created: made.created };
     },
     async queryPageAddresses(query, limit) {
       calls.pageQueries.push({ query, limit });
@@ -4697,13 +4735,11 @@ describe("detail controller completion, navigation, and focus", () => {
 
     expect(harness.calls.updates).toEqual([]);
     expect(harness.controller.state.completion?.items).toMatchObject([{
-      label: "Target › # Durable heading · create anchor",
+      label: "# Durable heading · adds ^durable-heading",
       insertion: "((fragment-target^durable-heading))",
-      anchor: {
-        blockId: "fragment-target",
-        fragmentId: "durable-heading",
-        lineIndex: 2,
-      },
+      blockId: "fragment-target",
+      fragmentId: "durable-heading",
+      anchor: { lineIndex: 2 },
     }]);
 
 

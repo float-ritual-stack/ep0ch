@@ -1007,6 +1007,15 @@ test('empty completion states retain editor keys and Escape dismisses without ca
  }
 });
 
+test('a lone new page is the editor\'s ⏎ (a new line) until ↓ chooses it (PIE-592, PIE-1340)',async()=>{
+ const current=state();current.completion={start:0,end:5,index:0,items:[{label:'new page · Seed swap',insertion:'[[Seed swap]]',newPage:'Seed swap'}],lone:true};
+ const editor=harness(current);
+ await editor.press({name:'return'});await editor.press({name:'down'});
+ expect(editor.intents).toEqual([{type:'buffer.newline'},{type:'completion.move',delta:1}]);
+ current.completion.lone=false;await editor.press({name:'return'});
+ expect(editor.intents.at(-1)).toEqual({type:'completion.accept'});
+});
+
 test('completion keeps configured editor actions and configurable selection controls',async()=>{
  const current=state();current.completion={start:0,end:4,index:0,items:[{label:'Home',insertion:'[[home]]'}]};
  const actionKeymap=new OutlinerActionKeymap('<test>',{'detail.buffer.save':['Alt+S'],'detail.completion.next':['Alt+J'],'detail.completion.accept':['Alt+I']});

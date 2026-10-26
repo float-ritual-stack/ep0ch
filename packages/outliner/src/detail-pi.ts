@@ -2,7 +2,7 @@ import { eraseBack } from "@ep0ch/outline-core/graphemes";
 import { clientReload, reexecClient } from "./client-code";
 import type { RestoredBlock } from "@ep0ch/outline-core/protocol";
 import { installCrashLog } from "./crash-log";
-import type { FragmentCandidateCollection } from "./fragment-search";
+import type { CompletionRowsResult } from "@ep0ch/outline-core/protocol";
 import {captureAnnotationPassage} from "./document-annotation";
 import {loadDetailDraftPreview} from './detail-read-preview';
 import {PaneDisplay} from "./pane-display";
@@ -162,7 +162,6 @@ import {
   type OutlinerRegion,
   type InternResourceReceipt,
   type PageAddressCollection,
-  type GotoSearchCollection,
   type OutlinerNavigationTarget,
   type ResourceDescription,
   type ResolvedBlockReferences,
@@ -757,17 +756,20 @@ const effects: DetailEffects = {
   async queryBlocks(query) {
     return client.request<VisibleBlockCollection>({ action: "blocks.query", query });
   },
-  async fragmentCandidates(query) {
-    return client.request<FragmentCandidateCollection>({ action: "fragments.candidates", query });
+  async completionRows(request) {
+    return client.request<CompletionRowsResult>({ action: "completion.rows", ...request });
+  },
+  async completionPicked(key, insert) {
+    return client.request({ action: "completion.picked", key, insert });
+  },
+  async followPage(address) {
+    return client.request<{ created: boolean; status: string; block?: Block }>({ action: "pages.follow", address, author: "user" });
   },
   async ensureFragment(input) {
     return client.request<{ fragmentId: string; created: boolean }>({ action: "fragments.ensure", ...input, mutation: { author: "user", actorId: "detail" } });
   },
   async queryPageAddresses(query, limit) {
     return client.request<PageAddressCollection>({ action: "pages.complete", query, limit });
-  },
-  async searchBlocks(query, contextBlockId) {
-    return client.request<GotoSearchCollection>({ action: "tree.search", query, ...(contextBlockId ? { contextBlockId } : {}) });
   },
   async readFile(block) {
     const path = getProperty(block.properties, "file");
