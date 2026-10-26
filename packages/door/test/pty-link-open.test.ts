@@ -15,6 +15,7 @@ import { PtyPane } from "../src/desk/pty";
 import { Mirror } from "../src/mirror";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";
+import { tileMark } from "@ep0ch/outline-core/program-status";
 
 const OUTLINER_CLI = join(import.meta.dir, "../../outliner/src/cli.ts");
 const mod = (file: string) => import(join(import.meta.dir, "../../claude-mod/hooks", file));
@@ -29,7 +30,7 @@ describe.skipIf(!outliner)("a link pressed in a terminal tile opens where the ti
   beforeAll(async () => { board = new SocketBoard(await scratch.start()); await board.info(); }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
   beforeEach(() => {
-    for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_CWD", "ENVOUT"]) saved[k] = process.env[k];
+    for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_CWD", "ENVOUT", "FAKE_SSH_HOME", "FAKE_SSH_OUTLINES", "FAKE_SSH_BIN"]) saved[k] = process.env[k];
     state = mkdtempSync(join(tmpdir(), "ep0ch-ptylink-"));
     process.env.EP0CH_STATE = state;
     delete process.env.EP0CH_DAILY_CWD;
@@ -216,6 +217,64 @@ describe.skipIf(!outliner)("a link pressed in a terminal tile opens where the ti
       expect(names(d.desk)).toEqual(before.names);
     } finally { d.close(); }
   });
+
+  /**
+   * A program on another machine, ssh'd into from the tile (the fake ssh with -tt: a pty of its own on the far side,
+   * bytes relayed both ways, and none of the door's variables carried over). `script` runs there once `go` exists.
+   */
+  function farProgram(name: string, script: string): { cmd: string[]; go: () => void; out: string } {
+    const dir = join(state, "bin"), out = join(state, `${name}.out`), go = join(state, `${name}.go`);
+    for (const d of [dir, join(state, "far-home"), join(state, "far-outlines")]) mkdirSync(d, { recursive: true });
+    writeFileSync(join(dir, "ssh"), `#!/bin/sh\nexec ${process.execPath} ${join(import.meta.dir, "../../outliner/test/fake-ssh.ts")} "$@"\n`);
+    chmodSync(join(dir, "ssh"), 0o755);
+    Object.assign(process.env, { FAKE_SSH_HOME: join(state, "far-home"), FAKE_SSH_OUTLINES: join(state, "far-outlines"), FAKE_SSH_BIN: dir });
+    const far = `while [ ! -f ${go} ]; do sleep 0.05; done; printf '%s|%s|' "$EP0CH_TILE" "$EP0CH_TILE_ID" > ${out}; ${script}; exec cat`;
+    const path = join(dir, name);
+    writeFileSync(path, `#!/bin/sh\nexec ${join(dir, "ssh")} -tt -- far-box '${far.replaceAll("'", "'\\''")}'\n`);
+    chmodSync(path, 0o755);
+    return { cmd: [path], go: () => writeFileSync(go, ""), out };
+  }
+
+  test("a program ssh'd in from a terminal asks the terminal which tile it is, and its open follows the tile's wire into a group (PIE-1306)", async () => {
+    const note = await board.createBlock(null, "A letter from the far allotment");
+    const d = await door(null);
+    try {
+      const prog = farProgram("kettle", `bun ${OUTLINER_CLI} door-open ${note.id} --control ${d.control.path} --actor ${AS} >> ${join(state, "kettle.out")} 2>&1`);
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: prog.cmd.join(" "), name: "kettle" }, tile: "reader" }, USER);
+      (d.app as any).paint();
+      await until(() => (d.desk.pane("kettle") as PtyPane | undefined)?.running === true, "kettle runs");
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", name: "det" }, tile: "reader" }, USER);
+      await d.desk.dispatch.act({ action: "tile.group", args: { with: "det", name: "bundle" }, tile: "kettle" }, USER);
+      const inner = (d.desk.pane("bundle") as any).inner as Desk;
+      await inner.dispatch.act({ action: "tile.link", tile: "kettle", args: { to: "det" } }, USER);
+      const before = { inner: names(inner), screenNames: names(d.desk) };
+      prog.go();
+      await until(() => { try { return readFileSync(prog.out, "utf8").includes("}"); } catch { return false; } }, "door-open answered", 20_000);
+      const [tile, tileId, said] = readFileSync(prog.out, "utf8").split("|");
+      expect({ tile, tileId }).toEqual({ tile: "", tileId: "" });          // nothing came across the ssh: the terminal said
+      expect(JSON.parse(said!)).toMatchObject({ name: "det" });
+      expect(shown(inner)).toEqual({ det: note.id });
+      expect(names(inner)).toEqual(before.inner);
+      expect(names(d.desk)).toEqual(before.screenNames);
+    } finally { d.close(); }
+  }, 30_000);
+
+  test("a program that can't read its terminal (Claude Code) writes a marker, and host.tileOf mark= names its tile (PIE-1306)", async () => {
+    const token = "k7f3a1c09e2b44d1";
+    const d = await door(null);
+    try {
+      const prog = farProgram("kettle", `printf '%s' '${tileMark(token)}'`);
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: prog.cmd.join(" "), name: "kettle" }, tile: "reader" }, USER);
+      (d.app as any).paint();
+      await until(() => (d.desk.pane("kettle") as PtyPane | undefined)?.running === true, "kettle runs");
+      expect(await d.app.act({ action: "host.tileOf", args: { mark: token }, as: AS })).toEqual({ tile: null, name: null, by: null });
+      prog.go();
+      const id = (d.desk.layoutGet().tiles.find((t: any) => t.name === "kettle") as any).tile;
+      expect(id).toMatch(/^t-[0-9a-f-]{36}$/);
+      await until(() => (d.desk.pane("kettle") as PtyPane).status.saw(token), "the marker reached the door", 20_000);
+      expect(await d.app.act({ action: "host.tileOf", args: { mark: token }, as: AS })).toEqual({ tile: id, name: "kettle", by: "mark" });
+    } finally { d.close(); }
+  }, 30_000);
 
   test("a terminal grouped in the drawer with no wire and no reader opens the note on the screen", async () => {
     const prog = program("kettle");

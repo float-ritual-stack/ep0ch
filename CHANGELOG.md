@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### An agent ssh'd in from a tile opens where that tile's wire points (PIE-1306)
+
+- **The terminal says which tile it is.** A Claude on another machine, reached by ssh from a door's terminal tile (in a
+  tmux or a background session there too), has no `EP0CH_TILE_ID`; a reference pressed in its reply now opens where
+  that tile's wire points, not "no reader takes this open". The Claude mod writes a marker to its terminal and the
+  door names the tile that drew it (`host.tileOf mark=`).
+- **Any program can ask:** `OSC 7501 ; ?tile` is answered with the tile's `t-<uuid>` on the program's input, through
+  every ssh, tmux and Herdr between; the outliner's `door-open` with no `--from` asks it.
+- **Run:** `ep0ch install --apply` on the door's machine and the agent's (the door answers the query and the marker;
+  an older door opens as before).
+
 ### One line field everywhere you type one line (PIE-1290), and ^W shows its keys (PIE-1304)
 
 - **Every one-line input is the same field.** The power bar, a rename, a picker's line, the tile menu's search, a river

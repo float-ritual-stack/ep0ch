@@ -1397,6 +1397,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       ...(moved ? { moved } : {}),
     };
     p.init?.(this);
+    // Its program asks which tile it is drawn in by the registry's id, wherever the tile moves (PIE-1306).
+    const pty = p instanceof PtyPane ? p : null;
+    if (pty) pty.identity = () => tileRegistry.idOf(pty);
     // A tile moved here (from another screen, or the drawer) keeps the note it shows: it isn't handed this one's.
     if (!moved) p.select?.(this.current, this);
     kindOf(p)?.start?.(p, env);

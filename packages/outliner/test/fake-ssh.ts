@@ -102,9 +102,12 @@ if (argv[0] === "--serve") {
     const eof = new Promise<void>(resolve => { drained = resolve; });
     const child = Bun.spawn(["sh", "-c", command], { env, terminal: { cols: 100, rows: 30, data: (_term, data) => process.stdout.write(data), exit: () => drained() } });
     const terminal = child.terminal!;
+    // ssh -tt puts its own terminal in raw mode: every byte (a key, a terminal's answer to a query) goes across at once.
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.on("data", data => terminal.write(data));
     const [code] = await Promise.all([child.exited, eof]);
     terminal.close();
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
     process.exit(code);
   }
   const p = Bun.spawn(["sh", "-c", command], { env, stdio: ["inherit", "inherit", "inherit"] });
