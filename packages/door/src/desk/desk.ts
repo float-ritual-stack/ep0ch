@@ -5601,7 +5601,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (a.cancel) { if (this.linking?.pick) { this.linking = null; this.ctx.flash(`${prompt}: nothing chosen`); this.redraw(); } return { ...this.tileAnswer(src.id), picking: false }; }
     if (a.value !== undefined) {
       this.linking = null; this.redraw();
-      void this.dispatch.press(req.action, { ...req.args, value: a.value }, req.tile);
+      // `then` runs in the tile that asked (the reader whose button it is), wherever the keys went meanwhile (the drawer opened).
+      void this.dispatch.press(req.action, { ...req.args, value: a.value }, req.tile ?? this.tileId(src.id));
       return { ...this.tileAnswer(src.id), picked: a.value, picking: false };
     }
     if (a.to !== undefined) {

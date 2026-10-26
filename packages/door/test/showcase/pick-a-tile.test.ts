@@ -83,4 +83,29 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
   test("the misread button runs nothing and says the line to write", async () => {
     await expect(act("button.press", { note: seeded.notes.pickATile.id, label: "misread" }, undefined, AGENT)).rejects.toThrow(/act= ends early.*act='tile\.zoom reach=column tile=t-a6125371'/);
   });
+
+  // Evan's probe, pie's "pop it" note, second line unmodified: press it in a reader, click the drawer's program, the line gets its
+  // id, and the program lifts; press again, it drops.
+  test("the probe: an empty target, the drawer's program chosen on the card, kept as its id; it lifts and drops", async () => {
+    const note = seeded.notes.pickATile.id, probe = '::button{label="pop it" act="tile.zoom tile={target} reach=column" target=}';
+    const m = (await board.get(note))!;
+    await board.update(note, m.text.replace(/^::button\{label="pop it".*$/m, probe), m.revision!);
+    await untilAsync(() => buttonLine().then(l => l === probe), "the probe written as Evan wrote it");
+    const drawer = (app as any).drawer;
+    await act("agent.start");
+    await until(() => !!drawer.tile, "the drawer's program running");
+    const agent = (await act("tile.info", {}, "drawer.agent")).tile as string;
+    expect((await act("button.press", { note, label: "pop it" })).picking).toBe("tile");
+    await act("tile.pick", { to: "drawer.agent" });
+    // The drawer's program fills a place (role:agent, written drawer.agent): the card asks, 1 keeps this tile exactly.
+    await until(() => screen().includes("whichever fills its place · drawer.agent"), "the exact-or-place card");
+    // The card's "1 · this tile" row (the showcase keeps 1-9 for its sections until you step into the stage).
+    await act("tile.pick", { value: agent });
+    await untilAsync(() => buttonLine().then(l => l === probe.replace("target=}", `target=${agent}}`)), "the program's id on the line");
+    await act("button.press", { note, label: "pop it" });
+    await until(() => !!drawer.made?.lifted, "the drawer's program lifted");
+    expect(drawer.made.liftsPane(drawer.tile)).toBe(true);
+    await act("button.press", { note, label: "pop it" });
+    await until(() => !drawer.made.lifted, "dropped");
+  });
 });
