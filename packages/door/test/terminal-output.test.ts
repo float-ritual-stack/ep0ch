@@ -158,8 +158,8 @@ describe("terminal cells, not code points", () => {
 
   test("the reference popup draws a title with escapes as its words, cut by cells", () => {
     const items = [{ label: `Omen${OSC52} list 会議メモ：来週の発表の準備`, kind: "note", context: "", insertion: "[[x]]" }];
-    const lines = renderCompletion({ items, index: 0, loading: false, message: "", truncated: 0, target: { kind: "block", start: 0, end: 2, query: "" }, at: { row: 0, col: 2, line: "((" } }, 20, 4);
-    for (const l of lines) { expect(cells(l)).toBe(20); expect(acts(l.replace(/\x1b\[[\d;]*m/g, ""))).toBeNull(); }
+    const lines = renderCompletion({ items, index: 0, loading: false, message: "", truncated: 0, target: { kind: "block", start: 0, end: 2, query: "" }, at: { row: 0, col: 2, line: "((" } }, 28, 4);
+    for (const l of lines) { expect(cells(l)).toBe(28); expect(acts(l.replace(/\x1b\[[\d;]*m/g, ""))).toBeNull(); }
     expect(visible(lines.join("\n"))).toContain("Omen list");
   });
 
