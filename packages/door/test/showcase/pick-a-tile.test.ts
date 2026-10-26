@@ -123,7 +123,8 @@ describe.skipIf(!outliner)("the showcase screen: pick a tile", () => {
     await board.update(note, m.text.replace(/^::button\{label="pop it".*$/m, probe), m.revision!);
     await untilAsync(() => buttonLine().then(l => l === probe), "the probe written as Evan wrote it");
     const drawer = (app as any).drawer;
-    await act("agent.start");
+    // The drawer's own program (the test door's is EP0CH_DAILY_AGENT's shell): pulling the drawer up starts it.
+    await act("host.toggle", { open: true });
     await until(() => !!drawer.tile, "the drawer's program running");
     const agent = (await act("tile.info", {}, "drawer.agent")).tile as string;
     expect((await act("button.press", { note, label: "pop it" })).picking).toBe("tile");
