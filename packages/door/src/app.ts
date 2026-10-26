@@ -1099,6 +1099,8 @@ export class App implements Ctx {
    * Read the service's extensions and bind them (src/extensions.ts): handler lines the readers ask about, the
    * `ext.*` actions, the tile kinds. What came or went is said; the readers read their lines again.
    */
+  /** This door bound the outline's extensions (loadExtensions): its quit unbinds them, and only then. */
+  private boundExtensions = false;
   async loadExtensions(reload = false): Promise<void> {
     await this.statusNote.refresh(this.statusItems());
     connectScriptActions(this);
@@ -1107,6 +1109,7 @@ export class App implements Ctx {
     // A read that failed keeps what was bound, and says so; a service without extensions says nothing here
     // (an extension's tile and lines say why where they'd be).
     if ("error" in r) { this.flash(`couldn't read the outline's extensions: ${r.error}`); return; }
+    this.boundExtensions = true;
     resourceChanged(null);
     for (const binding of scriptBindings()) {
       const problem = this.dispatch.bindingProblem(binding);
@@ -1263,7 +1266,7 @@ export class App implements Ctx {
     this.disarm();
     this.waitingAsks.stop();
     // The extensions it bound (their actions, tile kinds, passage choices) go with the door that read them.
-    bindExtensions(null);
+    if (this.boundExtensions) bindExtensions(null);
     outlineBoards(this).close();
     this.display.dispose();
     this.done();

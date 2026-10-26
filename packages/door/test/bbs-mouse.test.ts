@@ -396,7 +396,7 @@ describe("a hint row's clickable keys (hintSpots)", () => {
       const rows = s.lines(), y = rows.findIndex(l => /\bm +move beside/.test(l));
       expect(y).toBeGreaterThan(0);
       s.mouse("down", rows[y]!.search(/\bm +move beside/) + 1, y);
-      expect((desk as any).prefix).toBe("move");
+      expect(s.lines().some(l => l.includes("moving"))).toBe(true);
     } finally { if (was === undefined) delete process.env.EP0CH_KEY_PANEL_MS; else process.env.EP0CH_KEY_PANEL_MS = was; }
   });
 });
