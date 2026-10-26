@@ -3,8 +3,9 @@ import type { Reveal } from "./reveal";
 // The host layer and its drawer (PIE-513; PIE-498): what stays with the person on every screen, above the screen layer
 // that is swapped per screen. It is a layout on the one layout engine (`hostLayer` in src/desk/screen-layout.ts): a
 // slot for whatever screen is shown, beside a drawer. The drawer is the drawer: it holds tiles that belong to the App,
-// not to a screen, as tabs, and they travel with the person across screens. Its first tab is the drawer's own program
-// (`drawerProgram`, src/desk/drawer-program.ts: EP0CH_DAILY_AGENT, else a shell, in the folder that rule names); any tile
+// not to a screen, as tabs, and they travel with the person across screens. Its agents are ordinary terminal tabs with
+// role `agent` (PIE-1331): a new one runs the last agent picked (`drawerProgram`, src/desk/drawer-program.ts:
+// EP0CH_DAILY_AGENT, else the pick, else a shell, in the folder that rule names), and a pick never ends one; any tile
 // joins it (`tile.drawer`, ^W a, a drag onto the chip or the drawer) and leaves it into the screen shown the same ways.
 // A tile moved in or out is the same tile: its program runs on (a session's terminal host keeps it under the key it
 // started with, `PtyPane.keptKey`), its note, history and draft stay.
@@ -21,12 +22,12 @@ import type { Reveal } from "./reveal";
 // agent's pull never takes them.
 //
 // Everything is an action (`DRAWER_ACTIONS`: `host.toggle`, `host.size`, `host.enter`, `host.leave`; `tile.drawer` is a
-// tile action on every screen and in the drawer; and the drawer's own program's `agent.type`, `agent.knows`,
+// tile action on every screen and in the drawer; and, for the agent tab used last, `agent.type`, `agent.knows`,
 // `agent.restart`). An agent may pull it up only under the actor rule for what changes the person's screen
 // (`touches: "screen"`, PIE-514), it's said on the status bar and in the drawer's title, and an agent never enters it.
 // Whether it's open and how tall is saved in drawer.json, so it's still there after a screen switch and a restart.
 //
-// The chip also says what the drawer's agent knows (src/desk/agent-env.ts): `door tools`, or `started before update ⟳`
+// The chip also says what the agent tab used last knows (src/desk/agent-env.ts): `door tools`, or `started before update ⟳`
 // / `no door tools ⟳` (⟳ restarts it, keeping the conversation).
 import type { Ctx, Screen } from "./app";
 import { Canvas, type Rect } from "./canvas";
@@ -34,7 +35,7 @@ import { agentConfig, herdrBin, herdrRunner, paneAgentPid, WATCH_TITLE, type Her
 import { DRAWER_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
 import { alive } from "./state";
 import { controlPath } from "./control";
-import { ESCAPE_CHORD, isEscapeChord, livePrograms, PtyPane, type PtySpec } from "./desk/pty";
+import { ESCAPE_CHORD, isEscapeChord, livePrograms, PtyPane } from "./desk/pty";
 import { rawKey } from "./kbd";
 import { choiceFile, detectAgents, drawerProgram, HERDR_LAUNCHER, programName, sessionLabel, shellQuote, type DrawerAgent, type DrawerProgram } from "./desk/drawer-program";
 import { sessionSlug } from "./desk/herdr-agent";
@@ -47,10 +48,9 @@ import { spawn as spawnDetached } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { Desk, type MovedTile } from "./desk/desk";
-import type { DeskApi, Pane, PaneView } from "./desk/panes";
+import type { Pane } from "./desk/panes";
 import type { ScreenSpec } from "./desk/screen-spec";
 import type { TileDone, Where } from "./desk/tile-actions";
-import { registerTileKind, tileKind, UnavailableTile } from "./desk/tile-kinds";
 import { tileRegistry } from "./desk/tile-registry";
 import { parseTileAddress, resolveAddress, ROLE_AGENT, whyNone, type ResolveOpts } from "./desk/tile-address";
 import { statusMark, waitingOnYou } from "./desk/program-status";
@@ -59,12 +59,10 @@ import { ACCESS_MATRIX_KIND_NAME, sourceOf } from "./desk/access-matrix";
 import { gatherMatrix } from "./mcp-access-matrix";
 import { AGENTS_KIND_NAME } from "./desk/agents-panel";
 import { agentOf, asSession, configsOf, pickSession, sessionCommand, sessionFacts, shownWords, stateOf, tildeOf, untilde, withIds, type AgentConfig, type AgentSession, type Shown } from "./desk/agent-sessions";
-import { KNOWN_AGENTS } from "./desk/drawer-program";
 import { existsSync, statSync } from "node:fs";
 import { basename, resolve as resolvePath } from "node:path";
 import { words } from "./text";
 import { WHAT_CHANGED_KIND_NAME, type WhatChangedPane } from "./desk/what-changed";
-import { PTY_ACTIONS } from "./desk/pty-actions";
 import { realTileDeps, tileOf, type TileOfAnswer, type TileProc } from "./tile-of";
 import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
@@ -221,7 +219,7 @@ export class AgentDrawer {
     }
   }
 
-  /** The drawer's own program and folder, for the outline the door is on. */
+  /** What a new agent tab runs and its folder, for the outline the door is on. */
   private program(): DrawerProgram {
     // The door's own machine first: an outline on another machine never starts in a same-named local outline's folder.
     const c = this.host.ctx?.(), pl = this.persist ? readPlace(outlineState()) : null;
@@ -744,7 +742,7 @@ export class AgentDrawer {
   }
   /** The tab the drawer shows now. */
   private shownTabOf(): { name: string; kind: string } | null { const name = this.shownTab(), t = this.tabs().find(x => x.name === name); return t ? { name: t.name, kind: t.kind } : null; }
-  /** The tile the drawer shows now (^W A brings it to the screen, its own tab too), else the last put in. */
+  /** The tile the drawer shows now (^W A brings it to the screen), else the last put in. */
   shownTab(): string | null { return this.shownAmong(this.tabs()); }
   /** The tab shown among `t` (the tabs, which the caller asks for once: each asking walks the drawer's whole desk). */
   private shownAmong(t: ReturnType<AgentDrawer["tabs"]>): string | null { return (t.find(x => x.shown && x.focused) ?? t.find(x => x.shown) ?? t.at(-1))?.name ?? null; }
@@ -1060,8 +1058,7 @@ export class AgentDrawer {
    */
   /**
    * Why tile `name` of screen `from` can't go into the drawer (there, if `to`/`where` say where), or null: the screen
-   * keeps it (its last tile, a fixed shape), the drawer's layout won't take it, or it is the drawer's own program asked
-   * to a place. `put` refuses with it, and a drag over the drawer shows it before the release.
+   * keeps it (its last tile, a fixed shape), or the drawer's layout won't take it there. `put` refuses with it, and a drag over the drawer shows it before the release.
    */
   putRefusal(from: Desk, name: string, actor: Actor, to?: string, where?: Where): string | null {
     const d = this.desk;
@@ -1135,7 +1132,7 @@ export class AgentDrawer {
 
   /**
    * Tile `name` in the drawer back into the screen shown, beside `to` (`where`), the same way round: asked there and here
-   * first, then moved. The drawer's own tab stays (its policy). The person's keys go with it when they were in it.
+   * first, then moved, an agent tab too. The person's keys go with it when they were in it.
    */
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone {
     const d = this.desk, shown = this.host.screen?.();
@@ -1161,11 +1158,6 @@ export class AgentDrawer {
     const ctx = this.host.ctx?.();
     const stack = [...(ctx?.screens?.() ?? []), ...(ctx?.kept?.() ?? [])].map(tilesOf).filter((d): d is Desk => !!d);
     return [...(this.d ? [this.d] : []), ...stack, ...[tilesOf(this.host.screen?.())].filter((d): d is Desk => !!d)];
-  }
-  /** The drawer's agent tab used last is the tile lifted now (the tile grammar's `drawer.agent`, wherever it is). */
-  liftsOwn(): boolean {
-    const a = this.agentPane();
-    return !!a && a.desk.liftsPane(a.pane);
   }
   /**
    * The agent tab agent.lift lifts, the one the person is using: the one lifted now (so again drops it), else the one
@@ -1590,7 +1582,7 @@ export interface DrawerOn extends Again { drawer: AgentDrawer; ctx: Ctx; here: S
 /** The drawer's actions: on every screen, as the shell's are. */
 export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
   "host.enter": def({
-    summary: "go into the drawer: the person's keys go to the tab it shows (its own program first) until ctrl+]; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
+    summary: "go into the drawer: the person's keys go to the tab it shows until ctrl+]; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
     keys: "ctrl+], click in the drawer, ⏎ on an exited agent; ctrl+] then ctrl+] sends ctrl+] to it",
     touches: "screen", replay: "safe",
     person: "going into the drawer takes the person's keys; an agent pulls it up with host.toggle and leaves their keys where they are",
@@ -1614,7 +1606,7 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     run({ quiet }, { drawer, here }) { return drawer.leave(here, !quiet); },
   }),
   "host.toggle": def({
-    summary: "pull the drawer (the host layer's drawer; its own program the first tab) up over or beside the screen, as the screen lets it (its policy's host), or put it away (open=true/false; neither toggles). The person's pull gives it their keys; an agent's never does, waits until they're idle, and is said on screen. Refused on a screen that keeps the whole screen (host none)",
+    summary: "pull the drawer (the host layer's drawer: your agent tabs and the tiles put in) up over or beside the screen, as the screen lets it (its policy's host), or put it away (open=true/false; neither toggles). The person's pull gives it their keys; an agent's never does, waits until they're idle, and is said on screen. Refused on a screen that keeps the whole screen (host none)",
     keys: "alt+a, a click on the ▲ claude chip in the status bar; Esc (or ctrl+] then Esc) puts it away",
     touches: "screen", host: true, replay: "safe",
     says: out => ({ text: `· ${out.open ? "pulled up" : "put away"} the drawer`, ms: 6000 }),

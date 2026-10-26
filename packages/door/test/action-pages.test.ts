@@ -156,6 +156,8 @@ describe.skipIf(!outliner)("action-contract pages execute against an outline", (
       if (page.name === "tab.select") await act("layout.move", { to: "reader", where: "tabs" }, "activity");
       if (page.name === "tile.into" || (page.name === "tile.group" && example.act.includes("on=false"))) await act("tile.group", { with: "replies", name: "thread" }, "reader");
       if (page.name === "tile.drawer" && example.act.includes("on=false")) await act("tile.drawer", { on: true }, "activity");
+      // An example naming drawer.agent needs an agent tab open (PIE-1331: one opens by itself only in a drawer never saved).
+      if (example.act.includes("drawer.agent") && !h.app.drawer.tile) h.app.drawer.newAgentTab({ kind: "agent", id: "example" });
       if (page.name === "block.unmark") {
         await act("block.mark", { id: h.seeded.notes.hub.id, reason: "first mark" });
         await act("block.mark", { id: note.id, reason: "second mark" });

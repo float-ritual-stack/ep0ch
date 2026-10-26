@@ -34,7 +34,7 @@ describe.skipIf(!outliner)("fold anywhere: the fold keys reach the tile that has
   let state = "";
   beforeAll(async () => { board = new SocketBoard(await scratch.start()); await board.info(); }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
-  beforeEach(() => { state = mkdtempSync(join(tmpdir(), "ep0ch-fold-")); process.env.EP0CH_STATE = state; process.env.EP0CH_DAILY_AGENT = "cat"; });
+  beforeEach(() => { state = mkdtempSync(join(tmpdir(), "ep0ch-fold-")); process.env.EP0CH_STATE = state; process.env.EP0CH_DAILY_AGENT = "cat"; });   // the drawer's first agent tab is named for it: cat
   afterEach(() => { delete process.env.EP0CH_STATE; delete process.env.EP0CH_DAILY_AGENT; rmSync(state, { recursive: true, force: true }); });
 
   /** A door on the desk (tree, reader, a `cat` terminal named kettle, replies, activity) on a fake 250x40 terminal (wide enough that opening a spine folds no other). */
@@ -96,7 +96,7 @@ describe.skipIf(!outliner)("fold anywhere: the fold keys reach the tile that has
   /** What folding `kind` in `place` leaves, from the state `was`: the fold on the tile with the keys, nothing else. */
   const afterFold = (was: ReturnType<Door["snap"]>, place: Place, kind: Kind) => place.startsWith("screen") ? { ...was, screen: [...was.screen, kind].sort() }
     : place === "drawer, lone tab" ? { ...was, strip: true }
-      : { ...was, drawerTiles: [...new Set([...was.drawerTiles, kind, "drawer.agent"])].sort() };
+      : { ...was, drawerTiles: [...new Set([...was.drawerTiles, kind, "cat"])].sort() };
 
   const FOLDS = ["-", "alt+h", "ctrl+w c", "act", "menu row", "title-bar fold click"] as const;
   const OPENS = ["+", "=", "alt+h", "click on the spine"] as const;
@@ -246,7 +246,7 @@ describe.skipIf(!outliner)("fold anywhere: the fold keys reach the tile that has
         d.press([char("-")]);
         expect(d.app.drawer.rect!.rows).toBe(1);
         d.press([char("x"), char("d"), ctrl("w"), char("x")]);
-        expect([d.app.drawer.folded, d.drawer().tileOutline().map(t => t.name)]).toEqual([true, ["drawer.agent", "reader"]]);
+        expect([d.app.drawer.folded, d.drawer().tileOutline().map(t => t.name)]).toEqual([true, ["cat", "reader"]]);
         d.press([{ kind: "enter" }]);
         expect(d.app.drawer.folded).toBe(false);
         d.press([char("-"), esc]);                                       // folded, the keys on the screen
@@ -289,7 +289,7 @@ describe.skipIf(!outliner)("fold anywhere: the fold keys reach the tile that has
         expect(away.refused).toBeUndefined();
         expect(d.desk.dispatch.menu("activity", USER).some(r => r.action === "drawer.away")).toBe(false);
         await d.drawer().dispatch.act({ action: away.action, args: away.args, tile: "reader" }, USER);
-        expect([d.app.drawer.open, d.app.drawer.folded, d.drawer().tileOutline().map(t => t.name)]).toEqual([false, false, ["drawer.agent", "reader"]]);
+        expect([d.app.drawer.open, d.app.drawer.folded, d.drawer().tileOutline().map(t => t.name)]).toEqual([false, false, ["cat", "reader"]]);
       } finally { d.app.quit(); }
     });
 

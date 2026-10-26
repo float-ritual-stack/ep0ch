@@ -77,7 +77,7 @@ A click, `show` and `door_open` share one open (`openNote` in
    agent, or a `claude` started in a `^W o s` terminal tile, in the tile or in
    its Herdr pane): the CLI's `door-open --from <tile>` sends the door an
    agent's `open` from Claude's own tile over `EP0CH_CONTROL`. The tile is
-   its id (`EP0CH_TILE_ID`: `t-<uuid>`, or `drawer.agent` for the drawer's own program), which names
+   its id (`EP0CH_TILE_ID`: `t-<uuid>`, a drawer agent tab's too), which names
    one tile; `EP0CH_TILE` when it has none. The
    door puts it where that tile's opens land (its link: the daily layout links
    the claude tile to its middle detail) and says which reader that was. A door

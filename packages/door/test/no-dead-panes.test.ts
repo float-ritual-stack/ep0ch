@@ -86,7 +86,7 @@ describe("no dead panes", () => {
     } finally { app.quit(); app.drawer.tile?.kill(); delete process.env.EP0CH_DAILY_AGENT; }
   }, 20_000);
 
-  test("another agent chosen while the drawer's runs: the running one's exit is still read; the choice runs from the next start", async () => {
+  test("another agent started while the drawer's runs: the running one runs on in its tab, its exit still read; the new one is a tab of its own (PIE-1331)", async () => {
     process.env.EP0CH_DAILY_AGENT = "slowclaude";
     chooseFolder(work);
     const term: any = { info: { cols: 100, rows: 30, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
@@ -94,16 +94,17 @@ describe("no dead panes", () => {
     app.push({ title: "main menu", key() {}, render: (c: any) => ({ lines: Array.from({ length: c.t.rows - 1 }, () => "") }) } as any);
     try {
       app.drawer.set(true, { kind: "user" });
+      const first = app.drawer.newAgentTab({ kind: "user" });
       (app as any).paint();
-      await until(() => !!app.drawer.tile?.running && text(app.drawer.tile!).includes("slow stand-in here"), "the drawer's agent runs", 8000);
-      const p = app.drawer.tile! as any;
-      p.retarget({ cmd: ["/bin/sh"], cwd: work, name: "shell", herdr: false });
-      expect(p.run.cmd).toEqual(["slowclaude"]);                      // what runs now is what it was started as
+      const p = app.drawer.desk!.pane(first.name) as any;
+      await until(() => !!p.running && text(p).includes("slow stand-in here"), "the drawer's agent runs", 8000);
+      const pid = p.pid;
+      delete process.env.EP0CH_DAILY_AGENT;
+      const second = app.drawer.newAgentTab({ kind: "user" });
+      expect(second.name).not.toBe(first.name);
+      expect([p.running, p.pid, p.run.cmd]).toEqual([true, pid, ["slowclaude"]]);   // nothing ended, nothing retargeted
       p.input("\r");
       await until(() => p.agentExit === 3, "the old agent's exit read", 8000);
-      p.restart();
-      expect(p.run.cmd).toEqual(["/bin/sh"]);                          // the choice from its next start
-      expect(p.agentExit).toBeNull();
     } finally { app.quit(); app.drawer.tile?.kill(); delete process.env.EP0CH_DAILY_AGENT; }
   }, 20_000);
 });

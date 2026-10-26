@@ -400,7 +400,7 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     await app.dispatch.act({ action: "host.toggle", args: { open: false } }, user);
   });
 
-  test("the drawer section: a tile goes in beside the drawer's own tile where it is dropped, not as a tab (PIE-1263)", async () => {
+  test("the drawer section: a tile goes in beside the drawer's agent tab where it is dropped, not as a tab (PIE-1263)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
     await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
@@ -409,21 +409,41 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     const drawer = app.drawer.desk!;
     const kettle = drawer.layoutGet().tiles.find(t => t.name === "kettle") as any;
     expect(kettle).toBeDefined();
-    expect(kettle.tabs ?? []).not.toContain("drawer.agent");              // beside the drawer's own tile, not one of its tabs
+    expect(kettle.tabs ?? []).not.toContain(app.drawer.agentName());      // beside the agent tab, not one of its tabs
     await drawer.dispatch.act({ action: "tile.drawer", tile: "kettle", args: { on: false } }, user);
   });
 
-  test("a link pressed in the drawer's own chat opens in the reader its wire names, by the name the program was given (PIE-1257)", async () => {
+  test("the drawer section: a pick from the chip's picker opens a new agent tab, and the agent already running keeps its process (PIE-1331)", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
+    if (!app.drawer.tile) app.drawer.newAgentTab({ kind: "agent", id: "test-agent" });
+    const own = app.drawer.tile!;
+    await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
+    await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, { kind: "user" });
+    (app as any).paint();
+    await until(() => own.running, "the agent tab runs");
+    const pid = own.pid, tabs = app.drawer.tabs().length;
+    const r = await app.act({ action: "host.agent", args: { name: "shell" }, as: "test-agent" }) as any;
+    expect(r).toMatchObject({ agent: "shell" });
+    expect(app.drawer.tabs()).toHaveLength(tabs + 1);
+    expect([own.running, own.pid]).toEqual([true, pid]);
+    await app.drawer.desk!.dispatch.act({ action: "tile.close", tile: r.name }, { kind: "user" }).catch(() => app.drawer.desk!.dispatch.act({ action: "tile.close", tile: r.name }, { kind: "user" }));
+    await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" }).catch(() => {});
+  }, 20_000);
+
+  test("a link pressed in the drawer's agent tab opens in the reader its wire names, by the name the program was given (PIE-1257)", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
     await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
     const stage = S().stages.get(S().sel).top as Desk;
     await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
+    if (!app.drawer.tile) app.drawer.newAgentTab({ kind: "agent", id: "test-agent" });
     await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, { kind: "user" });
-    await until(() => (app.drawer.desk?.pane("drawer.agent") as any)?.running === true, "the drawer's program runs");
+    await until(() => app.drawer.tile?.running === true, "the drawer's agent tab runs");
     const drawer = app.drawer.desk!, user = { kind: "user" } as const;
     await drawer.dispatch.act({ action: "tile.link", tile: "drawer.agent", args: { to: drawer.pathTo(stage.pane("reader")!) } }, user);
-    const told = (drawer.pane("drawer.agent") as any).programTile as string;
+    const told = (app.drawer.tile as any).programTile as string;
     await drawer.dispatch.act({ action: "open", args: { from: told, id: seeded.notes.callouts.id } }, { kind: "agent", id: "chat-helper" });
     expect(stage.layoutGet().tiles.find(t => t.name === "reader")).toMatchObject({ arrival: { by: "chat-helper" }, showing: { id: seeded.notes.callouts.id } });
     await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" });
@@ -497,21 +517,22 @@ describe.skipIf(!outliner)("the showcase screen: the desk: esc, refusals, drawer
     expect(back).toMatchObject({ name: "kettle", inDrawer: false });
     expect(stage().pane("kettle").pid).toBe(pid);
     expect(stage().pane("kettle").running).toBe(true);
-    // The drawer's own first tab comes out too: an ordinary terminal tile in this section, its program running on; a
-    // new own tab takes its place in the drawer.
+    // An agent tab comes out too, like any tab: a terminal tile in this section, its program running on; nothing takes its
+    // place in the drawer, and drawer.agent still names it there (PIE-1331).
+    if (!app.drawer.tile) app.drawer.newAgentTab({ kind: "agent", id: "test-agent" });
     const own = app.drawer.tile!;
     // Its program starts as its tab is first drawn: shown now (another section, the agent sessions', may have left a tab in the drawer).
     await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "drawer.agent" }, { kind: "user" }).catch(() => {});
     (app as any).paint();
-    await until(() => own.running, "the drawer's own program runs");
+    await until(() => own.running, "the agent tab runs");
     const ownPid = own.pid;
     (app as any).lastInput = 0;
     const left = await app.act({ action: "tile.drawer", args: { on: false, to: "tree", where: "down" }, tile: "drawer.agent", as: "test-agent" }) as any;
-    expect(left).toMatchObject({ inDrawer: false, fresh: true });
+    expect(left).toMatchObject({ inDrawer: false });
     expect(stage().pane(left.tile)).toBe(own);
     expect(stage().pane(left.tile).pid).toBe(ownPid);
-    expect(app.drawer.tile).not.toBe(own);
-    expect(app.drawer.tabs()[0]!.name).toBe("drawer.agent");
+    expect(app.drawer.tile).toBe(own);
+    expect(app.drawer.tabs().some(t => app.drawer.desk!.pane(t.name) === own)).toBe(false);
     await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" });
   }, 20_000);
 

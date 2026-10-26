@@ -1392,7 +1392,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (source) { aimed.source = this.reference(source)!; boundSource.set(p, source); }
     }
     const env: TileEnv = {
-      desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.layoutName ?? "desk", home: this.home ?? this.spec.saves ?? null,
+      desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.layoutName ?? (this.ctx?.hostLayer?.isDrawer(this) ? "drawer" : "desk"), home: this.home ?? this.spec.saves ?? null,
       tile: name => this.pane(name),
       followers: () => (this.panes.has(id) ? this.followers(id) : []),
       ...(moved ? { moved } : {}),

@@ -126,26 +126,29 @@ describe.skipIf(!outliner)("a tile dragged onto the drawer lands where its drop 
     } finally { d.app.quit(); }
   });
 
-  test("the drawer's own program goes back into its own tab: a place for it is refused, not ignored", async () => {
+  test("an agent tab out on the screen goes back where it is dropped, like any tile (PIE-1331)", async () => {
     const d = await door();
     try {
       const out: any = await d.drawer().dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER);
-      await expect(d.desk.dispatch.act({ action: "tile.drawer", args: { on: true, to: "activity", where: "right" }, tile: out.name }, USER)).rejects.toThrow(/own program/);
+      await d.desk.dispatch.act({ action: "tile.drawer", args: { on: true, to: "activity", where: "right" }, tile: out.name }, USER);
+      const tiles = d.drawer().layoutGet().tiles as any[], agent = tiles.find(t => t.name === out.name), activity = tiles.find(t => t.name === "activity");
+      expect(agent.rect.col).toBeGreaterThanOrEqual(activity.rect.col + activity.rect.cols);
     } finally { d.app.quit(); }
   });
 
-  test("a drawer holding only its own program takes the tile beside it, by the same zones", async () => {
+  test("a drawer holding only its agent tab takes the tile beside it, by the same zones", async () => {
     const d = await door();
     try {
       await d.drawer().dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "activity" }, USER);
       await d.app.dispatch.act({ action: "host.toggle", args: { open: true } }, USER);
       d.paint();
-      expect(d.drawer().tileOutline().map(t => t.name)).toEqual(["drawer.agent"]);
+      const name = d.app.drawer.agentName();
+      expect(d.drawer().tileOutline().map(t => t.name)).toEqual([name]);
       const own = (d.drawer().layoutGet().tiles as any[])[0].rect, row = d.app.drawer.rect!.row + 1, x = own.col + own.cols - 2, y = own.row + Math.floor(own.rows / 2);
       const head = (d.desk.describe().panes as any[]).find(p => p.name === "reader").rect;
       d.key(mouse("down", head.col + 4, head.row)); d.key(mouse("drag", head.col + 9, head.row + 2)); d.key(mouse("drag", x, y + row)); d.key(mouse("up", x, y + row));
       await until(() => d.drawer().tileOutline().some(t => t.name === "reader"), "in the drawer");
-      const tiles = d.drawer().layoutGet().tiles as any[], reader = tiles.find(t => t.name === "reader"), mine = tiles.find(t => t.name === "drawer.agent");
+      const tiles = d.drawer().layoutGet().tiles as any[], reader = tiles.find(t => t.name === "reader"), mine = tiles.find(t => t.name === name);
       expect(reader.rect.col).toBeGreaterThanOrEqual(mine.rect.col + mine.rect.cols);
     } finally { d.app.quit(); }
   });

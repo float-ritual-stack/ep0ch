@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Every drawer agent is a tab; the arrow opens a new one and never ends yours (PIE-1331, PIE-1330)
+
+- **The arrow starts, it never replaces.** Picking an agent from the drawer chip's picker (alt+click or a right-click,
+  now titled "a new agent tab") starts it in a new tab; the claude you had keeps running in its own, the same process.
+  Before, the pick restarted the drawer's one special tab and an idle conversation was ended without asking. Ending an
+  agent is only ever `^W x` on its tab. The last pick is what the next new agent tab starts.
+- **One kind of agent tab.** The drawer's special "own program" (its holder tab, `agent.back`, its numbered keys) is
+  gone: every agent is a terminal tab with role `agent`. `drawer.agent` and `role:agent` name the one you typed in or
+  clicked last, and `agent.lift`, `agent.type`, `agent.restart` and the chip act on it.
+- **Groups keep their programs through a handover.** An agent tab (or any terminal) gathered into a group, in the
+  drawer or on a screen, comes back running in that group after a handover; before, the drawer's tab came back as
+  "drawer.own isn't available here" and its program was lost (PIE-1330). `session list`'s kept programs stay current,
+  and `tile.into` with several groups asks "into which group?" instead of "moved … into undefined".
+- **Run:** `ep0ch install --apply`. The handover onto this code reads your drawer's old own tab as an agent tab and
+  keeps its program running.
+
 ### An agent ssh'd in from a tile opens where that tile's wire points (PIE-1306)
 
 - **The terminal says which tile it is.** A Claude on another machine, reached by ssh from a door's terminal tile (or a

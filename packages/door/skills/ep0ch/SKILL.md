@@ -139,9 +139,9 @@ It never moves the person's focus, and a door's refusal is the answer, never a r
 `src/desk/agent-env.ts`): `EP0CH_CONTROL`, `EP0CH_TILE`, `EP0CH_TILE_ID`, `EP0CH_NEST`, `EP0CH_IN_DOOR`, and
 the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them.
 1. `^W o s` on the desk, then `claude` in that shell: a terminal tile's program.
-2. The `▲ claude` chip on the status bar, or `alt+a`: your drawer, pulled up over any screen. Its own tab runs the
-   agent chosen for the outline's session (`alt+g`, `host.agent name=<agent> [herdr=true]`; `EP0CH_DAILY_AGENT`
-   overrides it; none chosen: a shell). Chosen "in Herdr", it runs in the session's own pane (`door-<outline>[--<machine>]-<hash>`,
+2. The `▲ claude` chip on the status bar, or `alt+a`: your drawer, pulled up over any screen. Its agents are terminal
+   tabs with role `agent`; `host.agent name=<agent> [herdr=true]` (the chip's picker) starts one in a new tab and saves
+   it as what the next one starts (`EP0CH_DAILY_AGENT` overrides it; none chosen: a shell). Nothing it does ends an agent. Chosen "in Herdr", it runs in the session's own pane (`door-<outline>[--<machine>]-<hash>`,
    `EP0CH_CONTROL` a link the launcher points at the attached door). Any tile put in it travels with the person.
    Every agent starts inside the person's login shell: when it exits, the tile is their shell, nothing restarted.
 
@@ -216,18 +216,17 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `note=<id>` presses a button of a note open nowhere (a `::button`, a link, or a control its render script drew: the service's projection answers, waiting a moment for a line still drawing), neither moving the person's focus; a layout change you make glides (`motion=fantasia` on an action in a transaction asks for
   the wandering path; `settle` or none is the plain ease) unless the person's `motion.set` is calm or off, which caps your hint;
   `peek` and `layout.get` always read the settled layout; `layout.stop` (the person's Esc while a script run is rearranging the screen) stops the run and puts its layout changes back; a script `act()` with no door refused names the doors (`door=<client>` picks one).
-- **Addresses** (PIE-1286): `tile=` takes five kinds, one resolver, nothing else decides: `t-<uuid>` (or 8+ characters of it) the exact tile; `role:<role>[@<drawer or screen>]` a tile of that kind wherever it is (`role:agent` the drawer's program, `role:reader`, a kind's name by default; it is set on the tile and saved with it); `<slot>@<screen>` the place, whatever fills it (`detail@board`); `^` the tile that opened the one with the keys (`^^` the one before it); a name last, never an identity. No match is refused with why and what to type; it never falls back to the focused tile. Store a `t-<uuid>` or a role in a button, never `t7` or a number.
+- **Addresses** (PIE-1286): `tile=` takes five kinds, one resolver, nothing else decides: `t-<uuid>` (or 8+ characters of it) the exact tile; `role:<role>[@<drawer or screen>]` a tile of that kind wherever it is (`role:agent` an agent tab, of several the one used last; `role:reader`, a kind's name by default; it is set on the tile and saved with it); `<slot>@<screen>` the place, whatever fills it (`detail@board`); `^` the tile that opened the one with the keys (`^^` the one before it); a name last, never an identity. No match is refused with why and what to type; it never falls back to the focused tile. Store a `t-<uuid>` or a role in a button, never `t7` or a number.
 - **The drawer** (every screen; the host layer's, PIE-498, PIE-513): `host.toggle [open=true|false]`, `host.size
-  share=0.2…0.9`, `agent.type text=…` (to its own program), `agent.knows`, `agent.restart`. `tile.drawer tile=<t>`
+  share=0.2…0.9`, `agent.type text=…` (to the agent tab used last), `agent.knows`, `agent.restart`. `tile.drawer tile=<t>`
   moves a tile into it whole (its program keeps running), as a tab or, with `to=<drawer tile> where=<side>`, beside one (what a drag onto that side does), `tile.drawer on=false tile=<t> to=<tile> where=<side>` back
   out into the screen shown; `tile=` naming a tile in the drawer reaches it there (`tile.type tile=kettle`). `tile.collapse`
   on a drawer tile folds it in the drawer's layout when a tile sits beside it, and folds the drawer itself to a strip
   when it is alone (`on=false` opens it; never while the person is in the drawer); putting the drawer away is only
   `host.toggle open=false` (or `drawer.away tile=<t>`). Put your own
   tile in: `tile.drawer tile=<id>` with the id `ep0ch where` gives (it finds your tile by your program, even after it
-  moved; `$EP0CH_TILE_ID` is only where it started). Tiles in the drawer have ids `k<n>`. Its own program is the tile with role `agent` (`tile=role:agent`, alias `tile=drawer.agent`): a role is a property of the tile, kept with it across a restart, a handover and a restore, wherever it is, in its tab or out on a screen. Its own first tab can leave too: `tile.drawer on=false tile=role:agent` puts it
-  on the screen as an ordinary terminal tile, still running, and the drawer starts a fresh one the next time it's pulled
-  up. It never takes the person's keys; you can't move the tile they type in into it,
+  moved; `$EP0CH_TILE_ID` is only where it started). Tiles in the drawer have ids `k<n>`. An agent tab is a tile with role `agent` (`tile=role:agent`, alias `tile=drawer.agent`, the one used last): a role is a property of the tile, kept with it across a restart, a handover and a restore, wherever it is, in a group too. It leaves like any tab: `tile.drawer on=false tile=role:agent` puts it
+  on the screen, still running. It never takes the person's keys; you can't move the tile they type in into it,
   put it away, resize it, type in it or restart its agent while they type in it. `peek` shows it as `drawer` (with
   `knows`, `runs` and `tiles`).
 - **Links** (one model on every screen: Outlinks, Resources, Backlinks). `links tile=<reader>` aims the
