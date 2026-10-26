@@ -147,7 +147,11 @@ export function drawLogo(canvas: Canvas, r: Rect, ctx: { t: TermInfo; graphics: 
   const infoW = Math.max(0, ...info.map(l => width(paint(l))));
   const gap = 4, withInfo = info.length > 0 && r.cols >= logo.width + gap + infoW + 4;
   const x0 = Math.max(0, Math.floor((r.cols - logo.width - (withInfo ? gap + infoW : 0)) / 2));
-  const b = artBlock(logo.rows, logo.width, ctx.t, { key, at: { col: x0, row: r.row }, maxRows: logo.rows.length, fit: "grid", graphics: ctx.graphics });
+  // In cells the block is the same every frame for the same logo rows (logoCells and densest keep them), and making its
+  // lines was a pass over every cell each frame (PIE-1347): kept with the rows. Under Kitty its image is cached already.
+  const kept = ctx.graphics ? undefined : logoLines.get(logo.rows), fresh = kept?.cols === ctx.t.cols - x0 ? null : artBlock(logo.rows, logo.width, ctx.t, { key, at: { col: x0, row: r.row }, maxRows: logo.rows.length, fit: "grid", graphics: ctx.graphics });
+  if (fresh && !ctx.graphics) logoLines.set(logo.rows, { cols: ctx.t.cols - x0, lines: fresh.lines });
+  const b = fresh ?? { lines: kept!.lines, placements: [] };
   // The block's own lines (it made them for cells mode): drawn again from the art they were made from, they were a second pass over every cell of the logo each frame.
   if (!ctx.graphics) b.lines.forEach((l, i) => canvas.text(x0, r.row + i, l, Math.min(logo.width, r.cols - x0)));
   if (withInfo) {
@@ -156,6 +160,9 @@ export function drawLogo(canvas: Canvas, r: Rect, ctx: { t: TermInfo; graphics: 
   }
   return { x0, withInfo, placements: ctx.graphics ? b.placements : [] };
 }
+
+/** A logo's lines as drawn in cells, by its rows, with the room they were cut to (artBlock cuts them to the screen's edge). */
+const logoLines = new WeakMap<Cell[][], { cols: number; lines: string[] }>();
 
 // ── the tiles ───────────────────────────────────────────────────────────────────────────────────────────
 

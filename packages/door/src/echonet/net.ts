@@ -271,16 +271,22 @@ export function tossOf(m: Msg): TossLog {
   return { at: Number.isFinite(at) ? at : null, node: prop(m, "node") ?? "?", copies: n("copies"), updated: n("updated"), netmailOut: n("netmail-out"), netmailIn: n("netmail-in"), queued: n("queued"), failed: prop(m, "failed") === "yes" };
 }
 
+/** The nodelist's day in words, worked out once a day: toLocaleDateString each paint cost the nodelist most of its frame (PIE-1347). */
+let dayWords = { day: "", words: "" };
+function nodelistDay(day: Date): string {
+  const key = day.toDateString();
+  if (dayWords.day !== key) dayWords = { day: key, words: day.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) };
+  return dayWords.words;
+}
+
 /**
  * The nodelist as FidoNet wrote it: a comment header, a line per node (`,n,node,status,last toss,held,areas`), commas
  * and all; then the last tosses, as a tosser's log. `|NN` colours.
  */
-/** The nodelist's day, as toLocaleDateString says it: one formatter, made once (making it took a frame's worth, every paint; PIE-1347). */
-const NODELIST_DAY = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 export function nodelistLines(title: string, nodes: readonly NodeEntry[], tosses: readonly TossLog[] = [], now = Date.now()): string[] {
   const day = new Date(now), start = new Date(day.getFullYear(), 0, 0);
   const dayNo = Math.floor((day.getTime() - start.getTime()) / 86_400_000);
-  const when = NODELIST_DAY.format(day);
+  const when = nodelistDay(day);
   const nodeW = Math.min(28, Math.max(8, ...nodes.map(n => n.node.length)));
   const self = nodes.find(n => n.self);
   return [

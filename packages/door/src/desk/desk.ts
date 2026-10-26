@@ -3387,8 +3387,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   // ── drawing ────────────────────────────────────────────────────────────────
 
   render(ctx: Ctx): Frame {
-    this.drawing = {};
-    try { return this.draw(ctx); } finally { this.drawing = null; }
+    // A frame drawn inside another (a measure, a host layer's redraw) keeps the outer frame's context when it ends.
+    const outer = this.drawing;
+    this.drawing = outer ?? {};
+    try { return this.draw(ctx); } finally { this.drawing = outer; }
   }
   private draw(ctx: Ctx): Frame {
     if (!this.ctx) this.enter(ctx);

@@ -13,7 +13,7 @@ are its record. The outliner's entries from then are kept below, under
 ### Desk screens draw each frame for less (PIE-1347, PIE-1335)
 
 - **EchoNet, Welcome and the home base no longer rebuild their logo every frame:** its cells, its densest rows and
-  its drawn lines are worked out once. The nodelist's date formatter is made once too.
+  its drawn lines are worked out once. The nodelist works out its day in words once a day, not every frame.
 - **Every desk frame asks the layout about each tile's ×, fold and float on one context,** made once per frame, and
   those dry runs no longer seal the state they throw away. On the EchoNet reader a frame costs about a third less
   CPU, and its parity walk alone went from 55 s to 44 s on the same load.

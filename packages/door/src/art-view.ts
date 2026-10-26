@@ -26,11 +26,7 @@ export function artBlock(grid: Cell[][], artWidth: number, t: TermInfo, o: ArtVi
   const available = Math.max(0, grid.length - top);
   if (!o.graphics) {
     const rows = Math.min(available, o.maxRows);
-    // A band draws the same logo every frame: its lines are kept with the grid while the view of it stays the same.
-    const key = `${top},${cols},${rows}`, hit = linesCache.get(grid);
-    const lines = hit?.key === key ? hit.lines : artLines(grid, 0, top, cols, rows);
-    if (hit?.key !== key) linesCache.set(grid, { key, lines });
-    return { lines, placements: [], rowsUsed: rows };
+    return { lines: artLines(grid, 0, top, cols, rows), placements: [], rowsUsed: rows };
   }
   // In "true" fit, one terminal row shows more than one art row.
   const artRowsPerTermRow = o.fit === "true" ? (GLYPH_W * t.cellH) / (GLYPH_H * t.cellW) : 1;
@@ -56,8 +52,6 @@ export function artBlock(grid: Cell[][], artWidth: number, t: TermInfo, o: ArtVi
   };
 }
 
-/** The cells-mode lines last made for a grid, by the view they show (scroll, width, rows). */
-const linesCache = new WeakMap<Cell[][], { key: string; lines: string[] }>();
 const WHOLE_MAX_ROWS = 400;
 const wholeCache = new WeakMap<Cell[][], { cols: number; img: Rgba }>();
 /** Whole-piece raster, cached per grid; null for very tall pieces (those raster per view). */

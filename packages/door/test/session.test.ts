@@ -820,8 +820,9 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     // The door paints at most once a frame period (App.redraw's 16 ms), so what a burst may paint is what its time holds, not a number
     // that holds on a quiet machine only: a loaded one takes longer over two hundred reports than the client took to send them, and
     // paints more, still one a frame (PIE-1335: bounded by the send's time, a loaded run painted 12 where 10 were allowed). So the
-    // frames of the time from the first report to the last frame, and a few for the last report and what comes after it.
-    // Unfolded, it is a paint for each report.
+    // frames of the time from the first report to the last frame, and a few for the last report and what comes after it:
+    // that checks the paints are paced. That they are folded (unfolded, it is a paint for each report, paced over a longer
+    // time) is `folded` below, which no machine's speed changes.
     const FRAME_MS = 16, allowed = (span: number) => Math.max(10, Math.ceil(span / FRAME_MS) + 6);
     /**
      * The frames the daemon painted for what was sent: measured once the door has handled the last report (`done`: what that
