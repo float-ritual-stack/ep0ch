@@ -4,7 +4,8 @@ import { COMPONENT_OPEN, componentAttrs, componentBlockAt, lineWords, noteCodeFe
 /** The component's name. */
 export const BUTTON_NAME = "button";
 
-export interface ButtonStep { kind: "act" | "script"; source: string }
+/** One step: what it runs (`source`, its {slots} filled from the line) and, for a step with slots, the line as written (`written`). */
+export interface ButtonStep { kind: "act" | "script"; source: string; written?: string }
 
 /** One button, including its closed body when present. */
 export interface ButtonCall {
@@ -118,12 +119,12 @@ export function buttonCallAt(lines: readonly string[], i: number): ButtonCall | 
     if (endLine > i) {
       steps = lines.slice(i + 1, endLine).map(l => l.trim()).filter(Boolean).map(source => {
         const script = /^\(\((.+)\)\)$/.exec(source);
-        return script ? { kind: "script", source: script[1]! } : { kind: "act", source: slotted(source) };
+        return script ? { kind: "script", source: script[1]! } : { kind: "act", source: slotted(source), ...(refsOf(source).length ? { written: source } : {}) };
       });
     } else if (act || of) {
       const value = (act || of)!;
       const values = value.startsWith("[") ? buttonList(value) : [value];
-      steps = values.map(source => ({ kind: act ? "act" : "script", source: act ? slotted(source) : actionLine({ action: source, args: Object.fromEntries(rest.map(p => [p.key, slotted(p.value)])) }) }));
+      steps = values.map(source => ({ kind: act ? "act" : "script", ...(act && refsOf(source).length ? { written: source } : {}), source: act ? slotted(source) : actionLine({ action: source, args: Object.fromEntries(rest.map(p => [p.key, slotted(p.value)])) }) }));
     }
   } catch (error) { problem = (error as Error).message; }
   if (!steps.length) problem ??= '::button needs what it runs: write one action or ((script)) per line, then ::, or use act= / of=';
@@ -188,7 +189,7 @@ export function slotArgs(call: ButtonCall, key: string): { step: number; action:
   const out: { step: number; action: string; arg: string }[] = [];
   call.steps.forEach((s, step) => {
     if (s.kind !== "act") return;
-    const [action, ...words] = lineWords(s.source);
+    const [action, ...words] = lineWords(s.written ?? s.source);
     for (const w of words) {
       const eq = w.indexOf("=");
       if (eq > 0 && w.slice(eq + 1) === `{${key}}`) out.push({ step, action: action!, arg: w.slice(0, eq) });

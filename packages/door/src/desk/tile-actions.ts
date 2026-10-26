@@ -287,12 +287,12 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.pick": def({
-    summary: "choose a tile on screen for what asked (a button's empty slot): then=<action line> runs, as the person, with value=<the tile's address> once a tile is chosen. A tile that fills a role is asked about, this tile exactly (its t-<uuid> id) or whichever tile fills the role (drawer.agent, @library/reader). to= makes the choice a card row makes; value= is the answer; cancel=true puts the picker away",
+    summary: "choose a tile on screen for what asked (a button's empty slot): then=<action line> runs, as the person, with value=<the tile's address> once a tile is chosen. A tile whose place an address names is asked about: this tile exactly (its t-<uuid> id) or whichever tile fills its place (drawer.agent, role:<role>, <slot>@<screen>). to= makes the choice a card row makes; value= is the answer; cancel=true puts the picker away",
     person: "choosing a tile is the person's click: an agent passes the tile itself (button.slot value=<tile>) and never opens their picker",
     keys: "a click on a tile, h j k l or 1-9, 1 or 2 for exact or role, esc cancels",
     touches: "screen", replay: "ask", says: r => (r.picked !== undefined ? `chose ${r.picked}` : null),
     args: {
-      then: { type: "string", about: "the action line that runs with the choice, value=<address> added (`button.slot note=<id> line=3 key=target`)" },
+      then: { type: "string", optional: true, about: "the action line that runs with the choice, value=<address> added (`button.slot note=<id> line=3 key=target`); a choice in the pick that is waiting runs that pick's" },
       prompt: { type: "string", optional: true, about: "what the card says it is for (`pop it: choose a tile`)" },
       to: { type: "string", optional: true, kind: "tile", about: "the tile chosen, as a row of the card chooses it (a tile that fills a role is asked about next)" },
       value: { type: "string", optional: true, about: "the answer: the tile's id or its role, as written onto the line" },

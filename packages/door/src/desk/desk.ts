@@ -85,10 +85,9 @@ import { tileMenu } from "./tile-menu";
 import { filtered } from "../bar/filter";
 import { ScreenTile } from "./screen-tile";
 import { QueryPane } from "./query";
-import { DRAWER_TILE_ID } from "./agent-env";
 import { tileRegistry } from "./tile-registry";
-import { parseTileAddress, resolveAddress, resolveRelative, type AddressCandidate, type ResolveOpts } from "./tile-address";
-import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, shortTileId, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { AGENT_ALIAS, matches, parseTileAddress, resolveAddress, resolveRelative, ROLE_AGENT, shortTileId, type AddressCandidate, type ResolveOpts } from "./tile-address";
+import { builtin, canonSpec, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { W_KEYS, wBoxLines, wKey, wRows, type WRow, type WSpecialKey } from "./wkeys";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 import { prop } from "../props";
@@ -2613,10 +2612,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const then = { then: pick.then, prompt: pick.prompt };
     if (pick.chosen) {
       const { id, role, name } = pick.chosen;
-      return { id: "link", title: pick.prompt, lines: [`${name}: keep this tile, or whichever tile fills its role?`],
+      return { id: "link", title: pick.prompt, lines: [`${name}: this tile exactly, or whichever tile fills its place?`],
         choices: [
           { label: `1 · this tile · ${shortTileId(id)}`, key: "1", act: { action: "tile.pick", tile, args: { ...then, value: id } } },
-          ...(role ? [{ label: `2 · the role it fills · ${role}`, key: "2", act: { action: "tile.pick", tile, args: { ...then, value: role } } }] : []),
+          ...(role ? [{ label: `2 · whichever fills its place · ${role}`, key: "2", act: { action: "tile.pick", tile, args: { ...then, value: role } } }] : []),
           { label: "cancel", key: "esc", act: { action: "tile.pick", tile, args: { ...then, cancel: true } } },
         ] };
     }
@@ -5587,9 +5586,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `value=<the tile's address>`. A tile that fills a role (the drawer's agent, a named tile of a screen) is asked about:
    * exactly this tile, or whichever tile fills that role. `to` is a choice made (the card's rows, `act`); `value` the answer.
    */
-  pickTile(sel: string | undefined, a: { then: string; prompt?: string; to?: string; value?: string; cancel?: boolean }): TileDone {
+  pickTile(sel: string | undefined, a: { then?: string; prompt?: string; to?: string; value?: string; cancel?: boolean }): TileDone {
+    // A choice in the pick that is waiting (`to`, `value`, `cancel`) runs that pick's `then` unless it says its own.
+    const waiting = this.linking?.pick;
+    const then = a.then ?? (a.to !== undefined || a.value !== undefined || a.cancel ? waiting?.then : undefined);
+    if (then === undefined) {
+      if (a.cancel) return { ...this.tileAnswer(this.linkSource(sel, "open").id), picking: false };
+      throw new ActionRefused(waiting || a.to === undefined && a.value === undefined ? "tile.pick needs then=<the action line the choice runs> (button.slot … key=<slot>)" : "no pick is waiting: press the button that asks for a tile first");
+    }
+    a = { ...a, then, prompt: a.prompt ?? waiting?.prompt };
     const src = this.linkSource(sel, "open");
-    const req = actRequestOf(lineWords(a.then));
+    const req = actRequestOf(lineWords(then));
     const prompt = a.prompt?.trim() || "choose a tile";
     if (a.cancel) { if (this.linking?.pick) { this.linking = null; this.ctx.flash(`${prompt}: nothing chosen`); this.redraw(); } return { ...this.tileAnswer(src.id), picking: false }; }
     if (a.value !== undefined) {
@@ -5600,43 +5607,46 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (a.to !== undefined) {
       if (!this.linking?.pick) throw new ActionRefused("no pick is waiting: press the button that asks for a tile first");
       const found = this.resolveTile(a.to);
-      const pane = found ? [...found.desk.panes].find(([i]) => found.desk.tileId(i) === found.tile.id)?.[1] : undefined;
+      const pane = found?.desk.pane(found.tile.id ?? found.tile.name);
       if (!pane) throw new ActionRefused(`no tile ${a.to} to choose`);
       this.pickedPane(pane);
       return { ...this.tileAnswer(src.id), picking: this.linking?.pick ? "which" : false };
     }
     this.overlays.drop("policy");
-    this.linking = { desk: this, from: src.id, verb: "open", pick: { then: a.then, prompt } };
+    this.linking = { desk: this, from: src.id, verb: "open", pick: { then, prompt } };
     this.redraw();
     return { ...this.tileAnswer(src.id), picking: "tile" };
   }
 
-  /** A tile was chosen in a pick: the tile alone when it fills no role, else the question exact-or-role. */
+  /** A tile was chosen in a pick: the tile alone when no address names its place, else the question exact-or-place. */
   private pickedPane(pane: Pane) {
     const pending = this.linking;
     if (!pending?.pick) return;
-    const refs = this.tileRefs(pane);
+    const refs = this.tileAddressesOf(pane);
     if (!refs) { this.ctx.flash("not chosen: that tile isn't reachable from here"); return this.redraw(); }
-    if (!refs.role) { pending.desk.run("tile.pick", { then: pending.pick.then, prompt: pending.pick.prompt, value: refs.id }, pending.desk.nameOf(pending.from)); return; }
-    pending.pick.chosen = { id: refs.id, role: refs.role, name: refs.name };
+    if (!refs.place) { pending.desk.run("tile.pick", { then: pending.pick.then, prompt: pending.pick.prompt, value: refs.id }, pending.desk.nameOf(pending.from)); return; }
+    pending.pick.chosen = { id: refs.id, role: refs.place, name: refs.name };
     this.redraw();
   }
 
   /**
-   * A tile's durable references (PIE-1297 copy reference, PIE-1298 a button's slot): `id`, exactly this tile (`t-<uuid>`, kept
-   * through moves and saves), and `role`, the place it fills, which a restarted tile fills again: the drawer's own program is
-   * `drawer.agent`, any other tile its name on its screen (`@library/reader`, `@drawer/shell`). `tile=` reads both
-   * (`resolveTile`); this only writes them down. Null when no desk of this door holds the tile.
+   * The addresses that name `pane` in the tile grammar (PIE-1297 copy reference, PIE-1298 a button's slot), read from the
+   * registry as the resolver reads it (`addressable`): `id`, exactly this tile (`t-<uuid>`, kept through moves and saves),
+   * and `place`, whichever tile fills its place: the role it was made with (`drawer.agent` for the drawer's own program,
+   * `role:<role>`), else a slot its screen declares (`detail@board`). A place is offered only when it names this tile alone
+   * now, so what is written resolves back to it. Null when no desk of this door holds the tile.
    */
-  tileRefs(pane: Pane): { id: string; role?: string; name: string } | null {
-    const desk = this.relatives().find(d => d.idOf(pane) !== undefined);
-    if (!desk) return null;
-    const id = desk.idOf(pane)!, stable = desk.tileId(id), name = desk.nameOf(id);
-    if (pane instanceof PtyPane && (pane.toldId ?? pane.tileId) === DRAWER_TILE_ID) return { id: stable, role: DRAWER_TILE_ID, name };
-    const root = desk.top(), under = root.pathDown(pane), host = this.ctx?.hostLayer;
-    const screen = host ? (host.isDrawer(root) ? "drawer" : root.spec.name) : null;
-    // A tile of a group is `<group>/<tile>` under its screen's name. A tile with no name of its own has no role to fill.
-    return { id: stable, name, ...(desk.names.has(id) && under && screen ? { role: `@${screen}/${under}` } : {}) };
+  tileAddressesOf(pane: Pane): { id: string; place?: string; name: string } | null {
+    const all = this.addressable(), c = all.find(x => x.value.pane === pane);
+    if (!c) return null;
+    const own = tileRegistry.ownRole(pane);
+    const tries = [
+      ...(own ? [own === ROLE_AGENT ? AGENT_ALIAS : `role:${own}`] : []),
+      ...c.slots.map(slot => `${slot}@${c.screen}`),
+    ];
+    const names = (sel: string) => { const a = parseTileAddress(sel); return a.kind !== "name" && matches(a, all).length === 1 && matches(a, all)[0] === c; };
+    const place = tries.find(names);
+    return { id: c.id, name: c.name, ...(place ? { place } : {}) };
   }
 
   linkTile(sel: string | undefined, to: string | undefined, actor: Actor, verb: WireVerb = "open", remove = false, rule?: AltRule): TileDone {

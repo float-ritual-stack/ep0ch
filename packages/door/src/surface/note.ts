@@ -117,6 +117,7 @@ import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { SettingsCard, settingFields, settingProblem, settingQuestion, settingsSchemas, settingValue, type SettingField, type SettingSources } from "./settings-card";
 import { askInBar } from "../bar/ask";
 import { argQuestion } from "../bar/form";
+import { parseTileAddress } from "../desk/tile-address";
 import { buttonMarks, describeButtonMarks, type ButtonLookups } from "../button-check";
 import { useRegion, type UseSite } from "../template-use";
 import { propQuestion } from "../template-stamp";
@@ -3368,14 +3369,15 @@ export class NoteSurface {
     host.redraw();
   }
 
-  /** What the door answers about a button's action line: the arguments an action takes, and whether a tile= names a tile now. */
-  buttonLookups(host: SurfaceHost): ButtonLookups {
+  /** What the door answers about a button's action line: the arguments an action takes, and why a tile= names no tile now. */
+  buttonLookups(host: SurfaceHost, actor: Actor): ButtonLookups {
     const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
     return {
       args: action => { const info = d?.list().actions.find(a => a.name === action); return info ? Object.keys(info.args) : null; },
-      tile: sel => !!d?.tile(sel),
+      tile: async sel => { const r = await tileNamed(host, sel, actor); return "why" in r ? r.why : null; },
     };
   }
+
 
   /** The block adapter saved the edit: show the saved note, and say so (and how it was recorded). */
   private saved(m: Msg, by: Actor, asked: Actor, change: string, host: SurfaceHost) {
@@ -3387,9 +3389,9 @@ export class NoteSurface {
     const whose = sameParty(by, asked) && !by.with?.length ? "" : ` · recorded as ${recordedAs(by)}`;
     host.ctx.flash(`saved · revision ${m.revision}${change ? ` · properties changed: ${change}` : ""}${whose}`);
     // Saved first; then a reference that leads nowhere is said, with what it may have meant (PIE-761), never refused.
-    void savedReferenceWarning(host.ctx.board, m.text, m.id).then(said => {
+    void savedReferenceWarning(host.ctx.board, m.text, m.id).then(async said => {
       // A button's arguments and tile= against the door's own actions and tiles (PIE-1298), in the same sentence.
-      const marks = describeButtonMarks(buttonMarks(m.text, this.buttonLookups(host)));
+      const marks = describeButtonMarks(await buttonMarks(m.text, this.buttonLookups(host, by)));
       const w = marks ? (said ? `${said} · ${marks}` : `saved; ${marks}`) : said;
       if (!w || this.msg?.id !== m.id || this.msg.revision !== m.revision) return;
       this.notice = [this.notice, w].filter(Boolean).join(" · ");
@@ -4625,7 +4627,7 @@ export class NoteSurface {
     const key = a.key ?? (button.empty[0] ?? (button.slots.length === 1 ? button.slots[0]!.key : undefined));
     if (!key || !button.slots.some(s => s.key === key)) throw new ActionRefused(`${button.label} has ${button.slots.length ? `the slots ${button.slots.map(s => s.key).join(", ")}; say key=<one>` : "no slot"} (write target= on its line and {target} where it goes)`);
     if (a.value === undefined) return this.askSlots(m.id, button, [key], host, actor);
-    const given = await this.slotValue(button, key, a.value, host);
+    const given = await this.slotValue(button, key, a.value, host, actor);
     const line = button.line, before = m.text.split("\n")[line] ?? "", after = withButtonSlot(before, key, given);
     if (after === null) throw new ActionRefused(`that value can't be written on line ${line + 1}: a button line holds it on one line`);
     const wrote = after !== before;
@@ -4640,19 +4642,20 @@ export class NoteSurface {
     return out;
   }
 
-  /** A slot's value as it is kept (PIE-1298): a tile named by a number or `t7` is written as its id, for it names no tile after a layout changes; any other form is kept as given once the door can read it. */
-  private async slotValue(button: ButtonCall, key: string, value: string, host: SurfaceHost): Promise<string> {
+  /**
+   * A slot's value as it is kept (PIE-1298): a tile is kept by an address the tile grammar reads as identity (its `t-<uuid>`, a
+   * role, a slot of a screen); a name, a number, `t7` or `focused` is resolved now and kept as the tile's id, for none of those
+   * names the same tile after a layout changes. A value that names no tile is refused with the resolver's reason.
+   */
+  private async slotValue(button: ButtonCall, key: string, value: string, host: SurfaceHost, actor: Actor): Promise<string> {
     const use = slotArgs(button, key)[0];
     const q = use ? argQuestion(host.ctx as never, use.action, use.arg) : null;
     if (q?.kind !== "tile" || !value) return value;
-    const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
-    const tile = d?.tile(value);
-    if (!tile) {
-      const have = (d?.list().tiles ?? []).slice(0, 12).join(", ");
-      throw new ActionRefused(`no tile ${value} to keep: ${have ? `the tiles here are ${have}; ` : ""}use a tile's name, its t-<id> (tile.info), or drawer.agent`);
-    }
-    return /^(?:t\d+|#?\d+|focused)$/.test(value) && tile.id ? tile.id : value;
+    const found = await tileNamed(host, value, actor);
+    if ("why" in found) throw new ActionRefused(`not kept: ${found.why}`);
+    return parseTileAddress(value).kind === "name" ? found.id : value;
   }
+
 
   /**
    * The block `r` refreshes: a ticket region's page (or ticket block) under the [ ] position, else this note's one
@@ -8941,6 +8944,19 @@ function handToEditor(surface: NoteSurface, host: SurfaceHost) {
   if (surface.draft) { surface.external(host); return { id: surface.draft.blockId, baseRevision: surface.draft.base, external: true }; }
   surface.external(host, writingIn(surface));
   return { comment: surface.session!.blockId, external: true };
+}
+
+/**
+ * The tile `sel` names, as `tile=` reads it wherever the door runs a tile action (the screen shown, its mounts, the drawer):
+ * its id, or the refusal's words (the resolver's reason and what to type). Asked through `tile.info`, the one owner.
+ */
+async function tileNamed(host: SurfaceHost, sel: string, actor: Actor): Promise<{ id: string } | { why: string }> {
+  const d = (host.ctx as { dispatch?: import("./dispatch").Dispatcher }).dispatch;
+  if (!d) return { why: "this screen has no tiles" };
+  try {
+    const r = await d.act({ action: "tile.info", tile: sel }, actor) as { tile?: string };
+    return r?.tile ? { id: r.tile } : { why: `${sel} names no tile` };
+  } catch (e) { if (e instanceof ActionRefused) return { why: e.message }; throw e; }
 }
 
 const noteRow = (label: string, key: string, o: { busy?: true; now?: (on: On) => MenuNow<any> | null } = {}): MenuEntry<any, On> => ({

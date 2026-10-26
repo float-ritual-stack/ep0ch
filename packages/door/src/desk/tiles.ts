@@ -121,8 +121,6 @@ export interface LayoutSpec { root: SavedTree; focus?: string | number; rule?: O
 /** A float as saved (PIE-511): its tile, and its rectangle. */
 export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; cols: number; rows: number } }
 
-/** A tile's stable id as a few characters on screen (`t-1a2b3c4d`): the header of its menu and its card; the whole id is what copies and what a slot keeps. */
-export const shortTileId = (id: string): string => (id.startsWith("t-") ? id.slice(0, 10) : id);
 /**
  * The rule for a tile's name (PIE-491): a letter, then letters, digits, `.`, `-` or `_`, at most 40, and not the
  * shape of an id (`t4` a tile, `s2` a split, `g1` a tab set: one of those letters, then digits). So a name is

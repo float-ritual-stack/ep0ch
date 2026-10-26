@@ -11,14 +11,14 @@ import { SELECTOR } from "./bar/form";
 export interface ButtonLookups {
   /** The arguments the action takes, or null when no such action is here (a script, or one that isn't on this screen). */
   args(action: string): string[] | null;
-  /** Whether `tile=` names a tile now. */
-  tile(sel: string): boolean;
+  /** Why `tile=` names no tile now (the dispatcher's own refusal), or null when it names one. */
+  tile(sel: string): Promise<string | null>;
 }
 
 export interface ButtonMark { line: number; message: string }
 
 /** The marks for every button `text` holds, in line order: one sentence each, with the way to write it. */
-export function buttonMarks(text: string, ask: ButtonLookups): ButtonMark[] {
+export async function buttonMarks(text: string, ask: ButtonLookups): Promise<ButtonMark[]> {
   const out: ButtonMark[] = [];
   for (const call of buttonCallsOf(text)) {
     if (call.problem) continue;
@@ -32,7 +32,8 @@ export function buttonMarks(text: string, ask: ButtonLookups): ButtonMark[] {
         if (eq <= 0) continue;
         const key = w.slice(0, eq), value = w.slice(eq + 1);
         if (key === SELECTOR) {
-          if (value && !value.includes("{") && !ask.tile(value)) out.push({ line: call.line, message: `the ::button on line ${call.line + 1}: tile=${value} names no tile here now (tile.info lists them; drawer.agent is the drawer's agent)` });
+          const why = value && !value.includes("{") ? await ask.tile(value) : null;
+          if (why) out.push({ line: call.line, message: `the ::button on line ${call.line + 1}: ${why}` });
         } else if (key !== "as" && !takes.includes(key)) {
           out.push({ line: call.line, message: `the ::button on line ${call.line + 1}: ${action} takes no ${key}= (it takes ${takes.length ? takes.join(", ") : "no arguments"})` });
         }
