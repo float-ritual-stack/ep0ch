@@ -762,5 +762,19 @@ export async function loadExtensions(board: SocketBoard, reload = false): Promis
     return { error: oneLine(e instanceof Error ? e.message : String(e)) };
   }
   if (mine !== asking) return null;
+  boundFrom = board;
   return bindExtensions(list);
+}
+
+/** The board whose list is bound now (loadExtensions): only the door on it unbinds it. */
+let boundFrom: SocketBoard | null = null;
+/**
+ * The door on `board` ended (App.quit): what its list bound goes, and a read of it still on its way binds nothing. A list
+ * another board bound since is left alone.
+ */
+export function unbindExtensions(board: SocketBoard): void {
+  if (boundFrom !== board) return;
+  asking++;
+  boundFrom = null;
+  bindExtensions(null);
 }

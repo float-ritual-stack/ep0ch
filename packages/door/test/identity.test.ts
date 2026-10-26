@@ -192,14 +192,15 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
 
   test("restoring keeps wires and sources on a saved screen until it opens", async () => {
     const spec: ScreenSpec = { name: "sleeping-garden", title: "Garden", saves: "sleeping-garden.json", layouts: true,
-      layout: { root: { t: "leaf", kind: "reader", name: "kettle", id: "t-sleeping-kettle" } } };
+      layout: { root: { t: "leaf", kind: "reader", name: "kettle", id: "t-5eeb1e00-ce77-4e77-8e77-00000000ce77" } } };
+    // A tile id as the door makes them (t-<uuid>): the one address grammar reads anything else as a name.
     registerScreen(spec.name, () => spec);
-    writeState(spec.saves!, { ...spec.layout, focus: "t-sleeping-kettle" }, outlineState());
+    writeState(spec.saves!, { ...spec.layout, focus: "t-5eeb1e00-ce77-4e77-8e77-00000000ce77" }, outlineState());
     const drawer = app.drawer.desk!;
     (drawer as any).build({ root: { t: "split", dir: "row", weights: [1, 1, 1], kids: [
       { t: "leaf", kind: "reader", name: "waiting-wire", link: "@sleeping-garden/kettle" },
-      { t: "leaf", kind: "backlinks", name: "waiting-links", source: "tile:t-sleeping-kettle" },
-      { t: "leaf", kind: "preview", name: "waiting-preview", source: "tile:t-sleeping-kettle" },
+      { t: "leaf", kind: "backlinks", name: "waiting-links", source: "tile:t-5eeb1e00-ce77-4e77-8e77-00000000ce77" },
+      { t: "leaf", kind: "preview", name: "waiting-preview", source: "tile:t-5eeb1e00-ce77-4e77-8e77-00000000ce77" },
     ] } }, false);
     await Bun.sleep(0);
     // Entering another screen triggers the same reconciliation as startup.
@@ -209,20 +210,20 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
     try {
       await Bun.sleep(0);
       const kept = savedNodes(drawer.savedState().root);
-      expect(kept.find(t => t.name === "waiting-wire").link).toBe("t-sleeping-kettle");
-      expect(kept.find(t => t.name === "waiting-links").source).toBe("tile:t-sleeping-kettle");
-      expect(kept.find(t => t.name === "waiting-preview").source).toBe("tile:t-sleeping-kettle");
+      expect(kept.find(t => t.name === "waiting-wire").link).toBe("t-5eeb1e00-ce77-4e77-8e77-00000000ce77");
+      expect(kept.find(t => t.name === "waiting-links").source).toBe("tile:t-5eeb1e00-ce77-4e77-8e77-00000000ce77");
+      expect(kept.find(t => t.name === "waiting-preview").source).toBe("tile:t-5eeb1e00-ce77-4e77-8e77-00000000ce77");
       const persisted = savedNodes(readState<{ root: unknown }>("drawer-tiles.json", outlineState())!.root);
-      expect(persisted.find(t => t.name === "waiting-wire").link).toBe("t-sleeping-kettle");
+      expect(persisted.find(t => t.name === "waiting-wire").link).toBe("t-5eeb1e00-ce77-4e77-8e77-00000000ce77");
       garden = new Desk(spec);
       app.push(garden);
       await Bun.sleep(0);
       const user = { kind: "user" as const };
       await app.dispatch.act({ action: "open", tile: "waiting-wire", args: { id: notes.shed.id, from: "waiting-wire" } }, user);
       expect((garden.layoutGet().tiles.find(t => t.name === "kettle") as any).showing.id).toBe(notes.shed.id);
-      await app.dispatch.act({ action: "tile.close", tile: "t-sleeping-kettle" }, user);
-      expect(JSON.stringify(drawer.savedState())).not.toContain("t-sleeping-kettle");
-      expect(JSON.stringify(readState(spec.saves!, outlineState()))).not.toContain("t-sleeping-kettle");
+      await app.dispatch.act({ action: "tile.close", tile: "t-5eeb1e00-ce77-4e77-8e77-00000000ce77" }, user);
+      expect(JSON.stringify(drawer.savedState())).not.toContain("t-5eeb1e00-ce77-4e77-8e77-00000000ce77");
+      expect(JSON.stringify(readState(spec.saves!, outlineState()))).not.toContain("t-5eeb1e00-ce77-4e77-8e77-00000000ce77");
     } finally {
       if (garden) { app.pop(); garden.dispose(); }
       app.pop(); front.dispose();

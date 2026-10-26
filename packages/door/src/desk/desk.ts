@@ -466,8 +466,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async openTune(actor: Actor, tile?: string): Promise<Record<string, unknown>> {
     const focused = this.panes.get(this.focus);
     const tunes = [...this.panes.entries()].filter(([, p]) => p.kind === "tune") as [number, Pane & { source: string }][];
-    const target = tile ?? (focused?.kind === "tune" ? (focused as Pane & { source: string }).source : this.nameOf(this.focus));
-    if (this.idNamed(target) === undefined) throw new ActionRefused(`no tile ${target} on this screen`);
+    const asked = tile ?? (focused?.kind === "tune" ? (focused as Pane & { source: string }).source : this.nameOf(this.focus));
+    const at = this.idNamed(asked);
+    if (at === undefined) throw new ActionRefused(`no tile ${asked} on this screen`);
+    // A tune pane follows its tile by name (it hears renames); a person's press hands the tile's id.
+    const target = this.names.has(at) ? this.nameOf(at) : this.tileId(at);
     let id = tunes[0]?.[0];
     if (id !== undefined) { (this.panes.get(id) as Pane & { source: string }).source = target; }
     else {

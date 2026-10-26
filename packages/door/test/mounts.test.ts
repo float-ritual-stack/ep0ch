@@ -194,20 +194,22 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
 
   test("a group: a terminal and a reader gathered into one tile come back out whole, the program still running; an agent never gathers the person's tile", async () => {
     const t = await act("tile.open", { kind: "pty", cmd: "sh", name: "shell" }, get().focus);
-    await until(() => { render(); return !!tile("shell")?.terminal?.running; }, "the shell");
-    const pty = D().pane("shell");
+    // The name it got: another layer (the drawer's own shell) may have "shell" already, and names are the door's to keep unique.
+    const shell: string = t.name;
+    await until(() => { render(); return !!tile(shell)?.terminal?.running; }, "the shell");
+    const pty = D().pane(shell);
     const focus = get().focus;
-    await expect(act("tile.group", { with: "shell" }, focus)).rejects.toThrow(/has the person's keys/);
+    await expect(act("tile.group", { with: shell }, focus)).rejects.toThrow(/has the person's keys/);
     // The group needs a reader to take the open below: its own, not the focused one (the person's keys) and not the
     // desk's side tiles (the replies are a backlinks tile since the links model).
     await act("tile.open", { kind: "reader", name: "grouped-reader" }, focus);
     const others = ["grouped-reader"];
-    const g = await act("tile.group", { with: "shell", where: "down" }, others[0]);
-    expect(g.grouped).toEqual([others[0], "shell"]);
+    const g = await act("tile.group", { with: shell, where: "down" }, others[0]);
+    expect(g.grouped).toEqual([others[0], shell]);
     render();
     expect(tile(g.tile)).toMatchObject({ kind: "screen", mount: { group: true, layout: { tree: { split: "col" } } } });
-    expect(tile("shell")).toBeUndefined();
-    expect(await act("tile.type", { text: "true" }, `${g.tile}/shell`)).toMatchObject({ name: "shell" });
+    expect(tile(shell)).toBeUndefined();
+    expect(await act("tile.type", { text: "true" }, `${g.tile}/${shell}`)).toMatchObject({ name: shell });
     // The person's open naming no tile, their keys on the group (/ and the power bar there): its reader takes it, never
     // "the screen has no reader tile" for the desk around it.
     await mine("tile.focus", {}, g.tile);
@@ -218,10 +220,10 @@ describe.skipIf(!outliner)("mounts on the desk, against a scratch outline", () =
     // What its layout says of a tile in it comes back out with it (an agent's limit, tightened by an agent).
     await act("tile.agent", { policy: "edit" }, `${g.tile}/${others[0]}`);
     const s = await act("tile.group", { on: false }, g.tile);
-    expect(s.spilled.sort()).toEqual([others[0], "shell"].sort());
+    expect(s.spilled.sort()).toEqual([others[0], shell].sort());
     render();
-    expect(D().pane("shell")).toBe(pty);
-    expect(tile("shell").terminal.running).toBe(true);
+    expect(D().pane(shell)).toBe(pty);
+    expect(tile(shell).terminal.running).toBe(true);
     expect(tile(others[0]!).agents).toBe("edit");
     void t;
   }, 20_000);

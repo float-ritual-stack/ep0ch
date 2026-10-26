@@ -136,11 +136,14 @@ if [ $target = float-box ]; then
     # The door's files run $jobs at once (bun test --parallel, each file in a worker of its own, as test:each would):
     # the parity parts take minutes each, and one after another they were most of a 30-minute run (PIE-760).
     par=""; [ "$p" = door ] && par=" --parallel=$jobs"
+    # A parity scenario's budget (PIE-1307, 60 s) is wall-clock time, sized for its file alone (the slowest took 37 s, Oct 26).
+    # $jobs files at once, beside another run, stretch that past 60 s; the runaway the budget exists for took 570 s (PIE-1345).
+    pb=""; [ "$p" = door ] && pb="PARITY_BUDGET_MS=\${PARITY_BUDGET_MS:-180000} "
     # The types first: `bun test` runs what tsc would refuse, so a green run once left main failing its check.
     if [ "$p" != claude-mod ]; then run+="; echo; echo \"━━ $p: bun run check\"; (cd packages/$p && nice -n 10 bun run check); c=\$?; [ \$code = 0 ] && code=\$c"; fi
-    run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && nice -n 10 bun run test$par); c=\$?; [ \$code = 0 ] && code=\$c"
+    run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && ${pb}nice -n 10 bun run test$par); c=\$?; [ \$code = 0 ] && code=\$c"
   done
-  [ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each, $jobs at once)'; (cd packages/door && TEST_EACH_JOBS=$jobs nice -n 10 bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
+  [ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each, $jobs at once)'; (cd packages/door && PARITY_BUDGET_MS=\${PARITY_BUDGET_MS:-180000} TEST_EACH_JOBS=$jobs nice -n 10 bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
   run+="; exit \$code"
   printf '%s\n' "$run" | rssh "cat > $dir/run.sh" || { echo "box-test: couldn't write the run script on $box_host" >&2; exit 1; }
 
@@ -243,10 +246,12 @@ inbox "$box" "cd ep0ch && git fetch -q origin && git cat-file -e $sha^{commit}" 
 run="set -o pipefail; cd ~/ep0ch && git checkout -q --detach $sha && bun install --frozen-lockfile >/dev/null 2>&1 || { echo 'bun install failed'; exit 2; }; code=0"
 for p in "${pkgs[@]}"; do
   par=""; [ "$p" = door ] && par=" --parallel=\$(nproc)"
+  # As on float-box: the parity budget is wall-clock time, and every file runs at once here.
+  pb=""; [ "$p" = door ] && pb="PARITY_BUDGET_MS=\${PARITY_BUDGET_MS:-180000} "
   if [ "$p" != claude-mod ]; then run+="; echo; echo \"━━ $p: bun run check\"; (cd packages/$p && bun run check); c=\$?; [ \$code = 0 ] && code=\$c"; fi
-  run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && timeout 3000 bun run test$par); c=\$?; [ \$code = 0 ] && code=\$c"
+  run+="; echo; echo \"━━ $p: bun run test$par\"; (cd packages/$p && ${pb}timeout 3000 bun run test$par); c=\$?; [ \$code = 0 ] && code=\$c"
 done
-[ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each)'; (cd packages/door && TEST_EACH_JOBS=\$(nproc) bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
+[ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each)'; (cd packages/door && PARITY_BUDGET_MS=\${PARITY_BUDGET_MS:-180000} TEST_EACH_JOBS=\$(nproc) bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
 run+="; exit \$code"
 printf '%s\n' "$run" | boxd machine exec "$box" -- bash -c 'cat > /tmp/box-test.sh' 2>/dev/null \
   && inbox "$box" "setsid nohup bash -c 'bash /tmp/box-test.sh > /tmp/box-test.log 2>&1; echo \$? > /tmp/box-test.code' >/dev/null 2>&1 & sleep 0.5; test -e /tmp/box-test.log" \
