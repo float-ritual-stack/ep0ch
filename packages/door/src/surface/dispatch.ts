@@ -87,7 +87,8 @@ const requestRewriters = new Set<(req: ActRequest, actor: Actor) => ActRequest>(
 /**
  * Change a person's request before it is resolved, once where it enters (runPlain, pressIn): the parity walk presses the same
  * key again with only its `tile=` said another way (by id, by role), so the key's own gesture (where the pointer is, the row it
- * lit) is the same both times. Returns how to stop.
+ * lit) is the same both times. A rewriter changes one request and then returns what it is given: a request handed on to another
+ * dispatcher enters there again. Returns how to stop.
  */
 export function rewriteRequests(f: (req: ActRequest, actor: Actor) => ActRequest): () => void { requestRewriters.add(f); return () => { requestRewriters.delete(f); }; }
 const rewritten = (req: ActRequest, actor: Actor) => { for (const f of requestRewriters) req = f(req, actor); return req; };
