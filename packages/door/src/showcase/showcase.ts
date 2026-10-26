@@ -1005,6 +1005,15 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "header", need: "leave the reader's header off a note that is a composition (a dashboard, a contents page, a brief), so its figures start on the first row", part: "the reader's header (NoteSurface.headerBlock, PIE-1319): the note's own `[header::none]` (or `crumbs`, `title`: only those rows) leaves those rows out in every reader, a river column (stickyHeader) and the drawer; outline-core's `header` component schema describes it, so the library, the [key:: completion and the property panel's values offer it; the tile menu (⋯) keeps the byline's comment, comments, properties and sources rows", files: "src/surface/note.ts (headerOmits, headerBlock), outline-core src/component-schemas-blocks.ts (HEADER), src/showcase/seed/figures.ts (dashboardText)",
+    aside: "the dashboard's first line says [header::none]: the reader on the left and the river column on the right draw its figures from their first row, the border naming the note · i (or the tile menu's properties) shows the property; take it off (properties.patch, or e and delete it) and the crumbs, the title and the byline come back at once · [header::crumbs] leaves out the crumbs only, [header::title] the title only · the tile menu (⋯) still has comment on the whole note, comments, properties and where this comes from · `ep0ch show` keeps the title first: scripts read its first line",
+    stage(n, show) {
+      // A reader and a river column on the same dashboard: the column's sticky header is the reader's header, left out too.
+      const r = new ReaderPane(), col = new RiverColumn({ kind: "block", id: n.dashboard?.id ?? "" });
+      return deskOf({ title: "showcase · no header", panes: [r, col], layout: ([a, b]) => row(0.6, a!, b!) }, show, [[r, n.dashboard]], d => { if (n.dashboard) col.hold(n.dashboard, d); });
+    },
+  },
+  {
     key: "artifacts", need: "open a live artifact folder or a frozen snapshot without pasting source into notes", part: "the media line and NoteSurface artifact card; artifact.open asks artifacts.show for the artifact's page in the web client (never the artifact host's address, PIE-1266); put and the watcher reuse publish-artifacts.ts", files: "outline-core/src/artifacts.ts, src/artifacts.ts, src/doc.ts, src/surface/note.ts, outliner/src/artifact-store.ts, outliner/src/artifact-server.ts, outliner/src/publish-media.ts",
     aside: "[ ] to a card, then ⏎, or a click on it or its [open ↗]: it opens running in the browser, on the note's web page · [share] (artifact.share) gives someone outside a link to that artifact alone, copied for you, and ends with share.revoke · over ssh or on a headless host, your laptop link opens it on your own machine; without a link it is copied and the flash is clickable · an agent: images lists them (kind artifact), artifact.open n=1 gives the address · + - and ← → size and place it as an image's (its frame on the web page) · no script runs in the terminal",
     stage(n, show) {
