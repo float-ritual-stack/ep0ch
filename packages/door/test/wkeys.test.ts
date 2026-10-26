@@ -1,4 +1,4 @@
-// PIE-704: the ^W keys come from one table (src/desk/wkeys.ts). The hint, the keys box, the tile menu and the power bar's
+// PIE-704: the ^W keys come from one table (src/desk/wkeys.ts). The hint, the panel ^W opens (PIE-1304), the tile menu and the power bar's
 // ^W list are generated from it, so they agree; `^W ?` (or a click on "all keys") opens the bar's actions scope on the
 // ^W prefix, a list to filter, ⏎ running the key's action. Scratch services, fictional notes.
 import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -6,7 +6,8 @@ import { cpSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { W_GROUPS, W_KEYS, wBoxLines, wKey, wRows, type WKey } from "../src/desk/wkeys";
+import { W_GROUPS, W_KEYS, wKey, wPanel, wRows, type WKey } from "../src/desk/wkeys";
+import { panelLines } from "../src/desk/key-panel";
 import type { Msg } from "../src/board";
 import { openScreen } from "../src/desk/screen-specs";
 import { SocketBoard } from "../src/socket";
@@ -31,17 +32,16 @@ describe("the ^W key table", () => {
     }
   });
 
-  test("the keys box is a line per group of the most-used keys, with keys of one word sharing it", () => {
-    const rows = wRows(() => undefined);
-    const lines = wBoxLines(rows.map(r => ({ ...r })));
-    expect(lines.length).toBeGreaterThan(3);
-    const text = lines.map(l => plain(paint(l))).join("\n");
-    expect(text).toContain("focus & move · hjkl focus · m move · t into tabs");
-    expect(text).toContain("< > - + size");
-    expect(text).toContain("? all keys");
-    // Only the most-used: the mounts and the drawer are one ? away.
-    expect(text).not.toContain("mounts & groups");
-    expect(text).not.toContain("drawer");
+  test("the panel lists every key once, under its group in the table's order, in its action's words; too small, none", () => {
+    const rows = wRows(() => undefined), groups = wPanel(rows);
+    expect(groups.map(g => g.title)).toEqual([...W_GROUPS]);
+    expect(groups.flatMap(g => g.keys.map(k => k.key)).sort()).toEqual((W_KEYS as readonly WKey[]).map(e => e.key).sort());
+    for (const r of rows) expect(groups.find(g => g.title === r.group)!.keys.find(k => k.key === r.key)!.label).toBe(r.label);
+    const drawn = panelLines(groups, 200, 40)!;
+    expect(drawn.spots.map(s => s.key).sort()).toEqual((W_KEYS as readonly WKey[]).map(e => e.key).sort());
+    expect(drawn.width).toBeLessThanOrEqual(200);
+    expect(panelLines(groups, 200, 6)).toBeNull();
+    expect(panelLines(groups, 12, 40)).toBeNull();
   });
 });
 
@@ -111,20 +111,34 @@ describe.skipIf(!outliner)("^W keys, the keys box and the ^W list (PIE-704)", ()
     expect(JSON.stringify(D().layoutGet())).toBe(before);
   });
 
-  test("after ^W the keys box lists the grouped keys once, and the hint row says only the way out", () => {
-    key(ctrlW);
-    const lines = frame();
-    const text = lines.join("\n");
-    expect(text).toContain("focus & move");
-    expect(text).toContain("hjkl focus");
-    expect(text).toContain("size & shape");
-    // The hint row below the box: no second copy of the list.
-    const hint = lines.find(l => l.includes("all keys") && l.includes("esc")) ?? "";
-    expect(hint).toContain("^W");
-    expect(hint).not.toContain("focus");
-    expect(lines.filter(l => l.includes("hjkl focus")).length).toBe(1);
-    // Every key the old hand-written list lacked is one ? away, not in the short box.
-    expect(text).not.toContain("gather into a group");
+  test("after ^W the hint row says the way out; after a pause the panel opens with every key, and a click on a row runs it", async () => {
+    const was = process.env.EP0CH_KEY_PANEL_MS;
+    process.env.EP0CH_KEY_PANEL_MS = "150";
+    try {
+      key(ctrlW);
+      // A fast typist sees only the hint row.
+      let lines = frame();
+      expect(lines.join("\n")).not.toContain("mounts & groups");
+      const hint = lines.find(l => l.includes("all keys") && l.includes("esc")) ?? "";
+      expect(hint).toContain("^W");
+      await Bun.sleep(200);
+      lines = frame();
+      const text = lines.join("\n");
+      for (const g of W_GROUPS) expect(text).toContain(g);
+      expect(text).toContain("tile keys");
+      // Every key the table has, the panel shows, in the action's words (the drawer's a: "put in your drawer").
+      expect(text).toContain("put in your drawer");
+      // A click on the zoom row is ^W z.
+      const y = lines.findIndex(l => /\bz  /.test(l) && l.includes("zoom"));
+      expect(y).toBeGreaterThan(0);
+      const x = lines[y]!.search(/\bz  /);
+      expect(D().layoutGet().zoom).toBeFalsy();
+      key({ kind: "mouse", action: "down", button: 0, x: x + 1, y });
+      await until(() => !!D().layoutGet().zoom, "zoomed by a click on its row");
+      expect(D().prefix).toBe("");
+      expect(frame().join("\n")).not.toContain("tile keys");
+      key(ctrlW); key(ch("z"));
+    } finally { if (was === undefined) delete process.env.EP0CH_KEY_PANEL_MS; else process.env.EP0CH_KEY_PANEL_MS = was; }
   });
 
   test("the tile menu's ^W rows are the table's: the same key, the same action", async () => {
